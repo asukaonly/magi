@@ -76,7 +76,7 @@
 - [x] 6.7 实现传感器按需启动机制
 - [x] 6.8 实现感知持久化
 - [x] 6.9 实现感知统计和监控
-- [ ] 6.10 实现内置传感器（UserMessageSensor、EventSensor）
+- [x] 6.10 实现内置传感器（UserMessageSensor、EventSensor）
 - [ ] 6.11 编写自感知模块单元测试
 
 ## 7. 自处理模块（Self-Processing）
