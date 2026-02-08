@@ -54,7 +54,7 @@
 
 ## 5. 工具注册表（Tool Registry）
 
-- [ ] 5.1 实现ToolRegistry核心（注册、查询、卸载）
+- [x] 5.1 实现ToolRegistry核心（注册、查询、卸载）
 - [ ] 5.2 定义ToolSchema元数据结构
 - [ ] 5.3 实现五步决策流程（场景分类、意图提取、能力匹配、工具评估、参数生成）
 - [ ] 5.4 实现执行计划器（DAG生成和执行）
@@ -67,7 +67,7 @@
 
 ## 6. 自感知模块（Self-Awareness）
 
-- [ ] 6.1 定义Sensor基类和PerceptionType枚举
+- [x] 6.1 定义Sensor基类和PerceptionType枚举
 - [ ] 6.2 实现PerceptionManager（感知收集和优先级队列）
 - [ ] 6.3 实现五步感知决策系统（去重、分类、意图识别、优先级、融合）
 - [ ] 6.4 实现POLL模式传感器支持
