@@ -14,7 +14,8 @@
       "Bash(pip install:*)",
       "Bash(python:*)",
       "Bash(git rm:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(echo:*)"
     ]
   }
 }
