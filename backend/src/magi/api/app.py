@@ -3,13 +3,15 @@ FastAPI应用主文件
 
 创建和配置FastAPI应用实例
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 import logging
+import json
 
 from .middleware import ErrorHandler, AuthMiddleware, RequestLoggingMiddleware, add_cors_middleware
 from .responses import SuccessResponse
+from .websocket import manager, broadcast_agent_update, broadcast_task_update, broadcast_metrics_update, broadcast_log
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +99,33 @@ def create_app() -> FastAPI:
     async def get_openapi_endpoint():
         """获取OpenAPI schema"""
         return app.openapi()
+
+    # WebSocket端点
+    @app.websocket("/ws")
+    async def websocket_endpoint(websocket: WebSocket):
+        """WebSocket端点"""
+        await manager.connect(websocket)
+        try:
+            while True:
+                # 接收客户端消息
+                data = await websocket.receive_json()
+                logger.debug(f"Received WebSocket message: {data}")
+
+                # 处理订阅请求
+                if data.get("type") == "subscribe":
+                    # 订阅特定频道的消息
+                    await websocket.send_json({
+                        "type": "subscribed",
+                        "channel": data.get("channel"),
+                    })
+                elif data.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+
+        except WebSocketDisconnect:
+            manager.disconnect(websocket)
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}")
+            manager.disconnect(websocket)
 
     return app
 

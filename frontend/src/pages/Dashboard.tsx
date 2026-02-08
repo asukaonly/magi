@@ -13,6 +13,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAgentsStore } from '../stores';
 import { useTasksStore } from '../stores';
 import { useMetricsStore } from '../stores';
+import useWebSocket from '../hooks/useWebSocket';
+import RealtimeLogs from '../components/logs/RealtimeLogs';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -20,19 +22,52 @@ const Dashboard: React.FC = () => {
   const { tasks, stats, fetchTasks, fetchStats } = useTasksStore();
   const { systemMetrics, fetchSystemMetrics } = useMetricsStore();
 
+  // WebSocket连接
+  const { connected, subscribe, subscribeChannel } = useWebSocket({
+    onConnected: () => {
+      console.log('WebSocket connected');
+      // 订阅更新
+      subscribeChannel('agents');
+      subscribeChannel('tasks');
+      subscribeChannel('metrics');
+    },
+  });
+
   useEffect(() => {
     fetchAgents();
     fetchTasks();
     fetchStats();
     fetchSystemMetrics();
 
-    // 定时刷新（每5秒）
+    // 订阅WebSocket更新
+    const unsubscribeAgent = subscribe('agent_update', (data) => {
+      console.log('Agent update received:', data);
+      fetchAgents();
+    });
+
+    const unsubscribeTask = subscribe('task_update', (data) => {
+      console.log('Task update received:', data);
+      fetchTasks();
+      fetchStats();
+    });
+
+    const unsubscribeMetrics = subscribe('metrics_update', (data) => {
+      console.log('Metrics update received:', data);
+      fetchSystemMetrics();
+    });
+
+    // 定时刷新（备用方案，每30秒）
     const interval = setInterval(() => {
       fetchSystemMetrics();
-    }, 5000);
+    }, 30000);
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      unsubscribeAgent();
+      unsubscribeTask();
+      unsubscribeMetrics();
+      clearInterval(interval);
+    };
+  }, [subscribe, fetchAgents, fetchTasks, fetchStats, fetchSystemMetrics]);
 
   // 计算Agent统计
   const runningAgents = agents.filter((a) => a.state === 'running').length;
@@ -307,6 +342,7 @@ const Dashboard: React.FC = () => {
             查看全部
           </Button>
         }
+        style={{ marginBottom: 24 }}
       >
         <Table
           columns={taskColumns}
@@ -316,6 +352,9 @@ const Dashboard: React.FC = () => {
           size="small"
         />
       </Card>
+
+      {/* 实时日志 */}
+      <RealtimeLogs />
     </div>
   );
 };
