@@ -120,6 +120,7 @@ class EventTypes:
 
     # 任务事件
     TASK_CREATED = "TaskCreated"
+    TASK_ASSIGNED = "TaskAssigned"
     TASK_STARTED = "TaskStarted"
     TASK_COMPLETED = "TaskCompleted"
     TASK_FAILED = "TaskFailed"

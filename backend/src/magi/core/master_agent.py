@@ -133,6 +133,95 @@ class MasterAgent(Agent):
                 f"High memory usage: {memory_percent}%"
             )
 
+    def _select_task_agent_by_load(self) -> Optional['TaskAgent']:
+        """
+        基于负载选择TaskAgent（负载均衡）
+
+        选择pending任务数最少的TaskAgent
+
+        Returns:
+            选中的TaskAgent或None
+        """
+        if not self.task_agents:
+            return None
+
+        # 过滤出正在运行的TaskAgent
+        running_agents = [
+            agent for agent in self.task_agents
+            if agent.state == AgentState.RUNNING
+        ]
+
+        if not running_agents:
+            return None
+
+        # 选择pending最少的TaskAgent
+        selected = min(
+            running_agents,
+            key=lambda agent: agent.get_pending_count()
+        )
+
+        return selected
+
+    async def dispatch_task(self, task: dict):
+        """
+        分发任务到TaskAgent（负载均衡）
+
+        Args:
+            task: 任务字典，包含task_id、type、data等
+        """
+        # 选择负载最低的TaskAgent
+        task_agent = self._select_task_agent_by_load()
+
+        if task_agent is None:
+            # 没有可用的TaskAgent
+            await self._publish_error_event(
+                "TaskDispatch",
+                f"No available TaskAgent for task {task.get('task_id')}"
+            )
+            return False
+
+        # 增加TaskAgent的pending计数
+        task_agent._pending_count += 1
+
+        try:
+            # 发布任务分配事件
+            await self._publish_event(
+                EventTypes.TASK_ASSIGNED,
+                {
+                    "task_id": task.get("task_id"),
+                    "task_agent_id": task_agent.agent_id,
+                    "task_type": task.get("type"),
+                }
+            )
+
+            # TODO: 这里应该调用TaskAgent的方法来处理任务
+            # 目前简化为事件发布
+            # await task_agent.assign_task(task)
+
+            return True
+
+        except Exception as e:
+            # 发生错误，减少pending计数
+            task_agent._pending_count -= 1
+            await self._publish_error_event(
+                "TaskDispatch",
+                f"Failed to dispatch task {task.get('task_id')}: {str(e)}"
+            )
+            return False
+
+    def get_task_agents_load(self) -> dict:
+        """
+        获取所有TaskAgent的负载情况
+
+        Returns:
+            负载信息字典 {agent_id: pending_count}
+        """
+        return {
+            agent.agent_id: agent.get_pending_count()
+            for agent in self.task_agents
+            if agent.state == AgentState.RUNNING
+        }
+
     async def _publish_event(self, event_type: str, data: dict):
         """发布事件"""
         event = Event(
