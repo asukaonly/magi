@@ -14,6 +14,7 @@ from .base import (
     FailurePattern,
     LearningStage,
 )
+from .complexity import ComplexityEvaluator
 
 __all__ = [
     "SelfProcessingModule",
@@ -25,4 +26,5 @@ __all__ = [
     "FailureCase",
     "FailurePattern",
     "LearningStage",
+    "ComplexityEvaluator",
 ]

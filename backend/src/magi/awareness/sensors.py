@@ -32,7 +32,7 @@ class UserMessageSensor:
     @property
     def trigger_mode(self) -> TriggerMode:
         """触发模式"""
-        return TriggerMode.EVENT
+        return TriggerMode.POLL
 
     @property
     def enabled(self) -> bool:
@@ -63,10 +63,12 @@ class UserMessageSensor:
                 self._queue.get(),
                 timeout=0.1
             )
+            import time
             return Perception(
                 type=self.perception_type.value,
                 data={"message": message},
                 source="user_message_sensor",
+                timestamp=time.time(),
             )
         except asyncio.TimeoutError:
             return None
@@ -158,10 +160,12 @@ class EventSensor:
         # 从缓存获取事件
         if self._event_cache:
             event = self._event_cache.pop(0)
+            import time
             return Perception(
                 type=self.perception_type.value,
                 data=event,
                 source="event_sensor",
+                timestamp=time.time(),
             )
 
         return None
@@ -260,6 +264,7 @@ class SensorDataSensor:
         # 生成模拟数据
         data = await self._data_generator()
 
+        import time
         return Perception(
             type=self.perception_type.value,
             data={
@@ -267,6 +272,7 @@ class SensorDataSensor:
                 "value": data,
             },
             source="sensor_data_sensor",
+            timestamp=time.time(),
         )
 
     async def listen(self, callback):

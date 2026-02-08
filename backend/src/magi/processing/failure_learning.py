@@ -2,7 +2,7 @@
 失败学习机制
 """
 import hashlib
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from .base import FailureCase, FailurePattern
 
