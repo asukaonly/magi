@@ -68,28 +68,28 @@
 ## 6. 自感知模块（Self-Awareness）
 
 - [x] 6.1 定义Sensor基类和PerceptionType枚举
-- [ ] 6.2 实现PerceptionManager（感知收集和优先级队列）
-- [ ] 6.3 实现五步感知决策系统（去重、分类、意图识别、优先级、融合）
-- [ ] 6.4 实现POLL模式传感器支持
-- [ ] 6.5 实现EVENT模式传感器支持
-- [ ] 6.6 实现HYBRID模式传感器支持
-- [ ] 6.7 实现传感器按需启动机制
-- [ ] 6.8 实现感知持久化
-- [ ] 6.9 实现感知统计和监控
+- [x] 6.2 实现PerceptionManager（感知收集和优先级队列）
+- [x] 6.3 实现五步感知决策系统（去重、分类、意图识别、优先级、融合）
+- [x] 6.4 实现POLL模式传感器支持
+- [x] 6.5 实现EVENT模式传感器支持
+- [x] 6.6 实现HYBRID模式传感器支持
+- [x] 6.7 实现传感器按需启动机制
+- [x] 6.8 实现感知持久化
+- [x] 6.9 实现感知统计和监控
 - [ ] 6.10 实现内置传感器（UserMessageSensor、EventSensor）
 - [ ] 6.11 编写自感知模块单元测试
 
 ## 7. 自处理模块（Self-Processing）
 
-- [ ] 7.1 实现SelfProcessingModule核心
-- [ ] 7.2 实现能力提取机制（Capability Extraction）
-- [ ] 7.3 实现失败学习机制（Failure Learning）
-- [ ] 7.4 实现人机协作决策（Human-in-the-Loop）
-- [ ] 7.5 实现复杂度评估器（ComplexityEvaluator）
-- [ ] 7.6 实现渐进式学习策略（初始、成长、成熟阶段）
-- [ ] 7.7 实现能力验证和淘汰
-- [ ] 7.8 实现上下文感知处理
-- [ ] 7.9 实现经验回放机制
+- [x] 7.1 实现SelfProcessingModule核心
+- [x] 7.2 实现能力提取机制（Capability Extraction）
+- [x] 7.3 实现失败学习机制（Failure Learning）
+- [x] 7.4 实现人机协作决策（Human-in-the-Loop）
+- [x] 7.5 实现复杂度评估器（ComplexityEvaluator）
+- [x] 7.6 实现渐进式学习策略（初始、成长、成熟阶段）
+- [x] 7.7 实现能力验证和淘汰
+- [x] 7.8 实现上下文感知处理
+- [x] 7.9 实现经验回放机制
 - [ ] 7.10 编写自处理模块单元测试
 
 ## 8. Agent循环（Agent Loop）
