@@ -12,7 +12,8 @@
       "Bash(git push:*)",
       "Bash(git config:*)",
       "Bash(pip install:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(git rm:*)"
     ]
   }
 }

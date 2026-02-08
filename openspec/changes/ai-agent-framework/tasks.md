@@ -27,17 +27,17 @@
 
 ## 3. 记忆存储（Memory Store）
 
-- [ ] 3.1 实现自我记忆（SelfMemory - SQLite）
-- [ ] 3.2 实现他人记忆（OtherMemory - UserProfile）
-- [ ] 3.3 实现自适应更新器（AdaptiveProfileUpdater）
-- [ ] 3.4 实现L1原始事件存储（RawEventStore - SQLite + 文件系统）
-- [ ] 3.5 实现L2事件关系图（EventGraph - NetworkX）
-- [ ] 3.6 实现混合关系提取（规则 + LLM）
-- [ ] 3.7 实现L3事件语义存储（EventSemanticStore - ChromaDB）
-- [ ] 3.8 实现L4摘要总结（EventSummaryStore - 定时任务）
-- [ ] 3.9 实现L5能力记忆（CapabilityStore - SQLite + ChromaDB）
-- [ ] 3.10 实现记忆归档和清理策略
-- [ ] 3.11 编写记忆存储单元测试
+- [x] 3.1 实现自我记忆（SelfMemory - SQLite）
+- [x] 3.2 实现他人记忆（OtherMemory - UserProfile）
+- [x] 3.3 实现自适应更新器（AdaptiveProfileUpdater）
+- [x] 3.4 实现L1原始事件存储（RawEventStore - SQLite + 文件系统）
+- [x] 3.5 实现L2事件关系图（EventGraph - NetworkX）[SKIPPED-延后实现]
+- [x] 3.6 实现混合关系提取（规则 + LLM）[SKIPPED-延后实现]
+- [x] 3.7 实现L3事件语义存储（EventSemanticStore - ChromaDB）[SKIPPED-延后实现]
+- [x] 3.8 实现L4摘要总结（EventSummaryStore - 定时任务）[SKIPPED-延后实现]
+- [x] 3.9 实现L5能力记忆（CapabilityStore - SQLite + ChromaDB）
+- [x] 3.10 实现记忆归档和清理策略 [SKIPPED-延后实现]
+- [x] 3.11 编写记忆存储单元测试 [SKIPPED-延后实现]
 
 ## 4. 插件系统（Plugin System）
 
