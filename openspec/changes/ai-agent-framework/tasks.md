@@ -110,10 +110,10 @@
 
 ## 9. Agent核心（Agent Core）
 
-- [ ] 9.1 实现Agent基类（生命周期管理）
-- [ ] 9.2 实现Master Agent（系统管理、任务识别、分发）
-- [ ] 9.3 实现TaskAgent（任务编排、分解、工具匹配）
-- [ ] 9.4 实现WorkerAgent（任务执行、超时、重试）
+- [x] 9.1 实现Agent基类（生命周期管理）
+- [x] 9.2 实现Master Agent（系统管理、任务识别、分发）
+- [x] 9.3 实现TaskAgent（任务编排、分解、工具匹配）
+- [x] 9.4 实现WorkerAgent（任务执行、超时、重试）
 - [ ] 9.5 实现任务数据库（TaskDatabase - SQLite）
 - [ ] 9.6 实现负载均衡机制（基于pending数量）
 - [ ] 9.7 实现系统监控（CPU、内存）
