@@ -17,12 +17,12 @@
 - [x] 2.3 实现MemoryMessageBackend（asyncio.PriorityQueue）
 - [x] 2.4 实现SQLiteMessageBackend（aiosqlite持久化）
 - [x] 2.5 实现RedisMessageBackend（可选，Redis Streams）[SKIPPED-可选功能]
-- [ ] 2.6 实现BoundedPriorityQueue（背压机制、丢弃策略）
-- [ ] 2.7 实现双传播模式（BROADCAST/COMPETING）
-- [ ] 2.8 实现负载均衡的竞争调度（LoadAwareDispatcher）
-- [ ] 2.9 实现事件过滤机制（filter_func）
-- [ ] 2.10 实现错误隔离（单个handler失败不影响其他）
-- [ ] 2.11 实现优雅启停（graceful shutdown）
+- [x] 2.6 实现BoundedPriorityQueue（背压机制、丢弃策略）
+- [x] 2.7 实现双传播模式（BROADCAST/COMPETING/ROUND_ROBIN）
+- [x] 2.8 实现负载均衡的竞争调度（LoadAwareDispatcher）
+- [x] 2.9 实现事件过滤机制（filter_func）
+- [x] 2.10 实现错误隔离（单个handler失败不影响其他）
+- [x] 2.11 实现优雅启停（graceful shutdown）
 - [x] 2.12 编写消息总线单元测试 [SKIPPED-延后实现]
 
 ## 3. 记忆存储（Memory Store）
@@ -119,7 +119,7 @@
 - [x] 9.7 实现系统监控（CPU、内存）
 - [x] 9.8 实现多维度超时计算（类型、优先级、交互）
 - [x] 9.9 实现三层Agent独立监控
-- [ ] 9.10 实现优雅启停（顺序启动、逆序停止）
+- [x] 9.10 实现优雅启停（顺序启动、逆序停止）
 - [ ] 9.11 编写Agent核心单元测试
 
 ## 10. LLM适配器
