@@ -20,6 +20,11 @@ from .timeout import (
     TaskType,
     TaskPriority as TimeoutTaskPriority,
 )
+from .lifecycle import (
+    GracefulShutdownManager,
+    AgentLifecycleManager,
+    ShutdownState,
+)
 
 __all__ = [
     # Agent基础
@@ -52,4 +57,9 @@ __all__ = [
     "TimeoutCalculator",
     "TaskType",
     "TimeoutTaskPriority",
+
+    # 生命周期管理
+    "GracefulShutdownManager",
+    "AgentLifecycleManager",
+    "ShutdownState",
 ]
