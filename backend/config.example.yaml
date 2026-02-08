@@ -1,0 +1,52 @@
+# Magi AI Agent Framework - 配置示例
+
+# 全局配置
+debug: false
+log_level: "INFO"
+
+# Agent配置
+agent:
+  name: "magi_agent"
+
+  # LLM配置
+  llm:
+    # 提供商: openai, anthropic, local
+    provider: "openai"
+    model: "gpt-4"
+    api_key: "your-api-key-here"
+
+    # 【可选】自定义API endpoint（代理/中转服务）
+    # 方式1: 使用base_url（推荐）
+    base_url: "https://api.openai.com/v1"
+
+    # 方式2: 使用api_base（兼容旧配置）
+    # api_base: "https://api.openai.com/v1"
+
+    # 其他参数
+    temperature: 0.7
+    max_tokens: 2000
+    timeout: 60
+
+  # 记忆存储配置
+  memory:
+    short_term: "memory"
+    long_term: "chromadb"
+    db_path: "./data/memories"
+    chromadb_path: "./data/chromadb"
+    retention_days: 7
+
+  # 消息总线配置
+  message_bus:
+    backend: "memory"
+    max_queue_size: 1000
+    drop_policy: "lowest_priority"
+    num_workers: 4
+
+  # TaskAgent配置
+  num_task_agents: 3
+
+  # 循环配置
+  loop_interval: 1.0
+
+  # 监控配置
+  enable_monitoring: true

@@ -21,6 +21,7 @@ class OpenAIAdapter(LLMAdapter):
         self,
         api_key: str,
         model: str = "gpt-4",
+        base_url: Optional[str] = None,
         api_base: Optional[str] = None,
         timeout: int = 60,
     ):
@@ -30,15 +31,19 @@ class OpenAIAdapter(LLMAdapter):
         Args:
             api_key: OpenAI API密钥
             model: 模型名称
-            api_base: 自定义API endpoint（可选）
+            base_url: 自定义API endpoint（可选，如使用代理或中转服务）
+            api_base: 兼容旧配置，等同于base_url
             timeout: 请求超时时间（秒）
         """
         self._model = model
         self._timeout = timeout
 
+        # 优先使用base_url，否则使用api_base（兼容旧配置）
+        api_endpoint = base_url or api_base
+
         client_kwargs = {"api_key": api_key, "timeout": timeout}
-        if api_base:
-            client_kwargs["base_url"] = api_base
+        if api_endpoint:
+            client_kwargs["base_url"] = api_endpoint
 
         self._client = AsyncOpenAI(**client_kwargs)
 

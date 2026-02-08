@@ -45,10 +45,12 @@ class LLMConfig(BaseModel):
     """LLM配置"""
     provider: LLMProvider = Field(default=LLMProvider.OPENAI)
     model: str = Field(default="gpt-4")
-    api_key: Optional[str] = Field(default=None)
-    api_base: Optional[str] = Field(default=None)
+    api_key: Optional[str] = Field(default=None, description="API密钥")
+    base_url: Optional[str] = Field(default=None, description="自定义API endpoint（如使用代理或中转服务）")
+    api_base: Optional[str] = Field(default=None, description="兼容旧配置，等同于base_url")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
+    timeout: int = Field(default=60, ge=1, description="请求超时时间（秒）")
 
 
 class MemoryBackend(str, Enum):
