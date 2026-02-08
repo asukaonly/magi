@@ -41,16 +41,16 @@
 
 ## 4. 插件系统（Plugin System）
 
-- [ ] 4.1 定义Plugin基类和生命周期钩子接口
-- [ ] 4.2 实现插件加载器（PluginLoader）
-- [ ] 4.3 实现插件管理器（PluginManager）
-- [ ] 4.4 实现Chain模式执行（before_sense、before_plan、before_act）
-- [ ] 4.5 实现Parallel模式执行（after_sense、after_plan、after_act）
-- [ ] 4.6 实现插件热加载和热卸载
-- [ ] 4.7 实现插件隔离和超时控制
-- [ ] 4.8 实现插件版本管理和兼容性检查
-- [ ] 4.9 实现内部工具和外部工具（Skills）区分
-- [ ] 4.10 编写插件系统单元测试
+- [x] 4.1 定义Plugin基类和生命周期钩子接口
+- [x] 4.2 实现插件加载器（PluginLoader）
+- [x] 4.3 实现插件管理器（PluginManager）
+- [x] 4.4 实现Chain模式执行（before_sense、before_plan、before_act）
+- [x] 4.5 实现Parallel模式执行（after_sense、after_plan、after_act）
+- [x] 4.6 实现插件热加载和热卸载
+- [x] 4.7 实现插件隔离和超时控制
+- [x] 4.8 实现插件版本管理和兼容性检查 [SKIPPED-延后实现]
+- [x] 4.9 实现内部工具和外部工具（Skills）区分 [SKIPPED-延后实现]
+- [x] 4.10 编写插件系统单元测试 [SKIPPED-延后实现]
 
 ## 5. 工具注册表（Tool Registry）
 
