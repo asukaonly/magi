@@ -157,19 +157,19 @@
 
 ## 13. 前端基础架构
 
-- [ ] 13.1 搭建Vite + React + TypeScript项目
-- [ ] 13.2 配置TailwindCSS和Ant Design
-- [ ] 13.3 配置React Router路由
-- [ ] 13.4 配置Zustand状态管理
-- [ ] 13.5 配置Axios API客户端
-- [ ] 13.6 实现基础布局（Header、Sidebar、MainLayout）
-- [ ] 13.7 实现API调用模块（agents、tasks、tools、memory）
+- [x] 13.1 搭建Vite + React + TypeScript项目
+- [x] 13.2 配置TailwindCSS和Ant Design
+- [x] 13.3 配置React Router路由
+- [x] 13.4 配置Zustand状态管理
+- [x] 13.5 配置Axios API客户端
+- [x] 13.6 实现基础布局（Header、Sidebar、MainLayout）
+- [x] 13.7 实现API调用模块（agents、tasks、tools、memory）
 - [ ] 13.8 实现WebSocket客户端
-- [ ] 13.9 实现自定义Hooks（useAgents、useTasks、useMetrics、useWebSocket）
+- [ ] 13.9 实现自定义Hooks（useAgents、useTasks、useMetrics、useWebSocket）[SKIPPED-使用Zustand store代替]
 
 ## 14. 前端页面开发
 
-- [ ] 14.1 实现Dashboard仪表盘页面
+- [x] 14.1 实现Dashboard仪表盘页面
 - [ ] 14.2 实现Agent管理页面（列表、详情、创建）
 - [ ] 14.3 实现Agent监控面板（实时状态、循环可视化）
 - [ ] 14.4 实现任务管理页面（列表、详情、时间线）
