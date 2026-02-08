@@ -13,7 +13,7 @@
 ## 2. 消息总线（Message Bus）
 
 - [x] 2.1 定义Event数据结构（EventLevel枚举、优先级字段）
-- [ ] 2.2 实现抽象MessageBusBackend接口
+- [x] 2.2 实现抽象MessageBusBackend接口
 - [ ] 2.3 实现MemoryMessageBackend（asyncio.PriorityQueue）
 - [ ] 2.4 实现SQLiteMessageBackend（aiosqlite持久化）
 - [ ] 2.5 实现RedisMessageBackend（可选，Redis Streams）
