@@ -1,0 +1,60 @@
+# Magi Agent Framework - 示例配置文件
+
+# Agent配置
+agent:
+  name: "my-agent"
+
+  # LLM配置
+  llm:
+    provider: "openai"  # openai | anthropic | local
+    model: "gpt-4"
+    api_key: "${OPENAI_API_KEY}"  # 从环境变量读取
+    temperature: 0.7
+    max_tokens: 2000
+
+  # 记忆存储配置
+  memory:
+    short_term: "memory"  # memory | chromadb | faiss
+    long_term: "chromadb"
+    db_path: "./data/memories"
+    chromadb_path: "./data/chromadb"
+    retention_days: 7
+
+  # 消息总线配置
+  message_bus:
+    backend: "sqlite"  # memory | sqlite | redis
+    max_queue_size: 1000
+    drop_policy: "lowest_priority"  # oldest | lowest_priority | reject
+    num_workers: 4
+
+    # SQLite后端配置
+    sqlite:
+      db_path: "./data/magi_events.db"
+      memory_cache_size: 100
+
+    # Redis后端配置（backend=redis时使用）
+    redis:
+      url: "redis://localhost:6379"
+      stream_maxlen: 10000
+
+  # TaskAgent配置
+  num_task_agents: 3
+
+  # 循环配置
+  loop_interval: 1.0  # 秒
+
+  # 监控配置
+  enable_monitoring: true
+
+  # 插件配置
+  plugins:
+    file_ops:
+      enabled: true
+      priority: 10
+    web_search:
+      enabled: true
+      priority: 5
+
+# 全局配置
+debug: false
+log_level: "INFO"  # DEBUG | INFO | WARNING | ERROR | CRITICAL
