@@ -4,7 +4,13 @@
       "Bash(openspec new change \"ai-agent-framework\")",
       "Bash(openspec status:*)",
       "Bash(openspec instructions proposal:*)",
-      "Bash(openspec instructions design:*)"
+      "Bash(openspec instructions design:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(openspec:*)",
+      "Bash(find:*)",
+      "Bash(git push:*)",
+      "Bash(git config:*)"
     ]
   }
 }
