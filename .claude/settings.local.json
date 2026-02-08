@@ -15,7 +15,8 @@
       "Bash(python:*)",
       "Bash(git rm:*)",
       "Bash(tree:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(PYTHONPATH=/Users/asuka/code/magi/backend/src python:*)"
     ]
   }
 }
