@@ -244,6 +244,35 @@ class ToolRegistry:
         schema = tool.get_schema()
         stats = self._stats[tool_name]
 
+        # 权限检查
+        if schema.dangerous and "dangerous_tools" not in context.permissions:
+            logger.warning(f"Tool {tool_name} requires dangerous_tools permission")
+            return ToolResult(
+                success=False,
+                error=f"Tool {tool_name} requires 'dangerous_tools' permission",
+                error_code="PERMISSION_DENIED"
+            )
+
+        # 检查认证要求
+        if schema.requires_auth and "authenticated" not in context.permissions:
+            logger.warning(f"Tool {tool_name} requires authentication")
+            return ToolResult(
+                success=False,
+                error=f"Tool {tool_name} requires authentication",
+                error_code="AUTH_REQUIRED"
+            )
+
+        # 检查角色权限
+        if schema.allowed_roles:
+            agent_role = context.env_vars.get("role", "guest")
+            if agent_role not in schema.allowed_roles:
+                logger.warning(f"Tool {tool_name} requires one of roles: {schema.allowed_roles}")
+                return ToolResult(
+                    success=False,
+                    error=f"Tool {tool_name} requires one of roles: {schema.allowed_roles}",
+                    error_code="ROLE_NOT_ALLOWED"
+                )
+
         # 验证参数
         valid, error_msg = await tool.validate_parameters(parameters)
         if not valid:

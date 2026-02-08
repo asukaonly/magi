@@ -12,6 +12,9 @@ from .schema import (
     ParameterType,
 )
 from .registry import ToolRegistry, tool_registry
+from .recommender import ToolRecommender, ScenarioType
+from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
+from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
 
 # 导入内置工具
 from .builtin.bash_tool import BashTool
@@ -46,6 +49,21 @@ __all__ = [
     # 注册表
     "ToolRegistry",
     "tool_registry",
+
+    # 推荐引擎
+    "ToolRecommender",
+    "ScenarioType",
+
+    # 执行计划器
+    "ExecutionPlanner",
+    "ExecutionPlan",
+    "PlanNode",
+    "TaskStatus",
+
+    # 版本管理
+    "ToolVersionManager",
+    "ToolVersion",
+    "VersionCompatibility",
 
     # 内置工具
     "BashTool",
