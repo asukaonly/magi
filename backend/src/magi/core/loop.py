@@ -2,7 +2,7 @@
 Agent循环引擎 - Sense-Plan-Act-Reflect循环
 """
 import asyncio
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Any
 from enum import Enum
 from ..events.events import Event, EventTypes, EventLevel
 

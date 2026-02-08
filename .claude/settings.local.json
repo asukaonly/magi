@@ -10,7 +10,9 @@
       "Bash(openspec:*)",
       "Bash(find:*)",
       "Bash(git push:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)"
     ]
   }
 }
