@@ -15,6 +15,7 @@ import { useTasksStore } from '../stores';
 import { useMetricsStore } from '../stores';
 import useWebSocket from '../hooks/useWebSocket';
 import RealtimeLogs from '../components/logs/RealtimeLogs';
+import ChatBox from '../components/chat/ChatBox';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -312,6 +313,13 @@ const Dashboard: React.FC = () => {
               </Col>
             </Row>
           </Card>
+        </Col>
+      </Row>
+
+      {/* 聊天对话 */}
+      <Row gutter={16} style={{ marginBottom: 24 }}>
+        <Col span={24}>
+          <ChatBox />
         </Col>
       </Row>
 

@@ -29,3 +29,6 @@ export type {
   PerformanceMetrics,
   HealthStatus,
 } from './modules/metrics';
+
+export { messagesApi } from './modules/messages';
+export type { UserMessageRequest, MessageResponse, SensorStatus } from './modules/messages';
