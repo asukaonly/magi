@@ -143,6 +143,7 @@ def _register_routes(app: FastAPI):
         tools_router,
         memory_router,
         metrics_router,
+        user_messages_router,
     )
 
     # 注册Agent管理路由
@@ -178,6 +179,13 @@ def _register_routes(app: FastAPI):
         metrics_router,
         prefix="/api/metrics",
         tags=["Metrics"],
+    )
+
+    # 注册用户消息路由
+    app.include_router(
+        user_messages_router,
+        prefix="/api/messages",
+        tags=["Messages"],
     )
 
 

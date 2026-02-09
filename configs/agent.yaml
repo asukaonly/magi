@@ -6,21 +6,21 @@ agent:
 
   # LLM配置
   llm:
-    provider: "anthropic"  # openai | anthropic | local
-    model: "gpt-4"
-    api_key: "${OPENAI_API_KEY}"  # 从环境变量读取
+    provider: "anthropic" # openai | anthropic | local
+    model: "anthropic/claude-opus-4.6"
+    api_key: "${OPENAI_API_KEY}" # 从环境变量读取
     # 【可选】自定义API endpoint（代理/中转服务）
     # 方式1: 使用base_url（推荐）
-    base_url: "${OPENAI_BASE_URL:}"  # 留空使用默认API
+    base_url: "${OPENAI_BASE_URL:}" # 留空使用默认API
     # 方式2: 使用api_base（兼容旧配置）
     # api_base: "${OPENAI_BASE_URL:}"
     temperature: 0.7
     max_tokens: 2000
-    timeout: 60  # 请求超时时间（秒）
+    timeout: 60 # 请求超时时间（秒）
 
   # 记忆存储配置
   memory:
-    short_term: "memory"  # memory | chromadb | faiss
+    short_term: "memory" # memory | chromadb | faiss
     long_term: "chromadb"
     db_path: "./data/memories"
     chromadb_path: "./data/chromadb"
@@ -28,9 +28,9 @@ agent:
 
   # 消息总线配置
   message_bus:
-    backend: "sqlite"  # memory | sqlite | redis
+    backend: "sqlite" # memory | sqlite | redis
     max_queue_size: 1000
-    drop_policy: "lowest_priority"  # oldest | lowest_priority | reject
+    drop_policy: "lowest_priority" # oldest | lowest_priority | reject
     num_workers: 4
 
     # SQLite后端配置
@@ -47,7 +47,7 @@ agent:
   num_task_agents: 3
 
   # 循环配置
-  loop_interval: 1.0  # 秒
+  loop_interval: 1.0 # 秒
 
   # 监控配置
   enable_monitoring: true
@@ -63,4 +63,4 @@ agent:
 
 # 全局配置
 debug: false
-log_level: "INFO"  # DEBUG | INFO | WARNING | ERROR | CRITICAL
+log_level: "INFO" # DEBUG | INFO | WARNING | ERROR | CRITICAL
