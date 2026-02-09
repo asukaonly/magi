@@ -3,11 +3,20 @@
 LLM连接测试脚本
 
 测试OpenAI和Anthropic的连接和基本功能
+
+使用方法:
+1. 设置API密钥: export OPENAI_API_KEY='sk-...'
+2. 运行测试: python test_llm.py
 """
 import asyncio
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
+# 自动添加src目录到Python路径
+script_dir = os.path.dirname(os.path.abspath(__file__))
+src_path = os.path.join(script_dir, 'src')
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
 
 from magi.llm import OpenAIAdapter, AnthropicAdapter
 
