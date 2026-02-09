@@ -29,9 +29,10 @@ if __name__ == "__main__":
     print("=" * 60)
 
     uvicorn.run(
-        app,
+        "magi.api.app:create_app",  # 使用导入字符串以支持reload
         host="0.0.0.0",
         port=8000,
         reload=True,  # 开发模式，自动重载
-        log_level="info"
+        log_level="info",
+        factory=True  # app是工厂函数
     )
