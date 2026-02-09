@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, List, Tag, Space, Button } from 'antd';
 import { PlayCircleOutlined, PauseCircleOutlined, DeleteOutlined } from '@ant-design/icons';
-import useWebSocket from '../hooks/useWebSocket';
+import useWebSocket from '../../hooks/useWebSocket';
 
 interface LogEntry {
   level: string;
