@@ -1,63 +1,90 @@
 """
 任务数据库 - SQLite持久化存储
+
+支持：
+- 任务持久化存储
+- 任务状态更新
+- 任务恢复（系统重启后）
+- 任务查询和统计
 """
 import asyncio
 import aiosqlite
 import json
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass, field, asdict
-from enum import Enum
 import time
+import uuid
+from typing import List, Dict, Any, Optional
+from enum import Enum
+from dataclasses import dataclass, asdict
 
 
 class TaskStatus(Enum):
     """任务状态"""
-    PENDING = "pending"          # 待处理
-    ASSIGNED = "assigned"        # 已分配
-    RUNNING = "running"          # 执行中
-    COMPLETED = "completed"      # 已完成
+    PENDING = "pending"           # 待处理
+    PROCESSING = "processing"     # 处理中
+    COMPLETED = "completed"       # 已完成
     FAILED = "failed"            # 失败
     CANCELLED = "cancelled"      # 已取消
+    TIMEOUT = "timeout"          # 超时
 
 
 class TaskPriority(Enum):
     """任务优先级"""
-    LOW = 0
-    NORMAL = 1
-    HIGH = 2
-    URGENT = 3
+    LOW = 1
+    NORMAL = 2
+    HIGH = 3
+    URGENT = 4
+    EMERGENCY = 5
+
+
+class TaskType(Enum):
+    """任务类型"""
+    QUERY = "query"              # 查询类
+    COMPUTATION = "computation"  # 计算类
+    INTERACTIVE = "interactive"  # 交互类
+    BATCH = "batch"              # 批处理类
 
 
 @dataclass
 class Task:
     """任务数据结构"""
-    id: str
-    type: str                     # 任务类型
-    data: Dict[str, Any]          # 任务数据
-    status: TaskStatus = TaskStatus.PENDING
-    priority: TaskPriority = TaskPriority.NORMAL
-    assigned_agent: Optional[str] = None  # 分配的Agent ID
-    created_at: float = field(default_factory=time.time)
-    updated_at: float = field(default_factory=time.time)
-    started_at: Optional[float] = None
-    completed_at: Optional[float] = None
-    retry_count: int = 0
-    max_retries: int = 3
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    task_id: str
+    type: str                    # TaskType.value
+    status: str                  # TaskStatus.value
+    priority: int                # TaskPriority.value
+    data: Dict[str, Any]         # 任务数据
+    assigned_to: Optional[str] = None  # 分配给的TaskAgent ID
+    parent_id: Optional[str] = None    # 父任务ID（用于子任务）
+    retry_count: int = 0               # 重试次数
+    max_retries: int = 3               # 最大重试次数
+    timeout: float = 60.0              # 超时时间（秒）
+    created_at: float = 0.0            # 创建时间
+    started_at: Optional[float] = None  # 开始时间
+    completed_at: Optional[float] = None  # 完成时间
+    error_message: Optional[str] = None  # 错误信息
+    result: Optional[Dict[str, Any]] = None  # 执行结果
 
-    def to_dict(self) -> Dict:
+    def __post_init__(self):
+        if self.created_at == 0.0:
+            self.created_at = time.time()
+
+    def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
-        d = asdict(self)
-        d["status"] = self.status.value
-        d["priority"] = self.priority.value
-        return d
+        data = asdict(self)
+        # 序列化data字段为JSON字符串
+        if self.data is not None:
+            data['data'] = json.dumps(self.data)
+        if self.result is not None:
+            data['result'] = json.dumps(self.result)
+        return data
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'Task':
-        """从字典创建"""
-        data["status"] = TaskStatus(data["status"])
-        data["priority"] = TaskPriority(data["priority"])
+    def from_dict(cls, data: Dict[str, Any]) -> "Task":
+        """从字典创建Task"""
+        # 反序列化data和result字段
+        if isinstance(data.get('data'), str):
+            data['data'] = json.loads(data['data'])
+        if isinstance(data.get('result'), str):
+            data['result'] = json.loads(data['result'])
         return cls(**data)
 
 
@@ -65,10 +92,10 @@ class TaskDatabase:
     """
     任务数据库
 
-    使用SQLite持久化存储任务
+    使用SQLite持久化存储任务，支持任务恢复
     """
 
-    def __init__(self, db_path: str = ":memory:"):
+    def __init__(self, db_path: str = "./data/tasks.db"):
         """
         初始化任务数据库
 
@@ -76,299 +103,314 @@ class TaskDatabase:
             db_path: 数据库文件路径
         """
         self.db_path = db_path
-        self._conn: Optional[aiosqlite.Connection] = None
+        self._lock = asyncio.Lock()
+        self._initialized = False
 
-    async def start(self):
-        """启动数据库（创建表）"""
-        self._conn = await aiosqlite.connect(self.db_path)
+    async def _init_db(self):
+        """初始化数据库表"""
+        if self._initialized:
+            return
 
-        # 创建任务表
-        await self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                data TEXT NOT NULL,
-                status TEXT NOT NULL,
-                priority INTEGER NOT NULL,
-                assigned_agent TEXT,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                started_at REAL,
-                completed_at REAL,
-                retry_count INTEGER DEFAULT 0,
-                max_retries INTEGER DEFAULT 3,
-                error TEXT,
-                metadata TEXT
-            )
-        """)
+        async with aiosqlite.connect(self.db_path) as db:
+            # 创建任务表
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    task_id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    priority INTEGER NOT NULL,
+                    data TEXT NOT NULL,
+                    assigned_to TEXT,
+                    parent_id TEXT,
+                    retry_count INTEGER DEFAULT 0,
+                    max_retries INTEGER DEFAULT 3,
+                    timeout REAL DEFAULT 60.0,
+                    created_at REAL NOT NULL,
+                    started_at REAL,
+                    completed_at REAL,
+                    error_message TEXT,
+                    result TEXT
+                )
+            """)
 
-        # 创建索引
-        await self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_status
-            ON tasks(status)
-        """)
+            # 创建索引
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tasks_status_priority
+                ON tasks(status, priority DESC, created_at ASC)
+            """)
 
-        await self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_priority
-            ON tasks(priority DESC)
-        """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to
+                ON tasks(assigned_to, status)
+            """)
 
-        await self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_assigned_agent
-            ON tasks(assigned_agent)
-        """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tasks_parent_id
+                ON tasks(parent_id)
+            """)
 
-        await self._conn.commit()
+            await db.commit()
 
-    async def stop(self):
-        """停止数据库"""
-        if self._conn:
-            await self._conn.close()
-            self._conn = None
+        self._initialized = True
 
-    async def create_task(self, task: Task) -> bool:
-        """
-        创建任务
+    async def create_task(
+        self,
+        task_type: TaskType,
+        priority: TaskPriority = TaskPriority.NORMAL,
+        data: Dict[str, Any] = None,
+        parent_id: str = None,
+        timeout: float = 60.0,
+        max_retries: int = 3,
+    ) -> Task:
+        """创建新任务"""
+        await self._init_db()
 
-        Args:
-            task: 任务对象
+        task_id = str(uuid.uuid4())
 
-        Returns:
-            是否成功
-        """
-        try:
-            await self._conn.execute("""
-                INSERT INTO tasks (
-                    id, type, data, status, priority, assigned_agent,
-                    created_at, updated_at, started_at, completed_at,
-                    retry_count, max_retries, error, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                task.id,
-                task.type,
-                json.dumps(task.data),
-                task.status.value,
-                task.priority.value,
-                task.assigned_agent,
-                task.created_at,
-                task.updated_at,
-                task.started_at,
-                task.completed_at,
-                task.retry_count,
-                task.max_retries,
-                task.error,
-                json.dumps(task.metadata),
-            ))
+        task = Task(
+            task_id=task_id,
+            type=task_type.value,
+            status=TaskStatus.PENDING.value,
+            priority=priority.value,
+            data=data or {},
+            parent_id=parent_id,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
 
-            await self._conn.commit()
-            return True
+        async with self._lock:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    INSERT INTO tasks (
+                        task_id, type, status, priority, data, parent_id,
+                        retry_count, max_retries, timeout, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    task.task_id, task.type, task.status, task.priority,
+                    json.dumps(task.data), task.parent_id,
+                    task.retry_count, task.max_retries, task.timeout, task.created_at
+                ))
+                await db.commit()
 
-        except Exception as e:
-            print(f"Error creating task: {e}")
-            return False
+        return task
 
     async def get_task(self, task_id: str) -> Optional[Task]:
-        """
-        获取任务
+        """获取任务"""
+        await self._init_db()
 
-        Args:
-            task_id: 任务ID
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT * FROM tasks WHERE task_id = ?",
+                (task_id,)
+            )
+            row = await cursor.fetchone()
 
-        Returns:
-            任务对象或None
-        """
-        cursor = await self._conn.execute("""
-            SELECT * FROM tasks WHERE id = ?
-        """, (task_id,))
+            if not row:
+                return None
 
-        row = await cursor.fetchone()
-
-        if row:
             return self._row_to_task(row)
 
-        return None
+    async def update_task_status(
+        self,
+        task_id: str,
+        status: TaskStatus,
+        assigned_to: str = None,
+        error_message: str = None,
+        result: Dict[str, Any] = None,
+    ) -> bool:
+        """更新任务状态"""
+        await self._init_db()
 
-    async def update_task(self, task: Task) -> bool:
-        """
-        更新任务
+        update_fields = ["status = ?"]
+        update_values = [status.value]
 
-        Args:
-            task: 任务对象
+        now = time.time()
 
-        Returns:
-            是否成功
-        """
-        task.updated_at = time.time()
+        if status == TaskStatus.PROCESSING:
+            update_fields.append("started_at = ?")
+            update_values.append(now)
+        elif status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED]:
+            update_fields.append("completed_at = ?")
+            update_values.append(now)
 
-        try:
-            await self._conn.execute("""
-                UPDATE tasks SET
-                    type = ?, data = ?, status = ?, priority = ?,
-                    assigned_agent = ?, updated_at = ?, started_at = ?,
-                    completed_at = ?, retry_count = ?, max_retries = ?,
-                    error = ?, metadata = ?
-                WHERE id = ?
-            """, (
-                task.type,
-                json.dumps(task.data),
-                task.status.value,
-                task.priority.value,
-                task.assigned_agent,
-                task.updated_at,
-                task.started_at,
-                task.completed_at,
-                task.retry_count,
-                task.max_retries,
-                task.error,
-                json.dumps(task.metadata),
-                task.id,
-            ))
+        if assigned_to is not None:
+            update_fields.append("assigned_to = ?")
+            update_values.append(assigned_to)
 
-            await self._conn.commit()
-            return True
+        if error_message is not None:
+            update_fields.append("error_message = ?")
+            update_values.append(error_message)
 
-        except Exception as e:
-            print(f"Error updating task: {e}")
-            return False
+        if result is not None:
+            update_fields.append("result = ?")
+            update_values.append(json.dumps(result))
 
-    async def delete_task(self, task_id: str) -> bool:
-        """
-        删除任务
+        update_values.append(task_id)
 
-        Args:
-            task_id: 任务ID
+        async with self._lock:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(f"""
+                    UPDATE tasks SET {', '.join(update_fields)}
+                    WHERE task_id = ?
+                """, update_values)
+                await db.commit()
 
-        Returns:
-            是否成功
-        """
-        try:
-            await self._conn.execute("""
-                DELETE FROM tasks WHERE id = ?
-            """, (task_id,))
+        return True
 
-            await self._conn.commit()
-            return True
+    async def increment_retry_count(self, task_id: str) -> int:
+        """增加任务重试次数"""
+        await self._init_db()
 
-        except Exception as e:
-            print(f"Error deleting task: {e}")
-            return False
+        async with self._lock:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    UPDATE tasks SET retry_count = retry_count + 1
+                    WHERE task_id = ?
+                """, (task_id,))
+                await db.commit()
+
+        task = await self.get_task(task_id)
+        return task.retry_count if task else 0
+
+    async def get_pending_tasks(
+        self,
+        limit: int = 100,
+        assigned_to: str = None,
+    ) -> List[Task]:
+        """获取待处理任务"""
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            if assigned_to:
+                cursor = await db.execute("""
+                    SELECT * FROM tasks
+                    WHERE status = ? AND assigned_to = ?
+                    ORDER BY priority DESC, created_at ASC
+                    LIMIT ?
+                """, (TaskStatus.PENDING.value, assigned_to, limit))
+            else:
+                cursor = await db.execute("""
+                    SELECT * FROM tasks
+                    WHERE status = ?
+                    ORDER BY priority DESC, created_at ASC
+                    LIMIT ?
+                """, (TaskStatus.PENDING.value, limit))
+
+            rows = await cursor.fetchall()
+
+            return [self._row_to_task(row) for row in rows]
 
     async def get_tasks_by_status(
         self,
         status: TaskStatus,
-        limit: int = 100
+        limit: int = 100,
     ) -> List[Task]:
-        """
-        按状态获取任务
+        """按状态获取任务"""
+        await self._init_db()
 
-        Args:
-            status: 任务状态
-            limit: 最大数量
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT * FROM tasks
+                WHERE status = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (status.value, limit))
 
-        Returns:
-            任务列表
-        """
-        cursor = await self._conn.execute("""
-            SELECT * FROM tasks
-            WHERE status = ?
-            ORDER BY priority DESC, created_at ASC
-            LIMIT ?
-        """, (status.value, limit))
+            rows = await cursor.fetchall()
 
-        rows = await cursor.fetchall()
-        return [self._row_to_task(row) for row in rows]
+            return [self._row_to_task(row) for row in rows]
 
-    async def get_tasks_by_agent(
+    async def get_child_tasks(self, parent_id: str) -> List[Task]:
+        """获取子任务"""
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT * FROM tasks
+                WHERE parent_id = ?
+                ORDER BY priority DESC, created_at ASC
+            """, (parent_id,))
+
+            rows = await cursor.fetchall()
+
+            return [self._row_to_task(row) for row in rows]
+
+    async def get_stats(self) -> Dict[str, Any]:
+        """获取任务统计信息"""
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            # 总任务数
+            cursor = await db.execute("SELECT COUNT(*) FROM tasks")
+            total = (await cursor.fetchone())[0]
+
+            # 各状态任务数
+            cursor = await db.execute("""
+                SELECT status, COUNT(*) FROM tasks GROUP BY status
+            """)
+            status_counts = {row[0]: row[1] for row in await cursor.fetchall()}
+
+            # 各优先级任务数
+            cursor = await db.execute("""
+                SELECT priority, COUNT(*) FROM tasks GROUP BY priority
+            """)
+            priority_counts = {row[0]: row[1] for row in await cursor.fetchall()}
+
+            return {
+                "total": total,
+                "by_status": status_counts,
+                "by_priority": priority_counts,
+            }
+
+    async def cleanup_old_tasks(
         self,
-        agent_id: str,
-        limit: int = 100
-    ) -> List[Task]:
-        """
-        获取Agent的任务
+        days: int = 7,
+        keep_status: List[TaskStatus] = None,
+    ) -> int:
+        """清理旧任务"""
+        await self._init_db()
 
-        Args:
-            agent_id: Agent ID
-            limit: 最大数量
+        keep_status = keep_status or [TaskStatus.PENDING, TaskStatus.PROCESSING]
 
-        Returns:
-            任务列表
-        """
-        cursor = await self._conn.execute("""
-            SELECT * FROM tasks
-            WHERE assigned_agent = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-        """, (agent_id, limit))
+        cutoff_time = time.time() - (days * 86400)
 
-        rows = await cursor.fetchall()
-        return [self._row_to_task(row) for row in rows]
+        async with self._lock:
+            async with aiosqlite.connect(self.db_path) as db:
+                # 构建SQL
+                status_list = ', '.join(f"'{s.value}'" for s in keep_status)
+                cursor = await db.execute(f"""
+                    DELETE FROM tasks
+                    WHERE completed_at < ?
+                    AND status NOT IN ({status_list})
+                """, (cutoff_time,))
 
-    async def get_pending_count(self) -> int:
-        """
-        获取待处理任务数量
+                deleted_count = cursor.rowcount
+                await db.commit()
 
-        Returns:
-            数量
-        """
-        cursor = await self._conn.execute("""
-            SELECT COUNT(*) FROM tasks WHERE status = ?
-        """, (TaskStatus.PENDING.value,))
+        return deleted_count
 
-        row = await cursor.fetchone()
-        return row[0] if row else 0
-
-    async def get_agent_pending_count(self, agent_id: str) -> int:
-        """
-        获取Agent的待处理任务数量
-
-        Args:
-            agent_id: Agent ID
-
-        Returns:
-            数量
-        """
-        cursor = await self._conn.execute("""
-            SELECT COUNT(*) FROM tasks
-            WHERE assigned_agent = ? AND status = ?
-        """, (agent_id, TaskStatus.RUNNING.value))
-
-        row = await cursor.fetchone()
-        return row[0] if row else 0
-
-    async def get_all_tasks(self, limit: int = 100) -> List[Task]:
-        """
-        获取所有任务
-
-        Args:
-            limit: 最大数量
-
-        Returns:
-            任务列表
-        """
-        cursor = await self._conn.execute("""
-            SELECT * FROM tasks
-            ORDER BY created_at DESC
-            LIMIT ?
-        """, (limit,))
-
-        rows = await cursor.fetchall()
-        return [self._row_to_task(row) for row in rows]
-
-    def _row_to_task(self, row: tuple) -> Task:
+    def _row_to_task(self, row) -> Task:
         """将数据库行转换为Task对象"""
-        return Task(
-            id=row[0],
-            type=row[1],
-            data=json.loads(row[2]),
-            status=TaskStatus(row[3]),
-            priority=TaskPriority(row[4]),
-            assigned_agent=row[5],
-            created_at=row[6],
-            updated_at=row[7],
-            started_at=row[8],
-            completed_at=row[9],
-            retry_count=row[10],
-            max_retries=row[11],
-            error=row[12],
-            metadata=json.loads(row[13]) if row[13] else {},
-        )
+        columns = [
+            'task_id', 'type', 'status', 'priority', 'data', 'assigned_to',
+            'parent_id', 'retry_count', 'max_retries', 'timeout',
+            'created_at', 'started_at', 'completed_at', 'error_message', 'result'
+        ]
+
+        data_dict = dict(zip(columns, row))
+
+        # 反序列化JSON字段
+        if data_dict.get('data'):
+            data_dict['data'] = json.loads(data_dict['data'])
+        else:
+            data_dict['data'] = {}
+
+        if data_dict.get('result'):
+            data_dict['result'] = json.loads(data_dict['result'])
+
+        return Task(**data_dict)
+
+    async def close(self):
+        """关闭数据库连接"""
+        # SQLite不需要显式关闭连接池
+        pass
