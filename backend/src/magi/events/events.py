@@ -115,8 +115,13 @@ class EventTypes:
     # 循环事件
     LOOP_STARTED = "LoopStarted"
     LOOP_COMPLETED = "LoopCompleted"
+    LOOP_PAUSED = "LoopPaused"
+    LOOP_RESUMED = "LoopResumed"
     LOOP_PHASE_STARTED = "LoopPhaseStarted"
     LOOP_PHASE_COMPLETED = "LoopPhaseCompleted"
+
+    # 健康事件
+    HEALTH_WARNING = "HealthWarning"
 
     # 任务事件
     TASK_CREATED = "TaskCreated"
@@ -124,3 +129,6 @@ class EventTypes:
     TASK_STARTED = "TaskStarted"
     TASK_COMPLETED = "TaskCompleted"
     TASK_FAILED = "TaskFailed"
+
+    # 用户消息事件
+    USER_MESSAGE = "UserMessage"

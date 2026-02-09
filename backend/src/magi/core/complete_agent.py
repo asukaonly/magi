@@ -59,7 +59,7 @@ class CompleteAgent(Agent):
         # 循环引擎
         self.loop_engine = LoopEngine(
             agent=self,
-            strategy_type="continuous",  # 默认持续运行
+            strategy="continuous",  # 默认持续运行
         )
 
     async def execute_action(self, action):
@@ -69,6 +69,21 @@ class CompleteAgent(Agent):
 
     async def _on_start(self):
         """启动时的处理"""
+        # 发布 Agent 启动事件
+        from ..events.events import Event, EventTypes, EventLevel
+
+        event = Event(
+            type=EventTypes.AGENT_STARTED,
+            data={
+                "agent_id": self.config.name,
+                "agent_type": self.__class__.__name__,
+                "config": self.config.to_dict() if hasattr(self.config, 'to_dict') else {},
+            },
+            source="agent",
+            level=EventLevel.INFO,
+        )
+        await self.message_bus.publish(event)
+
         # 启动循环引擎
         await self.loop_engine.start()
 
@@ -76,3 +91,17 @@ class CompleteAgent(Agent):
         """停止时的处理"""
         # 停止循环引擎
         await self.loop_engine.stop()
+
+        # 发布 Agent 停止事件
+        from ..events.events import Event, EventTypes, EventLevel
+
+        event = Event(
+            type=EventTypes.AGENT_STOPPED,
+            data={
+                "agent_id": self.config.name,
+                "loop_count": self.loop_engine.get_stats()["loop_count"],
+            },
+            source="agent",
+            level=EventLevel.INFO,
+        )
+        await self.message_bus.publish(event)

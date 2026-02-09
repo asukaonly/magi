@@ -11,18 +11,25 @@ class UserMessageSensor:
     用户消息传感器
 
     监听用户消息输入
+
+    支持两种模式：
+    1. Queue模式：直接向内部队列添加消息（用于向后兼容）
+    2. MessageBus模式：订阅消息总线的USER_MESSAGE事件
     """
 
-    def __init__(self, message_queue: asyncio.Queue = None):
+    def __init__(self, message_queue: asyncio.Queue = None, message_bus=None):
         """
         初始化用户消息传感器
 
         Args:
-            message_queue: 消息队列（可选）
+            message_queue: 消息队列（可选，用于向后兼容）
+            message_bus: 消息总线实例（可选，用于订阅事件）
         """
         self._queue = message_queue or asyncio.Queue()
         self._enabled = True
         self._callback = None
+        self._message_bus = message_bus
+        self._subscription_id = None
 
     @property
     def perception_type(self) -> PerceptionType:
@@ -100,6 +107,51 @@ class UserMessageSensor:
     def get_queue(self) -> asyncio.Queue:
         """获取消息队列"""
         return self._queue
+
+    def set_message_bus(self, message_bus):
+        """
+        设置消息总线并订阅USER_MESSAGE事件
+
+        Args:
+            message_bus: 消息总线实例
+        """
+        self._message_bus = message_bus
+        # 启动时会自动订阅
+
+    async def subscribe_to_message_bus(self, event_type: str):
+        """
+        订阅消息总线事件
+
+        Args:
+            event_type: 事件类型（如 "UserMessage"）
+        """
+        if self._message_bus:
+            from ..events.events import EventTypes
+            self._subscription_id = await self._message_bus.subscribe(
+                EventTypes.USER_MESSAGE,
+                self._on_message_event,
+                propagation_mode="broadcast"
+            )
+
+    async def unsubscribe_from_message_bus(self):
+        """取消订阅消息总线事件"""
+        if self._message_bus and self._subscription_id:
+            await self._message_bus.unsubscribe(self._subscription_id)
+            self._subscription_id = None
+
+    async def _on_message_event(self, event):
+        """
+        消息总线事件回调
+
+        Args:
+            event: USER_MESSAGE事件
+        """
+        if not self._enabled:
+            return
+
+        # 将事件数据转换为感知消息格式
+        message_data = event.data
+        await self._queue.put(message_data)
 
 
 class EventSensor:
