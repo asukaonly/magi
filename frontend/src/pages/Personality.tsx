@@ -21,27 +21,32 @@ import {
   Divider,
   Alert,
   Spin,
-  Empty,
+  Modal,
+  Tooltip,
+  Typography,
 } from 'antd';
 import {
   SaveOutlined,
   ThunderboltOutlined,
   ReloadOutlined,
-  CheckOutlined,
+  PlusOutlined,
+  DeleteOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
-import { personalityApi, type PersonalityConfig } from '../api';
+import { personalityApi, type PersonalityConfig, type CorePersonality } from '../api';
 
 const { TextArea } = Input;
 const { Option } = Select;
+const { Text } = Typography;
 
 // 枚举选项
 const LANGUAGE_STYLES = [
-  'casual',
-  'formal',
-  'concise',
-  'verbose',
-  'technical',
-  'poetic',
+  { value: 'casual', label: 'Casual - 随意' },
+  { value: 'formal', label: 'Formal - 正式' },
+  { value: 'concise', label: 'Concise - 简洁' },
+  { value: 'verbose', label: 'Verbose - 详细' },
+  { value: 'technical', label: 'Technical - 技术' },
+  { value: 'poetic', label: 'Poetic - 诗意' },
 ];
 
 const COMMUNICATION_DISTANCES = [
@@ -62,10 +67,10 @@ const VALUE_ALIGNMENTS = [
 ];
 
 const THINKING_STYLES = [
-  'logical',
-  'creative',
-  'intuitive',
-  'analytical',
+  { value: 'logical', label: 'Logical - 逻辑' },
+  { value: 'creative', label: 'Creative - 创造' },
+  { value: 'intuitive', label: 'Intuitive - 直觉' },
+  { value: 'analytical', label: 'Analytical - 分析' },
 ];
 
 const RISK_PREFERENCES = [
@@ -74,7 +79,17 @@ const RISK_PREFERENCES = [
   { value: 'adventurous', label: '冒险' },
 ];
 
-const REASONING_DEPTHS = ['shallow', 'medium', 'deep'];
+const REASONING_DEPTHS = [
+  { value: 'shallow', label: '浅层' },
+  { value: 'medium', label: '中等' },
+  { value: 'deep', label: '深层' },
+];
+
+interface PersonalityInfo {
+  name: string;        // 文件名
+  displayName: string; // AI名字
+  role?: string;       // 角色
+}
 
 const PersonalityPage: React.FC = () => {
   const [form] = Form.useForm();
@@ -82,8 +97,42 @@ const PersonalityPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [currentPersonality, setCurrentPersonality] = useState<string>('default');
+  const [personalities, setPersonalities] = useState<PersonalityInfo[]>([]);
   const [aiDescription, setAiDescription] = useState('');
   const [initialized, setInitialized] = useState(false);
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [newPersonalityName, setNewPersonalityName] = useState('');
+
+  // 加载人格列表
+  const loadPersonalities = useCallback(async () => {
+    try {
+      const response = await personalityApi.list();
+      if (response.success) {
+        // 从多个来源获取人格信息
+        const names = ['default', 'technical', 'steve', 'asuka']; // TODO: 从API获取完整列表
+        const infos: PersonalityInfo[] = [];
+
+        for (const name of names) {
+          try {
+            const resp = await personalityApi.get(name);
+            if (resp.data?.core) {
+              infos.push({
+                name,
+                displayName: resp.data.core.name || name,
+                role: resp.data.core.role,
+              });
+            }
+          } catch {
+            // 如果加载失败，使用文件名
+            infos.push({ name, displayName: name });
+          }
+        }
+        setPersonalities(infos);
+      }
+    } catch (error) {
+      console.error('Failed to load personalities list:', error);
+    }
+  }, []);
 
   // 加载人格配置
   const loadPersonality = useCallback(async (name: string, showMessage: boolean = false) => {
@@ -93,7 +142,8 @@ const PersonalityPage: React.FC = () => {
       if (response.success && response.data) {
         form.setFieldsValue(response.data);
         if (showMessage) {
-          message.success(`加载人格配置成功: ${name}`);
+          const aiName = response.data.core?.name || name;
+          message.success(`已加载: ${aiName}`);
         }
       }
     } catch (error) {
@@ -107,20 +157,19 @@ const PersonalityPage: React.FC = () => {
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      console.log('[保存人格] 表单数据:', values);
       setSaving(true);
 
       const response = await personalityApi.update(currentPersonality, values);
-      console.log('[保存人格] API响应:', response);
 
       if (response.success) {
         message.success('人格配置已保存');
+        // 重新加载列表以更新显示名称
+        loadPersonalities();
       } else {
         message.error(response.message || '保存失败');
       }
     } catch (error: any) {
-      console.error('[保存人格] 异常:', error);
-      message.error(`保存失败: ${error.message || error?.message || '未知错误'}`);
+      message.error(`保存失败: ${error.message || '未知错误'}`);
     } finally {
       setSaving(false);
     }
@@ -135,28 +184,78 @@ const PersonalityPage: React.FC = () => {
 
     setGenerating(true);
     try {
-      console.log('[AI生成] 发送请求:', aiDescription);
       const response = await personalityApi.generate({
         description: aiDescription,
       });
 
-      console.log('[AI生成] 收到响应:', response);
-
       if (response.success && response.data) {
-        console.log('[AI生成] 更新表单数据:', response.data);
         form.setFieldsValue(response.data);
         message.success('AI生成人格配置成功');
         setAiDescription('');
       } else {
-        console.error('[AI生成] 响应失败:', response);
         message.error(response.message || 'AI生成失败');
       }
     } catch (error: any) {
-      console.error('[AI生成] 请求异常:', error);
       message.error(`AI生成失败: ${error.message || '未知错误'}`);
     } finally {
       setGenerating(false);
     }
+  };
+
+  // 创建新人格
+  const handleCreatePersonality = async () => {
+    if (!newPersonalityName.trim()) {
+      message.warning('请输入人格名称');
+      return;
+    }
+
+    // 检查是否已存在
+    if (personalities.some(p => p.name === newPersonalityName)) {
+      message.error('该人格名称已存在');
+      return;
+    }
+
+    // 获取当前表单数据作为新人格的初始值
+    const currentValues = form.getFieldsValue();
+
+    try {
+      await personalityApi.update(newPersonalityName, currentValues);
+      message.success('新人格已创建');
+      setCreateModalVisible(false);
+      setNewPersonalityName('');
+      loadPersonalities();
+      setCurrentPersonality(newPersonalityName);
+    } catch (error) {
+      message.error('创建失败');
+    }
+  };
+
+  // 删除人格
+  const handleDeletePersonality = async (name: string) => {
+    if (name === 'default') {
+      message.warning('不能删除默认人格');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除人格"${name}"吗？此操作不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await personalityApi.delete(name);
+          message.success('人格已删除');
+          loadPersonalities();
+          if (currentPersonality === name) {
+            setCurrentPersonality('default');
+          }
+        } catch (error) {
+          message.error('删除失败');
+        }
+      },
+    });
   };
 
   // 重置为默认
@@ -164,24 +263,53 @@ const PersonalityPage: React.FC = () => {
     await loadPersonality(currentPersonality, true);
   };
 
+  // 切换人格
+  const handlePersonalityChange = (name: string) => {
+    setCurrentPersonality(name);
+  };
+
   // 初始化加载
   useEffect(() => {
     if (!initialized) {
+      loadPersonalities();
       loadPersonality(currentPersonality, false);
       setInitialized(true);
     }
+  }, [currentPersonality, initialized, loadPersonality, loadPersonalities]);
+
+  // 当切换人格时重新加载
+  useEffect(() => {
+    if (initialized) {
+      loadPersonality(currentPersonality, false);
+    }
   }, [currentPersonality, initialized, loadPersonality]);
 
-  // 辅助函数：渲染标签输入
-  const renderTagsInput = (field: string, placeholder: string) => (
-    <Form.Item name={field}>
-      <Select
-        mode="tags"
-        placeholder={placeholder}
-        tokenSeparators={[',', ' ']}
-      />
+  // 渲染标签输入（带标题）
+  const renderTagsInput = (
+    field: string,
+    label: string,
+    placeholder: string,
+    tooltip?: string
+  ) => (
+    <Form.Item name={field} label={label}>
+      <Space.Compact style={{ width: '100%' }}>
+        <Select
+          mode="tags"
+          placeholder={placeholder}
+          tokenSeparators={[',', ' ']}
+          style={{ flex: 1 }}
+        />
+        {tooltip && (
+          <Tooltip title={tooltip}>
+            <Button icon={<QuestionCircleOutlined />} />
+          </Tooltip>
+        )}
+      </Space.Compact>
     </Form.Item>
   );
+
+  // 获取当前选中的显示名称
+  const currentDisplay = personalities.find(p => p.name === currentPersonality);
 
   return (
     <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -195,23 +323,42 @@ const PersonalityPage: React.FC = () => {
       {/* 人格选择和AI生成 */}
       <Card style={{ marginBottom: '24px' }}>
         <Row gutter={16} align="middle">
-          <Col span={8}>
-            <Space>
+          <Col span={12}>
+            <Space wrap>
               <span>当前人格：</span>
               <Select
                 value={currentPersonality}
-                onChange={setCurrentPersonality}
-                style={{ width: 150 }}
+                onChange={handlePersonalityChange}
+                style={{ width: 180 }}
+                placeholder="选择人格"
               >
-                <Option value="default">默认人格</Option>
-                <Option value="technical">技术专家</Option>
+                {personalities.map((p) => (
+                  <Option key={p.name} value={p.name}>
+                    {p.displayName} {p.role && `(${p.role})`}
+                  </Option>
+                ))}
               </Select>
               <Button icon={<ReloadOutlined />} onClick={handleReset}>
                 刷新
               </Button>
+              <Button
+                icon={<PlusOutlined />}
+                onClick={() => setCreateModalVisible(true)}
+              >
+                新建
+              </Button>
+              {currentPersonality !== 'default' && (
+                <Button
+                  icon={<DeleteOutlined />}
+                  danger
+                  onClick={() => handleDeletePersonality(currentPersonality)}
+                >
+                  删除
+                </Button>
+              )}
             </Space>
           </Col>
-          <Col span={16}>
+          <Col span={12}>
             <Space.Compact style={{ width: '100%' }}>
               <Input
                 placeholder="用一句话描述AI人格，例如：一个友善的编程助手，喜欢用幽默的方式解释复杂概念"
@@ -276,7 +423,7 @@ const PersonalityPage: React.FC = () => {
                         <Form.Item
                           name={['core', 'name']}
                           label="AI名字"
-                          rules={[{ required: true }]}
+                          rules={[{ required: true, message: '请输入AI名字' }]}
                         >
                           <Input placeholder="例如：小智、AI助手" />
                         </Form.Item>
@@ -285,7 +432,7 @@ const PersonalityPage: React.FC = () => {
                         <Form.Item
                           name={['core', 'role']}
                           label="角色定位"
-                          rules={[{ required: true }]}
+                          rules={[{ required: true, message: '请输入角色定位' }]}
                         >
                           <Input placeholder="例如：编程助手、顾问" />
                         </Form.Item>
@@ -294,13 +441,13 @@ const PersonalityPage: React.FC = () => {
 
                     <Form.Item name={['core', 'backstory']} label="背景故事">
                       <TextArea
-                        rows={3}
+                        rows={4}
                         placeholder="描述AI的背景、来历、目标等..."
                       />
                     </Form.Item>
 
                     <Row gutter={16}>
-                      <Col span={12}>
+                      <Col span={8}>
                         <Form.Item name={['core', 'tone']} label="语调">
                           <Select placeholder="选择语调">
                             <Option value="friendly">友好</Option>
@@ -311,8 +458,23 @@ const PersonalityPage: React.FC = () => {
                           </Select>
                         </Form.Item>
                       </Col>
-                      <Col span={12}>
-                        <Form.Item name={['core', 'use_emoji']} label="使用表情" valuePropName="checked">
+                      <Col span={8}>
+                        <Form.Item name={['core', 'language_style']} label="语言风格">
+                          <Select placeholder="选择风格">
+                            {LANGUAGE_STYLES.map((s) => (
+                              <Option key={s.value} value={s.value}>
+                                {s.label}
+                              </Option>
+                            ))}
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name={['core', 'use_emoji']}
+                          label="使用表情符号"
+                          valuePropName="checked"
+                        >
                           <Switch />
                         </Form.Item>
                       </Col>
@@ -327,17 +489,6 @@ const PersonalityPage: React.FC = () => {
                   <Card>
                     <Row gutter={16}>
                       <Col span={8}>
-                        <Form.Item name={['core', 'language_style']} label="语言风格">
-                          <Select placeholder="选择风格">
-                            {LANGUAGE_STYLES.map((s) => (
-                              <Option key={s} value={s}>
-                                {s}
-                              </Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
                         <Form.Item name={['core', 'communication_distance']} label="沟通距离">
                           <Select placeholder="选择距离">
                             {COMMUNICATION_DISTANCES.map((d) => (
@@ -349,7 +500,7 @@ const PersonalityPage: React.FC = () => {
                         </Form.Item>
                       </Col>
                       <Col span={8}>
-                        <Form.Item name={['core', 'value_alignment']} label="价值观">
+                        <Form.Item name={['core', 'value_alignment']} label="价值观阵营">
                           <Select placeholder="选择阵营">
                             {VALUE_ALIGNMENTS.map((a) => (
                               <Option key={a.value} value={a.value}>
@@ -361,12 +512,50 @@ const PersonalityPage: React.FC = () => {
                       </Col>
                     </Row>
 
-                    {renderTagsInput(['core', 'traits'], '个性标签，如：友善、好奇、耐心')}
-                    {renderTagsInput(['core', 'virtues'], '优点，如：同理心、诚实、勤奋')}
-                    {renderTagsInput(['core', 'flaws'], '缺点，如：想太多、分心')}
-                    {renderTagsInput(['core', 'catchphrases'], '口头禅，如：让我想想、有意思')}
-                    {renderTagsInput(['core', 'taboos'], '禁忌，如：暴力内容、歧视')}
-                    {renderTagsInput(['core', 'boundaries'], '行为边界，如：尊重隐私、遵循道德')}
+                    <Divider orientation="left">个性特征</Divider>
+
+                    {renderTagsInput(
+                      ['core', 'traits'],
+                      '个性标签',
+                      '添加性格特征，如：友善、好奇、耐心',
+                      '描述AI的主要性格特点'
+                    )}
+                    {renderTagsInput(
+                      ['core', 'virtues'],
+                      '优点美德',
+                      '添加优点，如：同理心、诚实、勤奋',
+                      'AI的优点和美德'
+                    )}
+                    {renderTagsInput(
+                      ['core', 'flaws'],
+                      '缺点弱点',
+                      '添加缺点，如：想太多、分心',
+                      'AI的缺点和不完美之处'
+                    )}
+
+                    <Divider orientation="left">语言习惯</Divider>
+
+                    {renderTagsInput(
+                      ['core', 'catchphrases'],
+                      '口头禅',
+                      '添加口头禅，如：让我想想、有意思',
+                      'AI常说的标志性话语'
+                    )}
+
+                    <Divider orientation="left">行为约束</Divider>
+
+                    {renderTagsInput(
+                      ['core', 'taboos'],
+                      '禁忌话题',
+                      '添加禁忌，如：暴力内容、歧视',
+                      'AI绝对不讨论的话题'
+                    )}
+                    {renderTagsInput(
+                      ['core', 'boundaries'],
+                      '行为边界',
+                      '添加边界，如：尊重隐私、遵循道德',
+                      'AI的行为准则和底线'
+                    )}
                   </Card>
                 ),
               },
@@ -380,8 +569,8 @@ const PersonalityPage: React.FC = () => {
                         <Form.Item name={['cognition', 'primary_style']} label="主要思维风格">
                           <Select placeholder="选择主要风格">
                             {THINKING_STYLES.map((s) => (
-                              <Option key={s} value={s}>
-                                {s}
+                              <Option key={s.value} value={s.value}>
+                                {s.label}
                               </Option>
                             ))}
                           </Select>
@@ -391,8 +580,8 @@ const PersonalityPage: React.FC = () => {
                         <Form.Item name={['cognition', 'secondary_style']} label="次要思维风格">
                           <Select placeholder="选择次要风格">
                             {THINKING_STYLES.map((s) => (
-                              <Option key={s} value={s}>
-                                {s}
+                              <Option key={s.value} value={s.value}>
+                                {s.label}
                               </Option>
                             ))}
                           </Select>
@@ -416,8 +605,8 @@ const PersonalityPage: React.FC = () => {
                         <Form.Item name={['cognition', 'reasoning_depth']} label="推理深度">
                           <Select placeholder="选择深度">
                             {REASONING_DEPTHS.map((d) => (
-                              <Option key={d} value={d}>
-                                {d}
+                              <Option key={d.value} value={d.value}>
+                                {d.label}
                               </Option>
                             ))}
                           </Select>
@@ -447,12 +636,12 @@ const PersonalityPage: React.FC = () => {
                     <Divider orientation="left">领域专精</Divider>
                     <Alert
                       message="领域专精配置"
-                      description="格式：领域名-等级，例如：coding-0.9"
+                      description="格式：领域名:等级，例如 coding:0.9（等级范围0-1）"
                       type="info"
                       showIcon
                       style={{ marginBottom: 16 }}
                     />
-                    <Form.Item name={['cognition', 'expertise']}>
+                    <Form.Item name={['cognition', 'expertise']} label="专精领域">
                       <Select
                         mode="tags"
                         placeholder="添加领域专精，格式：领域名:等级，例如 coding:0.9"
@@ -461,7 +650,10 @@ const PersonalityPage: React.FC = () => {
                           { label: 'coding:0.9', value: 'coding:0.9' },
                           { label: 'writing:0.8', value: 'writing:0.8' },
                           { label: 'analysis:0.85', value: 'analysis:0.85' },
+                          { label: 'reasoning:0.9', value: 'reasoning:0.9' },
+                          { label: 'creative:0.7', value: 'creative:0.7' },
                         ]}
+                        style={{ textAlign: 'left' }}
                       />
                     </Form.Item>
                   </Card>
@@ -489,6 +681,31 @@ const PersonalityPage: React.FC = () => {
           </Button>
         </Space>
       </div>
+
+      {/* 创建新人格对话框 */}
+      <Modal
+        title="创建新人格"
+        open={createModalVisible}
+        onOk={handleCreatePersonality}
+        onCancel={() => {
+          setCreateModalVisible(false);
+          setNewPersonalityName('');
+        }}
+        okText="创建"
+        cancelText="取消"
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Text>请输入新人格的名称（将用作文件名）：</Text>
+          <Input
+            placeholder="例如：technical、friendly"
+            value={newPersonalityName}
+            onChange={(e) => setNewPersonalityName(e.target.value)}
+          />
+          <Text type="secondary" style={{ fontSize: '12px' }}>
+            新人格将基于当前配置创建，创建后可以独立修改
+          </Text>
+        </Space>
+      </Modal>
     </div>
   );
 };
