@@ -44,7 +44,7 @@ export interface AIGenerateRequest {
 export interface PersonalityResponse {
   success: boolean;
   message: string;
-  data?: PersonalityConfig | { current: string } | { personalities: string[] };
+  data?: PersonalityConfig | { current: string; actual_name?: string; config?: PersonalityConfig } | { personalities: string[] };
 }
 
 export interface PersonalityDiff {
@@ -72,6 +72,10 @@ export const personalityApi = {
   // 更新人格配置
   update: (name: string, config: PersonalityConfig) =>
     api.put<PersonalityResponse>(`/personality/${name}`, config),
+
+  // 使用AI名字创建/更新人格配置
+  updateWithAIName: (config: PersonalityConfig) =>
+    api.put<PersonalityResponse>(`/personality/new?use_ai_name=true`, config),
 
   // AI生成人格配置
   generate: (request: AIGenerateRequest) =>

@@ -31,4 +31,18 @@ export type {
 } from './modules/metrics';
 
 export { messagesApi } from './modules/messages';
-export type { UserMessageRequest, MessageResponse, SensorStatus } from './modules/messages';
+export type { UserMessageRequest, MessageData, SensorStatus, ConversationHistory, ChatHistoryMessage } from './modules/messages';
+
+export { configApi } from './modules/config';
+export type { SystemConfig } from './modules/config';
+
+export { personalityApi } from './modules/personality';
+export type {
+  PersonalityConfig,
+  CorePersonality,
+  CognitionProfile,
+  AIGenerateRequest,
+  PersonalityResponse,
+  PersonalityCompareResponse,
+  PersonalityDiff,
+} from './modules/personality';

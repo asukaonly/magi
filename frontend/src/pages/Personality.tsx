@@ -23,7 +23,6 @@ import {
   Modal,
   Tooltip,
   Typography,
-  Descriptions,
   Tag,
   List,
 } from 'antd';
@@ -106,7 +105,6 @@ const PersonalityPage: React.FC = () => {
   const [aiDescription, setAiDescription] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [newPersonalityName, setNewPersonalityName] = useState('');
 
   // 切换人格相关状态
   const [pendingPersonality, setPendingPersonality] = useState<string | null>(null);
@@ -135,25 +133,29 @@ const PersonalityPage: React.FC = () => {
   const loadPersonalities = useCallback(async () => {
     try {
       const response = await personalityApi.list();
-      if (response.success && response.data?.personalities) {
-        const names = response.data.personalities as string[];
-        const infos: PersonalityInfo[] = [];
+      if (response.success && response.data) {
+        const data = response.data as any;
+        if (data.personalities) {
+          const names = data.personalities as string[];
+          const infos: PersonalityInfo[] = [];
 
-        for (const name of names) {
-          try {
-            const resp = await personalityApi.get(name);
-            if (resp.data?.core) {
-              infos.push({
-                name,
-                displayName: resp.data.core.name || name,
-                role: resp.data.core.role,
-              });
+          for (const name of names) {
+            try {
+              const resp = await personalityApi.get(name);
+              if (resp.data && typeof resp.data === 'object' && 'core' in resp.data) {
+                const core = (resp.data as any).core;
+                infos.push({
+                  name,
+                  displayName: core?.name || name,
+                  role: core?.role,
+                });
+              }
+            } catch (error) {
+              infos.push({ name, displayName: name });
             }
-          } catch (error) {
-            infos.push({ name, displayName: name });
           }
+          setPersonalities(infos);
         }
-        setPersonalities(infos);
       }
     } catch (error) {
       console.error('Failed to load personalities list:', error);
@@ -168,7 +170,8 @@ const PersonalityPage: React.FC = () => {
       if (response.success && response.data) {
         form.setFieldsValue(response.data);
         if (showMessage) {
-          const aiName = response.data.core?.name || name;
+          const data = response.data as any;
+          const aiName = data?.core?.name || name;
           message.success(`已加载: ${aiName}`);
         }
       }
@@ -190,7 +193,8 @@ const PersonalityPage: React.FC = () => {
       if (compareResp.success) {
         setCompareData(compareResp);
         setPendingPersonality(name);
-        setPendingConfig(compareResp.to_config || null);
+        const data = compareResp as any;
+        setPendingConfig(data.to_config || null);
         setConfirmModalVisible(true);
       }
     } catch (error) {
@@ -247,11 +251,25 @@ const PersonalityPage: React.FC = () => {
         setPendingConfig(null);
       }
 
-      const response = await personalityApi.update(currentPersonality, values);
+      let response;
+      // 如果是默认人格或名字与AI名字不同，使用AI名字作为文件名
+      if (currentPersonality === 'default' || currentPersonality !== values.core?.name) {
+        response = await personalityApi.updateWithAIName(values);
+        if (response.success) {
+          const responseData = response.data as any;
+          const actualName = responseData?.actual_name;
+          if (actualName) {
+            await personalityApi.setCurrent(actualName);
+            setCurrentPersonality(actualName);
+          }
+        }
+      } else {
+        response = await personalityApi.update(currentPersonality, values);
+      }
 
       if (response.success) {
         message.success('人格配置已保存');
-        loadPersonalities();
+        await loadPersonalities();
       } else {
         message.error(response.message || '保存失败');
       }
@@ -291,25 +309,39 @@ const PersonalityPage: React.FC = () => {
 
   // 创建新人格
   const handleCreatePersonality = async () => {
-    if (!newPersonalityName.trim()) {
-      message.warning('请输入人格名称');
-      return;
-    }
-
-    if (personalities.some(p => p.name === newPersonalityName)) {
-      message.error('该人格名称已存在');
-      return;
-    }
-
     const currentValues = form.getFieldsValue();
+    const aiName = currentValues.core?.name || 'AI';
+
+    if (!aiName.trim()) {
+      message.warning('请先填写AI名字');
+      return;
+    }
+
+    // 检查是否已存在相同AI名字的人格
+    const existingName = personalities.find(p => p.displayName === aiName)?.name;
+    if (existingName) {
+      message.warning(`已存在名为"${aiName}"的人格`);
+      return;
+    }
 
     try {
-      await personalityApi.update(newPersonalityName, currentValues);
-      message.success('新人格已创建');
-      setCreateModalVisible(false);
-      setNewPersonalityName('');
-      loadPersonalities();
-      setCurrentPersonality(newPersonalityName);
+      // 使用AI名字保存，use_ai_name=true让后端使用AI名字作为文件名
+      const response = await personalityApi.updateWithAIName(currentValues);
+
+      if (response.success) {
+        const responseData = response.data as any;
+        const actualName = responseData?.actual_name || aiName;
+        message.success(`新人格"${aiName}"已创建`);
+        setCreateModalVisible(false);
+        await loadPersonalities();
+        // 切换到新创建的人格
+        await personalityApi.setCurrent(actualName);
+        setCurrentPersonality(actualName);
+        // 重新加载配置以确认
+        await loadPersonality(actualName, false);
+      } else {
+        message.error(response.message || '创建失败');
+      }
     } catch (error) {
       message.error('创建失败');
     }
@@ -360,26 +392,27 @@ const PersonalityPage: React.FC = () => {
 
   // 渲染差异列表
   const renderDiffs = () => {
-    if (!compareData || compareData.diffs.length === 0) {
+    if (!compareData || (compareData as any).diffs.length === 0) {
       return <Text type="secondary">两个人格配置完全相同</Text>;
     }
 
+    const diffs = (compareData as any).diffs as PersonalityDiff[];
     const groupedDiffs = {
-      basic: compareData.diffs.filter(d =>
+      basic: diffs.filter((d: PersonalityDiff) =>
         ['name', 'role', 'backstory', 'tone', 'language_style', 'use_emoji'].includes(d.field)
       ),
-      personality: compareData.diffs.filter(d =>
+      personality: diffs.filter((d: PersonalityDiff) =>
         ['communication_distance', 'value_alignment', 'traits', 'virtues', 'flaws', 'catchphrases', 'taboos', 'boundaries'].includes(d.field)
       ),
-      cognition: compareData.diffs.filter(d =>
+      cognition: diffs.filter((d: PersonalityDiff) =>
         ['primary_style', 'secondary_style', 'risk_preference', 'reasoning_depth', 'creativity_level', 'learning_rate', 'expertise'].includes(d.field)
       ),
     };
 
     return (
       <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-        {Object.entries(groupedDiffs).map(([group, diffs]) => {
-          if (diffs.length === 0) return null;
+        {Object.entries(groupedDiffs).map(([group, groupDiffs]) => {
+          if (groupDiffs.length === 0) return null;
           const groupTitles = { basic: '基础信息', personality: '个性特征', cognition: '认知能力' };
           return (
             <div key={group} style={{ marginBottom: 16 }}>
@@ -388,7 +421,7 @@ const PersonalityPage: React.FC = () => {
               </Title>
               <List
                 size="small"
-                dataSource={diffs}
+                dataSource={groupDiffs}
                 renderItem={(diff) => (
                   <List.Item>
                     <div style={{ width: '100%' }}>
@@ -901,21 +934,18 @@ const PersonalityPage: React.FC = () => {
         onOk={handleCreatePersonality}
         onCancel={() => {
           setCreateModalVisible(false);
-          setNewPersonalityName('');
         }}
         okText="创建"
         cancelText="取消"
       >
         <Space direction="vertical" style={{ width: '100%' }}>
-          <Text>请输入新人格的名称（将用作文件名）：</Text>
-          <Input
-            placeholder="例如：technical、friendly"
-            value={newPersonalityName}
-            onChange={(e) => setNewPersonalityName(e.target.value)}
+          <Text>将使用当前表单中的「AI名字」作为新人格的文件名。</Text>
+          <Alert
+            message="确认创建"
+            description={`新人格将使用当前表单配置创建，AI名字为「${form.getFieldValue(['core', 'name']) || '未设置'}」`}
+            type="info"
+            showIcon
           />
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            新人格将基于当前配置创建，创建后可以独立修改
-          </Text>
         </Space>
       </Modal>
     </div>

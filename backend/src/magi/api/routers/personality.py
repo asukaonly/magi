@@ -418,36 +418,83 @@ async def get_personality(name: str = DEFAULT_PERSONALITY):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def sanitize_filename(name: str) -> str:
+    """将AI名字转换为合法的文件名"""
+    import re
+    # 移除或替换非法字符
+    name = re.sub(r'[<>:"/\\|?*]', '_', name)
+    # 替换空格为下划线
+    name = name.replace(' ', '_')
+    # 限制长度
+    name = name[:50]
+    # 确保非空
+    return name or 'unnamed'
+
+
 @personality_router.put("/{name}", response_model=PersonalityResponse)
-async def update_personality(name: str, config: PersonalityConfigModel):
+async def update_personality(name: str, config: PersonalityConfigModel, use_ai_name: bool = False):
     """
     更新人格配置
 
     Args:
-        name: 人格名称
+        name: 人格名称（文件名），"new"表示使用AI名字创建新人格
         config: 人格配置
+        use_ai_name: 是否使用AI名字作为文件名
 
     Returns:
         更新后的配置
     """
-    logger.info(f"[API] 更新人格配置: name={name}, core_name={config.core.name}")
+    logger.info(f"[API] 更新人格配置: name={name}, core_name={config.core.name}, use_ai_name={use_ai_name}")
+
+    runtime_paths = get_runtime_paths()
 
     try:
-        success = save_personality_file(name, config)
+        # 确定实际使用的文件名
+        actual_name = name
+        ai_name_filename = sanitize_filename(config.core.name)
+
+        # "new" 是特殊关键字，表示使用AI名字创建新人格
+        if name == "new" or use_ai_name:
+            actual_name = ai_name_filename
+        elif name == DEFAULT_PERSONALITY and config.core.name != "AI":
+            # 如果是default且AI名字不同，使用AI名字
+            actual_name = ai_name_filename
+        elif name != ai_name_filename:
+            # 检查是否需要重命名文件
+            old_filepath = runtime_paths.personality_file(name)
+            if old_filepath.exists():
+                new_filepath = runtime_paths.personality_file(ai_name_filename)
+                if not new_filepath.exists():
+                    logger.info(f"[API] 重命名人格文件: {name} -> {ai_name_filename}")
+                    old_filepath.rename(new_filepath)
+                    actual_name = ai_name_filename
+                else:
+                    logger.warning(f"[API] 目标文件名已存在，保持原文件名: {name}")
+
+        success = save_personality_file(actual_name, config)
 
         if success:
             # 清除缓存，确保下次读取时使用新数据
             loader = get_personality_loader()
-            loader.reload(name)
+            loader.reload(actual_name)
 
-            logger.info(f"[API] 人格配置保存成功: {name}")
+            # 如果重命名了，删除旧缓存
+            if actual_name != name:
+                loader.clear_cache(name)
+
+            logger.info(f"[API] 人格配置保存成功: {actual_name}")
+            # 构建响应数据，包含实际文件名和配置
+            response_data = {
+                "actual_name": actual_name,
+                "config": config.model_dump()
+            }
             return PersonalityResponse(
                 success=True,
-                message=f"人格配置已保存: {name}",
-                data=config
+                message=f"人格配置已保存: {actual_name}",
+                data=response_data
             )
         else:
-            logger.error(f"[API] 人格配置保存失败: {name}")
+            logger.error(f"[API] 人格配置保存失败: {actual_name}")
             raise HTTPException(status_code=500, detail="保存失败")
 
     except HTTPException:
