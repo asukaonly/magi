@@ -311,16 +311,16 @@ const PersonalityPage: React.FC = () => {
   const currentDisplay = personalities.find(p => p.name === currentPersonality);
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '24px' }}>
-        <h1>AI 人格配置</h1>
-        <p style={{ color: '#666' }}>
+    <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+      <div style={{ marginBottom: '20px' }}>
+        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>AI 人格配置</h1>
+        <p style={{ margin: '4px 0 0', color: '#888', fontSize: 14 }}>
           配置AI助手的人格模型，支持手动输入或使用AI生成
         </p>
       </div>
 
       {/* 人格选择和AI生成 */}
-      <Card style={{ marginBottom: '24px' }}>
+      <Card style={{ marginBottom: '20px', borderRadius: '8px' }} bordered={false}>
         <Row gutter={16} align="middle">
           <Col span={12}>
             <Space wrap>
@@ -413,7 +413,7 @@ const PersonalityPage: React.FC = () => {
                 key: 'basic',
                 label: '基础信息',
                 children: (
-                  <Card>
+                  <Card bordered={false} style={{ borderRadius: '8px' }}>
                     <Row gutter={16}>
                       <Col span={12}>
                         <Form.Item
@@ -482,7 +482,7 @@ const PersonalityPage: React.FC = () => {
                 key: 'personality',
                 label: '个性特征',
                 children: (
-                  <Card>
+                  <Card bordered={false} style={{ borderRadius: '8px' }}>
                     <Row gutter={16}>
                       <Col span={8}>
                         <Form.Item name={['core', 'communication_distance']} label="沟通距离">
@@ -559,7 +559,7 @@ const PersonalityPage: React.FC = () => {
                 key: 'cognition',
                 label: '认知能力',
                 children: (
-                  <Card>
+                  <Card bordered={false} style={{ borderRadius: '8px' }}>
                     <Row gutter={16}>
                       <Col span={12}>
                         <Form.Item name={['cognition', 'primary_style']} label="主要思维风格">
@@ -661,7 +661,7 @@ const PersonalityPage: React.FC = () => {
       </Spin>
 
       {/* 保存按钮 */}
-      <div style={{ marginTop: '24px', textAlign: 'center' }}>
+      <div style={{ marginTop: '16px', textAlign: 'center' }}>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={handleReset}>
             重置

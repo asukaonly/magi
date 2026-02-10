@@ -1,5 +1,5 @@
 /**
- * Sidebar组件
+ * Sidebar组件 - 现代化设计
  */
 import React from 'react';
 import { Layout, Menu } from 'antd';
@@ -76,24 +76,52 @@ const Sidebar: React.FC = () => {
 
   return (
     <Sider
-      width={240}
+      width={200}
       style={{
         background: '#fff',
-        borderRight: '1px solid #f0f0f0',
-        overflow: 'auto',
+        borderRight: '1px solid #e8e8e8',
+        overflow: 'hidden',
         height: '100vh',
         position: 'fixed',
         left: 0,
         top: 0,
-        paddingTop: '64px', // Header高度
+        boxShadow: '2px 0 8px rgba(0,0,0,0.04)',
+        zIndex: 10,
       }}
     >
+      {/* Logo Area */}
+      <div
+        style={{
+          height: 64,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderBottom: '1px solid #e8e8e8',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        }}
+      >
+        <span
+          style={{
+            color: '#fff',
+            fontSize: 20,
+            fontWeight: 700,
+            letterSpacing: '0.5px',
+          }}
+        >
+          Magi
+        </span>
+      </div>
+
+      {/* Menu */}
       <Menu
         mode="inline"
         selectedKeys={[location.pathname]}
         items={menuItems}
         onClick={handleMenuClick}
-        style={{ borderRight: 0 }}
+        style={{
+          borderRight: 0,
+          paddingTop: '8px',
+        }}
       />
     </Sider>
   );

@@ -1,29 +1,27 @@
 /**
- * MainLayout组件
+ * MainLayout组件 - 现代化设计
  */
 import React from 'react';
 import { Layout } from 'antd';
+import { Outlet } from 'react-router-dom';
 import Header from './Header';
 import Sidebar from './Sidebar';
 
 const { Content } = Layout;
 
-const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const MainLayout: React.FC = () => {
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', background: '#f5f7fa' }}>
       <Sidebar />
-      <Layout style={{ marginLeft: 240 }}>
+      <Layout style={{ marginLeft: 200, background: '#f5f7fa' }}>
         <Header />
         <Content
           style={{
-            margin: '24px',
-            padding: '24px',
-            background: '#fff',
-            borderRadius: '8px',
-            minHeight: 'calc(100vh - 112px)',
+            padding: '16px 24px 24px',
+            minHeight: 'calc(100vh - 64px)',
           }}
         >
-          {children}
+          <Outlet />
         </Content>
       </Layout>
     </Layout>
