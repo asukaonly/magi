@@ -1,0 +1,496 @@
+"""
+人格配置API路由
+
+提供AI人格的读取、更新和AI生成功能
+"""
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+import logging
+import os
+import json
+from pathlib import Path
+
+from ...memory.personality_loader import PersonalityLoader
+from ...utils.runtime import get_runtime_paths
+
+logger = logging.getLogger(__name__)
+
+personality_router = APIRouter()
+
+# ============ 数据模型 ============
+
+class CorePersonalityModel(BaseModel):
+    """核心人格模型"""
+    name: str = Field(default="AI", description="AI名字")
+    role: str = Field(default="助手", description="角色定位")
+    backstory: str = Field(default="", description="背景故事")
+    language_style: str = Field(default="casual", description="语言风格")
+    use_emoji: bool = Field(default=False, description="是否使用表情符号")
+    catchphrases: List[str] = Field(default_factory=list, description="口头禅")
+    tone: str = Field(default="friendly", description="语调")
+    communication_distance: str = Field(default="equal", description="沟通距离")
+    value_alignment: str = Field(default="neutral_good", description="价值观阵营")
+    traits: List[str] = Field(default_factory=list, description="个性标签")
+    virtues: List[str] = Field(default_factory=list, description="优点")
+    flaws: List[str] = Field(default_factory=list, description="缺点")
+    taboos: List[str] = Field(default_factory=list, description="禁忌")
+    boundaries: List[str] = Field(default_factory=list, description="行为边界")
+
+
+class CognitionProfileModel(BaseModel):
+    """认知能力模型"""
+    primary_style: str = Field(default="logical", description="主要思维风格")
+    secondary_style: str = Field(default="intuitive", description="次要思维风格")
+    risk_preference: str = Field(default="balanced", description="风险偏好")
+    reasoning_depth: str = Field(default="medium", description="推理深度")
+    creativity_level: float = Field(default=0.5, description="创造力水平")
+    learning_rate: float = Field(default=0.5, description="学习速率")
+    expertise: Dict[str, float] = Field(default_factory=dict, description="领域专精")
+
+
+class PersonalityConfigModel(BaseModel):
+    """完整人格配置"""
+    core: CorePersonalityModel = Field(default_factory=CorePersonalityModel)
+    cognition: CognitionProfileModel = Field(default_factory=CognitionProfileModel)
+
+
+class AIGenerateRequest(BaseModel):
+    """AI生成请求"""
+    description: str = Field(..., description="一句话描述AI人格")
+    current_config: Optional[PersonalityConfigModel] = Field(None, description="当前配置（可选）")
+
+
+class PersonalityResponse(BaseModel):
+    """人格配置响应"""
+    success: bool
+    message: str
+    data: Optional[PersonalityConfigModel] = None
+
+
+# ============ 配置存储路径 ============
+
+DEFAULT_PERSONALITY = "default"
+
+
+# ============ 辅助函数 ============
+
+def get_personality_loader() -> PersonalityLoader:
+    """获取人格加载器实例（使用运行时目录）"""
+    runtime_paths = get_runtime_paths()
+    return PersonalityLoader(str(runtime_paths.personalities_dir))
+
+
+def save_personality_file(name: str, config: PersonalityConfigModel) -> bool:
+    """保存人格配置到Markdown文件"""
+    try:
+        PERSONALITIES_PATH.mkdir(parents=True, exist_ok=True)
+
+        # 辅助函数：格式化数组
+        def format_array(items: List[str]) -> str:
+            if not items:
+                return '[]'
+            # 格式化为: ["item1", "item2", "item3"]
+            return '[' + ', '.join(f'"{item}"' for item in items) + ']'
+
+        # 辅助函数：格式化专精字典
+        def format_expertise(expertise: Dict[str, float]) -> str:
+            if not expertise:
+                return '[]'
+            items = [f'"{k}:{v}"' for k, v in expertise.items()]
+            return '[' + ', '.join(items) + ']'
+
+        content = f"""# AI 人格配置 - {config.core.name}
+
+## 基础信息
+- name: {config.core.name}
+- role: {config.core.role}
+- backstory: |
+  {config.core.backstory}
+
+## 语言风格
+- style: {config.core.language_style}
+- use_emoji: {str(config.core.use_emoji).lower()}
+- catchphrases: {format_array(config.core.catchphrases)}
+- tone: {config.core.tone}
+
+## 沟通距离
+- distance: {config.core.communication_distance}
+
+## 价值观
+- alignment: {config.core.value_alignment}
+
+## 个性特征
+- traits: {format_array(config.core.traits)}
+- virtues: {format_array(config.core.virtues)}
+- flaws: {format_array(config.core.flaws)}
+
+## 禁忌与底线
+- taboos: {format_array(config.core.taboos)}
+- boundaries: {format_array(config.core.boundaries)}
+
+## 认知能力
+
+### 思维风格
+- primary: {config.cognition.primary_style}
+- secondary: {config.cognition.secondary_style}
+
+### 风险偏好
+- risk: {config.cognition.risk_preference}
+
+### 领域专精
+- expertise: {format_expertise(config.cognition.expertise)}
+
+### 学习参数
+- reasoning_depth: {config.cognition.reasoning_depth}
+- creativity_level: {config.cognition.creativity_level}
+- learning_rate: {config.cognition.learning_rate}
+"""
+
+        filepath = get_runtime_paths().personality_file(name)
+        filepath.write_text(content, encoding='utf-8')
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save personality file: {e}")
+        return False
+
+
+# ============ LLM解析函数 ============
+
+async def ai_generate_personality(description: str) -> PersonalityConfigModel:
+    """使用LLM从描述生成人格配置"""
+    import os
+    import json
+    from magi.llm import OpenAIAdapter
+
+    logger.info(f"[AI生成人格] 开始处理描述: {description[:100]}...")
+
+    # 获取LLM配置
+    api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+    model = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4")
+    base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+
+    logger.info(f"[AI生成人格] LLM配置: model={model}, base_url={base_url}")
+
+    if not api_key:
+        logger.error("[AI生成人格] LLM_API_KEY not configured")
+        raise ValueError("LLM_API_KEY not configured")
+
+    # 创建LLM适配器
+    llm_adapter = OpenAIAdapter(
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+    )
+
+    system_prompt = """你是一个AI人格配置生成器。根据用户的描述，生成AI人格配置。
+
+【非常重要】你必须严格按照以下JSON格式返回，必须包含core和cognition两个字段，不要改变任何字段名称：
+
+{
+  "core": {
+    "name": "AI名字",
+    "role": "角色定位",
+    "backstory": "背景故事",
+    "language_style": "casual",
+    "use_emoji": false,
+    "catchphrases": ["口头禅"],
+    "tone": "friendly",
+    "communication_distance": "equal",
+    "value_alignment": "neutral_good",
+    "traits": ["特质1", "特质2"],
+    "virtues": ["优点"],
+    "flaws": ["缺点"],
+    "taboos": ["禁忌"],
+    "boundaries": ["边界"]
+  },
+  "cognition": {
+    "primary_style": "logical",
+    "secondary_style": "intuitive",
+    "risk_preference": "balanced",
+    "reasoning_depth": "medium",
+    "creativity_level": 0.5,
+    "learning_rate": 0.5,
+    "expertise": {"领域名": 0.8}
+  }
+}
+
+字段约束：
+- language_style: casual|formal|concise|verbose|technical|poetic
+- tone: friendly|professional|humorous|serious|warm
+- communication_distance: equal|intimate|respectful|subservient|detached
+- value_alignment: neutral_good|lawful_good|chaotic_good|lawful_neutral|true_neutral|chaotic_neutral
+- primary_style/secondary_style: logical|creative|intuitive|analytical
+- risk_preference: conservative|balanced|adventurous
+- reasoning_depth: shallow|medium|deep
+- use_emoji: true或false
+- creativity_level: 0到1之间的数字
+- learning_rate: 0到1之间的数字
+- 数组字段至少包含一个元素
+
+只返回JSON，不要有任何其他文字说明。"""
+
+    user_prompt = f"""请根据以下描述生成AI人格配置：
+
+描述：{description}
+
+请返回JSON格式的人格配置。"""
+
+    try:
+        logger.info(f"[AI生成人格] 调用LLM（JSON模式已启用）...")
+        logger.debug(f"[AI生成人格] Prompt长度: {len(user_prompt)} 字符")
+
+        # 调用LLM with JSON mode
+        response = await llm_adapter.generate(
+            prompt=user_prompt,
+            max_tokens=2000,
+            temperature=0.7,
+            system_prompt=system_prompt,
+            json_mode=True,
+        )
+
+        logger.info(f"[AI生成人格] LLM响应长度: {len(response)} 字符")
+        logger.debug(f"[AI生成人格] LLM原始响应 (前500字符): {response[:500]}")
+
+        # 解析JSON响应
+        response_text = response.strip()
+        if response_text.startswith("```"):
+            lines = response_text.split("\n")
+            if lines[0].startswith("```json"):
+                response_text = "\n".join(lines[1:-1])
+            elif lines[0].startswith("```"):
+                response_text = "\n".join(lines[1:-1])
+            else:
+                # 尝试找到第一个```和最后一个```
+                first_code = response_text.find("```")
+                last_code = response_text.rfind("```")
+                if first_code >= 0 and last_code > first_code:
+                    response_text = response_text[first_code + 3:last_code]
+                else:
+                    response_text = "\n".join(lines[1:-1])
+
+        # 尝试找到JSON对象
+        json_start = response_text.find("{")
+        json_end = response_text.rfind("}")
+        if json_start >= 0 and json_end > json_start:
+            response_text = response_text[json_start:json_end + 1]
+
+        logger.debug(f"[AI生成人格] 清理后响应 (前500字符): {response_text[:500]}")
+
+        data = json.loads(response_text)
+        logger.info(f"[AI生成人格] 解析JSON成功, 数据结构: {list(data.keys())}")
+
+        # 打印核心数据以便调试
+        core_data = data.get('core', {})
+        logger.info(f"[AI生成人格] core数据: {core_data}")
+        logger.info(f"[AI生成人格] name={core_data.get('name')}, role={core_data.get('role')}")
+
+        # 验证数据完整性
+        if not core_data.get('name'):
+            logger.warning("[AI生成人格] 生成的数据缺少name字段，使用默认值")
+            core_data['name'] = 'AI助手'
+        if not core_data.get('role'):
+            logger.warning("[AI生成人格] 生成的数据缺少role字段，使用默认值")
+            core_data['role'] = '助手'
+
+        return PersonalityConfigModel(**data)
+
+    except json.JSONDecodeError as e:
+        logger.error(f"[AI生成人格] JSON解析失败: {e}")
+        logger.error(f"[AI生成人格] 响应内容 (前500字符): {response_text[:500]}")
+        raise ValueError(f"AI返回的不是有效的JSON格式: {e}")
+    except Exception as e:
+        logger.error(f"[AI生成人格] 生成失败: {type(e).__name__}: {e}")
+        raise
+
+
+# ============ API端点 ============
+
+@personality_router.get("/{name}", response_model=PersonalityResponse)
+async def get_personality(name: str = DEFAULT_PERSONALITY):
+    """
+    获取人格配置
+
+    Args:
+        name: 人格名称
+
+    Returns:
+        人格配置
+    """
+    try:
+        loader = get_personality_loader()
+        personality_config = loader.load(name)
+
+        # 转换为API模型格式
+        config = PersonalityConfigModel(
+            core=CorePersonalityModel(
+                name=personality_config.name,
+                role=personality_config.role,
+                backstory=personality_config.backstory,
+                language_style=personality_config.language_style,
+                use_emoji=personality_config.use_emoji,
+                catchphrases=personality_config.catchphrases or [],
+                tone=personality_config.tone,
+                communication_distance=personality_config.communication_distance,
+                value_alignment=personality_config.value_alignment,
+                traits=personality_config.traits or [],
+                virtues=personality_config.virtues or [],
+                flaws=personality_config.flaws or [],
+                taboos=personality_config.taboos or [],
+                boundaries=personality_config.boundaries or [],
+            ),
+            cognition=CognitionProfileModel(
+                primary_style=personality_config.primary_style,
+                secondary_style=personality_config.secondary_style,
+                risk_preference=personality_config.risk_preference,
+                reasoning_depth=personality_config.reasoning_depth,
+                creativity_level=personality_config.creativity_level,
+                learning_rate=personality_config.learning_rate,
+                expertise=personality_config.expertise or {},
+            ),
+        )
+
+        return PersonalityResponse(
+            success=True,
+            message=f"获取人格配置成功: {name}",
+            data=config
+        )
+    except FileNotFoundError:
+        # 返回默认配置
+        config = PersonalityConfigModel()
+        return PersonalityResponse(
+            success=True,
+            message=f"人格配置不存在，使用默认值: {name}",
+            data=config
+        )
+    except Exception as e:
+        logger.error(f"Failed to get personality: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@personality_router.put("/{name}", response_model=PersonalityResponse)
+async def update_personality(name: str, config: PersonalityConfigModel):
+    """
+    更新人格配置
+
+    Args:
+        name: 人格名称
+        config: 人格配置
+
+    Returns:
+        更新后的配置
+    """
+    logger.info(f"[API] 更新人格配置: name={name}, core_name={config.core.name}")
+
+    try:
+        success = save_personality_file(name, config)
+
+        if success:
+            # 清除缓存，确保下次读取时使用新数据
+            loader = get_personality_loader()
+            loader.reload(name)
+
+            logger.info(f"[API] 人格配置保存成功: {name}")
+            return PersonalityResponse(
+                success=True,
+                message=f"人格配置已保存: {name}",
+                data=config
+            )
+        else:
+            logger.error(f"[API] 人格配置保存失败: {name}")
+            raise HTTPException(status_code=500, detail="保存失败")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] 更新人格配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@personality_router.post("/generate", response_model=PersonalityResponse)
+async def generate_personality(request: AIGenerateRequest):
+    """
+    使用AI生成人格配置
+
+    Args:
+        request: 生成请求
+
+    Returns:
+        生成的人格配置
+    """
+    logger.info(f"[API] 收到AI生成人格请求: description={request.description[:50]}...")
+
+    try:
+        config = await ai_generate_personality(request.description)
+
+        logger.info(f"[API] AI生成成功: name={config.core.name}, role={config.core.role}")
+
+        return PersonalityResponse(
+            success=True,
+            message="AI生成人格配置成功",
+            data=config
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] AI生成人格失败: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@personality_router.get("/", response_model=PersonalityResponse)
+async def list_personalities():
+    """
+    列出所有可用的人格
+
+    Returns:
+        人格列表
+    """
+    try:
+        personalities = []
+
+        if PERSONALITIES_PATH.exists():
+            for filepath in PERSONALITIES_PATH.glob("*.md"):
+                personalities.append(filepath.stem)
+
+        return PersonalityResponse(
+            success=True,
+            message=f"找到 {len(personalities)} 个人格配置",
+            data=None  # 这里可以返回人格列表
+        )
+    except Exception as e:
+        logger.error(f"Failed to list personalities: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@personality_router.delete("/{name}", response_model=PersonalityResponse)
+async def delete_personality(name: str):
+    """
+    删除人格配置
+
+    Args:
+        name: 人格名称
+
+    Returns:
+        删除结果
+    """
+    try:
+        if name == DEFAULT_PERSONALITY:
+            raise HTTPException(status_code=400, detail="不能删除默认人格")
+
+        filepath = PERSONALITIES_PATH / f"{name}.md"
+
+        if filepath.exists():
+            filepath.unlink()
+            return PersonalityResponse(
+                success=True,
+                message=f"人格配置已删除: {name}",
+                data=None
+            )
+        else:
+            raise HTTPException(status_code=404, detail="人格配置不存在")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete personality: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

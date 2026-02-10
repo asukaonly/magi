@@ -10,6 +10,9 @@ import {
   ToolOutlined,
   DatabaseOutlined,
   LineChartOutlined,
+  SettingOutlined,
+  MessageOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -49,6 +52,21 @@ const Sidebar: React.FC = () => {
       key: '/metrics',
       icon: <LineChartOutlined />,
       label: '指标监控',
+    },
+    {
+      key: '/personality',
+      icon: <UserOutlined />,
+      label: '人格配置',
+    },
+    {
+      key: '/settings',
+      icon: <SettingOutlined />,
+      label: '系统设置',
+    },
+    {
+      key: '/chat',
+      icon: <MessageOutlined />,
+      label: 'AI 对话',
     },
   ];
 

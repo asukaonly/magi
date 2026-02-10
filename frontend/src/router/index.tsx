@@ -22,6 +22,15 @@ const MemoryPage = React.lazy(() =>
 const MetricsPage = React.lazy(() =>
   import('../pages/Metrics').then((m) => ({ default: m.MetricsPage }))
 );
+const SettingsPage = React.lazy(() =>
+  import('../pages/Settings').then((m) => ({ default: m.SettingsPage }))
+);
+const ChatPage = React.lazy(() =>
+  import('../pages/Chat').then((m) => ({ default: m.ChatPage }))
+);
+const PersonalityPage = React.lazy(() =>
+  import('../pages/Personality').then((m) => ({ default: m.default }))
+);
 
 const router = createBrowserRouter([
   {
@@ -72,11 +81,36 @@ const router = createBrowserRouter([
           </React.Suspense>
         ),
       },
+      {
+        path: 'settings',
+        element: (
+          <React.Suspense fallback={<div>Loading...</div>}>
+            <SettingsPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'chat',
+        element: (
+          <React.Suspense fallback={<div>Loading...</div>}>
+            <ChatPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'personality',
+        element: (
+          <React.Suspense fallback={<div>Loading...</div>}>
+            <PersonalityPage />
+          </React.Suspense>
+        ),
+      },
     ],
   },
 ]);
 
 const AppRouter: React.FC = () => {
+  console.log('🚀 AppRouter 渲染');
   return <RouterProvider router={router} />;
 };
 

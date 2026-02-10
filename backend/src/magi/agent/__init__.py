@@ -9,6 +9,8 @@ from ..core.agent import AgentConfig
 from ..events.memory_backend import MemoryMessageBackend
 from ..agent.chat import ChatAgent
 from ..awareness.sensors import UserMessageSensor
+from ..memory.self_memory_v2 import SelfMemoryV2
+from ..utils.runtime import get_runtime_paths, init_runtime_data
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,11 @@ async def initialize_chat_agent():
         return
 
     try:
+        # 初始化运行时数据目录
+        init_runtime_data()
+        runtime_paths = get_runtime_paths()
+        logger.info(f"📁 Runtime directory: {runtime_paths.base_dir}")
+
         # 获取环境变量
         api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
 
@@ -101,11 +108,20 @@ async def initialize_chat_agent():
             llm_config={},  # 临时空配置，实际使用传入的 llm_adapter
         )
 
+        # 创建自我记忆系统
+        memory = SelfMemoryV2(
+            personality_name="default",
+            personalities_path=str(runtime_paths.personalities_dir),
+        )
+        await memory.init()
+        logger.info("✅ SelfMemoryV2 initialized")
+
         # 创建ChatAgent
         _chat_agent = ChatAgent(
             config=config,
             message_bus=message_bus,
             llm_adapter=llm_adapter,
+            memory=memory,
         )
 
         # 设置消息总线到messages router，使其可以发布事件

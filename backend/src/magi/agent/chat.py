@@ -16,6 +16,12 @@ from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.selector import ToolSelector
 from ..tools.schema import ToolExecutionContext
+from ..memory.self_memory_v2 import SelfMemoryV2
+from ..memory.behavior_evolution import SatisfactionLevel
+from ..memory.emotional_state import InteractionOutcome, EngagementLevel
+from ..memory.growth_memory import InteractionType
+from ..memory.context_builder import Scenario
+from ..memory.models import TaskBehaviorProfile
 
 logger = logging.getLogger(__name__)
 agent_logger = get_agent_logger('chat')
@@ -38,6 +44,7 @@ class ChatAgent(CompleteAgent):
         config: AgentConfig,
         message_bus: MessageBusBackend,
         llm_adapter: LLMAdapter,
+        memory: SelfMemoryV2 = None,
     ):
         """
         初始化ChatAgent
@@ -46,6 +53,7 @@ class ChatAgent(CompleteAgent):
             config: Agent配置
             message_bus: 消息总线
             llm_adapter: LLM适配器
+            memory: 自我记忆系统（可选）
         """
         super().__init__(config, message_bus, llm_adapter)
 
@@ -58,7 +66,10 @@ class ChatAgent(CompleteAgent):
             llm_adapter=llm_adapter,
         )
 
-        agent_logger.info(f"🤖 ChatAgent initialized | Name: {config.name}")
+        # 自我记忆系统
+        self.memory = memory
+
+        agent_logger.info(f"🤖 ChatAgent initialized | Name: {config.name} | Memory: {'enabled' if memory else 'disabled'}")
 
     async def execute_action(self, action: Any) -> dict:
         """
@@ -135,6 +146,8 @@ class ChatAgent(CompleteAgent):
         Returns:
             LLM回复
         """
+        start_time = time.time()
+
         # 获取对话历史
         history = self._conversation_history.get(user_id, [])
 
@@ -153,6 +166,9 @@ class ChatAgent(CompleteAgent):
         tool_decision = await self.tool_selector.select_tool(user_message, selector_context)
 
         agent_logger.info(f"🔍 Tool decision result: {tool_decision}")
+
+        # 确定任务类别
+        task_category = tool_decision.get("tool", "chat") if tool_decision else "chat"
 
         tool_result = None
         if tool_decision and tool_decision.get("tool"):
@@ -179,7 +195,12 @@ class ChatAgent(CompleteAgent):
             agent_logger.info("ℹ️  No tool selected, using direct LLM response")
 
         # Step 3: 构建LLM消息
-        system_prompt = self._build_system_prompt(tool_decision)
+        system_prompt = await self._build_system_prompt(
+            tool_decision=tool_decision,
+            scenario=Scenario.CHAT,
+            user_id=user_id,
+            task_category=task_category
+        )
 
         messages = []
 
@@ -221,38 +242,115 @@ class ChatAgent(CompleteAgent):
         # Step 4: 调用LLM生成最终回复
         response_text = await self._call_llm(system_prompt, messages)
 
+        # 计算任务持续时间
+        duration = time.time() - start_time
+
         # 保存到对话历史
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": response_text})
         self._conversation_history[user_id] = history
 
+        # 记录交互到记忆系统
+        if self.memory:
+            try:
+                # 确定交互结果
+                outcome = InteractionOutcome.SUCCESS
+                if tool_result and not tool_result["success"]:
+                    outcome = InteractionOutcome.FAILURE
+                elif tool_decision and tool_decision.get("tool"):
+                    outcome = InteractionOutcome.SUCCESS
+
+                # 记录交互到成长记忆
+                await self.memory.record_interaction(
+                    user_id=user_id,
+                    interaction_type=InteractionType.CHAT,
+                    outcome="success" if outcome == InteractionOutcome.SUCCESS else "failure",
+                    sentiment=0.0,  # 可以从情感分析获取
+                    notes=f"Message: {user_message[:100]}..."
+                )
+
+                # 更新情绪状态
+                await self.memory.update_after_interaction(
+                    outcome=outcome,
+                    user_engagement=EngagementLevel.MEDIUM,
+                    complexity=0.5
+                )
+
+                # 记录任务结果（用于行为演化）
+                task_id = f"chat_{int(start_time)}_{user_id}"
+                await self.memory.record_task_outcome(
+                    task_id=task_id,
+                    task_category=task_category,
+                    user_satisfaction=SatisfactionLevel.NEUTRAL,  # 可以从用户反馈获取
+                    accepted=True,  # 假设被接受
+                    task_complexity=0.5,
+                    task_duration=duration,
+                )
+
+            except Exception as e:
+                agent_logger.warning(f"Failed to record interaction: {e}")
+
         return response_text
 
-    def _build_system_prompt(self, tool_decision: Optional[Dict]) -> str:
+    async def _build_system_prompt(
+        self,
+        tool_decision: Optional[Dict],
+        scenario: str = Scenario.CHAT,
+        user_id: str = None,
+        task_category: str = "chat"
+    ) -> str:
         """
         构建系统提示
 
         Args:
             tool_decision: 工具决策信息
+            scenario: 交互场景
+            user_id: 用户ID（可选，用于获取关系信息）
+            task_category: 任务类别
 
         Returns:
             系统提示
         """
+        # 如果有记忆系统，使用人格上下文
+        if self.memory:
+            try:
+                personality_context = await self.memory.build_context(
+                    scenario=scenario,
+                    task_category=task_category,
+                    user_id=user_id,
+                )
+                agent_logger.info(f"🎭 Personality context loaded | Length: {len(personality_context)} chars")
+                if personality_context:
+                    agent_logger.debug(f"🎭 Context preview: {personality_context[:200]}...")
+            except Exception as e:
+                agent_logger.warning(f"Failed to build personality context: {e}")
+                personality_context = ""
+        else:
+            agent_logger.warning("⚠️ Memory system not enabled, using default personality")
+            personality_context = ""
+
+        # 基础提示
         base_prompt = (
             "你是 Magi AI Agent Framework 的智能助手。"
             "你的任务是帮助用户解答问题、提供建议和执行任务。"
-            "请用简洁、友好的方式回复。"
         )
 
+        # 组装提示
+        if personality_context:
+            full_prompt = f"{personality_context}\n\n{base_prompt}"
+        else:
+            full_prompt = base_prompt
+
+        # 添加工具相关提示
         if tool_decision and tool_decision.get("tool"):
             tool_name = tool_decision.get("tool")
-            base_prompt += (
+            full_prompt += (
                 f"\n\n[系统提示] 已为用户调用工具: {tool_name}"
                 f"\n如果下方有工具调用结果，请基于结果回答用户问题。"
                 f"\n如果没有工具调用结果，说明工具执行失败，请告知用户。"
             )
 
-        return base_prompt
+        return full_prompt
 
     async def _call_llm(self, system_prompt: str, messages: list) -> str:
         """

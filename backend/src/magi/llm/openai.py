@@ -52,6 +52,8 @@ class OpenAIAdapter(LLMAdapter):
         prompt: str,
         max_tokens: Optional[int] = None,
         temperature: float = 0.7,
+        system_prompt: Optional[str] = None,
+        json_mode: bool = False,
         **kwargs
     ) -> str:
         """
@@ -61,14 +63,25 @@ class OpenAIAdapter(LLMAdapter):
             prompt: 输入提示
             max_tokens: 最大token数
             temperature: 温度参数
+            system_prompt: 系统提示（可选）
+            json_mode: 是否启用JSON模式（强制返回有效JSON）
             **kwargs: 其他参数（传递给OpenAI API）
 
         Returns:
             str: 生成的文本
         """
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        # JSON mode: 强制返回有效JSON
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
         response = await self._client.chat.completions.create(
             model=self._model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
             **kwargs
