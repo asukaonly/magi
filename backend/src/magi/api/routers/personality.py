@@ -403,7 +403,7 @@ async def get_personality(name: str = DEFAULT_PERSONALITY):
         return PersonalityResponse(
             success=True,
             message=f"获取人格配置成功: {name}",
-            data=config
+            data=config.model_dump()
         )
     except FileNotFoundError:
         # 返回默认配置
@@ -411,7 +411,7 @@ async def get_personality(name: str = DEFAULT_PERSONALITY):
         return PersonalityResponse(
             success=True,
             message=f"人格配置不存在，使用默认值: {name}",
-            data=config
+            data=config.model_dump()
         )
     except Exception as e:
         logger.error(f"Failed to get personality: {e}")
@@ -525,7 +525,7 @@ async def generate_personality(request: AIGenerateRequest):
         return PersonalityResponse(
             success=True,
             message="AI生成人格配置成功",
-            data=config
+            data=config.model_dump()
         )
     except HTTPException:
         raise
