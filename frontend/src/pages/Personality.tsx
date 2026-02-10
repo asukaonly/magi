@@ -15,7 +15,6 @@ import {
   message,
   Tabs,
   Slider,
-  Tag,
   Row,
   Col,
   Divider,
@@ -24,6 +23,9 @@ import {
   Modal,
   Tooltip,
   Typography,
+  Descriptions,
+  Tag,
+  List,
 } from 'antd';
 import {
   SaveOutlined,
@@ -32,12 +34,15 @@ import {
   PlusOutlined,
   DeleteOutlined,
   QuestionCircleOutlined,
+  CheckOutlined,
+  ExclamationCircleOutlined,
+  DiffOutlined,
 } from '@ant-design/icons';
-import { personalityApi, type PersonalityConfig, type CorePersonality } from '../api';
+import { personalityApi, type PersonalityConfig, type PersonalityCompareResponse, type PersonalityDiff } from '../api';
 
 const { TextArea } = Input;
 const { Option } = Select;
-const { Text } = Typography;
+const { Text, Title } = Typography;
 
 // 枚举选项
 const LANGUAGE_STYLES = [
@@ -96,12 +101,35 @@ const PersonalityPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [currentPersonality, setCurrentPersonality] = useState<string>('default');
+  const [currentPersonality, setCurrentPersonality] = useState<string>('');
   const [personalities, setPersonalities] = useState<PersonalityInfo[]>([]);
   const [aiDescription, setAiDescription] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [newPersonalityName, setNewPersonalityName] = useState('');
+
+  // 切换人格相关状态
+  const [pendingPersonality, setPendingPersonality] = useState<string | null>(null);
+  const [pendingConfig, setPendingConfig] = useState<PersonalityConfig | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareData, setCompareData] = useState<PersonalityCompareResponse | null>(null);
+  const [confirmModalVisible, setConfirmModalVisible] = useState(false);
+
+  // 加载当前人格
+  const loadCurrentPersonality = useCallback(async () => {
+    try {
+      const response = await personalityApi.getCurrent();
+      if (response.success && response.data) {
+        const current = (response.data as any).current as string;
+        setCurrentPersonality(current);
+        return current;
+      }
+      return 'default';
+    } catch (error) {
+      console.error('Failed to load current personality:', error);
+      return 'default';
+    }
+  }, []);
 
   // 加载人格列表
   const loadPersonalities = useCallback(async () => {
@@ -122,7 +150,6 @@ const PersonalityPage: React.FC = () => {
               });
             }
           } catch (error) {
-            // 加载失败，使用文件名作为显示名
             infos.push({ name, displayName: name });
           }
         }
@@ -152,17 +179,78 @@ const PersonalityPage: React.FC = () => {
     }
   }, [form]);
 
+  // 切换人格 - 显示确认弹窗
+  const handlePersonalityChange = async (name: string) => {
+    if (name === currentPersonality) return;
+
+    setCompareLoading(true);
+    try {
+      // 获取比较结果
+      const compareResp = await personalityApi.compare(currentPersonality, name);
+      if (compareResp.success) {
+        setCompareData(compareResp);
+        setPendingPersonality(name);
+        setPendingConfig(compareResp.to_config || null);
+        setConfirmModalVisible(true);
+      }
+    } catch (error) {
+      message.error('获取人格差异失败');
+      console.error(error);
+    } finally {
+      setCompareLoading(false);
+    }
+  };
+
+  // 确认切换人格
+  const handleConfirmSwitch = async () => {
+    if (!pendingPersonality || !pendingConfig) return;
+
+    try {
+      // 先设置当前人格
+      await personalityApi.setCurrent(pendingPersonality);
+
+      // 然后加载配置
+      form.setFieldsValue(pendingConfig);
+
+      setCurrentPersonality(pendingPersonality);
+      message.success(`已切换到: ${pendingConfig.core?.name || pendingPersonality}`);
+
+      // 清理状态
+      setPendingPersonality(null);
+      setPendingConfig(null);
+      setCompareData(null);
+      setConfirmModalVisible(false);
+    } catch (error) {
+      message.error('切换人格失败');
+    }
+  };
+
+  // 取消切换
+  const handleCancelSwitch = () => {
+    setPendingPersonality(null);
+    setPendingConfig(null);
+    setCompareData(null);
+    setConfirmModalVisible(false);
+  };
+
   // 保存人格配置
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
       setSaving(true);
 
+      // 如果有未确认的切换，先确认切换
+      if (pendingPersonality && pendingConfig) {
+        await personalityApi.setCurrent(pendingPersonality);
+        setCurrentPersonality(pendingPersonality);
+        setPendingPersonality(null);
+        setPendingConfig(null);
+      }
+
       const response = await personalityApi.update(currentPersonality, values);
 
       if (response.success) {
         message.success('人格配置已保存');
-        // 重新加载列表以更新显示名称
         loadPersonalities();
       } else {
         message.error(response.message || '保存失败');
@@ -208,13 +296,11 @@ const PersonalityPage: React.FC = () => {
       return;
     }
 
-    // 检查是否已存在
     if (personalities.some(p => p.name === newPersonalityName)) {
       message.error('该人格名称已存在');
       return;
     }
 
-    // 获取当前表单数据作为新人格的初始值
     const currentValues = form.getFieldsValue();
 
     try {
@@ -231,8 +317,8 @@ const PersonalityPage: React.FC = () => {
 
   // 删除人格
   const handleDeletePersonality = async (name: string) => {
-    if (name === 'default') {
-      message.warning('不能删除默认人格');
+    if (name === currentPersonality) {
+      message.warning('不能删除当前使用的人格');
       return;
     }
 
@@ -247,9 +333,6 @@ const PersonalityPage: React.FC = () => {
           await personalityApi.delete(name);
           message.success('人格已删除');
           loadPersonalities();
-          if (currentPersonality === name) {
-            setCurrentPersonality('default');
-          }
         } catch (error) {
           message.error('删除失败');
         }
@@ -262,26 +345,93 @@ const PersonalityPage: React.FC = () => {
     await loadPersonality(currentPersonality, true);
   };
 
-  // 切换人格
-  const handlePersonalityChange = (name: string) => {
-    setCurrentPersonality(name);
-  };
-
   // 初始化加载
   useEffect(() => {
     if (!initialized) {
-      loadPersonalities();
-      loadPersonality(currentPersonality, false);
-      setInitialized(true);
+      const init = async () => {
+        const current = await loadCurrentPersonality();
+        await loadPersonalities();
+        await loadPersonality(current, false);
+        setInitialized(true);
+      };
+      init();
     }
-  }, [currentPersonality, initialized, loadPersonality, loadPersonalities]);
+  }, [initialized, loadCurrentPersonality, loadPersonality, loadPersonalities]);
 
-  // 当切换人格时重新加载
-  useEffect(() => {
-    if (initialized) {
-      loadPersonality(currentPersonality, false);
+  // 渲染差异列表
+  const renderDiffs = () => {
+    if (!compareData || compareData.diffs.length === 0) {
+      return <Text type="secondary">两个人格配置完全相同</Text>;
     }
-  }, [currentPersonality, initialized, loadPersonality]);
+
+    const groupedDiffs = {
+      basic: compareData.diffs.filter(d =>
+        ['name', 'role', 'backstory', 'tone', 'language_style', 'use_emoji'].includes(d.field)
+      ),
+      personality: compareData.diffs.filter(d =>
+        ['communication_distance', 'value_alignment', 'traits', 'virtues', 'flaws', 'catchphrases', 'taboos', 'boundaries'].includes(d.field)
+      ),
+      cognition: compareData.diffs.filter(d =>
+        ['primary_style', 'secondary_style', 'risk_preference', 'reasoning_depth', 'creativity_level', 'learning_rate', 'expertise'].includes(d.field)
+      ),
+    };
+
+    return (
+      <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+        {Object.entries(groupedDiffs).map(([group, diffs]) => {
+          if (diffs.length === 0) return null;
+          const groupTitles = { basic: '基础信息', personality: '个性特征', cognition: '认知能力' };
+          return (
+            <div key={group} style={{ marginBottom: 16 }}>
+              <Title level={5} style={{ fontSize: 14, marginBottom: 8 }}>
+                {groupTitles[group as keyof typeof groupTitles]}
+              </Title>
+              <List
+                size="small"
+                dataSource={diffs}
+                renderItem={(diff) => (
+                  <List.Item>
+                    <div style={{ width: '100%' }}>
+                      <div style={{ marginBottom: 4 }}>
+                        <Text strong>{diff.field_label}</Text>
+                      </div>
+                      <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+                        <div style={{ flex: 1 }}>
+                          <Text type="secondary">当前：</Text>
+                          <br />
+                          <Text code style={{ color: '#cf1322' }}>
+                            {formatValue(diff.old_value)}
+                          </Text>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <Text type="secondary">切换后：</Text>
+                          <br />
+                          <Text code style={{ color: '#389e0d' }}>
+                            {formatValue(diff.new_value)}
+                          </Text>
+                        </div>
+                      </div>
+                    </div>
+                  </List.Item>
+                )}
+              />
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // 格式化值显示
+  const formatValue = (val: any): string => {
+    if (val === null || val === undefined) return '（无）';
+    if (Array.isArray(val)) {
+      if (val.length === 0) return '（空）';
+      return val.slice(0, 3).join('、') + (val.length > 3 ? '...' : '');
+    }
+    if (typeof val === 'object') return JSON.stringify(val, null, 2);
+    return String(val);
+  };
 
   // 渲染标签输入（带标题）
   const renderTagsInput = (
@@ -307,8 +457,8 @@ const PersonalityPage: React.FC = () => {
     </Form.Item>
   );
 
-  // 获取当前选中的显示名称
   const currentDisplay = personalities.find(p => p.name === currentPersonality);
+  const pendingDisplay = personalities.find(p => p.name === pendingPersonality);
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
@@ -330,6 +480,7 @@ const PersonalityPage: React.FC = () => {
                 onChange={handlePersonalityChange}
                 style={{ width: 280 }}
                 placeholder="选择人格"
+                loading={compareLoading}
               >
                 {personalities.map((p) => (
                   <Option key={p.name} value={p.name}>
@@ -343,7 +494,7 @@ const PersonalityPage: React.FC = () => {
               >
                 新建
               </Button>
-              {currentPersonality !== 'default' && (
+              {(currentPersonality !== 'default' || personalities.length > 1) && (
                 <Button
                   icon={<DeleteOutlined />}
                   danger
@@ -375,6 +526,23 @@ const PersonalityPage: React.FC = () => {
       </Card>
 
       <Spin spinning={loading}>
+        {/* 切换警告 */}
+        {pendingPersonality && (
+          <Alert
+            message={
+              <Space>
+                <ExclamationCircleOutlined />
+                <span>
+                  预览模式：正在显示「{pendingDisplay?.displayName}」的配置，点击下方「确认切换」后才会生效
+                </span>
+              </Space>
+            }
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
         <Form
           form={form}
           layout="vertical"
@@ -508,7 +676,7 @@ const PersonalityPage: React.FC = () => {
                       </Col>
                     </Row>
 
-                    <Divider orientation="left">个性特征</Divider>
+                    <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>个性特征</Divider>
 
                     {renderTagsInput(
                       ['core', 'traits'],
@@ -529,7 +697,7 @@ const PersonalityPage: React.FC = () => {
                       'AI的缺点和不完美之处'
                     )}
 
-                    <Divider orientation="left">语言习惯</Divider>
+                    <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>语言习惯</Divider>
 
                     {renderTagsInput(
                       ['core', 'catchphrases'],
@@ -538,7 +706,7 @@ const PersonalityPage: React.FC = () => {
                       'AI常说的标志性话语'
                     )}
 
-                    <Divider orientation="left">行为约束</Divider>
+                    <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>行为约束</Divider>
 
                     {renderTagsInput(
                       ['core', 'taboos'],
@@ -629,7 +797,7 @@ const PersonalityPage: React.FC = () => {
                       />
                     </Form.Item>
 
-                    <Divider orientation="left">领域专精</Divider>
+                    <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>领域专精</Divider>
                     <Alert
                       message="领域专精配置"
                       description="格式：领域名:等级，例如 coding:0.9（等级范围0-1）"
@@ -662,6 +830,15 @@ const PersonalityPage: React.FC = () => {
 
       {/* 保存按钮 */}
       <div style={{ marginTop: '16px', textAlign: 'center' }}>
+        {pendingPersonality && (
+          <Alert
+            message="切换人格说明"
+            description="切换人格不会影响已有的记忆数据，但会改变AI的回复风格、行为模式和操作经验。切换后AI将使用新的人格配置与您交互。"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16, textAlign: 'left' }}
+          />
+        )}
         <Space>
           <Button icon={<ReloadOutlined />} onClick={handleReset}>
             重置
@@ -677,6 +854,45 @@ const PersonalityPage: React.FC = () => {
           </Button>
         </Space>
       </div>
+
+      {/* 确认切换弹窗 */}
+      <Modal
+        title={
+          <Space>
+            <DiffOutlined />
+            <span>确认切换人格</span>
+          </Space>
+        }
+        open={confirmModalVisible}
+        onOk={handleConfirmSwitch}
+        onCancel={handleCancelSwitch}
+        okText="确认切换"
+        cancelText="取消"
+        width={600}
+        okButtonProps={{ icon: <CheckOutlined /> }}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <div>
+            <Text strong>从：</Text>
+            <Tag color="default" style={{ marginLeft: 8 }}>
+              {compareData?.from_config?.core?.name || currentPersonality}
+            </Tag>
+          </div>
+          <div>
+            <Text strong>到：</Text>
+            <Tag color="blue" style={{ marginLeft: 8 }}>
+              {compareData?.to_config?.core?.name || pendingPersonality}
+            </Tag>
+          </div>
+          <Divider style={{ margin: '8px 0' }} />
+          <div>
+            <Text type="secondary">
+              找到 {compareData?.diffs.length || 0} 处不同配置
+            </Text>
+          </div>
+          {renderDiffs()}
+        </Space>
+      </Modal>
 
       {/* 创建新人格对话框 */}
       <Modal

@@ -305,6 +305,55 @@ async def ai_generate_personality(description: str) -> PersonalityConfigModel:
         raise
 
 
+# ============ Current人格管理 ============
+
+CURRENT_FILE = "current"
+
+
+def get_current_personality() -> str:
+    """获取当前激活的人格名称"""
+    runtime_paths = get_runtime_paths()
+    current_file = runtime_paths.personalities_dir / CURRENT_FILE
+
+    if current_file.exists():
+        return current_file.read_text().strip()
+    return "default"
+
+
+def set_current_personality(name: str) -> bool:
+    """设置当前激活的人格"""
+    runtime_paths = get_runtime_paths()
+    current_file = runtime_paths.personalities_dir / CURRENT_FILE
+
+    try:
+        current_file.write_text(name)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to set current personality: {e}")
+        return False
+
+
+# ============ 人格比较 ============
+
+class PersonalityDiff(BaseModel):
+    """人格差异"""
+    field: str = Field(..., description="字段名称")
+    field_label: str = Field(..., description="字段显示名称")
+    old_value: Any = Field(None, description="原值")
+    new_value: Any = Field(None, description="新值")
+
+
+class PersonalityCompareResponse(BaseModel):
+    """人格比较响应"""
+    success: bool
+    message: str
+    from_personality: str
+    to_personality: str
+    diffs: List[PersonalityDiff]
+    from_config: Optional[PersonalityConfigModel] = None
+    to_config: Optional[PersonalityConfigModel] = None
+
+
 # ============ API端点 ============
 
 @personality_router.get("/{name}", response_model=PersonalityResponse)
@@ -497,4 +546,227 @@ async def delete_personality(name: str):
         raise
     except Exception as e:
         logger.error(f"Failed to delete personality: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@personality_router.get("/current", response_model=PersonalityResponse)
+async def get_current_personality():
+    """
+    获取当前激活的人格
+
+    Returns:
+        当前人格名称
+    """
+    try:
+        current = get_current_personality()
+        return PersonalityResponse(
+            success=True,
+            message="获取当前人格成功",
+            data={"current": current}
+        )
+    except Exception as e:
+        logger.error(f"Failed to get current personality: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@personality_router.put("/current", response_model=PersonalityResponse)
+async def set_current_personality(request: Dict[str, str]):
+    """
+    设置当前激活的人格
+
+    Args:
+        request: {"name": "人格名称"}
+
+    Returns:
+        设置结果
+    """
+    try:
+        name = request.get("name")
+        if not name:
+            raise HTTPException(status_code=400, detail="缺少人格名称")
+
+        # 验证人格存在
+        loader = get_personality_loader()
+        try:
+            loader.load(name)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"人格 '{name}' 不存在")
+
+        if set_current_personality(name):
+            return PersonalityResponse(
+                success=True,
+                message=f"已切换到人格: {name}",
+                data={"current": name}
+            )
+        else:
+            raise HTTPException(status_code=500, detail="设置失败")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set current personality: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@personality_router.get("/compare/{from_name}/{to_name}", response_model=PersonalityCompareResponse)
+async def compare_personalities(from_name: str, to_name: str):
+    """
+    比较两个人格配置的差异
+
+    Args:
+        from_name: 源人格名称
+        to_name: 目标人格名称
+
+    Returns:
+        比较结果
+    """
+    try:
+        loader = get_personality_loader()
+
+        # 加载两个人格配置
+        from_config = loader.load(from_name)
+        to_config = loader.load(to_name)
+
+        # 比较差异
+        diffs = []
+
+        # 字段显示名称映射
+        field_labels = {
+            # Core fields
+            'name': 'AI名字',
+            'role': '角色定位',
+            'backstory': '背景故事',
+            'language_style': '语言风格',
+            'use_emoji': '使用表情',
+            'catchphrases': '口头禅',
+            'tone': '语调',
+            'communication_distance': '沟通距离',
+            'value_alignment': '价值观',
+            'traits': '个性标签',
+            'virtues': '优点',
+            'flaws': '缺点',
+            'taboos': '禁忌',
+            'boundaries': '行为边界',
+            # Cognition fields
+            'primary_style': '主要思维风格',
+            'secondary_style': '次要思维风格',
+            'risk_preference': '风险偏好',
+            'reasoning_depth': '推理深度',
+            'creativity_level': '创造力水平',
+            'learning_rate': '学习速率',
+            'expertise': '领域专精',
+        }
+
+        # 比较核心人格
+        for field in ['name', 'role', 'backstory', 'tone', 'communication_distance', 'value_alignment',
+                       'language_style', 'primary_style', 'secondary_style', 'risk_preference', 'reasoning_depth']:
+            from_val = getattr(from_config, field, None)
+            to_val = getattr(to_config, field, None)
+            if from_val != to_val:
+                diffs.append(PersonalityDiff(
+                    field=field,
+                    field_label=field_labels.get(field, field),
+                    old_value=from_val,
+                    new_value=to_val
+                ))
+
+        # 比较数组字段
+        for field in ['catchphrases', 'traits', 'virtues', 'flaws', 'taboos', 'boundaries']:
+            from_val = getattr(from_config, field, None) or []
+            to_val = getattr(to_config, field, None) or []
+            if from_val != to_val:
+                diffs.append(PersonalityDiff(
+                    field=field,
+                    field_label=field_labels.get(field, field),
+                    old_value=from_val,
+                    new_value=to_val
+                ))
+
+        # 比较数值字段
+        for field in ['creativity_level', 'learning_rate']:
+            from_val = getattr(from_config, field, None)
+            to_val = getattr(to_config, field, None)
+            if from_val != to_val:
+                diffs.append(PersonalityDiff(
+                    field=field,
+                    field_label=field_labels.get(field, field),
+                    old_value=from_val,
+                    new_value=to_val
+                ))
+
+        # 比较expertise字典
+        from_exp = getattr(from_config, 'expertise', None) or {}
+        to_exp = getattr(to_config, 'expertise', None) or {}
+        if from_exp != to_exp:
+            diffs.append(PersonalityDiff(
+                field='expertise',
+                field_label='领域专精',
+                old_value=from_exp,
+                new_value=to_exp
+            ))
+
+        return PersonalityCompareResponse(
+            success=True,
+            message=f"比较完成: {len(diffs)} 处不同",
+            from_personality=from_name,
+            to_personality=to_name,
+            diffs=diffs,
+            from_config=PersonalityConfigModel(
+                core=CorePersonalityModel(
+                    name=from_config.name,
+                    role=from_config.role,
+                    backstory=from_config.backstory,
+                    language_style=from_config.language_style,
+                    use_emoji=from_config.use_emoji,
+                    catchphrases=from_config.catchphrases or [],
+                    tone=from_config.tone,
+                    communication_distance=from_config.communication_distance,
+                    value_alignment=from_config.value_alignment,
+                    traits=from_config.traits or [],
+                    virtues=from_config.virtues or [],
+                    flaws=from_config.flaws or [],
+                    taboos=from_config.taboos or [],
+                    boundaries=from_config.boundaries or [],
+                ),
+                cognition=CognitionProfileModel(
+                    primary_style=from_config.primary_style,
+                    secondary_style=from_config.secondary_style,
+                    risk_preference=from_config.risk_preference,
+                    reasoning_depth=from_config.reasoning_depth,
+                    creativity_level=from_config.creativity_level,
+                    learning_rate=from_config.learning_rate,
+                    expertise=from_config.expertise or {},
+                ),
+            ),
+            to_config=PersonalityConfigModel(
+                core=CorePersonalityModel(
+                    name=to_config.name,
+                    role=to_config.role,
+                    backstory=to_config.backstory,
+                    language_style=to_config.language_style,
+                    use_emoji=to_config.use_emoji,
+                    catchphrases=to_config.catchphrases or [],
+                    tone=to_config.tone,
+                    communication_distance=to_config.communication_distance,
+                    value_alignment=to_config.value_alignment,
+                    traits=to_config.traits or [],
+                    virtues=to_config.virtues or [],
+                    flaws=to_config.flaws or [],
+                    taboos=to_config.taboos or [],
+                    boundaries=to_config.boundaries or [],
+                ),
+                cognition=CognitionProfileModel(
+                    primary_style=to_config.primary_style,
+                    secondary_style=to_config.secondary_style,
+                    risk_preference=to_config.risk_preference,
+                    reasoning_depth=to_config.reasoning_depth,
+                    creativity_level=to_config.creativity_level,
+                    learning_rate=to_config.learning_rate,
+                    expertise=to_config.expertise or {},
+                ),
+            ),
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"人格不存在: {e}")
+    except Exception as e:
+        logger.error(f"Failed to compare personalities: {e}")
         raise HTTPException(status_code=500, detail=str(e))

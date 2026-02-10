@@ -44,7 +44,24 @@ export interface AIGenerateRequest {
 export interface PersonalityResponse {
   success: boolean;
   message: string;
-  data?: PersonalityConfig;
+  data?: PersonalityConfig | { current: string } | { personalities: string[] };
+}
+
+export interface PersonalityDiff {
+  field: string;
+  field_label: string;
+  old_value: any;
+  new_value: any;
+}
+
+export interface PersonalityCompareResponse {
+  success: boolean;
+  message: string;
+  from_personality: string;
+  to_personality: string;
+  diffs: PersonalityDiff[];
+  from_config?: PersonalityConfig;
+  to_config?: PersonalityConfig;
 }
 
 // API方法
@@ -65,6 +82,16 @@ export const personalityApi = {
 
   // 删除人格配置
   delete: (name: string) => api.delete<PersonalityResponse>(`/personality/${name}`),
+
+  // 获取当前激活的人格
+  getCurrent: () => api.get<PersonalityResponse>('/personality/current'),
+
+  // 设置当前激活的人格
+  setCurrent: (name: string) => api.put<PersonalityResponse>('/personality/current', { name }),
+
+  // 比较两个人格
+  compare: (fromName: string, toName: string) =>
+    api.get<PersonalityCompareResponse>(`/personality/compare/${fromName}/${toName}`),
 };
 
 export default personalityApi;
