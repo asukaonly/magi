@@ -84,7 +84,8 @@ def get_personality_loader() -> PersonalityLoader:
 def save_personality_file(name: str, config: PersonalityConfigModel) -> bool:
     """保存人格配置到Markdown文件"""
     try:
-        PERSONALITIES_PATH.mkdir(parents=True, exist_ok=True)
+        runtime_paths = get_runtime_paths()
+        runtime_paths.personalities_dir.mkdir(parents=True, exist_ok=True)
 
         # 辅助函数：格式化数组
         def format_array(items: List[str]) -> str:
@@ -447,9 +448,10 @@ async def list_personalities():
     """
     try:
         personalities = []
+        runtime_paths = get_runtime_paths()
 
-        if PERSONALITIES_PATH.exists():
-            for filepath in PERSONALITIES_PATH.glob("*.md"):
+        if runtime_paths.personalities_dir.exists():
+            for filepath in runtime_paths.personalities_dir.glob("*.md"):
                 personalities.append(filepath.stem)
 
         return PersonalityResponse(
@@ -477,7 +479,8 @@ async def delete_personality(name: str):
         if name == DEFAULT_PERSONALITY:
             raise HTTPException(status_code=400, detail="不能删除默认人格")
 
-        filepath = PERSONALITIES_PATH / f"{name}.md"
+        runtime_paths = get_runtime_paths()
+        filepath = runtime_paths.personality_file(name)
 
         if filepath.exists():
             filepath.unlink()
