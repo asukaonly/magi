@@ -329,7 +329,7 @@ const PersonalityPage: React.FC = () => {
               <Select
                 value={currentPersonality}
                 onChange={handlePersonalityChange}
-                style={{ width: 180 }}
+                style={{ width: 280 }}
                 placeholder="选择人格"
               >
                 {personalities.map((p) => (
@@ -338,9 +338,6 @@ const PersonalityPage: React.FC = () => {
                   </Option>
                 ))}
               </Select>
-              <Button icon={<ReloadOutlined />} onClick={handleReset}>
-                刷新
-              </Button>
               <Button
                 icon={<PlusOutlined />}
                 onClick={() => setCreateModalVisible(true)}
