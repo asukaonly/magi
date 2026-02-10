@@ -454,10 +454,11 @@ async def list_personalities():
             for filepath in runtime_paths.personalities_dir.glob("*.md"):
                 personalities.append(filepath.stem)
 
+        # 返回人格名称列表
         return PersonalityResponse(
             success=True,
             message=f"找到 {len(personalities)} 个人格配置",
-            data=None  # 这里可以返回人格列表
+            data={"personalities": personalities}
         )
     except Exception as e:
         logger.error(f"Failed to list personalities: {e}")

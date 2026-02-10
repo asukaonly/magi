@@ -107,9 +107,8 @@ const PersonalityPage: React.FC = () => {
   const loadPersonalities = useCallback(async () => {
     try {
       const response = await personalityApi.list();
-      if (response.success) {
-        // 从多个来源获取人格信息
-        const names = ['default', 'technical', 'steve', 'asuka']; // TODO: 从API获取完整列表
+      if (response.success && response.data?.personalities) {
+        const names = response.data.personalities as string[];
         const infos: PersonalityInfo[] = [];
 
         for (const name of names) {
@@ -122,8 +121,8 @@ const PersonalityPage: React.FC = () => {
                 role: resp.data.core.role,
               });
             }
-          } catch {
-            // 如果加载失败，使用文件名
+          } catch (error) {
+            // 加载失败，使用文件名作为显示名
             infos.push({ name, displayName: name });
           }
         }
