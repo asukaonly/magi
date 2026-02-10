@@ -65,7 +65,7 @@ class PersonalityResponse(BaseModel):
     """人格配置响应"""
     success: bool
     message: str
-    data: Optional[PersonalityConfigModel] = None
+    data: Optional[Dict[str, Any]] = None  # 支持多种数据类型
 
 
 # ============ 配置存储路径 ============
