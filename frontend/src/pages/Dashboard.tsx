@@ -23,16 +23,16 @@ const Dashboard: React.FC = () => {
   const { tasks, stats, fetchTasks, fetchStats } = useTasksStore();
   const { systemMetrics, fetchSystemMetrics } = useMetricsStore();
 
-  // WebSocket连接
-  const { connected, subscribe, subscribeChannel } = useWebSocket({
-    onConnected: () => {
-      console.log('WebSocket connected');
-      // 订阅更新
-      subscribeChannel('agents');
-      subscribeChannel('tasks');
-      subscribeChannel('metrics');
-    },
-  });
+  // WebSocket连接 - 暂时禁用
+  // const { connected, subscribe, subscribeChannel } = useWebSocket({
+  //   onConnected: () => {
+  //     console.log('WebSocket connected');
+  //     // 订阅更新
+  //     subscribeChannel('agents');
+  //     subscribeChannel('tasks');
+  //     subscribeChannel('metrics');
+  //   },
+  // });
 
   useEffect(() => {
     fetchAgents();
@@ -40,22 +40,22 @@ const Dashboard: React.FC = () => {
     fetchStats();
     fetchSystemMetrics();
 
-    // 订阅WebSocket更新
-    const unsubscribeAgent = subscribe('agent_update', (data) => {
-      console.log('Agent update received:', data);
-      fetchAgents();
-    });
+    // WebSocket订阅 - 暂时禁用
+    // const unsubscribeAgent = subscribe('agent_update', (data) => {
+    //   console.log('Agent update received:', data);
+    //   fetchAgents();
+    // });
 
-    const unsubscribeTask = subscribe('task_update', (data) => {
-      console.log('Task update received:', data);
-      fetchTasks();
-      fetchStats();
-    });
+    // const unsubscribeTask = subscribe('task_update', (data) => {
+    //   console.log('Task update received:', data);
+    //   fetchTasks();
+    //   fetchStats();
+    // });
 
-    const unsubscribeMetrics = subscribe('metrics_update', (data) => {
-      console.log('Metrics update received:', data);
-      fetchSystemMetrics();
-    });
+    // const unsubscribeMetrics = subscribe('metrics_update', (data) => {
+    //   console.log('Metrics update received:', data);
+    //   fetchSystemMetrics();
+    // });
 
     // 定时刷新（备用方案，每30秒）
     const interval = setInterval(() => {
@@ -63,12 +63,12 @@ const Dashboard: React.FC = () => {
     }, 30000);
 
     return () => {
-      unsubscribeAgent();
-      unsubscribeTask();
-      unsubscribeMetrics();
+      // unsubscribeAgent();
+      // unsubscribeTask();
+      // unsubscribeMetrics();
       clearInterval(interval);
     };
-  }, [subscribe, fetchAgents, fetchTasks, fetchStats, fetchSystemMetrics]);
+  }, [fetchAgents, fetchTasks, fetchStats, fetchSystemMetrics]);
 
   // 计算Agent统计
   const runningAgents = agents.filter((a) => a.state === 'running').length;
@@ -316,12 +316,12 @@ const Dashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 聊天对话 */}
-      <Row gutter={16} style={{ marginBottom: 24 }}>
+      {/* 聊天对话 - WebSocket暂时禁用 */}
+      {/* <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col span={24}>
           <ChatBox />
         </Col>
-      </Row>
+      </Row> */}
 
       {/* Agent列表 */}
       <Card
@@ -361,8 +361,8 @@ const Dashboard: React.FC = () => {
         />
       </Card>
 
-      {/* 实时日志 */}
-      <RealtimeLogs />
+      {/* 实时日志 - WebSocket暂时禁用 */}
+      {/* <RealtimeLogs /> */}
     </div>
   );
 };

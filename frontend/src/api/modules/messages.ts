@@ -10,14 +10,11 @@ export interface UserMessageRequest {
   metadata?: Record<string, any>;
 }
 
-export interface MessageResponse {
-  success: boolean;
-  message: string;
-  data?: {
-    user_id: string;
-    message_length: number;
-    timestamp: number;
-  };
+// 后端实际返回的 data 结构
+export interface MessageData {
+  user_id: string;
+  message_length: number;
+  timestamp: number;
 }
 
 export interface SensorStatus {
@@ -28,13 +25,25 @@ export interface SensorStatus {
   queue_size: number;
 }
 
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+}
+
+export interface ConversationHistory {
+  user_id: string;
+  messages: ChatHistoryMessage[];
+  count: number;
+}
+
 export const messagesApi = {
   /**
    * 发送用户消息
    */
-  sendMessage: async (request: UserMessageRequest): Promise<MessageResponse> => {
-    const response = await api.post<MessageResponse>('/messages/send', request);
-    return response.data;
+  sendMessage: async (request: UserMessageRequest): Promise<{ success: boolean; message: string; data?: MessageData }> => {
+    const response = await api.post<MessageData>('/messages/send', request);
+    return response;
   },
 
   /**
@@ -42,22 +51,42 @@ export const messagesApi = {
    */
   getSensorStatus: async (): Promise<SensorStatus> => {
     const response = await api.get<SensorStatus>('/messages/sensor/status');
-    return response.data;
+    return response;
   },
 
   /**
    * 启用传感器
    */
   enableSensor: async (): Promise<{ success: boolean; message: string }> => {
-    const response = await api.post('/messages/sensor/enable');
-    return response.data;
+    const response = await api.post<{ success: boolean; message: string }>('/messages/sensor/enable');
+    return response;
   },
 
   /**
    * 禁用传感器
    */
   disableSensor: async (): Promise<{ success: boolean; message: string }> => {
-    const response = await api.post('/messages/sensor/disable');
-    return response.data;
+    const response = await api.post<{ success: boolean; message: string }>('/messages/sensor/disable');
+    return response;
+  },
+
+  /**
+   * 获取对话历史
+   */
+  getHistory: async (userId: string = 'web_user'): Promise<ConversationHistory> => {
+    const response = await api.get<ConversationHistory>('/messages/history', {
+      params: { user_id: userId },
+    });
+    return response;
+  },
+
+  /**
+   * 清空对话历史
+   */
+  clearHistory: async (userId: string = 'web_user'): Promise<{ success: boolean; message: string; user_id: string }> => {
+    const response = await api.post<{ success: boolean; message: string; user_id: string }>('/messages/history/clear', null, {
+      params: { user_id: userId },
+    });
+    return response;
   },
 };

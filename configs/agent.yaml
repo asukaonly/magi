@@ -6,12 +6,12 @@ agent:
 
   # LLM配置
   llm:
-    provider: "anthropic" # openai | anthropic | local
+    provider: "openai" # openai | anthropic | local（使用 OpenAI 格式）
     model: "anthropic/claude-opus-4.6"
     api_key: "${OPENAI_API_KEY}" # 从环境变量读取
     # 【可选】自定义API endpoint（代理/中转服务）
     # 方式1: 使用base_url（推荐）
-    base_url: "${OPENAI_BASE_URL:}" # 留空使用默认API
+    base_url: "${OPENAI_BASE_URL:https://zenmux.ai/api/v1}" # ZENMUX API endpoint
     # 方式2: 使用api_base（兼容旧配置）
     # api_base: "${OPENAI_BASE_URL:}"
     temperature: 0.7
@@ -25,6 +25,13 @@ agent:
     db_path: "./data/memories"
     chromadb_path: "./data/chromadb"
     retention_days: 7
+
+  # 人格配置
+  personality:
+    name: "default"  # 人格名称，对应 personalities/default.md
+    path: "./personalities"  # 人格配置文件目录
+    enable_evolution: true  # 是否启用人格演化（L3/L4/L5层）
+    db_path: "./data/memories/self_memory_v2.db"  # 人格数据库路径
 
   # 消息总线配置
   message_bus:

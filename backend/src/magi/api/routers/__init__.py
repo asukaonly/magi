@@ -9,6 +9,8 @@ from .tools import tools_router
 from .memory import memory_router
 from .metrics import metrics_router
 from .messages import user_messages_router
+from .config import config_router
+from .personality import personality_router
 
 __all__ = [
     "agents_router",
@@ -17,4 +19,6 @@ __all__ = [
     "memory_router",
     "metrics_router",
     "user_messages_router",
+    "config_router",
+    "personality_router",
 ]

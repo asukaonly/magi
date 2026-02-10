@@ -7,6 +7,10 @@ Magi AI Agent Framework - 服务器启动脚本
 import sys
 import os
 
+# 加载.env文件
+from dotenv import load_dotenv
+load_dotenv()
+
 # 添加src目录到Python路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 

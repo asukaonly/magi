@@ -2,6 +2,7 @@
 工具模块
 
 提供内置工具和工具注册表
+支持 Claude Tool Use API 格式
 """
 from .schema import (
     Tool,
@@ -12,6 +13,7 @@ from .schema import (
     ParameterType,
 )
 from .registry import ToolRegistry, tool_registry
+from .selector import ToolSelector
 from .recommender import ToolRecommender, ScenarioType
 from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
 from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
@@ -21,6 +23,7 @@ from .builtin.bash_tool import BashTool
 from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
 from .builtin.file_list_tool import FileListTool
+from .builtin.dynamic_tool import DynamicTool, create_dynamic_tool
 
 # 注册所有内置工具
 _builtin_tools = [
@@ -50,6 +53,9 @@ __all__ = [
     "ToolRegistry",
     "tool_registry",
 
+    # 工具选择器
+    "ToolSelector",
+
     # 推荐引擎
     "ToolRecommender",
     "ScenarioType",
@@ -64,6 +70,10 @@ __all__ = [
     "ToolVersionManager",
     "ToolVersion",
     "VersionCompatibility",
+
+    # 动态工具
+    "DynamicTool",
+    "create_dynamic_tool",
 
     # 内置工具
     "BashTool",

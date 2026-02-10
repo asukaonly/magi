@@ -478,9 +478,9 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
             loader = get_personality_loader()
             loader.reload(actual_name)
 
-            # 如果重命名了，删除旧缓存
-            if actual_name != name:
-                loader.clear_cache(name)
+            # 如果重命名了，清除旧文件名的缓存
+            if actual_name != name and name in loader._cache:
+                del loader._cache[name]
 
             logger.info(f"[API] 人格配置保存成功: {actual_name}")
             # 构建响应数据，包含实际文件名和配置

@@ -164,19 +164,19 @@
 - [x] 13.5 配置Axios API客户端
 - [x] 13.6 实现基础布局（Header、Sidebar、MainLayout）
 - [x] 13.7 实现API调用模块（agents、tasks、tools、memory）
-- [ ] 13.8 实现WebSocket客户端
-- [ ] 13.9 实现自定义Hooks（useAgents、useTasks、useMetrics、useWebSocket）[SKIPPED-使用Zustand store代替]
+- [x] 13.8 实现WebSocket客户端
+- [x] 13.9 实现自定义Hooks（useAgents、useTasks、useMetrics、useWebSocket）[SKIPPED-使用Zustand store代替]
 
 ## 14. 前端页面开发
 
 - [x] 14.1 实现Dashboard仪表盘页面
-- [ ] 14.2 实现Agent管理页面（列表、详情、创建）
-- [ ] 14.3 实现Agent监控面板（实时状态、循环可视化）
-- [ ] 14.4 实现任务管理页面（列表、详情、时间线）
-- [ ] 14.5 实现记忆管理页面（搜索、详情、可视化）
-- [ ] 14.6 实现工具管理页面（注册中心、测试）
-- [ ] 14.7 实现设置页面（配置编辑）
-- [ ] 14.8 集成Recharts图表组件
+- [x] 14.2 实现Agent管理页面（列表、详情、创建）
+- [x] 14.3 实现Agent监控面板（实时状态、循环可视化）
+- [x] 14.4 实现任务管理页面（列表、详情、时间线）
+- [x] 14.5 实现记忆管理页面（搜索、详情、可视化）
+- [x] 14.6 实现工具管理页面（注册中心、测试）
+- [x] 14.7 实现设置页面（配置编辑）
+- [x] 14.8 集成Recharts图表组件
 
 ## 15. 示例和文档
 

@@ -7,10 +7,13 @@ from .bash_tool import BashTool
 from .file_read_tool import FileReadTool
 from .file_write_tool import FileWriteTool
 from .file_list_tool import FileListTool
+from .dynamic_tool import DynamicTool, create_dynamic_tool
 
 __all__ = [
     "BashTool",
     "FileReadTool",
     "FileWriteTool",
     "FileListTool",
+    "DynamicTool",
+    "create_dynamic_tool",
 ]

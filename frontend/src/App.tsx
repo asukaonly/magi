@@ -7,6 +7,7 @@ import zhCN from 'antd/locale/zh_CN';
 import AppRouter from './router';
 
 const App: React.FC = () => {
+  console.log('🔵 App 组件渲染');
   return (
     <ConfigProvider
       locale={zhCN}

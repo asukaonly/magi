@@ -2,10 +2,13 @@
 配置管理模块 - YAML配置加载器
 """
 import os
+import logging
 import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any
 from .models import Config, AgentConfig
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigLoader:
@@ -19,14 +22,20 @@ class ConfigLoader:
             config_path: 配置文件路径，默认为 ./configs/agent.yaml
         """
         if config_path is None:
-            # 尝试多个默认位置
-            for default_path in [
-                "./configs/agent.yaml",
-                "./agent.yaml",
-                "/etc/magi/agent.yaml",
-            ]:
-                if os.path.exists(default_path):
-                    config_path = default_path
+            # 尝试多个默认位置（支持从不同目录运行）
+            possible_paths = [
+                "./configs/agent.yaml",           # 从项目根目录运行
+                "../configs/agent.yaml",          # 从 backend 目录运行
+                "./agent.yaml",                   # 当前目录
+                "/etc/magi/agent.yaml",           # 系统级配置
+            ]
+
+            for default_path in possible_paths:
+                # 转换为绝对路径
+                abs_path = os.path.abspath(default_path)
+                if os.path.exists(abs_path):
+                    config_path = abs_path
+                    logger.info(f"Found config file: {config_path}")
                     break
 
         self.config_path = config_path
@@ -83,16 +92,21 @@ class ConfigLoader:
         """
         if isinstance(data, str):
             # 替换环境变量
-            if data.startswith("${") and data.endswith("}"):
-                # 去掉 ${ 和 }
-                var_spec = data[2:-1]
+            if "${" in data and "}" in data:
+                # 找到所有 ${...} 模式
+                import re
+                pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'
 
-                # 检查是否有默认值
-                if ":" in var_spec:
-                    var_name, default_value = var_spec.split(":", 1)
+                def replace_var(match):
+                    var_name = match.group(1)
+                    default_value = match.group(2) if match.group(2) is not None else ""
                     return os.getenv(var_name, default_value)
-                else:
-                    return os.getenv(var_spec)
+
+                result = re.sub(pattern, replace_var, data)
+                # 如果替换后还是环境变量格式且值为空，返回空字符串
+                if result.startswith("${") and not os.getenv(data[2:data.index('}')]):
+                    return ""
+                return result
             return data
 
         elif isinstance(data, dict):

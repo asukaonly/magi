@@ -73,6 +73,18 @@ class MemoryConfig(BaseModel):
     retention_days: int = Field(default=7, ge=1)
 
 
+class PersonalityConfig(BaseModel):
+    """人格配置"""
+    # 人格名称（对应personalities目录下的文件名）
+    name: str = Field(default="default")
+    # 人格配置文件目录
+    path: str = Field(default="./personalities")
+    # 是否启用人格演化（L3/L4/L5层）
+    enable_evolution: bool = Field(default=True)
+    # 人格数据库路径
+    db_path: str = Field(default="./data/memories/self_memory_v2.db")
+
+
 class PluginConfig(BaseModel):
     """插件配置"""
     enabled: bool = Field(default=True)
@@ -98,6 +110,9 @@ class AgentConfig(BaseModel):
 
     # 监控配置
     enable_monitoring: bool = Field(default=True)
+
+    # 人格配置
+    personality: PersonalityConfig = Field(default_factory=PersonalityConfig)
 
 
 class Config(BaseModel):

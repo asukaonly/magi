@@ -12,6 +12,8 @@ import json
 from .middleware import ErrorHandler, AuthMiddleware, RequestLoggingMiddleware, add_cors_middleware
 from .responses import SuccessResponse
 from .websocket import manager, broadcast_agent_update, broadcast_task_update, broadcast_metrics_update, broadcast_log
+from ..agent import initialize_chat_agent, shutdown_chat_agent
+from ..core.logger import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,17 @@ def create_app() -> FastAPI:
     Returns:
         FastAPI应用实例
     """
+    # 配置日志（同时输出到控制台和文件）
+    import os
+    log_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs")
+    log_file = os.path.join(log_dir, "magi.log")
+
+    configure_logging(
+        level="INFO",
+        log_file=log_file,
+        json_logs=False,
+    )
+
     app = FastAPI(
         title="Magi AI Agent Framework API",
         description="AI Agent Framework RESTful API",
@@ -72,6 +85,17 @@ def create_app() -> FastAPI:
 
     # 注册路由
     _register_routes(app)
+
+    # 注册生命周期事件
+    @app.on_event("startup")
+    async def startup_event():
+        """应用启动时初始化ChatAgent"""
+        await initialize_chat_agent()
+
+    @app.on_event("shutdown")
+    async def shutdown_event():
+        """应用关闭时停止ChatAgent"""
+        await shutdown_chat_agent()
 
     # 添加健康检查端点
     @app.get("/api/health", tags=["Health"])
@@ -103,29 +127,63 @@ def create_app() -> FastAPI:
     # WebSocket端点
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
-        """WebSocket端点"""
-        await manager.connect(websocket)
+        """WebSocket端点 - 支持房间订阅"""
+        # 生成唯一的会话ID
+        import uuid
+        sid = str(uuid.uuid4())
+
+        logger.info(f"New WebSocket connection attempt: {sid}")
+
+        await manager.connect(sid, websocket)
+        logger.info(f"WebSocket connection established: {sid}")
+
         try:
             while True:
                 # 接收客户端消息
-                data = await websocket.receive_json()
-                logger.debug(f"Received WebSocket message: {data}")
+                try:
+                    data = await websocket.receive_json()
+                    logger.debug(f"Received WebSocket message from {sid}: {data}")
+                except Exception as e:
+                    logger.warning(f"Failed to receive JSON from {sid}: {e}")
+                    # 尝试接收文本并解析
+                    text_data = await websocket.receive_text()
+                    logger.debug(f"Received text from {sid}: {text_data}")
+                    try:
+                        data = json.loads(text_data)
+                    except:
+                        logger.error(f"Invalid data format from {sid}")
+                        continue
 
                 # 处理订阅请求
                 if data.get("type") == "subscribe":
-                    # 订阅特定频道的消息
+                    channel = data.get("channel")
+                    manager.join_room(sid, channel)
                     await websocket.send_json({
                         "type": "subscribed",
-                        "channel": data.get("channel"),
+                        "channel": channel,
+                        "sid": sid,
                     })
+                    logger.info(f"Client {sid} subscribed to {channel}")
+
+                elif data.get("type") == "unsubscribe":
+                    channel = data.get("channel")
+                    manager.leave_room(sid, channel)
+                    await websocket.send_json({
+                        "type": "unsubscribed",
+                        "channel": channel,
+                    })
+                    logger.info(f"Client {sid} unsubscribed from {channel}")
+
                 elif data.get("type") == "ping":
                     await websocket.send_json({"type": "pong"})
+                    logger.debug(f"Ping from {sid}")
 
         except WebSocketDisconnect:
-            manager.disconnect(websocket)
+            logger.info(f"WebSocket {sid} disconnected (WebSocketDisconnect)")
+            manager.disconnect(sid)
         except Exception as e:
-            logger.error(f"WebSocket error: {e}")
-            manager.disconnect(websocket)
+            logger.error(f"WebSocket error for {sid}: {e}")
+            manager.disconnect(sid)
 
     return app
 
@@ -144,6 +202,8 @@ def _register_routes(app: FastAPI):
         memory_router,
         metrics_router,
         user_messages_router,
+        config_router,
+        personality_router,
     )
 
     # 注册Agent管理路由
@@ -186,6 +246,20 @@ def _register_routes(app: FastAPI):
         user_messages_router,
         prefix="/api/messages",
         tags=["Messages"],
+    )
+
+    # 注册配置管理路由
+    app.include_router(
+        config_router,
+        prefix="/api/config",
+        tags=["Config"],
+    )
+
+    # 注册人格配置路由
+    app.include_router(
+        personality_router,
+        prefix="/api/personality",
+        tags=["Personality"],
     )
 
 

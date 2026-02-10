@@ -211,4 +211,119 @@ class Tool(ABC):
             "parameters": [p.dict() for p in self.schema.parameters] if self.schema else [],
             "examples": self.schema.examples if self.schema else [],
             "version": self.schema.version if self.schema else "1.0.0",
+            "dangerous": self.schema.dangerous if self.schema else False,
         }
+
+    def to_claude_format(self) -> Dict[str, Any]:
+        """
+        转换为 Claude Tool Use API 格式
+
+        Claude tools 定义格式：
+        {
+            "name": "tool_name",
+            "description": "Tool description",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "param1": {"type": "string", "description": "..."}
+                },
+                "required": ["param1"]
+            }
+        }
+
+        Returns:
+            Claude tools API 格式的工具定义
+        """
+        if not self.schema:
+            return {}
+
+        # 构建 properties
+        properties = {}
+        required = []
+
+        for param in self.schema.parameters:
+            prop_def = {
+                "type": param.type.value,
+                "description": param.description,
+            }
+
+            # 添加默认值
+            if param.default is not None:
+                prop_def["default"] = param.default
+
+            # 添加枚举值
+            if param.enum:
+                prop_def["enum"] = param.enum
+
+            # 添加范围限制
+            if param.min_value is not None:
+                prop_def["min"] = param.min_value
+            if param.max_value is not None:
+                prop_def["max"] = param.max_value
+
+            properties[param.name] = prop_def
+
+            # 收集必需参数
+            if param.required:
+                required.append(param.name)
+
+        input_schema = {
+            "type": "object",
+            "properties": properties,
+        }
+
+        if required:
+            input_schema["required"] = required
+
+        return {
+            "name": self.schema.name,
+            "description": self.schema.description,
+            "input_schema": input_schema,
+        }
+
+    @classmethod
+    def from_claude_format(cls, tool_def: Dict[str, Any]) -> 'Tool':
+        """
+        从 Claude Tool Use API 格式创建工具定义
+
+        Args:
+            tool_def: Claude 格式的工具定义
+
+        Returns:
+            ToolSchema 对象
+        """
+        from . import registry
+
+        # 这是一个类方法，但实际创建工具需要具体的工具类
+        # 这里只返回 schema，实际工具需要由具体的工具类实现
+        parameters = []
+
+        input_schema = tool_def.get("input_schema", {})
+        props = input_schema.get("properties", {})
+        required_list = input_schema.get("required", [])
+
+        for param_name, param_def in props.items():
+            param_type = ParameterType.STRING
+            if "type" in param_def:
+                try:
+                    param_type = ParameterType(param_def["type"])
+                except ValueError:
+                    param_type = ParameterType.STRING
+
+            parameters.append(ToolParameter(
+                name=param_name,
+                type=param_type,
+                description=param_def.get("description", ""),
+                required=param_name in required_list,
+                default=param_def.get("default"),
+                enum=param_def.get("enum"),
+                min_value=param_def.get("min"),
+                max_value=param_def.get("max"),
+            ))
+
+        return ToolSchema(
+            name=tool_def.get("name", "unknown"),
+            description=tool_def.get("description", ""),
+            category="external",  # 从 Claude 导入的工具默认为 external
+            parameters=parameters,
+        )

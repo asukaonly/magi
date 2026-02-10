@@ -389,6 +389,52 @@ class ToolRegistry:
                 for name, stats in self._stats.items()
             }
 
+    def export_to_claude_format(self) -> List[Dict[str, Any]]:
+        """
+        导出所有工具为 Claude Tool Use API 格式
+
+        Returns:
+            Claude tools API 格式的工具列表
+        """
+        tools = []
+        for tool_name in self._tools.keys():
+            tool = self.get_tool(tool_name)
+            if tool:
+                tools.append(tool.to_claude_format())
+        return tools
+
+    def import_from_claude_format(
+        self,
+        tool_defs: List[Dict[str, Any]],
+        executor: callable
+    ) -> None:
+        """
+        从 Claude Tool Use API 格式导入工具
+
+        Args:
+            tool_defs: Claude 格式的工具定义列表
+            executor: 执行函数，签名为 async def execute(name, params) -> Any
+        """
+        from .builtin import DynamicTool
+
+        for tool_def in tool_defs:
+            schema = Tool.Schema.from_claude_format(tool_def)
+
+            # 创建动态工具类
+            dynamic_tool = type(
+                f"ClaudeTool_{tool_def['name']}",
+                (DynamicTool,),
+                {
+                    "schema": schema,
+                    "_executor": staticmethod(executor),
+                }
+            )
+
+            try:
+                self.register(dynamic_tool)
+            except Exception as e:
+                logger.error(f"Failed to import tool {tool_def.get('name')}: {e}")
+
 
 # 全局工具注册表实例
 tool_registry = ToolRegistry()

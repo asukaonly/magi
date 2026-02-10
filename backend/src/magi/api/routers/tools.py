@@ -186,3 +186,74 @@ async def list_tool_categories():
         "success": True,
         "data": list(categories),
     }
+
+
+@tools_router.get("/export/claude")
+async def export_tools_claude_format():
+    """
+    导出工具定义为 Claude Tool Use API 格式
+
+    Returns:
+        Claude tools API 格式的工具定义列表
+    """
+    from ...tools import tool_registry
+
+    claude_tools = tool_registry.export_to_claude_format()
+
+    return {
+        "success": True,
+        "data": claude_tools,
+        "format": "claude_tool_use_api",
+        "count": len(claude_tools),
+    }
+
+
+@tools_router.post("/import/claude")
+async def import_tools_claude_format(tools: List[Dict[str, Any]]):
+    """
+    从 Claude Tool Use API 格式导入工具
+
+    Args:
+        tools: Claude 格式的工具定义列表
+
+    Returns:
+        导入结果
+    """
+    from ...tools import tool_registry
+
+    imported = []
+    failed = []
+
+    for tool_def in tools:
+        try:
+            # 创建动态工具的执行器
+            async def executor(name, params):
+                # 这里只是一个占位符，实际使用时需要提供真实的执行逻辑
+                return f"Tool {name} executed with params: {params}"
+
+            from ...tools.builtin import create_dynamic_tool
+
+            dynamic_tool = create_dynamic_tool(
+                name=tool_def.get("name", "unknown"),
+                description=tool_def.get("description", ""),
+                parameters=tool_def.get("input_schema", {}).get("properties", []),
+                executor=executor,
+            )
+
+            tool_registry.register(dynamic_tool)
+            imported.append(tool_def.get("name"))
+
+        except Exception as e:
+            failed.append({
+                "name": tool_def.get("name", "unknown"),
+                "error": str(e)
+            })
+
+    return {
+        "success": True,
+        "data": {
+            "imported": imported,
+            "failed": failed,
+        },
+        "message": f"Imported {len(imported)} tools, {len(failed)} failed",
+    }
