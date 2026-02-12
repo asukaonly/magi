@@ -92,7 +92,7 @@ class GrowthMemoryEngine:
     记录和管理AI的长期成长轨迹
     """
 
-    def __init__(self, db_path: str = "./data/memories/growth_memory.db"):
+    def __init__(self, db_path: str = "~/.magi/data/memories/growth_memory.db"):
         """
         初始化成长记忆引擎
 
@@ -103,11 +103,17 @@ class GrowthMemoryEngine:
         self._relationship_cache: Dict[str, RelationshipProfile] = {}
         self._milestone_cache: Optional[List[Milestone]] = None
 
+    @property
+    def _expanded_db_path(self) -> str:
+        """获取展开后的数据库路径（处理 ~）"""
+        from pathlib import Path
+        return str(Path(self.db_path).expanduser())
+
     async def init(self):
         """初始化数据库"""
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             # 里程碑表
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS milestones (
@@ -202,7 +208,7 @@ class GrowthMemoryEngine:
             metadata=metadata or {},
         )
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT INTO milestones (id, type, title, description, timestamp, metadata)
                    VALUES (?, ?, ?, ?, ?, ?)""",
@@ -246,7 +252,7 @@ class GrowthMemoryEngine:
         if self._milestone_cache is not None and milestone_type is None:
             return self._milestone_cache[:limit]
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             if milestone_type:
                 cursor = await db.execute(
                     """SELECT id, type, title, description, timestamp, metadata
@@ -378,7 +384,7 @@ class GrowthMemoryEngine:
         if user_id in self._relationship_cache:
             return self._relationship_cache[user_id]
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT user_id, depth, first_interaction, last_interaction,
                           total_interactions, interaction_types, sentiment_score,
@@ -497,7 +503,7 @@ class GrowthMemoryEngine:
         if previous_value == new_value:
             return False
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT INTO personality_evolution
                    (timestamp, aspect, previous_value, new_value, confidence, reason)
@@ -581,7 +587,7 @@ class GrowthMemoryEngine:
         milestones = await self.get_milestones(limit=1000)
 
         # 获取所有关系
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM relationships")
             total_relationships = (await cursor.fetchone())[0]
 
@@ -596,7 +602,7 @@ class GrowthMemoryEngine:
 
     async def _get_all_stats(self) -> Dict[str, Any]:
         """获取所有统计"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT key, value FROM growth_statistics")
             rows = await cursor.fetchall()
 
@@ -611,7 +617,7 @@ class GrowthMemoryEngine:
 
     async def _increment_stat(self, key: str, value: Any = 1) -> None:
         """增加统计值"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT value FROM growth_statistics WHERE key = ?", (key,))
             row = await cursor.fetchone()
 
@@ -640,7 +646,7 @@ class GrowthMemoryEngine:
 
     async def _save_relationship(self, profile: RelationshipProfile) -> None:
         """保存关系档案"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE INTO relationships
                    (user_id, depth, first_interaction, last_interaction,
@@ -669,7 +675,7 @@ class GrowthMemoryEngine:
 
     async def export_relationships(self) -> List[Dict[str, Any]]:
         """导出所有关系"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT user_id, depth, first_interaction, last_interaction,
                           total_interactions, interaction_types, sentiment_score,
@@ -697,7 +703,7 @@ class GrowthMemoryEngine:
 
     async def reset_user(self, user_id: str) -> None:
         """重置用户关系"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute("DELETE FROM relationships WHERE user_id = ?", (user_id,))
             await db.commit()
 

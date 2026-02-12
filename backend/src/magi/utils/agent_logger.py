@@ -9,12 +9,11 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 
-# Agent专用日志目录
-AGENT_LOG_DIR = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs')
-os.makedirs(AGENT_LOG_DIR, exist_ok=True)
-
-# Agent日志文件路径
-AGENT_LOG_FILE = os.path.join(AGENT_LOG_DIR, 'agent_chain.log')
+def _get_agent_log_file():
+    """获取Agent日志文件路径（使用运行时目录）"""
+    from ..utils.runtime import get_runtime_paths
+    runtime_paths = get_runtime_paths()
+    return str(runtime_paths.logs_dir / 'agent_chain.log')
 
 
 class AgentFormatter(logging.Formatter):
@@ -42,9 +41,14 @@ def setup_agent_logger():
     if agent_logger.handlers:
         return agent_logger
 
+    # 获取日志文件路径
+    agent_log_file = _get_agent_log_file()
+    # 确保目录存在
+    os.makedirs(os.path.dirname(agent_log_file), exist_ok=True)
+
     # 文件handler - 自动轮转
     file_handler = RotatingFileHandler(
-        AGENT_LOG_FILE,
+        agent_log_file,
         maxBytes=10*1024*1024,  # 10MB
         backupCount=5,
         encoding='utf-8'

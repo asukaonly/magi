@@ -28,6 +28,7 @@ class CorePersonalityModel(BaseModel):
     language_style: str = Field(default="casual", description="语言风格")
     use_emoji: bool = Field(default=False, description="是否使用表情符号")
     catchphrases: List[str] = Field(default_factory=list, description="口头禅")
+    greetings: List[str] = Field(default_factory=list, description="见面问候语")
     tone: str = Field(default="friendly", description="语调")
     communication_distance: str = Field(default="equal", description="沟通距离")
     value_alignment: str = Field(default="neutral_good", description="价值观阵营")
@@ -113,6 +114,7 @@ def save_personality_file(name: str, config: PersonalityConfigModel) -> bool:
 - style: {config.core.language_style}
 - use_emoji: {str(config.core.use_emoji).lower()}
 - catchphrases: {format_array(config.core.catchphrases)}
+- greetings: {format_array(config.core.greetings)}
 - tone: {config.core.tone}
 
 ## 沟通距离
@@ -162,7 +164,7 @@ async def ai_generate_personality(description: str) -> PersonalityConfigModel:
     """使用LLM从描述生成人格配置"""
     import os
     import json
-    from magi.llm import OpenAIAdapter
+    from ...llm.openai import OpenAIAdapter
 
     logger.info(f"[AI生成人格] 开始处理描述: {description[:100]}...")
 
@@ -305,6 +307,101 @@ async def ai_generate_personality(description: str) -> PersonalityConfigModel:
         raise
 
 
+async def ai_generate_greetings(name: str, role: str, tone: str, traits: List[str]) -> List[str]:
+    """
+    使用LLM生成见面问候语
+
+    Args:
+        name: AI名字
+        role: 角色定位
+        tone: 语调
+        traits: 个性特征
+
+    Returns:
+        3-4句问候语列表
+    """
+    import os
+    from ...llm.openai import OpenAIAdapter
+
+    logger.info(f"[AI生成问候语] 开始生成 | Name: {name}, Role: {role}")
+
+    # 获取LLM配置
+    api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+    model = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+
+    if not api_key:
+        logger.warning("[AI生成问候语] LLM_API_KEY not configured, using defaults")
+        return [f"你好，我是{name}。", f"有什么我可以帮你的吗？", f"让我来帮你解决这个问题。"]
+
+    llm_adapter = OpenAIAdapter(api_key=api_key, model=model, base_url=base_url)
+
+    traits_str = "、".join(traits[:5]) if traits else "友好、专业"
+
+    system_prompt = f"""你是AI对话系统的问候语生成器。请根据AI角色的设定，生成3-4句见面时可能会说的开场白。
+
+【角色信息】
+- 名字：{name}
+- 角色定位：{role}
+- 语调：{tone}
+- 性格特征：{traits_str}
+
+【要求】
+1. 生成3-4句不同的开场白/问候语
+2. 每句话要符合角色的性格特点和语调
+3. 话语要自然、口语化，符合实际对话场景
+4. 不要过长，每句10-30字为宜
+5. 只返回问候语列表，不要有任何其他文字说明
+
+【输出格式】
+直接返回3-4句话，每行一句。"""
+
+    try:
+        response = await llm_adapter.generate(
+            prompt="请生成这个AI角色的见面问候语。",
+            max_tokens=300,
+            temperature=0.8,
+            system_prompt=system_prompt,
+        )
+
+        # 解析响应，提取问候语
+        lines = response.strip().split('\n')
+        greetings = []
+        for line in lines:
+            line = line.strip()
+            # 移除可能的序号前缀（1. 2. 3. 或 - - -）
+            line = line.lstrip('1234567890.-、·• 〉>》')
+            line = line.strip()
+            # 移除引号
+            if line.startswith('"'):
+                line = line[1:]
+            if line.endswith('"'):
+                line = line[:-1]
+            if line and len(line) > 2 and len(line) < 100:
+                greetings.append(line)
+
+        # 确保至少有3句
+        while len(greetings) < 3:
+            default_greetings = [
+                f"你好，我是{name}。",
+                f"有什么我可以帮你的吗？",
+                f"让我来帮你解决这个问题。",
+            ]
+            greetings.append(default_greetings[len(greetings)])
+
+        logger.info(f"[AI生成问候语] 成功生成 {len(greetings)} 句问候语")
+        return greetings[:4]  # 最多返回4句
+
+    except Exception as e:
+        logger.error(f"[AI生成问候语] 生成失败: {e}")
+        # 返回默认问候语
+        return [
+            f"你好，我是{name}。",
+            f"有什么我可以帮你的吗？",
+            f"让我来帮你解决这个问题。",
+        ]
+
+
 # ============ Current人格管理 ============
 
 CURRENT_FILE = "current"
@@ -356,6 +453,116 @@ class PersonalityCompareResponse(BaseModel):
 
 # ============ API端点 ============
 
+# Current 人格管理路由必须在 /{name} 之前定义，避免被 /{name} 捕获
+@personality_router.get("/current", response_model=PersonalityResponse)
+async def api_get_current_personality():
+    """
+    获取当前激活的人格
+
+    Returns:
+        当前人格名称
+    """
+    try:
+        current = get_current_personality()
+        return PersonalityResponse(
+            success=True,
+            message="获取当前人格成功",
+            data={"current": current}
+        )
+    except Exception as e:
+        logger.error(f"Failed to get current personality: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@personality_router.put("/current", response_model=PersonalityResponse)
+async def api_set_current_personality(request: Dict[str, str]):
+    """
+    设置当前激活的人格
+
+    Args:
+        request: {"name": "人格名称"}
+
+    Returns:
+        设置结果
+    """
+    try:
+        name = request.get("name")
+        if not name:
+            raise HTTPException(status_code=400, detail="缺少人格名称")
+
+        # 验证人格存在
+        loader = get_personality_loader()
+        try:
+            loader.load(name)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"人格 '{name}' 不存在")
+
+        if set_current_personality(name):
+            # 通知 Agent 重新加载人格配置
+            try:
+                from ...agent import get_chat_agent
+                chat_agent = get_chat_agent()
+                if chat_agent.memory:
+                    await chat_agent.memory.reload_personality(name)
+                    logger.info(f"Agent personality reloaded: {name}")
+            except Exception as e:
+                logger.warning(f"Failed to reload agent personality: {e}")
+
+            return PersonalityResponse(
+                success=True,
+                message=f"已切换到人格: {name}",
+                data={"current": name}
+            )
+        else:
+            raise HTTPException(status_code=500, detail="设置失败")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set current personality: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@personality_router.get("/greeting", response_model=PersonalityResponse)
+async def api_get_greeting():
+    """
+    获取当前人格的随机问候语
+
+    Returns:
+        随机问候语
+    """
+    try:
+        import random
+
+        # 获取当前人格
+        current_name = get_current_personality()
+        loader = get_personality_loader()
+        personality_config = loader.load(current_name)
+
+        # 获取问候语列表
+        greetings = getattr(personality_config, 'greetings', [])
+        if not greetings:
+            # 如果没有问候语，使用默认
+            greetings = [
+                f"你好，我是{personality_config.name}。",
+                f"有什么我可以帮你的吗？",
+            ]
+
+        # 随机选择一句
+        greeting = random.choice(greetings)
+
+        return PersonalityResponse(
+            success=True,
+            message="获取问候语成功",
+            data={
+                "greeting": greeting,
+                "name": personality_config.name,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to get greeting: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @personality_router.get("/{name}", response_model=PersonalityResponse)
 async def get_personality(name: str = DEFAULT_PERSONALITY):
     """
@@ -380,6 +587,7 @@ async def get_personality(name: str = DEFAULT_PERSONALITY):
                 language_style=personality_config.language_style,
                 use_emoji=personality_config.use_emoji,
                 catchphrases=personality_config.catchphrases or [],
+                greetings=getattr(personality_config, 'greetings', []) or [],
                 tone=personality_config.tone,
                 communication_distance=personality_config.communication_distance,
                 value_alignment=personality_config.value_alignment,
@@ -483,6 +691,32 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
                 del loader._cache[name]
 
             logger.info(f"[API] 人格配置保存成功: {actual_name}")
+
+            # 生成问候语（异步）
+            try:
+                greetings = await ai_generate_greetings(
+                    name=config.core.name,
+                    role=config.core.role,
+                    tone=config.core.tone,
+                    traits=config.core.traits
+                )
+                # 更新配置的问候语
+                config.core.greetings = greetings
+
+                # 重新保存带问候语的配置
+                save_personality_file(actual_name, config)
+                loader.reload(actual_name)
+
+                logger.info(f"[API] 问候语生成成功: {len(greetings)} 句")
+            except Exception as e:
+                logger.warning(f"[API] 问候语生成失败，使用默认值: {e}")
+                # 使用默认问候语
+                config.core.greetings = [
+                    f"你好，我是{config.core.name}。",
+                    f"有什么我可以帮你的吗？",
+                    f"让我来帮你解决这个问题。",
+                ]
+
             # 构建响应数据，包含实际文件名和配置
             response_data = {
                 "actual_name": actual_name,
@@ -548,7 +782,10 @@ async def list_personalities():
 
         if runtime_paths.personalities_dir.exists():
             for filepath in runtime_paths.personalities_dir.glob("*.md"):
-                personalities.append(filepath.stem)
+                # 排除 default.md（系统默认模板）和 current 文件
+                name = filepath.stem
+                if name != "default":
+                    personalities.append(name)
 
         # 返回人格名称列表
         return PersonalityResponse(
@@ -593,64 +830,6 @@ async def delete_personality(name: str):
         raise
     except Exception as e:
         logger.error(f"Failed to delete personality: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@personality_router.get("/current", response_model=PersonalityResponse)
-async def get_current_personality():
-    """
-    获取当前激活的人格
-
-    Returns:
-        当前人格名称
-    """
-    try:
-        current = get_current_personality()
-        return PersonalityResponse(
-            success=True,
-            message="获取当前人格成功",
-            data={"current": current}
-        )
-    except Exception as e:
-        logger.error(f"Failed to get current personality: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@personality_router.put("/current", response_model=PersonalityResponse)
-async def set_current_personality(request: Dict[str, str]):
-    """
-    设置当前激活的人格
-
-    Args:
-        request: {"name": "人格名称"}
-
-    Returns:
-        设置结果
-    """
-    try:
-        name = request.get("name")
-        if not name:
-            raise HTTPException(status_code=400, detail="缺少人格名称")
-
-        # 验证人格存在
-        loader = get_personality_loader()
-        try:
-            loader.load(name)
-        except FileNotFoundError:
-            raise HTTPException(status_code=404, detail=f"人格 '{name}' 不存在")
-
-        if set_current_personality(name):
-            return PersonalityResponse(
-                success=True,
-                message=f"已切换到人格: {name}",
-                data={"current": name}
-            )
-        else:
-            raise HTTPException(status_code=500, detail="设置失败")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to set current personality: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

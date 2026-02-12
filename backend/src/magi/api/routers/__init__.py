@@ -11,6 +11,8 @@ from .metrics import metrics_router
 from .messages import user_messages_router
 from .config import config_router
 from .personality import personality_router
+from .others import others_router
+from .skills import skills_router
 
 __all__ = [
     "agents_router",
@@ -21,4 +23,6 @@ __all__ = [
     "user_messages_router",
     "config_router",
     "personality_router",
+    "others_router",
+    "skills_router",
 ]

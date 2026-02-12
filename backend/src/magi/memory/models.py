@@ -76,6 +76,7 @@ class CorePersonality:
     language_style: LanguageStyle = LanguageStyle.CASUAL
     use_emoji: bool = False
     catchphrases: List[str] = field(default_factory=list)
+    greetings: List[str] = field(default_factory=list)
     tone: str = "friendly"
     communication_distance: CommunicationDistance = CommunicationDistance.EQUAL
     value_alignment: ValueAlignment = ValueAlignment.NEUTRAL_GOOD

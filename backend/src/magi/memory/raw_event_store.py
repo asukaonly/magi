@@ -4,11 +4,14 @@
 """
 import aiosqlite
 import json
+import logging
 import uuid
 from typing import Optional
 from pathlib import Path
 import time
 from ..events.events import Event
+
+logger = logging.getLogger(__name__)
 
 
 class RawEventStore:
@@ -23,8 +26,8 @@ class RawEventStore:
 
     def __init__(
         self,
-        db_path: str = "./data/memories/events.db",
-        media_dir: str = "./data/events",
+        db_path: str = "~/.magi/data/event_store.db",
+        media_dir: str = "~/.magi/data/events",
     ):
         """
         初始化原始事件存储
@@ -36,15 +39,46 @@ class RawEventStore:
         self.db_path = db_path
         self.media_dir = media_dir
 
+    @property
+    def _expanded_db_path(self) -> str:
+        """获取展开后的数据库路径（处理 ~）"""
+        return str(Path(self.db_path).expanduser())
+
+    @property
+    def _expanded_media_dir(self) -> str:
+        """获取展开后的媒体目录路径（处理 ~）"""
+        return str(Path(self.media_dir).expanduser())
+
     async def init(self):
         """初始化数据库"""
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(self.media_dir).mkdir(parents=True, exist_ok=True)
+        Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self._expanded_media_dir).mkdir(parents=True, exist_ok=True)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            # 检查表是否存在以及schema是否正确
+            cursor = await db.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='event_store'
+            """)
+            table_exists = await cursor.fetchone()
+
+            if table_exists:
+                # 检查是否有 type 列
+                cursor = await db.execute("PRAGMA table_info(event_store)")
+                columns = await cursor.fetchall()
+                column_names = [col[1] for col in columns]
+
+                # 如果缺少 type 列或其他必要列，重建表
+                required_columns = {'id', 'type', 'data', 'timestamp', 'source', 'level', 'correlation_id', 'metadata', 'created_at'}
+                if not required_columns.issubset(set(column_names)):
+                    logger.warning(f"Event store table schema incompatible, recreating... Existing columns: {column_names}")
+                    await db.execute("DROP TABLE IF EXISTS event_store")
+                    await db.execute("DROP INDEX IF EXISTS idx_event_store_type")
+                    await db.execute("DROP INDEX IF EXISTS idx_event_store_timestamp")
+
             # 创建事件表
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS events (
+                CREATE TABLE IF NOT EXISTS event_store (
                     id TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
                     data TEXT NOT NULL,
@@ -60,12 +94,12 @@ class RawEventStore:
 
             # 创建索引
             await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_events_type
-                ON events(type)
+                CREATE INDEX IF NOT EXISTS idx_event_store_type
+                ON event_store(type)
             """)
             await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_events_timestamp
-                ON events(timestamp)
+                CREATE INDEX IF NOT EXISTS idx_event_store_timestamp
+                ON event_store(timestamp)
             """)
             await db.commit()
 
@@ -88,9 +122,9 @@ class RawEventStore:
 
         # 存储到SQLite
         event_id = str(uuid.uuid4())
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute("""
-                INSERT INTO events (
+                INSERT INTO event_store (
                     id, type, data, media_path, timestamp, source,
                     level, correlation_id, metadata, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -120,9 +154,9 @@ class RawEventStore:
         Returns:
             事件对象或None
         """
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT * FROM events WHERE id = ?",
+                "SELECT * FROM event_store WHERE id = ?",
                 (event_id,)
             )
             row = await cursor.fetchone()
@@ -147,9 +181,9 @@ class RawEventStore:
         Returns:
             事件列表
         """
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("""
-                SELECT * FROM events
+                SELECT * FROM event_store
                 WHERE type = ?
                 ORDER BY timestamp DESC
                 LIMIT ?
@@ -175,9 +209,9 @@ class RawEventStore:
         Returns:
             事件列表
         """
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("""
-                SELECT * FROM events
+                SELECT * FROM event_store
                 WHERE timestamp >= ? AND timestamp <= ?
                 ORDER BY timestamp DESC
                 LIMIT ?
@@ -201,7 +235,7 @@ class RawEventStore:
         # 生成文件路径
         date_str = datetime.now().strftime("%Y-%m-%d")
         filename = f"{uuid.uuid4()}.{media.extension}"
-        path = f"{self.media_dir}/{date_str}/{filename}"
+        path = f"{self._expanded_media_dir}/{date_str}/{filename}"
 
         # 确保目录存在
         Path(path).parent.mkdir(parents=True, exist_ok=True)

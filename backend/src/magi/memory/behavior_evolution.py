@@ -80,7 +80,7 @@ class BehaviorEvolutionEngine:
     根据用户交互记录，动态调整AI的行为偏好
     """
 
-    def __init__(self, db_path: str = "./data/memories/behavior_evolution.db"):
+    def __init__(self, db_path: str = "~/.magi/data/memories/behavior_evolution.db"):
         """
         初始化行为演化引擎
 
@@ -91,11 +91,17 @@ class BehaviorEvolutionEngine:
         self._cache: Dict[str, TaskBehaviorProfile] = {}
         self._stats_cache: Dict[str, CategoryStatistics] = {}
 
+    @property
+    def _expanded_db_path(self) -> str:
+        """获取展开后的数据库路径（处理 ~）"""
+        from pathlib import Path
+        return str(Path(self.db_path).expanduser())
+
     async def init(self):
         """初始化数据库"""
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             # 任务交互记录表
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS task_interactions (
@@ -189,7 +195,7 @@ class BehaviorEvolutionEngine:
             accepted=accepted,
         )
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE INTO task_interactions
                    (task_id, task_category, timestamp, clarification_count,
@@ -242,7 +248,7 @@ class BehaviorEvolutionEngine:
         if task_category in self._cache:
             return self._cache[task_category]
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT profile_json FROM behavior_profiles WHERE task_category = ?",
                 (task_category,)
@@ -283,7 +289,7 @@ class BehaviorEvolutionEngine:
         if task_category in self._stats_cache:
             return self._stats_cache[task_category]
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT * FROM category_statistics WHERE category = ?",
                 (task_category,)
@@ -313,7 +319,7 @@ class BehaviorEvolutionEngine:
 
     async def get_all_categories(self) -> List[str]:
         """获取所有任务类别"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT DISTINCT task_category FROM task_interactions ORDER BY task_category"
             )
@@ -324,7 +330,7 @@ class BehaviorEvolutionEngine:
 
     async def _update_category_statistics(self, task_category: str) -> None:
         """更新类别统计信息"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT
                     COUNT(*) as total,
@@ -472,7 +478,7 @@ class BehaviorEvolutionEngine:
         if "ambiguity_tolerance" in data:
             data["ambiguity_tolerance"] = data["ambiguity_tolerance"].value
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE INTO behavior_profiles
                    (task_category, profile_json, updated_at)
@@ -485,7 +491,7 @@ class BehaviorEvolutionEngine:
 
     async def reset_category(self, task_category: str) -> None:
         """重置类别的行为演化"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute("DELETE FROM task_interactions WHERE task_category = ?", (task_category,))
             await db.execute("DELETE FROM category_statistics WHERE category = ?", (task_category,))
             await db.execute("DELETE FROM behavior_profiles WHERE task_category = ?", (task_category,))

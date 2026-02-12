@@ -5,23 +5,9 @@ import React from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import MainLayout from '../components/layout/MainLayout';
 import Dashboard from '../pages/Dashboard';
+import { Spin } from 'antd';
 
 // 懒加载页面
-const AgentsPage = React.lazy(() =>
-  import('../pages/Agents').then((m) => ({ default: m.AgentsPage }))
-);
-const TasksPage = React.lazy(() =>
-  import('../pages/Tasks').then((m) => ({ default: m.TasksPage }))
-);
-const ToolsPage = React.lazy(() =>
-  import('../pages/Tools').then((m) => ({ default: m.ToolsPage }))
-);
-const MemoryPage = React.lazy(() =>
-  import('../pages/Memory').then((m) => ({ default: m.MemoryPage }))
-);
-const MetricsPage = React.lazy(() =>
-  import('../pages/Metrics').then((m) => ({ default: m.MetricsPage }))
-);
 const SettingsPage = React.lazy(() =>
   import('../pages/Settings').then((m) => ({ default: m.SettingsPage }))
 );
@@ -30,6 +16,24 @@ const ChatPage = React.lazy(() =>
 );
 const PersonalityPage = React.lazy(() =>
   import('../pages/Personality').then((m) => ({ default: m.default }))
+);
+const EventsPage = React.lazy(() =>
+  import('../pages/Events').then((m) => ({ default: m.default }))
+);
+
+// 加载组件
+const LoadingFallback = () => (
+  <div
+    style={{
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '100vh',
+      background: '#f9fafb',
+    }}
+  >
+    <Spin size="large" tip="加载中..." />
+  </div>
 );
 
 const router = createBrowserRouter([
@@ -42,49 +46,17 @@ const router = createBrowserRouter([
         element: <Dashboard />,
       },
       {
-        path: 'agents',
+        path: 'personality',
         element: (
-          <React.Suspense fallback={<div>Loading...</div>}>
-            <AgentsPage />
-          </React.Suspense>
-        ),
-      },
-      {
-        path: 'tasks',
-        element: (
-          <React.Suspense fallback={<div>Loading...</div>}>
-            <TasksPage />
-          </React.Suspense>
-        ),
-      },
-      {
-        path: 'tools',
-        element: (
-          <React.Suspense fallback={<div>Loading...</div>}>
-            <ToolsPage />
-          </React.Suspense>
-        ),
-      },
-      {
-        path: 'memory',
-        element: (
-          <React.Suspense fallback={<div>Loading...</div>}>
-            <MemoryPage />
-          </React.Suspense>
-        ),
-      },
-      {
-        path: 'metrics',
-        element: (
-          <React.Suspense fallback={<div>Loading...</div>}>
-            <MetricsPage />
+          <React.Suspense fallback={<LoadingFallback />}>
+            <PersonalityPage />
           </React.Suspense>
         ),
       },
       {
         path: 'settings',
         element: (
-          <React.Suspense fallback={<div>Loading...</div>}>
+          <React.Suspense fallback={<LoadingFallback />}>
             <SettingsPage />
           </React.Suspense>
         ),
@@ -92,16 +64,16 @@ const router = createBrowserRouter([
       {
         path: 'chat',
         element: (
-          <React.Suspense fallback={<div>Loading...</div>}>
+          <React.Suspense fallback={<LoadingFallback />}>
             <ChatPage />
           </React.Suspense>
         ),
       },
       {
-        path: 'personality',
+        path: 'events',
         element: (
-          <React.Suspense fallback={<div>Loading...</div>}>
-            <PersonalityPage />
+          <React.Suspense fallback={<LoadingFallback />}>
+            <EventsPage />
           </React.Suspense>
         ),
       },

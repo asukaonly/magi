@@ -5,18 +5,15 @@ LLM调用日志配置
 """
 import logging
 import os
-import json
 from logging.handlers import RotatingFileHandler
-from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Optional
 
 
-# LLM专用日志目录
-LLM_LOG_DIR = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs')
-os.makedirs(LLM_LOG_DIR, exist_ok=True)
-
-# LLM日志文件路径
-LLM_LOG_FILE = os.path.join(LLM_LOG_DIR, 'llm_calls.log')
+def _get_llm_log_file():
+    """获取LLM日志文件路径（使用运行时目录）"""
+    from ..utils.runtime import get_runtime_paths
+    runtime_paths = get_runtime_paths()
+    return str(runtime_paths.logs_dir / 'llm_calls.log')
 
 
 class LLMFormatter(logging.Formatter):
@@ -44,9 +41,14 @@ def setup_llm_logger():
     if llm_logger.handlers:
         return llm_logger
 
+    # 获取日志文件路径
+    llm_log_file = _get_llm_log_file()
+    # 确保目录存在
+    os.makedirs(os.path.dirname(llm_log_file), exist_ok=True)
+
     # 文件handler - 自动轮转
     file_handler = RotatingFileHandler(
-        LLM_LOG_FILE,
+        llm_log_file,
         maxBytes=50*1024*1024,  # 50MB
         backupCount=10,
         encoding='utf-8'
@@ -54,14 +56,8 @@ def setup_llm_logger():
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(LLMFormatter())
 
-    # 控制台handler（不输出到控制台，避免干扰）
-    # console_handler = logging.StreamHandler()
-    # console_handler.setLevel(logging.INFO)
-    # console_handler.setFormatter(LLMFormatter())
-
     # 添加handler
     llm_logger.addHandler(file_handler)
-    # llm_logger.addHandler(console_handler)
 
     return llm_logger
 
@@ -89,6 +85,8 @@ def truncate_text(text: str, max_length: int = 5000) -> str:
     """
     截断过长的文本
 
+    设置环境变量 MAGI_FULL_LOG=1 可以禁用截断，在日志文件中保存完整内容
+
     Args:
         text: 原始文本
         max_length: 最大长度
@@ -96,6 +94,10 @@ def truncate_text(text: str, max_length: int = 5000) -> str:
     Returns:
         截断后的文本
     """
+    # 检查是否启用完整日志
+    if os.getenv("MAGI_FULL_LOG") == "1":
+        return text
+
     if len(text) <= max_length:
         return text
     return text[:max_length] + f"... (truncated, total {len(text)} chars)"
@@ -120,27 +122,6 @@ def log_llm_request(
         messages: 消息列表
         **kwargs: 其他参数
     """
-    # 构建请求数据
-    request_data = {
-        "request_id": request_id,
-        "type": "LLM_REQUEST",
-        "timestamp": datetime.now().isoformat(),
-        "model": model,
-        "system_prompt": truncate_text(system_prompt),
-        "messages": [
-            {"role": msg.get("role"), "content": truncate_text(msg.get("content", ""))}
-            for msg in messages
-        ],
-        "parameters": {
-            "max_tokens": kwargs.get("max_tokens"),
-            "temperature": kwargs.get("temperature"),
-        }
-    }
-
-    # 记录日志（使用JSON格式方便解析）
-    logger.debug(f"LLM_REQUEST | {json.dumps(request_data, ensure_ascii=False)}")
-
-    # 同时记录人类可读格式
     logger.debug("=" * 80)
     logger.debug(f"LLM_REQUEST [{request_id}] | Model: {model}")
     logger.debug("-" * 80)
@@ -173,23 +154,6 @@ def log_llm_response(
         duration_ms: 耗时（毫秒）
         **metadata: 其他元数据
     """
-    # 构建响应数据
-    response_data = {
-        "request_id": request_id,
-        "type": "LLM_RESPONSE",
-        "timestamp": datetime.now().isoformat(),
-        "success": success,
-        "response": truncate_text(response) if success else None,
-        "error": error,
-        "duration_ms": duration_ms,
-        "response_length": len(response) if response else 0,
-        **metadata
-    }
-
-    # 记录日志（使用JSON格式方便解析）
-    logger.debug(f"LLM_RESPONSE | {json.dumps(response_data, ensure_ascii=False)}")
-
-    # 同时记录人类可读格式
     status = "SUCCESS" if success else "FAILED"
     logger.debug("=" * 80)
     logger.debug(f"LLM_RESPONSE [{request_id}] | {status}")
@@ -198,6 +162,6 @@ def log_llm_response(
     if error:
         logger.debug(f"Error: {error}")
     logger.debug("-" * 80)
-    if success:
+    if success and response:
         logger.debug(f"Response:\n{truncate_text(response, 3000)}")
     logger.debug("=" * 80)

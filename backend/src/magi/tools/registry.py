@@ -5,11 +5,15 @@
 """
 import asyncio
 import time
-from typing import Dict, List, Optional, Any, Type
+from typing import Dict, List, Optional, Any, Type, TYPE_CHECKING
 from collections import defaultdict
 import logging
 
 from .schema import Tool, ToolSchema, ToolExecutionContext, ToolResult
+
+# Avoid circular import
+if TYPE_CHECKING:
+    from ..skills.schema import SkillMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +62,7 @@ class ToolRegistry:
     管理工具的注册、查询、执行、统计等功能
     """
 
-    def __init__(self):
+    def __init__(self, skill_indexer=None):
         # 工具注册 {name: tool_class}
         self._tools: Dict[str, Type[Tool]] = {}
 
@@ -73,6 +77,12 @@ class ToolRegistry:
 
         # 执行统计 {tool_name: ToolExecutionStats}
         self._stats: Dict[str, ToolExecutionStats] = defaultdict(ToolExecutionStats)
+
+        # Skills 索引 {name: SkillMetadata} - 按需加载，仅存储元数据
+        self._skills: Dict[str, "SkillMetadata"] = {}
+
+        # Skill indexer 实例
+        self._skill_indexer = skill_indexer
 
     def register(self, tool_class: Type[Tool]) -> None:
         """
@@ -206,15 +216,89 @@ class ToolRegistry:
 
     def get_all_tools_info(self) -> List[Dict[str, Any]]:
         """
-        获取所有工具信息
+        获取所有工具信息（包含 Skills）
 
         Returns:
             工具信息列表
         """
-        return [
+        tools_info = [
             self.get_tool_info(tool_name)
             for tool_name in self._tools.keys()
         ]
+
+        # 添加 Skills 信息（仅元数据）
+        for skill_name, skill_metadata in self._skills.items():
+            tools_info.append({
+                "name": skill_metadata.name,
+                "description": skill_metadata.description,
+                "category": skill_metadata.category or "skill",
+                "type": "skill",
+                "argument_hint": skill_metadata.argument_hint,
+                "user_invocable": skill_metadata.user_invocable,
+                "context": skill_metadata.context,
+                "agent": skill_metadata.agent,
+                "tags": skill_metadata.tags,
+                "parameters": [],
+                "examples": [],
+            })
+
+        return tools_info
+
+    def register_skill_index(self, skills: Dict[str, "SkillMetadata"]) -> None:
+        """
+        注册 Skill 索引
+
+        Args:
+            skills: {name: SkillMetadata} 字典
+        """
+        self._skills.update(skills)
+        logger.info(f"Registered {len(skills)} skills to registry")
+
+    def get_skill_names(self) -> List[str]:
+        """
+        获取所有已注册的 Skill 名称
+
+        Returns:
+            Skill 名称列表
+        """
+        return list(self._skills.keys())
+
+    def get_skill_metadata(self, name: str) -> Optional["SkillMetadata"]:
+        """
+        获取指定 Skill 的元数据
+
+        Args:
+            name: Skill 名称
+
+        Returns:
+            SkillMetadata 或 None
+        """
+        return self._skills.get(name)
+
+    def is_skill(self, name: str) -> bool:
+        """
+        检查指定名称是否为 Skill
+
+        Args:
+            name: 工具/Skill 名称
+
+        Returns:
+            是否为 Skill
+        """
+        return name in self._skills
+
+    def refresh_skills(self) -> Dict[str, "SkillMetadata"]:
+        """
+        刷新 Skills 索引
+
+        Returns:
+            更新后的 Skills 字典
+        """
+        if self._skill_indexer:
+            skills = self._skill_indexer.refresh()
+            self._skills = skills
+            return skills
+        return {}
 
     async def execute(
         self,

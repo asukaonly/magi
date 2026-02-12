@@ -37,6 +37,7 @@ class PersonalityConfig:
     language_style: str = "casual"
     use_emoji: bool = False
     catchphrases: List[str] = None
+    greetings: List[str] = None
     tone: str = "friendly"
     communication_distance: str = "equal"
     value_alignment: str = "neutral_good"
@@ -59,6 +60,8 @@ class PersonalityConfig:
         """初始化默认值"""
         if self.catchphrases is None:
             self.catchphrases = []
+        if self.greetings is None:
+            self.greetings = []
         if self.traits is None:
             self.traits = []
         if self.virtues is None:
@@ -337,6 +340,21 @@ class PersonalityLoader:
             del self._cache[name]
         return self.load(name)
 
+    def clear_cache(self, name: str = None):
+        """
+        清除人格缓存
+
+        Args:
+            name: 人格名称（可选）。如果不指定，清除所有缓存
+        """
+        if name:
+            if name in self._cache:
+                del self._cache[name]
+                logger.info(f"Cleared cache for personality: {name}")
+        else:
+            self._cache.clear()
+            logger.info("Cleared all personality cache")
+
     def list_available(self) -> List[str]:
         """列出所有可用的人格配置"""
         if not self.personalities_path.exists():
@@ -411,6 +429,7 @@ class PersonalityLoader:
             language_style=LanguageStyle(config.language_style),
             use_emoji=config.use_emoji,
             catchphrases=config.catchphrases or [],
+            greetings=config.greetings or [],
             tone=config.tone,
             communication_distance=CommunicationDistance(config.communication_distance),
             value_alignment=ValueAlignment(config.value_alignment),

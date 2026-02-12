@@ -95,7 +95,7 @@ class TaskDatabase:
     使用SQLite持久化存储任务，支持任务恢复
     """
 
-    def __init__(self, db_path: str = "./data/tasks.db"):
+    def __init__(self, db_path: str = "~/.magi/data/tasks.db"):
         """
         初始化任务数据库
 
@@ -106,12 +106,18 @@ class TaskDatabase:
         self._lock = asyncio.Lock()
         self._initialized = False
 
+    @property
+    def _expanded_db_path(self) -> str:
+        """获取展开后的数据库路径（处理 ~）"""
+        from pathlib import Path
+        return str(Path(self.db_path).expanduser())
+
     async def _init_db(self):
         """初始化数据库表"""
         if self._initialized:
             return
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             # 创建任务表
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -179,7 +185,7 @@ class TaskDatabase:
         )
 
         async with self._lock:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with aiosqlite.connect(self._expanded_db_path) as db:
                 await db.execute("""
                     INSERT INTO tasks (
                         task_id, type, status, priority, data, parent_id,
@@ -198,7 +204,7 @@ class TaskDatabase:
         """获取任务"""
         await self._init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT * FROM tasks WHERE task_id = ?",
                 (task_id,)
@@ -248,7 +254,7 @@ class TaskDatabase:
         update_values.append(task_id)
 
         async with self._lock:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with aiosqlite.connect(self._expanded_db_path) as db:
                 await db.execute(f"""
                     UPDATE tasks SET {', '.join(update_fields)}
                     WHERE task_id = ?
@@ -262,7 +268,7 @@ class TaskDatabase:
         await self._init_db()
 
         async with self._lock:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with aiosqlite.connect(self._expanded_db_path) as db:
                 await db.execute("""
                     UPDATE tasks SET retry_count = retry_count + 1
                     WHERE task_id = ?
@@ -280,7 +286,7 @@ class TaskDatabase:
         """获取待处理任务"""
         await self._init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             if assigned_to:
                 cursor = await db.execute("""
                     SELECT * FROM tasks
@@ -308,7 +314,7 @@ class TaskDatabase:
         """按状态获取任务"""
         await self._init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("""
                 SELECT * FROM tasks
                 WHERE status = ?
@@ -324,7 +330,7 @@ class TaskDatabase:
         """获取子任务"""
         await self._init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("""
                 SELECT * FROM tasks
                 WHERE parent_id = ?
@@ -339,7 +345,7 @@ class TaskDatabase:
         """获取任务统计信息"""
         await self._init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             # 总任务数
             cursor = await db.execute("SELECT COUNT(*) FROM tasks")
             total = (await cursor.fetchone())[0]
@@ -375,7 +381,7 @@ class TaskDatabase:
         cutoff_time = time.time() - (days * 86400)
 
         async with self._lock:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with aiosqlite.connect(self._expanded_db_path) as db:
                 # 构建SQL
                 status_list = ', '.join(f"'{s.value}'" for s in keep_status)
                 cursor = await db.execute(f"""

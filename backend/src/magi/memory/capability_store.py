@@ -45,8 +45,8 @@ class CapabilityStore:
 
     def __init__(
         self,
-        db_path: str = "./data/memories/capabilities.db",
-        chromadb_path: str = "./data/chromadb",
+        db_path: str = "~/.magi/data/memories/capabilities.db",
+        chromadb_path: str = "~/.magi/data/chromadb",
     ):
         """
         初始化能力存储
@@ -58,12 +58,22 @@ class CapabilityStore:
         self.db_path = db_path
         self.chromadb_path = chromadb_path
 
+    @property
+    def _expanded_db_path(self) -> str:
+        """获取展开后的数据库路径（处理 ~）"""
+        return str(Path(self.db_path).expanduser())
+
+    @property
+    def _expanded_chromadb_path(self) -> str:
+        """获取展开后的ChromaDB路径（处理 ~）"""
+        return str(Path(self.chromadb_path).expanduser())
+
     async def init(self):
         """初始化数据库"""
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(self.chromadb_path).mkdir(parents=True, exist_ok=True)
+        Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self._expanded_chromadb_path).mkdir(parents=True, exist_ok=True)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             # 创建能力表
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS capabilities (
@@ -88,7 +98,7 @@ class CapabilityStore:
         """
         capability_id = str(uuid.uuid4())
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute("""
                 INSERT INTO capabilities (
                     id, trigger_pattern, action, success_rate,
@@ -118,7 +128,7 @@ class CapabilityStore:
         """
         # 简化版本：直接查询最高成功率的能力
         # 实际实现应该使用ChromaDB进行向量检索
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("""
                 SELECT * FROM capabilities
                 WHERE success_rate >= 0.7
@@ -153,7 +163,7 @@ class CapabilityStore:
             success: 是否成功
         """
         # 获取当前能力
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT success_rate, usage_count FROM capabilities WHERE id = ?",
                 (capability_id,)
@@ -185,7 +195,7 @@ class CapabilityStore:
         Returns:
             能力列表
         """
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT * FROM capabilities")
             rows = await cursor.fetchall()
 

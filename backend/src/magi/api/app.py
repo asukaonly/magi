@@ -8,6 +8,8 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 import logging
 import json
+import os
+from pathlib import Path
 
 from .middleware import ErrorHandler, AuthMiddleware, RequestLoggingMiddleware, add_cors_middleware
 from .responses import SuccessResponse
@@ -16,6 +18,21 @@ from ..agent import initialize_chat_agent, shutdown_chat_agent
 from ..core.logger import configure_logging
 
 logger = logging.getLogger(__name__)
+
+# 加载 .env 文件
+try:
+    from dotenv import load_dotenv
+    # 尝试加载 .env 文件（从 backend 目录）
+    env_path = Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+        logger.info(f"Loaded environment variables from {env_path}")
+    else:
+        # 尝试从当前目录加载
+        load_dotenv()
+        logger.info("Loaded environment variables from .env in current directory")
+except ImportError:
+    logger.warning("python-dotenv not installed, .env file will not be loaded automatically")
 
 
 def custom_openapi():
@@ -55,14 +72,14 @@ def create_app() -> FastAPI:
     Returns:
         FastAPI应用实例
     """
-    # 配置日志（同时输出到控制台和文件）
-    import os
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs")
-    log_file = os.path.join(log_dir, "magi.log")
+    # 配置日志（输出到运行时目录和终端）
+    from ..utils.runtime import get_runtime_paths
+    runtime_paths = get_runtime_paths()
+    log_file = runtime_paths.logs_dir / "magi.log"
 
     configure_logging(
         level="INFO",
-        log_file=log_file,
+        log_file=str(log_file),
         json_logs=False,
     )
 
@@ -204,6 +221,8 @@ def _register_routes(app: FastAPI):
         user_messages_router,
         config_router,
         personality_router,
+        others_router,
+        skills_router,
     )
 
     # 注册Agent管理路由
@@ -260,6 +279,19 @@ def _register_routes(app: FastAPI):
         personality_router,
         prefix="/api/personality",
         tags=["Personality"],
+    )
+
+    # 注册他人记忆路由
+    app.include_router(
+        others_router,
+        prefix="/api/others",
+        tags=["Others"],
+    )
+
+    # 注册 Skills 管理路由
+    app.include_router(
+        skills_router,
+        tags=["Skills"],
     )
 
 

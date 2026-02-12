@@ -91,6 +91,30 @@ async def send_user_message(request: UserMessageRequest):
         确认响应
     """
     try:
+        # 检查 ChatAgent 是否已初始化
+        from ...agent import get_chat_agent
+        try:
+            chat_agent = get_chat_agent()
+        except RuntimeError:
+            # Agent 未初始化（可能是没有设置 API Key）
+            agent_logger.warning(f"⚠️ ChatAgent not initialized when user {request.user_id} sent message")
+
+            # 发送错误提示到 WebSocket
+            await ws_manager.broadcast_to_user(request.user_id, {
+                "type": "error",
+                "content": "AI 服务未初始化。请设置 LLM_API_KEY 或 OPENAI_API_KEY 环境变量后重启服务。",
+                "timestamp": time.time(),
+            })
+
+            return MessageResponse(
+                success=False,
+                message="ChatAgent not initialized. Please set LLM_API_KEY or OPENAI_API_KEY environment variable.",
+                data={
+                    "user_id": request.user_id,
+                    "error": "ChatAgent not initialized",
+                }
+            )
+
         message_bus = get_message_bus()
 
         # 构建消息数据

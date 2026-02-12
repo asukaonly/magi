@@ -1,368 +1,268 @@
 /**
- * Dashboard页面
+ * Dashboard页面 - 现代化设计
+ * 极简风格：统计卡片、快捷操作、最近活动
  */
-import React, { useEffect } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Space, Button } from 'antd';
+import React, { useState, useEffect } from 'react';
 import {
-  RobotOutlined,
-  UnorderedListOutlined,
+  Card,
+  Row,
+  Col,
+  Statistic,
+  Button,
+  Space,
+  Timeline,
+  Typography,
+  Divider,
+} from 'antd';
+import {
+  MessageOutlined,
+  UserOutlined,
+  SettingOutlined,
+  ThunderboltOutlined,
+  ArrowRightOutlined,
   CheckCircleOutlined,
-  ClockCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useAgentsStore } from '../stores';
-import { useTasksStore } from '../stores';
-import { useMetricsStore } from '../stores';
-import useWebSocket from '../hooks/useWebSocket';
-import RealtimeLogs from '../components/logs/RealtimeLogs';
-import ChatBox from '../components/chat/ChatBox';
+
+const { Text } = Typography;
+
+// 模拟统计数据
+const mockStats = {
+  totalMessages: 1234,
+  todayMessages: 56,
+  activeCapabilities: 23,
+  memoryUsage: 67,
+};
+
+// 模拟最近活动
+const recentActivities = [
+  { text: '用户发送了消息', time: '2 分钟前', type: 'message' },
+  { text: 'AI 完成了任务', time: '5 分钟前', type: 'success' },
+  { text: '人格配置已更新', time: '1 小时前', type: 'update' },
+  { text: '新能力已习得', time: '2 小时前', type: 'capability' },
+  { text: '系统已启动', time: '今天', type: 'system' },
+];
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { agents, fetchAgents } = useAgentsStore();
-  const { tasks, stats, fetchTasks, fetchStats } = useTasksStore();
-  const { systemMetrics, fetchSystemMetrics } = useMetricsStore();
+  const [stats, setStats] = useState(mockStats);
 
-  // WebSocket连接 - 暂时禁用
-  // const { connected, subscribe, subscribeChannel } = useWebSocket({
-  //   onConnected: () => {
-  //     console.log('WebSocket connected');
-  //     // 订阅更新
-  //     subscribeChannel('agents');
-  //     subscribeChannel('tasks');
-  //     subscribeChannel('metrics');
-  //   },
-  // });
+  // 快捷操作按钮样式
+  const actionButtonStyle = {
+    height: 48,
+    borderRadius: 8,
+    fontSize: 15,
+    fontWeight: 500,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  };
 
-  useEffect(() => {
-    fetchAgents();
-    fetchTasks();
-    fetchStats();
-    fetchSystemMetrics();
-
-    // WebSocket订阅 - 暂时禁用
-    // const unsubscribeAgent = subscribe('agent_update', (data) => {
-    //   console.log('Agent update received:', data);
-    //   fetchAgents();
-    // });
-
-    // const unsubscribeTask = subscribe('task_update', (data) => {
-    //   console.log('Task update received:', data);
-    //   fetchTasks();
-    //   fetchStats();
-    // });
-
-    // const unsubscribeMetrics = subscribe('metrics_update', (data) => {
-    //   console.log('Metrics update received:', data);
-    //   fetchSystemMetrics();
-    // });
-
-    // 定时刷新（备用方案，每30秒）
-    const interval = setInterval(() => {
-      fetchSystemMetrics();
-    }, 30000);
-
-    return () => {
-      // unsubscribeAgent();
-      // unsubscribeTask();
-      // unsubscribeMetrics();
-      clearInterval(interval);
-    };
-  }, [fetchAgents, fetchTasks, fetchStats, fetchSystemMetrics]);
-
-  // 计算Agent统计
-  const runningAgents = agents.filter((a) => a.state === 'running').length;
-  const stoppedAgents = agents.filter((a) => a.state === 'stopped').length;
-
-  // 任务表格列
-  const taskColumns = [
-    {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 200,
-    },
-    {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-    },
-    {
-      title: '优先级',
-      dataIndex: 'priority',
-      key: 'priority',
-      render: (priority: string) => {
-        const color = {
-          high: 'red',
-          normal: 'blue',
-          low: 'default',
-        }[priority] || 'default';
-        return <Tag color={color}>{priority.toUpperCase()}</Tag>;
-      },
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => {
-        const color = {
-          pending: 'default',
-          running: 'processing',
-          completed: 'success',
-          failed: 'error',
-        }[status] || 'default';
-        return <Tag color={color}>{status.toUpperCase()}</Tag>;
-      },
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (date: string) => new Date(date).toLocaleString(),
-    },
-  ];
-
-  // Agent表格列
-  const agentColumns = [
-    {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 150,
-    },
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
-      title: '类型',
-      dataIndex: 'agent_type',
-      key: 'agent_type',
-      render: (type: string) => type.toUpperCase(),
-    },
-    {
-      title: '状态',
-      dataIndex: 'state',
-      key: 'state',
-      render: (state: string) => {
-        const color = {
-          running: 'success',
-          stopped: 'default',
-          starting: 'processing',
-          stopping: 'processing',
-          error: 'error',
-        }[state] || 'default';
-        return <Tag color={color}>{state.toUpperCase()}</Tag>;
-      },
-    },
-  ];
+  // 统计卡片组件
+  const StatCard: React.FC<{
+    title: string;
+    value: number;
+    suffix?: string;
+    color?: string;
+  }> = ({ title, value, suffix, color = '#0d9488' }) => (
+    <div
+      style={{
+        background: '#ffffff',
+        border: '1px solid #e5e7eb',
+        borderRadius: 8,
+        padding: '20px 24px',
+        height: '100%',
+        transition: 'all 0.2s ease',
+      }}
+      className="stat-card"
+    >
+      <Text style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>{title}</Text>
+      <div style={{ marginTop: 8 }}>
+        <Statistic
+          value={value}
+          suffix={suffix}
+          valueStyle={{
+            fontSize: 28,
+            fontWeight: 600,
+            color: '#111827',
+          }}
+          suffixStyle={{ fontSize: 16, color: color }}
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div>
+      {/* 欢迎信息 */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>仪表盘</h1>
-        <p style={{ margin: '8px 0 0', color: '#666' }}>
-          系统概览和实时监控
-        </p>
+        <Text style={{ fontSize: 24, fontWeight: 600, color: '#111827' }}>
+          欢迎使用 Magi AI Framework
+        </Text>
+        <div style={{ marginTop: 4 }}>
+          <Text style={{ fontSize: 14, color: '#6b7280' }}>
+            智能代理框架，支持多层记忆和动态人格配置
+          </Text>
+        </div>
       </div>
 
-      {/* 系统指标 */}
+      {/* 统计卡片 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="总Agent数"
-              value={agents.length}
-              prefix={<RobotOutlined />}
-              valueStyle={{ color: '#3f8600' }}
-            />
-          </Card>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard title="总消息数" value={stats.totalMessages} />
         </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="运行中"
-              value={runningAgents}
-              prefix={<CheckCircleOutlined />}
-              valueStyle={{ color: '#52c41a' }}
-            />
-          </Card>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard
+            title="今日消息"
+            value={stats.todayMessages}
+            color="#10b981"
+          />
         </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="总任务数"
-              value={stats?.total || 0}
-              prefix={<UnorderedListOutlined />}
-              valueStyle={{ color: '#1890ff' }}
-            />
-          </Card>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard
+            title="活跃能力"
+            value={stats.activeCapabilities}
+            color="#6366f1"
+          />
         </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="已完成"
-              value={stats?.completed || 0}
-              prefix={<CheckCircleOutlined />}
-              valueStyle={{ color: '#52c41a' }}
-            />
-          </Card>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard
+            title="内存使用"
+            value={stats.memoryUsage}
+            suffix="%"
+            color="#f59e0b"
+          />
         </Col>
       </Row>
 
-      {/* 系统资源使用率 */}
-      <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={12}>
-          <Card title="系统资源" extra={<ClockCircleOutlined />}>
-            <Space direction="vertical" style={{ width: '100%' }} size="large">
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span>CPU使用率</span>
-                  <span style={{ fontWeight: 600 }}>
-                    {systemMetrics?.cpu_percent?.toFixed(1)}%
-                  </span>
-                </div>
-                <div
-                  style={{
-                    width: '100%',
-                    height: 8,
-                    background: '#f0f0f0',
-                    borderRadius: 4,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${systemMetrics?.cpu_percent || 0}%`,
-                      height: '100%',
-                      background: systemMetrics?.cpu_percent && systemMetrics.cpu_percent > 80
-                        ? '#ff4d4f'
-                        : '#52c41a',
-                      transition: 'width 0.3s ease',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span>内存使用率</span>
-                  <span style={{ fontWeight: 600 }}>
-                    {systemMetrics?.memory_percent?.toFixed(1)}%
-                  </span>
-                </div>
-                <div
-                  style={{
-                    width: '100%',
-                    height: 8,
-                    background: '#f0f0f0',
-                    borderRadius: 4,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${systemMetrics?.memory_percent || 0}%`,
-                      height: '100%',
-                      background: systemMetrics?.memory_percent && systemMetrics.memory_percent > 80
-                        ? '#ff4d4f'
-                        : '#52c41a',
-                      transition: 'width 0.3s ease',
-                    }}
-                  />
-                </div>
-                <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-                  {systemMetrics?.memory_used?.toFixed(2)} GB / {systemMetrics?.memory_total?.toFixed(2)} GB
-                </div>
-              </div>
+      <Row gutter={24}>
+        {/* 快捷操作 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title="快捷操作"
+            bordered={false}
+            style={{
+              background: '#ffffff',
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+              height: '100%',
+            }}
+            styles={{ body: { padding: '20px 24px' } }}
+          >
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <Button
+                type="primary"
+                icon={<MessageOutlined />}
+                onClick={() => navigate('/chat')}
+                block
+                size="large"
+                style={{
+                  ...actionButtonStyle,
+                  background: '#0d9488',
+                  borderColor: '#0d9488',
+                }}
+              >
+                开始对话
+                <ArrowRightOutlined style={{ marginLeft: 'auto' }} />
+              </Button>
+              <Button
+                icon={<UserOutlined />}
+                onClick={() => navigate('/personality')}
+                block
+                size="large"
+                style={{
+                  ...actionButtonStyle,
+                  borderColor: '#e5e7eb',
+                  color: '#111827',
+                }}
+              >
+                管理人格
+                <ArrowRightOutlined style={{ marginLeft: 'auto', color: '#9ca3af' }} />
+              </Button>
+              <Button
+                icon={<SettingOutlined />}
+                onClick={() => navigate('/settings')}
+                block
+                size="large"
+                style={{
+                  ...actionButtonStyle,
+                  borderColor: '#e5e7eb',
+                  color: '#111827',
+                }}
+              >
+                系统设置
+                <ArrowRightOutlined style={{ marginLeft: 'auto', color: '#9ca3af' }} />
+              </Button>
             </Space>
           </Card>
         </Col>
 
-        <Col span={12}>
-          <Card title="任务统计" extra={<UnorderedListOutlined />}>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Statistic
-                  title="待处理"
-                  value={stats?.pending || 0}
-                  valueStyle={{ color: '#faad14' }}
-                />
+        {/* 系统信息 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title="系统信息"
+            bordered={false}
+            style={{
+              background: '#ffffff',
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+              height: '100%',
+            }}
+            styles={{ body: { padding: '20px 24px' } }}
+          >
+            <Row gutter={[16, 20]}>
+              <Col xs={24} sm={8}>
+                <div>
+                  <Text style={{ fontSize: 12, color: '#6b7280' }}>框架版本</Text>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', marginTop: 4 }}>
+                    Magi v0.1.0
+                  </div>
+                </div>
               </Col>
-              <Col span={12}>
-                <Statistic
-                  title="运行中"
-                  value={stats?.running || 0}
-                  valueStyle={{ color: '#1890ff' }}
-                />
+              <Col xs={24} sm={8}>
+                <div>
+                  <Text style={{ fontSize: 12, color: '#6b7280' }}>记忆架构</Text>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', marginTop: 4 }}>
+                    L1-L5 五层
+                  </div>
+                </div>
               </Col>
-              <Col span={12} style={{ marginTop: 16 }}>
-                <Statistic
-                  title="已完成"
-                  value={stats?.completed || 0}
-                  valueStyle={{ color: '#52c41a' }}
-                />
-              </Col>
-              <Col span={12} style={{ marginTop: 16 }}>
-                <Statistic
-                  title="失败"
-                  value={stats?.failed || 0}
-                  valueStyle={{ color: '#ff4d4f' }}
-                />
+              <Col xs={24} sm={8}>
+                <div>
+                  <Text style={{ fontSize: 12, color: '#6b7280' }}>事件系统</Text>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', marginTop: 4 }}>
+                    MessageBus
+                  </div>
+                </div>
               </Col>
             </Row>
+
+            <Divider style={{ margin: '16px 0' }} />
+
+            {/* 最近活动时间线 */}
+            <div>
+              <Text style={{ fontSize: 14, fontWeight: 600, color: '#111827', display: 'block', marginBottom: 12 }}>
+                最近活动
+              </Text>
+              <Timeline
+                items={recentActivities.map((activity, index) => ({
+                  color: index === 0 ? '#0d9488' : '#e5e7eb',
+                  dot: index === 0 ? <CheckCircleOutlined style={{ fontSize: 16, color: '#0d9488' }} /> : undefined,
+                  children: (
+                    <div key={index}>
+                      <div style={{ fontSize: 13, color: '#111827' }}>{activity.text}</div>
+                      <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
+                        {activity.time}
+                      </div>
+                    </div>
+                  ),
+                }))}
+                style={{ marginTop: 8 }}
+              />
+            </div>
           </Card>
         </Col>
       </Row>
-
-      {/* 聊天对话 - WebSocket暂时禁用 */}
-      {/* <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={24}>
-          <ChatBox />
-        </Col>
-      </Row> */}
-
-      {/* Agent列表 */}
-      <Card
-        title="Agent列表"
-        extra={
-          <Button type="primary" onClick={() => navigate('/agents')}>
-            查看全部
-          </Button>
-        }
-        style={{ marginBottom: 24 }}
-      >
-        <Table
-          columns={agentColumns}
-          dataSource={agents.slice(0, 5)}
-          rowKey="id"
-          pagination={false}
-          size="small"
-        />
-      </Card>
-
-      {/* 最近任务 */}
-      <Card
-        title="最近任务"
-        extra={
-          <Button type="primary" onClick={() => navigate('/tasks')}>
-            查看全部
-          </Button>
-        }
-        style={{ marginBottom: 24 }}
-      >
-        <Table
-          columns={taskColumns}
-          dataSource={tasks.slice(0, 5)}
-          rowKey="id"
-          pagination={false}
-          size="small"
-        />
-      </Card>
-
-      {/* 实时日志 - WebSocket暂时禁用 */}
-      {/* <RealtimeLogs /> */}
     </div>
   );
 };

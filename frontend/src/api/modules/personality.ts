@@ -11,6 +11,7 @@ export interface CorePersonality {
   language_style: string;
   use_emoji: boolean;
   catchphrases: string[];
+  greetings: string[];
   tone: string;
   communication_distance: string;
   value_alignment: string;
@@ -44,7 +45,7 @@ export interface AIGenerateRequest {
 export interface PersonalityResponse {
   success: boolean;
   message: string;
-  data?: PersonalityConfig | { current: string; actual_name?: string; config?: PersonalityConfig } | { personalities: string[] };
+  data?: PersonalityConfig | { current: string; actual_name?: string; config?: PersonalityConfig } | { personalities: string[] } | { greeting: string; name: string };
 }
 
 export interface PersonalityDiff {
@@ -92,6 +93,9 @@ export const personalityApi = {
 
   // 设置当前激活的人格
   setCurrent: (name: string) => api.put<PersonalityResponse>('/personality/current', { name }),
+
+  // 获取随机问候语
+  getGreeting: () => api.get<PersonalityResponse>('/personality/greeting'),
 
   // 比较两个人格
   compare: (fromName: string, toName: string) =>

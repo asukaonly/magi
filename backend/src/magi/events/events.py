@@ -132,3 +132,25 @@ class EventTypes:
 
     # 用户消息事件
     USER_MESSAGE = "UserMessage"
+
+
+# 业务事件类型常量（L1 层存储使用）
+class BusinessEventTypes:
+    """
+    业务事件类型常量
+
+    这些是经过过滤和转换后的业务事件，
+    用于 L1 层存储，专注于用户行为分析。
+    """
+
+    # 用户输入事件（来自 USER_MESSAGE）
+    USER_INPUT = "USER_INPUT"
+
+    # AI 响应事件（来自 ACTION_EXECUTED，当 action_type=ChatResponseAction）
+    AI_RESPONSE = "AI_RESPONSE"
+
+    # 工具调用事件（来自 ACTION_EXECUTED，当 action_type 是工具调用）
+    TOOL_INVOKED = "TOOL_INVOKED"
+
+    # 系统异常事件（只记录严重错误，level >= ERROR）
+    SYSTEM_ERROR = "SYSTEM_ERROR"

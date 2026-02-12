@@ -2,7 +2,7 @@
 LLM适配器 - 抽象基类
 """
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, AsyncIterator
+from typing import Optional, Dict, Any, AsyncIterator, List
 
 
 class LLMAdapter(ABC):
@@ -108,3 +108,42 @@ class LLMAdapter(ABC):
     def model_name(self) -> str:
         """获取模型名称"""
         pass
+
+    async def get_embedding(
+        self,
+        text: str,
+        model: Optional[str] = None,
+    ) -> Optional[List[float]]:
+        """
+        获取文本的嵌入向量（可选实现）
+
+        Args:
+            text: 输入文本
+            model: 嵌入模型名称（可选）
+
+        Returns:
+            向量嵌入，如果不支持则返回None
+        """
+        return None
+
+    async def get_embeddings(
+        self,
+        texts: List[str],
+        model: Optional[str] = None,
+    ) -> List[Optional[List[float]]]:
+        """
+        批量获取嵌入向量（可选实现）
+
+        Args:
+            texts: 输入文本列表
+            model: 嵌入模型名称（可选）
+
+        Returns:
+            向量嵌入列表
+        """
+        return [await self.get_embedding(text, model) for text in texts]
+
+    @property
+    def supports_embeddings(self) -> bool:
+        """是否支持嵌入向量"""
+        return False

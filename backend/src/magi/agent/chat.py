@@ -6,7 +6,8 @@ ChatAgent - 聊天Agent实现
 """
 import time
 import logging
-from typing import Any, Optional, Dict
+import re
+from typing import Any, Optional, Dict, List
 from ..core.complete_agent import CompleteAgent
 from ..core.agent import AgentConfig
 from ..events.backend import MessageBusBackend
@@ -15,8 +16,11 @@ from ..utils.agent_logger import get_agent_logger, log_chain_start, log_chain_st
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.selector import ToolSelector
+from ..tools.context_decider import ContextDecider
+from ..tools.function_calling import FunctionCallingExecutor
 from ..tools.schema import ToolExecutionContext
-from ..memory.self_memory_v2 import SelfMemoryV2
+from ..memory.self_memory import SelfMemory
+from ..memory.other_memory import OtherMemory
 from ..memory.behavior_evolution import SatisfactionLevel
 from ..memory.emotional_state import InteractionOutcome, EngagementLevel
 from ..memory.growth_memory import InteractionType
@@ -26,6 +30,42 @@ from ..memory.models import TaskBehaviorProfile
 logger = logging.getLogger(__name__)
 agent_logger = get_agent_logger('chat')
 llm_logger = get_llm_logger('chat')
+
+
+def clean_tool_artifacts(text: str) -> str:
+    """
+    清理LLM响应中的工具调用痕迹
+
+    移除类似这样的格式:
+    - <antml:function_calls>...</antml:function_calls>
+    - <antml:tool_result>...</antml:tool_result>
+    - <tool_result>...</tool_result>
+    - {"name": "tool", "arguments": {...}}
+    - <invoke>...</invoke>
+
+    Args:
+        text: 原始LLM响应
+
+    Returns:
+        清理后的响应
+    """
+    # 移除 function_calls 标签及其内容
+    text = re.sub(r'<antml:function_calls>.*?</antml:function_calls>', '', text, flags=re.DOTALL)
+
+    # 移除 tool_result 标签及其内容
+    text = re.sub(r'<antml:tool_result>.*?</antml:tool_result>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<tool_result>.*?</tool_result>', '', text, flags=re.DOTALL)
+
+    # 移除 invoke 标签及其内容
+    text = re.sub(r'<invoke>.*?</invoke>', '', text, flags=re.DOTALL)
+
+    # 移除 {"name": "xxx", "arguments": {...}} 格式的工具调用
+    text = re.sub(r'\s*{"name":\s*"[^"]+",\s*"arguments":\s*{[^}]*}}\s*', '', text)
+
+    # 移除剩余的空行（超过2个连续换行）
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    return text.strip()
 
 
 class ChatAgent(CompleteAgent):
@@ -44,7 +84,10 @@ class ChatAgent(CompleteAgent):
         config: AgentConfig,
         message_bus: MessageBusBackend,
         llm_adapter: LLMAdapter,
-        memory: SelfMemoryV2 = None,
+        memory: SelfMemory = None,
+        other_memory: OtherMemory = None,
+        unified_memory = None,
+        memory_integration = None,
     ):
         """
         初始化ChatAgent
@@ -54,22 +97,71 @@ class ChatAgent(CompleteAgent):
             message_bus: 消息总线
             llm_adapter: LLM适配器
             memory: 自我记忆系统（可选）
+            other_memory: 他人记忆系统（可选）
+            unified_memory: 统一记忆存储（可选，L1-L5）
+            memory_integration: 记忆集成模块（可选）
         """
         super().__init__(config, message_bus, llm_adapter)
 
         # 对话历史（内存存储）
         self._conversation_history: dict[str, list[dict]] = {}
 
-        # 工具选择器（五步决策流程）
+        # 工具选择器（五步决策流程）- 保留兼容
         self.tool_selector = ToolSelector(
             tool_registry=tool_registry,
             llm_adapter=llm_adapter,
         )
 
+        # 上下文决策器 - 新的工具选择方式
+        self.context_decider = ContextDecider(
+            tool_registry=tool_registry,
+            llm_adapter=llm_adapter,
+        )
+
+        # 函数调用执行器 - 支持连续工具调用
+        self.function_calling_executor = FunctionCallingExecutor(
+            llm_adapter=llm_adapter,
+            tool_registry=tool_registry,
+            skill_executor=None,  # Will set after skill_executor is initialized
+        )
+
         # 自我记忆系统
         self.memory = memory
 
-        agent_logger.info(f"🤖 ChatAgent initialized | Name: {config.name} | Memory: {'enabled' if memory else 'disabled'}")
+        # 他人记忆系统
+        self.other_memory = other_memory
+
+        # 统一记忆存储（L1-L5）
+        self.unified_memory = unified_memory
+
+        # 记忆集成模块
+        self.memory_integration = memory_integration
+
+        # Skill 执行器
+        from ..skills.indexer import SkillIndexer
+        from ..skills.loader import SkillLoader
+        from ..skills.executor import SkillExecutor
+
+        self._skill_indexer = SkillIndexer()
+        self._skill_loader = SkillLoader(self._skill_indexer)
+        self._skill_executor = SkillExecutor(self._skill_loader, llm_adapter)
+
+        # 更新函数调用执行器的skill_executor
+        self.function_calling_executor.skill_executor = self._skill_executor
+
+        # 初始化 skills 索引
+        skills = self._skill_indexer.scan_all()
+        if skills:
+            tool_registry.register_skill_index(skills)
+            agent_logger.info(f"📚 Skills indexed: {list(skills.keys())}")
+
+        agent_logger.info(
+            f"🤖 ChatAgent initialized | Name: {config.name} | "
+            f"SelfMemory: {'enabled' if memory else 'disabled'} | "
+            f"OtherMemory: {'enabled' if other_memory else 'disabled'} | "
+            f"UnifiedMemory: {'enabled' if unified_memory else 'disabled'} | "
+            f"MemoryIntegration: {'enabled' if memory_integration else 'disabled'}"
+        )
 
     async def execute_action(self, action: Any) -> dict:
         """
@@ -104,6 +196,12 @@ class ChatAgent(CompleteAgent):
                 "DEBUG"
             )
 
+            # 清理工具调用痕迹
+            cleaned_response = clean_tool_artifacts(response_text)
+            if cleaned_response != response_text:
+                agent_logger.info("🧹 Cleaned tool artifacts from response")
+                response_text = cleaned_response
+
             # 发送回复通过WebSocket
             from ..api.websocket import manager
 
@@ -132,12 +230,13 @@ class ChatAgent(CompleteAgent):
 
     async def _generate_response(self, user_id: str, user_message: str) -> str:
         """
-        生成LLM回复（集成工具调用）
+        生成LLM回复（集成工具调用和技能执行）
 
         流程：
-        1. 工具选择（五步决策）
-        2. 如果需要工具，执行工具并获取结果
-        3. 将工具结果反馈给LLM生成最终回复
+        1. 检查是否为直接 Skill 调用 (/skill-name)
+        2. 使用上下文决策器选择相关工具
+        3. 使用函数调用执行器进行连续工具调用
+        4. 将执行结果反馈给LLM生成最终回复
 
         Args:
             user_id: 用户ID
@@ -151,96 +250,51 @@ class ChatAgent(CompleteAgent):
         # 获取对话历史
         history = self._conversation_history.get(user_id, [])
 
-        # Step 1: 工具选择（五步决策流程）
-        # 构建环境上下文
+        # Step 0: 检查是否为直接 Skill 调用
+        skill_invocation = self._skill_executor.validate_skill_invocation(user_message)
+        if skill_invocation:
+            skill_name, arguments = skill_invocation
+            agent_logger.info(f"🎯 Direct skill invocation | Skill: /{skill_name} | Arguments: {arguments}")
+
+            # 执行 Skill
+            skill_result = await self._execute_skill(
+                skill_name,
+                arguments,
+                user_id,
+                user_message,
+                history,
+            )
+
+            if skill_result["success"]:
+                return skill_result["response"]
+            else:
+                # Skill 执行失败，返回错误信息
+                return f"Skill execution failed: {skill_result.get('error', 'Unknown error')}"
+
+        # Step 1: 上下文决策 - 选择相关工具
         import os
         import platform
-        selector_context = {
-            "os": platform.system(),  # Darwin, Linux, Windows
+        context = {
+            "os": platform.system(),
             "os_version": platform.release(),
             "current_user": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
-            "home_dir": os.path.expanduser("~"),  # 自动检测正确的 home 目录
+            "home_dir": os.path.expanduser("~"),
             "current_dir": os.getcwd(),
         }
 
-        tool_decision = await self.tool_selector.select_tool(user_message, selector_context)
-
-        agent_logger.info(f"🔍 Tool decision result: {tool_decision}")
-
-        # 确定任务类别
-        task_category = tool_decision.get("tool", "chat") if tool_decision else "chat"
-
-        tool_result = None
-        if tool_decision and tool_decision.get("tool"):
-            # Step 2: 执行工具
-            agent_logger.info(f"🔧 Tool selected | Tool: {tool_decision['tool']} | Parameters: {tool_decision.get('parameters', {})}")
-
-            try:
-                tool_result = await self._execute_tool(
-                    tool_decision["tool"],
-                    tool_decision.get("parameters", {}),
-                    user_id
-                )
-
-                if tool_result["success"]:
-                    agent_logger.info(f"✅ Tool executed | Result: {str(tool_result['data'])[:100]}...")
-                else:
-                    agent_logger.error(f"❌ Tool failed | Error: {tool_result.get('error', 'Unknown')}")
-            except Exception as e:
-                agent_logger.error(f"❌ Tool execution exception: {e}")
-                import traceback
-                agent_logger.error(f"Traceback: {traceback.format_exc()}")
-                tool_result = {"success": False, "error": str(e), "data": None}
-        else:
-            agent_logger.info("ℹ️  No tool selected, using direct LLM response")
-
-        # Step 3: 构建LLM消息
-        system_prompt = await self._build_system_prompt(
-            tool_decision=tool_decision,
-            scenario=Scenario.CHAT,
-            user_id=user_id,
-            task_category=task_category
+        context_decision = await self.context_decider.decide(user_message, context)
+        agent_logger.info(
+            f"🎯 Context decision | Intent: {context_decision.intent} | "
+            f"Tools: {context_decision.tools} | Reasoning: {context_decision.reasoning}"
         )
 
-        messages = []
-
-        # 添加历史对话（最近10轮）
-        for msg in history[-10:]:
-            messages.append(msg)
-
-        # 添加当前用户消息
-        messages.append({
-            "role": "user",
-            "content": user_message,
-        })
-
-        # 如果有工具结果，添加工具调用信息
-        if tool_result and tool_result["success"]:
-            tool_info = (
-                f"\n\n[工具执行结果]\n"
-                f"工具: {tool_decision['tool']}\n"
-                f"参数: {tool_decision.get('parameters', {})}\n"
-                f"执行结果: {tool_result['data']}"
-            )
-            messages.append({
-                "role": "system",
-                "content": tool_info
-            })
-        elif tool_decision and tool_decision.get("tool"):
-            # 工具选择存在但没有成功执行
-            if tool_result and not tool_result["success"]:
-                error_info = (
-                    f"\n\n[工具执行失败]\n"
-                    f"工具: {tool_decision['tool']}\n"
-                    f"错误: {tool_result.get('error', 'Unknown error')}"
-                )
-                messages.append({
-                    "role": "system",
-                    "content": error_info
-                })
-
-        # Step 4: 调用LLM生成最终回复
-        response_text = await self._call_llm(system_prompt, messages)
+        # Step 2: 使用函数调用执行器处理
+        response_text = await self._generate_response_with_function_calling(
+            user_id=user_id,
+            user_message=user_message,
+            context_decision=context_decision,
+            history=history,
+        )
 
         # 计算任务持续时间
         duration = time.time() - start_time
@@ -253,36 +307,27 @@ class ChatAgent(CompleteAgent):
         # 记录交互到记忆系统
         if self.memory:
             try:
-                # 确定交互结果
                 outcome = InteractionOutcome.SUCCESS
-                if tool_result and not tool_result["success"]:
-                    outcome = InteractionOutcome.FAILURE
-                elif tool_decision and tool_decision.get("tool"):
-                    outcome = InteractionOutcome.SUCCESS
-
-                # 记录交互到成长记忆
                 await self.memory.record_interaction(
                     user_id=user_id,
                     interaction_type=InteractionType.CHAT,
-                    outcome="success" if outcome == InteractionOutcome.SUCCESS else "failure",
-                    sentiment=0.0,  # 可以从情感分析获取
+                    outcome="success",
+                    sentiment=0.0,
                     notes=f"Message: {user_message[:100]}..."
                 )
 
-                # 更新情绪状态
                 await self.memory.update_after_interaction(
                     outcome=outcome,
                     user_engagement=EngagementLevel.MEDIUM,
                     complexity=0.5
                 )
 
-                # 记录任务结果（用于行为演化）
                 task_id = f"chat_{int(start_time)}_{user_id}"
                 await self.memory.record_task_outcome(
                     task_id=task_id,
-                    task_category=task_category,
-                    user_satisfaction=SatisfactionLevel.NEUTRAL,  # 可以从用户反馈获取
-                    accepted=True,  # 假设被接受
+                    task_category=context_decision.intent,
+                    user_satisfaction=SatisfactionLevel.NEUTRAL,
+                    accepted=True,
                     task_complexity=0.5,
                     task_duration=duration,
                 )
@@ -290,7 +335,91 @@ class ChatAgent(CompleteAgent):
             except Exception as e:
                 agent_logger.warning(f"Failed to record interaction: {e}")
 
+        # 更新他人记忆
+        if self.other_memory:
+            try:
+                self.other_memory.update_interaction(
+                    user_id=user_id,
+                    interaction_type="chat",
+                    outcome="positive",
+                    notes=f"消息: {user_message[:100]}{'...' if len(user_message) > 100 else ''}",
+                )
+            except Exception as e:
+                agent_logger.warning(f"Failed to update other memory: {e}")
+
         return response_text
+
+    async def _generate_response_with_function_calling(
+        self,
+        user_id: str,
+        user_message: str,
+        context_decision,
+        history: list[dict],
+    ) -> str:
+        """
+        使用函数调用执行器生成回复
+
+        Args:
+            user_id: 用户ID
+            user_message: 用户消息
+            context_decision: 上下文决策结果
+            history: 对话历史
+
+        Returns:
+            LLM回复
+        """
+        try:
+            # 构建系统提示
+            system_prompt = await self._build_system_prompt(
+                tool_decision=None,  # 不再需要 tool_decision
+                scenario=Scenario.CHAT,
+                user_id=user_id,
+                task_category=context_decision.intent,
+            )
+
+            # 如果没有选择工具，直接调用LLM
+            if not context_decision.tools:
+                agent_logger.info("ℹ️  No tools selected, using direct LLM response")
+
+                messages = []
+                for msg in history[-10:]:
+                    messages.append(msg)
+                messages.append({"role": "user", "content": user_message})
+
+                response_text = await self._call_llm(system_prompt, messages)
+                return clean_tool_artifacts(response_text)
+
+            # 使用函数调用执行器
+            agent_logger.info(f"🔧 Using function calling with tools: {context_decision.tools}")
+
+            response_text = await self.function_calling_executor.execute_with_tools(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                selected_tools=context_decision.tools,
+                user_id=user_id,
+                conversation_history=history,
+            )
+
+            return response_text
+
+        except Exception as e:
+            agent_logger.error(f"❌ Error in _generate_response_with_function_calling: {e}")
+            import traceback
+            agent_logger.error(f"Traceback: {traceback.format_exc()}")
+
+            # Fallback: try simple LLM call
+            try:
+                messages = [{"role": "user", "content": user_message}]
+                system_prompt = await self._build_system_prompt(
+                    tool_decision=None,
+                    scenario=Scenario.CHAT,
+                    user_id=user_id,
+                    task_category="chat",
+                )
+                return await self._call_llm(system_prompt, messages)
+            except Exception as e2:
+                agent_logger.error(f"❌ Fallback LLM call also failed: {e2}")
+                return "抱歉，我遇到了一些问题，请稍后再试。"
 
     async def _build_system_prompt(
         self,
@@ -329,17 +458,21 @@ class ChatAgent(CompleteAgent):
             agent_logger.warning("⚠️ Memory system not enabled, using default personality")
             personality_context = ""
 
-        # 基础提示
+        # 基础提示（不重复身份信息，identity已包含在 personality_context 中）
         base_prompt = (
-            "你是 Magi AI Agent Framework 的智能助手。"
+            "请始终以上述身份回应用户。"
             "你的任务是帮助用户解答问题、提供建议和执行任务。"
         )
 
         # 组装提示
         if personality_context:
-            full_prompt = f"{personality_context}\n\n{base_prompt}"
+            full_prompt = personality_context  # 已包含完整身份信息，不再添加 base_prompt
         else:
-            full_prompt = base_prompt
+            # 没有人格上下文时的默认提示
+            full_prompt = (
+                "你是一个友好的AI助手。"
+                "你的任务是帮助用户解答问题、提供建议和执行任务。"
+            )
 
         # 添加工具相关提示
         if tool_decision and tool_decision.get("tool"):
@@ -397,6 +530,9 @@ class ChatAgent(CompleteAgent):
                 )
                 response_text = response.content[0].text
 
+                # 清理工具调用痕迹
+                response_text = clean_tool_artifacts(response_text)
+
                 # 记录响应日志
                 duration_ms = int((time.time() - start_time) * 1000)
                 log_llm_response(
@@ -416,6 +552,9 @@ class ChatAgent(CompleteAgent):
                     max_tokens=1000,
                     temperature=0.7,
                 )
+
+                # 清理工具调用痕迹
+                response_text = clean_tool_artifacts(response_text)
 
                 # 记录响应日志
                 duration_ms = int((time.time() - start_time) * 1000)
@@ -493,6 +632,100 @@ class ChatAgent(CompleteAgent):
                 "success": False,
                 "error": str(e),
                 "data": None,
+            }
+
+    async def _execute_skill(
+        self,
+        skill_name: str,
+        arguments: List[str],
+        user_id: str,
+        user_message: str,
+        conversation_history: list[dict],
+    ) -> Dict[str, Any]:
+        """
+        执行 Skill
+
+        Args:
+            skill_name: Skill 名称（不带 / 前缀）
+            arguments: 命令行参数
+            user_id: 用户ID
+            user_message: 原始用户消息
+            conversation_history: 对话历史
+
+        Returns:
+            执行结果 {"success": bool, "response": str, "error": ...}
+        """
+        import os
+
+        # 构建 Skill 执行上下文
+        skill_context = {
+            "user_id": user_id,
+            "session_id": f"session_{user_id}",
+            "user_message": user_message,
+            "conversation_history": conversation_history,
+            "env_vars": {
+                "USER": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
+                "HOME": os.path.expanduser("~"),
+                "PWD": os.getcwd(),
+                "CLAUDE_SESSION_ID": f"session_{user_id}",
+                "USER_ID": user_id,
+            },
+        }
+
+        try:
+            # 执行 Skill
+            result = await self._skill_executor.execute(
+                skill_name=skill_name,
+                arguments=arguments,
+                context=skill_context,
+            )
+
+            if result.success:
+                # 如果 Skill 执行成功，返回内容
+                response_content = result.content or ""
+
+                # 如果 Skill 返回的是指令（direct mode），需要通过 LLM 生成最终回复
+                if result.metadata.get("mode") == "direct":
+                    # 使用 Skill 内容作为系统提示
+                    system_prompt = response_content
+
+                    messages = []
+                    # 添加历史对话
+                    for msg in conversation_history[-5:]:
+                        messages.append(msg)
+                    # 添加当前用户消息
+                    messages.append({"role": "user", "content": user_message})
+
+                    response_text = await self._call_llm(system_prompt, messages)
+                    # 清理工具调用痕迹
+                    response_text = clean_tool_artifacts(response_text)
+
+                    return {
+                        "success": True,
+                        "response": response_text,
+                        "mode": "direct_with_llm",
+                    }
+                else:
+                    # Sub-agent 模式，清理工具调用痕迹后返回结果
+                    response_content = clean_tool_artifacts(response_content)
+                    return {
+                        "success": True,
+                        "response": response_content,
+                        "mode": "subagent",
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": result.error or "Skill execution failed",
+                }
+
+        except Exception as e:
+            agent_logger.error(f"❌ Skill execution error: {e}")
+            import traceback
+            agent_logger.error(f"Traceback: {traceback.format_exc()}")
+            return {
+                "success": False,
+                "error": str(e),
             }
 
     def get_conversation_history(self, user_id: str) -> list[dict]:

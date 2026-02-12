@@ -1,7 +1,7 @@
 """
 Agent - 完整的Agent实现
 """
-from typing import List
+from typing import List, Optional, Any
 from .agent import Agent, AgentConfig
 from .master_agent import MasterAgent
 from .task_agent import TaskAgent, WorkerAgent
@@ -10,7 +10,6 @@ from ..tools.registry import ToolRegistry
 from ..awareness.manager import PerceptionManager
 from ..processing.processor import SelfProcessingModule
 from ..processing.capability_store import CapabilityStore
-from ..memory.store import MemoryStore
 from ..llm.base import LLMAdapter
 from ..events.backend import MessageBusBackend
 
@@ -23,7 +22,6 @@ class CompleteAgent(Agent):
     - 感知模块
     - 处理模块
     - 工具注册表
-    - 记忆存储
     - 循环引擎
     """
 
@@ -32,6 +30,7 @@ class CompleteAgent(Agent):
         config: AgentConfig,
         message_bus: MessageBusBackend,
         llm_adapter: LLMAdapter,
+        memory: Optional[Any] = None,
     ):
         """
         初始化Agent
@@ -40,6 +39,7 @@ class CompleteAgent(Agent):
             config: Agent配置
             message_bus: 消息总线
             llm_adapter: LLM适配器
+            memory: 记忆系统（可选）
         """
         super().__init__(config)
 
@@ -53,7 +53,7 @@ class CompleteAgent(Agent):
 
         # 工具和记忆
         self.tool_registry = ToolRegistry()
-        self.memory = MemoryStore()
+        self.memory = memory  # 可以是 SelfMemory、OtherMemory 等
         self.capability_store = CapabilityStore()
 
         # 循环引擎
