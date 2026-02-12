@@ -3,6 +3,7 @@
 
 提供内置工具和工具注册表
 支持 Claude Tool Use API 格式
+支持 Claude Code Skills
 """
 from .schema import (
     Tool,
@@ -14,6 +15,8 @@ from .schema import (
 )
 from .registry import ToolRegistry, tool_registry
 from .selector import ToolSelector
+from .context_decider import ContextDecider, ContextDecision
+from .function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
 from .recommender import ToolRecommender, ScenarioType
 from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
 from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
@@ -24,6 +27,15 @@ from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
 from .builtin.file_list_tool import FileListTool
 from .builtin.dynamic_tool import DynamicTool, create_dynamic_tool
+from .builtin.capabilities_tool import CapabilitiesTool
+from .builtin.web_search_tool import WebSearchTool
+from .builtin.skills_creator_tool import SkillsCreatorTool
+
+# 导入 Skills 模块
+from ..skills.indexer import SkillIndexer
+from ..skills.loader import SkillLoader
+from ..skills.executor import SkillExecutor
+from ..skills.schema import SkillMetadata, SkillContent, SkillResult
 
 # 注册所有内置工具
 _builtin_tools = [
@@ -31,6 +43,9 @@ _builtin_tools = [
     FileReadTool,
     FileWriteTool,
     FileListTool,
+    CapabilitiesTool,
+    WebSearchTool,
+    SkillsCreatorTool,
 ]
 
 for tool_class in _builtin_tools:
@@ -56,6 +71,15 @@ __all__ = [
     # 工具选择器
     "ToolSelector",
 
+    # 上下文决策器
+    "ContextDecider",
+    "ContextDecision",
+
+    # 函数调用执行器
+    "FunctionCallingExecutor",
+    "ToolCall",
+    "ToolCallResult",
+
     # 推荐引擎
     "ToolRecommender",
     "ScenarioType",
@@ -80,4 +104,15 @@ __all__ = [
     "FileReadTool",
     "FileWriteTool",
     "FileListTool",
+    "CapabilitiesTool",
+    "WebSearchTool",
+    "SkillsCreatorTool",
+
+    # Skills
+    "SkillIndexer",
+    "SkillLoader",
+    "SkillExecutor",
+    "SkillMetadata",
+    "SkillContent",
+    "SkillResult",
 ]

@@ -8,6 +8,9 @@ from .file_read_tool import FileReadTool
 from .file_write_tool import FileWriteTool
 from .file_list_tool import FileListTool
 from .dynamic_tool import DynamicTool, create_dynamic_tool
+from .capabilities_tool import CapabilitiesTool
+from .web_search_tool import WebSearchTool
+from .skills_creator_tool import SkillsCreatorTool
 
 __all__ = [
     "BashTool",
@@ -16,4 +19,7 @@ __all__ = [
     "FileListTool",
     "DynamicTool",
     "create_dynamic_tool",
+    "CapabilitiesTool",
+    "WebSearchTool",
+    "SkillsCreatorTool",
 ]
