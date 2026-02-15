@@ -1,47 +1,47 @@
 """
-插件系统 - Plugin基类和生命周期钩子
+plugin系统 - PluginBase classand生命period钩子
 """
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Dict
 from enum import Enum
 
 
-class PluginType(Enum):
-    """插件类型"""
-    TOOL = "tool"           # 工具插件
-    STORAGE = "storage"     # 存储插件
-    LLM = "llm"            # LLM适配器插件
-    SENSOR = "sensor"       # 传感器插件
+class Plugintype(Enum):
+    """plugintype"""
+    TOOL = "tool"           # toolplugin
+    STORAGE = "storage"     # storageplugin
+    LLM = "llm"            # LLMAdapterplugin
+    SENSOR = "sensor"       # 传感器plugin
 
 
 class Plugin(ABC):
     """
-    插件基类
+    pluginBase class
 
-    插件可以通过生命周期钩子（AOP风格）介入Agent执行流程：
+    plugin可以通过生命period钩子（AOPstyle）介入AgentExecuteprocess：
     - before_sense / after_sense
     - before_plan / after_plan
     - before_act / after_act
 
-    插件也可以提供扩展：
-    - Tools（工具）
-    - StorageBackend（存储后端）
-    - LLMAdapter（LLM适配器）
+    plugin也可以提供extension：
+    - Tools（tool）
+    - StorageBackend（storage后端）
+    - LLMAdapter（LLMAdapter）
     - Sensors（传感器）
     """
 
     def __init__(self):
         self._enabled = True
-        self._priority = 0  # 优先级（数字越大越先执行）
+        self._priority = 0  # priority（number越大越先Execute）
 
     @property
     def name(self) -> str:
-        """插件名称"""
+        """pluginName"""
         return self.__class__.__name__
 
     @property
     def enabled(self) -> bool:
-        """是否启用"""
+        """is nottttEnable"""
         return self._enabled
 
     @enabled.setter
@@ -50,7 +50,7 @@ class Plugin(ABC):
 
     @property
     def priority(self) -> int:
-        """优先级"""
+        """priority"""
         return self._priority
 
     @priority.setter
@@ -59,117 +59,117 @@ class Plugin(ABC):
 
     @property
     def version(self) -> str:
-        """插件版本"""
+        """pluginversion"""
         return "1.0.0"
 
-    # ===== 生命周期钩子 =====
+    # ===== 生命period钩子 =====
 
     async def before_sense(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Sense阶段前的钩子（Chain模式 - 顺序执行）
+        Sense阶段前的钩子（chainpattern - 顺序Execute）
 
         Args:
-            context: 上下文信息
+            context: contextinfo
 
         Returns:
-            可选的修改后的上下文（返回None则终止后续钩子）
+            optional的修改后的context（ReturnNone则终止后续钩子）
         """
         pass
 
     async def after_sense(self, perceptions: List) -> List:
         """
-        Sense阶段后的钩子（Parallel模式 - 并发执行）
+        Sense阶段后的钩子（Parallelpattern - concurrentExecute）
 
         Args:
-            perceptions: 感知列表
+            perceptions: Perception list
 
         Returns:
-            可选的修改后的感知列表
+            optional的修改后的Perception list
         """
         return perceptions
 
     async def before_plan(self, perception) -> Optional[Any]:
         """
-        Plan阶段前的钩子（Chain模式）
+        Plan阶段前的钩子（chainpattern）
 
         Args:
-            perception: 感知输入
+            perception: Perception input
 
         Returns:
-            可选的修改后的感知（返回None则不执行Plan）
+            optional的修改后的Perception（ReturnNone则不ExecutePlan）
         """
         pass
 
     async def after_plan(self, action) -> Any:
         """
-        Plan阶段后的钩子（Parallel模式）
+        Plan阶段后的钩子（Parallelpattern）
 
         Args:
-            action: 行动计划
+            action: Action plan
 
         Returns:
-            可选的修改后的行动
+            optional的修改后的Action
         """
         return action
 
     async def before_act(self, action) -> Optional[Any]:
         """
-        Act阶段前的钩子（Chain模式）
+        Act阶段前的钩子（chainpattern）
 
         Args:
-            action: 要执行的动作
+            action: Action to execute
 
         Returns:
-            可选的修改后的动作（返回None则不执行Act）
+            optional的修改后的action（ReturnNone则不ExecuteAct）
         """
         pass
 
     async def after_act(self, result) -> Any:
         """
-        Act阶段后的钩子（Parallel模式）
+        Act阶段后的钩子（Parallelpattern）
 
         Args:
-            result: 执行结果
+            result: Execution result
 
         Returns:
-            可选的修改后的结果
+            optional的修改后的Result
         """
         return result
 
-    # ===== 扩展点 =====
+    # ===== extension点 =====
 
     def get_tools(self) -> List:
         """
-        获取插件提供的工具
+        getplugin提供的tool
 
         Returns:
-            工具列表
+            toollist
         """
         return []
 
     def get_storage_backend(self):
         """
-        获取插件提供的存储后端
+        getplugin提供的storage后端
 
         Returns:
-            存储后端实例或None
+            storage后端Instance或None
         """
         return None
 
     def get_llm_adapter(self):
         """
-        获取插件提供的LLM适配器
+        getplugin提供的LLMAdapter
 
         Returns:
-            LLM适配器实例或None
+            LLMAdapterInstance或None
         """
         return None
 
     def get_sensors(self) -> List:
         """
-        获取插件提供的传感器
+        getplugin提供的传感器
 
         Returns:
-            传感器列表
+            传感器list
         """
         return []

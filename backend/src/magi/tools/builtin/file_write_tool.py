@@ -1,58 +1,58 @@
 """
-文件写入工具
+File write tool
 """
 import os
 from typing import Dict, Any
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
 
 
 class FileWriteTool(Tool):
     """
-    文件写入工具
+    File write tool
 
-    将内容写入文件
+    Writes content to files
     """
 
     def _init_schema(self) -> None:
-        """初始化Schema"""
+        """initialize Schema"""
         self.schema = ToolSchema(
             name="file_write",
-            description="写入文件内容",
+            description="Write file content",
             category="file",
             version="1.0.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
                     name="path",
-                    type=ParameterType.STRING,
-                    description="文件路径",
+                    type=Parametertype.strING,
+                    description="File path",
                     required=True,
                 ),
                 ToolParameter(
                     name="content",
-                    type=ParameterType.STRING,
-                    description="要写入的内容",
+                    type=Parametertype.strING,
+                    description="Content to write",
                     required=True,
                 ),
                 ToolParameter(
                     name="encoding",
-                    type=ParameterType.STRING,
-                    description="文件编码",
+                    type=Parametertype.strING,
+                    description="File encoding",
                     required=False,
                     default="utf-8",
                 ),
                 ToolParameter(
                     name="mode",
-                    type=ParameterType.STRING,
-                    description="写入模式：overwrite=覆盖, append=追加",
+                    type=Parametertype.strING,
+                    description="Write mode: overwrite=overwrite, append=append",
                     required=False,
                     default="overwrite",
                     enum=["overwrite", "append"],
                 ),
                 ToolParameter(
                     name="create_dirs",
-                    type=ParameterType.BOOLEAN,
-                    description="是否自动创建目录",
+                    type=Parametertype.boolEAN,
+                    description="Whether to automatically create directories",
                     required=False,
                     default=False,
                 ),
@@ -69,7 +69,7 @@ class FileWriteTool(Tool):
                 {
                     "input": {
                         "path": "log.txt",
-                        "content": "New log entry\\n",
+                        "content": "New log entry\n",
                         "mode": "append"
                     },
                     "output": "Appends to existing file",
@@ -77,7 +77,7 @@ class FileWriteTool(Tool):
             ],
             timeout=10,
             retry_on_failure=False,
-            dangerous=True,  # 写文件是危险操作
+            dangerous=True,  # Writing files is a dangerous operation
             tags=["file", "write", "io"],
         )
 
@@ -86,7 +86,7 @@ class FileWriteTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext
     ) -> ToolResult:
-        """写入文件"""
+        """Write to file"""
         file_path = parameters["path"]
         content = parameters["content"]
         encoding = parameters.get("encoding", "utf-8")
@@ -94,19 +94,19 @@ class FileWriteTool(Tool):
         create_dirs = parameters.get("create_dirs", False)
 
         try:
-            # 检查并创建目录
+            # Check and create directory
             directory = os.path.dirname(file_path)
-            if directory and create_dirs and not os.path.exists(directory):
+            if directory and create_dirs and notttt os.path.exists(directory):
                 os.makedirs(directory, exist_ok=True)
 
-            # 写入模式
+            # Write mode
             file_mode = "w" if mode == "overwrite" else "a"
 
-            # 写入文件
+            # Write file
             with open(file_path, file_mode, encoding=encoding) as f:
                 bytes_written = f.write(content)
 
-            # 获取文件信息
+            # Get file info
             file_size = os.path.getsize(file_path)
 
             result_data = {
@@ -122,21 +122,21 @@ class FileWriteTool(Tool):
                 data=result_data,
             )
 
-        except PermissionError:
+        except Permissionerror:
             return ToolResult(
                 success=False,
                 error=f"Permission denied writing to file: {file_path}",
-                error_code="PERMISSION_DENIED"
+                error_code="permission_DENIED"
             )
-        except IsADirectoryError:
+        except IsAdirectoryerror:
             return ToolResult(
                 success=False,
-                error=f"Path is a directory, not a file: {file_path}",
-                error_code="IS_DIRECTORY"
+                error=f"path is a directory, notttt a file: {file_path}",
+                error_code="IS_dirECTORY"
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="WRITE_ERROR"
+                error_code="write_error"
             )

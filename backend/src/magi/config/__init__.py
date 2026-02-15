@@ -1,5 +1,5 @@
 """
-配置管理模块
+Configuration管理module
 """
 from .loader import ConfigLoader, get_config, reload_config
 from .models import Config, AgentConfig, PersonalityConfig

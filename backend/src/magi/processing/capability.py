@@ -1,5 +1,5 @@
 """
-能力提取和验证机制
+Capability ExtractionandValidate机制
 """
 import asyncio
 import hashlib
@@ -9,38 +9,38 @@ from .base import Capability, TaskComplexity
 
 class CapabilityExtractor:
     """
-    能力提取器
+    Capability Extraction器
 
-    从成功经验中提取能力
+    从successexperience中提取capability
     """
 
     def __init__(self, llm_adapter=None):
         """
-        初始化能力提取器
+        initializeCapability Extraction器
 
         Args:
-            llm_adapter: LLM适配器（用于智能分析）
+            llm_adapter: LLMAdapter（用于智能analysis）
         """
         self.llm_adapter = llm_adapter
 
-        # 成功案例缓存（任务描述 -> 执行次数）
+        # successcasecache（任务Description -> Executecount）
         self._success_cases: Dict[str, List[Dict]] = {}
 
-        # 提取阈值
-        self.extraction_threshold = 3  # 成功3次触发提取
+        # 提取阈Value
+        self.extraction_threshold = 3  # success3次触发提取
 
     async def record_success(self, task: Dict[str, Any], execution: Dict[str, Any]):
         """
-        记录成功案例
+        recordsuccesscase
 
         Args:
-            task: 任务描述
-            execution: 执行过程
+            task: 任务Description
+            execution: Execute过程
         """
-        # 生成任务指纹
+        # generation任务指纹
         fingerprint = self._generate_fingerprint(task)
 
-        if fingerprint not in self._success_cases:
+        if fingerprint notttt in self._success_cases:
             self._success_cases[fingerprint] = []
 
         self._success_cases[fingerprint].append({
@@ -50,13 +50,13 @@ class CapabilityExtractor:
 
     async def should_extract(self, task: Dict[str, Any]) -> bool:
         """
-        判断是否应该提取能力
+        判断is notttt应该提取capability
 
         Args:
-            task: 任务描述
+            task: 任务Description
 
         Returns:
-            是否应该提取
+            is notttt应该提取
         """
         fingerprint = self._generate_fingerprint(task)
         cases = self._success_cases.get(fingerprint, [])
@@ -68,62 +68,62 @@ class CapabilityExtractor:
         memory_store=None
     ) -> Optional[Capability]:
         """
-        提取能力
+        提取capability
 
         Args:
-            task: 任务描述
-            memory_store: 记忆存储（用于存储能力）
+            task: 任务Description
+            memory_store: Memory Storage（用于storagecapability）
 
         Returns:
-            提取的能力或None
+            提取的capability或None
         """
         fingerprint = self._generate_fingerprint(task)
         cases = self._success_cases.get(fingerprint, [])
 
-        if not cases:
+        if notttt cases:
             return None
 
-        # 分析成功案例
+        # analysissuccesscase
         capability = await self._analyze_cases(cases)
 
         if capability and memory_store:
-            # 存储到L5层
+            # storage到L5层
             await memory_store.store_capability(capability)
 
         return capability
 
     async def _analyze_cases(self, cases: List[Dict]) -> Optional[Capability]:
         """
-        分析成功案例，生成能力定义
+        analysissuccesscase，generationcapability定义
 
         Args:
-            cases: 成功案例列表
+            cases: successcaselist
 
         Returns:
-            能力定义或None
+            capability定义或None
         """
-        if not cases:
+        if notttt cases:
             return None
 
-        # 简化版：从第一个案例提取
+        # 简化版：从第一个case提取
         first_case = cases[0]
         task = first_case["task"]
         execution = first_case["execution"]
 
-        # 生成能力名称（简化版）
+        # generationcapabilityName（简化版）
         name = self._generate_capability_name(task)
 
-        # 提取触发模式
+        # 提取触发pattern
         trigger_pattern = task.get("description", task.get("type", ""))
 
-        # 提取所需工具
+        # 提取所需tool
         required_tools = task.get("tools", [])
 
-        # 提取执行步骤
+        # 提取Executestep
         execution_steps = execution.get("steps", [])
 
-        # 生成描述
-        description = f"处理 {name} 任务的能力"
+        # generationDescription
+        description = f"process {name} 任务的capability"
 
         return Capability(
             name=name,
@@ -131,36 +131,36 @@ class CapabilityExtractor:
             trigger_pattern=trigger_pattern,
             required_tools=required_tools,
             execution_steps=execution_steps,
-            success_rate=1.0,  # 初始成功率为100%
+            success_rate=1.0,  # 初始success率为100%
             usage_count=len(cases),
         )
 
     def _generate_fingerprint(self, task: Dict[str, Any]) -> str:
-        """生成任务指纹"""
-        # 基于任务类型和描述生成指纹
+        """generation任务指纹"""
+        # 基于任务typeandDescriptiongeneration指纹
         task_type = task.get("type", "")
         description = task.get("description", "")
         content = f"{task_type}:{description}"
         return hashlib.md5(content.encode()).hexdigest()
 
     def _generate_capability_name(self, task: Dict[str, Any]) -> str:
-        """生成能力名称"""
-        task_type = task.get("type", "unknown")
+        """generationcapabilityName"""
+        task_type = task.get("type", "unknotttwn")
         return f"handle_{task_type}"
 
 
 class CapabilityVerifier:
     """
-    能力验证器
+    capabilityValidate器
 
-    验证提取的能力有效性
+    Validate提取的capabilityvalid性
     """
 
     def __init__(self):
-        """初始化能力验证器"""
-        self.verification_threshold = 0.8  # 验证阈值 80%
-        self淘汰_threshold = 0.6  # 淘汰阈值 60%
-        self.max_failures = 5  # 最大连续失败次数
+        """initializecapabilityValidate器"""
+        self.verification_threshold = 0.8  # Validate阈Value 80%
+        self淘汰_threshold = 0.6  # 淘汰阈Value 60%
+        self.max_failures = 5  # maximum连续failurecount
 
     async def verify(
         self,
@@ -169,26 +169,26 @@ class CapabilityVerifier:
         executor=None
     ) -> bool:
         """
-        验证能力
+        Validatecapability
 
         Args:
-            capability: 待验证的能力
-            test_tasks: 测试任务列表
-            executor: 执行器
+            capability: 待Validate的capability
+            test_tasks: Test任务list
+            executor: Execute器
 
         Returns:
-            是否通过验证
+            is notttt通过Validate
         """
-        if not test_tasks:
-            return True  # 无测试任务，默认通过
+        if notttt test_tasks:
+            return True  # 无Test任务，default通过
 
-        # 计算成功率
+        # calculatesuccess率
         success_count = 0
         total_count = len(test_tasks)
 
         for task in test_tasks:
             try:
-                # 执行任务
+                # Execute任务
                 result = await self._execute_with_capability(
                     capability,
                     task,
@@ -207,19 +207,19 @@ class CapabilityVerifier:
 
     async def should淘汰(self, capability: Capability) -> bool:
         """
-        判断是否应该淘汰能力
+        判断is notttt应该淘汰capability
 
         Args:
-            capability: 能力
+            capability: capability
 
         Returns:
-            是否应该淘汰
+            is notttt应该淘汰
         """
-        # 成功率过低
+        # success率过低
         if capability.success_rate < self.淘汰_threshold:
             return True
 
-        # TODO: 检查连续失败次数（需要额外记录）
+        # TODO: check连续failurecount（需要额外record）
         return False
 
     async def _execute_with_capability(
@@ -228,7 +228,7 @@ class CapabilityVerifier:
         task: Dict,
         executor=None
     ) -> bool:
-        """使用能力执行任务"""
-        # 简化版：直接返回True
-        # 实际实现需要调用executor执行任务
+        """使用capabilityExecute任务"""
+        # 简化版：直接ReturnTrue
+        # 实际Implementation需要调用executorExecute任务
         return True

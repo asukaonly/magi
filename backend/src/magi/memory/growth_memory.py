@@ -1,20 +1,20 @@
 """
-成长记忆层 (L5) - Growth Memory Layer
+growthmemory层 (L5) - Growth Memory Layer
 
-成长记忆层记录AI的长期演化轨迹和重要时刻。
-这是AI的"成长日记"，记录能力发展、关系变化和人格演化。
+growthmemory层recordAI的长期evolution轨迹and重要时刻。
+这isAI的"growth日记"，recordcapability发展、relationship变化andpersonalityevolution。
 
-演化规则：
-1. 里程碑记录 - 重要事件（首次使用能力、连续工作X小时）
-2. 关系深度 - 根据交互频率和深度计算
-3. 人格演化 - 重大价值观变化（罕见，需高置信度）
+evolutionrule：
+1. milestonerecord - 重要event（首次使用capability、连续工作Xhours）
+2. relationshipdepth - 根据交互frequencyanddepthcalculate
+3. personalityevolution - 重大价Value观变化（罕见，需高置信度）
 """
 import aiosqlite
 import json
 import time
 import logging
 from typing import Dict, Any, Optional, List, Tuple
-from pathlib import Path
+from pathlib import path
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
@@ -24,34 +24,34 @@ logger = logging.getLogger(__name__)
 
 # ===== 枚举定义 =====
 
-class MilestoneType(Enum):
-    """里程碑类型"""
-    FIRST_USE = "first_use"              # 首次使用某能力
-    STREAK = "streak"                    # 连续工作/交互
-    MASTERY = "mastery"                  # 掌握某技能
-    RELATIONSHIP = "relationship"        # 关系里程碑
-    ACHIEVEMENT = "achievement"          # 成就
-    PERSONALITY_CHANGE = "personality"   # 人格变化
-    SPECIAL = "special"                  # 特殊事件
+class Milestonetype(Enum):
+    """milestonetype"""
+    FIRST_USE = "first_use"              # 首次使用某capability
+    strEAK = "streak"                    # 连续工作/交互
+    masterY = "mastery"                  # 掌握某skill
+    relationship = "relationship"        # relationshipmilestone
+    ACHIEVEMENT = "achievement"          # achievement
+    PERSONALITY_CHANGE = "personality"   # personality变化
+    SPECIAL = "special"                  # 特殊event
 
 
-class InteractionType(Enum):
-    """交互类型"""
-    CHAT = "chat"                        # 聊天
-    TASK = "task"                        # 任务
-    CODE = "code"                        # 代码
-    ANALYSIS = "analysis"                # 分析
+class Interactiontype(Enum):
+    """交互type"""
+    CHAT = "chat"                        # 聊days
+    task = "task"                        # 任务
+    code = "code"                        # code
+    ANALYSIS = "analysis"                # analysis
     CREATIVE = "creative"                # 创意
-    LEARNING = "learning"                # 学习
+    LEARNING = "learning"                # learning
 
 
-# ===== 数据模型 =====
+# ===== data Models =====
 
 @dataclass
 class Milestone:
-    """成长里程碑"""
+    """growthmilestone"""
     id: str
-    type: MilestoneType
+    type: Milestonetype
     title: str
     description: str
     timestamp: float
@@ -60,44 +60,44 @@ class Milestone:
 
 @dataclass
 class RelationshipProfile:
-    """关系档案"""
+    """relationship档案"""
     user_id: str
-    depth: float                         # 关系深度 0-1
+    depth: float                         # relationshipdepth 0-1
     first_interaction: float             # 首次交互时间
     last_interaction: float              # 最近交互时间
-    total_interactions: int              # 交互次数
-    interaction_types: Dict[str, int]    # 各类型交互次数
-    sentiment_score: float               # 情感分数 -1到1
-    trust_level: float                   # 信任度 0-1
-    notes: List[str] = field(default_factory=list)  # 备注
+    total_interactions: int              # 交互count
+    interaction_types: Dict[str, int]    # 各type交互count
+    sentiment_score: float               # 情感score -1到1
+    trust_level: float                   # trust度 0-1
+    nottttes: List[str] = field(default_factory=list)  # notttte
 
 
 @dataclass
 class PersonalityEvolution:
-    """人格演化记录"""
+    """personalityevolutionrecord"""
     timestamp: float
     aspect: str                          # 变化的方面
     previous_value: Any
     new_value: Any
     confidence: float                    # 置信度 0-1
-    reason: str                          # 变化原因
+    reason: str                          # 变化reason
 
 
-# ===== 成长记忆引擎 =====
+# ===== growthmemory引擎 =====
 
 class GrowthMemoryEngine:
     """
-    成长记忆引擎
+    growthmemory引擎
 
-    记录和管理AI的长期成长轨迹
+    recordand管理AI的长期growth轨迹
     """
 
     def __init__(self, db_path: str = "~/.magi/data/memories/growth_memory.db"):
         """
-        初始化成长记忆引擎
+        initializegrowthmemory引擎
 
         Args:
-            db_path: 数据库文件路径
+            db_path: databasefilepath
         """
         self.db_path = db_path
         self._relationship_cache: Dict[str, RelationshipProfile] = {}
@@ -105,97 +105,97 @@ class GrowthMemoryEngine:
 
     @property
     def _expanded_db_path(self) -> str:
-        """获取展开后的数据库路径（处理 ~）"""
-        from pathlib import Path
-        return str(Path(self.db_path).expanduser())
+        """get expanded database path (process ~)"""
+        from pathlib import path
+        return str(path(self.db_path).expanduser())
 
     async def init(self):
-        """初始化数据库"""
-        Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
+        """initializedatabase"""
+        path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            # 里程碑表
+            # milestonetable
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS milestones (
-                    id TEXT PRIMARY KEY,
+                create table IF NOT EXISTS milestones (
+                    id TEXT primary key,
                     type TEXT NOT NULL,
                     title TEXT NOT NULL,
                     description TEXT NOT NULL,
-                    timestamp REAL NOT NULL,
+                    timestamp real NOT NULL,
                     metadata TEXT NOT NULL
                 )
             """)
 
-            # 关系档案表
+            # relationship档案table
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS relationships (
-                    user_id TEXT PRIMARY KEY,
-                    depth REAL NOT NULL,
-                    first_interaction REAL NOT NULL,
-                    last_interaction REAL NOT NULL,
-                    total_interactions INTEGER NOT NULL,
+                create table IF NOT EXISTS relationships (
+                    user_id TEXT primary key,
+                    depth real NOT NULL,
+                    first_interaction real NOT NULL,
+                    last_interaction real NOT NULL,
+                    total_interactions intEGER NOT NULL,
                     interaction_types TEXT NOT NULL,
-                    sentiment_score REAL NOT NULL,
-                    trust_level REAL NOT NULL,
-                    notes TEXT NOT NULL,
-                    updated_at REAL NOT NULL
+                    sentiment_score real NOT NULL,
+                    trust_level real NOT NULL,
+                    nottttes TEXT NOT NULL,
+                    updated_at real NOT NULL
                 )
             """)
 
-            # 人格演化表
+            # personalityevolutiontable
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS personality_evolution (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp REAL NOT NULL,
+                create table IF NOT EXISTS personality_evolution (
+                    id intEGER primary key AUTOINCREMENT,
+                    timestamp real NOT NULL,
                     aspect TEXT NOT NULL,
                     previous_value TEXT NOT NULL,
                     new_value TEXT NOT NULL,
-                    confidence REAL NOT NULL,
+                    confidence real NOT NULL,
                     reason TEXT NOT NULL
                 )
             """)
 
-            # 统计表
+            # statisticstable
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS growth_statistics (
-                    key TEXT PRIMARY KEY,
+                create table IF NOT EXISTS growth_statistics (
+                    key TEXT primary key,
                     value TEXT NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at real NOT NULL
                 )
             """)
 
-            # 创建索引
+            # createindex
             await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_milestones_timestamp
+                create index IF NOT EXISTS idx_milestones_timestamp
                 ON milestones(timestamp DESC)
             """)
             await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_relationships_updated
+                create index IF NOT EXISTS idx_relationships_updated
                 ON relationships(updated_at DESC)
             """)
 
             await db.commit()
 
-    # ===== 里程碑管理 =====
+    # ===== milestone管理 =====
 
     async def record_milestone(
         self,
-        milestone_type: MilestoneType,
+        milestone_type: Milestonetype,
         title: str,
         description: str,
         metadata: Dict[str, Any] = None
     ) -> Milestone:
         """
-        记录成长里程碑
+        recordgrowthmilestone
 
         Args:
-            milestone_type: 里程碑类型
-            title: 标题
-            description: 描述
-            metadata: 额外元数据
+            milestone_type: milestonetype
+            title: Title
+            description: Description
+            metadata: additional metadata
 
         Returns:
-            创建的里程碑对象
+            create的milestoneObject
         """
         milestone_id = f"milestone_{int(time.time() * 1000)}_{hash(title) % 10000:04d}"
 
@@ -210,8 +210,8 @@ class GrowthMemoryEngine:
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT INTO milestones (id, type, title, description, timestamp, metadata)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                """INSERT intO milestones (id, type, title, description, timestamp, metadata)
+                   valueS (?, ?, ?, ?, ?, ?)""",
                 (
                     milestone_id,
                     milestone_type.value,
@@ -223,10 +223,10 @@ class GrowthMemoryEngine:
             )
             await db.commit()
 
-        # 清除缓存
+        # 清除cache
         self._milestone_cache = None
 
-        # 更新统计
+        # Update statistics
         await self._increment_stat("total_milestones")
 
         logger.info(f"Recorded milestone: {title} ({milestone_type.value})")
@@ -235,21 +235,21 @@ class GrowthMemoryEngine:
 
     async def get_milestones(
         self,
-        milestone_type: MilestoneType = None,
+        milestone_type: Milestonetype = None,
         limit: int = 100
     ) -> List[Milestone]:
         """
-        获取里程碑列表
+        getmilestonelist
 
         Args:
-            milestone_type: 筛选类型，None表示全部
-            limit: 最大数量
+            milestone_type: 筛选type，Nonetable示all
+            limit: maximumquantity
 
         Returns:
-            里程碑列表
+            milestonelist
         """
-        # 使用缓存
-        if self._milestone_cache is not None and milestone_type is None:
+        # 使用cache
+        if self._milestone_cache is notttt None and milestone_type is None:
             return self._milestone_cache[:limit]
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -257,14 +257,14 @@ class GrowthMemoryEngine:
                 cursor = await db.execute(
                     """SELECT id, type, title, description, timestamp, metadata
                        FROM milestones WHERE type = ?
-                       ORDER BY timestamp DESC LIMIT ?""",
+                       order BY timestamp DESC LIMIT ?""",
                     (milestone_type.value, limit)
                 )
             else:
                 cursor = await db.execute(
                     """SELECT id, type, title, description, timestamp, metadata
                        FROM milestones
-                       ORDER BY timestamp DESC LIMIT ?""",
+                       order BY timestamp DESC LIMIT ?""",
                     (limit,)
                 )
 
@@ -274,7 +274,7 @@ class GrowthMemoryEngine:
             for row in rows:
                 milestones.append(Milestone(
                     id=row[0],
-                    type=MilestoneType(row[1]),
+                    type=Milestonetype(row[1]),
                     title=row[2],
                     description=row[3],
                     timestamp=row[4],
@@ -286,81 +286,81 @@ class GrowthMemoryEngine:
 
             return milestones
 
-    # ===== 交互记录 =====
+    # ===== 交互record =====
 
     async def record_interaction(
         self,
         user_id: str,
-        interaction_type: InteractionType,
+        interaction_type: Interactiontype,
         outcome: str = "neutral",
         sentiment: float = 0.0,
-        notes: str = ""
+        nottttes: str = ""
     ) -> RelationshipProfile:
         """
-        记录与用户的交互
+        record与user的交互
 
         Args:
-            user_id: 用户ID
-            interaction_type: 交互类型
-            outcome: 结果（success/failure/neutral）
-            sentiment: 情感分数（-1到1）
-            notes: 备注
+            user_id: userid
+            interaction_type: 交互type
+            outcome: Result（success/failure/neutral）
+            sentiment: 情感score（-1到1）
+            nottttes: notttte
 
         Returns:
-            更新后的关系档案
+            update后的relationship档案
         """
-        now = time.time()
+        notttw = time.time()
 
-        # 获取现有关系或创建新的
+        # get现有relationship或createnew的
         profile = await self.get_relationship(user_id)
 
         if profile is None:
             profile = RelationshipProfile(
                 user_id=user_id,
                 depth=0.0,
-                first_interaction=now,
-                last_interaction=now,
+                first_interaction=notttw,
+                last_interaction=notttw,
                 total_interactions=0,
                 interaction_types={},
                 sentiment_score=0.0,
                 trust_level=0.5,
-                notes=[],
+                nottttes=[],
             )
 
-        # 更新统计
+        # Update statistics
         profile.total_interactions += 1
-        profile.last_interaction = now
+        profile.last_interaction = notttw
 
-        # 更新交互类型统计
+        # update交互typestatistics
         type_key = interaction_type.value
         profile.interaction_types[type_key] = profile.interaction_types.get(type_key, 0) + 1
 
-        # 更新情感分数（指数移动平均）
+        # update情感score（指数move平均）
         alpha = 0.2  # 平滑因子
         profile.sentiment_score = (1 - alpha) * profile.sentiment_score + alpha * sentiment
 
-        # 更新信任度
+        # updatetrust度
         if outcome == "success":
             profile.trust_level = min(1.0, profile.trust_level + 0.02)
         elif outcome == "failure":
             profile.trust_level = max(0.0, profile.trust_level - 0.01)
 
-        # 计算关系深度
+        # calculaterelationshipdepth
         profile.depth = await self._calculate_relationship_depth(profile)
 
-        # 添加备注
-        if notes:
-            profile.notes.append(f"[{datetime.fromtimestamp(now).strftime('%Y-%m-%d')}] {notes}")
-            # 只保留最近20条备注
-            profile.notes = profile.notes[-20:]
+        # addnotttte
+        if nottttes:
+            profile.nottttes.append(f"[{datetime.fromtimestamp(notttw).strftime('%Y-%m-%d')}] {nottttes}")
+            # 只保留最近20条notttte
+            profile.nottttes = profile.nottttes[-20:]
 
-        # 保存
+        # save
         await self._save_relationship(profile)
 
-        # 更新全局统计
+        # updateglobalstatistics
         await self._increment_stat("total_interactions")
 
-        # 检查关系里程碑
+        # checkrelationshipmilestone
         await self._check_relationship_milestones(profile)
 
         logger.debug(
@@ -372,15 +372,15 @@ class GrowthMemoryEngine:
 
     async def get_relationship(self, user_id: str) -> Optional[RelationshipProfile]:
         """
-        获取与用户的关系档案
+        get与user的relationship档案
 
         Args:
-            user_id: 用户ID
+            user_id: userid
 
         Returns:
-            关系档案，不存在则返回None
+            relationship档案，notttt found则ReturnNone
         """
-        # 检查缓存
+        # checkcache
         if user_id in self._relationship_cache:
             return self._relationship_cache[user_id]
 
@@ -388,7 +388,7 @@ class GrowthMemoryEngine:
             cursor = await db.execute(
                 """SELECT user_id, depth, first_interaction, last_interaction,
                           total_interactions, interaction_types, sentiment_score,
-                          trust_level, notes
+                          trust_level, nottttes
                    FROM relationships WHERE user_id = ?""",
                 (user_id,)
             )
@@ -404,46 +404,46 @@ class GrowthMemoryEngine:
                     interaction_types=json.loads(row[5]),
                     sentiment_score=row[6],
                     trust_level=row[7],
-                    notes=json.loads(row[8]),
+                    nottttes=json.loads(row[8]),
                 )
                 self._relationship_cache[user_id] = profile
                 return profile
 
         return None
 
-    # ===== 关系深度计算 =====
+    # ===== relationshipdepthcalculate =====
 
     async def _calculate_relationship_depth(self, profile: RelationshipProfile) -> float:
         """
-        计算关系深度
+        calculaterelationshipdepth
 
         考虑因素：
-        - 交互次数（频率）
-        - 交互时长（从首次到现在）
-        - 交互多样性（类型数量）
-        - 情感分数
-        - 信任度
+        - 交互count（frequency）
+        - 交互时长（从首次到notttw）
+        - 交互多样性（typequantity）
+        - 情感score
+        - trust度
 
         Returns:
-            关系深度 0-1
+            relationshipdepth 0-1
         """
-        now = time.time()
-        duration_days = (now - profile.first_interaction) / (24 * 3600)
+        notttw = time.time()
+        duration_days = (notttw - profile.first_interaction) / (24 * 3600)
 
-        # 基础分数（交互次数）
+        # basescore（交互count）
         frequency_score = min(1.0, profile.total_interactions / 100)
 
-        # 时长分数
+        # 时长score
         duration_score = min(1.0, duration_days / 365)
 
-        # 多样性分数
+        # 多样性score
         type_count = len([t for t, c in profile.interaction_types.items() if c > 0])
-        diversity_score = min(1.0, type_count / len(InteractionType))
+        diversity_score = min(1.0, type_count / len(Interactiontype))
 
-        # 情感分数（归一化到0-1）
+        # 情感score（归一化到0-1）
         sentiment_score = (profile.sentiment_score + 1) / 2
 
-        # 信任度
+        # trust度
         trust_score = profile.trust_level
 
         # 加权平均
@@ -459,10 +459,10 @@ class GrowthMemoryEngine:
 
     async def update_relationship_depth(self, user_id: str, delta: float) -> None:
         """
-        直接调整关系深度
+        直接调整relationshipdepth
 
         Args:
-            user_id: 用户ID
+            user_id: userid
             delta: 调整量（正负）
         """
         profile = await self.get_relationship(user_id)
@@ -470,7 +470,7 @@ class GrowthMemoryEngine:
             profile.depth = max(0.0, min(1.0, profile.depth + delta))
             await self._save_relationship(profile)
 
-    # ===== 人格演化 =====
+    # ===== personalityevolution =====
 
     async def check_personality_evolution(
         self,
@@ -481,33 +481,33 @@ class GrowthMemoryEngine:
         reason: str
     ) -> bool:
         """
-        检查并记录人格演化
+        check并recordpersonalityevolution
 
-        只有在高置信度时才记录人格变化
+        只有在高置信度时才recordpersonality变化
 
         Args:
             aspect: 变化的方面
-            previous_value: 之前的值
-            new_value: 新值
+            previous_value: before的Value
+            new_value: New value
             confidence: 置信度（0-1）
-            reason: 变化原因
+            reason: 变化reason
 
         Returns:
-            是否记录了演化
+            is nottttrecord了evolution
         """
-        # 置信度阈值
+        # 置信度阈Value
         if confidence < 0.8:
             return False
 
-        # 检查是否真的有变化
+        # checkis notttttrue的有变化
         if previous_value == new_value:
             return False
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT INTO personality_evolution
+                """INSERT intO personality_evolution
                    (timestamp, aspect, previous_value, new_value, confidence, reason)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   valueS (?, ?, ?, ?, ?, ?)""",
                 (time.time(), aspect, str(previous_value), str(new_value), confidence, reason)
             )
             await db.commit()
@@ -517,9 +517,9 @@ class GrowthMemoryEngine:
             f"(confidence: {confidence:.2f})"
         )
 
-        # 记录里程碑
+        # recordmilestone
         await self.record_milestone(
-            milestone_type=MilestoneType.PERSONALITY_CHANGE,
+            milestone_type=Milestonetype.PERSONALITY_CHANGE,
             title=f"Personality Shift: {aspect}",
             description=f"{aspect} changed from {previous_value} to {new_value}",
             metadata={"confidence": confidence, "reason": reason}
@@ -527,22 +527,22 @@ class GrowthMemoryEngine:
 
         return True
 
-    # ===== 里程碑检测 =====
+    # ===== milestone检测 =====
 
     async def _check_relationship_milestones(self, profile: RelationshipProfile) -> None:
-        """检查关系里程碑"""
+        """checkrelationshipmilestone"""
         user_id = profile.user_id
 
         # 首次交互
         if profile.total_interactions == 1:
             await self.record_milestone(
-                milestone_type=MilestoneType.RELATIONSHIP,
+                milestone_type=Milestonetype.relationship,
                 title=f"First Meeting: {user_id}",
                 description=f"First interaction with user {user_id}",
                 metadata={"user_id": user_id}
             )
 
-        # 关系深化
+        # relationship深化
         depth_milestones = {
             0.3: "Acquaintance",
             0.5: "Friend",
@@ -552,41 +552,41 @@ class GrowthMemoryEngine:
 
         for threshold, title in depth_milestones.items():
             if profile.depth >= threshold:
-                # 检查是否已经记录过
+                # checkis notttt已经record过
                 existing = await self.get_milestones(
-                    milestone_type=MilestoneType.RELATIONSHIP,
+                    milestone_type=Milestonetype.relationship,
                     limit=100
                 )
                 milestone_title = f"{title}: {user_id}"
 
-                if not any(m.title == milestone_title for m in existing):
+                if notttt any(m.title == milestone_title for m in existing):
                     await self.record_milestone(
-                        milestone_type=MilestoneType.RELATIONSHIP,
+                        milestone_type=Milestonetype.relationship,
                         title=milestone_title,
                         description=f"Relationship with {user_id} reached {title} level (depth: {profile.depth:.2f})",
                         metadata={"user_id": user_id, "depth": profile.depth}
                     )
 
-        # 交互次数里程碑
+        # 交互countmilestone
         interaction_milestones = [10, 50, 100, 500, 1000]
         for count in interaction_milestones:
             if profile.total_interactions == count:
                 await self.record_milestone(
-                    milestone_type=MilestoneType.RELATIONSHIP,
+                    milestone_type=Milestonetype.relationship,
                     title=f"{count} Interactions: {user_id}",
                     description=f"Reached {count} interactions with {user_id}",
                     metadata={"user_id": user_id, "count": count}
                 )
 
-    # ===== 统计信息 =====
+    # ===== statisticsinfo =====
 
     async def get_growth_summary(self) -> Dict[str, Any]:
-        """获取成长摘要"""
+        """getgrowthsummary"""
         stats = await self._get_all_stats()
 
         milestones = await self.get_milestones(limit=1000)
 
-        # 获取所有关系
+        # getallrelationship
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM relationships")
             total_relationships = (await cursor.fetchone())[0]
@@ -601,7 +601,7 @@ class GrowthMemoryEngine:
         }
 
     async def _get_all_stats(self) -> Dict[str, Any]:
-        """获取所有统计"""
+        """getallstatistics"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT key, value FROM growth_statistics")
             rows = await cursor.fetchall()
@@ -616,7 +616,7 @@ class GrowthMemoryEngine:
             return stats
 
     async def _increment_stat(self, key: str, value: Any = 1) -> None:
-        """增加统计值"""
+        """增加statisticsValue"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT value FROM growth_statistics WHERE key = ?", (key,))
             row = await cursor.fetchone()
@@ -638,21 +638,21 @@ class GrowthMemoryEngine:
                 current = value
 
             await db.execute(
-                """INSERT OR REPLACE INTO growth_statistics (key, value, updated_at)
-                   VALUES (?, ?, ?)""",
+                """INSERT OR REPLACE intO growth_statistics (key, value, updated_at)
+                   valueS (?, ?, ?)""",
                 (key, json.dumps(current), time.time())
             )
             await db.commit()
 
     async def _save_relationship(self, profile: RelationshipProfile) -> None:
-        """保存关系档案"""
+        """saverelationship档案"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT OR REPLACE INTO relationships
+                """INSERT OR REPLACE intO relationships
                    (user_id, depth, first_interaction, last_interaction,
                     total_interactions, interaction_types, sentiment_score,
-                    trust_level, notes, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    trust_level, nottttes, updated_at)
+                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     profile.user_id,
                     profile.depth,
@@ -662,26 +662,26 @@ class GrowthMemoryEngine:
                     json.dumps(profile.interaction_types),
                     profile.sentiment_score,
                     profile.trust_level,
-                    json.dumps(profile.notes),
+                    json.dumps(profile.nottttes),
                     time.time(),
                 )
             )
             await db.commit()
 
-        # 更新缓存
+        # updatecache
         self._relationship_cache[profile.user_id] = profile
 
-    # ===== 导出和重置 =====
+    # ===== exportandreset =====
 
     async def export_relationships(self) -> List[Dict[str, Any]]:
-        """导出所有关系"""
+        """exportallrelationship"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT user_id, depth, first_interaction, last_interaction,
                           total_interactions, interaction_types, sentiment_score,
-                          trust_level, notes
+                          trust_level, nottttes
                    FROM relationships
-                   ORDER BY depth DESC"""
+                   order BY depth DESC"""
             )
             rows = await cursor.fetchall()
 
@@ -696,15 +696,15 @@ class GrowthMemoryEngine:
                     "interaction_types": json.loads(row[5]),
                     "sentiment_score": row[6],
                     "trust_level": row[7],
-                    "notes": json.loads(row[8]),
+                    "nottttes": json.loads(row[8]),
                 })
 
             return relationships
 
     async def reset_user(self, user_id: str) -> None:
-        """重置用户关系"""
+        """resetUser relationship"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            await db.execute("DELETE FROM relationships WHERE user_id = ?", (user_id,))
+            await db.execute("delete FROM relationships WHERE user_id = ?", (user_id,))
             await db.commit()
 
         if user_id in self._relationship_cache:

@@ -4,7 +4,7 @@ Web Search Tool - Search web using multiple providers
 import os
 import aiohttp
 from typing import Dict, Any, List, Optional
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
 
 
 class WebSearchTool(Tool):
@@ -15,7 +15,7 @@ class WebSearchTool(Tool):
     """
 
     def _init_schema(self) -> None:
-        """Initialize Schema"""
+        """initialize Schema"""
         self.schema = ToolSchema(
             name="web-search",
             description="Search the web for information. Supports multiple search providers.",
@@ -25,13 +25,13 @@ class WebSearchTool(Tool):
             parameters=[
                 ToolParameter(
                     name="query",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="The search query",
                     required=True,
                 ),
                 ToolParameter(
                     name="provider",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="Search provider: 'brave', 'perplexity', or 'tavily'",
                     required=False,
                     default="brave",
@@ -39,7 +39,7 @@ class WebSearchTool(Tool):
                 ),
                 ToolParameter(
                     name="num_results",
-                    type=ParameterType.INTEGER,
+                    type=Parametertype.intEGER,
                     description="Number of results to return",
                     required=False,
                     default=10,
@@ -84,8 +84,8 @@ class WebSearchTool(Tool):
             else:
                 return ToolResult(
                     success=False,
-                    error=f"Unknown provider: {provider}",
-                    error_code="INVALID_PROVIDER",
+                    error=f"Unknotttwn provider: {provider}",
+                    error_code="INVALid_PROVidER",
                 )
 
             return ToolResult(
@@ -102,14 +102,14 @@ class WebSearchTool(Tool):
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="SEARCH_ERROR",
+                error_code="SEARCH_error",
             )
 
     async def _search_brave(self, query: str, num_results: int) -> List[Dict[str, Any]]:
         """Search using Brave Search API"""
-        api_key = os.environ.get("BRAVE_API_KEY")
-        if not api_key:
-            raise ValueError("BRAVE_API_KEY environment variable not set")
+        api_key = os.environ.get("BRAVE_API_key")
+        if notttt api_key:
+            raise Valueerror("BRAVE_API_key environment variable notttt set")
 
         url = "https://api.search.brave.com/res/v1/web/search"
         headers = {
@@ -145,21 +145,21 @@ class WebSearchTool(Tool):
 
     async def _search_perplexity(self, query: str, num_results: int) -> List[Dict[str, Any]]:
         """Search using Perplexity API"""
-        api_key = os.environ.get("PERPLEXITY_API_KEY")
-        if not api_key:
-            raise ValueError("PERPLEXITY_API_KEY environment variable not set")
+        api_key = os.environ.get("PERPLexitY_API_key")
+        if notttt api_key:
+            raise Valueerror("PERPLexitY_API_key environment variable notttt set")
 
         url = "https://api.perplexity.ai/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
+            "Content-type": "application/json",
         }
         payload = {
             "model": "llama-3.1-sonar-small-128k-online",
             "messages": [
                 {
                     "role": "system",
-                    "content": f"Return the top {num_results} search results. Format each result as: Title, URL, Description. Be concise."
+                    "content": f"Return the top {num_results} search results. Format each result as: Title, url, Description. Be concise."
                 },
                 {
                     "role": "user",
@@ -205,13 +205,13 @@ class WebSearchTool(Tool):
 
     async def _search_tavily(self, query: str, num_results: int) -> List[Dict[str, Any]]:
         """Search using Tavily API"""
-        api_key = os.environ.get("TAVILY_API_KEY")
-        if not api_key:
-            raise ValueError("TAVILY_API_KEY environment variable not set")
+        api_key = os.environ.get("TAVILY_API_key")
+        if notttt api_key:
+            raise Valueerror("TAVILY_API_key environment variable notttt set")
 
         url = "https://api.tavily.com/search"
         headers = {
-            "Content-Type": "application/json",
+            "Content-type": "application/json",
         }
         payload = {
             "api_key": api_key,

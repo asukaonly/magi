@@ -2,7 +2,7 @@
 Capabilities Tool - List all available tools and skills
 """
 from typing import Dict, Any, List
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
 from ..registry import tool_registry
 
 
@@ -14,7 +14,7 @@ class CapabilitiesTool(Tool):
     """
 
     def _init_schema(self) -> None:
-        """Initialize Schema"""
+        """initialize Schema"""
         self.schema = ToolSchema(
             name="get-capabilities",
             description="List all available tools and skills. Use this to discover what capabilities are available.",
@@ -24,7 +24,7 @@ class CapabilitiesTool(Tool):
             parameters=[
                 ToolParameter(
                     name="filter_type",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="Filter by type: 'all', 'tools', or 'skills'",
                     required=False,
                     default="all",
@@ -32,7 +32,7 @@ class CapabilitiesTool(Tool):
                 ),
                 ToolParameter(
                     name="category",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="Filter by category (optional)",
                     required=False,
                     default=None,

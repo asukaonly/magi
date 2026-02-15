@@ -1,7 +1,7 @@
 """
-WebSocket通信测试
+WebSocket communication test
 
-测试WebSocket服务器和实时事件推送
+Tests WebSocket server and real-time event broadcasting
 """
 import asyncio
 import sys
@@ -9,7 +9,7 @@ import os
 import websockets
 import json
 
-# 添加路径
+# Add path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from magi.api.app import app
@@ -24,94 +24,94 @@ from hypercorn.asyncio import serve
 
 
 async def test_websocket_connection():
-    """测试WebSocket连接"""
-    print("\n=== 测试WebSocket连接 ===")
+    """Test WebSocket connection"""
+    print("\n=== Test WebSocket Connection ===")
 
     uri = "ws://localhost:8000/ws"
 
     try:
         async with websockets.connect(uri) as websocket:
-            print("  ✓ WebSocket连接成功")
+            print("  ✓ WebSocket connection successful")
 
-            # 发送ping消息
+            # Send ping message
             await websocket.send(json.dumps({"type": "ping"}))
             response = await asyncio.wait_for(websocket.recv(), timeout=2.0)
             data = json.loads(response)
             assert data.get("type") == "pong", "Expected pong response"
-            print("  ✓ Ping/Pong测试通过")
+            print("  ✓ Ping/Pong test passed")
 
-            # 测试订阅
+            # Test subscription
             await websocket.send(json.dumps({"type": "subscribe", "channel": "agents"}))
             response = await asyncio.wait_for(websocket.recv(), timeout=2.0)
             data = json.loads(response)
-            print(f"  ✓ 订阅响应: {data}")
+            print(f"  ✓ Subscription response: {data}")
 
     except asyncio.TimeoutError:
-        print("  ✗ 连接超时")
+        print("  ✗ Connection timeout")
         return False
     except Exception as e:
-        print(f"  ✗ 连接失败: {e}")
+        print(f"  ✗ Connection failed: {e}")
         return False
 
-    print("✓ WebSocket连接测试通过")
+    print("✓ WebSocket connection test passed")
     return True
 
 
 async def test_agent_state_broadcast():
-    """测试Agent状态广播"""
-    print("\n=== 测试Agent状态广播 ===")
+    """Test Agent state broadcast"""
+    print("\n=== Test Agent State Broadcast ===")
 
     uri = "ws://localhost:8000/ws"
 
-    # 创建接收端
+    # Create receiver
     received_messages = []
 
     async def receive_messages():
         try:
             async with websockets.connect(uri) as websocket:
-                # 订阅agent更新
+                # Subscribe to agent updates
                 await websocket.send(json.dumps({"type": "subscribe", "channel": "agents"}))
 
-                # 接收消息
+                # Receive messages
                 for _ in range(3):
                     try:
                         message = await asyncio.wait_for(websocket.recv(), timeout=3.0)
                         data = json.loads(message)
                         received_messages.append(data)
-                        print(f"  收到消息: {data.get('type')}")
+                        print(f"  Received message: {data.get('type')}")
                     except asyncio.TimeoutError:
                         break
         except Exception as e:
-            print(f"  接收端错误: {e}")
+            print(f"  Receiver error: {e}")
 
-    # 启动接收端
+    # Start receiver
     receiver_task = asyncio.create_task(receive_messages())
 
-    # 等待连接建立
+    # Wait for connection to establish
     await asyncio.sleep(0.5)
 
-    # 发送广播消息
+    # Send broadcast messages
     await broadcast_agent_update("agent_1", "running", {"name": "test-agent"})
-    print("  ✓ 广播Agent状态更新")
+    print("  ✓ Broadcast Agent state update")
 
     await broadcast_agent_update("agent_1", "stopped")
-    print("  ✓ 广播Agent停止")
+    print("  ✓ Broadcast Agent stopped")
 
     await broadcast_task_update("task_1", "completed")
-    print("  ✓ 广播任务完成")
+    print("  ✓ Broadcast task completed")
 
-    # 等待接收
+    # Wait for reception
     await receiver_task
 
-    print(f"  ✓ 接收到 {len(received_messages)} 条消息")
-    print("✓ Agent状态广播测试通过")
+    print(f"  ✓ Received {len(received_messages)} messages")
+    print("✓ Agent state broadcast test passed")
 
 
 async def test_metrics_broadcast():
-    """测试指标广播"""
-    print("\n=== 测试指标广播 ===")
+    """Test metrics broadcast"""
+    print("\n=== Test Metrics Broadcast ===")
 
-    # 发送指标更新
+    # Send metrics update
     metrics = {
         "cpu_percent": 45.5,
         "memory_percent": 62.3,
@@ -119,74 +119,74 @@ async def test_metrics_broadcast():
     }
 
     await broadcast_metrics_update(metrics)
-    print("  ✓ 广播系统指标")
+    print("  ✓ Broadcast system metrics")
 
-    print("✓ 指标广播测试通过")
+    print("✓ Metrics broadcast test passed")
 
 
 async def test_log_broadcast():
-    """测试日志广播"""
-    print("\n=== 测试日志广播 ===")
+    """Test log broadcast"""
+    print("\n=== Test Log Broadcast ===")
 
-    # 发送不同级别的日志
+    # Send logs of different levels
     await broadcast_log("info", "System started", "system")
-    print("  ✓ 广播INFO日志")
+    print("  ✓ Broadcast INFO log")
 
     await broadcast_log("warning", "High memory usage", "monitor")
-    print("  ✓ 广播WARNING日志")
+    print("  ✓ Broadcast WARNING log")
 
     await broadcast_log("error", "Task failed", "task_agent")
-    print("  ✓ 广播ERROR日志")
+    print("  ✓ Broadcast ERROR log")
 
-    print("✓ 日志广播测试通过")
+    print("✓ Log broadcast test passed")
 
 
 async def start_test_server():
-    """启动测试服务器"""
-    print("\n=== 启动测试WebSocket服务器 ===")
+    """Start test server"""
+    print("\n=== Start Test WebSocket Server ===")
 
     config = Config()
     config.bind = ["localhost:8000"]
     config.workers = 1
 
-    # 在后台运行服务器
+    # Run server in background
     server_task = asyncio.create_task(serve(app, config))
 
-    # 等待服务器启动
+    # Wait for server to start
     await asyncio.sleep(2.0)
-    print("  ✓ 测试服务器启动 (ws://localhost:8000/ws)")
+    print("  ✓ Test server started (ws://localhost:8000/ws)")
 
     return server_task
 
 
 async def main():
-    """主测试函数"""
+    """Main test function"""
     print("=" * 50)
-    print("WebSocket通信测试")
+    print("WebSocket Communication Test")
     print("=" * 50)
 
-    # 启动测试服务器
+    # Start test server
     server_task = await start_test_server()
 
     try:
-        # 运行测试
+        # Run tests
         await test_websocket_connection()
         await test_agent_state_broadcast()
         await test_metrics_broadcast()
         await test_log_broadcast()
 
         print("\n" + "=" * 50)
-        print("✓ 所有WebSocket测试通过!")
+        print("✓ All WebSocket tests passed!")
         print("=" * 50)
 
     except Exception as e:
-        print(f"\n✗ 测试失败: {e}")
+        print(f"\n✗ Test failed: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
     finally:
-        # 停止服务器
-        print("\n停止测试服务器...")
+        # Stop server
+        print("\nStopping test server...")
         server_task.cancel()
         try:
             await server_task

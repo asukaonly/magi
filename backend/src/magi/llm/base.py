@@ -1,5 +1,5 @@
 """
-LLM适配器 - 抽象基类
+LLMAdapter - 抽象Base class
 """
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, AsyncIterator, List
@@ -7,12 +7,12 @@ from typing import Optional, Dict, Any, AsyncIterator, List
 
 class LLMAdapter(ABC):
     """
-    LLM适配器抽象基类
+    LLMAdapter抽象Base class
 
-    定义统一的LLM调用接口，支持多种LLM提供商：
+    定义统一的LLM调用Interface，support多种LLM提供商：
     - OpenAI (GPT-4, GPT-3.5)
     - Anthropic (Claude)
-    - 本地模型 (Llama.cpp)
+    - 本地model (Llama.cpp)
     """
 
     @abstractmethod
@@ -24,16 +24,16 @@ class LLMAdapter(ABC):
         **kwargs
     ) -> str:
         """
-        生成文本（非流式）
+        generation文本（非流式）
 
         Args:
-            prompt: 输入提示
-            max_tokens: 最大token数
-            temperature: 温度参数（0.0-2.0）
-            **kwargs: 其他参数
+            prompt: Inputprompt
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter（0.0-2.0）
+            **kwargs: otherParameter
 
         Returns:
-            str: 生成的文本
+            str: generation的文本
         """
         pass
 
@@ -46,16 +46,16 @@ class LLMAdapter(ABC):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        生成文本（流式）
+        generation文本（流式）
 
         Args:
-            prompt: 输入提示
-            max_tokens: 最大token数
-            temperature: 温度参数（0.0-2.0）
-            **kwargs: 其他参数
+            prompt: Inputprompt
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter（0.0-2.0）
+            **kwargs: otherParameter
 
         Yields:
-            str: 生成的文本片段
+            str: generation的文本片段
         """
         pass
 
@@ -68,16 +68,16 @@ class LLMAdapter(ABC):
         **kwargs
     ) -> str:
         """
-        对话生成（非流式）
+        dialoguegeneration（非流式）
 
         Args:
-            messages: 对话历史 [{"role": "user", "content": "..."}, ...]
-            max_tokens: 最大token数
-            temperature: 温度参数（0.0-2.0）
-            **kwargs: 其他参数
+            messages: dialoguehistory [{"role": "user", "content": "..."}, ...]
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter（0.0-2.0）
+            **kwargs: otherParameter
 
         Returns:
-            str: 助手的回复
+            str: 助手的response
         """
         pass
 
@@ -90,28 +90,28 @@ class LLMAdapter(ABC):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        对话生成（流式）
+        dialoguegeneration（流式）
 
         Args:
-            messages: 对话历史
-            max_tokens: 最大token数
-            temperature: 温度参数（0.0-2.0）
-            **kwargs: 其他参数
+            messages: dialoguehistory
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter（0.0-2.0）
+            **kwargs: otherParameter
 
         Yields:
-            str: 生成的文本片段
+            str: generation的文本片段
         """
         pass
 
     @property
     @abstractmethod
     def model_name(self) -> str:
-        """获取模型名称"""
+        """getmodelName"""
         pass
 
     @property
     def provider_name(self) -> str:
-        """获取提供商名称（默认使用类名推断）"""
+        """get提供商Name（default使用Class名推断）"""
         return self.__class__.__name__.replace("Adapter", "").lower()
 
     async def get_embedding(
@@ -120,14 +120,14 @@ class LLMAdapter(ABC):
         model: Optional[str] = None,
     ) -> Optional[List[float]]:
         """
-        获取文本的嵌入向量（可选实现）
+        get文本的embeddingvector（optionalImplementation）
 
         Args:
-            text: 输入文本
-            model: 嵌入模型名称（可选）
+            text: Input文本
+            model: embeddingmodelName（optional）
 
         Returns:
-            向量嵌入，如果不支持则返回None
+            vectorembedding，如果notttt support则ReturnNone
         """
         return None
 
@@ -137,18 +137,18 @@ class LLMAdapter(ABC):
         model: Optional[str] = None,
     ) -> List[Optional[List[float]]]:
         """
-        批量获取嵌入向量（可选实现）
+        批量getembeddingvector（optionalImplementation）
 
         Args:
-            texts: 输入文本列表
-            model: 嵌入模型名称（可选）
+            texts: Input文本list
+            model: embeddingmodelName（optional）
 
         Returns:
-            向量嵌入列表
+            vectorembeddinglist
         """
         return [await self.get_embedding(text, model) for text in texts]
 
     @property
     def supports_embeddings(self) -> bool:
-        """是否支持嵌入向量"""
+        """is nottttsupportembeddingvector"""
         return False

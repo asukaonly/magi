@@ -1,15 +1,15 @@
 """
-API层 - FastAPI应用和路由
+API层 - FastAPI应用androute
 """
 from .app import create_app
-from .middleware import ErrorHandler, AuthMiddleware
-from .responses import SuccessResponse, ErrorResponse, PaginatedResponse
+from .middleware import errorHandler, AuthMiddleware
+from .responses import SuccessResponse, errorResponse, PaginatedResponse
 
 __all__ = [
     "create_app",
-    "ErrorHandler",
+    "errorHandler",
     "AuthMiddleware",
     "SuccessResponse",
-    "ErrorResponse",
+    "errorResponse",
     "PaginatedResponse",
 ]

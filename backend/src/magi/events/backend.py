@@ -1,31 +1,31 @@
 """
-消息总线 - 抽象后端接口
+Message Bus - Abstract Backend Interface
 """
 from abc import ABC, abstractmethod
 from typing import Callable, Optional, List
-from .events import Event
+from .events import event
 
 
 class MessageBusBackend(ABC):
     """
-    消息总线后端抽象接口
+    Message Bus Backend Abstract Interface
 
-    所有消息总线后端必须实现此接口，支持不同的存储实现：
-    - MemoryMessageBackend: 基于asyncio.PriorityQueue的内存队列
-    - SQLiteMessageBackend: 基于aiosqlite的持久化队列
-    - RedisMessageBackend: 基于Redis Streams的分布式队列
+    All message bus backends must implement this interface, supporting different storage implementations:
+    - MemoryMessageBackend: Memory queue based on asyncio.priorityQueue
+    - SQLiteMessageBackend: persistent queue based on aiosqlite
+    - RedisMessageBackend: Distributed queue based on Redis Streams
     """
 
     @abstractmethod
-    async def publish(self, event: Event) -> bool:
+    async def publish(self, event: event) -> bool:
         """
-        发布事件到消息总线
+        Publish event to message bus
 
         Args:
-            event: 要发布的事件
+            event: event to publish
 
         Returns:
-            bool: 是否成功发布
+            bool: Whether the event was successfully published
         """
         pass
 
@@ -35,51 +35,51 @@ class MessageBusBackend(ABC):
         event_type: str,
         handler: Callable,
         propagation_mode: str = "broadcast",
-        filter_func: Optional[Callable[[Event], bool]] = None,
+        filter_func: Optional[Callable[[event], bool]] = None,
     ) -> str:
         """
-        订阅事件
+        Subscribe to event
 
         Args:
-            event_type: 事件类型（如 "AgentStarted"）
-            handler: 事件处理函数（async def handler(event: Event)）
-            propagation_mode: 传播模式（"broadcast" | "competing"）
-            filter_func: 事件过滤函数（返回True才处理）
+            event_type: event type (e.g. "AgentStarted")
+            handler: event handler function (async def handler(event: event))
+            propagation_mode: propagation mode ("broadcast" | "competing")
+            filter_func: event filter function (only process when returns True)
 
         Returns:
-            str: 订阅ID
+            str: Subscription id
         """
         pass
 
     @abstractmethod
     async def unsubscribe(self, subscription_id: str) -> bool:
         """
-        取消订阅
+        Unsubscribe from event
 
         Args:
-            subscription_id: 订阅ID
+            subscription_id: Subscription id
 
         Returns:
-            bool: 是否成功取消
+            bool: Whether unsubscription was successful
         """
         pass
 
     @abstractmethod
     async def start(self):
-        """启动消息总线"""
+        """Start message bus"""
         pass
 
     @abstractmethod
     async def stop(self):
-        """停止消息总线（优雅关闭）"""
+        """Stop message bus (graceful shutdown)"""
         pass
 
     @abstractmethod
     async def get_stats(self) -> dict:
         """
-        获取消息总线统计信息
+        Get message bus statistics
 
         Returns:
-            dict: 统计信息（队列长度、丢弃事件数、订阅者数量等）
+            dict: Statistics info (queue length, dropped event count, subscriber count, etc.)
         """
         pass

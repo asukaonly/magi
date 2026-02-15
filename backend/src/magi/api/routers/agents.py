@@ -1,7 +1,7 @@
 """
-Agent管理API路由
+Agent管理APIroute
 
-提供Agent的CRUD操作和启停控制
+提供Agent的CRUDoperationand启停控制
 """
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
@@ -14,25 +14,25 @@ logger = logging.getLogger(__name__)
 agents_router = APIRouter()
 
 
-# ============ 数据模型 ============
+# ============ data Models ============
 
 class AgentCreateRequest(BaseModel):
-    """创建Agent请求"""
+    """createAgentrequest"""
 
-    name: str = Field(..., description="Agent名称")
-    agent_type: str = Field(..., description="Agent类型: master/task/worker")
-    config: Dict[str, Any] = Field(default_factory=dict, description="Agent配置")
+    name: str = Field(..., description="AgentName")
+    agent_type: str = Field(..., description="Agenttype: master/task/worker")
+    config: Dict[str, Any] = Field(default_factory=dict, description="AgentConfiguration")
 
 
 class AgentUpdateRequest(BaseModel):
-    """更新Agent请求"""
+    """updateAgentrequest"""
 
     name: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
 
 
 class AgentResponse(BaseModel):
-    """Agent响应"""
+    """Agentresponse"""
 
     id: str
     name: str
@@ -44,18 +44,18 @@ class AgentResponse(BaseModel):
 
 
 class AgentActionRequest(BaseModel):
-    """Agent操作请求"""
+    """Agentoperationrequest"""
 
-    action: str = Field(..., description="操作类型: start/stop/restart")
+    action: str = Field(..., description="operationtype: start/stop/restart")
 
 
-# ============ 内存存储（开发用） ============
+# ============ 内存storage（开发用） ============
 
-# TODO: 替换为实际的Agent Manager
+# TODO: replace为实际的Agent Manager
 _agents_store: Dict[str, Dict] = {}
 
 
-# ============ API端点 ============
+# ============ API Endpoints ============
 
 @agents_router.get("/", response_model=List[AgentResponse])
 async def list_agents(
@@ -65,20 +65,20 @@ async def list_agents(
     offset: int = 0,
 ):
     """
-    获取Agent列表
+    getAgentlist
 
     Args:
-        agent_type: 过滤Agent类型
-        state: 过滤Agent状态
-        limit: 返回数量限制
-        offset: 偏移量
+        agent_type: filterAgenttype
+        state: filterAgentState
+        limit: Returnquantitylimitation
+        offset: offset量
 
     Returns:
-        Agent列表
+        Agentlist
     """
     agents = list(_agents_store.values())
 
-    # 过滤
+    # filter
     if agent_type:
         agents = [a for a in agents if a["agent_type"] == agent_type]
     if state:
@@ -94,33 +94,33 @@ async def list_agents(
 @agents_router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(agent_id: str):
     """
-    获取Agent详情
+    getAgent详情
 
     Args:
-        agent_id: Agent ID
+        agent_id: Agent id
 
     Returns:
         Agent详情
     """
-    if agent_id not in _agents_store:
+    if agent_id notttt in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} not found",
+            detail=f"Agent {agent_id} notttt found",
         )
 
     return _agents_store[agent_id]
 
 
-@agents_router.post("/", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
+@agents_router.post("/", response_model=AgentResponse, status_code=status.HTTP_201_createD)
 async def create_agent(request: AgentCreateRequest):
     """
-    创建Agent
+    createAgent
 
     Args:
-        request: 创建请求
+        request: createrequest
 
     Returns:
-        创建的Agent
+        create的Agent
     """
     agent_id = f"agent_{len(_agents_store) + 1}"
 
@@ -130,7 +130,7 @@ async def create_agent(request: AgentCreateRequest):
         "agent_type": request.agent_type,
         "state": "stopped",
         "config": request.config,
-        "created_at": datetime.now(),
+        "created_at": datetime.notttw(),
         "updated_at": None,
     }
 
@@ -143,30 +143,30 @@ async def create_agent(request: AgentCreateRequest):
 @agents_router.put("/{agent_id}", response_model=AgentResponse)
 async def update_agent(agent_id: str, request: AgentUpdateRequest):
     """
-    更新Agent
+    updateAgent
 
     Args:
-        agent_id: Agent ID
-        request: 更新请求
+        agent_id: Agent id
+        request: updaterequest
 
     Returns:
-        更新后的Agent
+        update后的Agent
     """
-    if agent_id not in _agents_store:
+    if agent_id notttt in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} not found",
+            detail=f"Agent {agent_id} notttt found",
         )
 
     agent = _agents_store[agent_id]
 
-    # 更新字段
+    # updatefield
     if request.name:
         agent["name"] = request.name
     if request.config:
         agent["config"].update(request.config)
 
-    agent["updated_at"] = datetime.now()
+    agent["updated_at"] = datetime.notttw()
 
     logger.info(f"Updated agent: {agent_id}")
     return agent
@@ -175,15 +175,15 @@ async def update_agent(agent_id: str, request: AgentUpdateRequest):
 @agents_router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_agent(agent_id: str):
     """
-    删除Agent
+    deleteAgent
 
     Args:
-        agent_id: Agent ID
+        agent_id: Agent id
     """
-    if agent_id not in _agents_store:
+    if agent_id notttt in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} not found",
+            detail=f"Agent {agent_id} notttt found",
         )
 
     del _agents_store[agent_id]
@@ -193,24 +193,24 @@ async def delete_agent(agent_id: str):
 @agents_router.post("/{agent_id}/action")
 async def agent_action(agent_id: str, request: AgentActionRequest):
     """
-    执行Agent操作（启动/停止/重启）
+    ExecuteAgentoperation（启动/stop/重启）
 
     Args:
-        agent_id: Agent ID
-        request: 操作请求
+        agent_id: Agent id
+        request: operationrequest
 
     Returns:
-        操作结果
+        operationResult
     """
-    if agent_id not in _agents_store:
+    if agent_id notttt in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} not found",
+            detail=f"Agent {agent_id} notttt found",
         )
 
     agent = _agents_store[agent_id]
 
-    # 执行操作
+    # Executeoperation
     if request.action == "start":
         if agent["state"] == "running":
             raise HTTPException(
@@ -236,10 +236,10 @@ async def agent_action(agent_id: str, request: AgentActionRequest):
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown action: {request.action}",
+            detail=f"Unknotttwn action: {request.action}",
         )
 
-    agent["updated_at"] = datetime.now()
+    agent["updated_at"] = datetime.notttw()
 
     return {
         "success": True,
@@ -251,21 +251,21 @@ async def agent_action(agent_id: str, request: AgentActionRequest):
 @agents_router.get("/{agent_id}/stats")
 async def get_agent_stats(agent_id: str):
     """
-    获取Agent统计信息
+    getAgentstatisticsinfo
 
     Args:
-        agent_id: Agent ID
+        agent_id: Agent id
 
     Returns:
-        Agent统计信息
+        Agentstatisticsinfo
     """
-    if agent_id not in _agents_store:
+    if agent_id notttt in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} not found",
+            detail=f"Agent {agent_id} notttt found",
         )
 
-    # TODO: 返回实际的统计信息（pending任务数、处理次数等）
+    # TODO: Return实际的statisticsinfo（pending任务数、processcount等）
     return {
         "success": True,
         "data": {

@@ -1,10 +1,10 @@
 """
-配置管理模块 - YAML配置加载器
+Configuration管理module - YAMLConfigurationload器
 """
 import os
 import logging
 import yaml
-from pathlib import Path
+from pathlib import path
 from typing import Optional, Dict, Any
 from .models import Config, AgentConfig
 
@@ -12,26 +12,26 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigLoader:
-    """配置加载器"""
+    """Configurationload器"""
 
     def __init__(self, config_path: Optional[str] = None):
         """
-        初始化配置加载器
+        initializeConfigurationload器
 
         Args:
-            config_path: 配置文件路径，默认为 ./configs/agent.yaml
+            config_path: Configurationfilepath，default为 ./configs/agent.yaml
         """
         if config_path is None:
-            # 尝试多个默认位置（支持从不同目录运行）
+            # 尝试多个defaultposition（support从不同directoryrun）
             possible_paths = [
-                "./configs/agent.yaml",           # 从项目根目录运行
-                "../configs/agent.yaml",          # 从 backend 目录运行
-                "./agent.yaml",                   # 当前目录
-                "/etc/magi/agent.yaml",           # 系统级配置
+                "./configs/agent.yaml",           # 从项目根directoryrun
+                "../configs/agent.yaml",          # 从 backend directoryrun
+                "./agent.yaml",                   # currentdirectory
+                "/etc/magi/agent.yaml",           # 系统级Configuration
             ]
 
             for default_path in possible_paths:
-                # 转换为绝对路径
+                # convert为绝对path
                 abs_path = os.path.abspath(default_path)
                 if os.path.exists(abs_path):
                     config_path = abs_path
@@ -43,35 +43,35 @@ class ConfigLoader:
 
     def load(self) -> Config:
         """
-        加载配置文件
+        loadConfigurationfile
 
         Returns:
-            Config: 配置对象
+            Config: ConfigurationObject
 
         Raises:
-            FileNotFoundError: 配置文件不存在
-            ValueError: 配置文件格式错误
+            FileNotFounderror: Configurationfilenotttt found
+            Valueerror: Configurationfileformaterror
         """
-        if self._config is not None:
+        if self._config is notttt None:
             return self._config
 
-        if self.config_path is None or not os.path.exists(self.config_path):
-            # 返回默认配置
+        if self.config_path is None or notttt os.path.exists(self.config_path):
+            # Return default configuration
             self._config = self._load_default_config()
             return self._config
 
         with open(self.config_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
 
-        # 环境变量替换
+        # 环境Variablereplace
         data = self._substitute_env_vars(data)
 
-        # 验证并创建配置对象
+        # Validate并createConfigurationObject
         self._config = Config(**data)
         return self._config
 
     def _load_default_config(self) -> Config:
-        """加载默认配置"""
+        """loaddefaultConfiguration"""
         return Config(
             agent=AgentConfig(
                 name="magi-agent",
@@ -80,31 +80,31 @@ class ConfigLoader:
 
     def _substitute_env_vars(self, data: Any) -> Any:
         """
-        递归替换配置中的环境变量
+        递归replaceConfiguration中的环境Variable
 
-        支持格式：${ENV_VAR} 或 ${ENV_VAR:default_value}
+        supportformat：${ENV_VAR} 或 ${ENV_VAR:default_value}
 
         Args:
-            data: 配置数据
+            data: Configurationdata
 
         Returns:
-            替换后的数据
+            replace后的data
         """
         if isinstance(data, str):
-            # 替换环境变量
+            # replace环境Variable
             if "${" in data and "}" in data:
-                # 找到所有 ${...} 模式
+                # Foundall ${...} pattern
                 import re
                 pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'
 
                 def replace_var(match):
                     var_name = match.group(1)
-                    default_value = match.group(2) if match.group(2) is not None else ""
+                    default_value = match.group(2) if match.group(2) is notttt None else ""
                     return os.getenv(var_name, default_value)
 
                 result = re.sub(pattern, replace_var, data)
-                # 如果替换后还是环境变量格式且值为空，返回空字符串
-                if result.startswith("${") and not os.getenv(data[2:data.index('}')]):
+                # 如果replace后还is环境Variableformat且Value为空，Return空string
+                if result.startswith("${") and notttt os.getenv(data[2:data.index('}')]):
                     return ""
                 return result
             return data
@@ -119,24 +119,24 @@ class ConfigLoader:
             return data
 
     def reload(self) -> Config:
-        """重新加载配置"""
+        """重newloadConfiguration"""
         self._config = None
         return self.load()
 
 
-# 全局配置加载器实例
+# globalConfigurationload器Instance
 _global_loader: Optional[ConfigLoader] = None
 
 
 def get_config(config_path: Optional[str] = None) -> Config:
     """
-    获取全局配置
+    getglobalConfiguration
 
     Args:
-        config_path: 配置文件路径（仅首次调用有效）
+        config_path: Configurationfilepath（仅首次调用valid）
 
     Returns:
-        Config: 配置对象
+        Config: ConfigurationObject
     """
     global _global_loader
 
@@ -148,14 +148,14 @@ def get_config(config_path: Optional[str] = None) -> Config:
 
 def reload_config() -> Config:
     """
-    重新加载全局配置
+    重newloadglobalConfiguration
 
     Returns:
-        Config: 配置对象
+        Config: ConfigurationObject
     """
     global _global_loader
 
-    if _global_loader is not None:
+    if _global_loader is notttt None:
         return _global_loader.reload()
 
     return get_config()

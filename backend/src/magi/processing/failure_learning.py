@@ -1,36 +1,36 @@
 """
-失败学习机制
+failurelearning机制
 """
 import hashlib
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
-from .base import FailureCase, FailurePattern
+from .base import FailureCase, Failurepattern
 
 
 class FailureLearner:
     """
-    失败学习器
+    failurelearning器
 
-    从失败经验中学习，避免重复错误
+    从failureexperience中learning，避免重复error
     """
 
     def __init__(self, llm_adapter=None):
         """
-        初始化失败学习器
+        initializefailurelearning器
 
         Args:
-            llm_adapter: LLM适配器（用于智能分析）
+            llm_adapter: LLMAdapter（用于智能analysis）
         """
         self.llm_adapter = llm_adapter
 
-        # 失败案例存储（按类型分组）
+        # failurecasestorage（按typegroup）
         self._failures_by_type: Dict[str, List[FailureCase]] = defaultdict(list)
 
-        # 失败模式缓存
-        self._patterns: Dict[str, FailurePattern] = {}
+        # failurepatterncache
+        self._patterns: Dict[str, Failurepattern] = {}
 
-        # 模式识别阈值
-        self.pattern_recognition_threshold = 5  # 5个同类失败触发模式识别
+        # pattern识别阈Value
+        self.pattern_recognition_threshold = 5  # 5个同Classfailure触发pattern识别
 
     async def record_failure(
         self,
@@ -39,17 +39,17 @@ class FailureLearner:
         execution_steps: List[Dict]
     ):
         """
-        记录失败案例
+        recordfailurecase
 
         Args:
-            task: 任务描述
-            error: 错误
-            execution_steps: 执行步骤
+            task: 任务Description
+            error: error
+            execution_steps: Executestep
         """
-        # 生成失败类型
+        # Generation failedtype
         failure_type = self._classify_failure(task, error)
 
-        # 创建失败案例
+        # createfailurecase
         case = FailureCase(
             task_description=task.get("description", ""),
             failure_reason=str(error),
@@ -57,47 +57,47 @@ class FailureLearner:
             execution_steps=execution_steps,
         )
 
-        # 存储失败案例
+        # storagefailurecase
         self._failures_by_type[failure_type].append(case)
 
-        # 检查是否需要识别模式
+        # checkis notttt需要识别pattern
         if await self._should_recognize_pattern(failure_type):
             await self._recognize_pattern(failure_type)
 
     async def should_request_help(self, task: Dict[str, Any]) -> bool:
         """
-        判断是否应该请求人类帮助
+        判断is notttt应该request人Class帮助
 
         Args:
-            task: 任务描述
+            task: 任务Description
 
         Returns:
-            是否需要帮助
+            is notttt需要帮助
         """
         failure_type = self._classify_failure_type(task)
 
-        # 如果该类型有失败模式，检查是否匹配
+        # 如果该type有failurepattern，checkis notttt匹配
         if failure_type in self._patterns:
             pattern = self._patterns[failure_type]
             # TODO: 更精细的匹配逻辑
             return True
 
-        # 检查历史失败次数
+        # checkhistoryfailurecount
         failures = self._failures_by_type.get(failure_type, [])
-        return len(failures) >= 3  # 同类失败3次以上请求帮助
+        return len(failures) >= 3  # 同Classfailure3次以上request帮助
 
     async def get_avoidance_strategy(
         self,
         task: Dict[str, Any]
     ) -> Optional[str]:
         """
-        获取避免策略
+        get避免strategy
 
         Args:
-            task: 任务描述
+            task: 任务Description
 
         Returns:
-            避免策略或None
+            避免strategy或None
         """
         failure_type = self._classify_failure_type(task)
 
@@ -109,71 +109,71 @@ class FailureLearner:
 
     def _classify_failure(self, task: Dict, error: Exception) -> str:
         """
-        分类失败类型
+        分Classfailuretype
 
         Args:
             task: 任务
-            error: 错误
+            error: error
 
         Returns:
-            失败类型
+            failuretype
         """
-        # 基于错误类型分类
+        # 基于errortype分Class
         error_type = error.__class__.__name__
 
-        # 可以进一步结合任务信息分类
+        # 可以进一步结合任务info分Class
         task_type = task.get("type", "")
 
         return f"{task_type}:{error_type}"
 
     def _classify_failure_type(self, task: Dict) -> str:
         """
-        预测任务可能的失败类型
+        prediction任务可能的failuretype
 
         Args:
-            task: 任务描述
+            task: 任务Description
 
         Returns:
-            失败类型
+            failuretype
         """
-        # 简化版：基于任务类型
+        # 简化版：基于任务type
         task_type = task.get("type", "")
-        return f"{task_type}:Unknown"
+        return f"{task_type}:Unknotttwn"
 
     async def _should_recognize_pattern(self, failure_type: str) -> bool:
-        """判断是否应该识别失败模式"""
+        """判断is notttt应该识别failurepattern"""
         failures = self._failures_by_type.get(failure_type, [])
         return len(failures) >= self.pattern_recognition_threshold
 
     async def _recognize_pattern(self, failure_type: str):
         """
-        识别失败模式
+        识别failurepattern
 
         Args:
-            failure_type: 失败类型
+            failure_type: failuretype
         """
         failures = self._failures_by_type.get(failure_type, [])
 
-        if not failures:
+        if notttt failures:
             return
 
-        # 简化版：基于失败原因生成模式
-        # 实际实现可以使用LLM进行智能分析
+        # 简化版：基于failurereasongenerationpattern
+        # 实际Implementation可以使用LLM进row智能analysis
 
-        # 统计最常见的失败原因
+        # statistics最常见的failurereason
         reason_count = defaultdict(int)
         for case in failures:
             reason_count[case.failure_reason] += 1
 
         most_common_reason = max(reason_count.items(), key=lambda x: x[1])[0]
 
-        # 生成模式ID
+        # generationpatternid
         pattern_id = hashlib.md5(failure_type.encode()).hexdigest()[:8]
 
-        # 创建失败模式
-        pattern = FailurePattern(
+        # createfailurepattern
+        pattern = Failurepattern(
             pattern_id=pattern_id,
-            description=f"失败模式：{failure_type}",
+            description=f"failurepattern：{failure_type}",
             avoidance_strategy=f"避免：{most_common_reason}",
             case_count=len(failures),
         )

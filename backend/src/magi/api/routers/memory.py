@@ -1,14 +1,14 @@
 """
-记忆管理API路由
+memory管理APIroute
 
-提供 L1-L5 五层记忆架构的查询接口：
-- L1: 原始事件存储
-- L2: 事件关系图
-- L3: 语义搜索
-- L4: 时间摘要
-- L5: 能力列表
+提供 L1-L5 五层memoryarchitecture的queryInterface：
+- L1: Raw event Storage
+- L2: event Relation Graph
+- L3: 语义search
+- L4: Time Summaries
+- L5: capabilitylist
 """
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -19,10 +19,10 @@ logger = logging.getLogger(__name__)
 memory_router = APIRouter()
 
 
-# ============ 数据模型 ============
+# ============ data Models ============
 
 class MemoryResponse(BaseModel):
-    """记忆响应"""
+    """memoryresponse"""
     id: str
     type: str
     content: Dict[str, Any]
@@ -32,36 +32,36 @@ class MemoryResponse(BaseModel):
 
 
 class MemorySearchRequest(BaseModel):
-    """记忆搜索请求"""
-    query: str = Field(..., description="搜索查询")
-    memory_type: Optional[str] = Field(None, description="记忆类型")
-    limit: int = Field(default=10, description="返回数量限制")
+    """memorysearchrequest"""
+    query: str = Field(..., description="searchquery")
+    memory_type: Optional[str] = Field(None, description="memorytype")
+    limit: int = Field(default=10, description="Returnquantitylimitation")
 
 
 class SemanticSearchRequest(BaseModel):
-    """语义搜索请求"""
-    query: str = Field(..., description="搜索查询文本")
-    search_type: str = Field(default="hybrid", description="搜索类型: hybrid, semantic, keyword, relation")
-    limit: int = Field(default=10, ge=1, le=100, description="返回数量限制")
+    """语义searchrequest"""
+    query: str = Field(..., description="searchquery文本")
+    search_type: str = Field(default="hybrid", description="searchtype: hybrid, semantic, keyword, relation")
+    limit: int = Field(default=10, ge=1, le=100, description="Returnquantitylimitation")
 
 
 class SemanticSearchResult(BaseModel):
-    """语义搜索结果"""
+    """语义searchResult"""
     event_id: str
-    similarity: float = Field(..., description="相似度分数")
-    text: str = Field(..., description="事件文本")
+    similarity: float = Field(..., description="similarityscore")
+    text: str = Field(..., description="event文本")
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-class EventContextResponse(BaseModel):
-    """事件上下文响应"""
+class eventContextResponse(BaseModel):
+    """eventcontextresponse"""
     event_id: str
     depth: int
     related_events: Dict[int, List[Dict[str, Any]]]
 
 
 class SummaryResponse(BaseModel):
-    """摘要响应"""
+    """summaryresponse"""
     period_type: str
     period_key: str
     start_time: float
@@ -73,7 +73,7 @@ class SummaryResponse(BaseModel):
 
 
 class CapabilityResponse(BaseModel):
-    """能力响应"""
+    """capabilityresponse"""
     capability_id: str
     name: str
     description: str
@@ -84,7 +84,7 @@ class CapabilityResponse(BaseModel):
 
 
 class MemoryStatisticsResponse(BaseModel):
-    """记忆统计响应"""
+    """memorystatisticsresponse"""
     l1_raw: Dict[str, Any]
     l2_relations: Dict[str, Any]
     l3_embeddings: Optional[Dict[str, Any]] = None
@@ -93,23 +93,23 @@ class MemoryStatisticsResponse(BaseModel):
     integration_stats: Optional[Dict[str, Any]] = None
 
 
-# ============ 辅助函数 ============
+# ============ Helper Functions ============
 
 def get_unified_memory():
-    """获取统一记忆存储实例"""
+    """getUnified Memory StorageInstance"""
     try:
         from ...agent import get_unified_memory
         return get_unified_memory()
-    except RuntimeError:
+    except Runtimeerror:
         return None
 
 
 def get_memory_integration():
-    """获取记忆集成模块实例"""
+    """getMemory Integration ModuleInstance"""
     try:
         from ...agent import get_memory_integration
         return get_memory_integration()
-    except RuntimeError:
+    except Runtimeerror:
         return None
 
 
@@ -117,22 +117,22 @@ def get_memory_integration():
 
 @memory_router.get("/l1/events")
 async def get_l1_events(
-    limit: int = Query(default=50, ge=1, le=500, description="返回数量限制"),
-    event_type: Optional[str] = Query(None, description="过滤事件类型"),
+    limit: int = query(default=50, ge=1, le=500, description="Returnquantitylimitation"),
+    event_type: Optional[str] = query(None, description="filtereventtype"),
 ):
     """
-    获取 L1 原始事件列表
+    get L1 原始eventlist
 
     Args:
-        limit: 返回数量限制
-        event_type: 过滤事件类型
+        limit: Returnquantitylimitation
+        event_type: filtereventtype
 
     Returns:
-        事件列表和统计信息
+        eventlistandstatisticsinfo
     """
     unified_memory = get_unified_memory()
 
-    if not unified_memory or not unified_memory.l1_raw:
+    if notttt unified_memory or notttt unified_memory.l1_raw:
         return {
             "events": [],
             "stats": {"total": 0},
@@ -142,7 +142,7 @@ async def get_l1_events(
         import aiosqlite
         import json
 
-        # 获取事件（从 event_store 表）
+        # getevent（从 event_store table）
         events = []
         async with aiosqlite.connect(unified_memory.l1_raw._expanded_db_path) as db:
             if event_type:
@@ -150,14 +150,14 @@ async def get_l1_events(
                     SELECT id, type, data, timestamp, source, level, correlation_id, metadata
                     FROM event_store
                     WHERE type = ?
-                    ORDER BY timestamp DESC
+                    order BY timestamp DESC
                     LIMIT ?
                 """, (event_type, limit))
             else:
                 cursor = await db.execute("""
                     SELECT id, type, data, timestamp, source, level, correlation_id, metadata
                     FROM event_store
-                    ORDER BY timestamp DESC
+                    order BY timestamp DESC
                     LIMIT ?
                 """, (limit,))
             rows = await cursor.fetchall()
@@ -173,7 +173,7 @@ async def get_l1_events(
                     "metadata": json.loads(row[7]) if row[7] else {},
                 })
 
-        # 获取总数
+        # get总数
         async with aiosqlite.connect(unified_memory.l1_raw._expanded_db_path) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM event_store")
             total = (await cursor.fetchone())[0]
@@ -193,14 +193,14 @@ async def get_l1_events(
 @memory_router.get("/l2/statistics")
 async def get_l2_statistics():
     """
-    获取 L2 关系统计信息
+    get L2 relationshipstatisticsinfo
 
     Returns:
-        关系统计信息
+        relationshipstatisticsinfo
     """
     unified_memory = get_unified_memory()
 
-    if not unified_memory or not unified_memory.l2_relations:
+    if notttt unified_memory or notttt unified_memory.l2_relations:
         return {
             "total_events": 0,
             "total_relations": 0,
@@ -220,23 +220,23 @@ async def get_l2_statistics():
 @memory_router.get("/statistics", response_model=MemoryStatisticsResponse)
 async def get_memory_statistics():
     """
-    获取 L1-L5 所有层级的统计信息
+    get L1-L5 all层级的statisticsinfo
 
     Returns:
-        记忆统计信息
+        memorystatisticsinfo
     """
     unified_memory = get_unified_memory()
     memory_integration = get_memory_integration()
 
-    if not unified_memory:
+    if notttt unified_memory:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory system not initialized",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Memory system notttt initialized",
         )
 
     stats = unified_memory.get_statistics()
 
-    # 添加集成模块统计
+    # add集成modulestatistics
     if memory_integration:
         stats["integration_stats"] = memory_integration.get_statistics()
 
@@ -246,22 +246,22 @@ async def get_memory_statistics():
 @memory_router.post("/search", response_model=List[SemanticSearchResult])
 async def semantic_search(request: SemanticSearchRequest):
     """
-    语义搜索 (L3)
+    语义search (L3)
 
-    使用向量嵌入进行语义相似度搜索
+    使用vectorembedding进row语义similaritysearch
 
     Args:
-        request: 搜索请求
+        request: searchrequest
 
     Returns:
-        搜索结果列表
+        searchResultlist
     """
     unified_memory = get_unified_memory()
 
-    if not unified_memory or not unified_memory.l3_embeddings:
+    if notttt unified_memory or notttt unified_memory.l3_embeddings:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Semantic search not available (L3 embeddings disabled)",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Semantic search notttt available (L3 embeddings disabled)",
         )
 
     try:
@@ -271,7 +271,7 @@ async def semantic_search(request: SemanticSearchRequest):
             limit=request.limit,
         )
 
-        # 转换为响应格式
+        # convert为responseformat
         return [
             SemanticSearchResult(
                 event_id=r.get("event_id", ""),
@@ -284,34 +284,34 @@ async def semantic_search(request: SemanticSearchRequest):
     except Exception as e:
         logger.error(f"Semantic search failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_500_internal_server_error,
             detail=f"Search failed: {str(e)}",
         )
 
 
-@memory_router.get("/event/{event_id}/context", response_model=EventContextResponse)
+@memory_router.get("/event/{event_id}/context", response_model=eventContextResponse)
 async def get_event_context(
     event_id: str,
-    max_depth: int = Query(default=2, ge=1, le=5, description="最大深度"),
+    max_depth: int = query(default=2, ge=1, le=5, description="maximumdepth"),
 ):
     """
-    获取事件上下文 (L2)
+    geteventcontext (L2)
 
-    获取指定事件的相关事件（基于关系图）
+    get指定event的relatedevent（基于relationshipgraph）
 
     Args:
-        event_id: 事件ID
-        max_depth: 最大深度
+        event_id: eventid
+        max_depth: maximumdepth
 
     Returns:
-        事件上下文
+        eventcontext
     """
     unified_memory = get_unified_memory()
 
-    if not unified_memory:
+    if notttt unified_memory:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory system not initialized",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Memory system notttt initialized",
         )
 
     try:
@@ -320,7 +320,7 @@ async def get_event_context(
             max_depth=max_depth,
         )
 
-        return EventContextResponse(
+        return eventContextResponse(
             event_id=event_id,
             depth=max_depth,
             related_events=context,
@@ -328,7 +328,7 @@ async def get_event_context(
     except Exception as e:
         logger.error(f"Failed to get event context: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_500_internal_server_error,
             detail=f"Failed to get event context: {str(e)}",
         )
 
@@ -336,40 +336,40 @@ async def get_event_context(
 @memory_router.get("/summary/{period_type}", response_model=Optional[SummaryResponse])
 async def get_summary(
     period_type: str,
-    period_key: Optional[str] = Query(None, description="时间窗口标识（默认为当前）"),
-    force_generate: bool = Query(False, description="是否强制重新生成"),
+    period_key: Optional[str] = query(None, description="时间窗口identifier（default为current）"),
+    force_generate: bool = query(False, description="is notttt强制重newgeneration"),
 ):
     """
-    获取时间摘要 (L4)
+    getTime Summaries (L4)
 
-    获取指定时间窗口的事件摘要
+    get指scheduled间窗口的eventsummary
 
     Args:
         period_type: 时间粒度（hour/day/week/month）
-        period_key: 时间窗口标识（默认为当前）
-        force_generate: 是否强制重新生成
+        period_key: 时间窗口identifier（default为current）
+        force_generate: is notttt强制重newgeneration
 
     Returns:
-        事件摘要
+        eventsummary
     """
-    # 验证 period_type
+    # Validate period_type
     valid_period_types = {"hour", "day", "week", "month"}
-    if period_type not in valid_period_types:
+    if period_type notttt in valid_period_types:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNprocessABLE_entity,
             detail=f"Invalid period_type '{period_type}'. Must be one of: {', '.join(valid_period_types)}",
         )
 
     unified_memory = get_unified_memory()
 
-    if not unified_memory or not unified_memory.l4_summaries:
+    if notttt unified_memory or notttt unified_memory.l4_summaries:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Summary service not available (L4 summaries disabled)",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Summary service notttt available (L4 summaries disabled)",
         )
 
     try:
-        # 如果强制生成，使用 generate_summary
+        # 如果强制generation，使用 generate_summary
         if force_generate:
             summary = unified_memory.generate_summary(
                 period_type=period_type,
@@ -382,10 +382,10 @@ async def get_summary(
                 period_key=period_key,
             )
 
-        if not summary:
+        if notttt summary:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Summary not found for {period_type}/{period_key or 'current'}",
+                detail=f"Summary notttt found for {period_type}/{period_key or 'current'}",
             )
 
         return SummaryResponse(
@@ -403,38 +403,38 @@ async def get_summary(
     except Exception as e:
         logger.error(f"Failed to get summary: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_500_internal_server_error,
             detail=f"Failed to get summary: {str(e)}",
         )
 
 
 @memory_router.get("/capabilities", response_model=List[CapabilityResponse])
 async def get_capabilities(
-    limit: int = Query(default=50, ge=1, le=200, description="返回数量限制"),
+    limit: int = query(default=50, ge=1, le=200, description="Returnquantitylimitation"),
 ):
     """
-    获取能力列表 (L5)
+    getcapabilitylist (L5)
 
-    获取所有已提取的能力
+    getall已提取的capability
 
     Args:
-        limit: 返回数量限制
+        limit: Returnquantitylimitation
 
     Returns:
-        能力列表
+        capabilitylist
     """
     unified_memory = get_unified_memory()
 
-    if not unified_memory or not unified_memory.l5_capabilities:
+    if notttt unified_memory or notttt unified_memory.l5_capabilities:
         return []
 
     try:
         capabilities = unified_memory.l5_capabilities.get_all_capabilities()
 
-        # 按使用次数排序
+        # 按使用countsort
         capabilities.sort(key=lambda c: c.usage_count, reverse=True)
 
-        # 限制数量
+        # limitationquantity
         capabilities = capabilities[:limit]
 
         return [
@@ -452,7 +452,7 @@ async def get_capabilities(
     except Exception as e:
         logger.error(f"Failed to get capabilities: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_500_internal_server_error,
             detail=f"Failed to get capabilities: {str(e)}",
         )
 
@@ -460,28 +460,28 @@ async def get_capabilities(
 @memory_router.get("/capabilities/{capability_id}", response_model=CapabilityResponse)
 async def get_capability(capability_id: str):
     """
-    获取单个能力详情 (L5)
+    get单个capability详情 (L5)
 
     Args:
-        capability_id: 能力ID
+        capability_id: capabilityid
 
     Returns:
-        能力详情
+        capability详情
     """
     unified_memory = get_unified_memory()
 
-    if not unified_memory or not unified_memory.l5_capabilities:
+    if notttt unified_memory or notttt unified_memory.l5_capabilities:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Capability service not available (L5 capabilities disabled)",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Capability service notttt available (L5 capabilities disabled)",
         )
 
     capability = unified_memory.l5_capabilities.get_capability(capability_id)
 
-    if not capability:
+    if notttt capability:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Capability {capability_id} not found",
+            detail=f"Capability {capability_id} notttt found",
         )
 
     return CapabilityResponse(
@@ -498,17 +498,17 @@ async def get_capability(capability_id: str):
 @memory_router.post("/summaries/generate")
 async def generate_pending_summaries():
     """
-    手动生成所有待处理的摘要 (L4)
+    手动generationallpending的summary (L4)
 
     Returns:
-        生成结果
+        generationResult
     """
     memory_integration = get_memory_integration()
 
-    if not memory_integration:
+    if notttt memory_integration:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory integration not available",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Memory integration notttt available",
         )
 
     try:
@@ -520,7 +520,7 @@ async def generate_pending_summaries():
     except Exception as e:
         logger.error(f"Failed to generate summaries: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_500_internal_server_error,
             detail=f"Failed to generate summaries: {str(e)}",
         )
 
@@ -528,38 +528,38 @@ async def generate_pending_summaries():
 @memory_router.delete("/capabilities/{capability_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_capability(capability_id: str):
     """
-    删除能力 (L5)
+    deletecapability (L5)
 
     Args:
-        capability_id: 能力ID
+        capability_id: capabilityid
     """
     unified_memory = get_unified_memory()
 
-    if not unified_memory or not unified_memory.l5_capabilities:
+    if notttt unified_memory or notttt unified_memory.l5_capabilities:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Capability service not available",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Capability service notttt available",
         )
 
     success = unified_memory.l5_capabilities.delete_capability(capability_id)
 
-    if not success:
+    if notttt success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Capability {capability_id} not found",
+            detail=f"Capability {capability_id} notttt found",
         )
 
 
-# ============ 兼容旧版 API 端点 ============
+# ============ compatibleold版 API 端点 ============
 
-# 内存存储（开发用）
+# 内存storage（开发用）
 _legacy_memory_store: Dict[str, Dict] = {
     "mem_1": {
         "id": "mem_1",
         "type": "self",
         "content": {"event": "Learned to use Python"},
         "metadata": {"source": "learning", "importance": 0.8},
-        "created_at": datetime.now(),
+        "created_at": datetime.notttw(),
         "updated_at": None,
     },
     "mem_2": {
@@ -567,7 +567,7 @@ _legacy_memory_store: Dict[str, Dict] = {
         "type": "other",
         "content": {"user": "Alice", "preference": "likes cats"},
         "metadata": {"source": "conversation", "importance": 0.6},
-        "created_at": datetime.now(),
+        "created_at": datetime.notttw(),
         "updated_at": None,
     },
 }
@@ -580,15 +580,15 @@ async def list_memories(
     offset: int = 0,
 ):
     """
-    获取记忆列表（旧版 API）
+    getmemorylist（old版 API）
 
     Args:
-        memory_type: 过滤记忆类型
-        limit: 返回数量限制
-        offset: 偏移量
+        memory_type: filtermemorytype
+        limit: Returnquantitylimitation
+        offset: offset量
 
     Returns:
-        记忆列表
+        memorylist
     """
     memories = list(_legacy_memory_store.values())
 
@@ -604,18 +604,18 @@ async def list_memories(
 @memory_router.get("/legacy/{memory_id}", response_model=MemoryResponse)
 async def get_memory(memory_id: str):
     """
-    获取记忆详情（旧版 API）
+    getmemory详情（old版 API）
 
     Args:
-        memory_id: 记忆ID
+        memory_id: memoryid
 
     Returns:
-        记忆详情
+        memory详情
     """
-    if memory_id not in _legacy_memory_store:
+    if memory_id notttt in _legacy_memory_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Memory {memory_id} not found",
+            detail=f"Memory {memory_id} notttt found",
         )
 
     return _legacy_memory_store[memory_id]
@@ -624,15 +624,15 @@ async def get_memory(memory_id: str):
 @memory_router.delete("/legacy/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_memory(memory_id: str):
     """
-    删除记忆（旧版 API）
+    deletememory（old版 API）
 
     Args:
-        memory_id: 记忆ID
+        memory_id: memoryid
     """
-    if memory_id not in _legacy_memory_store:
+    if memory_id notttt in _legacy_memory_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Memory {memory_id} not found",
+            detail=f"Memory {memory_id} notttt found",
         )
 
     del _legacy_memory_store[memory_id]

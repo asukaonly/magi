@@ -1,7 +1,7 @@
 """
-内置工具模块
+Built-in Tools Module
 
-包含常用的内置工具：Bash、文件操作、天气查询等
+contains常用的Built-in tools：Bash、fileoperation、days气query等
 """
 from .bash_tool import BashTool
 from .file_read_tool import FileReadTool

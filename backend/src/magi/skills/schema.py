@@ -1,10 +1,10 @@
 """
-Skill Schema - Data models for skills
+Skill Schema - data models for skills
 
 Defines the data structures used throughout the skills system.
 """
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import path
 from typing import Any, Dict, List, Optional, Union
 
 
@@ -28,7 +28,7 @@ class SkillFrontmatter:
 
 
 @dataclass
-class SkillMetadata:
+class Skillmetadata:
     """
     Skill metadata (lightweight, kept in memory)
 
@@ -37,7 +37,7 @@ class SkillMetadata:
     """
     name: str
     description: str
-    directory: Path  # Used for loading full content later
+    directory: path  # Used for loading full content later
     argument_hint: Optional[str] = None
     disable_model_invocation: bool = False
     user_invocable: bool = True
@@ -57,9 +57,9 @@ class SkillContent:
     """
     name: str
     frontmatter: SkillFrontmatter
-    prompt_template: str  # Processed template with resolved references
+    prompt_template: str  # processed template with resolved references
     supporting_data: Dict[str, Any] = field(default_factory=dict)
-    source_file: Optional[Path] = None
+    source_file: Optional[path] = None
 
 
 @dataclass

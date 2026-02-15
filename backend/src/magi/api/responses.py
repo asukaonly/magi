@@ -1,31 +1,31 @@
 """
-统一响应格式
+统一responseformat
 
-定义API响应的标准格式
+定义APIresponse的standardformat
 """
 from typing import Any, Optional, List
 from pydantic import BaseModel, Field
 
 
 class SuccessResponse(BaseModel):
-    """成功响应"""
+    """successresponse"""
 
     success: bool = True
-    message: str = "Operation successful"
+    message: str = "operation successful"
     data: Optional[Any] = None
 
     class Config:
         json_schema_extra = {
             "example": {
                 "success": True,
-                "message": "Operation successful",
+                "message": "operation successful",
                 "data": {"id": 1, "name": "example"},
             }
         }
 
 
-class ErrorResponse(BaseModel):
-    """错误响应"""
+class errorResponse(BaseModel):
+    """errorresponse"""
 
     success: bool = False
     message: str
@@ -37,14 +37,14 @@ class ErrorResponse(BaseModel):
             "example": {
                 "success": False,
                 "message": "An error occurred",
-                "error_code": "INTERNAL_ERROR",
+                "error_code": "internal_error",
                 "details": {},
             }
         }
 
 
 class PaginatedResponse(BaseModel):
-    """分页响应"""
+    """分页response"""
 
     success: bool = True
     data: List[Any] = Field(default_factory=list)
@@ -66,8 +66,8 @@ class PaginatedResponse(BaseModel):
         }
 
 
-def success(data: Any = None, message: str = "Operation successful") -> dict:
-    """创建成功响应"""
+def success(data: Any = None, message: str = "operation successful") -> dict:
+    """createsuccessresponse"""
     return {
         "success": True,
         "message": message,
@@ -76,14 +76,14 @@ def success(data: Any = None, message: str = "Operation successful") -> dict:
 
 
 def error(message: str, error_code: str = None, details: Any = None) -> dict:
-    """创建错误响应"""
+    """createerrorresponse"""
     response = {
         "success": False,
         "message": message,
     }
     if error_code:
         response["error_code"] = error_code
-    if details is not None:
+    if details is notttt None:
         response["details"] = details
     return response
 
@@ -94,7 +94,7 @@ def paginated(
     page: int = 1,
     page_size: int = 10,
 ) -> dict:
-    """创建分页响应"""
+    """create分页response"""
     total_pages = (total + page_size - 1) // page_size
     return {
         "success": True,

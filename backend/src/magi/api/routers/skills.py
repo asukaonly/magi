@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 skills_router = APIRouter(prefix="/api/skills", tags=["skills"])
 
 
-# ============ 数据模型 ============
+# ============ data Models ============
 
-class SkillMetadataResponse(BaseModel):
-    """Skill 元数据响应"""
+class SkillmetadataResponse(BaseModel):
+    """Skill metadataresponse"""
     name: str
     description: str
     category: Optional[str] = None
@@ -29,11 +29,11 @@ class SkillMetadataResponse(BaseModel):
     context: Optional[str] = None
     agent: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
-    directory: str  # Skill 目录路径
+    directory: str  # Skill directorypath
 
 
 class SkillDetailResponse(BaseModel):
-    """Skill 详情响应（包含内容）"""
+    """Skill 详情response（containsContent）"""
     name: str
     description: str
     category: Optional[str] = None
@@ -42,20 +42,20 @@ class SkillDetailResponse(BaseModel):
     context: Optional[str] = None
     agent: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
-    prompt_template: str  # 处理后的模板内容
+    prompt_template: str  # process后的模板Content
     supporting_data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SkillExecuteRequest(BaseModel):
-    """Skill 执行请求"""
-    arguments: List[str] = Field(default_factory=list, description="命令行参数")
-    user_id: str = Field(default="anonymous", description="用户ID")
-    user_message: str = Field(default="", description="原始用户消息")
-    context: Dict[str, Any] = Field(default_factory=dict, description="额外上下文")
+    """Skill Executerequest"""
+    arguments: List[str] = Field(default_factory=list, description="commandrowParameter")
+    user_id: str = Field(default="anotttnymous", description="userid")
+    user_message: str = Field(default="", description="原始User message")
+    context: Dict[str, Any] = Field(default_factory=dict, description="额外context")
 
 
 class SkillExecuteResponse(BaseModel):
-    """Skill 执行响应"""
+    """Skill Executeresponse"""
     success: bool
     response: Optional[str] = None
     error: Optional[str] = None
@@ -63,7 +63,7 @@ class SkillExecuteResponse(BaseModel):
     mode: Optional[str] = None  # "direct" or "subagent"
 
 
-# ============ 全局实例（在应用启动时初始化）============
+# ============ globalInstance（在应用启动时initialize）============
 
 _skill_indexer = None
 _skill_loader = None
@@ -72,10 +72,10 @@ _skill_executor = None
 
 def init_skills_module(llm_adapter=None):
     """
-    初始化 Skills 模块
+    initialize Skills module
 
     Args:
-        llm_adapter: LLM 适配器（用于 sub-agent 执行）
+        llm_adapter: LLM Adapter（用于 sub-agent Execute）
     """
     global _skill_indexer, _skill_loader, _skill_executor
 
@@ -93,30 +93,30 @@ def init_skills_module(llm_adapter=None):
 
 
 def get_skill_executor():
-    """获取 SkillExecutor 实例"""
+    """get SkillExecutor Instance"""
     return _skill_executor
 
 
 # ============ API 端点 ============
 
-@skills_router.get("/", response_model=List[SkillMetadataResponse])
+@skills_router.get("/", response_model=List[SkillmetadataResponse])
 async def list_skills():
     """
-    获取所有 Skills 列表（仅元数据）
+    getall Skills list（仅metadata）
 
     Returns:
-        Skills 元数据列表
+        Skills metadatalist
     """
     if _skill_indexer is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Skills module not initialized",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Skills module notttt initialized",
         )
 
     skills = _skill_indexer.scan_all()
 
     return [
-        SkillMetadataResponse(
+        SkillmetadataResponse(
             name=name,
             description=skill.description,
             category=skill.category,
@@ -131,28 +131,28 @@ async def list_skills():
     ]
 
 
-@skills_router.post("/refresh", response_model=List[SkillMetadataResponse])
+@skills_router.post("/refresh", response_model=List[SkillmetadataResponse])
 async def refresh_skills():
     """
-    重新扫描 Skills 目录
+    重new扫描 Skills directory
 
     Returns:
-        更新后的 Skills 列表
+        update后的 Skills list
     """
     if _skill_indexer is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Skills module not initialized",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Skills module notttt initialized",
         )
 
     skills = _skill_indexer.refresh()
 
-    # 同时更新 tool_registry
+    # 同时update tool_registry
     from ...tools.registry import tool_registry
     tool_registry.refresh_skills()
 
     return [
-        SkillMetadataResponse(
+        SkillmetadataResponse(
             name=name,
             description=skill.description,
             category=skill.category,
@@ -170,25 +170,25 @@ async def refresh_skills():
 @skills_router.get("/{skill_name}", response_model=SkillDetailResponse)
 async def get_skill_detail(skill_name: str):
     """
-    获取 Skill 详情（包含完整内容）
+    get Skill 详情（contains完整Content）
 
     Args:
-        skill_name: Skill 名称
+        skill_name: Skill Name
 
     Returns:
         Skill 详情
     """
     if _skill_loader is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Skills module not initialized",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Skills module notttt initialized",
         )
 
     skill_content = _skill_loader.load_skill(skill_name)
-    if not skill_content:
+    if notttt skill_content:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill not found: {skill_name}",
+            detail=f"Skill notttt found: {skill_name}",
         )
 
     return SkillDetailResponse(
@@ -208,22 +208,22 @@ async def get_skill_detail(skill_name: str):
 @skills_router.post("/{skill_name}/execute", response_model=SkillExecuteResponse)
 async def execute_skill(skill_name: str, request: SkillExecuteRequest):
     """
-    手动执行 Skill
+    手动Execute Skill
 
     Args:
-        skill_name: Skill 名称
-        request: 执行请求
+        skill_name: Skill Name
+        request: Executerequest
 
     Returns:
-        执行结果
+        Execution result
     """
     if _skill_executor is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Skills module not initialized",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Skills module notttt initialized",
         )
 
-    # 构建执行上下文
+    # buildExecutecontext
     import os
     context = {
         "user_id": request.user_id,
@@ -231,11 +231,11 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
         "user_message": request.user_message,
         "conversation_history": [],
         "env_vars": {
-            "USER": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
+            "user": os.getenv("user") or os.getenv("username") or "unknotttwn",
             "HOME": os.path.expanduser("~"),
             "PWD": os.getcwd(),
-            "CLAUDE_SESSION_ID": f"api_session_{request.user_id}",
-            "USER_ID": request.user_id,
+            "CLAUDE_session_id": f"api_session_{request.user_id}",
+            "user_id": request.user_id,
         },
     }
     context.update(request.context)
@@ -267,15 +267,15 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
 @skills_router.get("/categories/list")
 async def list_skill_categories():
     """
-    获取 Skill 分类列表
+    get Skill 分Classlist
 
     Returns:
-        分类列表
+        分Classlist
     """
     if _skill_indexer is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Skills module not initialized",
+            status_code=status.HTTP_503_service_UNAVAILABLE,
+            detail="Skills module notttt initialized",
         )
 
     skills = _skill_indexer.scan_all()

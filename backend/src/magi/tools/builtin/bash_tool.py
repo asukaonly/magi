@@ -1,45 +1,45 @@
 """
-Bash命令执行工具
+Bash command execution tool
 """
 import asyncio
 import subprocess
 from typing import Dict, Any
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
 
 
 class BashTool(Tool):
     """
-    Bash命令执行工具
+    Bash command execution tool
 
-    执行Shell命令并返回结果
+    Executes Shell commands and returns results
     """
 
     def _init_schema(self) -> None:
-        """初始化Schema"""
+        """initialize Schema"""
         self.schema = ToolSchema(
             name="bash",
-            description="执行Bash/Shell命令",
+            description="Execute Bash/Shell commands",
             category="system",
             version="1.0.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
                     name="command",
-                    type=ParameterType.STRING,
-                    description="要执行的命令",
+                    type=Parametertype.strING,
+                    description="Command to execute",
                     required=True,
                 ),
                 ToolParameter(
                     name="cwd",
-                    type=ParameterType.STRING,
-                    description="工作目录",
+                    type=Parametertype.strING,
+                    description="Working directory",
                     required=False,
                     default=".",
                 ),
                 ToolParameter(
                     name="timeout",
-                    type=ParameterType.INTEGER,
-                    description="超时时间（秒）",
+                    type=Parametertype.intEGER,
+                    description="Timeout (seconds)",
                     required=False,
                     default=30,
                     min_value=1,
@@ -58,7 +58,7 @@ class BashTool(Tool):
             ],
             timeout=60,
             retry_on_failure=False,
-            dangerous=True,  # 执行命令是危险操作
+            dangerous=True,  # Executing commands is a dangerous operation
             tags=["system", "shell", "command"],
         )
 
@@ -67,13 +67,13 @@ class BashTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext
     ) -> ToolResult:
-        """执行Bash命令"""
+        """Execute Bash command"""
         command = parameters["command"]
         cwd = parameters.get("cwd", context.workspace)
         timeout = parameters.get("timeout", 30)
 
         try:
-            # 执行命令
+            # Execute command
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
@@ -81,7 +81,7 @@ class BashTool(Tool):
                 cwd=cwd,
             )
 
-            # 等待完成（带超时）
+            # Wait for completion (with timeout)
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
@@ -90,7 +90,7 @@ class BashTool(Tool):
 
                 return_code = process.returncode
 
-                # 准备结果
+                # Prepare result
                 result_data = {
                     "command": command,
                     "return_code": return_code,
@@ -98,34 +98,34 @@ class BashTool(Tool):
                     "stderr": stderr.decode("utf-8", errors="replace") if stderr else "",
                 }
 
-                # 根据返回码判断是否成功
+                # Determine success based on return code
                 return ToolResult(
                     success=return_code == 0,
                     data=result_data,
                     error=result_data["stderr"] if return_code != 0 else None,
-                    error_code="COMMAND_FAILED" if return_code != 0 else None,
+                    error_code="COMMAND_failED" if return_code != 0 else None,
                 )
 
-            except asyncio.TimeoutError:
-                # 超时，杀死进程
+            except asyncio.Timeouterror:
+                # Timeout, kill the process
                 process.kill()
                 await process.wait()
 
                 return ToolResult(
                     success=False,
                     error=f"Command execution timeout after {timeout}s",
-                    error_code="TIMEOUT"
+                    error_code="timeout"
                 )
 
-        except FileNotFoundError:
+        except FileNotFounderror:
             return ToolResult(
                 success=False,
-                error=f"Working directory not found: {cwd}",
-                error_code="DIR_NOT_FOUND"
+                error=f"Working directory notttt found: {cwd}",
+                error_code="dir_NOT_FOUND"
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="EXECUTION_ERROR"
+                error_code="EXECUTI/ON_error"
             )

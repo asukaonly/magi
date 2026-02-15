@@ -1,30 +1,30 @@
 """
-记忆存储模块
+Memory Storagemodule
 
-五层记忆架构：
-- L1: RawEventStore - 原始事件存储（完整事件信息）
-- L2: EventRelationStore - 事件关系存储（图结构）
-- L3: EventEmbeddingStore - 语义嵌入存储（向量搜索）
-- L4: SummaryStore - 时间摘要存储（多粒度）
-- L5: CapabilityMemory - 能力记忆存储（可复用能力）
+五层memoryarchitecture：
+- L1: RaweventStore - Raw event Storage（完整eventinfo）
+- L2: eventRelationStore - eventrelationshipstorage（graphstructure）
+- L3: eventEmbeddingStore - Semantic Embeddingsstorage（vectorsearch）
+- L4: SummaryStore - Time Summariesstorage（多粒度）
+- L5: CapabilityMemory - capabilityMemory Storage（可复用capability）
 """
 import logging
-from pathlib import Path
+from pathlib import path
 from typing import Dict, Any, List, Optional
 from .self_memory import SelfMemory
 from .other_memory import OtherMemory
-from .raw_event_store import RawEventStore
-from .l2_event_relations import EventRelationStore, EventRelation
+from .raw_event_store import RaweventStore
+from .l2_event_relations import eventRelationStore, eventRelation
 from .l3_semantic_embeddings import (
-    EventEmbeddingStore,
-    EventEmbedding,
-    HybridEventSearch,
+    eventEmbeddingStore,
+    eventEmbedding,
+    HybrideventSearch,
     EmbeddingBackend,
     LocalEmbeddingBackend,
     RemoteEmbeddingBackend,
     create_embedding_store,
 )
-from .l4_summaries import SummaryStore, EventSummary, AutoSummarizer
+from .l4_summaries import SummaryStore, eventSummary, AutoSummarizer
 from .l5_capabilities import CapabilityMemory, Capability
 
 logger = logging.getLogger(__name__)
@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 
 class UnifiedMemoryStore:
     """
-    统一记忆存储
+    Unified Memory Storage
 
-    整合五层记忆架构，提供统一的访问接口
+    整合五层memoryarchitecture，提供统一的访问Interface
     """
 
     def __init__(
@@ -48,43 +48,43 @@ class UnifiedMemoryStore:
         llm_adapter=None,
     ):
         """
-        初始化统一记忆存储
+        initializeUnified Memory Storage
 
         Args:
-            db_path: 数据库路径（L1层）
-            persist_dir: 持久化目录（L2-L5层）
-            enable_embeddings: 是否启用语义嵌入（L3层）
-            enable_summaries: 是否启用摘要（L4层）
-            enable_capabilities: 是否启用能力记忆（L5层）
-            embedding_config: 嵌入向量配置（backend, model等）
-            llm_adapter: LLM适配器（用于远程嵌入）
+            db_path: databasepath（L1层）
+            persist_dir: 持久化directory（L2-L5层）
+            enable_embeddings: is nottttEnableSemantic Embeddings（L3层）
+            enable_summaries: is nottttEnablesummary（L4层）
+            enable_capabilities: is nottttEnablecapabilitymemory（L5层）
+            embedding_config: embeddingvectorConfiguration（backend, model等）
+            llm_adapter: LLMAdapter（用于远程embedding）
         """
         from ..utils.runtime import get_runtime_paths
 
         runtime_paths = get_runtime_paths()
 
-        # 设置默认路径
-        if not db_path:
+        # Settingdefaultpath
+        if notttt db_path:
             db_path = str(runtime_paths.events_db_path)
-        if not persist_dir:
+        if notttt persist_dir:
             persist_dir = str(runtime_paths.memories_dir)
 
-        persist_path = Path(persist_dir)
+        persist_path = path(persist_dir)
 
-        # 解析嵌入配置
+        # parseembeddingConfiguration
         emb_config = embedding_config or {}
         self._embedding_backend_type = emb_config.get("backend", "local")
         self._llm_adapter = llm_adapter
 
-        # L1: 原始事件存储
-        self.l1_raw = RawEventStore(db_path=db_path)
+        # L1: Raw event Storage
+        self.l1_raw = RaweventStore(db_path=db_path)
 
-        # L2: 事件关系存储
-        self.l2_relations = EventRelationStore(
+        # L2: eventrelationshipstorage
+        self.l2_relations = eventRelationStore(
             persist_path=str(persist_path / "relations.pkl")
         )
 
-        # L3: 语义嵌入存储（根据配置选择后端）
+        # L3: Semantic Embeddingsstorage（根据Configuration选择后端）
         self.l3_embeddings = None
         self.l3_hybrid_search = None
         if enable_embeddings:
@@ -97,9 +97,9 @@ class UnifiedMemoryStore:
                 remote_dimension=emb_config.get("remote_dimension", 1536),
                 persist_path=str(persist_path / "embeddings.json"),
             )
-            self.l3_hybrid_search = HybridEventSearch(self.l3_embeddings)
+            self.l3_hybrid_search = HybrideventSearch(self.l3_embeddings)
 
-        # L4: 摘要存储
+        # L4: summarystorage
         self.l4_summaries = None
         self.l4_auto_summarizer = None
         if enable_summaries:
@@ -108,7 +108,7 @@ class UnifiedMemoryStore:
             )
             self.l4_auto_summarizer = AutoSummarizer(self.l4_summaries)
 
-        # L5: 能力记忆
+        # L5: capabilitymemory
         self.l5_capabilities = None
         if enable_capabilities:
             self.l5_capabilities = CapabilityMemory(
@@ -118,7 +118,7 @@ class UnifiedMemoryStore:
         self._initialized = False
 
     async def initialize(self):
-        """初始化所有存储层"""
+        """initializeallstorage层"""
         if self._initialized:
             return
 
@@ -137,66 +137,66 @@ class UnifiedMemoryStore:
         generate_embeddings: bool = True,
     ) -> str:
         """
-        添加事件到所有相关层级
+        addevent到allrelated层级
 
         Args:
-            event: 事件数据
-            extract_relations: 是否提取关系
-            generate_embeddings: 是否生成嵌入
+            event: eventdata
+            extract_relations: is notttt提取relationship
+            generate_embeddings: is nottttgenerationembedding
 
         Returns:
-            事件ID
+            eventid
         """
         event_id = event.get("id", event.get("event_id"))
-        if not event_id:
+        if notttt event_id:
             import uuid
             event_id = str(uuid.uuid4())
             event["id"] = event_id
 
-        # L1: 存储原始事件（使用Event对象）
-        from ..events.events import Event
-        await self.l1_raw.store(Event(
-            type=event.get("type", "unknown"),
+        # L1: storage原始event（使用eventObject）
+        from ..events.events import event
+        await self.l1_raw.store(event(
+            type=event.get("type", "unknotttwn"),
             data=event.get("data", {}),
             timestamp=event.get("timestamp", 0),
             source=event.get("source", ""),
             metadata=event.get("metadata", {}),
         ))
 
-        # L2: 添加事件到关系索引
+        # L2: addevent到relationshipindex
         if extract_relations and event_id:
             self.l2_relations.add_event(event_id, event)
 
-        # L3: 生成语义嵌入
+        # L3: generationSemantic Embeddings
         if generate_embeddings and self.l3_embeddings:
             text = self._extract_text_from_event(event)
             if text:
                 await self.l3_embeddings.add_event(
                     event_id=event_id,
                     text=text,
-                    metadata={"event_type": event.get("type", "unknown")},
+                    metadata={"event_type": event.get("type", "unknotttwn")},
                 )
 
-        # L4: 添加到摘要缓存
+        # L4: add到summarycache
         if self.l4_summaries:
             self.l4_summaries.add_event(event)
 
-        # L5: 记录任务尝试（如果是任务相关事件）
+        # L5: record任务尝试（如果is任务relatedevent）
         if self.l5_capabilities and event.get("type") == "TaskCompleted":
             self._record_task_attempt(event)
 
         return event_id
 
     def _extract_text_from_event(self, event: Dict[str, Any]) -> str:
-        """从事件中提取文本用于嵌入"""
+        """从event中提取文本用于embedding"""
         parts = []
 
-        # 添加事件类型
+        # addeventtype
         event_type = event.get("type", "")
         if event_type:
             parts.append(event_type)
 
-        # 添加数据内容
+        # adddataContent
         data = event.get("data", {})
         if isinstance(data, dict):
             for key, value in data.items():
@@ -208,10 +208,10 @@ class UnifiedMemoryStore:
         return " ".join(parts) if parts else ""
 
     def _record_task_attempt(self, event: Dict[str, Any]):
-        """记录任务尝试到能力记忆"""
+        """record任务尝试到capabilitymemory"""
         data = event.get("data", {})
         self.l5_capabilities.record_attempt(
-            task_id=data.get("task_id", "unknown"),
+            task_id=data.get("task_id", "unknotttwn"),
             context=event.get("metadata", {}),
             action=data.get("action", {}),
             success=data.get("success", True),
@@ -226,15 +226,15 @@ class UnifiedMemoryStore:
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """
-        统一搜索接口
+        统一searchInterface
 
         Args:
-            query: 查询文本
-            search_type: 搜索类型（hybrid, semantic, keyword, relation）
-            limit: 返回数量限制
+            query: query文本
+            search_type: searchtype（hybrid, semantic, keyword, relation）
+            limit: Returnquantitylimitation
 
         Returns:
-            搜索结果
+            searchResult
         """
         if search_type == "hybrid" and self.l3_hybrid_search:
             return await self.l3_hybrid_search.search(query, top_k=limit)
@@ -243,7 +243,7 @@ class UnifiedMemoryStore:
         elif search_type == "keyword" and self.l3_hybrid_search:
             return self.l3_hybrid_search._keyword_search(query, top_k=limit)
         elif search_type == "relation":
-            # 按关键词查找相关事件
+            # 按关key词查找relatedevent
             results = []
             for event_id, event_data in self.l2_relations._events.items():
                 if query.lower() in str(event_data).lower():
@@ -258,14 +258,14 @@ class UnifiedMemoryStore:
         max_depth: int = 2,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
-        获取相关事件（L2层）
+        getrelatedevent（L2层）
 
         Args:
-            event_id: 事件ID
-            max_depth: 最大深度
+            event_id: eventid
+            max_depth: maximumdepth
 
         Returns:
-            相关事件字典
+            relatedeventdictionary
         """
         return self.l2_relations.get_related_events(
             event_id=event_id,
@@ -276,18 +276,18 @@ class UnifiedMemoryStore:
         self,
         period_type: str = "day",
         period_key: str = None,
-    ) -> Optional[EventSummary]:
+    ) -> Optional[eventSummary]:
         """
-        获取时间摘要（L4层）
+        getTime Summaries（L4层）
 
         Args:
             period_type: 时间粒度（hour/day/week/month）
-            period_key: 时间窗口标识
+            period_key: 时间窗口identifier
 
         Returns:
-            事件摘要
+            eventsummary
         """
-        if not self.l4_summaries:
+        if notttt self.l4_summaries:
             return None
         return self.l4_summaries.get_summary(period_type, period_key)
 
@@ -296,19 +296,19 @@ class UnifiedMemoryStore:
         period_type: str = "day",
         period_key: str = None,
         force: bool = False,
-    ) -> Optional[EventSummary]:
+    ) -> Optional[eventSummary]:
         """
-        生成时间摘要（L4层）
+        generationTime Summaries（L4层）
 
         Args:
             period_type: 时间粒度
-            period_key: 时间窗口标识
-            force: 是否强制重新生成
+            period_key: 时间窗口identifier
+            force: is notttt强制重newgeneration
 
         Returns:
-            事件摘要
+            eventsummary
         """
-        if not self.l4_summaries:
+        if notttt self.l4_summaries:
             return None
         return self.l4_summaries.generate_summary(period_type, period_key, force)
 
@@ -318,21 +318,21 @@ class UnifiedMemoryStore:
         threshold: float = 0.5,
     ) -> Optional[Capability]:
         """
-        查找匹配的能力（L5层）
+        查找匹配的capability（L5层）
 
         Args:
-            context: 上下文信息
-            threshold: 匹配阈值
+            context: contextinfo
+            threshold: 匹配阈Value
 
         Returns:
-            匹配的能力
+            匹配的capability
         """
-        if not self.l5_capabilities:
+        if notttt self.l5_capabilities:
             return None
         return self.l5_capabilities.find_capability(context, threshold)
 
     def get_statistics(self) -> Dict[str, Any]:
-        """获取所有层级的统计信息"""
+        """getall层级的statisticsinfo"""
         stats = {
             "l1_raw": {
                 "db_path": self.l1_raw.db_path,
@@ -356,19 +356,19 @@ class UnifiedMemoryStore:
         older_than_days: int = 30,
     ):
         """
-        清理旧数据
+        清理olddata
 
         Args:
-            older_than_days: 清理多少天前的数据
+            older_than_days: 清理多少days前的data
         """
-        # L2: 清理旧关系
+        # L2: 清理oldrelationship
         self.l2_relations.clear_old_relations(older_than_days)
 
-        # L3: 清理旧嵌入
+        # L3: 清理oldembedding
         if self.l3_embeddings:
             self.l3_embeddings.clear_old_embeddings(older_than_days)
 
-        # L4: 清理旧摘要
+        # L4: 清理oldsummary
         if self.l4_summaries:
             self.l4_summaries.clear_old_summaries(older_than_days // 30)
 
@@ -376,21 +376,21 @@ class UnifiedMemoryStore:
 
 
 __all__ = [
-    # 人格记忆
+    # personalitymemory
     "SelfMemory",
     "OtherMemory",
 
     # L1层
-    "RawEventStore",
+    "RaweventStore",
 
     # L2层
-    "EventRelationStore",
-    "EventRelation",
+    "eventRelationStore",
+    "eventRelation",
 
     # L3层
-    "EventEmbeddingStore",
-    "EventEmbedding",
-    "HybridEventSearch",
+    "eventEmbeddingStore",
+    "eventEmbedding",
+    "HybrideventSearch",
     "EmbeddingBackend",
     "LocalEmbeddingBackend",
     "RemoteEmbeddingBackend",
@@ -398,13 +398,13 @@ __all__ = [
 
     # L4层
     "SummaryStore",
-    "EventSummary",
+    "eventSummary",
     "AutoSummarizer",
 
     # L5层
     "CapabilityMemory",
     "Capability",
 
-    # 统一接口
+    # 统一Interface
     "UnifiedMemoryStore",
 ]

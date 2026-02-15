@@ -1,7 +1,7 @@
 """
-API中间件
+APImiddle件
 
-包含错误处理、认证、CORS等中间件
+containserrorprocess、authentication、CORS等middle件
 """
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
@@ -14,11 +14,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class ErrorHandler(BaseHTTPMiddleware):
+class errorHandler(BaseHTTPMiddleware):
     """
-    全局错误处理中间件
+    globalerrorprocessing间件
 
-    捕获所有异常并返回统一格式的错误响应
+    allException并Return统一format的errorresponse
     """
 
     async def dispatch(self, request: Request, call_next: Callable):
@@ -28,27 +28,27 @@ class ErrorHandler(BaseHTTPMiddleware):
         except Exception as exc:
             logger.exception(f"Unhandled exception: {exc}")
 
-            # 返回统一错误格式
+            # Return统一errorformat
             return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_500_internal_server_error,
                 content={
                     "success": False,
                     "message": "Internal server error",
-                    "error_code": "INTERNAL_ERROR",
-                    "details": str(exc) if logger.isEnabledFor(logging.DEBUG) else None,
+                    "error_code": "internal_error",
+                    "details": str(exc) if logger.isEnabledFor(logging.debug) else None,
                 },
             )
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """
-    认证中间件
+    authenticationmiddle件
 
-    验证JWT token（可选，用于生产环境）
+    ValidateJWT token（optional，用于生产环境）
     """
 
-    # 不需要认证的路径
-    EXEMPT_PATHS = {
+    # 不需要authentication的path
+    EXEMPT_pathS = {
         "/api/docs",
         "/api/redoc",
         "/api/openapi.json",
@@ -57,36 +57,36 @@ class AuthMiddleware(BaseHTTPMiddleware):
     }
 
     async def dispatch(self, request: Request, call_next: Callable):
-        # 检查是否豁免认证
-        if request.url.path in self.EXEMPT_PATHS:
+        # checkis notttt豁免authentication
+        if request.url.path in self.EXEMPT_pathS:
             return await call_next(request)
 
-        # TODO: 实现JWT token验证
-        # 目前暂时跳过认证
+        # TODO: ImplementationJWT tokenValidate
+        # 目前暂时跳过authentication
         return await call_next(request)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """
-    请求日志中间件
+    requestLogmiddle件
 
-    记录所有请求的详细信息
+    recordallrequest的详细info
     """
 
     async def dispatch(self, request: Request, call_next: Callable):
         start_time = time.time()
 
-        # 记录请求
+        # recordrequest
         logger.info(f"Request: {request.method} {request.url.path}")
 
-        # 处理请求
+        # processrequest
         response = await call_next(request)
 
-        # 计算处理时间
+        # calculateprocess时间
         process_time = time.time() - start_time
-        response.headers["X-Process-Time"] = str(process_time)
+        response.headers["X-process-Time"] = str(process_time)
 
-        # 记录响应
+        # recordresponse
         logger.info(
             f"Response: {response.status_code} "
             f"took {process_time:.3f}s"
@@ -97,14 +97,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 def add_cors_middleware(app):
     """
-    添加CORS中间件
+    addCORSmiddle件
 
     Args:
-        app: FastAPI应用实例
+        app: FastAPI应用Instance
     """
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # 生产环境应限制具体域名
+        allow_origins=["*"],  # 生产环境应limitation具体domain
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

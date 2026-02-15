@@ -1,5 +1,5 @@
 """
-Agent - 完整的Agent实现
+Agent - Complete Agent implementation
 """
 from typing import List, Optional, Any
 from .agent import Agent, AgentConfig
@@ -8,7 +8,7 @@ from .task_agent import TaskAgent, WorkerAgent
 from .loop import LoopEngine
 from ..tools.registry import ToolRegistry
 from ..awareness.manager import PerceptionManager
-from ..processing.processor import SelfProcessingModule
+from ..processing.processor import SelfprocessingModule
 from ..processing.capability_store import CapabilityStore
 from ..llm.base import LLMAdapter
 from ..events.backend import MessageBusBackend
@@ -16,13 +16,13 @@ from ..events.backend import MessageBusBackend
 
 class CompleteAgent(Agent):
     """
-    完整的Agent实现
+    Complete Agent implementation
 
-    整合所有组件：
-    - 感知模块
-    - 处理模块
-    - 工具注册表
-    - 循环引擎
+    Integrates all components:
+    - Perception module
+    - processing module
+    - Tool registry
+    - Loop engine
     """
 
     def __init__(
@@ -33,75 +33,75 @@ class CompleteAgent(Agent):
         memory: Optional[Any] = None,
     ):
         """
-        初始化Agent
+        initialize Agent
 
         Args:
-            config: Agent配置
-            message_bus: 消息总线
-            llm_adapter: LLM适配器
-            memory: 记忆系统（可选）
+            config: Agent configuration
+            message_bus: Message bus
+            llm_adapter: LLM adapter
+            memory: Memory system (optional)
         """
         super().__init__(config)
 
-        # 核心组件
+        # Core components
         self.message_bus = message_bus
         self.llm = llm_adapter
 
-        # 感知和处理
+        # Perception and processing
         self.perception_module = PerceptionManager()
-        self.processing_module = SelfProcessingModule(llm_adapter)
+        self.processing_module = SelfprocessingModule(llm_adapter)
 
-        # 工具和记忆
+        # Tools and memory
         self.tool_registry = ToolRegistry()
-        self.memory = memory  # 可以是 SelfMemory、OtherMemory 等
+        self.memory = memory  # Can be SelfMemory, OtherMemory, etc.
         self.capability_store = CapabilityStore()
 
-        # 循环引擎
+        # Loop engine
         self.loop_engine = LoopEngine(
             agent=self,
-            strategy="continuous",  # 默认持续运行
+            strategy="continuous",  # Default continuous running
         )
 
     async def execute_action(self, action):
-        """执行动作"""
-        # 临时占位实现
+        """Execute action"""
+        # Temporary placeholder implementation
         return {"success": True}
 
     async def _on_start(self):
-        """启动时的处理"""
-        # 发布 Agent 启动事件
-        from ..events.events import Event, EventTypes, EventLevel
+        """processing on startup"""
+        # Publish Agent startup event
+        from ..events.events import event, eventtypes, eventlevel
 
-        event = Event(
-            type=EventTypes.AGENT_STARTED,
+        event = event(
+            type=eventtypes.AGENT_startED,
             data={
                 "agent_id": self.config.name,
                 "agent_type": self.__class__.__name__,
                 "config": self.config.to_dict() if hasattr(self.config, 'to_dict') else {},
             },
             source="agent",
-            level=EventLevel.INFO,
+            level=eventlevel.INFO,
         )
         await self.message_bus.publish(event)
 
-        # 启动循环引擎
+        # Start loop engine
         await self.loop_engine.start()
 
     async def _on_stop(self):
-        """停止时的处理"""
-        # 停止循环引擎
+        """processing on shutdown"""
+        # Stop loop engine
         await self.loop_engine.stop()
 
-        # 发布 Agent 停止事件
-        from ..events.events import Event, EventTypes, EventLevel
+        # Publish Agent shutdown event
+        from ..events.events import event, eventtypes, eventlevel
 
-        event = Event(
-            type=EventTypes.AGENT_STOPPED,
+        event = event(
+            type=eventtypes.AGENT_stopPED,
             data={
                 "agent_id": self.config.name,
                 "loop_count": self.loop_engine.get_stats()["loop_count"],
             },
             source="agent",
-            level=EventLevel.INFO,
+            level=eventlevel.INFO,
         )
         await self.message_bus.publish(event)

@@ -1,7 +1,7 @@
 """
-WebSocket实时通信模块
+WebSocketreal-time通信module
 
-提供WebSocket服务器和连接管理功能
+提供WebSocketservice器andconnection管理function
 """
 from .server import WebSocketManager, create_socketio_app
 from .events import (

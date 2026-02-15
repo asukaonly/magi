@@ -1,22 +1,22 @@
 """
-超时计算器
+Timeout Calculator
 """
 from typing import Dict, Optional
 from enum import Enum
 
 
-class TaskType(Enum):
-    """任务类型"""
-    SIMPLE = "simple"           # 简单任务
-    COMPUTATION = "computation" # 计算任务
-    IO = "io"                   # IO任务
-    NETWORK = "network"         # 网络任务
-    INTERACTIVE = "interactive" # 交互任务
-    LONG_RUNNING = "long_running"  # 长期任务
+class Tasktype(Enum):
+    """Task type"""
+    simple = "simple"           # Simple task
+    COMPUTATI/ON = "computation" # Computation task
+    I/O = "io"                   # I/O task
+    network = "network"         # Network task
+    intERactive = "interactive" # Interactive task
+    LONG_runNING = "long_running"  # Long-running task
 
 
-class TaskPriority(Enum):
-    """任务优先级"""
+class Taskpriority(Enum):
+    """Task priority"""
     LOW = 0
     NORMAL = 1
     HIGH = 2
@@ -25,123 +25,123 @@ class TaskPriority(Enum):
 
 class TimeoutCalculator:
     """
-    超时计算器
+    Timeout Calculator
 
-    基于任务类型、优先级、交互级别等多维度计算超时时间
+    Calculates timeout based on multiple dimensions including task type, priority, and interaction level
     """
 
     def __init__(self):
-        """初始化超时计算器"""
+        """initialize the timeout calculator"""
 
-        # 基础超时配置（秒）
+        # Base timeout configuration (seconds)
         self.base_timeouts = {
-            TaskType.SIMPLE: 5.0,
-            TaskType.COMPUTATION: 30.0,
-            TaskType.IO: 10.0,
-            TaskType.NETWORK: 15.0,
-            TaskType.INTERACTIVE: 60.0,
-            TaskType.LONG_RUNNING: 300.0,
+            Tasktype.simple: 5.0,
+            Tasktype.COMPUTATI/ON: 30.0,
+            Tasktype.I/O: 10.0,
+            Tasktype.network: 15.0,
+            Tasktype.intERactive: 60.0,
+            Tasktype.LONG_runNING: 300.0,
         }
 
-        # 优先级系数（优先级越高，超时越短）
+        # priority factors (higher priority means shorter timeout)
         self.priority_factors = {
-            TaskPriority.LOW: 2.0,      # 低优先级，超时翻倍
-            TaskPriority.NORMAL: 1.0,   # 正常优先级
-            TaskPriority.HIGH: 0.8,     # 高优先级，超时缩短20%
-            TaskPriority.URGENT: 0.5,   # 紧急优先级，超时减半
+            Taskpriority.LOW: 2.0,      # Low priority, double the timeout
+            Taskpriority.NORMAL: 1.0,   # notttrmal priority
+            Taskpriority.HIGH: 0.8,     # High priority, reduce timeout by 20%
+            Taskpriority.URGENT: 0.5,   # Urgent priority, halve the timeout
         }
 
-        # 交互级别系数
+        # Interaction level factors
         self.interaction_factors = {
-            "none": 1.0,       # 无交互
-            "low": 1.5,        # 低交互
-            "medium": 2.0,     # 中等交互
-            "high": 3.0,       # 高交互
+            "notttne": 1.0,       # No interaction
+            "low": 1.5,        # Low interaction
+            "medium": 2.0,     # Medium interaction
+            "high": 3.0,       # High interaction
         }
 
-        # 自定义超时配置
+        # Custom timeout configuration
         self.custom_timeouts: Dict[str, float] = {}
 
     def calculate_timeout(
         self,
-        task_type: TaskType = TaskType.SIMPLE,
-        priority: TaskPriority = TaskPriority.NORMAL,
-        interaction_level: str = "none",
+        task_type: Tasktype = Tasktype.simple,
+        priority: Taskpriority = Taskpriority.NORMAL,
+        interaction_level: str = "notttne",
         task_name: Optional[str] = None,
     ) -> float:
         """
-        计算超时时间
+        Calculate timeout
 
         Args:
-            task_type: 任务类型
-            priority: 任务优先级
-            interaction_level: 交互级别
-            task_name: 任务名称（用于查找自定义配置）
+            task_type: Task type
+            priority: Task priority
+            interaction_level: Interaction level
+            task_name: Task name (for looking up custom configuration)
 
         Returns:
-            超时时间（秒）
+            Timeout duration (seconds)
         """
-        # 1. 检查自定义配置
+        # 1. Check custom configuration
         if task_name and task_name in self.custom_timeouts:
             return self.custom_timeouts[task_name]
 
-        # 2. 获取基础超时
+        # 2. Get base timeout
         base_timeout = self.base_timeouts.get(task_type, 30.0)
 
-        # 3. 应用优先级系数
+        # 3. Apply priority factor
         priority_factor = self.priority_factors.get(priority, 1.0)
 
-        # 4. 应用交互级别系数
+        # 4. Apply interaction level factor
         interaction_factor = self.interaction_factors.get(
             interaction_level,
             1.0
         )
 
-        # 5. 计算最终超时
+        # 5. Calculate final timeout
         timeout = base_timeout * priority_factor * interaction_factor
 
-        # 6. 确保最小超时
+        # 6. Ensure minimum timeout
         timeout = max(timeout, 1.0)
 
         return timeout
 
     def set_custom_timeout(self, task_name: str, timeout: float):
         """
-        设置自定义超时
+        Set custom timeout
 
         Args:
-            task_name: 任务名称
-            timeout: 超时时间（秒）
+            task_name: Task name
+            timeout: Timeout duration (seconds)
         """
         self.custom_timeouts[task_name] = timeout
 
-    def set_base_timeout(self, task_type: TaskType, timeout: float):
+    def set_base_timeout(self, task_type: Tasktype, timeout: float):
         """
-        设置基础超时
+        Set base timeout
 
         Args:
-            task_type: 任务类型
-            timeout: 超时时间（秒）
+            task_type: Task type
+            timeout: Timeout duration (seconds)
         """
         self.base_timeouts[task_type] = timeout
 
-    def set_priority_factor(self, priority: TaskPriority, factor: float):
+    def set_priority_factor(self, priority: Taskpriority, factor: float):
         """
-        设置优先级系数
+        Set priority factor
 
         Args:
-            priority: 优先级
-            factor: 系数
+            priority: priority
+            factor: Factor value
         """
         self.priority_factors[priority] = factor
 
     def set_interaction_factor(self, level: str, factor: float):
         """
-        设置交互级别系数
+        Set interaction level factor
 
         Args:
-            level: 级别
-            factor: 系数
+            level: level
+            factor: Factor value
         """
         self.interaction_factors[level] = factor
 
@@ -153,24 +153,24 @@ class TimeoutCalculator:
         backoff_factor: float = 2.0,
     ) -> float:
         """
-        计算重试超时时间（指数退避）
+        Calculate retry timeout (exponential backoff)
 
         Args:
-            base_timeout: 基础超时
-            retry_count: 当前重试次数
-            max_retries: 最大重试次数
-            backoff_factor: 退避因子
+            base_timeout: Base timeout
+            retry_count: Current retry count
+            max_retries: Maximum retry count
+            backoff_factor: Backoff factor
 
         Returns:
-            重试超时时间
+            Retry timeout duration
         """
         if retry_count >= max_retries:
-            return base_timeout  # 达到最大重试次数，不再增加超时
+            return base_timeout  # Max retries reached, nottt longer increase timeout
 
-        # 指数退避
+        # Exponential backoff
         timeout = base_timeout * (backoff_factor ** retry_count)
 
-        # 设置上限（基础超时的10倍）
+        # Set upper limit (10x base timeout)
         max_timeout = base_timeout * 10
         timeout = min(timeout, max_timeout)
 
@@ -182,28 +182,28 @@ class TimeoutCalculator:
         percentile: float = 0.95,
     ) -> float:
         """
-        基于历史执行时间估算超时
+        Estimate timeout based on historical execution times
 
         Args:
-            historical_durations: 历史执行时间列表
-            percentile: 百分位数（默认95%）
+            historical_durations: List of historical execution times
+            percentile: Percentile (default 95%)
 
         Returns:
-            估算的超时时间
+            Estimated timeout duration
         """
-        if not historical_durations:
-            return 30.0  # 默认30秒
+        if notttt historical_durations:
+            return 30.0  # Default 30 seconds
 
-        # 排序
+        # Sort
         sorted_durations = sorted(historical_durations)
 
-        # 计算百分位数
+        # Calculate percentile
         index = int(len(sorted_durations) * percentile)
         index = min(index, len(sorted_durations) - 1)
 
         timeout = sorted_durations[index]
 
-        # 确保最小超时
+        # Ensure minimum timeout
         timeout = max(timeout, 1.0)
 
         return timeout
@@ -214,27 +214,27 @@ class TimeoutCalculator:
         historical_durations: list = None,
     ) -> float:
         """
-        为任务计算超时（综合方法）
+        Calculate timeout for a task (comprehensive method)
 
         Args:
-            task: 任务字典
-            historical_durations: 历史执行时间（可选）
+            task: Task dictionary
+            historical_durations: Historical execution times (optional)
 
         Returns:
-            超时时间
+            Timeout duration
         """
-        # 如果有历史数据，优先使用
+        # If historical data exists, use it first
         if historical_durations and len(historical_durations) >= 3:
             return self.estimate_timeout_from_history(historical_durations)
 
-        # 否则使用多维计算
+        # Otherwise use multi-dimensional calculation
         task_type_str = task.get("type", "simple")
-        task_type = TaskType(task_type_str) if task_type_str in TaskType.__members__ else TaskType.SIMPLE
+        task_type = Tasktype(task_type_str) if task_type_str in Tasktype.__members__ else Tasktype.simple
 
-        priority_str = task.get("priority", "normal")
-        priority = TaskPriority(priority_str) if isinstance(priority_str, str) else TaskPriority(priority_str)
+        priority_str = task.get("priority", "notttrmal")
+        priority = Taskpriority(priority_str) if isinstance(priority_str, str) else Taskpriority(priority_str)
 
-        interaction_level = task.get("interaction_level", "none")
+        interaction_level = task.get("interaction_level", "notttne")
 
         task_name = task.get("name")
 

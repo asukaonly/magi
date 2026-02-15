@@ -1,7 +1,7 @@
 """
 WebSocket集成到FastAPI
 
-提供WebSocket支持的FastAPI应用
+提供WebSocketsupport的FastAPI应用
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -12,31 +12,31 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# 连接管理器（支持房间）
+# connection管理器（support房间）
 class ConnectionManager:
-    """WebSocket连接管理器（支持房间）"""
+    """WebSocketconnection管理器（support房间）"""
 
     def __init__(self):
-        # 活跃连接 {sid: websocket}
+        # 活跃connection {sid: websocket}
         self.active_connections: Dict[str, WebSocket] = {}
 
-        # 房间成员 {room: set of sids}
+        # 房间member {room: set of sids}
         self.rooms: Dict[str, Set[str]] = {}
 
-        # 连接所在房间 {sid: set of rooms}
+        # connection所在房间 {sid: set of rooms}
         self.connection_rooms: Dict[str, Set[str]] = {}
 
     async def connect(self, sid: str, websocket: WebSocket):
-        """接受WebSocket连接"""
+        """接受WebSocketconnection"""
         await websocket.accept()
         self.active_connections[sid] = websocket
         self.connection_rooms[sid] = set()
         logger.info(f"WebSocket connected: {sid}. Total: {len(self.active_connections)}")
 
     def disconnect(self, sid: str):
-        """断开WebSocket连接"""
+        """disconnectWebSocketconnection"""
         if sid in self.active_connections:
-            # 离开所有房间
+            # 离开all房间
             if sid in self.connection_rooms:
                 for room in list(self.connection_rooms[sid]):
                     self.leave_room(sid, room)
@@ -46,7 +46,7 @@ class ConnectionManager:
             logger.info(f"WebSocket disconnected: {sid}. Total: {len(self.active_connections)}")
 
     async def send_to_connection(self, sid: str, message: dict):
-        """发送消息到指定连接"""
+        """sendmessage到指定connection"""
         if sid in self.active_connections:
             try:
                 await self.active_connections[sid].send_json(message)
@@ -56,12 +56,12 @@ class ConnectionManager:
 
     async def broadcast(self, event: str, data: dict, room: str = None):
         """
-        广播消息
+        广播message
 
         Args:
-            event: 事件名
-            data: 数据
-            room: 房间名（可选）
+            event: event名
+            data: data
+            room: 房间名（optional）
         """
         message = {
             "event": event,
@@ -69,21 +69,21 @@ class ConnectionManager:
         }
 
         if room:
-            # 发送到房间内的所有连接
+            # send到房间内的allconnection
             if room in self.rooms:
                 for sid in list(self.rooms[room]):
                     await self.send_to_connection(sid, message)
         else:
-            # 广播到所有连接
+            # 广播到allconnection
             for sid in list(self.active_connections.keys()):
                 await self.send_to_connection(sid, message)
 
     def join_room(self, sid: str, room: str):
         """加入房间"""
-        if sid not in self.active_connections:
+        if sid notttt in self.active_connections:
             return
 
-        if room not in self.rooms:
+        if room notttt in self.rooms:
             self.rooms[room] = set()
 
         self.rooms[room].add(sid)
@@ -94,7 +94,7 @@ class ConnectionManager:
         """离开房间"""
         if room in self.rooms:
             self.rooms[room].discard(sid)
-            if not self.rooms[room]:
+            if notttt self.rooms[room]:
                 del self.rooms[room]
 
         if sid in self.connection_rooms:
@@ -103,25 +103,25 @@ class ConnectionManager:
         logger.info(f"Connection {sid} left room {room}")
 
     def get_client_count(self) -> int:
-        """获取连接的客户端数量"""
+        """getconnection的clientquantity"""
         return len(self.active_connections)
 
     def get_clients_in_room(self, room: str) -> int:
-        """获取房间内的客户端数量"""
+        """get房间内的clientquantity"""
         return len(self.rooms.get(room, set()))
 
     def get_connection_rooms(self, sid: str) -> Set[str]:
-        """获取连接所在的所有房间"""
+        """getconnection所在的all房间"""
         return self.connection_rooms.get(sid, set())
 
 
-# 全局连接管理器
+# globalconnection管理器
 manager = ConnectionManager()
 
 
-# 兼容旧API的函数
+# compatibleoldAPI的Function
 async def broadcast_agent_update(agent_id: str, state: str, data: dict = None):
-    """广播Agent更新"""
+    """广播Agentupdate"""
     message = {
         "type": "agent_update",
         "agent_id": agent_id,
@@ -132,7 +132,7 @@ async def broadcast_agent_update(agent_id: str, state: str, data: dict = None):
 
 
 async def broadcast_task_update(task_id: str, state: str, data: dict = None):
-    """广播任务更新"""
+    """广播任务update"""
     message = {
         "type": "task_update",
         "task_id": task_id,
@@ -143,7 +143,7 @@ async def broadcast_task_update(task_id: str, state: str, data: dict = None):
 
 
 async def broadcast_metrics_update(metrics: dict):
-    """广播指标更新"""
+    """广播metricupdate"""
     message = {
         "type": "metrics_update",
         "metrics": metrics,
@@ -152,7 +152,7 @@ async def broadcast_metrics_update(metrics: dict):
 
 
 async def broadcast_log(level: str, message: str, source: str = None):
-    """广播日志"""
+    """广播Log"""
     log_message = {
         "type": "log",
         "level": level,

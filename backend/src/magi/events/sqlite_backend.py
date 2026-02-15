@@ -1,6 +1,6 @@
 """
-消息总线 - SQLite后端实现
-基于aiosqlite的持久化队列
+message bus - SQLitebackend implementation
+基于aiosqlite的persistent queue
 """
 import asyncio
 import aiosqlite
@@ -9,23 +9,23 @@ import time
 from typing import Callable, Dict, List, Optional
 from collections import defaultdict
 from .backend import MessageBusBackend
-from .events import Event
+from .events import event
 
 
 class SQLiteMessageBackend(MessageBusBackend):
     """
-    基于SQLite的持久化消息队列后端
+    基于SQLite的持久化messagequeue后端
 
     特点：
-    - 使用SQLite持久化事件
-    - Agent重启后可恢复未处理事件
-    - 支持优先级队列（ORDER BY priority DESC, created_at ASC）
-    - Worker池并发处理事件
+    - 使用SQLitepersist events
+    - Agent重启后can restore unprocessed events
+    - supportpriorityqueue（order BY priority DESC, created_at asC）
+    - Worker池concurrently process events
 
-    适用场景：
-    - 本地部署
-    - 需要持久化保证
-    - 单机运行
+    applicable scenarios：
+    - local deployment
+    - 需要persistence guarantee
+    - single machine run
     """
 
     def __init__(
@@ -36,31 +36,31 @@ class SQLiteMessageBackend(MessageBusBackend):
         memory_cache_size: int = 100,
     ):
         """
-        初始化SQLite消息后端
+        initialize SQLite message backend
 
         Args:
-            db_path: 数据库文件路径
-            max_queue_size: 队列最大长度
-            num_workers: Worker线程数量
-            memory_cache_size: 内存缓存大小（减少数据库查询）
+            db_path: databasefilepath
+            max_queue_size: queuemaximumlength
+            num_workers: number of worker threads
+            memory_cache_size: memory cache size (reduce database queries)
         """
         self.db_path = db_path
         self.max_queue_size = max_queue_size
         self.num_workers = num_workers
         self.memory_cache_size = memory_cache_size
 
-        # 订阅信息
+        # subscribeinfo
         self._subscriptions: Dict[str, List[Dict]] = defaultdict(list)
         self._subscription_index: Dict[str, Dict] = {}
 
-        # Pending计数
+        # pending count
         self._handler_pending: Dict[Callable, int] = defaultdict(int)
 
-        # Worker管理
+        # worker management
         self._workers: List[asyncio.Task] = []
         self._running = False
 
-        # 统计信息
+        # statisticsinfo
         self._stats = {
             "published_count": 0,
             "dropped_count": 0,
@@ -70,19 +70,19 @@ class SQLiteMessageBackend(MessageBusBackend):
 
     @property
     def _expanded_db_path(self) -> str:
-        """获取展开后的数据库路径（处理 ~）"""
-        from pathlib import Path
-        return str(Path(self.db_path).expanduser())
+        """get expanded database path (process ~)"""
+        from pathlib import path
+        return str(path(self.db_path).expanduser())
 
     async def _init_db(self):
-        """初始化数据库表"""
-        # 展开 ~ 为用户主目录
-        from pathlib import Path
-        db_path = Path(self._expanded_db_path)
+        """initializedatabasetable"""
+        # expand ~ to user home directory
+        from pathlib import path
+        db_path = path(self._expanded_db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            # 检查表是否存在以及schema是否正确
+            # check if table exists and if schema is correct
             cursor = await db.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='message_queue'
@@ -90,79 +90,79 @@ class SQLiteMessageBackend(MessageBusBackend):
             table_exists = await cursor.fetchone()
 
             if table_exists:
-                # 检查是否有 processed 列
+                # check if has processed column
                 cursor = await db.execute("PRAGMA table_info(message_queue)")
                 columns = await cursor.fetchall()
                 column_names = [col[1] for col in columns]
 
-                # 如果缺少必要列，重建表
+                # if missing required column, rebuild table
                 required_columns = {'id', 'event_type', 'event_data', 'priority', 'source', 'correlation_id', 'metadata', 'created_at', 'processed'}
-                if not required_columns.issubset(set(column_names)):
+                if notttt required_columns.issubset(set(column_names)):
                     import logging
                     logger = logging.getLogger(__name__)
                     logger.warning(f"Message queue table schema incompatible, recreating... Existing columns: {column_names}")
-                    await db.execute("DROP TABLE IF EXISTS message_queue")
-                    await db.execute("DROP INDEX IF EXISTS idx_message_queue_processed_priority")
+                    await db.execute("DROP table IF EXISTS message_queue")
+                    await db.execute("DROP index IF EXISTS idx_message_queue_processed_priority")
 
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS message_queue (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                create table IF NOT EXISTS message_queue (
+                    id intEGER primary key AUTOINCREMENT,
                     event_type TEXT NOT NULL,
                     event_data TEXT NOT NULL,
-                    priority INTEGER NOT NULL,
+                    priority intEGER NOT NULL,
                     source TEXT NOT NULL,
                     correlation_id TEXT NOT NULL,
                     metadata TEXT,
-                    created_at REAL NOT NULL,
-                    processed BOOLEAN DEFAULT FALSE
+                    created_at real NOT NULL,
+                    processed boolEAN DEFAULT false
                 )
             """)
 
-            # 创建索引优化查询
+            # createindexoptimizequery
             await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_message_queue_processed_priority
-                ON message_queue(processed, priority DESC, created_at ASC)
+                create index IF NOT EXISTS idx_message_queue_processed_priority
+                ON message_queue(processed, priority DESC, created_at asC)
             """)
 
             await db.commit()
 
-    async def publish(self, event: Event) -> bool:
+    async def publish(self, event: event) -> bool:
         """
-        发布事件到SQLite数据库
+        publish event to SQLite database
 
         Args:
-            event: 要发布的事件
+            event: event to publish
 
         Returns:
-            bool: 是否成功发布
+            bool: is nottttsuccessrelease
         """
         try:
             async with aiosqlite.connect(self._expanded_db_path) as db:
-                # 检查队列长度
+                # checkqueuelength
                 cursor = await db.execute(
-                    "SELECT COUNT(*) FROM message_queue WHERE processed = FALSE",
+                    "SELECT COUNT(*) FROM message_queue WHERE processed = false",
                 )
                 count = (await cursor.fetchone())[0]
 
                 if count >= self.max_queue_size:
-                    # 队列已满，丢弃最旧的
+                    # queue is full, discard oldest
                     await db.execute("""
-                        DELETE FROM message_queue
+                        delete FROM message_queue
                         WHERE id IN (
                             SELECT id FROM message_queue
-                            WHERE processed = FALSE
-                            ORDER BY created_at ASC
+                            WHERE processed = false
+                            order BY created_at asC
                             LIMIT 1
                         )
                     """)
                     self._stats["dropped_count"] += 1
 
-                # 插入新事件
+                # insertnewevent
                 await db.execute("""
-                    INSERT INTO message_queue (
+                    INSERT intO message_queue (
                         event_type, event_data, priority, source,
                         correlation_id, metadata, created_at, processed
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)
+                    ) valueS (?, ?, ?, ?, ?, ?, ?, false)
                 """, (
                     event.type,
                     json.dumps(event.to_dict()),
@@ -186,9 +186,9 @@ class SQLiteMessageBackend(MessageBusBackend):
         event_type: str,
         handler: Callable,
         propagation_mode: str = "broadcast",
-        filter_func: Optional[Callable[[Event], bool]] = None,
+        filter_func: Optional[Callable[[event], bool]] = None,
     ) -> str:
-        """订阅事件"""
+        """subscribeevent"""
         subscription_id = f"{event_type}_{id(handler)}_{time.time()}"
 
         subscription = {
@@ -205,8 +205,8 @@ class SQLiteMessageBackend(MessageBusBackend):
         return subscription_id
 
     async def unsubscribe(self, subscription_id: str) -> bool:
-        """取消订阅"""
-        if subscription_id not in self._subscription_index:
+        """cancelsubscribe"""
+        if subscription_id notttt in self._subscription_index:
             return False
 
         subscription = self._subscription_index[subscription_id]
@@ -220,11 +220,11 @@ class SQLiteMessageBackend(MessageBusBackend):
         return True
 
     async def start(self):
-        """启动消息总线"""
+        """start message bus"""
         if self._running:
             return
 
-        # 初始化数据库
+        # initializedatabase
         await self._init_db()
 
         self._running = True
@@ -233,20 +233,20 @@ class SQLiteMessageBackend(MessageBusBackend):
         ]
 
     async def stop(self):
-        """停止消息总线"""
-        if not self._running:
+        """stop message bus"""
+        if notttt self._running:
             return
 
         self._running = False
 
-        # 等待处理完成
+        # wait for pending to complete
         timeout = 30
         start_time = time.time()
 
         while (time.time() - start_time) < timeout:
             async with aiosqlite.connect(self._expanded_db_path) as db:
                 cursor = await db.execute(
-                    "SELECT COUNT(*) FROM message_queue WHERE processed = FALSE"
+                    "SELECT COUNT(*) FROM message_queue WHERE processed = false"
                 )
                 count = (await cursor.fetchone())[0]
 
@@ -255,80 +255,80 @@ class SQLiteMessageBackend(MessageBusBackend):
 
             await asyncio.sleep(0.1)
 
-        # 取消worker
+        # cancelworker
         for worker in self._workers:
             worker.cancel()
 
         await asyncio.gather(*self._workers, return_exceptions=True)
 
     async def _worker(self, worker_id: int):
-        """Worker线程"""
+        """worker thread"""
         while self._running:
             try:
-                # 从数据库原子性获取并标记未处理事件
+                # atomically get and mark unprocessed event from database
                 event = await self._get_next_event()
 
                 if event is None:
                     await asyncio.sleep(0.1)
                     continue
 
-                # 处理事件
+                # processevent
                 await self._process_event(event)
 
-            except asyncio.CancelledError:
+            except asyncio.Cancellederror:
                 break
             except Exception as e:
                 self._stats["error_count"] += 1
 
-    async def _get_next_event(self) -> Optional[Event]:
-        """从数据库获取并原子性标记下一个未处理事件（按优先级）"""
+    async def _get_next_event(self) -> Optional[event]:
+        """get from database and atomically mark next unprocessed event (by priority)"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            # 原子操作：SELECT + UPDATE 在同一事务中，防止多 worker 重复处理
+            # atomic operation: SELECT + update in same transaction, prevent multiple workers from processing same event
             cursor = await db.execute("""
-                UPDATE message_queue SET processed = TRUE
+                update message_queue set processed = true
                 WHERE id = (
                     SELECT id FROM message_queue
-                    WHERE processed = FALSE
-                    ORDER BY priority DESC, created_at ASC
+                    WHERE processed = false
+                    order BY priority DESC, created_at asC
                     LIMIT 1
                 )
-                RETURNING event_data
+                returnING event_data
             """)
             row = await cursor.fetchone()
             await db.commit()
 
-            if not row:
+            if notttt row:
                 return None
 
             event_data = json.loads(row[0])
-            return Event.from_dict(event_data)
+            return event.from_dict(event_data)
 
-    async def _process_event(self, event: Event):
-        """处理事件"""
+    async def _process_event(self, event: event):
+        """processevent"""
         subscriptions = self._subscriptions.get(event.type, [])
 
-        if not subscriptions:
+        if notttt subscriptions:
             return
 
         broadcast_subscriptions = [s for s in subscriptions if s["mode"] == "broadcast"]
         competing_subscriptions = [s for s in subscriptions if s["mode"] == "competing"]
 
-        # 广播模式
+        # broadcast pattern
         for subscription in broadcast_subscriptions:
             await self._handle_event(subscription, event)
 
-        # 竞争模式
+        # competing pattern
         if competing_subscriptions:
             subscription = min(
                 competing_subscriptions, key=lambda s: self._handler_pending[s["handler"]]
             )
             await self._handle_event(subscription, event)
 
-    async def _handle_event(self, subscription: Dict, event: Event):
-        """调用handler处理事件"""
+    async def _handle_event(self, subscription: Dict, event: event):
+        """call handler to process event"""
         if subscription["filter_func"]:
             try:
-                if not subscription["filter_func"](event):
+                if notttt subscription["filter_func"](event):
                     return
             except Exception:
                 pass
@@ -351,10 +351,10 @@ class SQLiteMessageBackend(MessageBusBackend):
             self._handler_pending[handler] -= 1
 
     async def get_stats(self) -> dict:
-        """获取统计信息"""
+        """getstatisticsinfo"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT COUNT(*) FROM message_queue WHERE processed = FALSE"
+                "SELECT COUNT(*) FROM message_queue WHERE processed = false"
             )
             queue_size = (await cursor.fetchone())[0]
 

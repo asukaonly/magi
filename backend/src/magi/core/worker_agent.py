@@ -1,23 +1,23 @@
 """
-WorkerAgent - 轻量级任务执行Agent
+WorkerAgent - 轻量级任务ExecuteAgent
 
 职责：
-- 执行具体任务
-- 超时控制
+- Execute具体任务
+- timeout控制
 - 重试机制
-- 执行完成后自动销毁
+- Executecomplete后自动destroy
 """
 import asyncio
 import time
 from typing import Dict, Any, Optional, Callable
 from .agent import Agent, AgentConfig, AgentState
 from .task_database import Task, TaskStatus
-from .timeout import TimeoutCalculator, TaskType, TaskPriority
+from .timeout import TimeoutCalculator, Tasktype, Taskpriority
 from .monitoring import AgentMetrics
 
 
 class WorkerAgentConfig(AgentConfig):
-    """WorkerAgent配置"""
+    """WorkerAgentConfiguration"""
 
     def __init__(
         self,
@@ -31,17 +31,17 @@ class WorkerAgentConfig(AgentConfig):
         on_failure: Optional[Callable] = None,
     ):
         """
-        初始化WorkerAgent配置
+        initializeWorkerAgentConfiguration
 
         Args:
-            name: Agent名称
-            llm_config: LLM配置
-            task: 要执行的任务
-            tool_registry: 工具注册表
-            max_retries: 最大重试次数
-            timeout: 超时时间（秒），None表示自动计算
-            on_complete: 完成回调
-            on_failure: 失败回调
+            name: AgentName
+            llm_config: LLMConfiguration
+            task: 要Execute的任务
+            tool_registry: toolRegistry
+            max_retries: maximum重试count
+            timeout: timeout时间（seconds），Nonetable示自动calculate
+            on_complete: completecallback
+            on_failure: failurecallback
         """
         super().__init__(name=name, llm_config=llm_config)
         self.task = task
@@ -54,25 +54,25 @@ class WorkerAgentConfig(AgentConfig):
 
 class WorkerAgent(Agent):
     """
-    WorkerAgent - 轻量级任务执行Agent
+    WorkerAgent - 轻量级任务ExecuteAgent
 
     特点：
-    - 轻量级，用完即销毁
-    - 超时控制
+    - 轻量级，用完即destroy
+    - timeout控制
     - 自动重试
-    - 执行完成后调用回调
+    - Executecomplete后调用callback
     """
 
     def __init__(self, config: WorkerAgentConfig):
         """
-        初始化WorkerAgent
+        initializeWorkerAgent
 
         Args:
-            config: WorkerAgent配置
+            config: WorkerAgentConfiguration
         """
         super().__init__(config)
 
-        # 任务相关
+        # 任务related
         self.task = config.task
         self.tool_registry = config.tool_registry
         self.max_retries = config.max_retries
@@ -80,17 +80,17 @@ class WorkerAgent(Agent):
         self.on_complete = config.on_complete
         self.on_failure = config.on_failure
 
-        # 超时计算器
+        # timeoutcalculate器
         self.timeout_calculator = TimeoutCalculator()
 
-        # 指标收集
+        # metric收集
         self.metrics = AgentMetrics(agent_id=config.name)
 
-        # 执行结果
+        # Execution result
         self._result: Any = None
         self._error: Optional[Exception] = None
 
-        # 任务完成标志
+        # 任务completeflag
         self._task_completed = False
 
     async def start(self):
@@ -98,95 +98,95 @@ class WorkerAgent(Agent):
         启动WorkerAgent
 
         WorkerAgent的特殊启动逻辑：
-        1. 启动后立即执行任务
-        2. 任务完成后自动停止
+        1. 启动后立即Execute任务
+        2. 任务complete后自动stop
         """
-        if self.state == AgentState.RUNNING:
-            raise RuntimeError(f"Agent {self.config.name} is already running")
+        if self.state == AgentState.runNING:
+            raise Runtimeerror(f"Agent {self.config.name} is already running")
 
-        self.state = AgentState.STARTING
+        self.state = AgentState.startING
         self._start_time = asyncio.get_event_loop().time()
         self.metrics.start()
 
         try:
-            # 执行任务（带重试）
+            # Execute任务（带重试）
             await self._execute_with_retry()
 
-            # 任务完成后，根据结果设置状态
+            # 任务complete后，根据ResultSettingState
             if self._error is None:
-                self.state = AgentState.STOPPED
+                self.state = AgentState.stopPED
             else:
-                self.state = AgentState.ERROR
+                self.state = AgentState.error
 
             self._stop_time = asyncio.get_event_loop().time()
 
         except Exception as e:
-            self.state = AgentState.ERROR
+            self.state = AgentState.error
             self._error = e
             raise
 
     async def stop(self):
         """
-        停止WorkerAgent
+        stopWorkerAgent
 
-        WorkerAgent在任务完成后会自动停止，不需要手动调用
+        WorkerAgent在任务complete后会自动stop，不需要手动调用
         """
-        # WorkerAgent通常在任务完成后自动停止
-        # 如果需要手动停止，直接清理资源
+        # WorkerAgent通常在任务complete后自动stop
+        # 如果需要手动stop，直接清理资源
         await self._cleanup()
-        self.state = AgentState.STOPPED
+        self.state = AgentState.stopPED
         self._stop_time = asyncio.get_event_loop().time()
 
     async def _execute_with_retry(self):
         """
-        带重试的任务执行
+        带重试的任务Execute
 
-        执行流程：
-        1. 计算超时时间
-        2. 尝试执行任务
-        3. 如果失败且未达到最大重试次数，重试
-        4. 调用相应的回调
+        Executeprocess：
+        1. calculatetimeout时间
+        2. 尝试Execute任务
+        3. 如果failure且未达到maximum重试count，重试
+        4. 调用相应的callback
         """
         retry_count = 0
 
         while retry_count <= self.max_retries:
             try:
-                # 计算超时时间
+                # calculatetimeout时间
                 timeout = self._calculate_timeout(retry_count)
 
-                # 记录开始时间
+                # recordStart时间
                 loop_start = time.time()
 
-                # 执行任务
+                # Execute任务
                 self._result = await asyncio.wait_for(
                     self._execute_task(),
                     timeout=timeout
                 )
 
-                # 记录成功
+                # recordsuccess
                 loop_duration = time.time() - loop_start
                 self.metrics.record_loop(loop_duration)
                 self.metrics.record_success()
                 self.metrics.record_task_completed()
 
-                # 标记任务为完成
+                # mark任务为complete
                 self.task.status = TaskStatus.COMPLETED
                 self.task.completed_at = time.time()
                 self._task_completed = True
 
-                # 调用完成回调
+                # 调用completecallback
                 if self.on_complete:
                     await self.on_complete(self.task, self._result)
 
-                break  # 成功，退出重试循环
+                break  # success，退出重试循环
 
-            except asyncio.TimeoutError:
-                # 超时
+            except asyncio.Timeouterror:
+                # timeout
                 self._error = Exception(f"Task timeout after {timeout}s")
                 retry_count += 1
 
                 if retry_count > self.max_retries:
-                    # 达到最大重试次数
+                    # 达到maximum重试count
                     await self._handle_failure()
                     break
                 else:
@@ -195,12 +195,12 @@ class WorkerAgent(Agent):
                     await asyncio.sleep(0.1)  # 短暂等待后重试
 
             except Exception as e:
-                # 其他错误
+                # othererror
                 self._error = e
                 retry_count += 1
 
                 if retry_count > self.max_retries:
-                    # 达到最大重试次数
+                    # 达到maximum重试count
                     await self._handle_failure()
                     break
                 else:
@@ -210,117 +210,117 @@ class WorkerAgent(Agent):
 
     async def _execute_task(self) -> Any:
         """
-        执行任务的具体逻辑
+        Execute任务的具体逻辑
 
         Returns:
-            执行结果
+            Execution result
 
         Raises:
-            Exception: 执行失败
+            Exception: Executefailure
         """
-        # 标记任务为运行中
-        self.task.status = TaskStatus.RUNNING
+        # mark任务为run中
+        self.task.status = TaskStatus.runNING
         self.task.started_at = time.time()
 
-        # 根据任务类型执行
+        # 根据任务typeExecute
         task_type = self.task.type
         task_data = self.task.data
 
         if task_type == "tool_execution":
-            # 工具执行
+            # toolExecute
             return await self._execute_tool(task_data)
 
         elif task_type == "llm_generation":
-            # LLM生成
+            # LLMgeneration
             return await self._execute_llm(task_data)
 
         elif task_type == "custom":
-            # 自定义任务
+            # custom任务
             return await self._execute_custom(task_data)
 
         else:
-            # 默认处理
+            # defaultprocess
             return await self._execute_default(task_data)
 
     async def _execute_tool(self, task_data: Dict) -> Any:
         """
-        执行工具任务
+        Executetool任务
 
         Args:
-            task_data: 任务数据，包含tool_name和parameters
+            task_data: 任务data，containstool_nameandparameters
 
         Returns:
-            工具执行结果
+            toolExecution result
         """
-        if not self.tool_registry:
-            raise RuntimeError("Tool registry not configured")
+        if notttt self.tool_registry:
+            raise Runtimeerror("Tool registry notttt configured")
 
         tool_name = task_data.get("tool_name")
         parameters = task_data.get("parameters", {})
 
-        if not tool_name:
-            raise ValueError("tool_name is required for tool_execution task")
+        if notttt tool_name:
+            raise Valueerror("tool_name is required for tool_execution task")
 
-        # 执行工具
+        # Executetool
         result = await self.tool_registry.execute(tool_name, parameters)
 
-        if not result.success:
-            raise RuntimeError(f"Tool execution failed: {result.error}")
+        if notttt result.success:
+            raise Runtimeerror(f"Tool execution failed: {result.error}")
 
         return result.data
 
     async def _execute_llm(self, task_data: Dict) -> Any:
         """
-        执行LLM生成任务
+        ExecuteLLMgeneration任务
 
         Args:
-            task_data: 任务数据，包含prompt等
+            task_data: 任务data，containsprompt等
 
         Returns:
-            LLM生成结果
+            LLMgenerationResult
         """
-        # 简化实现：返回模拟结果
-        # 实际实现需要调用LLM adapter
+        # 简化Implementation：Return模拟Result
+        # 实际Implementation需要调用LLM adapter
         prompt = task_data.get("prompt", "")
         return {"response": f"Generated response for: {prompt}"}
 
     async def _execute_custom(self, task_data: Dict) -> Any:
         """
-        执行自定义任务
+        Executecustom任务
 
         Args:
-            task_data: 任务数据
+            task_data: 任务data
 
         Returns:
-            执行结果
+            Execution result
         """
-        # 简化实现：返回任务数据
+        # 简化Implementation：Return任务data
         return task_data
 
     async def _execute_default(self, task_data: Dict) -> Any:
         """
-        默认任务执行
+        default任务Execute
 
         Args:
-            task_data: 任务数据
+            task_data: 任务data
 
         Returns:
-            执行结果
+            Execution result
         """
-        # 默认实现：返回任务数据作为结果
+        # defaultImplementation：Return任务data作为Result
         return {"result": task_data}
 
     def _calculate_timeout(self, retry_count: int) -> float:
         """
-        计算超时时间
+        calculatetimeout时间
 
         Args:
-            retry_count: 当前重试次数
+            retry_count: current重试count
 
         Returns:
-            超时时间（秒）
+            timeout时间（seconds）
         """
-        # 如果配置了固定超时，直接使用
+        # 如果Configuration了固定timeout，直接使用
         if self.timeout:
             return self.timeout_calculator.calculate_retry_timeout(
                 base_timeout=self.timeout,
@@ -328,31 +328,31 @@ class WorkerAgent(Agent):
                 max_retries=self.max_retries,
             )
 
-        # 否则根据任务类型自动计算
+        # nottt则根据任务type自动calculate
         task_type_map = {
-            "tool_execution": TaskType.IO,
-            "llm_generation": TaskType.NETWORK,
-            "custom": TaskType.COMPUTATION,
+            "tool_execution": Tasktype.I/O,
+            "llm_generation": Tasktype.network,
+            "custom": Tasktype.COMPUTATI/ON,
         }
 
         task_type = task_type_map.get(
             self.task.type,
-            TaskType.SIMPLE
+            Tasktype.simple
         )
 
         priority_map = {
-            0: TaskPriority.LOW,
-            1: TaskPriority.NORMAL,
-            2: TaskPriority.HIGH,
-            3: TaskPriority.URGENT,
+            0: Taskpriority.LOW,
+            1: Taskpriority.NORMAL,
+            2: Taskpriority.HIGH,
+            3: Taskpriority.URGENT,
         }
 
         priority = priority_map.get(
             self.task.priority.value,
-            TaskPriority.NORMAL
+            Taskpriority.NORMAL
         )
 
-        # 计算基础超时
+        # calculatebasetimeout
         base_timeout = self.timeout_calculator.calculate_timeout(
             task_type=task_type,
             priority=priority,
@@ -366,15 +366,15 @@ class WorkerAgent(Agent):
         )
 
     async def _handle_failure(self):
-        """处理任务失败"""
+        """process任务failure"""
         self.metrics.record_error()
         self.metrics.record_task_failed()
 
-        # 标记任务为失败
-        self.task.status = TaskStatus.FAILED
-        self.task.error = str(self._error) if self._error else "Unknown error"
+        # mark任务为failure
+        self.task.status = TaskStatus.failED
+        self.task.error = str(self._error) if self._error else "Unknotttwn error"
 
-        # 调用失败回调
+        # 调用failurecallback
         if self.on_failure:
             await self.on_failure(self.task, self._error)
 
@@ -385,45 +385,45 @@ class WorkerAgent(Agent):
 
     def get_result(self) -> Any:
         """
-        获取执行结果
+        getExecution result
 
         Returns:
-            执行结果或None
+            Execution result或None
         """
         return self._result
 
     def get_error(self) -> Optional[Exception]:
         """
-        获取错误信息
+        geterrorinfo
 
         Returns:
-            错误或None
+            error或None
         """
         return self._error
 
     def get_metrics(self) -> Dict[str, Any]:
         """
-        获取指标
+        getmetric
 
         Returns:
-            指标字典
+            metricdictionary
         """
         return self.metrics.get_metrics()
 
     async def wait_for_completion(self, timeout: float = None) -> bool:
         """
-        等待任务完成
+        等待任务complete
 
         Args:
-            timeout: 超时时间（秒）
+            timeout: timeout时间（seconds）
 
         Returns:
-            是否成功完成
+            is nottttsuccesscomplete
         """
         start_time = time.time()
 
-        # 等待任务完成（状态变为STOPPED或ERROR）
-        while self.state == AgentState.STARTING:
+        # 等待任务complete（State变为stopPED或error）
+        while self.state == AgentState.startING:
             if timeout and (time.time() - start_time) > timeout:
                 return False
 

@@ -1,24 +1,24 @@
 """
-Agent核心模块
+Agentcoremodule
 
-包含Agent基类、MasterAgent、TaskAgent、WorkerAgent等核心组件
+containsAgentBase class、MasterAgent、TaskAgent、WorkerAgent等corecomponent
 """
 from .agent import Agent, AgentConfig, AgentState
 from .master_agent import MasterAgent
 from .task_agent import TaskAgent
 from .worker_agent import WorkerAgent, WorkerAgentConfig
-from .loop import LoopEngine, LoopStrategy
+from .loop import LoopEngine, Loopstrategy
 from .task_database import (
-    TaskDatabase,
+    Taskdatabase,
     Task,
     TaskStatus,
-    TaskPriority,
+    Taskpriority,
 )
 from .monitoring import SystemMonitor, AgentMetrics, SystemMetrics
 from .timeout import (
     TimeoutCalculator,
-    TaskType,
-    TaskPriority as TimeoutTaskPriority,
+    Tasktype,
+    Taskpriority as TimeoutTaskpriority,
 )
 from .lifecycle import (
     GracefulShutdownManager,
@@ -27,7 +27,7 @@ from .lifecycle import (
 )
 
 __all__ = [
-    # Agent基础
+    # Agentbase
     "Agent",
     "AgentConfig",
     "AgentState",
@@ -38,27 +38,27 @@ __all__ = [
     "WorkerAgent",
     "WorkerAgentConfig",
 
-    # 循环引擎
+    # Loop Engine
     "LoopEngine",
-    "LoopStrategy",
+    "Loopstrategy",
 
-    # 任务数据库
-    "TaskDatabase",
+    # 任务database
+    "Taskdatabase",
     "Task",
     "TaskStatus",
-    "TaskPriority",
+    "Taskpriority",
 
-    # 监控
+    # monitor
     "SystemMonitor",
     "AgentMetrics",
     "SystemMetrics",
 
-    # 超时计算
+    # timeoutcalculate
     "TimeoutCalculator",
-    "TaskType",
-    "TimeoutTaskPriority",
+    "Tasktype",
+    "TimeoutTaskpriority",
 
-    # 生命周期管理
+    # 生命period管理
     "GracefulShutdownManager",
     "AgentLifecycleManager",
     "ShutdownState",

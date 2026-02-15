@@ -1,7 +1,7 @@
 """
-LLM适配器模块
+LLMAdaptermodule
 
-提供多种LLM提供商的统一接口
+提供多种LLM提供商的统一Interface
 """
 from .base import LLMAdapter
 from .openai import OpenAIAdapter

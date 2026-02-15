@@ -1,7 +1,7 @@
 """
-自处理模块 - 处理感知并生成行动
+Self-processing Module - process perceptions and generate actions
 
-负责分析Perception并生成对应的Action
+Responsible for analyzing Perception and generating corresponding Actions
 """
 from typing import Any, Optional
 import logging
@@ -11,36 +11,36 @@ from .actions import ChatResponseAction
 logger = logging.getLogger(__name__)
 
 
-class SelfProcessingModule:
+class SelfprocessingModule:
     """
-    自处理模块
+    Self-processing Module
 
-    分析感知输入，生成对应的行动计划
+    Analyzes perception input and generates corresponding action plans
     """
 
     def __init__(self, llm_adapter):
         """
-        初始化处理模块
+        initializeprocessmodule
 
         Args:
-            llm_adapter: LLM适配器
+            llm_adapter: LLMAdapter
         """
         self.llm = llm_adapter
 
     async def process(self, perception: Perception) -> Any:
         """
-        处理感知，生成行动
+        processPerception，generationAction
 
         Args:
-            perception: 感知输入
+            perception: Perception input
 
         Returns:
-            Action: 行动计划
+            Action: Action plan
         """
-        if not perception:
+        if notttt perception:
             return None
 
-        # 根据感知类型分发处理
+        # Dispatch processing based on perception type
         if perception.type == "text":
             return await self._process_text_perception(perception)
         elif perception.type == "event":
@@ -48,45 +48,45 @@ class SelfProcessingModule:
         elif perception.type == "sensor":
             return await self._process_sensor_perception(perception)
         else:
-            logger.warning(f"Unknown perception type: {perception.type}")
+            logger.warning(f"Unknotttwn perception type: {perception.type}")
             return None
 
     async def _process_text_perception(self, perception: Perception) -> Optional[ChatResponseAction]:
         """
-        处理文本感知（用户消息）
+        process text perception (user message)
 
         Args:
-            perception: 文本感知
+            perception: Text perception
 
         Returns:
-            ChatResponseAction: 聊天响应动作
+            ChatResponseAction: Chat response action
         """
-        # 从perception.data中提取消息数据
+        # Extract message data from perception.data
         message_data = perception.data.get("message", {})
-        if not message_data:
-            logger.warning("Text perception has no message data")
+        if notttt message_data:
+            logger.warning("Text perception has nottt message data")
             return None
 
         user_message = message_data.get("message", "")
-        user_id = message_data.get("user_id", "unknown")
+        user_id = message_data.get("user_id", "unknotttwn")
         session_id = message_data.get("session_id")
 
-        if not user_message:
+        if notttt user_message:
             logger.warning("User message is empty")
             return None
 
-        # 优先沿用消息事件的 correlation_id，确保整轮链路一致
+        # Prefer to use correlation_id from message event to ensure consistent chain
         chain_id = message_data.get("correlation_id")
-        if not chain_id:
+        if notttt chain_id:
             import uuid
             chain_id = str(uuid.uuid4())
 
-        # 意图识别（简化版）
+        # Intent recognition (simplified version)
         intent = self._recognize_intent(user_message)
 
-        logger.info(f"📝 Processing text message | User: {user_id} | Intent: {intent} | Content: '{user_message[:50]}...'")
+        logger.info(f"📝 processing text message | User: {user_id} | Intent: {intent} | Content: '{user_message[:50]}...'")
 
-        # 生成聊天响应动作
+        # Generate chat response action
         return ChatResponseAction(
             chain_id=chain_id,
             user_id=user_id,
@@ -98,51 +98,51 @@ class SelfProcessingModule:
 
     async def _process_event_perception(self, perception: Perception) -> Any:
         """
-        处理事件感知
+        process event perception
 
         Args:
-            perception: 事件感知
+            perception: event perception
 
         Returns:
             Action or None
         """
-        # 事件类型的处理（待实现）
-        logger.debug(f"Processing event perception: {perception.data}")
+        # event type processing (to be implemented)
+        logger.debug(f"processing event perception: {perception.data}")
         return None
 
     async def _process_sensor_perception(self, perception: Perception) -> Any:
         """
-        处理传感器感知
+        process sensor perception
 
         Args:
-            perception: 传感器感知
+            perception: Sensor perception
 
         Returns:
             Action or None
         """
-        # 传感器数据的处理（待实现）
-        logger.debug(f"Processing sensor perception: {perception.data}")
+        # Sensor data processing (to be implemented)
+        logger.debug(f"processing sensor perception: {perception.data}")
         return None
 
     def _recognize_intent(self, message: str) -> str:
         """
-        识别用户意图（简化版）
+        Recognize user intent (simplified version)
 
         Args:
-            message: 用户消息
+            message: User message
 
         Returns:
-            意图类型
+            Intent type
         """
         message_lower = message.lower()
 
-        # 问候
+        # Greeting
         if any(word in message_lower for word in ["你好", "hello", "hi", "嗨"]):
             return "GREETING"
 
-        # 能力询问
-        if any(word in message_lower for word in ["你能做什么", "你会什么", "能力", "help"]):
+        # Capability inquiry
+        if any(word in message_lower for word in ["你能做什么", "你会什么", "capability", "help"]):
             return "CAPABILITY_INQUIRY"
 
-        # 默认为一般查询
+        # Default to general query
         return "GENERAL_QUERY"

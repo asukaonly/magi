@@ -1,21 +1,21 @@
 """
-自我记忆系统 - AI人格核心
+自我Memory System - AIpersonalitycore
 
-参考RPG角色卡设计，赋予AI灵魂和一致性
+referenceRPGrole卡设计，赋予AI灵魂andconsistency
 
-层级结构：
-1. 核心人格层 (Core Personality) - 全场景通用，从Markdown加载
-2. 认知能力层 (Cognition & Capability) - 按场景加载，从Markdown加载
-3. 行为偏好层 (Behavioral Preference) - 按任务演化
-4. 情绪状态层 (Emotional State) - 动态变化
-5. 成长记忆层 (Growth Memory) - 长期演化
+层级structure：
+1. corepersonality层 (Core Personality) - 全scenario通用，从Markdownload
+2. 认知capability层 (Cognition & Capability) - 按scenarioload，从Markdownload
+3. row为preference层 (Behavioral Preference) - 按任务evolution
+4. emotionState层 (Emotional State) - dynamic变化
+5. growthmemory层 (Growth Memory) - 长期evolution
 """
 import aiosqlite
 import json
 import time
 import logging
 from typing import Dict, Any, Optional, List
-from pathlib import Path
+from pathlib import path
 from dataclasses import asdict
 
 from .models import (
@@ -33,22 +33,22 @@ from .models import (
     DomainExpertise,
 )
 from .personality_loader import PersonalityLoader, PersonalityConfig
-from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
-from .emotional_state import EmotionalStateEngine, InteractionOutcome, EngagementLevel
-from .growth_memory import GrowthMemoryEngine, MilestoneType, InteractionType
+from .behavior_evolution import BehaviorEvolutionEngine, Satisfactionlevel
+from .emotional_state import EmotionalStateEngine, InteractionOutcome, Engagementlevel
+from .growth_memory import GrowthMemoryEngine, Milestonetype, Interactiontype
 from .context_builder import ContextBuilder, Scenario
 from ..utils.runtime import get_runtime_paths
 
 logger = logging.getLogger(__name__)
 
 
-# ===== 统一管理类 =====
+# ===== Unified Management Class =====
 
 class SelfMemory:
     """
-    自我记忆系统
+    自我Memory System
 
-    管理所有层级的人格和记忆数据
+    管理all层级的personalityandmemorydata
     """
 
     def __init__(
@@ -59,15 +59,15 @@ class SelfMemory:
         enable_evolution: bool = True
     ):
         """
-        初始化自我记忆系统
+        initialize自我Memory System
 
         Args:
-            personality_name: 人格名称
-            personalities_path: 人格配置文件目录（默认使用运行时目录）
-            db_path: 数据库路径（默认使用运行时目录）
-            enable_evolution: 是否启用人格演化
+            personality_name: Personality name
+            personalities_path: Personality configurationfiledirectory（default使用run时directory）
+            db_path: databasepath（default使用run时directory）
+            enable_evolution: is nottttEnablepersonalityevolution
         """
-        # 使用运行时路径作为默认值
+        # 使用run时path作为defaultValue
         runtime_paths = get_runtime_paths()
 
         self.personality_name = personality_name
@@ -75,27 +75,27 @@ class SelfMemory:
         self.db_path = db_path or str(runtime_paths.self_memory_db_path)
         self.enable_evolution = enable_evolution
 
-        # 子组件
+        # 子component
         self._personality_loader: Optional[PersonalityLoader] = None
         self._behavior_engine: Optional[BehaviorEvolutionEngine] = None
         self._emotion_engine: Optional[EmotionalStateEngine] = None
         self._growth_engine: Optional[GrowthMemoryEngine] = None
         self._context_builder: ContextBuilder = ContextBuilder()
 
-        # 缓存 - 直接存储原始内容和配置
+        # cache - 直接storage原始ContentandConfiguration
         self._personality_config: Optional[PersonalityConfig] = None
-        self._raw_personality_content: str = ""  # 原始 md 内容
+        self._raw_personality_content: str = ""  # 原始 md Content
 
     async def init(self):
-        """初始化所有组件"""
-        # 初始化人格加载器
+        """initializeallcomponent"""
+        # initializePersonality Loader
         self._personality_loader = PersonalityLoader(self.personalities_path)
 
-        # 加载人格配置
+        # loadPersonality configuration
         await self._load_personality()
 
         if self.enable_evolution:
-            # 使用运行时路径
+            # 使用run时path
             runtime_paths = get_runtime_paths()
             behavior_db = str(runtime_paths.behavior_db_path)
             emotion_db = str(runtime_paths.emotional_db_path)
@@ -109,82 +109,82 @@ class SelfMemory:
             await self._emotion_engine.init()
             await self._growth_engine.init()
 
-            # 记录初始化里程碑
+            # recordinitializemilestone
             await self._growth_engine.record_milestone(
-                milestone_type=MilestoneType.FIRST_USE,
-                title=f"Initialized as {self._personality_config.name}",
+                milestone_type=Milestonetype.FIRST_USE,
+                title=f"initialized as {self._personality_config.name}",
                 description=f"Personality {self.personality_name} loaded and initialized"
             )
 
         logger.info(f"SelfMemory initialized with personality: {self.personality_name}")
 
     async def _load_personality(self):
-        """从Markdown加载人格配置"""
+        """从MarkdownloadPersonality configuration"""
         try:
             config = self._personality_loader.load(self.personality_name)
             self._personality_config = config
-            # 同时加载原始 md 内容
+            # 同时load原始 md Content
             self._raw_personality_content = self._personality_loader.load_raw(self.personality_name)
             logger.info(f"Loaded personality: {config.name}")
-        except FileNotFoundError:
-            logger.warning(f"Personality {self.personality_name} not found, using default")
+        except FileNotFounderror:
+            logger.warning(f"Personality {self.personality_name} notttt found, using default")
             self._personality_config = PersonalityConfig()
             self._raw_personality_content = ""
 
     async def reload_personality(self, new_personality_name: str = None):
         """
-        重新加载人格配置
+        重newloadPersonality configuration
 
         Args:
-            new_personality_name: 新人格名称（可选，如果不指定则重新加载当前人格）
+            new_personality_name: newPersonality name（optional，如果不指定则重newloadcurrentpersonality）
         """
         old_personality_name = self.personality_name
 
         if new_personality_name:
             self.personality_name = new_personality_name
 
-        # 清除人格加载器的缓存
+        # 清除Personality Loader的cache
         if self._personality_loader:
             self._personality_loader.clear_cache(old_personality_name)
             if new_personality_name and new_personality_name != old_personality_name:
                 self._personality_loader.clear_cache(new_personality_name)
 
-        # 清除已加载的人格数据
+        # 清除已load的personalitydata
         self._personality_config = None
         self._raw_personality_content = ""
 
-        # 重新加载
+        # 重newload
         await self._load_personality()
 
-        # 记录切换里程碑
+        # record切换milestone
         if self.enable_evolution and self._growth_engine and self._personality_config:
-            from .growth_memory import MilestoneType
+            from .growth_memory import Milestonetype
             await self._growth_engine.record_milestone(
-                milestone_type=MilestoneType.FIRST_USE,
+                milestone_type=Milestonetype.FIRST_USE,
                 title=f"Personality switched to {self._personality_config.name}",
                 description=f"Reloaded personality configuration: {self.personality_name}"
             )
 
-        name = self._personality_config.name if self._personality_config else "Unknown"
+        name = self._personality_config.name if self._personality_config else "Unknotttwn"
         logger.info(f"Personality reloaded: {old_personality_name} -> {self.personality_name} ({name})")
 
-    # ===== 核心人格层 =====
+    # ===== corepersonality层 =====
 
     async def get_core_personality(self) -> PersonalityConfig:
-        """获取核心人格配置"""
+        """getcorePersonality configuration"""
         return self._personality_config or PersonalityConfig()
 
-    # ===== 认知能力层 =====
+    # ===== 认知capability层 =====
 
     async def get_cognition_profile(self, scenario: str = "default") -> CognitionProfile:
-        """获取场景的认知配置 - 已弃用，返回默认值"""
+        """getscenario的认知Configuration - deprecated，ReturndefaultValue"""
         return CognitionProfile()
 
-    # ===== 行为偏好层 =====
+    # ===== row为preference层 =====
 
     async def get_behavior_profile(self, task_category: str) -> TaskBehaviorProfile:
-        """获取任务类别的行为配置"""
-        if not self.enable_evolution or self._behavior_engine is None:
+        """get任务Class别的row为Configuration"""
+        if notttt self.enable_evolution or self._behavior_engine is None:
             return TaskBehaviorProfile(task_category=task_category)
 
         return await self._behavior_engine.get_behavior_profile(task_category)
@@ -193,7 +193,7 @@ class SelfMemory:
         self,
         task_id: str,
         task_category: str,
-        user_satisfaction: SatisfactionLevel = SatisfactionLevel.NEUTRAL,
+        user_satisfaction: Satisfactionlevel = Satisfactionlevel.NEUTRAL,
         clarification_count: int = 0,
         confirmation_count: int = 0,
         correction_count: int = 0,
@@ -201,7 +201,7 @@ class SelfMemory:
         task_duration: float = 0.0,
         accepted: bool = True,
     ):
-        """记录任务交互结果"""
+        """record任务交互Result"""
         if self.enable_evolution and self._behavior_engine:
             await self._behavior_engine.record_task_outcome(
                 task_id=task_id,
@@ -215,11 +215,11 @@ class SelfMemory:
                 accepted=accepted,
             )
 
-    # ===== 情绪状态层 =====
+    # ===== emotionState层 =====
 
     async def get_emotional_state(self) -> EmotionalState:
-        """获取当前情绪状态"""
-        if not self.enable_evolution or self._emotion_engine is None:
+        """getcurrentemotionState"""
+        if notttt self.enable_evolution or self._emotion_engine is None:
             return EmotionalState()
 
         return await self._emotion_engine.get_current_state()
@@ -227,10 +227,10 @@ class SelfMemory:
     async def update_after_interaction(
         self,
         outcome: InteractionOutcome,
-        user_engagement: EngagementLevel = EngagementLevel.MEDIUM,
+        user_engagement: Engagementlevel = Engagementlevel.MEDIUM,
         complexity: float = 0.5,
     ):
-        """交互后更新情绪状态"""
+        """交互后updateemotionState"""
         if self.enable_evolution and self._emotion_engine:
             await self._emotion_engine.update_after_interaction(
                 outcome=outcome,
@@ -244,7 +244,7 @@ class SelfMemory:
         complexity: float,
         duration: float
     ):
-        """任务完成后更新情绪状态"""
+        """任务complete后updateemotionState"""
         if self.enable_evolution and self._emotion_engine:
             await self._emotion_engine.update_after_task_completion(
                 success=success,
@@ -253,25 +253,25 @@ class SelfMemory:
             )
 
     async def decay_over_time(self, elapsed_minutes: float):
-        """时间流逝后的状态衰减"""
+        """时间流逝后的State衰减"""
         if self.enable_evolution and self._emotion_engine:
             await self._emotion_engine.decay_over_time(elapsed_minutes)
 
     async def recover(self, recovery_type: str = "rest"):
-        """恢复机制"""
+        """restore机制"""
         if self.enable_evolution and self._emotion_engine:
             await self._emotion_engine.recover(recovery_type)
 
     async def store_experience(self, perception, action, result):
         """
-        存储经验（用于LoopEngine的Reflect阶段）
+        storageexperience（用于LoopEngine的Reflect阶段）
 
         Args:
-            perception: 感知
-            action: 行动
-            result: 结果
+            perception: Perception
+            action: Action
+            result: Result
         """
-        # Experience storage is now primarily handled by the L1-L5 memory system
+        # Experience storage is notttw primarily handled by the L1-L5 memory system
         # This method is a compatibility shim for LoopEngine's reflect phase
         logger = logging.getLogger(__name__)
 
@@ -282,7 +282,7 @@ class SelfMemory:
 
         # Record interaction if evolution is enabled and user_id is available
         if user_id and self.enable_evolution:
-            from .growth_memory import InteractionType
+            from .growth_memory import Interactiontype
 
             # Determine outcome based on result
             outcome = "positive"
@@ -292,35 +292,35 @@ class SelfMemory:
             # Record the interaction
             await self.record_interaction(
                 user_id=user_id,
-                interaction_type=InteractionType.CHAT,
+                interaction_type=Interactiontype.CHAT,
                 outcome=outcome,
-                notes=f"Action: {type(action).__name__ if action else 'None'}"
+                nottttes=f"Action: {type(action).__name__ if action else 'None'}"
             )
             logger.debug(f"Experience stored for user {user_id}")
 
-    # ===== 成长记忆层 =====
+    # ===== growthmemory层 =====
 
     async def record_interaction(
         self,
         user_id: str,
-        interaction_type: InteractionType,
+        interaction_type: Interactiontype,
         outcome: str = "neutral",
         sentiment: float = 0.0,
-        notes: str = ""
+        nottttes: str = ""
     ):
-        """记录与用户的交互"""
+        """record与user的交互"""
         if self.enable_evolution and self._growth_engine:
             await self._growth_engine.record_interaction(
                 user_id=user_id,
                 interaction_type=interaction_type,
                 outcome=outcome,
                 sentiment=sentiment,
-                notes=notes,
+                nottttes=nottttes,
             )
 
     async def get_relationship(self, user_id: str) -> Optional[Dict]:
-        """获取与用户的关系"""
-        if not self.enable_evolution or self._growth_engine is None:
+        """get与user的relationship"""
+        if notttt self.enable_evolution or self._growth_engine is None:
             return None
 
         profile = await self._growth_engine.get_relationship(user_id)
@@ -328,22 +328,22 @@ class SelfMemory:
             return asdict(profile)
         return None
 
-    async def get_milestones(self, milestone_type: MilestoneType = None, limit: int = 100) -> List[Dict]:
-        """获取里程碑"""
-        if not self.enable_evolution or self._growth_engine is None:
+    async def get_milestones(self, milestone_type: Milestonetype = None, limit: int = 100) -> List[Dict]:
+        """getmilestone"""
+        if notttt self.enable_evolution or self._growth_engine is None:
             return []
 
         milestones = await self._growth_engine.get_milestones(milestone_type, limit)
         return [asdict(m) for m in milestones]
 
     async def get_growth_summary(self) -> Dict[str, Any]:
-        """获取成长摘要"""
-        if not self.enable_evolution or self._growth_engine is None:
+        """getgrowthsummary"""
+        if notttt self.enable_evolution or self._growth_engine is None:
             return {}
 
         return await self._growth_engine.get_growth_summary()
 
-    # ===== 上下文构建 =====
+    # ===== contextbuild =====
 
     async def build_context(
         self,
@@ -352,31 +352,31 @@ class SelfMemory:
         user_id: str = None,
     ) -> str:
         """
-        构建人格上下文（用于LLM提示词）
+        buildpersonalitycontext（用于LLMprompt词）
 
-        直接使用原始 md 文件内容，不做额外处理
+        直接使用原始 md fileContent，不做额外process
 
         Args:
-            scenario: 交互场景
-            task_category: 任务类别
-            user_id: 用户ID（可选，用于获取关系信息）
+            scenario: 交互scenario
+            task_category: 任务Class别
+            user_id: userid（optional，用于getrelationshipinfo）
 
         Returns:
-            格式化的人格描述
+            format化的personalityDescription
         """
         parts = []
 
-        # 1. 直接使用原始 md 内容作为人格定义
+        # 1. 直接使用原始 md Content作为personality定义
         if self._raw_personality_content:
             parts.append(self._raw_personality_content)
 
-        # 2. 获取情绪状态（仅当非中性时）
+        # 2. getemotionState（仅当非中性时）
         if self.enable_evolution and self._emotion_engine:
             emotion = await self._emotion_engine.get_current_state()
             if emotion.current_mood != "neutral":
                 parts.append(f"\n## Current State\n\n- Mood: {emotion.current_mood}\n- Energy: {int(emotion.energy_level*100)}%\n")
 
-        # 3. 获取用户档案
+        # 3. getuser档案
         if user_id and self._growth_engine:
             relationship = await self._growth_engine.get_relationship(user_id)
             if relationship:
@@ -385,8 +385,8 @@ class SelfMemory:
         return "\n\n".join(parts)
 
     async def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """获取用户档案（包含关系信息）"""
-        if not user_id or not self.enable_evolution or self._growth_engine is None:
+        """getuser档案（containsrelationshipinfo）"""
+        if notttt user_id or notttt self.enable_evolution or self._growth_engine is None:
             return None
 
         relationship = await self._growth_engine.get_relationship(user_id)
@@ -394,10 +394,10 @@ class SelfMemory:
             return asdict(relationship)
         return None
 
-    # ===== 导出和重置 =====
+    # ===== exportandreset =====
 
     async def export_personality_card(self) -> Dict[str, Any]:
-        """导出完整人格卡"""
+        """export完整personality卡"""
         config = await self.get_core_personality()
         emotion = await self.get_emotional_state()
         growth_summary = await self.get_growth_summary()
@@ -425,8 +425,8 @@ class SelfMemory:
         }
 
     async def reset_evolution(self, category: str = None):
-        """重置演化数据"""
-        if not self.enable_evolution:
+        """resetevolutiondata"""
+        if notttt self.enable_evolution:
             return
 
         if category and self._behavior_engine:

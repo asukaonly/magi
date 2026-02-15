@@ -1,7 +1,7 @@
 """
-Agent动作定义
+AgentAction definitions
 
-定义Agent在处理感知后可以执行的各种动作
+Defines various actions that Agent can execute after processing perceptions
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -10,9 +10,9 @@ from typing import Optional
 @dataclass
 class ChatResponseAction:
     """
-    聊天响应动作
+    Chat response action
 
-    当Agent接收到用户消息后，生成此动作以发送回复
+    Generated when Agent receives user message to send a reply
     """
     chain_id: str
     user_id: str

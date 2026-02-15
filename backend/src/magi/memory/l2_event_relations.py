@@ -1,8 +1,8 @@
 """
-L2: 事件关系层 (Event Relationships Layer)
+L2: event Relationships Layer
 
-使用图数据库存储和查询事件之间的关系
-支持关系提取、图遍历、关系查询
+Store and query relationships between events using graph database
+Supports relationship extraction, graph traversal, and relationship queries
 """
 import logging
 import time
@@ -14,8 +14,8 @@ import json
 logger = logging.getLogger(__name__)
 
 
-class EventRelation:
-    """事件关系"""
+class eventRelation:
+    """event relationship"""
 
     def __init__(
         self,
@@ -41,80 +41,80 @@ class EventRelation:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EventRelation":
+    def from_dict(cls, data: Dict[str, Any]) -> "eventRelation":
         return cls(**data)
 
 
-class EventRelationStore:
+class eventRelationStore:
     """
-    事件关系存储
+    event relationship store
 
-    基于内存的图数据库实现（可扩展为 NetworkX 或 Neo4j）
+    In-memory graph database implementation (extensible to NetworkX or Neo4j)
     """
 
-    # 关系类型定义
-    RELATION_TYPES = {
-        # 因果关系
-        "CAUSE": "因果：A导致B发生",
-        "PRECEDE": "时序：A发生在B之前",
-        "FOLLOW": "跟随：A之后B紧随发生",
+    # Relationship type definitions
+    relation_typeS = {
+        # Causal relationships
+        "CAUSE": "Causal: A causes B to happen",
+        "PRECEDE": "Temporal: A happens before B",
+        "FOLLOW": "Follow: B follows immediately after A",
 
-        # 语义关系
-        "RELATED": "相关：A和B语义相关",
-        "SAME_CONTEXT": "同上下文：A和B属于同一上下文",
-        "SAME_USER": "同用户：A和B来自同一用户",
+        # Semantic relationships
+        "RELATED": "Related: A and B are semantically related",
+        "SAME_context": "Same context: A and B belong to the same context",
+        "SAME_user": "Same user: A and B are from the same user",
 
-        # 实体关系
-        "MENTION": "提及：A中提到了B中的实体",
-        "REFERENCE": "引用：A引用了B",
-        "RESPONSE": "响应：A是对B的响应",
+        # Entity relationships
+        "MENTI/ON": "Mention: A mentions entities from B",
+        "reference": "Reference: A references B",
+        "RESPONSE": "Response: A is a response to B",
 
-        # 状态关系
-        "TRIGGER": "触发：A触发了B",
-        "BLOCK": "阻塞：A阻塞了B",
-        "ENABLE": "使能：A使B成为可能",
+        # State relationships
+        "TRIGGER": "Trigger: A triggers B",
+        "block": "Block: A blocks B",
+        "enable": "Enable: A enables B",
     }
 
     def __init__(self, persist_path: str = None):
         """
-        初始化事件关系存储
+        initialize event relationship store
 
         Args:
-            persist_path: 持久化文件路径（可选）
+            persist_path: persistence file path (optional)
         """
         self.persist_path = persist_path
 
-        # 图数据结构：{event_id: {relation_type: {target_event_id: EventRelation}}}
-        self._graph: Dict[str, Dict[str, Dict[str, EventRelation]]] = defaultdict(
+        # Graph data structure: {event_id: {relation_type: {target_event_id: eventRelation}}}
+        self._graph: Dict[str, Dict[str, Dict[str, eventRelation]]] = defaultdict(
             lambda: defaultdict(lambda: defaultdict(dict))
         )
 
-        # 反向图：{event_id: {relation_type: {source_event_id: EventRelation}}}
-        self._reverse_graph: Dict[str, Dict[str, Dict[str, EventRelation]]] = defaultdict(
+        # Reverse graph: {event_id: {relation_type: {source_event_id: eventRelation}}}
+        self._reverse_graph: Dict[str, Dict[str, Dict[str, eventRelation]]] = defaultdict(
             lambda: defaultdict(lambda: defaultdict(dict))
         )
 
-        # 事件索引：{event_id: event_data}
+        # event index: {event_id: event_data}
         self._events: Dict[str, Dict[str, Any]] = {}
 
-        # 加载持久化数据
+        # Load persisted data
         if persist_path:
             self._load_from_disk()
 
     def add_event(self, event_id: str, event_data: Dict[str, Any]):
         """
-        添加事件到索引
+        Add event to index
 
         Args:
-            event_id: 事件ID
-            event_data: 事件数据
+            event_id: event id
+            event_data: event data
         """
         self._events[event_id] = {
             "id": event_id,
             "data": event_data,
             "timestamp": time.time(),
         }
-        logger.debug(f"Event indexed: {event_id}")
+        logger.debug(f"event indexed: {event_id}")
 
     def add_relation(
         self,
@@ -125,16 +125,16 @@ class EventRelationStore:
         metadata: Dict[str, Any] = None,
     ):
         """
-        添加事件关系
+        Add event relationship
 
         Args:
-            source_event_id: 源事件ID
-            target_event_id: 目标事件ID
-            relation_type: 关系类型
-            confidence: 置信度（0-1）
-            metadata: 元数据
+            source_event_id: source event id
+            target_event_id: Target event id
+            relation_type: Relationship type
+            confidence: Confidence (0-1)
+            metadata: metadata
         """
-        relation = EventRelation(
+        relation = eventRelation(
             source_event_id=source_event_id,
             target_event_id=target_event_id,
             relation_type=relation_type,
@@ -142,10 +142,10 @@ class EventRelationStore:
             metadata=metadata,
         )
 
-        # 添加到正向图
+        # Add to forward graph
         self._graph[source_event_id][relation_type][target_event_id] = relation
 
-        # 添加到反向图
+        # Add to reverse graph
         self._reverse_graph[target_event_id][relation_type][source_event_id] = relation
 
         logger.debug(f"Relation added: {source_event_id} -> {target_event_id} ({relation_type})")
@@ -155,17 +155,17 @@ class EventRelationStore:
         event_id: str,
         relation_type: str = None,
         direction: str = "outgoing",
-    ) -> List[EventRelation]:
+    ) -> List[eventRelation]:
         """
-        获取事件的关系
+        Get event relationships
 
         Args:
-            event_id: 事件ID
-            relation_type: 关系类型（None表示所有类型）
-            direction: 方向（outgoing/incoming/both）
+            event_id: event id
+            relation_type: Relationship type (None means all types)
+            direction: Direction (outgoing/incoming/both)
 
         Returns:
-            关系列表
+            List of relationships
         """
         relations = []
 
@@ -201,18 +201,18 @@ class EventRelationStore:
         relation_types: List[str] = None,
     ) -> List[str]:
         """
-        查找两个事件之间的路径
+        Find path between two events
 
         Args:
-            start_event_id: 起始事件ID
-            end_event_id: 目标事件ID
-            max_depth: 最大深度
-            relation_types: 允许的关系类型（None表示所有）
+            start_event_id: Start event id
+            end_event_id: Target event id
+            max_depth: Maximum depth
+            relation_types: Allowed relationship types (None means all)
 
         Returns:
-            事件ID路径
+            event id path
         """
-        # BFS 搜索
+        # BFS search
         queue: List[Tuple[str, int, List[str]]] = [(start_event_id, 0, [start_event_id])]
         visited: Set[str] = set()
 
@@ -230,10 +230,10 @@ class EventRelationStore:
 
             visited.add(current_event)
 
-            # 获取出边
+            # Get outgoing edges
             relations = self.get_relations(current_event, relation_types, "outgoing")
             for relation in relations:
-                if relation.target_event_id not in visited:
+                if relation.target_event_id notttt in visited:
                     new_path = path + [relation.target_event_id]
                     queue.append((relation.target_event_id, depth + 1, new_path))
 
@@ -246,15 +246,15 @@ class EventRelationStore:
         max_depth: int = 2,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
-        获取相关事件（广度优先搜索）
+        Get related events (breadth-first search)
 
         Args:
-            event_id: 中心事件ID
-            relation_types: 关系类型过滤
-            max_depth: 最大深度
+            event_id: Center event id
+            relation_types: Relationship type filter
+            max_depth: Maximum depth
 
         Returns:
-            相关事件字典：{depth: [events]}
+            Related events dictionary: {depth: [events]}
         """
         result: Dict[int, List[Dict[str, Any]]] = {0: [self._events.get(event_id, {})]}
         visited: Set[str] = {event_id}
@@ -268,7 +268,7 @@ class EventRelationStore:
                 relations = self.get_relations(current_event, relation_types, "outgoing")
                 for relation in relations:
                     target_id = relation.target_event_id
-                    if target_id not in visited and target_id in self._events:
+                    if target_id notttt in visited and target_id in self._events:
                         visited.add(target_id)
                         next_level.append(target_id)
                         event_data = self._events[target_id].copy()
@@ -276,17 +276,17 @@ class EventRelationStore:
                         result[depth].append(event_data)
 
             current_level = next_level
-            if not current_level:
+            if notttt current_level:
                 break
 
         return result
 
     def get_statistics(self) -> Dict[str, Any]:
         """
-        获取关系图统计信息
+        Get relationship graph statistics
 
         Returns:
-            统计数据
+            Statistics data
         """
         total_relations = sum(
             len(targets)
@@ -313,49 +313,49 @@ class EventRelationStore:
         use_llm: bool = False,
     ) -> int:
         """
-        从事件列表中提取关系
+        Extract relationships from event list
 
         Args:
-            events: 事件列表
-            use_llm: 是否使用 LLM 提取（需要 LLM 支持）
+            events: event list
+            use_llm: Whether to use LLM extraction (requires LLM support)
 
         Returns:
-            提取的关系数量
+            Number of extracted relationships
         """
         extracted_count = 0
         event_index = {e.get("id", e.get("event_id", "")): e for e in events}
 
-        # 先添加所有事件到索引
+        # First add all events to index
         for event in events:
             event_id = event.get("id", event.get("event_id", ""))
             if event_id:
                 self.add_event(event_id, event)
 
-        # 提取关系
+        # Extract relationships
         for i, event in enumerate(events):
             event_id = event.get("id", event.get("event_id", ""))
             event_type = event.get("type", "")
 
-            if not event_id:
+            if notttt event_id:
                 continue
 
-            # 基于规则的结构化事件关系提取
+            # Rule-based structured event relationship extraction
             if event_type == "ToolExecution":
-                # 工具执行 -> 任务完成
+                # Tool execution -> task completion
                 self._extract_tool_relations(event, event_index)
                 extracted_count += 1
 
             elif event_type == "LLMCall":
-                # LLM 调用 -> 工具选择
+                # LLM call -> tool selection
                 self._extract_llm_relations(event, event_index)
                 extracted_count += 1
 
             elif event_type == "UserMessage":
-                # 用户消息 -> LLM 响应
+                # User message -> LLM response
                 self._extract_message_relations(event, event_index)
                 extracted_count += 1
 
-            # 提取时序关系（相邻事件）
+            # Extract temporal relationships (adjacent events)
             if i > 0:
                 prev_event = events[i - 1]
                 prev_event_id = prev_event.get("id", prev_event.get("event_id", ""))
@@ -368,28 +368,28 @@ class EventRelationStore:
                     )
                     extracted_count += 1
 
-        # 如果需要，可以使用 LLM 提取更复杂的关系
+        # If needed, can use LLM to extract more complex relationships
         if use_llm:
-            # TODO: 实现 LLM 关系提取
+            # TODO: Implement LLM relationship extraction
             pass
 
         logger.info(f"Extracted {extracted_count} relations from {len(events)} events")
 
-        # 持久化
+        # persist
         if self.persist_path:
             self._save_to_disk()
 
         return extracted_count
 
     def _extract_tool_relations(self, event: Dict[str, Any], event_index: Dict):
-        """提取工具执行事件的关系"""
+        """Extract tool execution event relationships"""
         event_id = event.get("id", "")
         data = event.get("data", {})
 
-        # 工具执行通常是对某个任务的响应
+        # Tool execution is usually a response to some task
         tool_name = data.get("tool", "")
         if tool_name:
-            # 查找相关的 LLM 调用事件
+            # Find related LLM call events
             for other_event_id, other_event in event_index.items():
                 if other_event.get("type") == "LLMCall":
                     llm_data = other_event.get("data", {})
@@ -403,11 +403,11 @@ class EventRelationStore:
                         )
 
     def _extract_llm_relations(self, event: Dict[str, Any], event_index: Dict):
-        """提取 LLM 调用事件的关系"""
+        """Extract LLM call event relationships"""
         event_id = event.get("id", "")
         data = event.get("data", {})
 
-        # LLM 调用是对用户消息的响应
+        # LLM call is a response to user message
         user_id = data.get("user_id", "")
         if user_id:
             for other_event_id, other_event in event_index.items():
@@ -421,13 +421,13 @@ class EventRelationStore:
                     )
 
     def _extract_message_relations(self, event: Dict[str, Any], event_index: Dict):
-        """提取用户消息事件的关系"""
-        # 用户消息之间可能存在会话关系
+        """Extract user message event relationships"""
+        # User messages may have session relationships
         event_id = event.get("id", "")
         user_id = event.get("data", {}).get("user_id", "")
 
         if user_id:
-            # 查找同一用户的其他消息
+            # Find other messages from the same user
             for other_event_id, other_event in event_index.items():
                 if (other_event.get("type") == "UserMessage" and
                     other_event.get("data", {}).get("user_id") == user_id and
@@ -435,14 +435,14 @@ class EventRelationStore:
                     self.add_relation(
                         source_event_id=other_event_id,
                         target_event_id=event_id,
-                        relation_type="SAME_CONTEXT",
+                        relation_type="SAME_context",
                         confidence=0.7,
                         metadata={"user_id": user_id},
                     )
 
     def _save_to_disk(self):
-        """持久化到磁盘"""
-        if not self.persist_path:
+        """persist to disk"""
+        if notttt self.persist_path:
             return
 
         try:
@@ -456,21 +456,21 @@ class EventRelationStore:
             with open(self.persist_path, "wb") as f:
                 pickle.dump(data, f)
 
-            logger.debug(f"Event relations saved to {self.persist_path}")
+            logger.debug(f"event relations saved to {self.persist_path}")
         except Exception as e:
             logger.error(f"Failed to save event relations: {e}")
 
     def _load_from_disk(self):
-        """从磁盘加载"""
-        if not self.persist_path:
+        """Load from disk"""
+        if notttt self.persist_path:
             return
 
         try:
             import pickle
-            from pathlib import Path
+            from pathlib import path
 
-            path = Path(self.persist_path)
-            if not path.exists():
+            path = path(self.persist_path)
+            if notttt path.exists():
                 return
 
             with open(self.persist_path, "rb") as f:
@@ -486,16 +486,16 @@ class EventRelationStore:
             )
             self._events = data.get("events", {})
 
-            logger.info(f"Event relations loaded from {self.persist_path}")
+            logger.info(f"event relations loaded from {self.persist_path}")
         except Exception as e:
             logger.warning(f"Failed to load event relations: {e}")
 
     def clear_old_relations(self, older_than_days: int = 30):
         """
-        清理旧的关系数据
+        Clear old relationship data
 
         Args:
-            older_than_days: 清理多少天前的数据
+            older_than_days: Number of days ago to clear data
         """
         cutoff_time = time.time() - (older_than_days * 86400)
         events_to_remove = []
@@ -505,13 +505,13 @@ class EventRelationStore:
                 events_to_remove.append(event_id)
 
         for event_id in events_to_remove:
-            # 删除事件的所有关系
+            # Delete all relationships for the event
             if event_id in self._graph:
                 del self._graph[event_id]
             if event_id in self._reverse_graph:
                 del self._reverse_graph[event_id]
 
-            # 从其他事件的关系中删除
+            # Remove from other events' relationships
             for source_events in self._graph.values():
                 for targets in source_events.values():
                     if event_id in targets:

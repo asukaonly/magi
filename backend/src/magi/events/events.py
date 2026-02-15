@@ -1,5 +1,5 @@
 """
-事件系统 - Event数据结构定义
+event system - event data structure definition
 """
 from enum import IntEnum
 from dataclasses import dataclass, field
@@ -8,61 +8,61 @@ from time import time
 import uuid
 
 
-class EventLevel(IntEnum):
+class eventlevel(IntEnum):
     """
-    事件等级（影响优先级和持久化策略）
+    event level (affects priority and persistence strategy)
 
-    0: DEBUG     - 调试信息
-    1: INFO      - 普通信息
-    2: WARNING   - 警告
-    3: ERROR     - 错误
-    4: CRITICAL  - 严重错误
-    5: EMERGENCY - 紧急事件（最高优先级）
+    0: debug     - Debuginfo
+    1: INFO      - notttrmal info
+    2: warnING   - Warning
+    3: error     - error
+    4: CRITICAL  - critical error
+    5: EmergeNCY - emergency event (highest priority)
     """
-    DEBUG = 0
+    debug = 0
     INFO = 1
-    WARNING = 2
-    ERROR = 3
+    warnING = 2
+    error = 3
     CRITICAL = 4
-    EMERGENCY = 5
+    EmergeNCY = 5
 
 
-class PropagationMode:
-    """事件传播模式"""
-    BROADCAST = "broadcast"  # 广播：所有订阅者都收到
-    COMPETING = "competing"  # 竞争：只有一个订阅者收到
+class propagationMode:
+    """event propagation pattern"""
+    BROADCasT = "broadcast"  # broadcast: all subscribers receive
+    COMPETING = "competing"  # competing: only one subscriber receives
 
 
 @dataclass
-class Event:
+class event:
     """
-    事件数据结构
+    eventdatastructure
 
     Attributes:
-        type: 事件类型（如 "AgentStarted", "PerceptionReceived"）
-        data: 事件数据（可以是任意类型）
-        timestamp: 时间戳
-        source: 事件源（可以是Agent ID、模块名等）
-        level: 事件等级（影响优先级和持久化策略）
-        correlation_id: 关联ID（用于追踪事件链）
-        metadata: 额外元数据
+        type: eventtype（如 "AgentStarted", "PerceptionReceived"）
+        data: eventdata（可以isanytype）
+        timestamp: timestamp
+        source: event source (can be agent id, module name, etc.)
+        level: event level (affects priority and persistence strategy)
+        correlation_id: correlation id (for tracking event chain)
+        metadata: additional metadata
     """
     type: str
     data: Any
     timestamp: float = field(default_factory=time)
-    source: str = "unknown"
-    level: EventLevel = EventLevel.INFO
+    source: str = "unknotttwn"
+    level: eventlevel = eventlevel.INFO
     correlation_id: Optional[str] = field(default=None)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        """初始化后处理"""
+        """process after initialization"""
         if self.correlation_id is None:
-            # 生成唯一的关联ID
+            # generation唯一的associateid
             self.correlation_id = str(uuid.uuid4())
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """convert为dictionary"""
         return {
             "type": self.type,
             "data": self.data,
@@ -74,83 +74,83 @@ class Event:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Event":
-        """从字典创建Event"""
+    def from_dict(cls, data: Dict[str, Any]) -> "event":
+        """从dictionarycreateevent"""
         return cls(
             type=data["type"],
             data=data["data"],
             timestamp=data.get("timestamp", time()),
-            source=data.get("source", "unknown"),
-            level=EventLevel(data.get("level", EventLevel.INFO)),
+            source=data.get("source", "unknotttwn"),
+            level=eventlevel(data.get("level", eventlevel.INFO)),
             correlation_id=data.get("correlation_id"),
             metadata=data.get("metadata", {}),
         )
 
 
-# 核心事件类型定义
-class EventTypes:
-    """核心事件类型常量"""
+# coreeventtype定义
+class eventtypes:
+    """coreeventtypeConstant"""
 
-    # 生命周期事件
-    AGENT_STARTED = "AgentStarted"
-    AGENT_STOPPED = "AgentStopped"
+    # 生命periodevent
+    AGENT_startED = "AgentStarted"
+    AGENT_stopPED = "AgentStopped"
     STATE_CHANGED = "StateChanged"
 
-    # 感知事件
-    PERCEPTION_RECEIVED = "PerceptionReceived"
-    PERCEPTION_PROCESSED = "PerceptionProcessed"
+    # Perceptionevent
+    PERCEPTI/ON_receiveD = "PerceptionReceived"
+    PERCEPTI/ON_processED = "Perceptionprocessed"
 
-    # 处理事件
-    ACTION_EXECUTED = "ActionExecuted"
-    CAPABILITY_CREATED = "CapabilityCreated"
-    CAPABILITY_UPDATED = "CapabilityUpdated"
+    # processevent
+    ACTI/ON_executeD = "ActionExecuted"
+    CAPABILITY_createD = "CapabilityCreated"
+    CAPABILITY_updateD = "CapabilityUpdated"
 
-    # 学习事件
+    # learningevent
     EXPERIENCE_STORED = "ExperienceStored"
 
-    # 错误事件
-    ERROR_OCCURRED = "ErrorOccurred"
-    HANDLER_FAILED = "HandlerFailed"
+    # errorevent
+    error_OCCURRED = "errorOccurred"
+    handler_failED = "HandlerFailed"
 
-    # 循环事件
-    LOOP_STARTED = "LoopStarted"
+    # 循环event
+    LOOP_startED = "LoopStarted"
     LOOP_COMPLETED = "LoopCompleted"
-    LOOP_PAUSED = "LoopPaused"
-    LOOP_RESUMED = "LoopResumed"
-    LOOP_PHASE_STARTED = "LoopPhaseStarted"
-    LOOP_PHASE_COMPLETED = "LoopPhaseCompleted"
+    LOOP_pauseD = "LoopPaused"
+    LOOP_resumeD = "LoopResumed"
+    LOOP_PHasE_startED = "LoopPhaseStarted"
+    LOOP_PHasE_COMPLETED = "LoopPhaseCompleted"
 
-    # 健康事件
-    HEALTH_WARNING = "HealthWarning"
+    # 健康event
+    HEALTH_warnING = "HealthWarning"
 
-    # 任务事件
-    TASK_CREATED = "TaskCreated"
-    TASK_ASSIGNED = "TaskAssigned"
-    TASK_STARTED = "TaskStarted"
-    TASK_COMPLETED = "TaskCompleted"
-    TASK_FAILED = "TaskFailed"
+    # 任务event
+    task_createD = "TaskCreated"
+    task_assignED = "TaskAssigned"
+    task_startED = "TaskStarted"
+    task_COMPLETED = "TaskCompleted"
+    task_failED = "TaskFailed"
 
-    # 用户消息事件
-    USER_MESSAGE = "UserMessage"
+    # User messageevent
+    user_MESSAGE = "UserMessage"
 
 
-# 业务事件类型常量（L1 层存储使用）
-class BusinessEventTypes:
+# 业务eventtypeConstant（L1 层storage使用）
+class Businesseventtypes:
     """
-    业务事件类型常量
+    业务eventtypeConstant
 
-    这些是经过过滤和转换后的业务事件，
-    用于 L1 层存储，专注于用户行为分析。
+    这些is经过filterandconvert后的业务event，
+    用于 L1 层storage，专注于userrow为analysis。
     """
 
-    # 用户输入事件（来自 USER_MESSAGE）
-    USER_INPUT = "USER_INPUT"
+    # userInputevent（来自 user_MESSAGE）
+    user_input = "user_input"
 
-    # AI 响应事件（来自 ACTION_EXECUTED，当 action_type=ChatResponseAction）
+    # AI responseevent（来自 ACTI/ON_executeD，当 action_type=ChatResponseAction）
     AI_RESPONSE = "AI_RESPONSE"
 
-    # 工具调用事件（来自 ACTION_EXECUTED，当 action_type 是工具调用）
+    # tool调用event（来自 ACTI/ON_executeD，当 action_type istool调用）
     TOOL_INVOKED = "TOOL_INVOKED"
 
-    # 系统异常事件（只记录严重错误，level >= ERROR）
-    SYSTEM_ERROR = "SYSTEM_ERROR"
+    # 系统Exceptionevent（只recordcritical error，level >= error）
+    system_error = "system_error"

@@ -2,7 +2,7 @@
 Skill Executor - Execute skills with proper context
 
 Implements the "Execute" phase of the skill system:
-- Variable substitution ($ARGUMENTS, $0, $1, etc.)
+- Variable substitution ($argumentS, $0, $1, etc.)
 - Context-based execution (direct or sub-agent)
 - Returns formatted SkillResult
 """
@@ -36,7 +36,7 @@ class SkillExecutor:
         llm_adapter: Optional[LLMAdapter] = None,
     ):
         """
-        Initialize the Skill Executor
+        initialize the Skill Executor
 
         Args:
             loader: SkillLoader for loading skill content
@@ -70,10 +70,10 @@ class SkillExecutor:
 
         # Load skill content
         skill = self.loader.load_skill(skill_name)
-        if not skill:
+        if notttt skill:
             return SkillResult(
                 success=False,
-                error=f"Skill not found: {skill_name}",
+                error=f"Skill notttt found: {skill_name}",
                 execution_time=time.time() - start_time,
             )
 
@@ -124,11 +124,11 @@ class SkillExecutor:
         Substitute variables in the skill template
 
         Supported variables:
-        - $ARGUMENTS or $@ - All arguments joined by spaces
+        - $argumentS or $@ - All arguments joined by spaces
         - $0, $1, $2, ... - Individual arguments by index
         - $# - Number of arguments
-        - ${CLAUDE_SESSION_ID} - Session ID from context
-        - ${USER_ID} - User ID from context
+        - ${CLAUDE_session_id} - Session id from context
+        - ${user_id} - User id from context
         - ${HOME} - User home directory
         - ${PWD} - Current working directory
 
@@ -144,7 +144,7 @@ class SkillExecutor:
 
         # Substitute all arguments
         all_args = " ".join(arguments)
-        result = result.replace("$ARGUMENTS", all_args)
+        result = result.replace("$argumentS", all_args)
         result = result.replace("$@", all_args)
 
         # Substitute argument count
@@ -160,8 +160,8 @@ class SkillExecutor:
             result = result.replace(f"${{{key}}}", str(value))
 
         # Built-in variables
-        result = result.replace("${CLAUDE_SESSION_ID}", context.get("session_id", ""))
-        result = result.replace("${USER_ID}", context.get("user_id", ""))
+        result = result.replace("${CLAUDE_session_id}", context.get("session_id", ""))
+        result = result.replace("${user_id}", context.get("user_id", ""))
         result = result.replace("${HOME}", os.path.expanduser("~"))
         result = result.replace("${PWD}", os.getcwd())
 
@@ -181,7 +181,7 @@ class SkillExecutor:
 
         Args:
             skill: The skill to execute
-            prompt: Processed prompt with variables substituted
+            prompt: processed prompt with variables substituted
             context: Execution context
 
         Returns:
@@ -213,14 +213,14 @@ class SkillExecutor:
 
         Args:
             skill: The skill to execute
-            prompt: Processed prompt with variables substituted
+            prompt: processed prompt with variables substituted
             context: Execution context
 
         Returns:
             SkillResult with sub-agent response
         """
-        if not self.llm:
-            logger.warning("LLM adapter not available, falling back to direct mode")
+        if notttt self.llm:
+            logger.warning("LLM adapter notttt available, falling back to direct mode")
             return await self._execute_direct(skill, prompt, context)
 
         # Build messages for the sub-agent
@@ -282,13 +282,13 @@ class SkillExecutor:
             message: User message to check
 
         Returns:
-            Tuple of (skill_name, arguments) or None if not a skill invocation
+            Tuple of (skill_name, arguments) or None if notttt a skill invocation
         """
-        if not message.startswith("/"):
+        if notttt message.startswith("/"):
             return None
 
         parts = message[1:].split()
-        if not parts:
+        if notttt parts:
             return None
 
         skill_name = parts[0]

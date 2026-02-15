@@ -3,9 +3,9 @@ Skills Creator Tool - Create new skills in user's ~/.magi/skills directory
 """
 import os
 import re
-from pathlib import Path
+from pathlib import path
 from typing import Dict, Any, List
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
 
 
 class SkillsCreatorTool(Tool):
@@ -16,56 +16,56 @@ class SkillsCreatorTool(Tool):
     """
 
     def _init_schema(self) -> None:
-        """Initialize Schema"""
+        """initialize Schema"""
         self.schema = ToolSchema(
             name="skills-creator",
-            description="Create a new skill in the ~/.magi/skills directory. Skills extend the agent's capabilities with specialized knowledge and workflows.",
+            description="Create a new skill in the ~/.magi/skills directory. Skills extend the agent's capabilities with specialized knotttwledge and workflows.",
             category="skills",
             version="1.0.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
                     name="name",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="Skill name (alphanumeric with hyphens, e.g., 'code-review')",
                     required=True,
                 ),
                 ToolParameter(
                     name="description",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="Brief description of what the skill does",
                     required=True,
                 ),
                 ToolParameter(
                     name="content",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="The skill content in markdown format (the main prompt/instructions)",
                     required=True,
                 ),
                 ToolParameter(
                     name="category",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="Category for organizing skills (optional)",
                     required=False,
                     default=None,
                 ),
                 ToolParameter(
                     name="argument_hint",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="Hint for how to invoke the skill with arguments (optional)",
                     required=False,
                     default=None,
                 ),
                 ToolParameter(
                     name="tags",
-                    type=ParameterType.ARRAY,
+                    type=Parametertype.array,
                     description="List of tags for the skill (optional)",
                     required=False,
                     default=[],
                 ),
                 ToolParameter(
                     name="user_invocable",
-                    type=ParameterType.BOOLEAN,
+                    type=Parametertype.boolEAN,
                     description="Whether users can directly invoke this skill",
                     required=False,
                     default=True,
@@ -104,11 +104,11 @@ class SkillsCreatorTool(Tool):
         user_invocable = parameters.get("user_invocable", True)
 
         # Validate name
-        if not re.match(r'^[a-z0-9-]+$', name):
+        if notttt re.match(r'^[a-z0-9-]+$', name):
             return ToolResult(
                 success=False,
                 error="Skill name must be lowercase alphanumeric with hyphens only (e.g., 'my-skill')",
-                error_code="INVALID_NAME",
+                error_code="INVALid_name",
             )
 
         # Get skills directory
@@ -122,7 +122,7 @@ class SkillsCreatorTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Failed to create skill directory: {e}",
-                error_code="DIR_CREATE_ERROR",
+                error_code="dir_create_error",
             )
 
         # Build frontmatter
@@ -156,7 +156,7 @@ class SkillsCreatorTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Failed to write skill file: {e}",
-                error_code="WRITE_ERROR",
+                error_code="write_error",
             )
 
         return ToolResult(
@@ -168,15 +168,15 @@ class SkillsCreatorTool(Tool):
             },
         )
 
-    def _get_skills_directory(self) -> Path:
+    def _get_skills_directory(self) -> path:
         """Get the user's skills directory"""
         # Check for custom skills directory
-        custom_dir = os.environ.get("MAGI_SKILLS_DIR")
+        custom_dir = os.environ.get("MAGI_SKILLS_dir")
         if custom_dir:
-            return Path(custom_dir)
+            return path(custom_dir)
 
         # Default to ~/.magi/skills
-        home = Path.home()
+        home = path.home()
         return home / ".magi" / "skills"
 
     def _escape_yaml(self, value: str) -> str:

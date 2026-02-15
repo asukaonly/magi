@@ -1,42 +1,42 @@
 """
-运行时数据目录管理
+Runtime data directory management
 
-将所有运行时生成的数据统一放到 ~/.magi 目录下，与代码分离
+Put all runtime-generated data in ~/.magi directory, separate from code
 """
 import os
-from pathlib import Path
+from pathlib import path
 from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class RuntimePaths:
-    """运行时路径管理"""
+class Runtimepaths:
+    """Runtime path management"""
 
-    def __init__(self, base_dir: Optional[Path] = None):
+    def __init__(self, base_dir: Optional[path] = None):
         """
-        初始化运行时路径
+        initialize runtime paths
 
         Args:
-            base_dir: 基础目录，默认为 ~/.magi
+            base_dir: Base directory, defaults to ~/.magi
         """
         if base_dir is None:
-            # 使用用户主目录下的 .magi 文件夹
-            home = Path.home()
+            # Use .magi folder under user home directory
+            home = path.home()
             base_dir = home / ".magi"
 
-        self.base_dir = Path(base_dir)
+        self.base_dir = path(base_dir)
         self._ensure_directories()
 
     def _ensure_directories(self):
-        """确保所有必要的目录存在"""
+        """Ensure all necessary directories exist"""
         directories = [
             self.base_dir,
             self.personalities_dir,
             self.data_dir,
             self.memories_dir,
-            self.others_dir,  # 他人记忆目录
+            self.others_dir,  # Others' memory directory
             self.logs_dir,
         ]
 
@@ -46,109 +46,109 @@ class RuntimePaths:
         logger.info(f"Runtime directory: {self.base_dir}")
 
     @property
-    def personalities_dir(self) -> Path:
-        """人格配置目录"""
+    def personalities_dir(self) -> path:
+        """Personality configuration directory"""
         return self.base_dir / "personalities"
 
     @property
-    def data_dir(self) -> Path:
-        """数据目录"""
+    def data_dir(self) -> path:
+        """data directory"""
         return self.base_dir / "data"
 
     @property
-    def memories_dir(self) -> Path:
-        """记忆数据库目录"""
+    def memories_dir(self) -> path:
+        """Memory database directory"""
         return self.data_dir / "memories"
 
     @property
-    def others_dir(self) -> Path:
-        """他人记忆目录（MD文件存储）"""
+    def others_dir(self) -> path:
+        """Others' memory directory (MD file storage)"""
         return self.base_dir / "others"
 
     @property
-    def logs_dir(self) -> Path:
-        """日志目录"""
+    def logs_dir(self) -> path:
+        """Log directory"""
         return self.base_dir / "logs"
 
     @property
-    def behavior_db_path(self) -> Path:
-        """行为演化数据库路径"""
+    def behavior_db_path(self) -> path:
+        """Behavior evolution database path"""
         return self.memories_dir / "behavior_evolution.db"
 
     @property
-    def emotional_db_path(self) -> Path:
-        """情绪状态数据库路径"""
+    def emotional_db_path(self) -> path:
+        """Emotional state database path"""
         return self.memories_dir / "emotional_state.db"
 
     @property
-    def growth_db_path(self) -> Path:
-        """成长记忆数据库路径"""
+    def growth_db_path(self) -> path:
+        """Growth memory database path"""
         return self.memories_dir / "growth_memory.db"
 
     @property
-    def self_memory_db_path(self) -> Path:
-        """自我记忆数据库路径（兼容）"""
+    def self_memory_db_path(self) -> path:
+        """Self memory database path (compatible)"""
         return self.memories_dir / "self_memory_v2.db"
 
     @property
-    def events_db_path(self) -> Path:
-        """事件数据库路径"""
+    def events_db_path(self) -> path:
+        """event database path"""
         return self.data_dir / "events.db"
 
-    def other_file(self, user_id: str) -> Path:
+    def other_file(self, user_id: str) -> path:
         """
-        获取他人记忆文件路径
+        Get others' memory file path
 
         Args:
-            user_id: 用户ID
+            user_id: User id
 
         Returns:
-            他人记忆MD文件路径
+            Others' memory MD file path
         """
-        # 将用户ID转成安全的文件名（替换特殊字符）
+        # Convert user id to safe filename (replace special characters)
         safe_name = user_id.replace("/", "_").replace("\\", "_").replace(":", "_")
         return self.others_dir / f"{safe_name}.md"
 
-    def personality_file(self, name: str) -> Path:
+    def personality_file(self, name: str) -> path:
         """
-        获取人格配置文件路径
+        Get personality configuration file path
 
         Args:
-            name: 人格名称（不含扩展名）
+            name: Personality name (without extension)
 
         Returns:
-            人格配置文件完整路径
+            Full path to personality configuration file
         """
         return self.personalities_dir / f"{name}.md"
 
     def get_personality_path(self, name: str = "default") -> str:
         """
-        获取人格配置文件路径（字符串格式，用于兼容）
+        Get personality configuration file path (string format, for compatibility)
 
         Args:
-            name: 人格名称
+            name: Personality name
 
         Returns:
-            人格目录路径字符串
+            Personality directory path string
         """
         return str(self.personalities_dir)
 
     def initialize_default_personality(self):
         """
-        初始化默认人格配置
+        initialize default personality configuration
 
-        如果运行时目录中没有 default.md，从代码目录复制一份
-        同时确保 current 文件存在（记录当前使用的人格）
+        If there's nottt default.md in runtime directory, copy one from code directory
+        Also ensure current file exists (records currently used personality)
         """
-        # 复制 default.md 模板（如果不存在）
+        # Copy default.md template (if it doesn't exist)
         default_file = self.personality_file("default")
 
-        if not default_file.exists():
-            # 尝试从代码目录复制
+        if notttt default_file.exists():
+            # Try to copy from code directory
             possible_sources = [
-                Path("./personalities/default.md"),
-                Path("./backend/personalities/default.md"),
-                Path(__file__).parent.parent.parent.parent / "personalities" / "default.md",
+                path("./personalities/default.md"),
+                path("./backend/personalities/default.md"),
+                path(__file__).parent.parent.parent.parent / "personalities" / "default.md",
             ]
 
             for source in possible_sources:
@@ -158,23 +158,23 @@ class RuntimePaths:
                     logger.info(f"Copied default personality from {source} to {default_file}")
                     break
             else:
-                logger.warning(f"Could not find default personality to copy to {default_file}")
+                logger.warning(f"Could notttt find default personality to copy to {default_file}")
         else:
             logger.info(f"Default personality exists: {default_file}")
 
-        # 确保 current 文件存在
+        # Ensure current file exists
         current_file = self.personalities_dir / "current"
-        if not current_file.exists():
-            # 尝试从现有的 .md 文件中选择一个人格作为默认
+        if notttt current_file.exists():
+            # Try to select a personality from existing .md files as default
             md_files = list(self.personalities_dir.glob("*.md"))
             valid_personalities = [f.stem for f in md_files if f.stem != "default"]
 
             if valid_personalities:
-                # 使用第一个人格作为默认
+                # Use first personality as default
                 current_file.write_text(valid_personalities[0])
                 logger.info(f"Created current file with personality: {valid_personalities[0]}")
             else:
-                # 如果没有自定义人格，使用 default
+                # If nottt custom personality, use default
                 current_file.write_text("default")
                 logger.info("Created current file with default personality")
         else:
@@ -182,8 +182,8 @@ class RuntimePaths:
             logger.info(f"Current personality: {current_name}")
 
     @property
-    def current_personality_file(self) -> Path:
-        """获取当前人格文件的路径"""
+    def current_personality_file(self) -> path:
+        """Get current personality file path"""
         current_file = self.personalities_dir / "current"
         if current_file.exists():
             name = current_file.read_text().strip()
@@ -192,34 +192,34 @@ class RuntimePaths:
         return self.personality_file(name)
 
 
-# 全局实例
-_runtime_paths: Optional[RuntimePaths] = None
+# Global instance
+_runtime_paths: Optional[Runtimepaths] = None
 
 
-def get_runtime_paths() -> RuntimePaths:
-    """获取全局运行时路径实例"""
+def get_runtime_paths() -> Runtimepaths:
+    """Get global runtime paths instance"""
     global _runtime_paths
     if _runtime_paths is None:
-        _runtime_paths = RuntimePaths()
+        _runtime_paths = Runtimepaths()
     return _runtime_paths
 
 
-def set_runtime_dir(path: str | Path):
+def set_runtime_dir(path: str | path):
     """
-    设置自定义运行时目录
+    Set custom runtime directory
 
     Args:
-        path: 自定义目录路径
+        path: Custom directory path
     """
     global _runtime_paths
-    _runtime_paths = RuntimePaths(Path(path))
+    _runtime_paths = Runtimepaths(path(path))
 
 
 def init_runtime_data():
     """
-    初始化运行时数据
+    initialize runtime data
 
-    在应用启动时调用，确保默认配置存在
+    Call at application startup to ensure default configuration exists
     """
     paths = get_runtime_paths()
     paths.initialize_default_personality()

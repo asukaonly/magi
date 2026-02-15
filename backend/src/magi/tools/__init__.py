@@ -1,9 +1,9 @@
 """
-工具模块
+Tool Module
 
-提供内置工具和工具注册表
-支持 Claude Tool Use API 格式
-支持 Claude Code Skills
+Provides built-in tools and tool registry
+support Claude Tool Use API format
+support Claude Code Skills
 """
 from .schema import (
     Tool,
@@ -11,17 +11,17 @@ from .schema import (
     ToolParameter,
     ToolExecutionContext,
     ToolResult,
-    ParameterType,
+    Parametertype,
 )
 from .registry import ToolRegistry, tool_registry
 from .selector import ToolSelector
 from .context_decider import ContextDecider, ContextDecision
 from .function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
-from .recommender import ToolRecommender, ScenarioType
+from .recommender import ToolRecommender, Scenariotype
 from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
 from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
 
-# 导入内置工具
+# importBuilt-in tools
 from .builtin.bash_tool import BashTool
 from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
@@ -32,13 +32,13 @@ from .builtin.web_search_tool import WebSearchTool
 from .builtin.skills_creator_tool import SkillsCreatorTool
 from .builtin.weather_tool import WeatherTool
 
-# 导入 Skills 模块
+# import Skills module
 from ..skills.indexer import SkillIndexer
 from ..skills.loader import SkillLoader
 from ..skills.executor import SkillExecutor
-from ..skills.schema import SkillMetadata, SkillContent, SkillResult
+from ..skills.schema import Skillmetadata, SkillContent, SkillResult
 
-# 注册所有内置工具
+# Register all built-in tools
 _builtin_tools = [
     BashTool,
     FileReadTool,
@@ -58,50 +58,50 @@ for tool_class in _builtin_tools:
         logging.error(f"Failed to register tool {tool_class.__name__}: {e}")
 
 __all__ = [
-    # 基础类
+    # Base classes
     "Tool",
     "ToolSchema",
     "ToolParameter",
     "ToolExecutionContext",
     "ToolResult",
-    "ParameterType",
+    "Parametertype",
 
-    # 注册表
+    # Registry
     "ToolRegistry",
     "tool_registry",
 
-    # 工具选择器
+    # tool选择器
     "ToolSelector",
 
-    # 上下文决策器
+    # contextDecision器
     "ContextDecider",
     "ContextDecision",
 
-    # 函数调用执行器
+    # Function调用Execute器
     "FunctionCallingExecutor",
     "ToolCall",
     "ToolCallResult",
 
-    # 推荐引擎
+    # recommended引擎
     "ToolRecommender",
-    "ScenarioType",
+    "Scenariotype",
 
-    # 执行计划器
+    # Executeplan器
     "ExecutionPlanner",
     "ExecutionPlan",
     "PlanNode",
     "TaskStatus",
 
-    # 版本管理
+    # version管理
     "ToolVersionManager",
     "ToolVersion",
     "VersionCompatibility",
 
-    # 动态工具
+    # dynamictool
     "DynamicTool",
     "create_dynamic_tool",
 
-    # 内置工具
+    # Built-in tools
     "BashTool",
     "FileReadTool",
     "FileWriteTool",
@@ -115,7 +115,7 @@ __all__ = [
     "SkillIndexer",
     "SkillLoader",
     "SkillExecutor",
-    "SkillMetadata",
+    "Skillmetadata",
     "SkillContent",
     "SkillResult",
 ]

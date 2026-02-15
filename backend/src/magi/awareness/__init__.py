@@ -1,24 +1,24 @@
 """
-自感知模块
+Self-Awareness Module
 
-感知外部世界信息，支持多种传感器和五步感知决策系统
+Perceives external world information, supports multiple sensors and a five-step perception decision system
 """
-from .base import Perception, PerceptionType, TriggerMode
+from .base import Perception, Perceptiontype, TriggerMode
 from .manager import PerceptionManager
 from .sensors import (
     UserMessageSensor,
-    EventSensor,
-    SensorDataSensor,
+    eventSensor,
+    SensordataSensor,
     TimerSensor,
 )
 
 __all__ = [
     "Perception",
-    "PerceptionType",
+    "Perceptiontype",
     "TriggerMode",
     "PerceptionManager",
     "UserMessageSensor",
-    "EventSensor",
-    "SensorDataSensor",
+    "eventSensor",
+    "SensordataSensor",
     "TimerSensor",
 ]

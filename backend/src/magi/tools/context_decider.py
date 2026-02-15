@@ -47,13 +47,13 @@ class ContextDecider:
     Uses LLM to understand intent and match with available tools.
     """
 
-    SYSTEM_PROMPT = """You are a Context Decider, the intelligent router of an autonomous agent system.
+    system_PROMPT = """You are a Context Decider, the intelligent router of an autonotttmous agent system.
 Your SOLE function is to analyze the user's request and output a precise JSON configuration.
 
 ### 1. Response Format
-Respond with a SINGLE valid JSON object. No markdown formatting, no explanations.
+Respond with a SINGLE valid JSON object. No markdown formatting, nottt explanations.
 
-JSON Structure:
+JSON structure:
 {
   "intent": "string",
   "tools": ["string"],
@@ -71,24 +71,24 @@ JSON Structure:
 
 ### 3. Tool vs Skill Selection
 - Tools: Basic operations (file read/write, bash commands)
-- Skills: Complex capabilities with specialized knowledge (start with /)
+- Skills: Complex capabilities with specialized knotttwledge (start with /)
 
 **Prioritize Skills when:**
-- Task requires specialized knowledge or workflows
+- Task requires specialized knotttwledge or workflows
 - User request matches a skill's description
 - External resources or web access needed
 
 **Use Tools when:**
 - Simple file operations (read/write/list)
 - Command execution
-- No specialized knowledge needed
+- No specialized knotttwledge needed
 
 Always check the "Available Skills" section below for skill descriptions and match user requests accordingly.
 
 ### 4. Deep Thinking Threshold
 Set "deep_thinking": true for:
 - Architecture design or multi-file refactoring
-- Complex bug diagnosis requiring reasoning chains
+- Complex bug diagnotttsis requiring reasoning chains
 - Multi-step planning (more than 3 steps)
 - Creative writing or roleplay scenarios
 - Code review with modification suggestions
@@ -96,7 +96,7 @@ Set "deep_thinking": true for:
 Set "deep_thinking": false for:
 - Simple CRUD operations
 - Single file read/write
-- Information queries (weather, time)
+- information queries (weather, time)
 - Casual chat
 - Executing explicit instructions (user provided steps)
 
@@ -109,12 +109,12 @@ User: "what's the weather in tokyo"
 JSON: {"intent": "realtime_query", "tools": ["bash"], "deep_thinking": false, "reasoning": "Real-time weather query. Use bash curl or check for web-related skills."}
 
 User: "read /src/main.py and fix the race condition"
-JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_thinking": true, "reasoning": "Complex bug diagnosis required."}
+JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_thinking": true, "reasoning": "Complex bug diagnotttsis required."}
 
 User: "list files in current dir"
 JSON: {"intent": "file_operation", "tools": ["file_list"], "deep_thinking": false, "reasoning": "Simple single-step action."}
 
-Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If no matching skill exists, use basic tools."""
+Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If nottt matching skill exists, use basic tools."""
 
     def __init__(
         self,
@@ -123,7 +123,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         max_tools: int = 5,
     ):
         """
-        Initialize the Context Decider
+        initialize the Context Decider
 
         Args:
             tool_registry: Tool registry instance
@@ -145,18 +145,18 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
 
         Args:
             user_message: User's message
-            context: Additional context (environment info, etc.)
+            context: additional context (environment info, etc.)
 
         Returns:
             ContextDecision with selected tools
         """
-        if not self.llm:
-            logger.warning("[ContextDecider] LLM not available")
+        if notttt self.llm:
+            logger.warning("[ContextDecider] LLM notttt available")
             return ContextDecision(
-                intent="unknown",
+                intent="unknotttwn",
                 tools=[],
                 deep_thinking=False,
-                reasoning="LLM not available",
+                reasoning="LLM notttt available",
             )
 
         # Get available tools
@@ -177,14 +177,14 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 llm_logger,
                 request_id=request_id,
                 model=self.llm.model_name,
-                system_prompt=self.SYSTEM_PROMPT,
+                system_prompt=self.system_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
                 max_tokens=300,
                 temperature=0.3,
             )
 
             response = await self.provider_bridge.chat(
-                system_prompt=self.SYSTEM_PROMPT,
+                system_prompt=self.system_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
                 max_tokens=1000,
                 temperature=0.3,
@@ -192,7 +192,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             )
 
             # Check if response is empty or incomplete
-            if not response or not response.strip():
+            if notttt response or notttt response.strip():
                 logger.warning("[ContextDecider] LLM returned empty response, using rule-based fallback")
                 return self._rule_based_fallback(user_message)
 
@@ -228,7 +228,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 intent="error",
                 tools=[],
                 deep_thinking=False,
-                reasoning=f"Error: {str(e)}",
+                reasoning=f"error: {str(e)}",
             )
 
     def _get_available_tools(self) -> List[Dict[str, Any]]:
@@ -256,7 +256,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
 """
 
         for tool in available_tools:
-            name = tool.get("name", "unknown")
+            name = tool.get("name", "unknotttwn")
             desc = tool.get("description", "No description")
             prompt += f"- {name}: {desc}\n"
 
@@ -299,10 +299,10 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         response = response.strip()
 
         # Handle empty response
-        if not response:
+        if notttt response:
             logger.warning("[ContextDecider] Empty LLM response")
             return ContextDecision(
-                intent="unknown",
+                intent="unknotttwn",
                 tools=[],
                 deep_thinking=False,
                 reasoning="Empty LLM response",
@@ -312,20 +312,20 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         if response == "{" or response == "{}":
             logger.warning(f"[ContextDecider] Incomplete LLM response: {response}")
             return ContextDecision(
-                intent="unknown",
+                intent="unknotttwn",
                 tools=[],
                 deep_thinking=False,
                 reasoning="Incomplete LLM response",
             )
 
         # Try to extract JSON - multiple patterns
-        # Pattern 1: Standard nested JSON
-        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+        # pattern 1: Standard nested JSON
+        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTall)
 
-        # Pattern 2: If pattern 1 fails, try to find any JSON-like structure
-        if not json_match:
+        # pattern 2: If pattern 1 fails, try to find any JSON-like structure
+        if notttt json_match:
             # Try to find JSON that starts with { and ends with }
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            json_match = re.search(r'\{.*\}', response, re.DOTall)
 
         if json_match:
             try:
@@ -333,10 +333,10 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 data = json.loads(json_str)
 
                 # Validate required fields
-                if not isinstance(data, dict):
-                    raise ValueError("Response is not a JSON object")
+                if notttt isinstance(data, dict):
+                    raise Valueerror("Response is notttt a JSON object")
 
-                intent = data.get("intent", "unknown")
+                intent = data.get("intent", "unknotttwn")
                 tools = data.get("tools", [])
                 deep_thinking = data.get("deep_thinking", False)
                 reasoning = data.get("reasoning", "")
@@ -356,15 +356,15 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                     deep_thinking=deep_thinking,
                     reasoning=reasoning,
                 )
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeerror as e:
                 logger.warning(f"[ContextDecider] JSON decode error: {e}")
-            except ValueError as e:
+            except Valueerror as e:
                 logger.warning(f"[ContextDecider] Invalid response structure: {e}")
 
-        # Fallback: no tools selected
+        # Fallback: nottt tools selected
         logger.warning(f"[ContextDecider] Failed to parse response: {response[:200]}")
         return ContextDecision(
-            intent="unknown",
+            intent="unknotttwn",
             tools=[],
             deep_thinking=False,
             reasoning="Failed to parse LLM response",
@@ -381,7 +381,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         intent = "chat"
 
         # Real-time queries (weather, news, stocks)
-        if any(kw in user_lower for kw in ["天气", "weather", "气温", "温度", "news", "新闻", "股票", "stock", "汇率", "exchange rate"]):
+        if any(kw in user_lower for kw in ["days气", "weather", "气温", "temperature", "news", "new闻", "股票", "stock", "汇率", "exchange rate"]):
             # Check if web-search is available
             available_tools = self.tool_registry.list_tools()
             if "web-search" in available_tools:
@@ -391,24 +391,24 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             intent = "realtime_query"
 
         # File operations
-        if any(kw in user_lower for kw in ["读取文件", "read file", "查看文件", "打开文件", "文件内容"]):
+        if any(kw in user_lower for kw in ["读取file", "read file", "查看file", "打开file", "fileContent"]):
             tools.append("file_read")
             intent = "file_read"
-        if any(kw in user_lower for kw in ["写入文件", "write file", "保存文件", "创建文件"]):
+        if any(kw in user_lower for kw in ["写入file", "write file", "savefile", "createfile"]):
             tools.append("file_write")
             intent = "file_write"
-        if any(kw in user_lower for kw in ["列出目录", "list file", "查看目录", "ls", "文件夹"]):
+        if any(kw in user_lower for kw in ["column出directory", "list file", "查看directory", "ls", "file夹"]):
             tools.append("file_list")
             intent = "file_list"
 
         # Bash operations
-        if any(kw in user_lower for kw in ["执行命令", "运行命令", "bash", "shell", "命令行"]):
+        if any(kw in user_lower for kw in ["Executecommand", "runcommand", "bash", "shell", "commandrow"]):
             tools.append("bash")
             intent = "command_execution"
 
         # Screenshot/browser
-        if any(kw in user_lower for kw in ["截图", "screenshot", "网页", "website", "浏览器"]):
-            if "截图" in user_lower or "screenshot" in user_lower:
+        if any(kw in user_lower for kw in ["截graph", "screenshot", "网页", "website", "浏览器"]):
+            if "截graph" in user_lower or "screenshot" in user_lower:
                 tools.append("bash")  # Use bash for screenshot
             intent = "web_interaction"
 

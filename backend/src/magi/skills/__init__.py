@@ -7,7 +7,7 @@ Implements the skill system with on-demand loading:
 3. Executor - Execute skills with proper context injection
 """
 from .schema import (
-    SkillMetadata,
+    Skillmetadata,
     SkillFrontmatter,
     SkillContent,
     SkillResult,
@@ -18,7 +18,7 @@ from .executor import SkillExecutor
 
 __all__ = [
     # Schema
-    "SkillMetadata",
+    "Skillmetadata",
     "SkillFrontmatter",
     "SkillContent",
     "SkillResult",

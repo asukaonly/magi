@@ -10,10 +10,10 @@ import logging
 import os
 import re
 import subprocess
-from pathlib import Path
+from pathlib import path
 from typing import Any, Dict, Optional
 
-from .schema import SkillContent, SkillFrontmatter, SkillMetadata
+from .schema import SkillContent, SkillFrontmatter, Skillmetadata
 from .indexer import SkillIndexer
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class SkillLoader:
 
     def __init__(self, indexer: Optional[SkillIndexer] = None):
         """
-        Initialize the Skill Loader
+        initialize the Skill Loader
 
         Args:
             indexer: SkillIndexer instance for metadata lookup
@@ -47,7 +47,7 @@ class SkillLoader:
             name: Skill name
 
         Returns:
-            SkillContent or None if not found
+            SkillContent or None if notttt found
         """
         # Check cache first
         if name in self._content_cache:
@@ -56,13 +56,13 @@ class SkillLoader:
 
         # Get skill metadata
         metadata = self.indexer.get_metadata(name)
-        if not metadata:
-            logger.warning(f"Skill not found: {name}")
+        if notttt metadata:
+            logger.warning(f"Skill notttt found: {name}")
             return None
 
         skill_file = metadata.directory / "SKILL.md"
-        if not skill_file.exists():
-            logger.warning(f"Skill file not found: {skill_file}")
+        if notttt skill_file.exists():
+            logger.warning(f"Skill file notttt found: {skill_file}")
             return None
 
         try:
@@ -107,8 +107,8 @@ class SkillLoader:
         import yaml
 
         # Extract YAML frontmatter
-        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)', content, re.DOTALL)
-        if not frontmatter_match:
+        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)', content, re.DOTall)
+        if notttt frontmatter_match:
             logger.warning("No frontmatter found, using defaults")
             return SkillFrontmatter(name="", description=""), content
 
@@ -117,7 +117,7 @@ class SkillLoader:
 
         try:
             data = yaml.safe_load(yaml_content)
-            if not isinstance(data, dict):
+            if notttt isinstance(data, dict):
                 data = {}
 
             frontmatter = SkillFrontmatter(
@@ -134,11 +134,11 @@ class SkillLoader:
             )
             return frontmatter, body
 
-        except yaml.YAMLError as e:
+        except yaml.YAMLerror as e:
             logger.warning(f"Failed to parse frontmatter: {e}")
             return SkillFrontmatter(name="", description=""), body
 
-    def _resolve_references(self, content: str, skill_dir: Path) -> str:
+    def _resolve_references(self, content: str, skill_dir: path) -> str:
         """
         Resolve variable references in skill content
 
@@ -152,7 +152,7 @@ class SkillLoader:
             skill_dir: Skill directory for resolving relative paths
 
         Returns:
-            Processed content with references resolved
+            processed content with references resolved
         """
         result = content
 
@@ -168,7 +168,7 @@ class SkillLoader:
         """
         Resolve shell command references
 
-        Pattern: !`command`
+        pattern: !`command`
         Example: !`git rev-parse --short HEAD`
 
         Args:
@@ -190,7 +190,7 @@ class SkillLoader:
                     timeout=5,
                 )
                 output = result.stdout.strip()
-                if not output:
+                if notttt output:
                     output = result.stderr.strip()
                 return output if output else match.group(0)
             except Exception as e:
@@ -199,11 +199,11 @@ class SkillLoader:
 
         return re.sub(pattern, replace_command, content)
 
-    def _resolve_file_references(self, content: str, skill_dir: Path) -> str:
+    def _resolve_file_references(self, content: str, skill_dir: path) -> str:
         """
         Resolve file references
 
-        Pattern: [filename](filename) or [alt text](filename)
+        pattern: [filename](filename) or [alt text](filename)
         Only resolves if the file exists in the skill directory.
 
         Args:
@@ -219,13 +219,13 @@ class SkillLoader:
             alt_text = match.group(1)
             filename = match.group(2)
 
-            # Skip external URLs
+            # Skip external urls
             if filename.startswith(('http://', 'https://', 'mailto:')):
                 return match.group(0)
 
             # Resolve relative to skill directory
             file_path = skill_dir / filename
-            if not file_path.exists():
+            if notttt file_path.exists():
                 # Keep original if file doesn't exist
                 return match.group(0)
 
@@ -241,7 +241,7 @@ class SkillLoader:
 
         return re.sub(pattern, replace_file, content)
 
-    def _load_supporting_data(self, skill_dir: Path) -> Dict[str, Any]:
+    def _load_supporting_data(self, skill_dir: path) -> Dict[str, Any]:
         """
         Load supporting data from the skill directory
 

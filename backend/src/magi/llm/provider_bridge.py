@@ -14,7 +14,7 @@ from .anthropic import AnthropicAdapter
 
 @dataclass
 class ProviderToolCall:
-    """Normalized tool call returned by a provider."""
+    """notttrmalized tool call returned by a provider."""
     id: str
     name: str
     arguments: Dict[str, Any]
@@ -22,7 +22,7 @@ class ProviderToolCall:
 
 @dataclass
 class ProviderResponse:
-    """Normalized response returned by a provider."""
+    """notttrmalized response returned by a provider."""
     content: str = ""
     tool_calls: List[ProviderToolCall] = None
     assistant_message: Dict[str, Any] | None = None
@@ -58,7 +58,7 @@ class LLMProviderBridge:
         disable_thinking: bool = True,
     ) -> str:
         """
-        Unified non-tool chat call with system prompt.
+        Unified notttn-tool chat call with system prompt.
         """
         if self.is_anthropic():
             response = await self.llm._client.messages.create(
@@ -73,7 +73,7 @@ class LLMProviderBridge:
         full_messages = [{"role": "system", "content": system_prompt}] + messages
         kwargs: Dict[str, Any] = {}
         if self.is_glm():
-            # GLM thinking flag is provider-specific; bridge normalizes by behavior intent.
+            # GLM thinking flag is provider-specific; bridge notttrmalizes by behavior intent.
             extra_body: Dict[str, Any] = {}
             if disable_thinking:
                 extra_body["thinking"] = {"type": "disabled"}
@@ -201,7 +201,7 @@ class LLMProviderBridge:
                 if tc.function.arguments:
                     try:
                         arguments = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeerror:
                         arguments = {"raw": tc.function.arguments}
 
                 tool_calls.append(ProviderToolCall(

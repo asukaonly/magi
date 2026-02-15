@@ -1,5 +1,5 @@
 """
-LLM适配器 - OpenAI实现
+LLMAdapter - OpenAIImplementation
 """
 import asyncio
 from typing import Optional, Dict, Any, AsyncIterator, List
@@ -9,17 +9,17 @@ from .base import LLMAdapter
 
 class OpenAIAdapter(LLMAdapter):
     """
-    OpenAI API适配器
+    OpenAI APIAdapter
 
-    支持的模型：
+    support的model：
     - GPT-4
     - GPT-4 Turbo
     - GPT-3.5 Turbo
     - Embeddings (text-embedding-3-small, text-embedding-3-large)
     """
 
-    # 默认的embedding模型
-    DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+    # default的embeddingmodel
+    DEFAULT_EMBEDDING_MOdel = "text-embedding-3-small"
 
     def __init__(
         self,
@@ -31,20 +31,20 @@ class OpenAIAdapter(LLMAdapter):
         timeout: int = 60,
     ):
         """
-        初始化OpenAI适配器
+        initializeOpenAIAdapter
 
         Args:
-            api_key: OpenAI API密钥
-            model: 模型名称
-            base_url: 自定义API endpoint（可选，如使用代理或中转服务）
-            api_base: 兼容旧配置，等同于base_url
-            timeout: 请求超时时间（秒）
+            api_key: OpenAI APIkey
+            model: modelName
+            base_url: customAPI endpoint（optional，如使用proxy或中转service）
+            api_base: compatibleoldConfiguration，等同于base_url
+            timeout: requesttimeout时间（seconds）
         """
         self._model = model
         self._timeout = timeout
         self._provider = provider.lower()
 
-        # 优先使用base_url，否则使用api_base（兼容旧配置）
+        # 优先使用base_url，nottt则使用api_base（compatibleoldConfiguration）
         api_endpoint = base_url or api_base
 
         client_kwargs = {"api_key": api_key, "timeout": timeout}
@@ -52,7 +52,7 @@ class OpenAIAdapter(LLMAdapter):
             client_kwargs["base_url"] = api_endpoint
 
         self._client = AsyncOpenAI(**client_kwargs)
-        self._embedding_model = self.DEFAULT_EMBEDDING_MODEL
+        self._embedding_model = self.DEFAULT_EMBEDDING_MOdel
 
     async def generate(
         self,
@@ -64,25 +64,25 @@ class OpenAIAdapter(LLMAdapter):
         **kwargs
     ) -> str:
         """
-        生成文本（非流式）
+        generation文本（非流式）
 
         Args:
-            prompt: 输入提示
-            max_tokens: 最大token数
-            temperature: 温度参数
-            system_prompt: 系统提示（可选）
-            json_mode: 是否启用JSON模式（强制返回有效JSON）
-            **kwargs: 其他参数（传递给OpenAI API）
+            prompt: Inputprompt
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter
+            system_prompt: 系统prompt（optional）
+            json_mode: is nottttEnableJSONpattern（强制ReturnvalidJSON）
+            **kwargs: otherParameter（传递给OpenAI API）
 
         Returns:
-            str: 生成的文本
+            str: generation的文本
         """
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        # JSON mode: 强制返回有效JSON
+        # JSON mode: 强制ReturnvalidJSON
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
@@ -130,17 +130,17 @@ class OpenAIAdapter(LLMAdapter):
             elif hasattr(response, 'dict'):
                 _logger.debug(f"[GLM] Full response dict: {response.dict()}")
         except Exception as e:
-            _logger.debug(f"[GLM] Could not serialize response: {e}")
+            _logger.debug(f"[GLM] Could notttt serialize response: {e}")
         if hasattr(message, 'reasoning_content'):
             _logger.debug(f"[GLM] reasoning_content: {repr(message.reasoning_content[:200] if message.reasoning_content else message.reasoning_content)}")
 
         # Check for reasoning_content (GLM thinking mode)
-        if not content and hasattr(message, 'reasoning_content') and message.reasoning_content:
+        if notttt content and hasattr(message, 'reasoning_content') and message.reasoning_content:
             content = message.reasoning_content
             _logger.info("GLM thinking mode detected, using reasoning_content")
 
         # Debug: log the response structure when content is empty or incomplete
-        if not content or content == "{":
+        if notttt content or content == "{":
             _logger.warning(f"[GLM] Incomplete/empty content: {repr(content)}")
             _logger.warning(f"[GLM] Full response: {response}")
             _logger.warning(f"[GLM] Choice: {response.choices[0]}")
@@ -160,16 +160,16 @@ class OpenAIAdapter(LLMAdapter):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        生成文本（流式）
+        generation文本（流式）
 
         Args:
-            prompt: 输入提示
-            max_tokens: 最大token数
-            temperature: 温度参数
-            **kwargs: 其他参数
+            prompt: Inputprompt
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter
+            **kwargs: otherParameter
 
         Yields:
-            str: 生成的文本片段
+            str: generation的文本片段
         """
         stream = await self._client.chat.completions.create(
             model=self._model,
@@ -192,16 +192,16 @@ class OpenAIAdapter(LLMAdapter):
         **kwargs
     ) -> str:
         """
-        对话生成（非流式）
+        dialoguegeneration（非流式）
 
         Args:
-            messages: 对话历史
-            max_tokens: 最大token数
-            temperature: 温度参数
-            **kwargs: 其他参数
+            messages: dialoguehistory
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter
+            **kwargs: otherParameter
 
         Returns:
-            str: 助手的回复
+            str: 助手的response
         """
         response = await self._client.chat.completions.create(
             model=self._model,
@@ -215,7 +215,7 @@ class OpenAIAdapter(LLMAdapter):
         message = response.choices[0].message
         content = message.content or ""
 
-        if not content and hasattr(message, 'reasoning_content') and message.reasoning_content:
+        if notttt content and hasattr(message, 'reasoning_content') and message.reasoning_content:
             content = message.reasoning_content
 
         return content or ""
@@ -228,16 +228,16 @@ class OpenAIAdapter(LLMAdapter):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        对话生成（流式）
+        dialoguegeneration（流式）
 
         Args:
-            messages: 对话历史
-            max_tokens: 最大token数
-            temperature: 温度参数
-            **kwargs: 其他参数
+            messages: dialoguehistory
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter
+            **kwargs: otherParameter
 
         Yields:
-            str: 生成的文本片段
+            str: generation的文本片段
         """
         stream = await self._client.chat.completions.create(
             model=self._model,
@@ -254,20 +254,20 @@ class OpenAIAdapter(LLMAdapter):
 
     @property
     def model_name(self) -> str:
-        """获取模型名称"""
+        """getmodelName"""
         return self._model
 
     @property
     def provider_name(self) -> str:
-        """获取提供商名称"""
+        """get提供商Name"""
         return self._provider
 
     def set_embedding_model(self, model: str):
         """
-        设置嵌入模型
+        Settingembeddingmodel
 
         Args:
-            model: 模型名称（如 text-embedding-3-small）
+            model: modelName（如 text-embedding-3-small）
         """
         self._embedding_model = model
 
@@ -277,16 +277,16 @@ class OpenAIAdapter(LLMAdapter):
         model: Optional[str] = None,
     ) -> Optional[List[float]]:
         """
-        获取文本的嵌入向量
+        get文本的embeddingvector
 
         Args:
-            text: 输入文本
-            model: 嵌入模型名称（可选，默认使用预设的embedding模型）
+            text: Input文本
+            model: embeddingmodelName（optional，default使用预设的embeddingmodel）
 
         Returns:
-            向量嵌入
+            vectorembedding
         """
-        if not text or not text.strip():
+        if notttt text or notttt text.strip():
             return None
 
         embedding_model = model or self._embedding_model
@@ -308,30 +308,30 @@ class OpenAIAdapter(LLMAdapter):
         model: Optional[str] = None,
     ) -> List[Optional[List[float]]]:
         """
-        批量获取嵌入向量
+        批量getembeddingvector
 
         Args:
-            texts: 输入文本列表
-            model: 嵌入模型名称（可选）
+            texts: Input文本list
+            model: embeddingmodelName（optional）
 
         Returns:
-            向量嵌入列表
+            vectorembeddinglist
         """
-        # 过滤空文本
+        # filter空文本
         valid_texts = [(i, t) for i, t in enumerate(texts) if t and t.strip()]
-        if not valid_texts:
+        if notttt valid_texts:
             return [None] * len(texts)
 
         embedding_model = model or self._embedding_model
 
         try:
-            # OpenAI支持批量请求
+            # OpenAIsupport批量request
             response = await self._client.embeddings.create(
                 model=embedding_model,
                 input=[t for _, t in valid_texts],
             )
 
-            # 构建结果
+            # buildResult
             result = [None] * len(texts)
             for (i, _), embedding in zip(valid_texts, response.data):
                 result[i] = embedding.embedding
@@ -341,21 +341,21 @@ class OpenAIAdapter(LLMAdapter):
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to get embeddings: {e}")
-            # 失败时逐个获取
+            # failure时逐个get
             return [await self.get_embedding(t, model) for t in texts]
 
     @property
     def supports_embeddings(self) -> bool:
-        """是否支持嵌入向量"""
+        """is nottttsupportembeddingvector"""
         return True
 
     @property
     def embedding_dimension(self) -> int:
         """
-        获取当前嵌入模型的向量维度
+        getcurrentembeddingmodel的vectordimension
 
         Returns:
-            向量维度
+            vectordimension
         """
         dimensions = {
             "text-embedding-3-small": 1536,

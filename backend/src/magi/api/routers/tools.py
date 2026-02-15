@@ -1,7 +1,7 @@
 """
-工具管理API路由
+Tool Management API Router
 
-提供工具的列表、详情、测试等功能
+Provides tool listing, details, testing and other functions
 """
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 tools_router = APIRouter()
 
 
-# ============ 数据模型 ============
+# ============ data Models ============
 
 class ToolResponse(BaseModel):
-    """工具响应"""
+    """Tool response"""
 
     name: str
     description: str
@@ -27,12 +27,12 @@ class ToolResponse(BaseModel):
 
 
 class ToolTestRequest(BaseModel):
-    """工具测试请求"""
+    """Tool test request"""
 
-    parameters: Dict[str, Any] = Field(default_factory=dict, description="测试参数")
+    parameters: Dict[str, Any] = Field(default_factory=dict, description="Test parameters")
 
 
-# ============ 内存存储（开发用） ============
+# ============ In-memory Storage (for development) ============
 
 _tools_store: Dict[str, Dict] = {
     "web_search": {
@@ -89,7 +89,7 @@ _tools_store: Dict[str, Dict] = {
 }
 
 
-# ============ API端点 ============
+# ============ API Endpoints ============
 
 @tools_router.get("/", response_model=List[ToolResponse])
 async def list_tools(
@@ -98,23 +98,23 @@ async def list_tools(
     offset: int = 0,
 ):
     """
-    获取工具列表
+    Get tool list
 
     Args:
-        category: 过滤工具分类
-        limit: 返回数量限制
-        offset: 偏移量
+        category: Filter tool category
+        limit: Return quantity limit
+        offset: Offset
 
     Returns:
-        工具列表
+        Tool list
     """
     tools = list(_tools_store.values())
 
-    # 过滤
+    # Filter
     if category:
         tools = [t for t in tools if t["category"] == category]
 
-    # 分页
+    # Pagination
     tools = tools[offset:offset + limit]
 
     return tools
@@ -123,18 +123,18 @@ async def list_tools(
 @tools_router.get("/{tool_name}", response_model=ToolResponse)
 async def get_tool(tool_name: str):
     """
-    获取工具详情
+    Get tool details
 
     Args:
-        tool_name: 工具名称
+        tool_name: Tool name
 
     Returns:
-        工具详情
+        Tool details
     """
-    if tool_name not in _tools_store:
+    if tool_name notttt in _tools_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_name} not found",
+            detail=f"Tool {tool_name} notttt found",
         )
 
     return _tools_store[tool_name]
@@ -143,22 +143,22 @@ async def get_tool(tool_name: str):
 @tools_router.post("/{tool_name}/test")
 async def test_tool(tool_name: str, request: ToolTestRequest):
     """
-    测试工具
+    Test tool
 
     Args:
-        tool_name: 工具名称
-        request: 测试请求
+        tool_name: Tool name
+        request: Test request
 
     Returns:
-        测试结果
+        Test result
     """
-    if tool_name not in _tools_store:
+    if tool_name notttt in _tools_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_name} not found",
+            detail=f"Tool {tool_name} notttt found",
         )
 
-    # TODO: 实际执行工具测试
+    # TODO: Actual tool test execution
     logger.info(f"Testing tool: {tool_name} with params: {request.parameters}")
 
     return {
@@ -175,10 +175,10 @@ async def test_tool(tool_name: str, request: ToolTestRequest):
 @tools_router.get("/categories/list")
 async def list_tool_categories():
     """
-    获取工具分类列表
+    Get tool category list
 
     Returns:
-        工具分类列表
+        Tool category list
     """
     categories = set(t["category"] for t in _tools_store.values())
 
@@ -191,10 +191,10 @@ async def list_tool_categories():
 @tools_router.get("/export/claude")
 async def export_tools_claude_format():
     """
-    导出工具定义为 Claude Tool Use API 格式
+    Export tool definitions in Claude Tool Use API format
 
     Returns:
-        Claude tools API 格式的工具定义列表
+        List of tool definitions in Claude tools API format
     """
     from ...tools import tool_registry
 
@@ -211,13 +211,13 @@ async def export_tools_claude_format():
 @tools_router.post("/import/claude")
 async def import_tools_claude_format(tools: List[Dict[str, Any]]):
     """
-    从 Claude Tool Use API 格式导入工具
+    Import tools from Claude Tool Use API format
 
     Args:
-        tools: Claude 格式的工具定义列表
+        tools: List of tool definitions in Claude format
 
     Returns:
-        导入结果
+        Import result
     """
     from ...tools import tool_registry
 
@@ -226,15 +226,15 @@ async def import_tools_claude_format(tools: List[Dict[str, Any]]):
 
     for tool_def in tools:
         try:
-            # 创建动态工具的执行器
+            # Create dynamic tool executor
             async def executor(name, params):
-                # 这里只是一个占位符，实际使用时需要提供真实的执行逻辑
+                # This is just a placeholder, actual usage requires providing real execution logic
                 return f"Tool {name} executed with params: {params}"
 
             from ...tools.builtin import create_dynamic_tool
 
             dynamic_tool = create_dynamic_tool(
-                name=tool_def.get("name", "unknown"),
+                name=tool_def.get("name", "unknotttwn"),
                 description=tool_def.get("description", ""),
                 parameters=tool_def.get("input_schema", {}).get("properties", []),
                 executor=executor,
@@ -245,7 +245,7 @@ async def import_tools_claude_format(tools: List[Dict[str, Any]]):
 
         except Exception as e:
             failed.append({
-                "name": tool_def.get("name", "unknown"),
+                "name": tool_def.get("name", "unknotttwn"),
                 "error": str(e)
             })
 

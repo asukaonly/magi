@@ -31,7 +31,7 @@ class ToolSelector:
     """
 
     # System prompt defining the selector's role and behavior
-    SYSTEM_PROMPT = """You are a Tool Selector. Your ONLY job is to decide if a tool should be used and which one.
+    system_PROMPT = """You are a Tool Selector. Your ONLY job is to decide if a tool should be used and which one.
 
 You must respond with a SINGLE valid JSON object. No other text. No markdown code blocks. No thinking aloud.
 
@@ -56,7 +56,7 @@ Examples of use_tool=true:
 - "Create file test.txt with content hello" → {"use_tool": true, "tool_name": "file_write", "parameters": {"path": "test.txt", "content": "hello"}, "reasoning": "create file"}
 - "Check disk usage" → {"use_tool": true, "tool_name": "bash", "parameters": {"command": "df -h"}, "reasoning": "check disk"}
 
-IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no code blocks.
+importANT: Respond ONLY with the JSON object. No explanations, nottt markdown, nottt code blocks.
 """
 
     def __init__(
@@ -65,7 +65,7 @@ IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no c
         llm_adapter: Optional[LLMAdapter] = None,
     ):
         """
-        Initialize the Tool Selector
+        initialize the Tool Selector
 
         Args:
             tool_registry: Tool registry instance
@@ -91,13 +91,13 @@ IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no c
 
         Args:
             user_message: User's message
-            context: Additional context information
+            context: additional context information
 
         Returns:
-            Tool decision dict with keys: tool, parameters, reasoning, or None if no tool needed
+            Tool decision dict with keys: tool, parameters, reasoning, or None if nottt tool needed
         """
-        if not self.llm:
-            logger.warning("[ToolSelector] LLM not available, cannot perform intelligent selection")
+        if notttt self.llm:
+            logger.warning("[ToolSelector] LLM notttt available, cannotttt perform intelligent selection")
             return None
 
         # Get available tools info for the LLM
@@ -107,7 +107,7 @@ IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no c
         user_prompt = self._build_selection_prompt(user_message, available_tools, context)
 
         try:
-            # Generate request ID for tracking
+            # Generate request id for tracking
             request_id = str(uuid.uuid4())[:8]
             start_time = time.time()
 
@@ -116,7 +116,7 @@ IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no c
                 llm_logger,
                 request_id=request_id,
                 model=self.llm.model_name,
-                system_prompt="",  # System instructions are now inline in the prompt
+                system_prompt="",  # System instructions are notttw inline in the prompt
                 messages=[{"role": "user", "content": user_prompt}],
                 max_tokens=500,
                 temperature=0.3
@@ -165,7 +165,7 @@ IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no c
             duration_ms = int((time.time() - start_time) * 1000) if 'start_time' in locals() else 0
             log_llm_response(
                 llm_logger,
-                request_id=request_id if 'request_id' in locals() else "unknown",
+                request_id=request_id if 'request_id' in locals() else "unknotttwn",
                 response="",
                 success=False,
                 error=str(e),
@@ -185,7 +185,7 @@ IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no c
 
         descriptions = []
         for tool in tools_info:
-            name = tool.get("name", "unknown")
+            name = tool.get("name", "unknotttwn")
             desc = tool.get("description", "No description")
             tool_type = tool.get("type", "tool")
             params = tool.get("parameters", [])
@@ -227,10 +227,10 @@ IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no c
 
     def get_tools_for_claude(self) -> List[Dict[str, Any]]:
         """
-        获取 Claude Tool Use API 格式的工具列表
+        get Claude Tool Use API format的toollist
 
         Returns:
-            Claude tools API 格式的工具定义列表
+            Claude tools API format的tool定义list
         """
         return self.tool_registry.export_to_claude_format()
 
@@ -248,7 +248,7 @@ IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no c
         Args:
             user_message: User's message
             tools_description: Description of available tools
-            context: Additional context (including environment info)
+            context: additional context (including environment info)
 
         Returns:
             The complete prompt
@@ -259,11 +259,11 @@ IMPORTANT: Respond ONLY with the JSON object. No explanations, no markdown, no c
 Format: {{"use_tool": true/false, "tool_name": "name or null", "parameters": {{}}, "reasoning": "explanation"}}
 
 Rules:
-- use_tool=false for greetings, questions, chat (no tool needed)
+- use_tool=false for greetings, questions, chat (nottt tool needed)
 - use_tool=true only for actions requiring tools
 - tool_name must exactly match an available tool
 - extract parameters from the user request
-- IMPORTANT: Use the environment info below to resolve paths correctly
+- importANT: Use the environment info below to resolve paths correctly
 """
 
         # Add environment context if available
@@ -272,7 +272,7 @@ Rules:
             if "os" in context:
                 os_name = context["os"]
                 if os_name == "Darwin":
-                    env_info.append(f"- macOS system (user home is /Users/username, not /home/username)")
+                    env_info.append(f"- macOS system (user home is /Users/username, notttt /home/username)")
                 elif os_name == "Linux":
                     env_info.append(f"- Linux system (user home is /home/username)")
                 elif os_name == "Windows":
@@ -319,11 +319,11 @@ Respond with ONLY the JSON object.
 
         # Add other context if available (but keep it brief)
         if context:
-            # Only include non-environment context keys
+            # Only include notttn-environment context keys
             env_keys = {"os", "os_version", "current_user", "home_dir", "current_dir"}
-            other_context = {k: v for k, v in context.items() if k not in env_keys}
+            other_context = {k: v for k, v in context.items() if k notttt in env_keys}
             if other_context:
-                prompt += f"\n## Additional Context\n\n{json.dumps(other_context)}\n"
+                prompt += f"\n## additional Context\n\n{json.dumps(other_context)}\n"
 
         return prompt
 
@@ -341,20 +341,20 @@ Respond with ONLY the JSON object.
             response: Raw LLM response string
 
         Returns:
-            Parsed decision dict with normalized field names
+            Parsed decision dict with notttrmalized field names
         """
         try:
             response = response.strip()
 
             # Extract JSON from response (handle markdown, extra text, etc.)
             extracted = self._extract_json(response)
-            if not extracted:
-                logger.warning(f"[ToolSelector] Could not extract JSON from response")
+            if notttt extracted:
+                logger.warning(f"[ToolSelector] Could notttt extract JSON from response")
                 logger.debug(f"[ToolSelector] Raw response: {response[:500]}")
                 return None
 
-            # Normalize different field names to our standard format
-            decision = self._normalize_decision(extracted)
+            # notttrmalize different field names to our standard format
+            decision = self._notttrmalize_decision(extracted)
 
             if self._validate_decision(decision):
                 return decision
@@ -363,7 +363,7 @@ Respond with ONLY the JSON object.
             return None
 
         except Exception as e:
-            logger.error(f"[ToolSelector] Error parsing LLM response: {e}")
+            logger.error(f"[ToolSelector] error parsing LLM response: {e}")
             logger.debug(f"[ToolSelector] Raw response: {response[:500]}")
             return None
 
@@ -377,13 +377,13 @@ Respond with ONLY the JSON object.
         Returns:
             Extracted JSON dict or None
         """
-        # Strategy 1: Try direct JSON parse
+        # strategy 1: Try direct JSON parse
         try:
             return json.loads(response)
-        except json.JSONDecodeError:
+        except json.JSONDecodeerror:
             pass
 
-        # Strategy 2: Remove markdown code blocks
+        # strategy 2: Remove markdown code blocks
         cleaned = response
         if cleaned.startswith("```json"):
             cleaned = cleaned[7:]
@@ -395,24 +395,24 @@ Respond with ONLY the JSON object.
 
         try:
             return json.loads(cleaned)
-        except json.JSONDecodeError:
+        except json.JSONDecodeerror:
             pass
 
-        # Strategy 3: Find first valid JSON object
+        # strategy 3: Find first valid JSON object
         json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
-        matches = re.findall(json_pattern, response, re.DOTALL)
+        matches = re.findall(json_pattern, response, re.DOTall)
 
         for match in matches:
             try:
                 return json.loads(match)
-            except json.JSONDecodeError:
+            except json.JSONDecodeerror:
                 continue
 
         return None
 
-    def _normalize_decision(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+    def _notttrmalize_decision(self, raw: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Normalize different JSON formats to our standard format
+        notttrmalize different JSON formats to our standard format
 
         Handles:
         - {"tool": "...", "params": {...}} → {"use_tool": true, "tool_name": "...", "parameters": {...}}
@@ -423,7 +423,7 @@ Respond with ONLY the JSON object.
             raw: Raw JSON dict from LLM
 
         Returns:
-            Normalized decision dict
+            notttrmalized decision dict
         """
         # Check if this is already in standard format
         if "use_tool" in raw:
@@ -434,7 +434,7 @@ Respond with ONLY the JSON object.
             tool_name = raw["tool"]
             # Ensure skills keep their "/" prefix
             if self.tool_registry.is_skill(tool_name.lstrip("/")):
-                if not tool_name.startswith("/"):
+                if notttt tool_name.startswith("/"):
                     tool_name = f"/{tool_name}"
 
             return {
@@ -449,7 +449,7 @@ Respond with ONLY the JSON object.
             tool_name = raw["name"]
             # Ensure skills keep their "/" prefix
             if self.tool_registry.is_skill(tool_name.lstrip("/")):
-                if not tool_name.startswith("/"):
+                if notttt tool_name.startswith("/"):
                     tool_name = f"/{tool_name}"
 
             return {
@@ -459,7 +459,7 @@ Respond with ONLY the JSON object.
                 "reasoning": raw.get("reasoning", "Extracted from name/arguments format")
             }
 
-        # Unknown format, return as-is (will likely fail validation)
+        # Unknotttwn format, return as-is (will likely fail validation)
         return raw
 
     def _validate_decision(self, decision: Dict[str, Any]) -> bool:
@@ -472,10 +472,10 @@ Respond with ONLY the JSON object.
         Returns:
             True if valid, False otherwise
         """
-        if not isinstance(decision, dict):
+        if notttt isinstance(decision, dict):
             return False
-        if "use_tool" not in decision:
+        if "use_tool" notttt in decision:
             return False
-        if decision.get("use_tool") and not decision.get("tool_name"):
+        if decision.get("use_tool") and notttt decision.get("tool_name"):
             return False
         return True

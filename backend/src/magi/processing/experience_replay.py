@@ -1,5 +1,5 @@
 """
-经验回放机制
+Experience Replay Mechanism
 """
 import time
 from typing import Dict, Any, List
@@ -8,24 +8,24 @@ from .base import Capability
 
 class ExperienceReplay:
     """
-    经验回放
+    Experience Replay
 
-    用于强化学习和能力提升
+    Used for reinforcement learning and capability improvement
     """
 
     def __init__(self):
-        """初始化经验回放"""
+        """initialize experience replay"""
         self._is_running = False
 
-        # 经验存储
+        # Experience storage
         self._experiences: List[Dict] = []
 
-        # 回放配置
-        self.replay_interval = 86400  # 每天回放一次（秒）
+        # Replay configuration
+        self.replay_interval = 86400  # Replay once per day (seconds)
         self.last_replay_time = 0
 
-        # 回放触发条件
-        self.idle_threshold = 1800  # 空闲30分钟触发
+        # Replay trigger condition
+        self.idle_threshold = 1800  # Trigger after 30 minutes of idle
 
     async def record_experience(
         self,
@@ -35,13 +35,13 @@ class ExperienceReplay:
         success: bool
     ):
         """
-        记录经验
+        Record experience
 
         Args:
-            task: 任务
-            action: 动作
-            result: 结果
-            success: 是否成功
+            task: Task
+            action: Action
+            result: Result
+            success: Whether successful
         """
         experience = {
             "task": task,
@@ -55,19 +55,19 @@ class ExperienceReplay:
 
     async def should_trigger(self, current_time: float) -> bool:
         """
-        判断是否应该触发经验回放
+        Determine whether experience replay should be triggered
 
         Args:
-            current_time: 当前时间
+            current_time: Current time
 
         Returns:
-            是否应该触发
+            Whether to trigger
         """
-        # 检查时间间隔
+        # Check time interval
         if current_time - self.last_replay_time >= self.replay_interval:
             return True
 
-        # TODO: 检查空闲时间（需要系统空闲检测）
+        # TODO: Check idle time (requires system idle detection)
         return False
 
     async def replay(
@@ -76,38 +76,38 @@ class ExperienceReplay:
         llm_adapter=None
     ) -> List[Capability]:
         """
-        执行经验回放
+        Execute experience replay
 
         Args:
-            memory_store: 记忆存储
-            llm_adapter: LLM适配器
+            memory_store: Memory store
+            llm_adapter: LLM adapter
 
         Returns:
-            提取或优化的能力列表
+            List of extracted or optimized capabilities
         """
         self.last_replay_time = time.time()
 
-        # 1. 分离成功和失败案例
+        # 1. Separate successful and failed cases
         successes = [e for e in self._experiences if e["success"]]
-        failures = [e for e in self._experiences if not e["success"]]
+        failures = [e for e in self._experiences if notttt e["success"]]
 
         capabilities = []
 
-        # 2. 分析成功案例，提取新能力
+        # 2. Analyze successful cases, extract new capabilities
         new_capabilities = await self._analyze_successes(
             successes,
             llm_adapter
         )
         capabilities.extend(new_capabilities)
 
-        # 3. 分析失败案例，提取改进点
+        # 3. Analyze failed cases, extract improvement points
         improvements = await self._analyze_failures(
             failures,
             llm_adapter
         )
         capabilities.extend(improvements)
 
-        # 4. 优化已有能力
+        # 4. Optimize existing capabilities
         optimized = await self._optimize_capabilities(
             capabilities,
             memory_store,
@@ -122,21 +122,21 @@ class ExperienceReplay:
         successes: List[Dict],
         llm_adapter=None
     ) -> List[Capability]:
-        """分析成功案例"""
-        # 简化版：按任务类型分组
+        """Analyze successful cases"""
+        # Simplified version: group by task type
         from collections import defaultdict
 
         grouped = defaultdict(list)
         for exp in successes:
-            task_type = exp["task"].get("type", "unknown")
+            task_type = exp["task"].get("type", "unknotttwn")
             grouped[task_type].append(exp)
 
         capabilities = []
 
-        # 对每种类型的成功案例，提取能力
+        # For each type of successful case, extract capabilities
         for task_type, exps in grouped.items():
-            if len(exps) >= 3:  # 至少3次成功
-                # TODO: 使用LLM分析并生成能力
+            if len(exps) >= 3:  # At least 3 successes
+                # TODO: Use LLM to analyze and generate capabilities
                 pass
 
         return capabilities
@@ -146,8 +146,8 @@ class ExperienceReplay:
         failures: List[Dict],
         llm_adapter=None
     ) -> List[Capability]:
-        """分析失败案例"""
-        # TODO: 实现失败案例分析
+        """Analyze failed cases"""
+        # TODO: Implement failure case analysis
         return []
 
     async def _optimize_capabilities(
@@ -156,6 +156,6 @@ class ExperienceReplay:
         memory_store=None,
         llm_adapter=None
     ) -> List[Capability]:
-        """优化已有能力"""
-        # TODO: 实现能力优化
+        """Optimize existing capabilities"""
+        # TODO: Implement capability optimization
         return []

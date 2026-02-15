@@ -1,11 +1,11 @@
 """
-自处理模块 - 核心实现
+Self-processing Module - Core Implementation
 """
 from typing import Dict, Any, Optional, List
 from .base import (
-    ProcessingResult,
-    ProcessingContext,
-    ComplexityLevel,
+    processingResult,
+    processingContext,
+    Complexitylevel,
 )
 from .complexity import ComplexityEvaluator
 from .capability import CapabilityExtractor, CapabilityVerifier
@@ -16,19 +16,19 @@ from .human_in_loop import HumanInLoop
 from .experience_replay import ExperienceReplay
 
 
-class SelfProcessingModule:
+class SelfprocessingModule:
     """
-    自处理模块
+    Self-processing Module
 
-    职责：
-    - 处理感知输入
-    - 能力提取和验证
-    - 失败学习
-    - 人机协作决策
-    - 复杂度评估
-    - 渐进式学习
-    - 上下文感知处理
-    - 经验回放
+    Responsibilities:
+    - process perception input
+    - Capability extraction and verification
+    - Failure learning
+    - Human-machine collaboration decisions
+    - Complexity assessment
+    - Progressive learning
+    - Context-aware processing
+    - Experience replay
     """
 
     def __init__(
@@ -38,18 +38,18 @@ class SelfProcessingModule:
         tool_registry=None,
     ):
         """
-        初始化自处理模块
+        initialize the self-processing module
 
         Args:
-            llm_adapter: LLM适配器
-            memory_store: 记忆存储
-            tool_registry: 工具注册表
+            llm_adapter: LLM adapter
+            memory_store: Memory store
+            tool_registry: Tool registry
         """
         self.llm_adapter = llm_adapter
         self.memory_store = memory_store
         self.tool_registry = tool_registry
 
-        # 子模块
+        # Sub-modules
         self.complexity_evaluator = ComplexityEvaluator()
         self.capability_extractor = CapabilityExtractor(llm_adapter)
         self.capability_verifier = CapabilityVerifier()
@@ -59,27 +59,27 @@ class SelfProcessingModule:
         self.human_in_loop = HumanInLoop()
         self.experience_replay = ExperienceReplay()
 
-    async def process(self, perception: Dict[str, Any]) -> ProcessingResult:
+    async def process(self, perception: Dict[str, Any]) -> processingResult:
         """
-        处理感知输入
+        process perception input
 
         Args:
-            perception: 感知数据
+            perception: Perception data
 
         Returns:
-            ProcessingResult: 处理结果
+            processingResult: processing result
         """
-        # 1. 收集上下文
+        # 1. Collect context
         context = await self.context_manager.collect()
 
-        # 2. 评估任务复杂度
+        # 2. Evaluate task complexity
         complexity = self.complexity_evaluator.evaluate(perception)
 
-        # 3. 检查是否需要人类帮助
+        # 3. Check if human help is needed
         needs_help = await self._should_request_help(complexity)
 
         if needs_help:
-            # 请求人类帮助
+            # Request human help
             result = await self.human_in_loop.request_help(
                 perception,
                 complexity,
@@ -87,21 +87,21 @@ class SelfProcessingModule:
             )
             return result
 
-        # 4. 查找已有能力
+        # 4. Find existing capability
         capability = await self._find_capability(perception)
 
         if capability:
-            # 使用已有能力
+            # Use existing capability
             action = await self._execute_with_capability(
                 capability,
                 perception
             )
         else:
-            # 生成新动作
+            # Generate new action
             action = await self._generate_action(perception, context)
 
-        # 5. 返回处理结果
-        return ProcessingResult(
+        # 5. Return processing result
+        return processingResult(
             action=action,
             needs_human_help=False,
             complexity=complexity,
@@ -116,18 +116,18 @@ class SelfProcessingModule:
         success: bool
     ):
         """
-        记录执行结果（用于学习）
+        Record execution result (for learning)
 
         Args:
-            perception: 感知
-            action: 动作
-            result: 结果
-            success: 是否成功
+            perception: Perception
+            action: Action
+            result: Result
+            success: Whether successful
         """
-        # 记录交互
+        # Record interaction
         self.progressive_learning.record_interaction()
 
-        # 记录经验
+        # Record experience
         await self.experience_replay.record_experience(
             perception,
             action,
@@ -136,28 +136,28 @@ class SelfProcessingModule:
         )
 
         if success:
-            # 记录成功案例
+            # Record successful case
             await self.capability_extractor.record_success(
                 perception,
                 {"action": action, "result": result}
             )
 
-            # 检查是否应该提取能力
+            # Check if capability should be extracted
             if await self.capability_extractor.should_extract(perception):
                 await self.capability_extractor.extract_capability(
                     perception,
                     self.memory_store
                 )
         else:
-            # 记录失败案例
+            # Record failed case
             execution_steps = [{"action": action}]
             await self.failure_learner.record_failure(
                 perception,
-                result,  # 假设result是Exception
+                result,  # Assume result is an Exception
                 execution_steps
             )
 
-        # 更新上下文
+        # Update context
         await self.context_manager.update_after_task(perception, result)
 
     async def _should_request_help(
@@ -165,27 +165,27 @@ class SelfProcessingModule:
         complexity: 'TaskComplexity'
     ) -> bool:
         """
-        判断是否应该请求人类帮助
+        Determine whether to request human help
 
         Args:
-            complexity: 任务复杂度
+            complexity: Task complexity
 
         Returns:
-            是否需要帮助
+            Whether help is needed
         """
-        # 1. 基于渐进式学习判断
+        # 1. Based on progressive learning
         if await self.progressive_learning.should_request_help(
             complexity.level
         ):
             return True
 
-        # 2. 基于失败学习判断
-        task = {"type": "task"}  # 简化
+        # 2. Based on failure learning
+        task = {"type": "task"}  # Simplified
         if await self.failure_learner.should_request_help(task):
             return True
 
-        # 3. CRITICAL级别必须人类
-        if complexity.level == ComplexityLevel.CRITICAL:
+        # 3. CRITICAL level must have human
+        if complexity.level == Complexitylevel.CRITICAL:
             return True
 
         return False
@@ -195,18 +195,18 @@ class SelfProcessingModule:
         task: Dict
     ) -> Optional['Capability']:
         """
-        查找已有能力
+        Find existing capability
 
         Args:
-            task: 任务描述
+            task: Task description
 
         Returns:
-            能力或None
+            Capability or None
         """
-        if not self.memory_store:
+        if notttt self.memory_store:
             return None
 
-        # 从L5层查询能力
+        # query capability from L5 layer
         capability = await self.memory_store.find_capability(task)
         return capability
 
@@ -216,17 +216,17 @@ class SelfProcessingModule:
         task: Dict
     ) -> Dict:
         """
-        使用能力执行任务
+        Execute task using capability
 
         Args:
-            capability: 能力
-            task: 任务
+            capability: Capability
+            task: Task
 
         Returns:
-            动作
+            Action
         """
-        # 简化版：返回能力中的执行步骤
-        # 实际实现需要调用工具执行
+        # Simplified version: return execution steps from capability
+        # Actual implementation needs to call tools for execution
         return {
             "type": "use_capability",
             "capability": capability.name,
@@ -236,21 +236,21 @@ class SelfProcessingModule:
     async def _generate_action(
         self,
         perception: Dict,
-        context: ProcessingContext
+        context: processingContext
     ) -> Dict:
         """
-        生成新动作
+        Generate new action
 
         Args:
-            perception: 感知
-            context: 上下文
+            perception: Perception
+            context: Context
 
         Returns:
-            动作
+            Action
         """
-        # 简化版：返回基本动作
-        # 实际实现需要使用LLM生成动作
+        # Simplified version: return basic action
+        # Actual implementation needs to use LLM to generate action
         return {
             "type": "respond",
-            "content": f"收到: {perception.get('data', {})}",
+            "content": f"Received: {perception.get('data', {})}",
         }

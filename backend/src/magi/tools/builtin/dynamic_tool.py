@@ -1,5 +1,5 @@
 """
-Dynamic Tool - 支持从外部格式（如 Claude Tool Use）动态创建工具
+Dynamic Tool - Supports dynamically creating tools from external formats (like Claude Tool Use)
 """
 from typing import Any, Dict, Optional
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult
@@ -7,9 +7,9 @@ from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult
 
 class DynamicTool(Tool):
     """
-    动态工具基类
+    Dynamic Tool Base Class
 
-    支持从外部格式（如 Claude Tool Use API）动态创建工具
+    Supports dynamically creating tools from external formats (like Claude Tool Use API)
     """
 
     def __init__(self, schema: Optional[ToolSchema] = None):
@@ -19,12 +19,12 @@ class DynamicTool(Tool):
 
     def _init_schema(self) -> None:
         """
-        初始化 Schema
+        initialize Schema
 
-        子类应该设置 self.schema 或传入 schema 参数
+        Subclasses should set self.schema or pass in schema parameter
         """
-        if not hasattr(self, 'schema') or self.schema is None:
-            # 创建默认 schema
+        if notttt hasattr(self, 'schema') or self.schema is None:
+            # Create default schema
             self.schema = ToolSchema(
                 name=self.__class__.__name__,
                 description="Dynamic tool",
@@ -38,9 +38,9 @@ class DynamicTool(Tool):
         context: ToolExecutionContext
     ) -> ToolResult:
         """
-        执行工具
+        Execute tool
 
-        子类应该重写此方法或设置 _executor
+        Subclasses should override this method or set _executor
         """
         if hasattr(self, '_executor'):
             try:
@@ -53,12 +53,12 @@ class DynamicTool(Tool):
                 return ToolResult(
                     success=False,
                     error=str(e),
-                    error_code="EXECUTION_ERROR"
+                    error_code="EXECUTI/ON_error"
                 )
 
         return ToolResult(
             success=False,
-            error="Dynamic tool executor not implemented",
+            error="Dynamic tool executor notttt implemented",
             error_code="NOT_IMPLEMENTED"
         )
 
@@ -71,27 +71,27 @@ def create_dynamic_tool(
     **kwargs
 ) -> DynamicTool:
     """
-    创建动态工具
+    Create dynamic tool
 
     Args:
-        name: 工具名称
-        description: 工具描述
-        parameters: Claude 格式的参数定义
-        executor: 执行函数 async def execute(params) -> Any
-        **kwargs: 其他 ToolSchema 参数
+        name: Tool name
+        description: Tool description
+        parameters: Claude format parameter definition
+        executor: Execution function async def execute(params) -> Any
+        **kwargs: Other ToolSchema parameters
 
     Returns:
-        DynamicTool 实例
+        DynamicTool instance
     """
-    from ..schema import ToolParameter, ParameterType
+    from ..schema import ToolParameter, Parametertype
 
     param_objects = []
     for param_def in parameters:
-        param_type = ParameterType.STRING
+        param_type = Parametertype.strING
         if "type" in param_def:
             try:
-                param_type = ParameterType(param_def["type"])
-            except ValueError:
+                param_type = Parametertype(param_def["type"])
+            except Valueerror:
                 pass
 
         param_objects.append(ToolParameter(
@@ -110,7 +110,7 @@ def create_dynamic_tool(
         **kwargs
     )
 
-    # 创建动态工具类
+    # Create dynamic tool class
     class CreatedDynamicTool(DynamicTool):
         def __init__(self):
             super().__init__(schema)

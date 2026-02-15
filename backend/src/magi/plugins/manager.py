@@ -1,27 +1,27 @@
 """
-插件系统 - 插件管理器
+plugin系统 - plugin管理器
 """
 import asyncio
 import importlib
 import inspect
-from typing import List, Dict, Optional, Type, Any
-from pathlib import Path
-from .base import Plugin, PluginType
+from typing import List, Dict, Optional, type, Any
+from pathlib import path
+from .base import Plugin, Plugintype
 
 
 class PluginManager:
     """
-    插件管理器
+    plugin管理器
 
     职责：
-    - 加载插件
-    - 启用/禁用插件
-    - 执行生命周期钩子
-    - 管理插件依赖
+    - loadplugin
+    - Enable/Disableplugin
+    - Execute生命period钩子
+    - 管理plugindependency
     """
 
     def __init__(self):
-        """初始化插件管理器"""
+        """initializeplugin管理器"""
         self._plugins: Dict[str, Plugin] = {}
         self._hooks = {
             "before_sense": [],
@@ -34,39 +34,39 @@ class PluginManager:
 
     async def load_plugin(
         self,
-        plugin_class: Type[Plugin],
+        plugin_class: type[Plugin],
         config: Optional[Dict] = None,
     ) -> Plugin:
         """
-        加载插件
+        loadplugin
 
         Args:
-            plugin_class: 插件类
-            config: 插件配置
+            plugin_class: pluginClass
+            config: pluginConfiguration
 
         Returns:
-            插件实例
+            pluginInstance
         """
-        # 创建插件实例
+        # createpluginInstance
         plugin = plugin_class()
 
-        # 应用配置
+        # 应用Configuration
         if config:
             if "enabled" in config:
                 plugin.enabled = config["enabled"]
             if "priority" in config:
                 plugin.priority = config["priority"]
 
-        # 检查依赖
+        # checkdependency
         await self._check_dependencies(plugin)
 
-        # 注册插件
+        # registerplugin
         self._plugins[plugin.name] = plugin
 
-        # 注册生命周期钩子
+        # register生命period钩子
         self._register_hooks(plugin)
 
-        # 收集扩展
+        # 收集extension
         await self._collect_extensions(plugin)
 
         return plugin
@@ -78,78 +78,78 @@ class PluginManager:
         config: Optional[Dict] = None,
     ) -> Plugin:
         """
-        从模块加载插件
+        从moduleloadplugin
 
         Args:
-            module_path: 模块路径（如 "my_plugin"）
-            class_name: 类名（如 "MyPlugin"）
-            config: 插件配置
+            module_path: modulepath（如 "my_plugin"）
+            class_name: Class名（如 "MyPlugin"）
+            config: pluginConfiguration
 
         Returns:
-            插件实例
+            pluginInstance
         """
-        # 动态导入模块
+        # dynamicimportmodule
         module = importlib.import_module(module_path)
 
-        # 获取插件类
+        # getpluginClass
         plugin_class = getattr(module, class_name)
 
-        # 验证是Plugin子类
-        if not issubclass(plugin_class, Plugin):
-            raise TypeError(f"{class_name} is not a subclass of Plugin")
+        # ValidateisPlugin子Class
+        if notttt issubclass(plugin_class, Plugin):
+            raise typeerror(f"{class_name} is notttt a subclass of Plugin")
 
-        # 加载插件
+        # loadplugin
         return await self.load_plugin(plugin_class, config)
 
     async def unload_plugin(self, plugin_name: str) -> bool:
         """
-        卸载插件
+        uninstallplugin
 
         Args:
-            plugin_name: 插件名称
+            plugin_name: pluginName
 
         Returns:
-            是否成功卸载
+            is nottttsuccessuninstall
         """
-        if plugin_name not in self._plugins:
+        if plugin_name notttt in self._plugins:
             return False
 
         plugin = self._plugins[plugin_name]
 
-        # 检查依赖
+        # checkdependency
         dependent_plugins = self._get_dependents(plugin_name)
         if dependent_plugins:
-            raise RuntimeError(
-                f"Cannot unload plugin {plugin_name}: "
+            raise Runtimeerror(
+                f"Cannotttt unload plugin {plugin_name}: "
                 f"required by {', '.join(dependent_plugins)}"
             )
 
-        # 注销钩子
+        # deregister钩子
         self._unregister_hooks(plugin)
 
-        # 移除插件
+        # Removeplugin
         del self._plugins[plugin_name]
 
         return True
 
     def get_plugin(self, name: str) -> Optional[Plugin]:
         """
-        获取插件
+        getplugin
 
         Args:
-            name: 插件名称
+            name: pluginName
 
         Returns:
-            插件实例或None
+            pluginInstance或None
         """
         return self._plugins.get(name)
 
     def list_plugins(self) -> List[Plugin]:
         """
-        列出所有插件
+        column出allplugin
 
         Returns:
-            插件列表（按优先级排序）
+            pluginlist（按prioritysort）
         """
         return sorted(
             self._plugins.values(),
@@ -164,24 +164,24 @@ class PluginManager:
         **kwargs
     ) -> Any:
         """
-        执行生命周期钩子
+        Execute生命period钩子
 
         Args:
-            hook_name: 钩子名称
-            *args: 位置参数
-            **kwargs: 关键字参数
+            hook_name: 钩子Name
+            *args: positionParameter
+            **kwargs: 关key字Parameter
 
         Returns:
-            执行结果
+            Execution result
         """
-        if hook_name not in self._hooks:
-            raise ValueError(f"Unknown hook: {hook_name}")
+        if hook_name notttt in self._hooks:
+            raise Valueerror(f"Unknotttwn hook: {hook_name}")
 
-        # Chain模式：顺序执行
+        # chainpattern：顺序Execute
         if hook_name.startswith("before_"):
             return await self._execute_chain_hooks(hook_name, *args, **kwargs)
 
-        # Parallel模式：并发执行
+        # Parallelpattern：concurrentExecute
         elif hook_name.startswith("after_"):
             return await self._execute_parallel_hooks(hook_name, *args, **kwargs)
 
@@ -191,10 +191,10 @@ class PluginManager:
         *args,
         **kwargs
     ) -> Any:
-        """执行Chain模式钩子（顺序）"""
+        """Executechainpattern钩子（顺序）"""
         hooks = self._hooks[hook_name]
 
-        # 按优先级排序
+        # 按prioritysort
         hooks = sorted(hooks, key=lambda h: h["plugin"].priority, reverse=True)
 
         result = None
@@ -202,22 +202,22 @@ class PluginManager:
             plugin = hook_info["plugin"]
             method = hook_info["method"]
 
-            if not plugin.enabled:
+            if notttt plugin.enabled:
                 continue
 
             try:
                 result = await method(*args, **kwargs)
 
-                # 如果返回None，终止后续钩子
+                # 如果ReturnNone，终止后续钩子
                 if result is None and hook_name != "after_sense":
                     break
 
-                # 更新参数（前一个钩子的输出作为下一个的输入）
+                # updateParameter（前一个钩子的Output作为下一个的Input）
                 if len(args) > 0:
                     args = (result,) + args[1:]
 
             except Exception as e:
-                # 错误隔离：继续执行其他钩子
+                # error隔离：继续Executeother钩子
                 pass
 
         return result
@@ -228,33 +228,33 @@ class PluginManager:
         *args,
         **kwargs
     ) -> List[Any]:
-        """执行Parallel模式钩子（并发）"""
+        """ExecuteParallelpattern钩子（concurrent）"""
         hooks = self._hooks[hook_name]
 
-        # 并发执行所有钩子
+        # concurrentExecuteall钩子
         tasks = []
         for hook_info in hooks:
             plugin = hook_info["plugin"]
             method = hook_info["method"]
 
-            if not plugin.enabled:
+            if notttt plugin.enabled:
                 continue
 
             async def execute_hook():
                 try:
                     return await method(*args, **kwargs)
                 except Exception:
-                    # 错误隔离
+                    # error隔离
                     return None
 
             tasks.append(execute_hook())
 
-        # 等待所有钩子完成
+        # 等待all钩子complete
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        return [r for r in results if r is not None]
+        return [r for r in results if r is notttt None]
 
     def _register_hooks(self, plugin: Plugin):
-        """注册插件的生命周期钩子"""
+        """registerplugin的生命period钩子"""
         hook_methods = {
             "before_sense": plugin.before_sense,
             "after_sense": plugin.after_sense,
@@ -265,15 +265,15 @@ class PluginManager:
         }
 
         for hook_name, method in hook_methods.items():
-            # 检查是否覆盖了默认实现
-            if not self._is_default_implementation(method):
+            # checkis notttt覆盖了defaultImplementation
+            if notttt self._is_default_implementation(method):
                 self._hooks[hook_name].append({
                     "plugin": plugin,
                     "method": method,
                 })
 
     def _unregister_hooks(self, plugin: Plugin):
-        """注销插件的生命周期钩子"""
+        """deregisterplugin的生命period钩子"""
         for hook_name in self._hooks:
             self._hooks[hook_name] = [
                 h for h in self._hooks[hook_name]
@@ -281,22 +281,22 @@ class PluginManager:
             ]
 
     def _is_default_implementation(self, method) -> bool:
-        """检查是否是默认实现"""
-        # 获取Plugin基类的方法
+        """checkis nottttisdefaultImplementation"""
+        # getPluginBase class的Method
         base_method = getattr(Plugin, method.__name__)
         return method.__func__ == base_method
 
     async def _check_dependencies(self, plugin: Plugin):
-        """检查插件依赖"""
-        # TODO: 实现依赖检查
+        """checkplugindependency"""
+        # TODO: Implementationdependencycheck
         pass
 
     def _get_dependents(self, plugin_name: str) -> List[str]:
-        """获取依赖此插件的其他插件"""
-        # TODO: 实现依赖查询
+        """getdependency此plugin的otherplugin"""
+        # TODO: Implementationdependencyquery
         return []
 
     async def _collect_extensions(self, plugin: Plugin):
-        """收集插件提供的扩展"""
+        """收集plugin提供的extension"""
         # TODO: 收集tools、storage、llm、sensors
         pass

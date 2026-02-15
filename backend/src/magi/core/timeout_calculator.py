@@ -1,117 +1,117 @@
 """
-超时计算器 - 多维度超时计算
+Timeout Calculator - Multi-dimensional Timeout Calculation
 
-根据任务类型、优先级、交互级别计算超时时间
+Calculates timeout based on task type, priority, and interaction level
 """
 from enum import Enum
-from .task_database import TaskType, TaskPriority
+from .task_database import Tasktype, Taskpriority
 
 
-class InteractionLevel(Enum):
-    """交互级别"""
-    NONE = "none"          # 无交互，纯后台计算
-    LOW = "low"            # 低交互，偶尔通知
-    MEDIUM = "medium"      # 中等交互，需要确认
-    HIGH = "high"          # 高交互，需要频繁用户输入
+class Interactionlevel(Enum):
+    """Interaction level"""
+    notttne = "notttne"          # No interaction, pure background computation
+    LOW = "low"            # Low interaction, occasional nottttifications
+    MEDIUM = "medium"      # Medium interaction, requires confirmation
+    HIGH = "high"          # High interaction, requires frequent user input
 
 
 class TimeoutCalculator:
     """
-    超时计算器
+    Timeout Calculator
 
-    超时计算公式：
-    timeout = base_timeout × priority_factor × type_factor × interaction_factor
+    Timeout calculation formula:
+    timeout = base_timeout x priority_factor x type_factor x interaction_factor
     """
 
-    # 基础超时时间（秒）
-    BASE_TIMEOUT = 60.0
+    # Base timeout (seconds)
+    BasE_timeout = 60.0
 
-    # 优先级因子
-    PRIORITY_FACTORS = {
-        TaskPriority.LOW: 2.0,        # 低优先级任务可以运行更久
-        TaskPriority.NORMAL: 1.0,     # 正常优先级
-        TaskPriority.HIGH: 0.8,       # 高优先级快速处理
-        TaskPriority.URGENT: 0.5,     # 紧急任务快速失败
-        TaskPriority.EMERGENCY: 0.3,  # 紧急任务极速失败
+    # priority factors
+    PRI/ORITY_FACTORS = {
+        Taskpriority.LOW: 2.0,        # Low priority tasks can run longer
+        Taskpriority.NORMAL: 1.0,     # notttrmal priority
+        Taskpriority.HIGH: 0.8,       # High priority for fast processing
+        Taskpriority.URGENT: 0.5,     # Urgent tasks fail fast
+        Taskpriority.EmergeNCY: 0.3,  # emergency tasks fail very fast
     }
 
-    # 任务类型因子
-    TYPE_FACTORS = {
-        TaskType.QUERY: 0.5,          # 查询类快速响应
-        TaskType.COMPUTATION: 3.0,    # 计算类需要更长时间
-        TaskType.INTERACTIVE: 2.0,    # 交互类等待用户
-        TaskType.BATCH: 5.0,          # 批处理类允许最长时间
+    # Task type factors
+    type_FACTORS = {
+        Tasktype.QUERY: 0.5,          # query type for fast response
+        Tasktype.COMPUTATI/ON: 3.0,    # Computation type needs more time
+        Tasktype.intERactive: 2.0,    # Interactive type waits for user
+        Tasktype.BATCH: 5.0,          # Batch type allows longest time
     }
 
-    # 交互级别因子
-    INTERACTION_FACTORS = {
-        InteractionLevel.NONE: 1.0,    # 无交互
-        InteractionLevel.LOW: 1.2,     # 低交互
-        InteractionLevel.MEDIUM: 1.5,  # 中等交互
-        InteractionLevel.HIGH: 2.0,    # 高交互，需要等待用户输入
+    # Interaction level factors
+    intERACTI/ON_FACTORS = {
+        Interactionlevel.notttne: 1.0,    # No interaction
+        Interactionlevel.LOW: 1.2,     # Low interaction
+        Interactionlevel.MEDIUM: 1.5,  # Medium interaction
+        Interactionlevel.HIGH: 2.0,    # High interaction, needs to wait for user input
     }
 
     @classmethod
     def calculate(
         cls,
-        task_type: TaskType = TaskType.QUERY,
-        priority: TaskPriority = TaskPriority.NORMAL,
-        interaction_level: InteractionLevel = InteractionLevel.NONE,
+        task_type: Tasktype = Tasktype.QUERY,
+        priority: Taskpriority = Taskpriority.NORMAL,
+        interaction_level: Interactionlevel = Interactionlevel.notttne,
         base_timeout: float = None,
     ) -> float:
         """
-        计算超时时间
+        Calculate timeout
 
         Args:
-            task_type: 任务类型
-            priority: 任务优先级
-            interaction_level: 交互级别
-            base_timeout: 自定义基础超时
+            task_type: Task type
+            priority: Task priority
+            interaction_level: Interaction level
+            base_timeout: Custom base timeout
 
         Returns:
-            超时时间（秒）
+            Timeout (seconds)
         """
-        base = base_timeout or cls.BASE_TIMEOUT
+        base = base_timeout or cls.BasE_timeout
 
-        priority_factor = cls.PRIORITY_FACTORS.get(priority, 1.0)
-        type_factor = cls.TYPE_FACTORS.get(task_type, 1.0)
-        interaction_factor = cls.INTERACTION_FACTORS.get(interaction_level, 1.0)
+        priority_factor = cls.PRI/ORITY_FACTORS.get(priority, 1.0)
+        type_factor = cls.type_FACTORS.get(task_type, 1.0)
+        interaction_factor = cls.intERACTI/ON_FACTORS.get(interaction_level, 1.0)
 
         timeout = base * priority_factor * type_factor * interaction_factor
 
-        # 最小超时10秒，最大超时300秒（5分钟）
+        # Minimum timeout 10 seconds, maximum timeout 300 seconds (5 minutes)
         return max(10.0, min(timeout, 300.0))
 
     @classmethod
     def calculate_for_task(cls, task_data: dict) -> float:
         """
-        根据任务数据计算超时
+        Calculate timeout based on task data
 
         Args:
-            task_data: 任务数据字典，可能包含type、priority、interaction_level
+            task_data: Task data dict, may contain type, priority, interaction_level
 
         Returns:
-            超时时间（秒）
+            Timeout (seconds)
         """
-        # 从任务数据中提取参数
-        type_str = task_data.get("type", TaskType.QUERY.value)
-        priority_value = task_data.get("priority", TaskPriority.NORMAL.value)
-        interaction_str = task_data.get("interaction_level", InteractionLevel.NONE.value)
+        # Extract parameters from task data
+        type_str = task_data.get("type", Tasktype.QUERY.value)
+        priority_value = task_data.get("priority", Taskpriority.NORMAL.value)
+        interaction_str = task_data.get("interaction_level", Interactionlevel.notttne.value)
 
-        # 转换为枚举
+        # Convert to enums
         try:
-            task_type = TaskType(type_str)
-        except ValueError:
-            task_type = TaskType.QUERY
-
-        try:
-            priority = TaskPriority(priority_value)
-        except ValueError:
-            priority = TaskPriority.NORMAL
+            task_type = Tasktype(type_str)
+        except Valueerror:
+            task_type = Tasktype.QUERY
 
         try:
-            interaction_level = InteractionLevel(interaction_str)
-        except ValueError:
-            interaction_level = InteractionLevel.NONE
+            priority = Taskpriority(priority_value)
+        except Valueerror:
+            priority = Taskpriority.NORMAL
+
+        try:
+            interaction_level = Interactionlevel(interaction_str)
+        except Valueerror:
+            interaction_level = Interactionlevel.notttne
 
         return cls.calculate(task_type, priority, interaction_level)

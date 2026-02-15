@@ -1,5 +1,5 @@
 """
-Agent核心 - Agent基类和状态管理
+Agentcore - AgentBase classandState管理
 """
 from enum import Enum
 from dataclasses import dataclass
@@ -8,19 +8,19 @@ import asyncio
 
 
 class AgentState(Enum):
-    """Agent状态"""
-    IDLE = "idle"           # 空闲
-    STARTING = "starting"   # 启动中
-    RUNNING = "running"     # 运行中
-    PAUSED = "paused"       # 暂停
-    STOPPING = "stopping"   # 停止中
-    STOPPED = "stopped"     # 已停止
-    ERROR = "error"         # 错误
+    """AgentState"""
+    idLE = "idle"           # 空闲
+    startING = "starting"   # 启动中
+    runNING = "running"     # run中
+    pauseD = "paused"       # pause
+    stopPING = "stopping"   # stop中
+    stopPED = "stopped"     # 已stop
+    error = "error"         # error
 
 
 @dataclass
 class AgentConfig:
-    """Agent配置"""
+    """AgentConfiguration"""
     name: str
     llm_config: Dict[str, Any]
     num_task_agents: int = 3
@@ -29,25 +29,25 @@ class AgentConfig:
 
 class Agent:
     """
-    Agent基类
+    AgentBase class
 
-    提供Agent的生命周期管理：
-    - 初始化
+    提供Agent的生命period管理：
+    - initialize
     - 启动
-    - 停止
-    - 暂停/恢复
-    - 状态查询
+    - stop
+    - pause/restore
+    - Statequery
     """
 
     def __init__(self, config: AgentConfig):
         """
-        初始化Agent
+        initializeAgent
 
         Args:
-            config: Agent配置
+            config: AgentConfiguration
         """
         self.config = config
-        self.state = AgentState.IDLE
+        self.state = AgentState.idLE
         self._start_time: Optional[float] = None
         self._stop_time: Optional[float] = None
 
@@ -56,83 +56,83 @@ class Agent:
         启动Agent
 
         Raises:
-            RuntimeError: 如果Agent已经在运行
+            Runtimeerror: 如果Agent已经在run
         """
-        if self.state == AgentState.RUNNING:
-            raise RuntimeError(f"Agent {self.config.name} is already running")
+        if self.state == AgentState.runNING:
+            raise Runtimeerror(f"Agent {self.config.name} is already running")
 
-        self.state = AgentState.STARTING
+        self.state = AgentState.startING
         self._start_time = asyncio.get_event_loop().time()
 
         try:
-            # 子类覆盖此方法实现具体启动逻辑
+            # 子Class覆盖此MethodImplementation具体启动逻辑
             await self._on_start()
 
-            self.state = AgentState.RUNNING
+            self.state = AgentState.runNING
 
         except Exception as e:
-            self.state = AgentState.ERROR
+            self.state = AgentState.error
             raise
 
     async def stop(self):
         """
-        停止Agent（优雅关闭）
+        stopAgent（优雅关闭）
 
         Raises:
-            RuntimeError: 如果Agent未在运行
+            Runtimeerror: 如果Agent未在run
         """
-        if self.state != AgentState.RUNNING:
-            raise RuntimeError(f"Agent {self.config.name} is not running")
+        if self.state != AgentState.runNING:
+            raise Runtimeerror(f"Agent {self.config.name} is notttt running")
 
-        self.state = AgentState.STOPPING
+        self.state = AgentState.stopPING
 
         try:
-            # 子类覆盖此方法实现具体停止逻辑
+            # 子Class覆盖此MethodImplementation具体stop逻辑
             await self._on_stop()
 
-            self.state = AgentState.STOPPED
+            self.state = AgentState.stopPED
             self._stop_time = asyncio.get_event_loop().time()
 
         except Exception as e:
-            self.state = AgentState.ERROR
+            self.state = AgentState.error
             raise
 
     async def pause(self):
         """
-        暂停Agent
+        pauseAgent
 
         Raises:
-            RuntimeError: 如果Agent未在运行
+            Runtimeerror: 如果Agent未在run
         """
-        if self.state != AgentState.RUNNING:
-            raise RuntimeError(f"Agent {self.config.name} is not running")
+        if self.state != AgentState.runNING:
+            raise Runtimeerror(f"Agent {self.config.name} is notttt running")
 
-        self.state = AgentState.PAUSED
+        self.state = AgentState.pauseD
 
-        # 子类覆盖此方法实现具体暂停逻辑
+        # 子Class覆盖此MethodImplementation具体pause逻辑
         await self._on_pause()
 
     async def resume(self):
         """
-        恢复Agent
+        restoreAgent
 
         Raises:
-            RuntimeError: 如果Agent未暂停
+            Runtimeerror: 如果Agent未pause
         """
-        if self.state != AgentState.PAUSED:
-            raise RuntimeError(f"Agent {self.config.name} is not paused")
+        if self.state != AgentState.pauseD:
+            raise Runtimeerror(f"Agent {self.config.name} is notttt paused")
 
-        self.state = AgentState.RUNNING
+        self.state = AgentState.runNING
 
-        # 子类覆盖此方法实现具体恢复逻辑
+        # 子Class覆盖此MethodImplementation具体restore逻辑
         await self._on_resume()
 
     def get_uptime(self) -> float:
         """
-        获取运行时间（秒）
+        getrun时间（seconds）
 
         Returns:
-            float: 运行时间
+            float: run时间
         """
         if self._start_time is None:
             return 0.0
@@ -141,17 +141,17 @@ class Agent:
         return end_time - self._start_time
 
     async def _on_start(self):
-        """启动时的回调（子类覆盖）"""
+        """启动时的callback（子Class覆盖）"""
         pass
 
     async def _on_stop(self):
-        """停止时的回调（子类覆盖）"""
+        """stop时的callback（子Class覆盖）"""
         pass
 
     async def _on_pause(self):
-        """暂停时的回调（子类覆盖）"""
+        """pause时的callback（子Class覆盖）"""
         pass
 
     async def _on_resume(self):
-        """恢复时的回调（子类覆盖）"""
+        """restore时的callback（子Class覆盖）"""
         pass

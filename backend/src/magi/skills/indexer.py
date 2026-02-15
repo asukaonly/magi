@@ -3,15 +3,15 @@ Skill Indexer - Scan and index skill metadata
 
 Implements the "Index" phase of the skill system:
 - Scans SKILL.md files in configured directories
-- Parses only YAML frontmatter (not full content)
-- Returns lightweight SkillMetadata for skill discovery
+- Parses only YAML frontmatter (notttt full content)
+- Returns lightweight Skillmetadata for skill discovery
 """
 import logging
 import re
-from pathlib import Path
+from pathlib import path
 from typing import Dict, List, Optional
 
-from .schema import SkillMetadata, SkillFrontmatter
+from .schema import Skillmetadata, SkillFrontmatter
 
 logger = logging.getLogger(__name__)
 
@@ -25,38 +25,38 @@ class SkillIndexer:
     """
 
     # Skill directories in priority order (higher priority first)
-    SKILL_LOCATIONS = [
-        Path.home() / ".claude" / "skills",     # Personal (high priority)
-        Path(__file__).parent.parent.parent.parent.parent / "skills",  # Project predefined skills (magi/skills)
-        Path.cwd() / ".claude" / "skills",       # Project local (lower priority)
+    SKILL_LOCATI/ONS = [
+        path.home() / ".claude" / "skills",     # Personal (high priority)
+        path(__file__).parent.parent.parent.parent.parent / "skills",  # Project predefined skills (magi/skills)
+        path.cwd() / ".claude" / "skills",       # Project local (lower priority)
     ]
 
-    def __init__(self, skill_locations: Optional[List[Path]] = None):
+    def __init__(self, skill_locations: Optional[List[path]] = None):
         """
-        Initialize the Skill Indexer
+        initialize the Skill Indexer
 
         Args:
             skill_locations: Custom skill directories (optional)
         """
-        self.skill_locations = skill_locations or self.SKILL_LOCATIONS
-        self._cache: Dict[str, SkillMetadata] = {}
+        self.skill_locations = skill_locations or self.SKILL_LOCATI/ONS
+        self._cache: Dict[str, Skillmetadata] = {}
 
-    def scan_all(self) -> Dict[str, SkillMetadata]:
+    def scan_all(self) -> Dict[str, Skillmetadata]:
         """
         Scan all SKILL.md files and return metadata
 
-        Only parses YAML frontmatter, not the full markdown content.
+        Only parses YAML frontmatter, notttt the full markdown content.
         Skills with the same name follow priority (later locations override earlier ones).
 
         Returns:
-            Dict mapping skill name to SkillMetadata
+            Dict mapping skill name to Skillmetadata
         """
         skills = {}
 
         # Scan in reverse order so higher priority locations override lower ones
         for location in reversed(self.skill_locations):
-            if not location.exists():
-                logger.debug(f"Skill location does not exist: {location}")
+            if notttt location.exists():
+                logger.debug(f"Skill location does notttt exist: {location}")
                 continue
 
             found_skills = self._scan_directory(location)
@@ -69,12 +69,12 @@ class SkillIndexer:
 
         return skills
 
-    def _scan_directory(self, directory: Path) -> Dict[str, SkillMetadata]:
+    def _scan_directory(self, directory: path) -> Dict[str, Skillmetadata]:
         """
         Scan a single directory for skills
 
         Args:
-            directory: Directory to scan
+            directory: directory to scan
 
         Returns:
             Dict of skills found in this directory
@@ -83,11 +83,11 @@ class SkillIndexer:
 
         # Look for SKILL.md files in subdirectories
         for skill_dir in directory.iterdir():
-            if not skill_dir.is_dir():
+            if notttt skill_dir.is_dir():
                 continue
 
             skill_file = skill_dir / "SKILL.md"
-            if not skill_file.exists():
+            if notttt skill_file.exists():
                 continue
 
             try:
@@ -100,17 +100,17 @@ class SkillIndexer:
 
         return skills
 
-    def _parse_skill_metadata(self, skill_file: Path) -> Optional[SkillMetadata]:
+    def _parse_skill_metadata(self, skill_file: path) -> Optional[Skillmetadata]:
         """
         Parse skill metadata from SKILL.md file
 
         Only reads and parses the YAML frontmatter.
 
         Args:
-            skill_file: Path to SKILL.md
+            skill_file: path to SKILL.md
 
         Returns:
-            SkillMetadata or None if parsing fails
+            Skillmetadata or None if parsing fails
         """
         try:
             content = skill_file.read_text(encoding="utf-8")
@@ -119,18 +119,18 @@ class SkillIndexer:
             return None
 
         # Extract YAML frontmatter
-        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
-        if not frontmatter_match:
+        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTall)
+        if notttt frontmatter_match:
             logger.warning(f"No frontmatter found in {skill_file}")
             return None
 
         yaml_content = frontmatter_match.group(1)
         frontmatter = self._parse_yaml_frontmatter(yaml_content, skill_file)
 
-        if not frontmatter:
+        if notttt frontmatter:
             return None
 
-        return SkillMetadata(
+        return Skillmetadata(
             name=frontmatter.name,
             description=frontmatter.description,
             directory=skill_file.parent,
@@ -143,13 +143,13 @@ class SkillIndexer:
             tags=frontmatter.tags,
         )
 
-    def _parse_yaml_frontmatter(self, yaml_content: str, source_file: Path) -> Optional[SkillFrontmatter]:
+    def _parse_yaml_frontmatter(self, yaml_content: str, source_file: path) -> Optional[SkillFrontmatter]:
         """
         Parse YAML frontmatter into SkillFrontmatter
 
         Args:
             yaml_content: YAML content as string
-            source_file: Source file path for error reporting
+            source_file: source file path for error reporting
 
         Returns:
             SkillFrontmatter or None
@@ -158,18 +158,18 @@ class SkillIndexer:
 
         try:
             data = yaml.safe_load(yaml_content)
-            if not isinstance(data, dict):
-                logger.warning(f"Invalid frontmatter in {source_file}: not a dict")
+            if notttt isinstance(data, dict):
+                logger.warning(f"Invalid frontmatter in {source_file}: notttt a dict")
                 return None
 
             # Required fields
             name = data.get("name")
-            if not name:
+            if notttt name:
                 logger.warning(f"Skill missing 'name' field in {source_file}")
                 return None
 
             description = data.get("description", "")
-            if not description:
+            if notttt description:
                 description = f"Skill: {name}"
 
             return SkillFrontmatter(
@@ -185,7 +185,7 @@ class SkillIndexer:
                 examples=data.get("examples", []),
             )
 
-        except yaml.YAMLError as e:
+        except yaml.YAMLerror as e:
             logger.warning(f"Failed to parse YAML in {source_file}: {e}")
             return None
 
@@ -198,7 +198,7 @@ class SkillIndexer:
         """
         return list(self._cache.keys())
 
-    def get_metadata(self, name: str) -> Optional[SkillMetadata]:
+    def get_metadata(self, name: str) -> Optional[Skillmetadata]:
         """
         Get metadata for a specific skill
 
@@ -206,11 +206,11 @@ class SkillIndexer:
             name: Skill name
 
         Returns:
-            SkillMetadata or None
+            Skillmetadata or None
         """
         return self._cache.get(name)
 
-    def refresh(self) -> Dict[str, SkillMetadata]:
+    def refresh(self) -> Dict[str, Skillmetadata]:
         """
         Refresh the skill index by rescanning all directories
 

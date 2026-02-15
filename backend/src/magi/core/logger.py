@@ -1,11 +1,11 @@
 """
-结构化日志系统 - 基于structlog
+structured Logging System - Based on structlog
 """
 import logging
 import sys
 from typing import Any
 import structlog
-from pathlib import Path
+from pathlib import path
 
 
 def configure_logging(
@@ -14,34 +14,34 @@ def configure_logging(
     json_logs: bool = False,
 ) -> None:
     """
-    配置结构化日志
+    Configure structured logging
 
     Args:
-        level: 日志级别（DEBUG, INFO, WARNING, ERROR, CRITICAL）
-        log_file: 日志文件路径（可选）
-        json_logs: 是否输出JSON格式日志
+        level: Log level (debug, INFO, warnING, error, CRITICAL)
+        log_file: Log file path (optional)
+        json_logs: Whether to output JSON format logs
     """
-    # 配置标准库logging
+    # Configure standard library logging
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
         level=getattr(logging, level.upper(), logging.INFO),
     )
 
-    # 配置structlog
+    # Configure structlog
     processors = [
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
+        structlog.processors.StackinfoRenderer(),
         structlog.processors.format_exc_info,
     ]
 
     if json_logs:
-        # JSON格式输出（用于生产环境）
+        # JSON format output (for production environment)
         processors.append(structlog.processors.JSONRenderer())
     else:
-        # 人类可读格式（用于开发环境）
+        # Human readable format (for development environment)
         processors.append(
             structlog.dev.ConsoleRenderer(
                 colors=True,
@@ -57,13 +57,13 @@ def configure_logging(
         cache_logger_on_first_use=True,
     )
 
-    # 配置文件日志
+    # Configure file logging
     if log_file:
-        log_path = Path(log_file)
+        log_path = path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(getattr(logging, level.upper(), logging.INFO))
+        file_handler.setlevel(getattr(logging, level.upper(), logging.INFO))
 
         if json_logs:
             from structlog.dev import PlainFileRenderer
@@ -72,22 +72,22 @@ def configure_logging(
         else:
             file_processor = structlog.processors.JSONRenderer()
 
-        # 为文件日志单独配置
+        # Configure file logging separately
         logging.getLogger().addHandler(file_handler)
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """
-    获取logger实例
+    Get logger instance
 
     Args:
-        name: logger名称，默认为调用模块名
+        name: Logger name, defaults to calling module name
 
     Returns:
-        BoundLogger: structlog logger实例
+        BoundLogger: structlog logger instance
     """
     return structlog.get_logger(name)
 
 
-# 预配置的logger实例
+# Pre-configured logger instance
 logger = get_logger("magi")

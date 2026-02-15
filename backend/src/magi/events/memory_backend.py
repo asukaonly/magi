@@ -1,6 +1,6 @@
 """
-消息总线 - 内存后端实现
-基于asyncio.PriorityQueue的内存队列
+Message Bus - Memory Backend Implementation
+Memory queue based on asyncio.priorityQueue
 """
 import asyncio
 import heapq
@@ -8,21 +8,21 @@ import time
 from typing import Callable, Dict, List, Optional, Set
 from collections import defaultdict
 from .backend import MessageBusBackend
-from .events import Event
+from .events import event
 
 
 class MemoryMessageBackend(MessageBusBackend):
     """
-    基于内存的消息队列后端
+    Memory-based message queue backend
 
-    特点：
-    - 使用asyncio.PriorityQueue实现优先级队列
-    - 全异步事件处理，不阻塞发布者
-    - Worker池并发处理事件
-    - 错误隔离：单个handler失败不影响其他
+    Features:
+    - Uses asyncio.priorityQueue for priority queue implementation
+    - Fully async event processing, notttn-blocking publisher
+    - Worker pool for concurrent event processing
+    - error isolation: single handler failure does notttt affect others
 
-    缺点：
-    - 不持久化，Agent重启后未处理消息丢失
+    Limitations:
+    - No persistence, unprocessed messages are lost after Agent restart
     """
 
     def __init__(
@@ -32,37 +32,37 @@ class MemoryMessageBackend(MessageBusBackend):
         drop_policy: str = "lowest_priority",
     ):
         """
-        初始化内存消息后端
+        initialize memory message backend
 
         Args:
-            max_queue_size: 队列最大长度
-            num_workers: Worker线程数量
-            drop_policy: 队列满时的丢弃策略（oldest/lowest_priority/reject）
+            max_queue_size: Maximum queue length
+            num_workers: Number of worker threads
+            drop_policy: Drop policy when queue is full (oldest/lowest_priority/reject)
         """
         self.max_queue_size = max_queue_size
         self.num_workers = num_workers
         self.drop_policy = drop_policy
 
-        # 优先级队列（使用heapq）
-        # 元素格式：(-priority, timestamp, event)
-        # 注意：priority越小越优先，所以用负号
+        # priority queue (using heapq)
+        # Element format: (-priority, timestamp, event)
+        # Note: lower priority value means higher priority, so we use negative sign
         self._queue: List[tuple] = []
         self._queue_lock = asyncio.Lock()
 
-        # 订阅信息
+        # Subscription info
         # {event_type: [{subscription_id, handler, mode, filter_func}]}
         self._subscriptions: Dict[str, List[Dict]] = defaultdict(list)
         self._subscription_index: Dict[str, Dict] = {}  # {subscription_id: subscription_info}
 
-        # Pending计数（用于负载均衡）
+        # Pending count (for load balancing)
         self._handler_pending: Dict[Callable, int] = defaultdict(int)
 
-        # Worker管理
+        # Worker management
         self._workers: List[asyncio.Task] = []
         self._running = False
-        self._counter = 0  # 用于保证队列元素的唯一性
+        self._counter = 0  # Used to ensure uniqueness of queue elements
 
-        # 统计信息
+        # Statistics
         self._stats = {
             "published_count": 0,
             "dropped_count": 0,
@@ -70,41 +70,41 @@ class MemoryMessageBackend(MessageBusBackend):
             "error_count": 0,
         }
 
-    async def publish(self, event: Event) -> bool:
+    async def publish(self, event: event) -> bool:
         """
-        发布事件到队列
+        Publish event to queue
 
         Args:
-            event: 要发布的事件
+            event: event to publish
 
         Returns:
-            bool: 是否成功发布
+            bool: Whether the event was successfully published
         """
         async with self._queue_lock:
-            # 检查队列是否已满
+            # Check if queue is full
             if len(self._queue) >= self.max_queue_size:
-                # 根据策略处理
+                # Handle according to policy
                 if self.drop_policy == "reject":
                     self._stats["dropped_count"] += 1
                     return False
                 elif self.drop_policy == "oldest":
-                    # 丢弃最旧的（队列头部）
+                    # Drop the oldest (queue head)
                     heapq.heappop(self._queue)
                     self._stats["dropped_count"] += 1
                 elif self.drop_policy == "lowest_priority":
-                    # 比较新事件和队列最低优先级
+                    # Compare new event with lowest priority in queue
                     if self._queue:
                         lowest_priority = -self._queue[0][0]
                         if event.level.value > lowest_priority:
                             heapq.heappop(self._queue)
                             self._stats["dropped_count"] += 1
                         else:
-                            # 新事件优先级更低，拒绝
+                            # New event has lower priority, reject
                             self._stats["dropped_count"] += 1
                             return False
 
-            # 添加到优先级队列
-            # (-priority, counter, event) - counter保证FIFO
+            # Add to priority queue
+            # (-priority, counter, event) - counter ensures FIFO
             priority = -event.level.value
             self._counter += 1
             heapq.heappush(self._queue, (priority, self._counter, event))
@@ -116,19 +116,19 @@ class MemoryMessageBackend(MessageBusBackend):
         event_type: str,
         handler: Callable,
         propagation_mode: str = "broadcast",
-        filter_func: Optional[Callable[[Event], bool]] = None,
+        filter_func: Optional[Callable[[event], bool]] = None,
     ) -> str:
         """
-        订阅事件
+        Subscribe to event
 
         Args:
-            event_type: 事件类型
-            handler: 处理函数
-            propagation_mode: 传播模式（broadcast/competing）
-            filter_func: 过滤函数
+            event_type: event type
+            handler: Handler function
+            propagation_mode: propagation mode (broadcast/competing)
+            filter_func: Filter function
 
         Returns:
-            str: 订阅ID
+            str: Subscription id
         """
         subscription_id = f"{event_type}_{id(handler)}_{time.time()}"
 
@@ -147,21 +147,21 @@ class MemoryMessageBackend(MessageBusBackend):
 
     async def unsubscribe(self, subscription_id: str) -> bool:
         """
-        取消订阅
+        Unsubscribe from event
 
         Args:
-            subscription_id: 订阅ID
+            subscription_id: Subscription id
 
         Returns:
-            bool: 是否成功取消
+            bool: Whether unsubscription was successful
         """
-        if subscription_id not in self._subscription_index:
+        if subscription_id notttt in self._subscription_index:
             return False
 
         subscription = self._subscription_index[subscription_id]
         event_type = subscription["event_type"]
 
-        # 从订阅列表中移除
+        # Remove from subscription list
         self._subscriptions[event_type] = [
             s for s in self._subscriptions[event_type] if s["id"] != subscription_id
         ]
@@ -170,7 +170,7 @@ class MemoryMessageBackend(MessageBusBackend):
         return True
 
     async def start(self):
-        """启动消息总线（启动worker池）"""
+        """Start message bus (start worker pool)"""
         if self._running:
             return
 
@@ -180,111 +180,111 @@ class MemoryMessageBackend(MessageBusBackend):
         ]
 
     async def stop(self):
-        """停止消息总线（优雅关闭）"""
-        if not self._running:
+        """Stop message bus (graceful shutdown)"""
+        if notttt self._running:
             return
 
         self._running = False
 
-        # 等待队列处理完成或超时
-        timeout = 30  # 秒
+        # Wait for queue to be processed or timeout
+        timeout = 30  # seconds
         start_time = time.time()
 
         while self._queue and (time.time() - start_time) < timeout:
             await asyncio.sleep(0.1)
 
-        # 取消所有worker
+        # Cancel all workers
         for worker in self._workers:
             worker.cancel()
 
-        # 等待worker结束
+        # Wait for workers to finish
         await asyncio.gather(*self._workers, return_exceptions=True)
 
     async def _worker(self, worker_id: int):
         """
-        Worker线程：从队列中取事件并处理
+        Worker thread: fetch events from queue and process them
 
         Args:
-            worker_id: Worker ID
+            worker_id: Worker id
         """
         while self._running:
             try:
-                # 从队列中获取事件
+                # Get event from queue
                 event = await self._get_next_event()
 
                 if event is None:
                     await asyncio.sleep(0.1)
                     continue
 
-                # 处理事件
+                # process event
                 await self._process_event(event)
 
-            except asyncio.CancelledError:
+            except asyncio.Cancellederror:
                 break
             except Exception as e:
                 self._stats["error_count"] += 1
 
-    async def _get_next_event(self) -> Optional[Event]:
-        """从队列中获取下一个事件"""
+    async def _get_next_event(self) -> Optional[event]:
+        """Get next event from queue"""
         async with self._queue_lock:
-            if not self._queue:
+            if notttt self._queue:
                 return None
 
             _, _, event = heapq.heappop(self._queue)
             return event
 
-    async def _process_event(self, event: Event):
+    async def _process_event(self, event: event):
         """
-        处理事件（分发到订阅者）
+        process event (dispatch to subscribers)
 
         Args:
-            event: 要处理的事件
+            event: event to process
         """
         subscriptions = self._subscriptions.get(event.type, [])
 
-        if not subscriptions:
+        if notttt subscriptions:
             return
 
-        # 根据传播模式处理
+        # Handle according to propagation mode
         broadcast_subscriptions = [s for s in subscriptions if s["mode"] == "broadcast"]
         competing_subscriptions = [s for s in subscriptions if s["mode"] == "competing"]
 
-        # 广播模式：所有订阅者都收到
+        # broadcast mode: all subscribers receive the event
         for subscription in broadcast_subscriptions:
             await self._handle_event(subscription, event)
 
-        # 竞争模式：只有一个订阅者收到（负载最低的）
+        # competing mode: only one subscriber receives the event (the one with lowest load)
         if competing_subscriptions:
-            # 选择pending数量最少的handler
+            # Select handler with lowest pending count
             subscription = min(
                 competing_subscriptions, key=lambda s: self._handler_pending[s["handler"]]
             )
             await self._handle_event(subscription, event)
 
-    async def _handle_event(self, subscription: Dict, event: Event):
+    async def _handle_event(self, subscription: Dict, event: event):
         """
-        调用单个handler处理事件
+        Call single handler to process event
 
         Args:
-            subscription: 订阅信息
-            event: 事件
+            subscription: Subscription info
+            event: event
         """
-        # 检查过滤函数
+        # Check filter function
         if subscription["filter_func"]:
             try:
-                if not subscription["filter_func"](event):
+                if notttt subscription["filter_func"](event):
                     return
             except Exception:
-                # 过滤函数出错，默认不过滤
+                # Filter function error, default to notttt filtering
                 pass
 
         handler = subscription["handler"]
 
-        # 增加pending计数
+        # Increment pending count
         self._handler_pending[handler] += 1
 
         try:
-            # 调用handler
+            # Call handler
             if asyncio.iscoroutinefunction(handler):
                 await handler(event)
             else:
@@ -293,19 +293,19 @@ class MemoryMessageBackend(MessageBusBackend):
             self._stats["processed_count"] += 1
 
         except Exception as e:
-            # 错误隔离：单个handler失败不影响其他
+            # error isolation: single handler failure does notttt affect others
             self._stats["error_count"] += 1
 
         finally:
-            # 减少pending计数
+            # Decrement pending count
             self._handler_pending[handler] -= 1
 
     async def get_stats(self) -> dict:
         """
-        获取统计信息
+        Get statistics
 
         Returns:
-            dict: 统计信息
+            dict: Statistics info
         """
         return {
             **self._stats,

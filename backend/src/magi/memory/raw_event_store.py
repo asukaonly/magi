@@ -1,27 +1,27 @@
 """
-记忆存储 - L1原始事件存储（RawEventStore）
-完整的非结构化事件信息
+Memory Storage - L1Raw event Storage（RaweventStore）
+完整的非structure化eventinfo
 """
 import aiosqlite
 import json
 import logging
 import uuid
 from typing import Optional
-from pathlib import Path
+from pathlib import path
 import time
-from ..events.events import Event
+from ..events.events import event
 
 logger = logging.getLogger(__name__)
 
 
-class RawEventStore:
+class RaweventStore:
     """
-    L1原始事件存储 - 完整事件信息
+    L1Raw event Storage - 完整eventinfo
 
     特点：
-    - 保留事件完整数据（时间戳、类型、数据、元数据）
-    - 永不清除（作为事件溯源的基础）
-    - 支持媒体文件（图片、音频路径）
+    - 保留event完整data（timestamp、type、data、metadata）
+    - 永不清除（作为event溯源的base）
+    - support媒体file（graph片、音频path）
     """
 
     def __init__(
@@ -30,32 +30,32 @@ class RawEventStore:
         media_dir: str = "~/.magi/data/events",
     ):
         """
-        初始化原始事件存储
+        initializeRaw event Storage
 
         Args:
-            db_path: 数据库文件路径
-            media_dir: 媒体文件目录
+            db_path: databasefilepath
+            media_dir: 媒体filedirectory
         """
         self.db_path = db_path
         self.media_dir = media_dir
 
     @property
     def _expanded_db_path(self) -> str:
-        """获取展开后的数据库路径（处理 ~）"""
-        return str(Path(self.db_path).expanduser())
+        """get expanded database path (process ~)"""
+        return str(path(self.db_path).expanduser())
 
     @property
     def _expanded_media_dir(self) -> str:
-        """获取展开后的媒体目录路径（处理 ~）"""
-        return str(Path(self.media_dir).expanduser())
+        """get展开后的媒体directorypath（process ~）"""
+        return str(path(self.media_dir).expanduser())
 
     async def init(self):
-        """初始化数据库"""
-        Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(self._expanded_media_dir).mkdir(parents=True, exist_ok=True)
+        """initializedatabase"""
+        path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
+        path(self._expanded_media_dir).mkdir(parents=True, exist_ok=True)
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            # 检查表是否存在以及schema是否正确
+            # check if table exists and if schema is correct
             cursor = await db.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='event_store'
@@ -63,71 +63,71 @@ class RawEventStore:
             table_exists = await cursor.fetchone()
 
             if table_exists:
-                # 检查是否有 type 列
+                # check if has type column
                 cursor = await db.execute("PRAGMA table_info(event_store)")
                 columns = await cursor.fetchall()
                 column_names = [col[1] for col in columns]
 
-                # 如果缺少 type 列或其他必要列，重建表
+                # 如果缺少 type column或other必要column，重建table
                 required_columns = {'id', 'type', 'data', 'timestamp', 'source', 'level', 'correlation_id', 'metadata', 'created_at'}
-                if not required_columns.issubset(set(column_names)):
-                    logger.warning(f"Event store table schema incompatible, recreating... Existing columns: {column_names}")
-                    await db.execute("DROP TABLE IF EXISTS event_store")
-                    await db.execute("DROP INDEX IF EXISTS idx_event_store_type")
-                    await db.execute("DROP INDEX IF EXISTS idx_event_store_timestamp")
+                if notttt required_columns.issubset(set(column_names)):
+                    logger.warning(f"event store table schema incompatible, recreating... Existing columns: {column_names}")
+                    await db.execute("DROP table IF EXISTS event_store")
+                    await db.execute("DROP index IF EXISTS idx_event_store_type")
+                    await db.execute("DROP index IF EXISTS idx_event_store_timestamp")
 
-            # 创建事件表
+            # createeventtable
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS event_store (
-                    id TEXT PRIMARY KEY,
+                create table IF NOT EXISTS event_store (
+                    id TEXT primary key,
                     type TEXT NOT NULL,
                     data TEXT NOT NULL,
                     media_path TEXT,
-                    timestamp REAL NOT NULL,
+                    timestamp real NOT NULL,
                     source TEXT,
-                    level INTEGER,
+                    level intEGER,
                     correlation_id TEXT,
                     metadata TEXT,
-                    created_at REAL NOT NULL
+                    created_at real NOT NULL
                 )
             """)
 
-            # 创建索引
+            # createindex
             await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_event_store_type
+                create index IF NOT EXISTS idx_event_store_type
                 ON event_store(type)
             """)
             await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_event_store_timestamp
+                create index IF NOT EXISTS idx_event_store_timestamp
                 ON event_store(timestamp)
             """)
             await db.commit()
 
-    async def store(self, event: Event) -> str:
+    async def store(self, event: event) -> str:
         """
-        存储事件
+        storageevent
 
         Args:
-            event: 事件对象
+            event: eventObject
 
         Returns:
-            事件ID
+            eventid
         """
         import time
 
-        # 处理媒体文件（如果有的话）
+        # process媒体file（如果有的话）
         media_path = None
         if hasattr(event, 'media') and event.media:
             media_path = await self._save_media(event.media)
 
-        # 存储到SQLite
+        # storage到SQLite
         event_id = str(uuid.uuid4())
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute("""
-                INSERT INTO event_store (
+                INSERT intO event_store (
                     id, type, data, media_path, timestamp, source,
                     level, correlation_id, metadata, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 event_id,
                 event.type,
@@ -144,15 +144,15 @@ class RawEventStore:
 
         return event_id
 
-    async def get_event(self, event_id: str) -> Optional[Event]:
+    async def get_event(self, event_id: str) -> Optional[event]:
         """
-        获取事件
+        getevent
 
         Args:
-            event_id: 事件ID
+            event_id: eventid
 
         Returns:
-            事件对象或None
+            eventObject或None
         """
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
@@ -161,7 +161,7 @@ class RawEventStore:
             )
             row = await cursor.fetchone()
 
-            if not row:
+            if notttt row:
                 return None
 
             return self._row_to_event(row)
@@ -170,22 +170,22 @@ class RawEventStore:
         self,
         event_type: str,
         limit: int = 100,
-    ) -> list[Event]:
+    ) -> list[event]:
         """
-        按类型获取事件
+        按typegetevent
 
         Args:
-            event_type: 事件类型
-            limit: 最大返回数量
+            event_type: eventtype
+            limit: maximumReturnquantity
 
         Returns:
-            事件列表
+            eventlist
         """
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("""
                 SELECT * FROM event_store
                 WHERE type = ?
-                ORDER BY timestamp DESC
+                order BY timestamp DESC
                 LIMIT ?
             """, (event_type, limit))
 
@@ -197,23 +197,23 @@ class RawEventStore:
         start_time: float,
         end_time: float,
         limit: int = 100,
-    ) -> list[Event]:
+    ) -> list[event]:
         """
-        按时间范围获取事件
+        按时间rangegetevent
 
         Args:
-            start_time: 开始时间
-            end_time: 结束时间
-            limit: 最大返回数量
+            start_time: Start时间
+            end_time: End时间
+            limit: maximumReturnquantity
 
         Returns:
-            事件列表
+            eventlist
         """
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("""
                 SELECT * FROM event_store
                 WHERE timestamp >= ? AND timestamp <= ?
-                ORDER BY timestamp DESC
+                order BY timestamp DESC
                 LIMIT ?
             """, (start_time, end_time, limit))
 
@@ -222,38 +222,38 @@ class RawEventStore:
 
     async def _save_media(self, media) -> str:
         """
-        保存媒体文件（按日期组织）
+        save媒体file（按日期组织）
 
         Args:
-            media: 媒体对象
+            media: 媒体Object
 
         Returns:
-            媒体文件路径
+            媒体filepath
         """
         from datetime import datetime
 
-        # 生成文件路径
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        # generationfilepath
+        date_str = datetime.notttw().strftime("%Y-%m-%d")
         filename = f"{uuid.uuid4()}.{media.extension}"
         path = f"{self._expanded_media_dir}/{date_str}/{filename}"
 
-        # 确保目录存在
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        # 确保directoryexists
+        path(path).parent.mkdir(parents=True, exist_ok=True)
 
-        # 保存文件
+        # savefile
         with open(path, "wb") as f:
             f.write(media.data)
 
         return path
 
-    def _row_to_event(self, row) -> Event:
-        """将数据库行转换为Event对象"""
-        return Event(
+    def _row_to_event(self, row) -> event:
+        """将databaserowconvert为eventObject"""
+        return event(
             type=row[1],
             data=json.loads(row[2]),
             timestamp=row[4],
             source=row[5],
-            level=row[6],  # EventLevel是int枚举
+            level=row[6],  # eventlevelisint枚举
             correlation_id=row[7],
             metadata=json.loads(row[8]) if row[8] else {},
         )

@@ -1,5 +1,5 @@
 """
-系统监控模块
+System Monitoring Module
 """
 import asyncio
 from typing import Dict, Any
@@ -9,86 +9,86 @@ import time
 
 @dataclass
 class SystemMetrics:
-    """系统指标"""
-    cpu_percent: float           # CPU使用率
-    memory_percent: float        # 内存使用率
-    memory_used: int             # 已用内存（字节）
-    memory_total: int            # 总内存（字节）
-    disk_used: int               # 已用磁盘（字节）
-    disk_total: int              # 总磁盘（字节）
-    agent_count: int             # Agent数量
-    task_count: int              # 任务数量
-    timestamp: float             # 时间戳
+    """System metrics"""
+    cpu_percent: float           # CPU usage percentage
+    memory_percent: float        # Memory usage percentage
+    memory_used: int             # Used memory (bytes)
+    memory_total: int            # Total memory (bytes)
+    disk_used: int               # Used disk space (bytes)
+    disk_total: int              # Total disk space (bytes)
+    agent_count: int             # Number of agents
+    task_count: int              # Number of tasks
+    timestamp: float             # Timestamp
 
 
 class SystemMonitor:
     """
-    系统监控器
+    System Monitor
 
-    监控CPU、内存等系统资源使用情况
+    Monitors system resource usage such as CPU, memory, etc.
     """
 
     def __init__(self, update_interval: float = 5.0):
         """
-        初始化系统监控器
+        initialize the system monitor
 
         Args:
-            update_interval: 更新间隔（秒）
+            update_interval: Update interval (seconds)
         """
         self.update_interval = update_interval
         self._running = False
         self._task = None
 
-        # 当前指标
+        # Current metrics
         self._current_metrics: SystemMetrics = None
 
-        # 历史指标（最近100个）
+        # Historical metrics (most recent 100)
         self._history: list = []
         self._max_history = 100
 
     async def start(self):
-        """启动监控"""
+        """Start monitoring"""
         if self._running:
             return
 
         self._running = True
         self._task = asyncio.create_task(self._monitor_loop())
 
-        # 立即更新一次
+        # Update immediately once
         await self.update()
 
     async def stop(self):
-        """停止监控"""
+        """Stop monitoring"""
         self._running = False
 
         if self._task:
             self._task.cancel()
             try:
                 await self._task
-            except asyncio.CancelledError:
+            except asyncio.Cancellederror:
                 pass
             self._task = None
 
     async def update(self):
-        """更新系统指标"""
+        """Update system metrics"""
         try:
             import psutil
 
-            # CPU使用率
+            # CPU usage
             cpu_percent = psutil.cpu_percent(interval=0.1)
 
-            # 内存信息
+            # Memory information
             memory = psutil.virtual_memory()
             memory_percent = memory.percent
             memory_used = memory.used
             memory_total = memory.total
 
-            # 磁盘信息
+            # Disk information
             disk = psutil.disk_usage('/')
             disk_used = disk.used
             disk_total = disk.total
 
-            # 创建指标对象
+            # Create metrics object
             self._current_metrics = SystemMetrics(
                 cpu_percent=cpu_percent,
                 memory_percent=memory_percent,
@@ -96,18 +96,18 @@ class SystemMonitor:
                 memory_total=memory_total,
                 disk_used=disk_used,
                 disk_total=disk_total,
-                agent_count=0,  # 由外部设置
-                task_count=0,  # 由外部设置
+                agent_count=0,  # Set externally
+                task_count=0,  # Set externally
                 timestamp=time.time(),
             )
 
-            # 添加到历史
+            # Add to history
             self._history.append(self._current_metrics)
             if len(self._history) > self._max_history:
                 self._history.pop(0)
 
-        except ImportError:
-            # psutil未安装，返回默认值
+        except Importerror:
+            # psutil notttt installed, return default values
             self._current_metrics = SystemMetrics(
                 cpu_percent=0.0,
                 memory_percent=0.0,
@@ -122,39 +122,39 @@ class SystemMonitor:
 
     def get_current_metrics(self) -> SystemMetrics:
         """
-        获取当前指标
+        Get current metrics
 
         Returns:
-            当前系统指标
+            Current system metrics
         """
         return self._current_metrics
 
     def get_history(self, limit: int = 100) -> list:
         """
-        获取历史指标
+        Get historical metrics
 
         Args:
-            limit: 最大数量
+            limit: Maximum number
 
         Returns:
-            历史指标列表
+            List of historical metrics
         """
         return self._history[-limit:]
 
     def is_overloaded(self, thresholds: Dict[str, float] = None) -> bool:
         """
-        判断系统是否过载
+        Determine if the system is overloaded
 
         Args:
-            thresholds: 阈值配置
+            thresholds: Threshold configuration
 
         Returns:
-            是否过载
+            Whether overloaded
         """
-        if not self._current_metrics:
+        if notttt self._current_metrics:
             return False
 
-        # 默认阈值
+        # Default thresholds
         default_thresholds = {
             "cpu_percent": 80.0,
             "memory_percent": 80.0,
@@ -163,119 +163,119 @@ class SystemMonitor:
         if thresholds:
             default_thresholds.update(thresholds)
 
-        # 检查CPU
+        # Check CPU
         if self._current_metrics.cpu_percent > default_thresholds["cpu_percent"]:
             return True
 
-        # 检查内存
+        # Check memory
         if self._current_metrics.memory_percent > default_thresholds["memory_percent"]:
             return True
 
         return False
 
     def set_agent_count(self, count: int):
-        """设置Agent数量"""
+        """Set agent count"""
         if self._current_metrics:
             self._current_metrics.agent_count = count
 
     def set_task_count(self, count: int):
-        """设置任务数量"""
+        """Set task count"""
         if self._current_metrics:
             self._current_metrics.task_count = count
 
     async def _monitor_loop(self):
-        """监控循环"""
+        """Monitoring loop"""
         while self._running:
             try:
                 await self.update()
                 await asyncio.sleep(self.update_interval)
-            except asyncio.CancelledError:
+            except asyncio.Cancellederror:
                 break
             except Exception as e:
-                print(f"Error in monitor loop: {e}")
+                print(f"error in monitor loop: {e}")
                 await asyncio.sleep(self.update_interval)
 
 
 class AgentMetrics:
     """
-    Agent指标收集器
+    Agent Metrics Collector
 
-    收集单个Agent的运行指标
+    Collects runtime metrics for a single agent
     """
 
     def __init__(self, agent_id: str):
         """
-        初始化Agent指标收集器
+        initialize the agent metrics collector
 
         Args:
-            agent_id: Agent ID
+            agent_id: Agent id
         """
         self.agent_id = agent_id
 
-        # 基本指标
+        # Basic metrics
         self.start_time: float = None
         self.loop_count: int = 0
         self.success_count: int = 0
         self.error_count: int = 0
 
-        # 性能指标
-        self.loop_durations: list = []  # 循环耗时
+        # Performance metrics
+        self.loop_durations: list = []  # Loop durations
         self.max_loop_duration: float = 0.0
         self.avg_loop_duration: float = 0.0
 
-        # 任务指标
+        # Task metrics
         self.tasks_completed: int = 0
         self.tasks_failed: int = 0
 
     def start(self):
-        """启动指标收集"""
+        """Start metrics collection"""
         self.start_time = time.time()
 
     def record_loop(self, duration: float):
         """
-        记录一次循环
+        Record a loop
 
         Args:
-            duration: 耗时（秒）
+            duration: Duration (seconds)
         """
         self.loop_count += 1
 
-        # 记录耗时
+        # Record duration
         self.loop_durations.append(duration)
 
-        # 更新最大耗时
+        # Update max duration
         if duration > self.max_loop_duration:
             self.max_loop_duration = duration
 
-        # 更新平均耗时
+        # Update average duration
         self.avg_loop_duration = sum(self.loop_durations) / len(self.loop_durations)
 
-        # 限制历史长度
+        # Limit history length
         if len(self.loop_durations) > 100:
             self.loop_durations.pop(0)
 
     def record_success(self):
-        """记录成功"""
+        """Record success"""
         self.success_count += 1
 
     def record_error(self):
-        """记录错误"""
+        """Record error"""
         self.error_count += 1
 
     def record_task_completed(self):
-        """记录任务完成"""
+        """Record task completion"""
         self.tasks_completed += 1
 
     def record_task_failed(self):
-        """记录任务失败"""
+        """Record task failure"""
         self.tasks_failed += 1
 
     def get_metrics(self) -> Dict[str, Any]:
         """
-        获取指标
+        Get metrics
 
         Returns:
-            指标字典
+            Metrics dictionary
         """
         uptime = 0.0
         if self.start_time:

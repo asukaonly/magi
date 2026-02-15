@@ -1,7 +1,7 @@
 """
-系统配置API路由
+系统ConfigurationAPIroute
 
-提供系统配置的读取和更新功能
+提供系统Configuration的读取andupdatefunction
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -13,54 +13,54 @@ logger = logging.getLogger(__name__)
 
 config_router = APIRouter()
 
-# ============ 数据模型 ============
+# ============ data Models ============
 
 class AgentConfigModel(BaseModel):
-    """Agent配置"""
-    name: str = Field(default="magi-agent", description="Agent名称")
-    description: Optional[str] = Field(None, description="Agent描述")
+    """AgentConfiguration"""
+    name: str = Field(default="magi-agent", description="AgentName")
+    description: Optional[str] = Field(None, description="AgentDescription")
 
 
 class LLMConfigModel(BaseModel):
-    """LLM配置"""
+    """LLMConfiguration"""
     provider: str = Field(default="openai", description="LLM提供商: openai, anthropic, glm, local")
-    model: str = Field(default="gpt-4", description="模型名称")
-    api_key: Optional[str] = Field(None, description="API密钥")
-    base_url: Optional[str] = Field(None, description="API endpoint URL")
+    model: str = Field(default="gpt-4", description="modelName")
+    api_key: Optional[str] = Field(None, description="APIkey")
+    base_url: Optional[str] = Field(None, description="API endpoint url")
 
 
 class LoopConfigModel(BaseModel):
-    """循环配置"""
-    strategy: str = Field(default="continuous", description="循环策略: step, wave, continuous")
-    interval: float = Field(default=1.0, description="循环间隔（秒）")
+    """循环Configuration"""
+    strategy: str = Field(default="continuous", description="Loop strategy: step, wave, continuous")
+    interval: float = Field(default=1.0, description="循环interval（seconds）")
 
 
 class MessageBusConfigModel(BaseModel):
-    """消息总线配置"""
-    backend: str = Field(default="memory", description="后端类型: memory, sqlite, redis")
-    max_size: Optional[int] = Field(None, description="最大队列大小")
+    """message busConfiguration"""
+    backend: str = Field(default="memory", description="后端type: memory, sqlite, redis")
+    max_size: Optional[int] = Field(None, description="maximumqueuesize")
 
 
 class MemoryConfigModel(BaseModel):
-    """记忆存储配置"""
-    backend: str = Field(default="memory", description="后端类型: memory, sqlite, chromadb")
-    path: Optional[str] = Field(None, description="存储路径")
+    """Memory StorageConfiguration"""
+    backend: str = Field(default="memory", description="后端type: memory, sqlite, chromadb")
+    path: Optional[str] = Field(None, description="storagepath")
 
 
 class WebSocketConfigModel(BaseModel):
-    """WebSocket配置"""
-    enabled: bool = Field(default=True, description="是否启用WebSocket")
-    port: Optional[int] = Field(None, description="WebSocket端口")
+    """WebSocketConfiguration"""
+    enabled: bool = Field(default=True, description="is nottttEnableWebSocket")
+    port: Optional[int] = Field(None, description="WebSocketport")
 
 
 class LogConfigModel(BaseModel):
-    """日志配置"""
-    level: str = Field(default="INFO", description="日志级别: DEBUG, INFO, WARNING, ERROR")
-    path: Optional[str] = Field(None, description="日志文件路径")
+    """LogConfiguration"""
+    level: str = Field(default="INFO", description="Loglevel: debug, INFO, warnING, error")
+    path: Optional[str] = Field(None, description="Logfilepath")
 
 
 class SystemConfigModel(BaseModel):
-    """系统配置"""
+    """系统Configuration"""
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
     loop: LoopConfigModel = Field(default_factory=LoopConfigModel)
@@ -71,13 +71,13 @@ class SystemConfigModel(BaseModel):
 
 
 class ConfigResponse(BaseModel):
-    """配置响应"""
+    """Configurationresponse"""
     success: bool
     message: str
     data: Optional[SystemConfigModel] = None
 
 
-# ============ 默认配置 ============
+# ============ defaultConfiguration ============
 
 DEFAULT_CONFIG = SystemConfigModel(
     agent=AgentConfigModel(
@@ -87,7 +87,7 @@ DEFAULT_CONFIG = SystemConfigModel(
     llm=LLMConfigModel(
         provider="openai",
         model="gpt-4",
-        api_key=None,  # 从环境变量读取
+        api_key=None,  # 从环境Variable读取
         base_url=None,
     ),
     loop=LoopConfigModel(
@@ -113,27 +113,27 @@ DEFAULT_CONFIG = SystemConfigModel(
 )
 
 
-# ============ 配置存储（内存中） ============
+# ============ Configurationstorage（内存中） ============
 
 _config: SystemConfigModel = DEFAULT_CONFIG
 
 
-# ============ API端点 ============
+# ============ API Endpoints ============
 
 @config_router.get("/", response_model=ConfigResponse)
 async def get_config():
     """
-    获取系统配置
+    get系统Configuration
 
     Returns:
-        当前系统配置
+        current系统Configuration
     """
-    # 从环境变量读取LLM配置
+    # 从环境Variable读取LLMConfiguration
     llm_config = LLMConfigModel(
-        provider=os.getenv("LLM_PROVIDER", "openai"),
-        model=os.getenv("LLM_MODEL", "gpt-4"),
-        api_key="***" if os.getenv("LLM_API_KEY") else None,  # 隐藏密钥
-        base_url=os.getenv("LLM_BASE_URL"),
+        provider=os.getenv("LLM_PROVidER", "openai"),
+        model=os.getenv("LLM_MOdel", "gpt-4"),
+        api_key="***" if os.getenv("LLM_API_key") else None,  # 隐藏key
+        base_url=os.getenv("LLM_BasE_url"),
     )
 
     config = SystemConfigModel(
@@ -148,7 +148,7 @@ async def get_config():
 
     return ConfigResponse(
         success=True,
-        message="获取配置成功",
+        message="getConfigurationsuccess",
         data=config,
     )
 
@@ -156,65 +156,65 @@ async def get_config():
 @config_router.put("/", response_model=ConfigResponse)
 async def update_config(config: SystemConfigModel):
     """
-    更新系统配置
+    update系统Configuration
 
     Args:
-        config: 新的配置
+        config: new的Configuration
 
     Returns:
-        更新后的配置
+        Updated configuration
     """
     global _config
 
     try:
-        # 更新配置（不包含敏感信息）
+        # updateConfiguration（不contains敏感info）
         _config = config
 
-        # 如果提供了API密钥，设置环境变量
+        # 如果提供了APIkey，Setting环境Variable
         if config.llm.api_key and config.llm.api_key != "***":
-            os.environ["LLM_API_KEY"] = config.llm.api_key
-            logger.info("LLM API Key 已更新")
+            os.environ["LLM_API_key"] = config.llm.api_key
+            logger.info("LLM API Key 已update")
 
         if config.llm.base_url:
-            os.environ["LLM_BASE_URL"] = config.llm.base_url
-            logger.info(f"LLM Base URL 已更新: {config.llm.base_url}")
+            os.environ["LLM_BasE_url"] = config.llm.base_url
+            logger.info(f"LLM Base url 已update: {config.llm.base_url}")
 
         if config.llm.model:
-            os.environ["LLM_MODEL"] = config.llm.model
-            logger.info(f"LLM Model 已更新: {config.llm.model}")
+            os.environ["LLM_MOdel"] = config.llm.model
+            logger.info(f"LLM Model 已update: {config.llm.model}")
 
         if config.llm.provider:
-            os.environ["LLM_PROVIDER"] = config.llm.provider
-            logger.info(f"LLM Provider 已更新: {config.llm.provider}")
+            os.environ["LLM_PROVidER"] = config.llm.provider
+            logger.info(f"LLM Provider 已update: {config.llm.provider}")
 
-        logger.info("系统配置已更新")
+        logger.info("系统Configuration已update")
 
         return ConfigResponse(
             success=True,
-            message="配置更新成功",
+            message="Configurationupdatesuccess",
             data=_config,
         )
     except Exception as e:
-        logger.error(f"更新配置失败: {e}")
+        logger.error(f"updateConfigurationfailure: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @config_router.post("/reset", response_model=ConfigResponse)
 async def reset_config():
     """
-    重置配置为默认值
+    resetConfiguration为defaultValue
 
     Returns:
-        默认配置
+        defaultConfiguration
     """
     global _config
     _config = DEFAULT_CONFIG
 
-    logger.info("配置已重置为默认值")
+    logger.info("Configuration已reset为defaultValue")
 
     return ConfigResponse(
         success=True,
-        message="配置已重置",
+        message="Configuration已reset",
         data=_config,
     )
 
@@ -222,14 +222,14 @@ async def reset_config():
 @config_router.get("/template", response_model=ConfigResponse)
 async def get_config_template():
     """
-    获取配置模板
+    getConfiguration模板
 
     Returns:
-        配置模板
+        Configuration模板
     """
     return ConfigResponse(
         success=True,
-        message="获取配置模板成功",
+        message="getConfiguration模板success",
         data=DEFAULT_CONFIG,
     )
 
@@ -237,39 +237,39 @@ async def get_config_template():
 @config_router.post("/test", response_model=ConfigResponse)
 async def test_config(config: SystemConfigModel):
     """
-    测试配置是否有效
+    TestConfigurationis nottttvalid
 
     Args:
-        config: 要测试的配置
+        config: 要Test的Configuration
 
     Returns:
-        测试结果
+        TestResult
     """
     try:
-        # 验证必填字段
-        if not config.llm.provider:
-            raise ValueError("LLM provider is required")
+        # Validate必填field
+        if notttt config.llm.provider:
+            raise Valueerror("LLM provider is required")
 
-        if not config.llm.model:
-            raise ValueError("LLM model is required")
+        if notttt config.llm.model:
+            raise Valueerror("LLM model is required")
 
-        # 这里可以添加更多的验证逻辑
-        # 例如测试LLM连接等
+        # 这里可以addmore的Validate逻辑
+        # 例如TestLLMconnection等
 
         return ConfigResponse(
             success=True,
-            message="配置验证通过",
+            message="ConfigurationValidate通过",
             data=config,
         )
-    except ValueError as e:
+    except Valueerror as e:
         return ConfigResponse(
             success=False,
-            message=f"配置验证失败: {str(e)}",
+            message=f"ConfigurationValidatefailure: {str(e)}",
             data=None,
         )
     except Exception as e:
         return ConfigResponse(
             success=False,
-            message=f"配置测试失败: {str(e)}",
+            message=f"ConfigurationTestfailure: {str(e)}",
             data=None,
         )

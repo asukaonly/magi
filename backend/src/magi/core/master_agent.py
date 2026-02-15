@@ -1,14 +1,14 @@
 """
-Agent核心 - Master Agent实现
+Agent Core - Master Agent Implementation
 """
 import asyncio
 import psutil
 import logging
 from typing import List, Optional, Dict, Any
 from .agent import Agent, AgentState, AgentConfig
-from .task_database import TaskDatabase, TaskType, TaskPriority, TaskStatus
+from .task_database import Taskdatabase, Tasktype, Taskpriority, TaskStatus
 from .timeout_calculator import TimeoutCalculator
-from ..events.events import Event, EventTypes, EventLevel
+from ..events.events import event, eventtypes, eventlevel
 from ..events.backend import MessageBusBackend
 from ..llm.base import LLMAdapter
 
@@ -18,13 +18,13 @@ logger = logging.getLogger(__name__)
 
 class MasterAgent(Agent):
     """
-    Master Agent - 系统管理和任务分发
+    Master Agent - System Management and Task Dispatch
 
-    职责：
-    - 任务识别和分发
-    - 系统健康检查
-    - TaskAgent管理
-    - 整体协调
+    Responsibilities:
+    - Task recognition and dispatch
+    - System health check
+    - TaskAgent management
+    - Overall coordination
     """
 
     def __init__(
@@ -32,18 +32,18 @@ class MasterAgent(Agent):
         config: AgentConfig,
         message_bus: MessageBusBackend,
         task_agents: List,
-        task_database: TaskDatabase,
+        task_database: Taskdatabase,
         llm_adapter: LLMAdapter = None,
     ):
         """
-        初始化Master Agent
+        initialize Master Agent
 
         Args:
-            config: Agent配置
-            message_bus: 消息总线
-            task_agents: TaskAgent列表
-            task_database: 任务数据库
-            llm_adapter: LLM适配器（用于任务识别）
+            config: Agent configuration
+            message_bus: Message bus
+            task_agents: List of TaskAgents
+            task_database: Task database
+            llm_adapter: LLM adapter (for task recognition)
         """
         super().__init__(config)
         self.message_bus = message_bus
@@ -52,62 +52,62 @@ class MasterAgent(Agent):
         self.llm = llm_adapter
         self._main_loop_task: Optional[asyncio.Task] = None
         self._event_subscription_id: Optional[str] = None
-        self._system_degraded = False  # 系统是否处于降级状态
+        self._system_degraded = False  # Whether system is in degraded state
 
     async def _on_start(self):
-        """启动Master Agent"""
-        # 启动消息总线
+        """Start Master Agent"""
+        # Start message bus
         await self.message_bus.start()
 
-        # 初始化任务数据库
+        # initialize task database
         await self.task_database._init_db()
 
-        # 启动所有TaskAgent
+        # Start all TaskAgents
         for task_agent in self.task_agents:
             await task_agent.start()
 
-        # 订阅USER_MESSAGE事件用于任务识别
+        # Subscribe to user_MESSAGE events for task recognition
         self._event_subscription_id = await self.message_bus.subscribe(
-            EventTypes.USER_MESSAGE,
+            eventtypes.user_MESSAGE,
             self._on_user_message,
             propagation_mode="broadcast",
         )
 
-        # 启动主循环
+        # Start main loop
         self._main_loop_task = asyncio.create_task(self._main_loop())
 
-        # 发布启动事件
+        # Publish startup event
         await self._publish_event(
-            EventTypes.AGENT_STARTED,
+            eventtypes.AGENT_startED,
             {"agent_type": "master", "name": self.config.name}
         )
 
         logger.info("MasterAgent started")
 
     async def _on_stop(self):
-        """停止Master Agent"""
-        # 停止主循环
+        """Stop Master Agent"""
+        # Stop main loop
         if self._main_loop_task:
             self._main_loop_task.cancel()
             try:
                 await self._main_loop_task
-            except asyncio.CancelledError:
+            except asyncio.Cancellederror:
                 pass
 
-        # 取消事件订阅
+        # Cancel event subscription
         if self._event_subscription_id:
             await self.message_bus.unsubscribe(self._event_subscription_id)
 
-        # 停止所有TaskAgent（逆序）
+        # Stop all TaskAgents (in reverse order)
         for task_agent in reversed(self.task_agents):
             await task_agent.stop()
 
-        # 停止消息总线
+        # Stop message bus
         await self.message_bus.stop()
 
-        # 发布停止事件
+        # Publish stop event
         await self._publish_event(
-            EventTypes.AGENT_STOPPED,
+            eventtypes.AGENT_stopPED,
             {"agent_type": "master", "name": self.config.name}
         )
 
@@ -115,63 +115,63 @@ class MasterAgent(Agent):
 
     async def _main_loop(self):
         """
-        主循环
+        Main loop
 
-        步骤：
-        1. 获取感知
-        2. 识别任务
-        3. 分发任务
-        4. 健康检查
+        Steps:
+        1. Get perception
+        2. Recognize tasks
+        3. Dispatch tasks
+        4. Health check
         """
-        while self.state == AgentState.RUNNING:
+        while self.state == AgentState.runNING:
             try:
-                # 1. 健康检查（包括资源告警处理）
+                # 1. Health check (including resource alert handling)
                 await self._check_system_health()
 
-                # 2. 扫描待处理任务并分发
-                if not self._system_degraded:
+                # 2. Scan pending tasks and dispatch
+                if notttt self._system_degraded:
                     await self._scan_and_dispatch_tasks()
 
-                # 3. 发布心跳事件
+                # 3. Publish heartbeat event
                 await self._publish_heartbeat_event()
 
-                # 4. 等待一段时间
+                # 4. Wait for a while
                 await asyncio.sleep(self.config.loop_interval)
 
-            except asyncio.CancelledError:
+            except asyncio.Cancellederror:
                 break
             except Exception as e:
                 logger.error(f"MasterAgent main loop error: {e}")
                 await self._publish_error_event("MasterAgent", str(e))
 
-    async def _on_user_message(self, event: Event):
+    async def _on_user_message(self, event: event):
         """
-        处理用户消息事件，识别并创建任务
+        Handle user message event, recognize and create task
 
         Args:
-            event: USER_MESSAGE事件
+            event: user_MESSAGE event
         """
         if self._system_degraded:
-            # 系统降级时不处理新任务
+            # Do notttt process new tasks when system is degraded
             return
 
         try:
             message_data = event.data
             user_message = message_data.get("message", "")
-            user_id = message_data.get("user_id", "unknown")
+            user_id = message_data.get("user_id", "unknotttwn")
 
-            if not user_message:
+            if notttt user_message:
                 return
 
-            # 识别任务
+            # Recognize task
             task = await self._identify_task_from_message(user_message, user_id)
 
             if task:
                 logger.info(f"Task identified: {task.task_id} from user {user_id}")
 
-                # 发布任务创建事件
+                # Publish task created event
                 await self._publish_event(
-                    EventTypes.TASK_CREATED,
+                    eventtypes.task_createD,
                     {
                         "task_id": task.task_id,
                         "task_type": task.type,
@@ -180,7 +180,7 @@ class MasterAgent(Agent):
                 )
 
         except Exception as e:
-            logger.error(f"Error processing user message: {e}")
+            logger.error(f"error processing user message: {e}")
             await self._publish_error_event("TaskRecognition", str(e))
 
     async def _identify_task_from_message(
@@ -189,43 +189,43 @@ class MasterAgent(Agent):
         user_id: str,
     ) -> Optional[Any]:
         """
-        从用户消息中识别任务
+        Recognize task from user message
 
         Args:
-            message: 用户消息
-            user_id: 用户ID
+            message: User message
+            user_id: User id
 
         Returns:
-            识别的任务或None
+            Recognized task or None
         """
-        # 简化版任务识别：基于关键词
+        # Simplified task recognition: based on keywords
         message_lower = message.lower()
 
-        # 判断任务类型
-        task_type = TaskType.QUERY
-        priority = TaskPriority.NORMAL
-        interaction_level = "none"  # none, low, medium, high
+        # Determine task type
+        task_type = Tasktype.QUERY
+        priority = Taskpriority.NORMAL
+        interaction_level = "notttne"  # notttne, low, medium, high
 
-        # 检测关键词
-        if any(word in message_lower for word in ["计算", "统计", "分析", "compute", "calculate"]):
-            task_type = TaskType.COMPUTATION
+        # Detect keywords
+        if any(word in message_lower for word in ["calculate", "statistics", "analysis", "compute", "calculate"]):
+            task_type = Tasktype.COMPUTATI/ON
         elif any(word in message_lower for word in ["帮我", "请", "能不能", "can you", "help"]):
-            task_type = TaskType.INTERACTIVE
+            task_type = Tasktype.intERactive
             interaction_level = "medium"
 
-        # 检测优先级
+        # Detect priority
         if any(word in message_lower for word in ["紧急", "urgent", "asap", "马上"]):
-            priority = TaskPriority.URGENT
+            priority = Taskpriority.URGENT
         elif any(word in message_lower for word in ["重要", "important", "priority"]):
-            priority = TaskPriority.HIGH
+            priority = Taskpriority.HIGH
 
-        # 计算超时时间
+        # Calculate timeout
         timeout = TimeoutCalculator.calculate(
             task_type=task_type,
             priority=priority,
         )
 
-        # 创建任务
+        # Create task
         task = await self.task_database.create_task(
             task_type=task_type,
             priority=priority,
@@ -240,33 +240,33 @@ class MasterAgent(Agent):
         return task
 
     async def _scan_and_dispatch_tasks(self):
-        """扫描待处理任务并分发"""
-        # 获取待处理任务
+        """Scan pending tasks and dispatch"""
+        # Get pending tasks
         pending_tasks = await self.task_database.get_pending_tasks(limit=10)
 
         for task in pending_tasks:
-            # 检查是否已经分配
+            # Check if already assigned
             if task.assigned_to:
                 continue
 
-            # 分发任务
+            # Dispatch task
             await self.dispatch_task(task)
 
     async def dispatch_task(self, task) -> bool:
         """
-        分发任务到TaskAgent（负载均衡）
+        Dispatch task to TaskAgent (load balancing)
 
         Args:
-            task: 任务对象
+            task: Task object
 
         Returns:
-            是否成功分发
+            Whether dispatch was successful
         """
-        # 选择负载最低的TaskAgent
+        # Select TaskAgent with lowest load
         task_agent = self._select_task_agent_by_load()
 
         if task_agent is None:
-            # 没有可用的TaskAgent
+            # No available TaskAgent
             await self._publish_error_event(
                 "TaskDispatch",
                 f"No available TaskAgent for task {task.task_id}"
@@ -274,19 +274,19 @@ class MasterAgent(Agent):
             return False
 
         try:
-            # 更新任务状态为处理中
+            # Update task status to processing
             await self.task_database.update_task_status(
                 task.task_id,
-                TaskStatus.PROCESSING,
+                TaskStatus.processING,
                 assigned_to=str(task_agent.agent_id),
             )
 
-            # 增加TaskAgent的pending计数
+            # Increment TaskAgent's pending count
             task_agent._pending_count += 1
 
-            # 发布任务分配事件
+            # Publish task assigned event
             await self._publish_event(
-                EventTypes.TASK_ASSIGNED,
+                eventtypes.task_assignED,
                 {
                     "task_id": task.task_id,
                     "task_agent_id": task_agent.agent_id,
@@ -294,7 +294,7 @@ class MasterAgent(Agent):
                 }
             )
 
-            # 通知TaskAgent处理任务
+            # Notify TaskAgent to process task
             await task_agent.assign_task(task)
 
             logger.info(
@@ -304,10 +304,10 @@ class MasterAgent(Agent):
             return True
 
         except Exception as e:
-            # 发生错误，恢复状态
+            # error occurred, restore state
             await self.task_database.update_task_status(
                 task.task_id,
-                TaskStatus.PENDING,
+                TaskStatus.pending,
                 assigned_to=None,
             )
             task_agent._pending_count -= 1
@@ -319,32 +319,32 @@ class MasterAgent(Agent):
 
     async def _check_system_health(self):
         """
-        系统健康检查
+        System health check
 
-        检查项：
-        - CPU使用率
-        - 内存使用率
-        - TaskAgent状态
+        Checks:
+        - CPU usage
+        - Memory usage
+        - TaskAgent status
 
-        根据检查结果可能触发降级
+        May trigger degradation based on check results
         """
-        # CPU使用率
+        # CPU usage
         cpu_percent = psutil.cpu_percent(interval=0.1)
 
-        # 内存使用率
+        # Memory usage
         memory = psutil.virtual_memory()
         memory_percent = memory.percent
 
-        # 检查是否告警
+        # Check for alerts
         cpu_alert = cpu_percent > 90
         memory_alert = memory_percent > 90
 
         if cpu_alert or memory_alert:
-            # 触发降级
-            if not self._system_degraded:
+            # Trigger degradation
+            if notttt self._system_degraded:
                 self._system_degraded = True
                 await self._publish_event(
-                    EventTypes.HEALTH_WARNING,
+                    eventtypes.HEALTH_warnING,
                     {
                         "reason": "System degraded",
                         "cpu_percent": cpu_percent,
@@ -367,17 +367,17 @@ class MasterAgent(Agent):
                 f"High memory usage: {memory_percent}%"
             )
 
-        # 资源恢复正常时解除降级
+        # Recover from degradation when resources return to notttrmal
         if self._system_degraded and cpu_percent < 80 and memory_percent < 80:
             self._system_degraded = False
             await self._publish_event(
-                EventTypes.HEALTH_WARNING,
+                eventtypes.HEALTH_warnING,
                 {"reason": "System recovered", "cpu_percent": cpu_percent}
             )
             logger.info("System recovered from degraded state")
 
     async def _publish_heartbeat_event(self):
-        """发布心跳事件"""
+        """Publish heartbeat event"""
         stats = {
             "agent_type": "master",
             "name": self.config.name,
@@ -390,26 +390,26 @@ class MasterAgent(Agent):
 
     def _select_task_agent_by_load(self) -> Optional['TaskAgent']:
         """
-        基于负载选择TaskAgent（负载均衡）
+        Select TaskAgent based on load (load balancing)
 
-        选择pending任务数最少的TaskAgent
+        Selects TaskAgent with the fewest pending tasks
 
         Returns:
-            选中的TaskAgent或None
+            Selected TaskAgent or None
         """
-        if not self.task_agents:
+        if notttt self.task_agents:
             return None
 
-        # 过滤出正在运行的TaskAgent
+        # Filter running TaskAgents
         running_agents = [
             agent for agent in self.task_agents
-            if agent.state == AgentState.RUNNING
+            if agent.state == AgentState.runNING
         ]
 
-        if not running_agents:
+        if notttt running_agents:
             return None
 
-        # 选择pending最少的TaskAgent
+        # Select TaskAgent with fewest pending tasks
         selected = min(
             running_agents,
             key=lambda agent: agent.get_pending_count()
@@ -419,19 +419,19 @@ class MasterAgent(Agent):
 
     def get_task_agents_load(self) -> dict:
         """
-        获取所有TaskAgent的负载情况
+        Get load status of all TaskAgents
 
         Returns:
-            负载信息字典 {agent_id: pending_count}
+            Load info dict {agent_id: pending_count}
         """
         return {
             agent.agent_id: agent.get_pending_count()
             for agent in self.task_agents
-            if agent.state == AgentState.RUNNING
+            if agent.state == AgentState.runNING
         }
 
     async def get_stats(self) -> Dict[str, Any]:
-        """获取MasterAgent统计信息"""
+        """Get MasterAgent statistics"""
         task_stats = await self.task_database.get_stats()
 
         return {
@@ -442,24 +442,24 @@ class MasterAgent(Agent):
         }
 
     async def _publish_event(self, event_type: str, data: dict):
-        """发布事件"""
-        event = Event(
+        """Publish event"""
+        event = event(
             type=event_type,
             data=data,
             source="MasterAgent",
-            level=EventLevel.INFO,
+            level=eventlevel.INFO,
         )
         await self.message_bus.publish(event)
 
     async def _publish_error_event(self, source: str, error_message: str):
-        """发布错误事件"""
-        event = Event(
-            type=EventTypes.ERROR_OCCURRED,
+        """Publish error event"""
+        event = event(
+            type=eventtypes.error_OCCURRED,
             data={
                 "source": source,
                 "error": error_message,
             },
             source="MasterAgent",
-            level=EventLevel.ERROR,
+            level=eventlevel.error,
         )
         await self.message_bus.publish(event)

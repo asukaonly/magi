@@ -1,30 +1,30 @@
 """
-自处理模块
+Self-processing Module
 
-处理感知输入，支持能力积累、失败学习、人机协作等功能
+processPerception input，supportcapability积累、failurelearning、人机协作等function
 """
-from .module import SelfProcessingModule
+from .module import SelfprocessingModule
 from .base import (
-    ProcessingResult,
-    ProcessingContext,
+    processingResult,
+    processingContext,
     TaskComplexity,
-    ComplexityLevel,
+    Complexitylevel,
     Capability,
     FailureCase,
-    FailurePattern,
+    Failurepattern,
     LearningStage,
 )
 from .complexity import ComplexityEvaluator
 
 __all__ = [
-    "SelfProcessingModule",
-    "ProcessingResult",
-    "ProcessingContext",
+    "SelfprocessingModule",
+    "processingResult",
+    "processingContext",
     "TaskComplexity",
-    "ComplexityLevel",
+    "Complexitylevel",
     "Capability",
     "FailureCase",
-    "FailurePattern",
+    "Failurepattern",
     "LearningStage",
     "ComplexityEvaluator",
 ]

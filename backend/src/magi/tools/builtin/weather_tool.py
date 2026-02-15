@@ -1,38 +1,38 @@
 """
-Weather Tool - Query weather using QWeather (和风天气) API
+Weather Tool - query weather using QWeather (and风days气) API
 """
 import os
 import aiohttp
 from typing import Dict, Any, Optional
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
 
 
 class WeatherTool(Tool):
     """
     Weather Tool
 
-    Query weather information using QWeather (和风天气) API.
+    query weather information using QWeather (and风days气) API.
     Supports querying by city name or coordinates.
     """
 
     def _init_schema(self) -> None:
-        """Initialize Schema"""
+        """initialize Schema"""
         self.schema = ToolSchema(
             name="weather",
-            description="Query weather information for a specific location. Returns current weather including temperature, humidity, wind, and more.",
+            description="query weather information for a specific location. Returns current weather including temperature, humidity, wind, and more.",
             category="information",
             version="1.0.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
                     name="location",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="Location to query. Can be a city name (e.g., 'Beijing', '上海') or coordinates as 'longitude,latitude' (e.g., '116.41,39.92')",
                     required=True,
                 ),
                 ToolParameter(
                     name="lang",
-                    type=ParameterType.STRING,
+                    type=Parametertype.strING,
                     description="Language for weather descriptions: 'zh' (Chinese, default), 'en' (English)",
                     required=False,
                     default="zh",
@@ -71,20 +71,20 @@ class WeatherTool(Tool):
 
         try:
             # Get API credentials
-            api_key = os.environ.get("QWEATHER_API_KEY")
-            api_host = os.environ.get("QWEATHER_API_HOST", "devapi.qweather.com")
+            api_key = os.environ.get("QWEATHER_API_key")
+            api_host = os.environ.get("QWEATHER_API_host", "devapi.qweather.com")
 
-            if not api_key:
+            if notttt api_key:
                 return ToolResult(
                     success=False,
-                    error="QWEATHER_API_KEY environment variable not set. Please get your API key from https://dev.qweather.com/",
-                    error_code="MISSING_API_KEY",
+                    error="QWEATHER_API_key environment variable notttt set. Please get your API key from https://dev.qweather.com/",
+                    error_code="MISSING_API_key",
                 )
 
-            # First, try to resolve location to LocationID if it's a city name
+            # First, try to resolve location to Locationid if it's a city name
             location_id = await self._resolve_location(location, api_key, api_host)
 
-            # Query weather
+            # query weather
             weather_data = await self._query_weather(location_id, api_key, api_host, lang)
 
             return ToolResult(
@@ -100,7 +100,7 @@ class WeatherTool(Tool):
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="WEATHER_QUERY_ERROR",
+                error_code="WEATHER_QUERY_error",
             )
 
     async def _resolve_location(
@@ -110,9 +110,9 @@ class WeatherTool(Tool):
         api_host: str
     ) -> str:
         """
-        Resolve location to LocationID.
+        Resolve location to Locationid.
         If location looks like coordinates, return as-is.
-        Otherwise, use GeoAPI to find the LocationID.
+        Otherwise, use GeoAPI to find the Locationid.
         """
         # Check if location is already coordinates (contains comma and numbers)
         if "," in location:
@@ -123,10 +123,10 @@ class WeatherTool(Tool):
                     float(parts[1].strip())
                     # It's coordinates, return as-is
                     return location
-                except ValueError:
+                except Valueerror:
                     pass
 
-        # Use GeoAPI to find LocationID
+        # Use GeoAPI to find Locationid
         url = f"https://{api_host}/v2/city/lookup"
         headers = {"Authorization": f"Bearer {api_key}"}
         params = {"location": location, "number": 1}
@@ -140,11 +140,11 @@ class WeatherTool(Tool):
                 data = await response.json()
 
         if data.get("code") != "200":
-            raise Exception(f"Failed to resolve location: {data.get('message', 'Unknown error')}")
+            raise Exception(f"Failed to resolve location: {data.get('message', 'Unknotttwn error')}")
 
         locations = data.get("location", [])
-        if not locations:
-            raise Exception(f"Location not found: {location}")
+        if notttt locations:
+            raise Exception(f"Location notttt found: {location}")
 
         return locations[0].get("id", location)
 
@@ -155,8 +155,8 @@ class WeatherTool(Tool):
         api_host: str,
         lang: str
     ) -> Dict[str, Any]:
-        """Query current weather from QWeather API"""
-        url = f"https://{api_host}/v7/weather/now"
+        """query current weather from QWeather API"""
+        url = f"https://{api_host}/v7/weather/notttw"
         headers = {"Authorization": f"Bearer {api_key}"}
         params = {
             "location": location_id,
@@ -174,22 +174,22 @@ class WeatherTool(Tool):
         if data.get("code") != "200":
             raise Exception(f"Weather API returned error code: {data.get('code')}")
 
-        now = data.get("now", {})
+        notttw = data.get("notttw", {})
 
         return {
-            "observation_time": now.get("obsTime"),
-            "temperature": now.get("temp"),
-            "feels_like": now.get("feelsLike"),
-            "condition": now.get("text"),
-            "icon_code": now.get("icon"),
-            "wind_direction": now.get("windDir"),
-            "wind_scale": now.get("windScale"),
-            "wind_speed": now.get("windSpeed"),
-            "humidity": now.get("humidity"),
-            "precipitation": now.get("precip"),
-            "pressure": now.get("pressure"),
-            "visibility": now.get("vis"),
-            "cloud_cover": now.get("cloud"),
-            "dew_point": now.get("dew"),
+            "observation_time": notttw.get("obsTime"),
+            "temperature": notttw.get("temp"),
+            "feels_like": notttw.get("feelsLike"),
+            "condition": notttw.get("text"),
+            "icon_code": notttw.get("icon"),
+            "wind_direction": notttw.get("windDir"),
+            "wind_scale": notttw.get("windScale"),
+            "wind_speed": notttw.get("windSpeed"),
+            "humidity": notttw.get("humidity"),
+            "precipitation": notttw.get("precip"),
+            "pressure": notttw.get("pressure"),
+            "visibility": notttw.get("vis"),
+            "cloud_cover": notttw.get("cloud"),
+            "dew_point": notttw.get("dew"),
             "update_time": data.get("updateTime"),
         }

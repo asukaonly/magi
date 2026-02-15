@@ -1,15 +1,15 @@
 """
-人格加载器 - 从Markdown文件加载AI人格配置
+Personality Loader - 从MarkdownfileloadAIPersonality configuration
 
-支持：
-- 解析Markdown格式的人格配置
-- 验证配置完整性
-- 新Schema结构
-- 向后兼容旧模型
+support：
+- parseMarkdownformat的Personality configuration
+- ValidateConfigurationintegrity
+- New Schemastructure
+- 向后compatibleoldmodel
 """
 import re
 import logging
-from pathlib import Path
+from pathlib import path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
@@ -22,11 +22,11 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
-# ===== 配置模型（新Schema）=====
+# ===== Configurationmodel（New Schema）=====
 
 @dataclass
 class PersonalityConfig:
-    """人格配置 - 新Schema结构"""
+    """Personality Configuration - New Schema structure"""
 
     # Meta
     name: str = "AI"
@@ -47,7 +47,7 @@ class PersonalityConfig:
     compliment_policy: str = "Humble acceptance"
     criticism_tolerance: str = "Constructive response"
 
-    # Operational Behavior
+    # operational Behavior
     error_handling_style: str = "Apologize and retry"
     opinion_strength: str = "Consensus Seeking"
     refusal_style: str = "Polite decline"
@@ -62,32 +62,32 @@ class PersonalityConfig:
     on_switch_attempt: str = "Are you sure you want to switch?"
 
 
-# ===== 解析器 =====
+# ===== parse器 =====
 
 class MarkdownPersonalityParser:
-    """Markdown人格配置解析器"""
+    """Markdown Personality Configuration Parser"""
 
     def __init__(self):
         self.config: Dict[str, Any] = {}
 
     def parse(self, content: str) -> PersonalityConfig:
         """
-        解析Markdown内容
+        parseMarkdownContent
 
         Args:
-            content: Markdown文件内容
+            content: MarkdownfileContent
 
         Returns:
-            PersonalityConfig对象
+            PersonalityConfigObject
         """
         self.config = {}
 
         for line in content.split('\n'):
             line = line.rstrip()
-            if not line:
+            if notttt line:
                 continue
 
-            # 处理数组（格式: - key: ["item1", "item2"]）
+            # processarray（format: - key: ["item1", "item2"]）
             array_match = re.match(r'^-\s*(\w+):\s*\[(.*)\]$', line)
             if array_match:
                 key = array_match.group(1)
@@ -96,27 +96,27 @@ class MarkdownPersonalityParser:
                 self.config[key] = items
                 continue
 
-            # 处理多行文本（backstory）
+            # process多row文本（backstory）
             if line.startswith('  ') and 'backstory' in self.config:
                 self.config['backstory'] += '\n' + line.strip()
                 continue
 
-            # 处理键值对（- key: value 格式）
+            # processkeyValue对（- key: value format）
             kv_match = re.match(r'^-\s*(\w+):\s*(.*)$', line)
             if kv_match:
                 key = kv_match.group(1)
                 value = kv_match.group(2).strip()
 
-                # 处理多行文本标记
+                # process多row文本mark
                 if value == '|':
                     self.config[key] = ''
                     continue
 
-                # 处理引号包裹的值
+                # process引号package裹的Value
                 if value.startswith('"') and value.endswith('"'):
                     value = value[1:-1]
 
-                # 处理布尔值
+                # process布尔Value
                 lowered = value.lower()
                 if lowered == "true":
                     self.config[key] = True
@@ -135,15 +135,15 @@ class MarkdownPersonalityParser:
         return PersonalityConfig(**self.config)
 
     def _parse_array(self, items_str: str) -> List[str]:
-        """解析数组字符串"""
+        """parsearraystring"""
         items = []
-        if not items_str:
+        if notttt items_str:
             return items
 
-        # 简单分割，处理引号包裹的项目
+        # simple分割，process引号package裹的项目
         for item in items_str.split(','):
             item = item.strip()
-            # 移除引号
+            # Remove引号
             if item.startswith('"') and item.endswith('"'):
                 item = item[1:-1]
             if item:
@@ -152,54 +152,54 @@ class MarkdownPersonalityParser:
         return items
 
 
-# ===== 加载器 =====
+# ===== load器 =====
 
 class PersonalityLoader:
-    """人格加载器"""
+    """Personality Loader"""
 
     def __init__(self, personalities_path: str = "./personalities"):
         """
-        初始化人格加载器
+        initializePersonality Loader
 
         Args:
-            personalities_path: 人格配置文件目录
+            personalities_path: Personality configurationfiledirectory
         """
-        self.personalities_path = Path(personalities_path)
+        self.personalities_path = path(personalities_path)
         self.parser = MarkdownPersonalityParser()
         self._cache: Dict[str, PersonalityConfig] = {}
 
     def load(self, name: str = "default") -> PersonalityConfig:
         """
-        加载人格配置
+        loadPersonality configuration
 
         Args:
-            name: 人格名称（对应文件名，不含.md扩展名）
+            name: Personality name（correspondfilename，不含.mdextension名）
 
         Returns:
-            PersonalityConfig对象
+            PersonalityConfigObject
 
         Raises:
-            FileNotFoundError: 配置文件不存在
-            ValueError: 配置文件格式错误
+            FileNotFounderror: Configurationfilenotttt found
+            Valueerror: Configurationfileformaterror
         """
-        # 检查缓存
+        # checkcache
         if name in self._cache:
             return self._cache[name]
 
-        # 构建文件路径
+        # buildfilepath
         file_path = self.personalities_path / f"{name}.md"
 
-        if not file_path.exists():
-            # 尝试其他可能的路径（按优先级）
+        if notttt file_path.exists():
+            # 尝试other可能的path（按priority）
             alternative_paths = [
-                # 运行时目录
-                Path.home() / ".magi" / "personalities" / f"{name}.md",
-                # 当前工作目录
-                Path(f"./personalities/{name}.md"),
-                # 项目目录结构
-                Path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
-                # backend 目录
-                Path(f"./backend/personalities/{name}.md"),
+                # run时directory
+                path.home() / ".magi" / "personalities" / f"{name}.md",
+                # current工作directory
+                path(f"./personalities/{name}.md"),
+                # 项目directorystructure
+                path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
+                # backend directory
+                path(f"./backend/personalities/{name}.md"),
             ]
 
             for alt_path in alternative_paths:
@@ -208,29 +208,29 @@ class PersonalityLoader:
                     logger.info(f"Found personality file at alternative path: {alt_path}")
                     break
             else:
-                # 如果找不到文件，对于 default 返回默认配置而不是报错
+                # 如果找不到file，对于 default Return default configuration而notttterror report
                 if name == "default":
-                    logger.warning(f"Default personality file not found, using built-in defaults")
+                    logger.warning(f"Default personality file notttt found, using built-in defaults")
                     return PersonalityConfig()
-                raise FileNotFoundError(
-                    f"Personality file not found: {name}.md "
+                raise FileNotFounderror(
+                    f"Personality file notttt found: {name}.md "
                     f"(searched in {self.personalities_path} and alternative paths)"
                 )
 
-        # 读取文件
+        # 读取file
         try:
             content = file_path.read_text(encoding='utf-8')
         except Exception as e:
-            raise ValueError(f"Failed to read personality file {file_path}: {e}")
+            raise Valueerror(f"Failed to read personality file {file_path}: {e}")
 
-        # 解析内容
+        # parseContent
         try:
             config = self.parser.parse(content)
         except Exception as e:
             logger.warning(f"Failed to parse personality file {file_path}: {e}, using defaults")
             config = PersonalityConfig()
 
-        # 缓存
+        # cache
         self._cache[name] = config
         logger.info(f"Loaded personality: {name} from {file_path}")
 
@@ -238,24 +238,24 @@ class PersonalityLoader:
 
     def load_raw(self, name: str = "default") -> str:
         """
-        加载原始 Markdown 内容
+        load原始 Markdown Content
 
         Args:
-            name: 人格名称
+            name: Personality name
 
         Returns:
-            原始 Markdown 内容字符串
+            原始 Markdown Contentstring
         """
-        # 构建文件路径
+        # buildfilepath
         file_path = self.personalities_path / f"{name}.md"
 
-        if not file_path.exists():
-            # 尝试其他可能的路径
+        if notttt file_path.exists():
+            # 尝试other可能的path
             alternative_paths = [
-                Path.home() / ".magi" / "personalities" / f"{name}.md",
-                Path(f"./personalities/{name}.md"),
-                Path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
-                Path(f"./backend/personalities/{name}.md"),
+                path.home() / ".magi" / "personalities" / f"{name}.md",
+                path(f"./personalities/{name}.md"),
+                path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
+                path(f"./backend/personalities/{name}.md"),
             ]
 
             for alt_path in alternative_paths:
@@ -271,17 +271,17 @@ class PersonalityLoader:
             return ""
 
     def reload(self, name: str) -> PersonalityConfig:
-        """重新加载人格配置"""
+        """重newloadPersonality configuration"""
         if name in self._cache:
             del self._cache[name]
         return self.load(name)
 
     def clear_cache(self, name: str = None):
         """
-        清除人格缓存
+        清除personalitycache
 
         Args:
-            name: 人格名称（可选）。如果不指定，清除所有缓存
+            name: Personality name（optional）。如果不指定，清除allcache
         """
         if name:
             if name in self._cache:
@@ -292,8 +292,8 @@ class PersonalityLoader:
             logger.info("Cleared all personality cache")
 
     def list_available(self) -> List[str]:
-        """列出所有可用的人格配置"""
-        if not self.personalities_path.exists():
+        """List all available personalitiesConfiguration"""
+        if notttt self.personalities_path.exists():
             return []
 
         personalities = []
@@ -304,29 +304,29 @@ class PersonalityLoader:
 
     def to_core_personality(self, config: PersonalityConfig) -> CorePersonality:
         """
-        将PersonalityConfig转换为CorePersonality（向后兼容）
+        将PersonalityConfigconvert为CorePersonality（向后compatible）
 
         Args:
-            config: PersonalityConfig对象
+            config: PersonalityConfigObject
 
         Returns:
-            CorePersonality对象
+            CorePersonalityObject
         """
         from .models import CommunicationDistance, ValueAlignment, LanguageStyle
 
-        # 映射 user_relationship 到 communication_distance
+        # mapping user_relationship 到 communication_distance
         comm_distance = CommunicationDistance.EQUAL
         rel_lower = config.user_relationship.lower()
         if "superior" in rel_lower or "subservient" in rel_lower:
-            comm_distance = CommunicationDistance.SUBSERVIENT
+            comm_distance = CommunicationDistance.subSERVIENT
         elif "intimate" in rel_lower or "protector" in rel_lower:
-            comm_distance = CommunicationDistance.INTIMATE
+            comm_distance = CommunicationDistance.intIMATE
         elif "respectful" in rel_lower or "mentor" in rel_lower:
             comm_distance = CommunicationDistance.RESPECTFUL
         elif "detached" in rel_lower or "hostile" in rel_lower:
-            comm_distance = CommunicationDistance.DETACHED
+            comm_distance = CommunicationDistance.detachED
 
-        # 映射 work_ethic + confidence 到 value_alignment
+        # mapping work_ethic + confidence 到 value_alignment
         value_alignment = ValueAlignment.NEUTRAL_GOOD
         work_lower = config.work_ethic.lower()
         if "by-the-book" in work_lower or "perfectionist" in work_lower:
@@ -336,7 +336,7 @@ class PersonalityLoader:
         elif "lazy" in work_lower:
             value_alignment = ValueAlignment.CHAOTIC_NEUTRAL
 
-        # 从心理特征提取 traits
+        # 从Psychological profile提取 traits
         traits = []
         if config.confidence_level.lower() == "high":
             traits.append("confident")
@@ -347,7 +347,7 @@ class PersonalityLoader:
         if config.patience_level.lower() == "low":
             traits.append("impatient")
 
-        # 从批评容忍度提取 virtues/flaws
+        # 从Criticism tolerance提取 virtues/flaws
         virtues = []
         flaws = []
         crit_lower = config.criticism_tolerance.lower()
@@ -360,7 +360,7 @@ class PersonalityLoader:
             name=config.name,
             role=config.archetype,
             backstory=config.backstory,
-            language_style=LanguageStyle.CASUAL,
+            language_style=LanguageStyle.CasUAL,
             use_emoji=config.use_emoji,
             catchphrases=config.keywords,
             greetings=[config.on_init, config.on_wake],
@@ -376,25 +376,25 @@ class PersonalityLoader:
 
     def to_cognition_profile(self, config: PersonalityConfig) -> CognitionProfile:
         """
-        将PersonalityConfig转换为CognitionProfile（向后兼容）
+        将PersonalityConfigconvert为CognitionProfile（向后compatible）
 
         Args:
-            config: PersonalityConfig对象
+            config: PersonalityConfigObject
 
         Returns:
-            CognitionProfile对象
+            CognitionProfileObject
         """
-        # 映射新字段到旧的认知配置
+        # mappingnewfield到old的认知Configuration
         from .models import ThinkingStyle, RiskPreference
 
-        # 根据特征推断思维风格
+        # 根据特征推断思维style
         primary_style = ThinkingStyle.LOGICAL
         if "creative" in config.opinion_strength.lower():
             primary_style = ThinkingStyle.CREATIVE
         elif "intuitive" in config.empathy_level.lower():
-            primary_style = ThinkingStyle.INTUITIVE
+            primary_style = ThinkingStyle.intUITIVE
 
-        # 根据职业道德推断风险偏好
+        # 根据Work ethic推断风险preference
         risk_preference = RiskPreference.BALANCED
         if "adventurous" in config.work_ethic.lower() or "chaotic" in config.work_ethic.lower():
             risk_preference = RiskPreference.ADVENTUROUS
@@ -403,28 +403,28 @@ class PersonalityLoader:
 
         return CognitionProfile(
             primary_style=primary_style,
-            secondary_style=ThinkingStyle.INTUITIVE,
+            secondary_style=ThinkingStyle.intUITIVE,
             risk_preference=risk_preference,
-            expertise=[],  # 新 schema 不再有 expertise 列表
+            expertise=[],  # new schema 不再有 expertise list
             reasoning_depth="medium",
             creativity_level=0.5,
             learning_rate=0.5,
         )
 
 
-# ===== 便捷函数 =====
+# ===== 便捷Function =====
 
 _default_loader: Optional[PersonalityLoader] = None
 
 
 def get_personality_loader(path: str = None) -> PersonalityLoader:
-    """获取全局人格加载器"""
+    """getglobalPersonality Loader"""
     global _default_loader
-    if _default_loader is None or path is not None:
+    if _default_loader is None or path is notttt None:
         _default_loader = PersonalityLoader(path or "./personalities")
     return _default_loader
 
 
 def load_personality(name: str = "default", path: str = None) -> PersonalityConfig:
-    """加载人格配置（便捷函数）"""
+    """loadPersonality configuration（便捷Function）"""
     return get_personality_loader(path).load(name)

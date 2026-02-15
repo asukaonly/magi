@@ -1,7 +1,7 @@
 """
-WebSocket服务器
+WebSocketservice器
 
-实现Socket.IO服务器和连接管理
+ImplementationSocket.I/Oservice器andconnection管理
 """
 import socketio
 import asyncio
@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 
 class WebSocketManager:
     """
-    WebSocket连接管理器
+    WebSocketconnection管理器
 
-    管理客户端连接和订阅
+    管理clientconnectionandsubscribe
     """
 
     def __init__(self):
-        # Socket.IO异步服务器
+        # Socket.I/Oasynchronotttusservice器
         self.sio = socketio.AsyncServer(
             async_mode='aiohttp',
             cors_allowed_origins='*',
@@ -28,27 +28,27 @@ class WebSocketManager:
             engineio_logger=False,
         )
 
-        # 连接的客户端 {sid: {rooms: set}}
+        # connection的client {sid: {rooms: set}}
         self.clients: Dict[str, Dict[str, Set[str]]] = {}
 
-        # 注册事件处理器
+        # registereventprocess器
         self._register_handlers()
 
     def _register_handlers(self):
-        """注册Socket.IO事件处理器"""
+        """registerSocket.I/Oeventprocess器"""
 
         @self.sio.event
         async def connect(sid, environ):
-            """客户端连接"""
+            """clientconnection"""
             logger.info(f"Client connected: {sid}")
             self.clients[sid] = {"rooms": set()}
 
         @self.sio.event
         async def disconnect(sid):
-            """客户端断开"""
+            """clientdisconnect"""
             logger.info(f"Client disconnected: {sid}")
             if sid in self.clients:
-                # 离开所有房间
+                # 离开all房间
                 for room in self.clients[sid]["rooms"]:
                     await self.sio.leave_room(sid, room)
                 del self.clients[sid]
@@ -56,14 +56,14 @@ class WebSocketManager:
         @self.sio.event
         async def subscribe(sid, data):
             """
-            订阅频道
+            subscribe频道
 
             Args:
-                sid: 客户端ID
-                data: {channel: str} 订阅的频道
+                sid: clientid
+                data: {channel: str} subscribe的频道
             """
             channel = data.get("channel")
-            if not channel:
+            if notttt channel:
                 return
 
             logger.info(f"Client {sid} subscribed to {channel}")
@@ -72,7 +72,7 @@ class WebSocketManager:
             if sid in self.clients:
                 self.clients[sid]["rooms"].add(channel)
 
-            # 发送确认
+            # send确认
             await self.sio.emit(
                 "subscribed",
                 {"channel": channel},
@@ -82,14 +82,14 @@ class WebSocketManager:
         @self.sio.event
         async def unsubscribe(sid, data):
             """
-            取消订阅频道
+            cancelsubscribe频道
 
             Args:
-                sid: 客户端ID
-                data: {channel: str} 取消订阅的频道
+                sid: clientid
+                data: {channel: str} cancelsubscribe的频道
             """
             channel = data.get("channel")
-            if not channel:
+            if notttt channel:
                 return
 
             logger.info(f"Client {sid} unsubscribed from {channel}")
@@ -98,7 +98,7 @@ class WebSocketManager:
             if sid in self.clients:
                 self.clients[sid]["rooms"].discard(channel)
 
-            # 发送确认
+            # send确认
             await self.sio.emit(
                 "unsubscribed",
                 {"channel": channel},
@@ -112,12 +112,12 @@ class WebSocketManager:
 
     async def broadcast(self, event: str, data: dict, room: str = None):
         """
-        广播消息
+        广播message
 
         Args:
-            event: 事件名
-            data: 数据
-            room: 房间名（可选，不指定则广播给所有客户端）
+            event: event名
+            data: data
+            room: 房间名（optional，不指定则广播给allclient）
         """
         if room:
             await self.sio.emit(event, data, to=room, skip_sid=None)
@@ -125,11 +125,11 @@ class WebSocketManager:
             await self.sio.emit(event, data)
 
     def get_client_count(self) -> int:
-        """获取连接的客户端数量"""
+        """getconnection的clientquantity"""
         return len(self.clients)
 
     def get_clients_in_room(self, room: str) -> int:
-        """获取房间内的客户端数量"""
+        """get房间内的clientquantity"""
         count = 0
         for client in self.clients.values():
             if room in client["rooms"]:
@@ -137,27 +137,27 @@ class WebSocketManager:
         return count
 
 
-# 全局WebSocket管理器实例
+# globalWebSocket管理器Instance
 ws_manager = WebSocketManager()
 
 
 def create_socketio_app(app):
     """
-    创建Socket.IO应用并挂载到aiohttp应用
+    createSocket.I/O应用并挂载到aiohttp应用
 
     Args:
-        app: aiohttp应用实例
+        app: aiohttp应用Instance
 
     Returns:
-        Socket.IO应用
+        Socket.I/O应用
     """
-    # 将Socket.IO附加到aiohttp应用
-    sio_app = socketio.ASGIApp(ws_manager.sio)
+    # 将Socket.I/O附加到aiohttp应用
+    sio_app = socketio.asGIApp(ws_manager.sio)
     app['/ws'] = sio_app
 
-    # 添加WebSocket端点路由
+    # addWebSocket端点route
     async def websocket_handler(request):
-        """WebSocket处理"""
+        """WebSocketprocess"""
         return await ws_manager.sio.handle_request(request)
 
     app.router.add_get('/ws/socket.io', websocket_handler)

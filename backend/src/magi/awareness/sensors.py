@@ -1,29 +1,29 @@
 """
-内置传感器实现
+内置传感器Implementation
 """
 import asyncio
 from typing import Optional, Dict, Any
-from .base import Perception, PerceptionType, TriggerMode
+from .base import Perception, Perceptiontype, TriggerMode
 
 
 class UserMessageSensor:
     """
-    用户消息传感器
+    User message传感器
 
-    监听用户消息输入
+    监听User messageInput
 
-    支持两种模式：
-    1. Queue模式：直接向内部队列添加消息（用于向后兼容）
-    2. MessageBus模式：订阅消息总线的USER_MESSAGE事件
+    support两种pattern：
+    1. Queuepattern：直接向internalqueueaddmessage（用于向后compatible）
+    2. MessageBuspattern：subscribemessage bus的user_MESSAGEevent
     """
 
     def __init__(self, message_queue: asyncio.Queue = None, message_bus=None):
         """
-        初始化用户消息传感器
+        initializeUser message传感器
 
         Args:
-            message_queue: 消息队列（可选，用于向后兼容）
-            message_bus: 消息总线实例（可选，用于订阅事件）
+            message_queue: messagequeue（optional，用于向后compatible）
+            message_bus: message busInstance（optional，用于subscribeevent）
         """
         self._queue = message_queue or asyncio.Queue()
         self._enabled = True
@@ -32,40 +32,40 @@ class UserMessageSensor:
         self._subscription_id = None
 
     @property
-    def perception_type(self) -> PerceptionType:
-        """感知类型"""
-        return PerceptionType.TEXT
+    def perception_type(self) -> Perceptiontype:
+        """Perceptiontype"""
+        return Perceptiontype.TEXT
 
     @property
     def trigger_mode(self) -> TriggerMode:
-        """触发模式"""
+        """触发pattern"""
         return TriggerMode.POLL
 
     @property
     def enabled(self) -> bool:
-        """是否启用"""
+        """is nottttEnable"""
         return self._enabled
 
     def enable(self):
-        """启用传感器"""
+        """Enable传感器"""
         self._enabled = True
 
     def disable(self):
-        """禁用传感器"""
+        """Disable传感器"""
         self._enabled = False
 
     async def sense(self) -> Optional[Perception]:
         """
-        感知一次（轮询模式）
+        Perception一次（轮询pattern）
 
         Returns:
-            感知或None
+            Perception或None
         """
-        if not self._enabled:
+        if notttt self._enabled:
             return None
 
         try:
-            # 非阻塞获取消息
+            # notttn-blockinggetmessage
             message = await asyncio.wait_for(
                 self._queue.get(),
                 timeout=0.1
@@ -77,15 +77,15 @@ class UserMessageSensor:
                 source="user_message_sensor",
                 timestamp=time.time(),
             )
-        except asyncio.TimeoutError:
+        except asyncio.Timeouterror:
             return None
 
     async def listen(self, callback):
         """
-        监听模式（事件模式）
+        监听pattern（eventpattern）
 
         Args:
-            callback: 回调函数，接收Perception
+            callback: callbackFunction，receivePerception
         """
         self._callback = callback
 
@@ -97,122 +97,122 @@ class UserMessageSensor:
 
     async def send_message(self, message: str):
         """
-        发送消息到传感器（模拟用户输入）
+        sendmessage到传感器（模拟userInput）
 
         Args:
-            message: 消息内容
+            message: messageContent
         """
         await self._queue.put(message)
 
     def get_queue(self) -> asyncio.Queue:
-        """获取消息队列"""
+        """getmessagequeue"""
         return self._queue
 
     def set_message_bus(self, message_bus):
         """
-        设置消息总线并订阅USER_MESSAGE事件
+        Settingmessage bus并subscribeuser_MESSAGEevent
 
         Args:
-            message_bus: 消息总线实例
+            message_bus: message busInstance
         """
         self._message_bus = message_bus
-        # 启动时会自动订阅
+        # 启动时会自动subscribe
 
     async def subscribe_to_message_bus(self, event_type: str):
         """
-        订阅消息总线事件
+        subscribemessage busevent
 
         Args:
-            event_type: 事件类型（如 "UserMessage"）
+            event_type: eventtype（如 "UserMessage"）
         """
         if self._message_bus:
-            from ..events.events import EventTypes
+            from ..events.events import eventtypes
             self._subscription_id = await self._message_bus.subscribe(
-                EventTypes.USER_MESSAGE,
+                eventtypes.user_MESSAGE,
                 self._on_message_event,
                 propagation_mode="broadcast"
             )
 
     async def unsubscribe_from_message_bus(self):
-        """取消订阅消息总线事件"""
+        """cancelsubscribemessage busevent"""
         if self._message_bus and self._subscription_id:
             await self._message_bus.unsubscribe(self._subscription_id)
             self._subscription_id = None
 
     async def _on_message_event(self, event):
         """
-        消息总线事件回调
+        message buseventcallback
 
         Args:
-            event: USER_MESSAGE事件
+            event: user_MESSAGEevent
         """
-        if not self._enabled:
+        if notttt self._enabled:
             return
 
-        # 将事件数据转换为感知消息格式
+        # 将eventdataconvert为Perceptionmessageformat
         message_data = dict(event.data) if isinstance(event.data, dict) else {"message": event.data}
-        # 保留消息链路关联ID，便于后续事件统一追踪
+        # 保留message链路associateid，便于后续event统一追踪
         if event.correlation_id:
             message_data["correlation_id"] = event.correlation_id
         await self._queue.put(message_data)
 
 
-class EventSensor:
+class eventSensor:
     """
-    事件传感器
+    event传感器
 
-    监听系统事件
+    监听系统event
     """
 
     def __init__(self, event_bus=None):
         """
-        初始化事件传感器
+        initializeevent传感器
 
         Args:
-            event_bus: 事件总线（可选）
+            event_bus: event总线（optional）
         """
         self._event_bus = event_bus
         self._enabled = True
         self._callback = None
 
-        # 事件缓存
+        # eventcache
         self._event_cache: list = []
         self._max_cache_size = 100
 
     @property
-    def perception_type(self) -> PerceptionType:
-        """感知类型"""
-        return PerceptionType.EVENT
+    def perception_type(self) -> Perceptiontype:
+        """Perceptiontype"""
+        return Perceptiontype.EVENT
 
     @property
     def trigger_mode(self) -> TriggerMode:
-        """触发模式"""
+        """触发pattern"""
         return TriggerMode.EVENT
 
     @property
     def enabled(self) -> bool:
-        """是否启用"""
+        """is nottttEnable"""
         return self._enabled
 
     def enable(self):
-        """启用传感器"""
+        """Enable传感器"""
         self._enabled = True
 
     def disable(self):
-        """禁用传感器"""
+        """Disable传感器"""
         self._enabled = False
 
     async def sense(self) -> Optional[Perception]:
         """
-        感知一次（轮询模式）
+        Perception一次（轮询pattern）
 
         Returns:
-            感知或None
+            Perception或None
         """
-        if not self._enabled:
+        if notttt self._enabled:
             return None
 
-        # 从缓存获取事件
+        # 从cachegetevent
         if self._event_cache:
             event = self._event_cache.pop(0)
             import time
@@ -227,10 +227,10 @@ class EventSensor:
 
     async def listen(self, callback):
         """
-        监听模式（事件模式）
+        监听pattern（eventpattern）
 
         Args:
-            callback: 回调函数，接收Perception
+            callback: callbackFunction，receivePerception
         """
         self._callback = callback
 
@@ -242,81 +242,81 @@ class EventSensor:
 
     async def on_event(self, event: Dict[str, Any]):
         """
-        事件回调（由事件总线调用）
+        eventcallback（由event总线调用）
 
         Args:
-            event: 事件数据
+            event: eventdata
         """
-        if not self._enabled:
+        if notttt self._enabled:
             return
 
-        # 添加到缓存
+        # add到cache
         self._event_cache.append(event)
 
-        # 限制缓存大小
+        # limitationcachesize
         if len(self._event_cache) > self._max_cache_size:
             self._event_cache.pop(0)
 
     def get_cache_size(self) -> int:
-        """获取缓存大小"""
+        """getcachesize"""
         return len(self._event_cache)
 
 
-class SensorDataSensor:
+class SensordataSensor:
     """
-    传感器数据传感器
+    传感器data传感器
 
-    模拟物理传感器数据输入
+    模拟物理传感器dataInput
     """
 
     def __init__(self, sensor_type: str = "temperature"):
         """
-        初始化传感器数据传感器
+        initialize传感器data传感器
 
         Args:
-            sensor_type: 传感器类型
+            sensor_type: 传感器type
         """
         self._sensor_type = sensor_type
         self._enabled = True
         self._callback = None
 
-        # 模拟数据生成
+        # 模拟datageneration
         self._data_generator = self._create_data_generator(sensor_type)
 
     @property
-    def perception_type(self) -> PerceptionType:
-        """感知类型"""
-        return PerceptionType.SENSOR
+    def perception_type(self) -> Perceptiontype:
+        """Perceptiontype"""
+        return Perceptiontype.SENSOR
 
     @property
     def trigger_mode(self) -> TriggerMode:
-        """触发模式"""
+        """触发pattern"""
         return TriggerMode.POLL
 
     @property
     def enabled(self) -> bool:
-        """是否启用"""
+        """is nottttEnable"""
         return self._enabled
 
     def enable(self):
-        """启用传感器"""
+        """Enable传感器"""
         self._enabled = True
 
     def disable(self):
-        """禁用传感器"""
+        """Disable传感器"""
         self._enabled = False
 
     async def sense(self) -> Optional[Perception]:
         """
-        感知一次
+        Perception一次
 
         Returns:
-            感知或None
+            Perception或None
         """
-        if not self._enabled:
+        if notttt self._enabled:
             return None
 
-        # 生成模拟数据
+        # generation模拟data
         data = await self._data_generator()
 
         import time
@@ -332,10 +332,10 @@ class SensorDataSensor:
 
     async def listen(self, callback):
         """
-        监听模式
+        监听pattern
 
         Args:
-            callback: 回调函数
+            callback: callbackFunction
         """
         self._callback = callback
 
@@ -343,22 +343,22 @@ class SensorDataSensor:
             perception = await self.sense()
             if perception and self._callback:
                 await self._callback(perception)
-            await asyncio.sleep(1.0)  # 每秒采样一次
+            await asyncio.sleep(1.0)  # 每seconds采样一次
 
     def _create_data_generator(self, sensor_type: str):
-        """创建数据生成器"""
+        """createdatageneration器"""
         async def generate_temperature():
-            # 模拟温度数据 (20-30度)
+            # 模拟temperaturedata (20-30度)
             import random
             return 20 + random.random() * 10
 
         async def generate_humidity():
-            # 模拟湿度数据 (40-60%)
+            # 模拟湿度data (40-60%)
             import random
             return 40 + random.random() * 20
 
         async def generate_pressure():
-            # 模拟气压数据 (1000-1020 hPa)
+            # 模拟气压data (1000-1020 hPa)
             import random
             return 1000 + random.random() * 20
 
@@ -373,17 +373,17 @@ class SensorDataSensor:
 
 class TimerSensor:
     """
-    定时传感器
+    scheduled传感器
 
-    定时触发感知事件
+    scheduled触发Perceptionevent
     """
 
     def __init__(self, interval: float = 60.0):
         """
-        初始化定时传感器
+        initializescheduled传感器
 
         Args:
-            interval: 触发间隔（秒）
+            interval: 触发interval（seconds）
         """
         self._interval = interval
         self._enabled = True
@@ -391,26 +391,26 @@ class TimerSensor:
         self._task = None
 
     @property
-    def perception_type(self) -> PerceptionType:
-        """感知类型"""
-        return PerceptionType.EVENT
+    def perception_type(self) -> Perceptiontype:
+        """Perceptiontype"""
+        return Perceptiontype.EVENT
 
     @property
     def trigger_mode(self) -> TriggerMode:
-        """触发模式"""
-        return TriggerMode.HYBRID
+        """触发pattern"""
+        return TriggerMode.HYBRid
 
     @property
     def enabled(self) -> bool:
-        """是否启用"""
+        """is nottttEnable"""
         return self._enabled
 
     def enable(self):
-        """启用传感器"""
+        """Enable传感器"""
         self._enabled = True
 
     def disable(self):
-        """禁用传感器"""
+        """Disable传感器"""
         self._enabled = False
         if self._task:
             self._task.cancel()
@@ -418,10 +418,10 @@ class TimerSensor:
 
     async def sense(self) -> Optional[Perception]:
         """
-        感知一次（立即触发）
+        Perception一次（立即触发）
 
         Returns:
-            感知
+            Perception
         """
         import time
 
@@ -437,27 +437,27 @@ class TimerSensor:
 
     async def listen(self, callback):
         """
-        监听模式（定时触发）
+        监听pattern（scheduled触发）
 
         Args:
-            callback: 回调函数
+            callback: callbackFunction
         """
         self._callback = callback
 
         while self._enabled:
-            # 等待指定间隔
+            # 等待指定interval
             await asyncio.sleep(self._interval)
 
-            # 触发感知
+            # 触发Perception
             perception = await self.sense()
             if perception and self._callback:
                 await self._callback(perception)
 
     def set_interval(self, interval: float):
         """
-        设置触发间隔
+        Setting触发interval
 
         Args:
-            interval: 间隔（秒）
+            interval: interval（seconds）
         """
         self._interval = interval

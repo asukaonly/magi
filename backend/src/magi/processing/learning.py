@@ -1,68 +1,68 @@
 """
-渐进式学习策略
+渐进式learningstrategy
 """
 from typing import Dict, Any
-from .base import LearningStage, ComplexityLevel
+from .base import LearningStage, Complexitylevel
 
 
 class ProgressiveLearning:
     """
-    渐进式学习
+    渐进式learning
 
-    通过渐进式学习提升自主处理能力
+    通过渐进式learning提升自主processcapability
     """
 
     def __init__(self):
-        """初始化渐进式学习"""
+        """initialize渐进式learning"""
         self.interaction_count = 0
 
-        # 阶段阈值
+        # 阶段阈Value
         self.stage_thresholds = {
             LearningStage.INITIAL: 0,
-            LearningStage.GROWTH: 100,
+            LearningStage.GrowTH: 100,
             LearningStage.MATURE: 1000,
         }
 
-        # 各阶段的复杂度容忍度
+        # 各阶段的complex度容忍度
         self.stage_tolerance = {
-            LearningStage.INITIAL: [ComplexityLevel.LOW],
-            LearningStage.GROWTH: [
-                ComplexityLevel.LOW,
-                ComplexityLevel.MEDIUM
+            LearningStage.INITIAL: [Complexitylevel.LOW],
+            LearningStage.GrowTH: [
+                Complexitylevel.LOW,
+                Complexitylevel.MEDIUM
             ],
             LearningStage.MATURE: [
-                ComplexityLevel.LOW,
-                ComplexityLevel.MEDIUM,
-                ComplexityLevel.HIGH
+                Complexitylevel.LOW,
+                Complexitylevel.MEDIUM,
+                Complexitylevel.HIGH
             ],
         }
 
     @property
     def current_stage(self) -> LearningStage:
-        """获取当前学习阶段"""
-        if self.interaction_count < self.stage_thresholds[LearningStage.GROWTH]:
+        """getcurrentlearning阶段"""
+        if self.interaction_count < self.stage_thresholds[LearningStage.GrowTH]:
             return LearningStage.INITIAL
         elif self.interaction_count < self.stage_thresholds[LearningStage.MATURE]:
-            return LearningStage.GROWTH
+            return LearningStage.GrowTH
         else:
             return LearningStage.MATURE
 
     def record_interaction(self):
-        """记录一次交互"""
+        """record一次交互"""
         self.interaction_count += 1
 
-    async def should_handle_autonomously(
+    async def should_handle_autonotttmously(
         self,
-        complexity: ComplexityLevel
+        complexity: Complexitylevel
     ) -> bool:
         """
-        判断是否应该自主处理
+        判断is notttt应该自主process
 
         Args:
-            complexity: 任务复杂度
+            complexity: 任务complex度
 
         Returns:
-            是否自主处理
+            is notttt自主process
         """
         stage = self.current_stage
         tolerance = self.stage_tolerance.get(stage, [])
@@ -71,21 +71,21 @@ class ProgressiveLearning:
 
     async def should_request_help(
         self,
-        complexity: ComplexityLevel
+        complexity: Complexitylevel
     ) -> bool:
         """
-        判断是否应该请求人类帮助
+        判断is notttt应该request人Class帮助
 
         Args:
-            complexity: 任务复杂度
+            complexity: 任务complex度
 
         Returns:
-            是否需要帮助
+            is notttt需要帮助
         """
-        return not await self.should_handle_autonomously(complexity)
+        return notttt await self.should_handle_autonotttmously(complexity)
 
     def get_stage_info(self) -> Dict[str, Any]:
-        """获取阶段信息"""
+        """get阶段info"""
         stage = self.current_stage
         return {
             "stage": stage.value,
@@ -94,12 +94,12 @@ class ProgressiveLearning:
         }
 
     def _get_next_threshold(self) -> int:
-        """获取下一阶段的阈值"""
+        """get下一阶段的阈Value"""
         stage = self.current_stage
 
         if stage == LearningStage.INITIAL:
-            return self.stage_thresholds[LearningStage.GROWTH]
-        elif stage == LearningStage.GROWTH:
+            return self.stage_thresholds[LearningStage.GrowTH]
+        elif stage == LearningStage.GrowTH:
             return self.stage_thresholds[LearningStage.MATURE]
         else:
             return -1  # 已达到最高阶段

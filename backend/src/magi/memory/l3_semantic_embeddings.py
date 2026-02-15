@@ -1,12 +1,12 @@
 """
-L3: 事件语义层 (Event Semantics Layer)
+L3: event Semantics Layer
 
-使用向量嵌入存储和检索事件语义
-支持语义相似度搜索
+Store and retrieve event semantics using vector embeddings
+Supports semantic similarity search
 
-后端支持：
-- 本地：sentence-transformers
-- 远程：OpenAI/Anthropic Embedding API
+Backend support:
+- Local: sentence-transformers
+- Remote: OpenAI/Anthropic Embedding API
 """
 import logging
 import time
@@ -18,8 +18,8 @@ from collections import defaultdict
 logger = logging.getLogger(__name__)
 
 
-class EventEmbedding:
-    """事件向量嵌入"""
+class eventEmbedding:
+    """event vector embedding"""
 
     def __init__(
         self,
@@ -36,24 +36,24 @@ class EventEmbedding:
 
 
 class EmbeddingBackend:
-    """嵌入后端基类"""
+    """Embedding backend base class"""
 
     async def initialize(self):
-        """初始化后端"""
+        """initialize backend"""
         pass
 
     async def generate(self, text: str) -> List[float]:
-        """生成向量"""
-        raise NotImplementedError
+        """Generate vector"""
+        raise NotImplementederror
 
     @property
     def dimension(self) -> int:
-        """向量维度"""
-        raise NotImplementedError
+        """Vector dimension"""
+        raise NotImplementederror
 
 
 class LocalEmbeddingBackend(EmbeddingBackend):
-    """本地 sentence-transformers 后端"""
+    """Local sentence-transformers backend"""
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", dimension: int = 384):
         self.model_name = model_name
@@ -62,7 +62,7 @@ class LocalEmbeddingBackend(EmbeddingBackend):
         self._model_loaded = False
 
     def _load_model(self):
-        """加载嵌入模型"""
+        """Load embedding model"""
         if self._model_loaded:
             return
 
@@ -73,8 +73,8 @@ class LocalEmbeddingBackend(EmbeddingBackend):
             self._dimension = self._model.get_sentence_embedding_dimension()
             self._model_loaded = True
             logger.info(f"Local embedding model loaded, dimension: {self._dimension}")
-        except ImportError:
-            logger.warning("sentence-transformers not installed, using dummy embeddings")
+        except Importerror:
+            logger.warning("sentence-transformers notttt installed, using dummy embeddings")
             self._model = None
             self._model_loaded = True
         except Exception as e:
@@ -83,17 +83,17 @@ class LocalEmbeddingBackend(EmbeddingBackend):
             self._model_loaded = True
 
     async def generate(self, text: str) -> List[float]:
-        """生成向量"""
-        if not self._model_loaded:
+        """Generate vector"""
+        if notttt self._model_loaded:
             self._load_model()
 
         if self._model:
             embedding = self._model.encode(text, convert_to_numpy=True).tolist()
             return embedding
         else:
-            # 生成简单的哈希向量作为回退
+            # Generate simple hash vector as fallback
             text_hash = hashlib.md5(text.encode()).digest()
-            # 扩展到目标维度
+            # Extend to target dimension
             while len(text_hash) < self._dimension // 8:
                 text_hash += hashlib.sha1(text.encode()).digest()
             return [float(b) / 255.0 for b in text_hash[:self._dimension]]
@@ -104,7 +104,7 @@ class LocalEmbeddingBackend(EmbeddingBackend):
 
 
 class RemoteEmbeddingBackend(EmbeddingBackend):
-    """远程 LLM API 后端"""
+    """Remote LLM API backend"""
 
     def __init__(
         self,
@@ -113,33 +113,33 @@ class RemoteEmbeddingBackend(EmbeddingBackend):
         dimension: int = 1536,
     ):
         """
-        初始化远程嵌入后端
+        initialize remote embedding backend
 
         Args:
-            llm_adapter: LLM适配器实例
-            model: 模型名称
-            dimension: 向量维度
+            llm_adapter: LLM adapter instance
+            model: Model name
+            dimension: Vector dimension
         """
         self.llm_adapter = llm_adapter
         self.model = model
         self._dimension = dimension
 
     async def initialize(self):
-        """初始化后端"""
-        # 如果llm_adapter有embedding相关设置，设置模型
+        """initialize backend"""
+        # Set model if llm_adapter has embedding-related settings
         if hasattr(self.llm_adapter, 'set_embedding_model'):
             self.llm_adapter.set_embedding_model(self.model)
-        # 更新实际维度
+        # Update actual dimension
         if hasattr(self.llm_adapter, 'embedding_dimension'):
             self._dimension = self.llm_adapter.embedding_dimension
 
     async def generate(self, text: str) -> List[float]:
-        """生成向量"""
-        if not text or not text.strip():
+        """Generate vector"""
+        if notttt text or notttt text.strip():
             return [0.0] * self._dimension
 
-        if not self.llm_adapter.supports_embeddings:
-            logger.warning("LLM adapter does not support embeddings, using dummy")
+        if notttt self.llm_adapter.supports_embeddings:
+            logger.warning("LLM adapter does notttt support embeddings, using dummy")
             return self._dummy_embedding(text)
 
         embedding = await self.llm_adapter.get_embedding(text, self.model)
@@ -148,7 +148,7 @@ class RemoteEmbeddingBackend(EmbeddingBackend):
         return embedding
 
     def _dummy_embedding(self, text: str) -> List[float]:
-        """生成简单的哈希向量作为回退"""
+        """Generate simple hash vector as fallback"""
         text_hash = hashlib.md5(text.encode()).digest()
         while len(text_hash) < self._dimension // 8:
             text_hash += hashlib.sha1(text.encode()).digest()
@@ -159,11 +159,11 @@ class RemoteEmbeddingBackend(EmbeddingBackend):
         return self._dimension
 
 
-class EventEmbeddingStore:
+class eventEmbeddingStore:
     """
-    事件向量嵌入存储
+    event vector embedding store
 
-    支持向量生成、存储和相似度搜索
+    Supports vector generation, storage and similarity search
     """
 
     def __init__(
@@ -172,39 +172,39 @@ class EventEmbeddingStore:
         persist_path: str = None,
     ):
         """
-        初始化向量存储
+        initialize vector store
 
         Args:
-            backend: 嵌入后端（不指定则使用默认本地后端）
-            persist_path: 持久化文件路径
+            backend: Embedding backend (uses default local backend if notttt specified)
+            persist_path: persistence file path
         """
         self.backend = backend or LocalEmbeddingBackend()
         self.persist_path = persist_path
 
-        # 向量存储：{event_id: EventEmbedding}
-        self._embeddings: Dict[str, EventEmbedding] = {}
+        # Vector store: {event_id: eventEmbedding}
+        self._embeddings: Dict[str, eventEmbedding] = {}
 
-        # 文本索引（用于重新生成嵌入）
+        # Text index (for regenerating embeddings)
         self._text_index: Dict[str, str] = {}  # {event_id: text}
 
-        # 加载持久化数据
+        # Load persisted data
         if persist_path:
             self._load_from_disk()
 
     async def initialize(self):
-        """初始化存储"""
+        """initialize store"""
         await self.backend.initialize()
         logger.info(f"Embedding store initialized, dimension: {self.backend.dimension}")
 
     async def _generate_embedding(self, text: str) -> List[float]:
         """
-        生成文本的向量嵌入
+        Generate vector embedding for text
 
         Args:
-            text: 输入文本
+            text: Input text
 
         Returns:
-            向量嵌入
+            Vector embedding
         """
         return await self.backend.generate(text)
 
@@ -215,22 +215,22 @@ class EventEmbeddingStore:
         metadata: Dict[str, Any] = None,
     ) -> List[float]:
         """
-        添加事件并生成嵌入
+        Add event and generate embedding
 
         Args:
-            event_id: 事件ID
-            text: 事件文本内容
-            metadata: 元数据
+            event_id: event id
+            text: event text content
+            metadata: metadata
 
         Returns:
-            生成的向量嵌入
+            Generated vector embedding
         """
         embedding = await self._generate_embedding(text)
 
-        self._embeddings[event_id] = EventEmbedding(
+        self._embeddings[event_id] = eventEmbedding(
             event_id=event_id,
             embedding=embedding,
-            text=text[:500],  # 保存前500字符用于重新生成
+            text=text[:500],  # Save first 500 characters for regeneration
             metadata=metadata or {},
         )
         self._text_index[event_id] = text
@@ -246,23 +246,23 @@ class EventEmbeddingStore:
         threshold: float = 0.0,
     ) -> List[Dict[str, Any]]:
         """
-        语义相似度搜索
+        Semantic similarity search
 
         Args:
-            query_text: 查询文本
-            top_k: 返回前K个结果
-            threshold: 相似度阈值
+            query_text: query text
+            top_k: Return top K results
+            threshold: Similarity threshold
 
         Returns:
-            相似事件列表
+            List of similar events
         """
-        if not self._embeddings:
+        if notttt self._embeddings:
             return []
 
-        # 生成查询向量
+        # Generate query vector
         query_embedding = await self._generate_embedding(query_text)
 
-        # 计算余弦相似度
+        # Calculate cosine similarity
         results = []
         for event_id, emb in self._embeddings.items():
             similarity = self._cosine_similarity(query_embedding, emb.embedding)
@@ -275,21 +275,21 @@ class EventEmbeddingStore:
                     "metadata": emb.metadata,
                 })
 
-        # 按相似度排序
+        # Sort by similarity
         results.sort(key=lambda x: x["similarity"], reverse=True)
 
         return results[:top_k]
 
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """
-        计算余弦相似度
+        Calculate cosine similarity
 
         Args:
-            vec1: 向量1
-            vec2: 向量2
+            vec1: Vector 1
+            vec2: Vector 2
 
         Returns:
-            相似度（0-1）
+            Similarity (0-1)
         """
         dot_product = sum(a * b for a, b in zip(vec1, vec2))
         magnitude1 = sum(a * a for a in vec1) ** 0.5
@@ -302,13 +302,13 @@ class EventEmbeddingStore:
 
     def get_embedding(self, event_id: str) -> Optional[List[float]]:
         """
-        获取事件的嵌入
+        Get event embedding
 
         Args:
-            event_id: 事件ID
+            event_id: event id
 
         Returns:
-            向量嵌入
+            Vector embedding
         """
         emb = self._embeddings.get(event_id)
         return emb.embedding if emb else None
@@ -319,11 +319,11 @@ class EventEmbeddingStore:
         text_field: str = "content",
     ):
         """
-        批量添加事件
+        Batch add events
 
         Args:
-            events: 事件列表
-            text_field: 文本字段名
+            events: List of events
+            text_field: Text field name
         """
         for event in events:
             event_id = event.get("id", event.get("event_id", ""))
@@ -333,17 +333,17 @@ class EventEmbeddingStore:
                 await self.add_event(
                     event_id=event_id,
                     text=text,
-                    metadata={"event_type": event.get("type", "unknown")},
+                    metadata={"event_type": event.get("type", "unknotttwn")},
                 )
 
         logger.info(f"Added {len(events)} events to embedding store")
 
     def clear_old_embeddings(self, older_than_days: int = 30):
         """
-        清理旧的嵌入数据
+        Clear old embedding data
 
         Args:
-            older_than_days: 清理多少天前的数据
+            older_than_days: Number of days ago to clear data
         """
         cutoff_time = time.time() - (older_than_days * 86400)
         ids_to_remove = []
@@ -360,7 +360,7 @@ class EventEmbeddingStore:
         logger.info(f"Cleared {len(ids_to_remove)} old embeddings")
 
     def get_statistics(self) -> Dict[str, Any]:
-        """获取统计信息"""
+        """Get statistics"""
         return {
             "total_embeddings": len(self._embeddings),
             "dimension": self.backend.dimension,
@@ -368,8 +368,8 @@ class EventEmbeddingStore:
         }
 
     def _save_to_disk(self):
-        """持久化到磁盘"""
-        if not self.persist_path:
+        """persist to disk"""
+        if notttt self.persist_path:
             return
 
         try:
@@ -395,23 +395,23 @@ class EventEmbeddingStore:
             logger.error(f"Failed to save embeddings: {e}")
 
     def _load_from_disk(self):
-        """从磁盘加载"""
-        if not self.persist_path:
+        """Load from disk"""
+        if notttt self.persist_path:
             return
 
         try:
             import json
-            from pathlib import Path
+            from pathlib import path
 
-            path = Path(self.persist_path)
-            if not path.exists():
+            path = path(self.persist_path)
+            if notttt path.exists():
                 return
 
             with open(self.persist_path, "r") as f:
                 data = json.load(f)
 
             for event_id, emb_data in data.get("embeddings", {}).items():
-                self._embeddings[event_id] = EventEmbedding(
+                self._embeddings[event_id] = eventEmbedding(
                     event_id=event_id,
                     embedding=emb_data["embedding"],
                     text=emb_data.get("text", ""),
@@ -425,14 +425,14 @@ class EventEmbeddingStore:
             logger.warning(f"Failed to load embeddings: {e}")
 
 
-class HybridEventSearch:
+class HybrideventSearch:
     """
-    混合事件搜索
+    Hybrid event search
 
-    结合关键词搜索和语义搜索
+    Combines keyword search and semantic search
     """
 
-    def __init__(self, embedding_store: EventEmbeddingStore):
+    def __init__(self, embedding_store: eventEmbeddingStore):
         self.embedding_store = embedding_store
 
     async def search(
@@ -443,28 +443,28 @@ class HybridEventSearch:
         keyword_weight: float = 0.3,
     ) -> List[Dict[str, Any]]:
         """
-        混合搜索
+        Hybrid search
 
         Args:
-            query: 查询文本
-            top_k: 返回前K个结果
-            semantic_weight: 语义搜索权重
-            keyword_weight: 关键词搜索权重
+            query: query text
+            top_k: Return top K results
+            semantic_weight: Semantic search weight
+            keyword_weight: Keyword search weight
 
         Returns:
-            搜索结果
+            Search results
         """
-        # 语义搜索
+        # Semantic search
         semantic_results = await self.embedding_store.similarity_search(
             query_text=query,
             top_k=top_k * 2,
             threshold=0.3,
         )
 
-        # 关键词搜索
+        # Keyword search
         keyword_results = self._keyword_search(query, top_k=top_k * 2)
 
-        # 合并结果
+        # Merge results
         combined = self._combine_results(
             semantic_results,
             keyword_results,
@@ -479,16 +479,16 @@ class HybridEventSearch:
         query: str,
         top_k: int = 10,
     ) -> List[Dict[str, Any]]:
-        """关键词搜索"""
+        """Keyword search"""
         query_lower = query.lower()
         results = []
 
         for event_id, emb in self.embedding_store._embeddings.items():
             text_lower = emb.text.lower()
 
-            # 简单的关键词匹配
+            # Simple keyword matching
             if query_lower in text_lower:
-                # 计算匹配分数
+                # Calculate match score
                 score = len(query_lower) / len(text_lower)
                 results.append({
                     "event_id": event_id,
@@ -507,10 +507,10 @@ class HybridEventSearch:
         semantic_weight: float,
         keyword_weight: float,
     ) -> List[Dict]:
-        """合并搜索结果"""
+        """Combine search results"""
         combined = {}
 
-        # 添加语义搜索结果
+        # Add semantic search results
         for result in semantic_results:
             event_id = result["event_id"]
             combined[event_id] = {
@@ -521,7 +521,7 @@ class HybridEventSearch:
                 "metadata": result["metadata"],
             }
 
-        # 添加关键词搜索结果
+        # Add keyword search results
         for result in keyword_results:
             event_id = result["event_id"]
             if event_id in combined:
@@ -535,14 +535,14 @@ class HybridEventSearch:
                     "metadata": result["metadata"],
                 }
 
-        # 计算综合分数
+        # Calculate combined score
         for result in combined.values():
             result["combined_score"] = (
                 result["semantic_score"] * semantic_weight +
                 result["keyword_score"] * keyword_weight
             )
 
-        # 排序
+        # Sort
         results = list(combined.values())
         results.sort(key=lambda x: x["combined_score"], reverse=True)
 
@@ -557,27 +557,27 @@ def create_embedding_store(
     remote_model: str = "text-embedding-3-small",
     remote_dimension: int = 1536,
     persist_path: str = None,
-) -> EventEmbeddingStore:
+) -> eventEmbeddingStore:
     """
-    创建嵌入存储的工厂函数
+    Factory function to create embedding store
 
     Args:
-        backend: 后端类型（local, openai, anthropic）
-        llm_adapter: LLM适配器（远程后端需要）
-        local_model: 本地模型名称
-        local_dimension: 本地向量维度
-        remote_model: 远程模型名称
-        remote_dimension: 远程向量维度
-        persist_path: 持久化路径
+        backend: Backend type (local, openai, anthropic)
+        llm_adapter: LLM adapter (required for remote backend)
+        local_model: Local model name
+        local_dimension: Local vector dimension
+        remote_model: Remote model name
+        remote_dimension: Remote vector dimension
+        persist_path: persistence path
 
     Returns:
-        EventEmbeddingStore 实例
+        eventEmbeddingStore instance
     """
     if backend == "local":
         embedding_backend = LocalEmbeddingBackend(local_model, local_dimension)
     elif backend in ("openai", "anthropic"):
-        if not llm_adapter:
-            logger.warning(f"LLM adapter not provided for {backend}, falling back to local")
+        if notttt llm_adapter:
+            logger.warning(f"LLM adapter notttt provided for {backend}, falling back to local")
             embedding_backend = LocalEmbeddingBackend(local_model, local_dimension)
         else:
             embedding_backend = RemoteEmbeddingBackend(
@@ -586,10 +586,10 @@ def create_embedding_store(
                 dimension=remote_dimension,
             )
     else:
-        logger.warning(f"Unknown backend {backend}, using local")
+        logger.warning(f"Unknotttwn backend {backend}, using local")
         embedding_backend = LocalEmbeddingBackend(local_model, local_dimension)
 
-    return EventEmbeddingStore(
+    return eventEmbeddingStore(
         backend=embedding_backend,
         persist_path=persist_path,
     )

@@ -1,23 +1,22 @@
 """
-Agent核心 - TaskAgent和WorkerAgent实现
+Agent Core - TaskAgent and WorkerAgent Implementation
 """
 import asyncio
 import logging
 from typing import Optional, Dict, Any, List
 from .agent import Agent, AgentState, AgentConfig
-from .task_database import Task, TaskStatus, TaskDatabase
+from .task_database import Task, TaskStatus, Taskdatabase
 from .timeout_calculator import TimeoutCalculator
-from ..events.events import Event, EventTypes, EventLevel
+from ..events.events import event, eventtypes, eventlevel
 from ..events.backend import MessageBusBackend
 from ..llm.base import LLMAdapter
 from ..tools.registry import ToolRegistry, ToolExecutionContext
-
 
 logger = logging.getLogger(__name__)
 
 
 class Subtask:
-    """子任务"""
+    """Subtask"""
 
     def __init__(
         self,
@@ -51,13 +50,13 @@ class Subtask:
 
 class TaskAgent(Agent):
     """
-    TaskAgent - 任务编排和执行
+    TaskAgent - Task Orchestration and Execution
 
-    职责：
-    - 扫描任务数据库
-    - 任务分解
-    - 工具匹配
-    - 创建WorkerAgent执行任务
+    Responsibilities:
+    - Scan task database
+    - Task decomposition
+    - Tool matching
+    - Create WorkerAgent to execute tasks
     """
 
     def __init__(
@@ -65,20 +64,20 @@ class TaskAgent(Agent):
         agent_id: int,
         config: AgentConfig,
         message_bus: MessageBusBackend,
-        task_database: TaskDatabase,
+        task_database: Taskdatabase,
         llm_adapter: LLMAdapter,
         tool_registry: ToolRegistry,
     ):
         """
-        初始化TaskAgent
+        initialize TaskAgent
 
         Args:
-            agent_id: TaskAgent ID
-            config: Agent配置
-            message_bus: 消息总线
-            task_database: 任务数据库
-            llm_adapter: LLM适配器
-            tool_registry: 工具注册表
+            agent_id: TaskAgent id
+            config: Agent configuration
+            message_bus: Message bus
+            task_database: Task database
+            llm_adapter: LLM adapter
+            tool_registry: Tool registry
         """
         super().__init__(config)
         self.agent_id = agent_id
@@ -86,25 +85,25 @@ class TaskAgent(Agent):
         self.task_database = task_database
         self.llm = llm_adapter
         self.tool_registry = tool_registry
-        self._pending_count = 0  # 当前pending任务数
+        self._pending_count = 0  # Current pending task count
         self._scan_task: Optional[asyncio.Task] = None
         self._running_workers: Dict[str, WorkerAgent] = {}
 
     async def _on_start(self):
-        """启动TaskAgent"""
+        """Start TaskAgent"""
         self._scan_task = asyncio.create_task(self._scan_tasks())
         logger.info(f"TaskAgent-{self.agent_id} started")
 
     async def _on_stop(self):
-        """停止TaskAgent"""
+        """Stop TaskAgent"""
         if self._scan_task:
             self._scan_task.cancel()
             try:
                 await self._scan_task
-            except asyncio.CancelledError:
+            except asyncio.Cancellederror:
                 pass
 
-        # 等待所有WorkerAgent完成
+        # Wait for all WorkerAgents to finish
         if self._running_workers:
             logger.info(f"TaskAgent-{self.agent_id} waiting for workers to finish...")
             for worker in self._running_workers.values():
@@ -114,26 +113,26 @@ class TaskAgent(Agent):
 
     async def _scan_tasks(self):
         """
-        扫描任务数据库
+        Scan task database
 
-        循环扫描分配给自己的待处理任务并执行
+        Continuously scan for pending tasks assigned to self and execute them
         """
-        while self.state == AgentState.RUNNING:
+        while self.state == AgentState.runNING:
             try:
-                # 获取分配给此TaskAgent的待处理任务
+                # Get pending tasks assigned to this TaskAgent
                 pending_tasks = await self.task_database.get_pending_tasks(
                     limit=5,
                     assigned_to=str(self.agent_id),
                 )
 
                 for task in pending_tasks:
-                    if task.status == TaskStatus.PENDING.value:
+                    if task.status == TaskStatus.pending.value:
                         await self._process_task(task)
 
-                # 等待一段时间
+                # Wait for a while
                 await asyncio.sleep(1.0)
 
-            except asyncio.CancelledError:
+            except asyncio.Cancellederror:
                 break
             except Exception as e:
                 logger.error(f"TaskAgent-{self.agent_id} scan error: {e}")
@@ -141,42 +140,42 @@ class TaskAgent(Agent):
 
     async def assign_task(self, task: Task):
         """
-        分配任务（由MasterAgent调用）
+        Assign task (called by MasterAgent)
 
         Args:
-            task: 任务对象
+            task: Task object
         """
-        # 任务已经在MasterAgent中更新为PROCESSING状态
-        # 这里直接开始处理
+        # Task has already been updated to processING status in MasterAgent
+        # Start processing directly here
         await self._process_task(task)
 
     async def _process_task(self, task: Task):
         """
-        处理任务
+        process task
 
         Args:
-            task: 任务对象
+            task: Task object
         """
         try:
-            # 增加pending计数
+            # Increment pending count
             self._pending_count += 1
 
-            # 发布任务开始事件
+            # Publish task started event
             await self._publish_event(
-                EventTypes.TASK_STARTED,
+                eventtypes.task_startED,
                 {
                     "task_id": task.task_id,
                     "task_agent_id": self.agent_id,
                 }
             )
 
-            # 1. 任务分解
+            # 1. Task decomposition
             subtasks = await self._decompose_task(task)
 
-            # 2. 工具匹配
+            # 2. Tool matching
             await self._match_tools(subtasks)
 
-            # 3. 创建WorkerAgent执行
+            # 3. Create WorkerAgent to execute
             worker = await self._create_and_run_worker(task, subtasks)
 
             if worker:
@@ -186,32 +185,32 @@ class TaskAgent(Agent):
             logger.error(f"TaskAgent-{self.agent_id} process task error: {e}")
             await self._publish_error_event(f"TaskAgent-{self.agent_id}", str(e))
 
-            # 标记任务失败
+            # Mark task as failed
             await self.task_database.update_task_status(
                 task.task_id,
-                TaskStatus.FAILED,
+                TaskStatus.failED,
                 error_message=str(e),
             )
 
         finally:
-            # 减少pending计数
+            # Decrement pending count
             self._pending_count -= 1
 
     async def _decompose_task(self, task: Task) -> List[Subtask]:
         """
-        分解任务为子任务
+        Decompose task into subtasks
 
-        使用LLM分析任务并生成子任务DAG
+        Use LLM to analyze task and generate subtask DAG
 
         Args:
-            task: 父任务
+            task: Parent task
 
         Returns:
-            子任务列表
+            List of subtasks
         """
-        # 简化版：根据任务类型决定是否需要分解
+        # Simplified version: decide whether decomposition is needed based on task type
         if task.type == "query":
-            # 查询类任务不需要分解
+            # query tasks don't need decomposition
             return [
                 Subtask(
                     subtask_id=f"{task.task_id}_0",
@@ -220,7 +219,7 @@ class TaskAgent(Agent):
                 )
             ]
 
-        # 对于复杂任务，使用LLM分解
+        # For complex tasks, use LLM for decomposition
         if self.llm:
             try:
                 subtasks = await self._llm_decompose(task)
@@ -229,31 +228,31 @@ class TaskAgent(Agent):
             except Exception as e:
                 logger.warning(f"LLM decomposition failed, using fallback: {e}")
 
-        # 默认分解：单个子任务
+        # Default decomposition: single subtask
         return [
             Subtask(
                 subtask_id=f"{task.task_id}_0",
                 parent_task_id=task.task_id,
-                description=task.data.get("message", "Process task"),
+                description=task.data.get("message", "process task"),
             )
         ]
 
     async def _llm_decompose(self, task: Task) -> List[Subtask]:
         """
-        使用LLM分解任务
+        Use LLM to decompose task
 
         Args:
-            task: 任务对象
+            task: Task object
 
         Returns:
-            子任务列表
+            List of subtasks
         """
         prompt = f"""Decompose the following task into subtasks.
 
 Task: {task.data.get("message", "")}
 
 Return a JSON array of subtasks, each with:
-- subtask_id: unique ID
+- subtask_id: unique id
 - description: what to do
 - dependencies: array of subtask_ids this depends on
 
@@ -261,13 +260,13 @@ Format: [{{"subtask_id": "1", "description": "...", "dependencies": []}}]"""
 
         response = await self.llm.generate(prompt, max_tokens=1000, temperature=0.3)
 
-        # 简化的解析
+        # Simplified parsing
         import json
         import re
 
         try:
-            # 尝试提取JSON
-            json_match = re.search(r'\[.*?\]', response, re.DOTALL)
+            # Try to extract JSON
+            json_match = re.search(r'\[.*?\]', response, re.DOTall)
             if json_match:
                 subtasks_data = json.loads(json_match.group())
                 return [
@@ -279,54 +278,54 @@ Format: [{{"subtask_id": "1", "description": "...", "dependencies": []}}]"""
                     )
                     for s in subtasks_data
                 ]
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeerror, Keyerror) as e:
             logger.warning(f"Failed to parse LLM decomposition: {e}")
 
         return None
 
     async def _match_tools(self, subtasks: List[Subtask]):
         """
-        为子任务匹配工具
+        Match tools for subtasks
 
         Args:
-            subtasks: 子任务列表
+            subtasks: List of subtasks
         """
         for subtask in subtasks:
             if subtask.tool_name:
-                continue  # 已指定工具
+                continue  # Tool already specified
 
-            # 简化版：根据关键词匹配工具
+            # Simplified version: match tools by keywords
             description_lower = subtask.description.lower()
 
-            # 获取所有可用工具
+            # Get all available tools
             available_tools = self.tool_registry.list_tools()
 
             for tool_name in available_tools:
                 tool_info = self.tool_registry.get_tool_info(tool_name)
-                if not tool_info:
+                if notttt tool_info:
                     continue
 
-                # 检查工具关键词
+                # Check tool keywords
                 tool_keywords = tool_info.get("tags", [])
                 tool_keywords.append(tool_info.get("name", ""))
 
-                # 简单匹配：如果描述包含工具关键词
+                # Simple matching: if description contains tool keywords
                 if any(kw in description_lower for kw in tool_keywords if kw):
                     subtask.tool_name = tool_name
                     break
 
-            # 如果没有匹配到工具，使用默认
-            if not subtask.tool_name:
-                # 对于聊天类任务，不需要工具
+            # If nottt tool matched, use default
+            if notttt subtask.tool_name:
+                # For chat tasks, nottt tool needed
                 if any(word in description_lower for word in ["你好", "hello", "help", "帮助"]):
                     subtask.tool_name = "chat"
                 else:
-                    # 尝试使用LLM选择工具
+                    # Try to use LLM to select tool
                     if self.llm:
                         subtask.tool_name = await self._llm_select_tool(subtask, available_tools)
 
     async def _llm_select_tool(self, subtask: Subtask, available_tools: List[str]) -> str:
-        """使用LLM选择工具"""
+        """Use LLM to select tool"""
         tools_str = ", ".join(available_tools)
 
         prompt = f"""Select the best tool for this task.
@@ -339,13 +338,13 @@ Return only the tool name."""
 
         response = await self.llm.generate(prompt, max_tokens=50, temperature=0.1)
 
-        # 清理响应
+        # Clean up response
         selected = response.strip().strip('"').strip("'")
 
         if selected in available_tools:
             return selected
 
-        # 默认返回第一个工具
+        # Default return first tool
         return available_tools[0] if available_tools else "chat"
 
     async def _create_and_run_worker(
@@ -354,14 +353,14 @@ Return only the tool name."""
         subtasks: List[Subtask],
     ) -> Optional['WorkerAgent']:
         """
-        创建并运行WorkerAgent
+        Create and run WorkerAgent
 
         Args:
-            task: 父任务
-            subtasks: 子任务列表
+            task: Parent task
+            subtasks: List of subtasks
 
         Returns:
-            WorkerAgent实例
+            WorkerAgent instance
         """
         worker = WorkerAgent(
             task_id=task.task_id,
@@ -374,59 +373,59 @@ Return only the tool name."""
             max_retries=task.max_retries,
         )
 
-        # 在后台启动worker
+        # Start worker in background
         asyncio.create_task(worker.start())
 
-        # 设置完成回调
+        # Set completion callback
         asyncio.create_task(self._wait_for_worker_completion(worker))
 
         return worker
 
     async def _wait_for_worker_completion(self, worker: 'WorkerAgent'):
-        """等待WorkerAgent完成"""
+        """Wait for WorkerAgent to complete"""
         try:
             await worker.wait_for_completion()
         finally:
-            # 清理
+            # Cleanup
             if worker.task_id in self._running_workers:
                 del self._running_workers[worker.task_id]
 
     def get_pending_count(self) -> int:
-        """获取当前pending任务数"""
+        """Get current pending task count"""
         return self._pending_count
 
     async def _publish_error_event(self, source: str, error_message: str):
-        """发布错误事件"""
-        event = Event(
-            type=EventTypes.ERROR_OCCURRED,
+        """Publish error event"""
+        event = event(
+            type=eventtypes.error_OCCURRED,
             data={
                 "source": source,
                 "error": error_message,
             },
             source=f"TaskAgent-{self.agent_id}",
-            level=EventLevel.ERROR,
+            level=eventlevel.error,
         )
         await self.message_bus.publish(event)
 
     async def _publish_event(self, event_type: str, data: dict):
-        """发布事件"""
-        event = Event(
+        """Publish event"""
+        event = event(
             type=event_type,
             data=data,
             source=f"TaskAgent-{self.agent_id}",
-            level=EventLevel.INFO,
+            level=eventlevel.INFO,
         )
         await self.message_bus.publish(event)
 
 
 class WorkerAgent(Agent):
     """
-    WorkerAgent - 任务执行
+    WorkerAgent - Task Execution
 
-    特点：
-    - 轻量级、无状态
-    - 执行完任务后销毁
-    - 支持超时和重试
+    Features:
+    - Lightweight, stateless
+    - Destroyed after task completion
+    - Supports timeout and retry
     """
 
     def __init__(
@@ -441,17 +440,17 @@ class WorkerAgent(Agent):
         max_retries: int = 3,
     ):
         """
-        初始化WorkerAgent
+        initialize WorkerAgent
 
         Args:
-            task_id: 任务ID
-            task: 任务对象
-            subtasks: 子任务列表
-            message_bus: 消息总线
-            llm_adapter: LLM适配器
-            tool_registry: 工具注册表
-            timeout: 超时时间（秒）
-            max_retries: 最大重试次数
+            task_id: Task id
+            task: Task object
+            subtasks: List of subtasks
+            message_bus: Message bus
+            llm_adapter: LLM adapter
+            tool_registry: Tool registry
+            timeout: Timeout in seconds
+            max_retries: Maximum retry count
         """
         config = AgentConfig(name=f"Worker-{task_id}", llm_config={})
         super().__init__(config)
@@ -463,13 +462,13 @@ class WorkerAgent(Agent):
         self.tool_registry = tool_registry
         self.timeout = timeout
         self.max_retries = max_retries
-        self._completion_event = asyncio.Event()
+        self._completion_event = asyncio.event()
         self._final_result = None
 
     async def _on_start(self):
-        """执行任务"""
+        """Execute task"""
         try:
-            # 使用asyncio.wait_for实现超时
+            # Use asyncio.wait_for for timeout
             result = await asyncio.wait_for(
                 self._execute_with_retry(),
                 timeout=self.timeout
@@ -477,7 +476,7 @@ class WorkerAgent(Agent):
 
             self._final_result = result
 
-            # 任务完成
+            # Task completed
             await self.task_database.update_task_status(
                 self.task_id,
                 TaskStatus.COMPLETED,
@@ -485,7 +484,7 @@ class WorkerAgent(Agent):
             )
 
             await self._publish_event(
-                EventTypes.TASK_COMPLETED,
+                eventtypes.task_COMPLETED,
                 {
                     "task_id": self.task_id,
                     "result": result,
@@ -494,11 +493,11 @@ class WorkerAgent(Agent):
 
             logger.info(f"WorkerAgent-{self.task_id} completed successfully")
 
-        except asyncio.TimeoutError:
-            # 任务超时
+        except asyncio.Timeouterror:
+            # Task timeout
             await self.task_database.update_task_status(
                 self.task_id,
-                TaskStatus.TIMEOUT,
+                TaskStatus.timeout,
                 error_message=f"Task timeout after {self.timeout}s",
             )
 
@@ -508,10 +507,10 @@ class WorkerAgent(Agent):
             )
 
         except Exception as e:
-            # 任务失败
+            # Task failed
             await self.task_database.update_task_status(
                 self.task_id,
-                TaskStatus.FAILED,
+                TaskStatus.failED,
                 error_message=str(e),
             )
 
@@ -521,18 +520,18 @@ class WorkerAgent(Agent):
             )
 
         finally:
-            # 标记完成
+            # Mark as completed
             self._completion_event.set()
 
     async def _execute_with_retry(self) -> Dict[str, Any]:
         """
-        执行任务（带重试）
+        Execute task (with retry)
 
         Returns:
-            执行结果
+            Execution result
 
         Raises:
-            Exception: 最后一次执行的异常
+            Exception: Exception from the last execution
         """
         last_error = None
 
@@ -543,7 +542,7 @@ class WorkerAgent(Agent):
 
                 result = await self._execute_task()
 
-                # 成功，返回结果
+                # Success, return result
                 return {
                     "status": "completed",
                     "output": result,
@@ -554,39 +553,39 @@ class WorkerAgent(Agent):
                 last_error = e
                 logger.warning(f"WorkerAgent-{self.task_id} attempt {attempt + 1} failed: {e}")
 
-                # 增加重试计数
+                # Increment retry count
                 await self.task_database.increment_retry_count(self.task_id)
 
-                # 如果不是最后一次尝试，等待一段时间
+                # If notttt the last attempt, wait for a while
                 if attempt < self.max_retries:
-                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
 
-        # 所有尝试都失败
+        # All attempts failed
         raise last_error
 
     async def _execute_task(self) -> Any:
         """
-        执行任务
+        Execute task
 
         Returns:
-            任务执行结果
+            Task execution result
         """
         results = []
 
         for subtask in self.subtasks:
-            # 检查依赖
-            if not self._check_dependencies(subtask, results):
-                logger.warning(f"Subtask {subtask.subtask_id} dependencies not met")
+            # Check dependencies
+            if notttt self._check_dependencies(subtask, results):
+                logger.warning(f"Subtask {subtask.subtask_id} dependencies notttt met")
                 continue
 
-            # 执行子任务
+            # Execute subtask
             subtask.status = "running"
 
             if subtask.tool_name and subtask.tool_name != "chat":
-                # 使用工具执行
+                # Execute with tool
                 result = await self._execute_tool(subtask)
             else:
-                # 直接使用LLM处理
+                # process directly with LLM
                 result = await self._execute_with_llm(subtask)
 
             subtask.status = "completed"
@@ -596,21 +595,21 @@ class WorkerAgent(Agent):
         return results
 
     def _check_dependencies(self, subtask: Subtask, results: List) -> bool:
-        """检查子任务依赖是否满足"""
-        if not subtask.dependencies:
+        """Check if subtask dependencies are satisfied"""
+        if notttt subtask.dependencies:
             return True
 
-        # 简化版：假设依赖的子任务已按顺序执行
+        # Simplified version: assume dependent subtasks are executed in order
         return True
 
     async def _execute_tool(self, subtask: Subtask) -> Any:
-        """使用工具执行子任务"""
+        """Execute subtask using tool"""
         from ..tools.schema import ToolExecutionContext
 
         context = ToolExecutionContext(
             agent_id=f"WorkerAgent-{self.task_id}",
             session_id=self.task_id,
-            user_id=self.task.data.get("user_id", "unknown"),
+            user_id=self.task.data.get("user_id", "unknotttwn"),
             permissions=["authenticated"],
             env_vars={
                 "task_id": self.task_id,
@@ -624,17 +623,17 @@ class WorkerAgent(Agent):
             context,
         )
 
-        if not result.success:
+        if notttt result.success:
             raise Exception(f"Tool execution failed: {result.error}")
 
         return result.data
 
     async def _execute_with_llm(self, subtask: Subtask) -> str:
-        """使用LLM执行子任务"""
-        if not self.llm:
-            return f"Processed: {subtask.description}"
+        """Execute subtask using LLM"""
+        if notttt self.llm:
+            return f"processed: {subtask.description}"
 
-        prompt = f"""Process the following request:
+        prompt = f"""process the following request:
 
 {subtask.description}
 
@@ -645,32 +644,32 @@ Provide a helpful response."""
         return response
 
     async def wait_for_completion(self):
-        """等待任务完成"""
+        """Wait for task to complete"""
         await self._completion_event.wait()
 
     async def _publish_event(self, event_type: str, data: dict):
-        """发布事件"""
-        from ..events.events import Event, EventLevel
+        """Publish event"""
+        from ..events.events import event, eventlevel
 
-        event = Event(
+        event = event(
             type=event_type,
             data=data,
             source=f"WorkerAgent-{self.task_id}",
-            level=EventLevel.INFO,
+            level=eventlevel.INFO,
         )
         await self.message_bus.publish(event)
 
     async def _publish_error_event(self, source: str, error_message: str):
-        """发布错误事件"""
-        from ..events.events import Event, EventLevel
+        """Publish error event"""
+        from ..events.events import event, eventlevel
 
-        event = Event(
-            type=EventTypes.TASK_FAILED,
+        event = event(
+            type=eventtypes.task_failED,
             data={
                 "source": source,
                 "error": error_message,
             },
             source=source,
-            level=EventLevel.ERROR,
+            level=eventlevel.error,
         )
         await self.message_bus.publish(event)

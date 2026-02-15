@@ -1,5 +1,5 @@
 """
-工具系统 - Tool基类和Schema定义
+tool系统 - ToolBase classandSchema定义
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -7,16 +7,16 @@ from typing import Any, Dict, List, Optional
 from enum import Enum
 
 
-class PermissionLevel(Enum):
-    """工具权限级别"""
-    SAFE = "safe"           # 安全：可自动执行
-    CONFIRM = "confirm"      # 需确认：需要用户确认
-    DANGER = "danger"       # 危险：默认拒绝
+class Permissionlevel(Enum):
+    """toolpermissionlevel"""
+    safe = "safe"           # safe：可自动Execute
+    confirm = "confirm"      # 需确认：需要user确认
+    DANGER = "danger"       # dangerous：default拒绝
 
 
 @dataclass
 class ToolResult:
-    """工具执行结果"""
+    """toolExecution result"""
     success: bool
     data: Any = None
     error: Optional[str] = None
@@ -25,31 +25,31 @@ class ToolResult:
 
 @dataclass
 class ToolSchema:
-    """工具Schema（元数据）"""
+    """toolSchema（metadata）"""
     name: str
     description: str
-    parameters: Dict[str, Any]  # JSON Schema格式
+    parameters: Dict[str, Any]  # JSON Schemaformat
     permissions: List[str] = None
-    internal: bool = False  # 是否为内部工具（不对用户可见）
+    internal: bool = False  # is notttt为internaltool（不对user可见）
 
 
 class Tool(ABC):
     """
-    工具基类
+    toolBase class
 
-    所有工具必须继承此类并实现execute方法
+    alltool必须继承此Class并ImplementationexecuteMethod
     """
 
     @abstractmethod
     async def execute(self, params: dict) -> ToolResult:
         """
-        执行工具逻辑
+        Executetool逻辑
 
         Args:
-            params: 工具参数（根据schema验证）
+            params: toolParameter（根据schemaValidate）
 
         Returns:
-            ToolResult: 执行结果
+            ToolResult: Execution result
         """
         pass
 
@@ -57,9 +57,9 @@ class Tool(ABC):
     @abstractmethod
     def schema(self) -> ToolSchema:
         """
-        返回工具的Schema
+        Returntool的Schema
 
         Returns:
-            ToolSchema: 工具元数据
+            ToolSchema: toolmetadata
         """
         pass

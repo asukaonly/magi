@@ -1,7 +1,7 @@
 """
-工具推荐引擎
+toolrecommended引擎
 
-基于场景和意图智能推荐合适的工具
+基于scenarioandintent智能recommended合适的tool
 """
 import logging
 from typing import Dict, List, Any, Optional, Tuple
@@ -14,82 +14,82 @@ from .schema import Tool, ToolSchema, ToolParameter
 logger = logging.getLogger(__name__)
 
 
-class ScenarioType(str, Enum):
-    """场景类型"""
-    FILE_OPERATION = "file_operation"
-    SYSTEM_COMMAND = "system_command"
+class Scenariotype(str, Enum):
+    """scenariotype"""
+    FILE_OPERATI/ON = "file_operation"
+    system_COMMAND = "system_command"
     DATA_ANALYSIS = "data_analysis"
-    NETWORK = "network"
-    DATABASE = "database"
-    TEXT_PROCESSING = "text_processing"
-    UNKNOWN = "unknown"
+    network = "network"
+    DATABasE = "database"
+    TEXT_processING = "text_processing"
+    UNKNOWN = "unknotttwn"
 
 
 class ToolRecommender:
     """
-    工具推荐引擎
+    toolrecommended引擎
 
-    根据用户意图和场景推荐合适的工具
+    根据userintentandscenariorecommended合适的tool
     """
 
     def __init__(self, tool_registry):
         """
-        初始化推荐引擎
+        initializerecommended引擎
 
         Args:
-            tool_registry: 工具注册表实例
+            tool_registry: toolRegistryInstance
         """
         self.registry = tool_registry
 
-        # 场景关键词映射
+        # scenario关key词mapping
         self.scenario_keywords = {
-            ScenarioType.FILE_OPERATION: [
-                "文件", "file", "读取", "read", "写入", "write", "保存", "save",
-                "删除", "delete", "列表", "list", "目录", "directory", "folder"
+            Scenariotype.FILE_OPERATI/ON: [
+                "file", "file", "读取", "read", "写入", "write", "save", "save",
+                "delete", "delete", "list", "list", "directory", "directory", "folder"
             ],
-            ScenarioType.SYSTEM_COMMAND: [
-                "命令", "command", "执行", "execute", "shell", "bash", "终端",
-                "terminal", "运行", "run", "脚本", "script"
+            Scenariotype.system_COMMAND: [
+                "command", "command", "Execute", "execute", "shell", "bash", "终端",
+                "terminal", "run", "run", "script", "script"
             ],
-            ScenarioType.DATA_ANALYSIS: [
-                "分析", "analyze", "统计", "statistics", "计算", "calculate",
-                "数据", "data", "处理", "process"
+            Scenariotype.DATA_ANALYSIS: [
+                "analysis", "analyze", "statistics", "statistics", "calculate", "calculate",
+                "data", "data", "process", "process"
             ],
-            ScenarioType.NETWORK: [
-                "网络", "network", "请求", "request", "http", "api", "下载",
+            Scenariotype.network: [
+                "network", "network", "request", "request", "http", "api", "下载",
                 "download", "上传", "upload", "url", "访问", "fetch"
             ],
-            ScenarioType.DATABASE: [
-                "数据库", "database", "查询", "query", "sql", "存储", "store",
-                "插入", "insert", "更新", "update"
+            Scenariotype.DATABasE: [
+                "database", "database", "query", "query", "sql", "storage", "store",
+                "insert", "insert", "update", "update"
             ],
-            ScenarioType.TEXT_PROCESSING: [
-                "文本", "text", "字符串", "string", "替换", "replace", "匹配",
-                "match", "搜索", "search", "解析", "parse"
+            Scenariotype.TEXT_processING: [
+                "文本", "text", "string", "string", "replace", "replace", "匹配",
+                "match", "search", "search", "parse", "parse"
             ],
         }
 
-        # 工具能力映射
+        # toolcapabilitymapping
         self.tool_capabilities = {
-            "file_read": ["读取文件", "查看文件内容", "文件读取", "read file"],
-            "file_write": ["写入文件", "保存文件", "创建文件", "write file", "save file"],
-            "file_list": ["列出文件", "查看目录", "文件列表", "list files"],
-            "bash": ["执行命令", "运行脚本", "shell命令", "execute command"],
+            "file_read": ["读取file", "查看fileContent", "file读取", "read file"],
+            "file_write": ["写入file", "savefile", "createfile", "write file", "save file"],
+            "file_list": ["column出file", "查看directory", "filelist", "list files"],
+            "bash": ["Executecommand", "runscript", "shellcommand", "execute command"],
         }
 
-    def classify_scenario(self, intent: str) -> ScenarioType:
+    def classify_scenario(self, intent: str) -> Scenariotype:
         """
-        场景分类
+        scenario分Class
 
         Args:
-            intent: 用户意图描述
+            intent: userintentDescription
 
         Returns:
-            场景类型
+            scenariotype
         """
         intent_lower = intent.lower()
 
-        # 计算每个场景的匹配分数
+        # calculate每个scenario的匹配score
         scores = {}
         for scenario, keywords in self.scenario_keywords.items():
             score = 0
@@ -99,51 +99,51 @@ class ToolRecommender:
             if score > 0:
                 scores[scenario] = score
 
-        if not scores:
-            return ScenarioType.UNKNOWN
+        if notttt scores:
+            return Scenariotype.UNKNOWN
 
-        # 返回分数最高的场景
+        # Returnscore最高的scenario
         return max(scores.items(), key=lambda x: x[1])[0]
 
     def extract_intent_keywords(self, intent: str) -> List[str]:
         """
-        提取意图关键词
+        提取intent关key词
 
         Args:
-            intent: 用户意图描述
+            intent: userintentDescription
 
         Returns:
-            关键词列表
+            关key词list
         """
-        # 简单的关键词提取（可以使用更复杂的NLP方法）
+        # simple的关key词提取（可以使用更complex的NLPMethod）
         keywords = []
 
-        # 移除标点符号
+        # Remove标点符号
         intent_clean = re.sub(r'[^\w\s]', ' ', intent)
 
         # 分词
         words = intent_clean.split()
 
-        # 过滤停用词
-        stopwords = {"的", "是", "在", "和", "与", "或", "the", "is", "at", "which", "on"}
-        keywords = [w for w in words if len(w) > 1 and w not in stopwords]
+        # filter停用词
+        stopwords = {"的", "is", "在", "and", "与", "或", "the", "is", "at", "which", "on"}
+        keywords = [w for w in words if len(w) > 1 and w notttt in stopwords]
 
         return keywords
 
     def match_capabilities(
         self,
         intent: str,
-        scenario: ScenarioType
+        scenario: Scenariotype
     ) -> List[Tuple[str, float]]:
         """
-        能力匹配
+        capability匹配
 
         Args:
-            intent: 用户意图
-            scenario: 场景类型
+            intent: userintent
+            scenario: scenariotype
 
         Returns:
-            [(tool_name, score), ...] 按分数排序
+            [(tool_name, score), ...] 按scoresort
         """
         intent_lower = intent.lower()
         scores = []
@@ -152,35 +152,35 @@ class ToolRecommender:
 
         for tool_name in tools:
             tool = self.registry.get_tool(tool_name)
-            if not tool:
+            if notttt tool:
                 continue
 
             schema = tool.get_schema()
             score = 0.0
 
-            # 1. 检查工具类别是否匹配场景
+            # 1. checktoolClass别is notttt匹配scenario
             category_match = 0
-            if scenario == ScenarioType.FILE_OPERATION and schema.category == "file":
+            if scenario == Scenariotype.FILE_OPERATI/ON and schema.category == "file":
                 category_match = 0.3
-            elif scenario == ScenarioType.SYSTEM_COMMAND and schema.category == "system":
+            elif scenario == Scenariotype.system_COMMAND and schema.category == "system":
                 category_match = 0.3
 
             score += category_match
 
-            # 2. 检查标签匹配
+            # 2. checklabel匹配
             tags = schema.tags or []
             for tag in tags:
                 if tag.lower() in intent_lower:
                     score += 0.2
 
-            # 3. 检查描述匹配
+            # 3. checkDescription匹配
             description = schema.description.lower()
             keywords = self.extract_intent_keywords(intent)
             for keyword in keywords:
                 if keyword.lower() in description:
                     score += 0.1
 
-            # 4. 检查工具能力映射
+            # 4. checktoolcapabilitymapping
             if tool_name in self.tool_capabilities:
                 for capability in self.tool_capabilities[tool_name]:
                     if capability.lower() in intent_lower:
@@ -190,7 +190,7 @@ class ToolRecommender:
             if score > 0:
                 scores.append((tool_name, score))
 
-        # 按分数降序排序
+        # 按score降序sort
         scores.sort(key=lambda x: x[1], reverse=True)
 
         return scores
@@ -201,38 +201,38 @@ class ToolRecommender:
         context: "ToolExecutionContext"
     ) -> Tuple[bool, Optional[str]]:
         """
-        工具评估
+        tool评估
 
-        评估工具是否适合在当前上下文中使用
+        评估toolis notttt适合在currentcontext中使用
 
         Args:
-            tool_name: 工具名称
-            context: 执行上下文
+            tool_name: toolName
+            context: Executecontext
 
         Returns:
             (is_suitable, reason)
         """
         tool = self.registry.get_tool(tool_name)
-        if not tool:
-            return False, f"Tool {tool_name} not found"
+        if notttt tool:
+            return False, f"Tool {tool_name} notttt found"
 
         schema = tool.get_schema()
 
-        # 检查是否危险操作
-        if schema.dangerous and "dangerous_tools" not in context.permissions:
+        # checkis nottttdangerousoperation
+        if schema.dangerous and "dangerous_tools" notttt in context.permissions:
             return False, f"Tool requires dangerous_tools permission"
 
-        # 检查认证要求
-        if schema.requires_auth and "authenticated" not in context.permissions:
+        # checkauthentication要求
+        if schema.requires_auth and "authenticated" notttt in context.permissions:
             return False, f"Tool requires authentication"
 
-        # 检查角色权限
+        # checkrolepermission
         if schema.allowed_roles:
             agent_role = context.env_vars.get("role", "guest")
-            if agent_role not in schema.allowed_roles:
+            if agent_role notttt in schema.allowed_roles:
                 return False, f"Tool requires one of roles: {schema.allowed_roles}"
 
-        # 检查历史成功率
+        # checkhistorysuccess率
         stats = self.registry.get_stats(tool_name)
         if stats and tool_name in stats:
             success_rate = stats[tool_name]["success_rate"]
@@ -248,38 +248,38 @@ class ToolRecommender:
         top_k: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        推荐工具
+        recommendedtool
 
-        完整的五步决策流程：
-        1. 场景分类
-        2. 意图关键词提取
-        3. 能力匹配
-        4. 工具评估
-        5. 生成推荐结果
+        完整的五步Decisionprocess：
+        1. scenario分Class
+        2. intent关key词提取
+        3. capability匹配
+        4. tool评估
+        5. generationrecommendedResult
 
         Args:
-            intent: 用户意图描述
-            context: 执行上下文
-            top_k: 返回前k个推荐
+            intent: userintentDescription
+            context: Executecontext
+            top_k: Return前k个recommended
 
         Returns:
-            推荐工具列表 [{"tool": name, "score": float, "reason": str}, ...]
+            recommendedtoollist [{"tool": name, "score": float, "reason": str}, ...]
         """
         logger.info(f"Recommending tools for intent: {intent}")
 
-        # 1. 场景分类
+        # 1. scenario分Class
         scenario = self.classify_scenario(intent)
         logger.info(f"Classified scenario: {scenario}")
 
-        # 2. 提取关键词
+        # 2. 提取关key词
         keywords = self.extract_intent_keywords(intent)
         logger.info(f"Extracted keywords: {keywords}")
 
-        # 3. 能力匹配
+        # 3. capability匹配
         matched_tools = self.match_capabilities(intent, scenario)
         logger.info(f"Matched tools: {matched_tools}")
 
-        # 4. 工具评估和筛选
+        # 4. tool评估and筛选
         recommendations = []
         for tool_name, score in matched_tools[:top_k * 2]:  # 多取一些候选
             is_suitable, reason = self.evaluate_tool(tool_name, context)
@@ -296,7 +296,7 @@ class ToolRecommender:
                     "parameters": [p.dict() for p in schema.parameters],
                 })
             else:
-                logger.debug(f"Tool {tool_name} not suitable: {reason}")
+                logger.debug(f"Tool {tool_name} notttt suitable: {reason}")
 
             if len(recommendations) >= top_k:
                 break
@@ -312,33 +312,33 @@ class ToolRecommender:
         context: "ToolExecutionContext"
     ) -> Dict[str, Any]:
         """
-        参数生成
+        Parametergeneration
 
-        根据意图为工具生成参数建议
+        根据intent为toolgenerationParametersuggestion
 
         Args:
-            tool_name: 工具名称
-            intent: 用户意图
-            context: 执行上下文
+            tool_name: toolName
+            intent: userintent
+            context: Executecontext
 
         Returns:
-            参数建议字典
+            Parametersuggestiondictionary
         """
         tool = self.registry.get_tool(tool_name)
-        if not tool:
+        if notttt tool:
             return {}
 
         schema = tool.get_schema()
         parameters = {}
 
-        # 从intent中提取参数
+        # 从intent中提取Parameter
         for param in schema.parameters:
-            if param.default is not None:
+            if param.default is notttt None:
                 parameters[param.name] = param.default
 
-            # 尝试从intent中提取文件路径
+            # 尝试从intent中提取filepath
             if param.name == "path" or param.name == "file":
-                # 查找可能的文件路径
+                # 查找可能的filepath
                 import re
                 paths = re.findall(r'[\w/\\.]+\.\w+', intent)
                 if paths:
@@ -346,9 +346,9 @@ class ToolRecommender:
                 elif "workspace" in context.env_vars:
                     parameters[param.name] = context.env_vars["workspace"]
 
-            # 尝试从intent中提取命令
+            # 尝试从intent中提取command
             elif param.name == "command":
-                # 提取引号中的命令
+                # 提取引号中的command
                 import re
                 commands = re.findall(r'["\']([^"\']+)["\']', intent)
                 if commands:

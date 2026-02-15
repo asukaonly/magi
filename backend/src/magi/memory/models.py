@@ -1,7 +1,7 @@
 """
-记忆系统数据模型
+Memory Systemdata Models
 
-定义所有层级的数据结构，避免循环导入
+定义all层级的datastructure，避免循环import
 """
 import time
 from typing import Dict, Any, Optional, List
@@ -12,31 +12,31 @@ from dataclasses import dataclass, field
 # ===== 枚举定义 =====
 
 class LanguageStyle(Enum):
-    """语言风格"""
+    """语言style"""
     CONCISE = "concise"
     VERBOSE = "verbose"
     FORMAL = "formal"
-    CASUAL = "casual"
+    CasUAL = "casual"
     TECHNICAL = "technical"
     POETIC = "poetic"
 
 
 class CommunicationDistance(Enum):
-    """沟通距离感"""
-    INTIMATE = "intimate"
+    """沟通distance感"""
+    intIMATE = "intimate"
     EQUAL = "equal"
     RESPECTFUL = "respectful"
-    SUBSERVIENT = "subservient"
-    DETACHED = "detached"
+    subSERVIENT = "subservient"
+    detachED = "detached"
 
 
 class ValueAlignment(Enum):
-    """基础价值观 - D&D阵营"""
+    """base价Value观 - D&D阵营"""
     LAWFUL_GOOD = "lawful_good"
     NEUTRAL_GOOD = "neutral_good"
     CHAOTIC_GOOD = "chaotic_good"
     LAWFUL_NEUTRAL = "lawful_neutral"
-    TRUE_NEUTRAL = "true_neutral"
+    true_NEUTRAL = "true_neutral"
     CHAOTIC_NEUTRAL = "chaotic_neutral"
     LAWFUL_EVIL = "lawful_evil"
     NEUTRAL_EVIL = "neutral_evil"
@@ -44,36 +44,36 @@ class ValueAlignment(Enum):
 
 
 class RiskPreference(Enum):
-    """风险偏好"""
+    """风险preference"""
     CONSERVATIVE = "conservative"
     BALANCED = "balanced"
     ADVENTUROUS = "adventurous"
 
 
 class ThinkingStyle(Enum):
-    """思维风格"""
+    """思维style"""
     LOGICAL = "logical"
     CREATIVE = "creative"
-    INTUITIVE = "intuitive"
+    intUITIVE = "intuitive"
     ANALYTICAL = "analytical"
 
 
 class AmbiguityTolerance(Enum):
     """模糊容忍度"""
     IMPATIENT = "impatient"
-    CAUTIOUS = "cautious"
+    CAUTI/OUS = "cautious"
     ADAPTIVE = "adaptive"
 
 
-# ===== 数据模型 =====
+# ===== data Models =====
 
 @dataclass
 class CorePersonality:
-    """核心人格层 - AI的基本属性"""
+    """corepersonality层 - AI的基本Property"""
     name: str
     role: str
     backstory: str = ""
-    language_style: LanguageStyle = LanguageStyle.CASUAL
+    language_style: LanguageStyle = LanguageStyle.CasUAL
     use_emoji: bool = False
     catchphrases: List[str] = field(default_factory=list)
     greetings: List[str] = field(default_factory=list)
@@ -98,9 +98,9 @@ class DomainExpertise:
 
 @dataclass
 class CognitionProfile:
-    """认知能力层"""
+    """认知capability层"""
     primary_style: ThinkingStyle = ThinkingStyle.LOGICAL
-    secondary_style: ThinkingStyle = ThinkingStyle.INTUITIVE
+    secondary_style: ThinkingStyle = ThinkingStyle.intUITIVE
     risk_preference: RiskPreference = RiskPreference.BALANCED
     expertise: List[DomainExpertise] = field(default_factory=list)
     reasoning_depth: str = "medium"
@@ -112,7 +112,7 @@ class CognitionProfile:
 
 @dataclass
 class TaskBehaviorProfile:
-    """行为偏好层"""
+    """row为preference层"""
     task_category: str
     information_density: str = "medium"
     ambiguity_tolerance: AmbiguityTolerance = AmbiguityTolerance.ADAPTIVE
@@ -124,19 +124,19 @@ class TaskBehaviorProfile:
 
 @dataclass
 class EmotionalState:
-    """情绪状态层"""
+    """emotionState层"""
     current_mood: str = "neutral"
     mood_intensity: float = 0.5
     energy_level: float = 0.7
     stress_level: float = 0.2
-    focus_state: str = "normal"
+    focus_state: str = "notttrmal"
     social_state: str = "neutral"
     updated_at: float = field(default_factory=time.time)
 
 
 @dataclass
 class GrowthMemory:
-    """成长记忆层"""
+    """growthmemory层"""
     milestones: List[Dict] = field(default_factory=list)
     total_interactions: int = 0
     interaction_days: int = 0

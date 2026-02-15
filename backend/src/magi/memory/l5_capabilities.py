@@ -1,8 +1,8 @@
 """
-L5: 能力记忆层 (Capability Memory Layer)
+L5: Capability Memory Layer
 
-从成功经验中提取可复用的能力
-支持能力存储、查询、复用
+Extract reusable capabilities from successful experiences
+Supports capability storage, querying, and reuse
 """
 import logging
 import time
@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 class Capability:
     """
-    能力定义
+    Capability definition
 
-    从成功经验中提取的可复用能力
+    Reusable capability extracted from successful experiences
     """
 
     def __init__(
@@ -26,15 +26,15 @@ class Capability:
         capability_id: str,
         name: str,
         description: str,
-        trigger_pattern: Dict[str, Any],  # 触发条件
-        action: Dict[str, Any],           # 执行动作
-        success_rate: float = 0.0,        # 成功率
-        usage_count: int = 0,             # 使用次数
-        avg_duration: float = 0.0,         # 平均执行时间
-        last_used: float = 0,             # 最后使用时间
-        created_at: float = None,          # 创建时间
-        examples: List[Dict[str, Any]] = None,  # 成功案例
-        failures: List[str] = None,        # 失败教训
+        trigger_pattern: Dict[str, Any],  # Trigger conditions
+        action: Dict[str, Any],           # Execution action
+        success_rate: float = 0.0,        # Success rate
+        usage_count: int = 0,             # Usage count
+        avg_duration: float = 0.0,         # Average execution time
+        last_used: float = 0,             # Last used time
+        created_at: float = None,          # Creation time
+        examples: List[Dict[str, Any]] = None,  # Success cases
+        failures: List[str] = None,        # Failure lessons
     ):
         self.capability_id = capability_id
         self.name = name
@@ -71,33 +71,33 @@ class Capability:
 
     def matches(self, context: Dict[str, Any]) -> float:
         """
-        判断能力是否匹配当前上下文
+        Determine if capability matches current context
 
         Args:
-            context: 上下文信息
+            context: Context information
 
         Returns:
-            匹配分数（0-1）
+            Match score (0-1)
         """
         score = 0.0
 
-        # 检查触发条件
+        # Check trigger conditions
         pattern = self.trigger_pattern
 
-        # 检查类型匹配
+        # Check type match
         if "event_types" in pattern:
             context_type = context.get("event_type", "")
             if context_type in pattern["event_types"]:
                 score += 0.3
 
-        # 检查关键词匹配
+        # Check keyword match
         if "keywords" in pattern:
             context_text = str(context.get("message", ""))
             for keyword in pattern["keywords"]:
                 if keyword.lower() in context_text.lower():
                     score += 0.2
 
-        # 检查参数匹配
+        # Check parameter match
         if "requires_params" in pattern:
             context_params = context.get("parameters", {})
             required = pattern["requires_params"]
@@ -109,30 +109,30 @@ class Capability:
 
 class CapabilityMemory:
     """
-    能力记忆系统
+    Capability memory system
 
-    管理能力的提取、存储、查询和复用
+    Manages capability extraction, storage, querying and reuse
     """
 
     def __init__(self, persist_path: str = None):
         """
-        初始化能力记忆
+        initialize capability memory
 
         Args:
-            persist_path: 持久化文件路径
+            persist_path: persistence file path
         """
         self.persist_path = persist_path
 
-        # 能力存储：{capability_id: Capability}
+        # Capability store: {capability_id: Capability}
         self._capabilities: Dict[str, Capability] = {}
 
-        # 使用统计：{capability_id: {attempt: total, success: success_count}}
+        # Usage statistics: {capability_id: {attempt: total, success: success_count}}
         self._stats: Dict[str, Dict[str, int]] = defaultdict(lambda: {"attempt": 0, "success": 0})
 
-        # 黑名单：成功率过低的能力
+        # Blacklist: capabilities with low success rate
         self._blacklist: Set[str] = set()
 
-        # 加载持久化数据
+        # Load persisted data
         if persist_path:
             self._load_from_disk()
 
@@ -146,47 +146,47 @@ class CapabilityMemory:
         error: str = None,
     ):
         """
-        记录任务执行尝试
+        Record task execution attempt
 
         Args:
-            task_id: 任务ID
-            context: 上下文信息
-            action: 执行的动作
-            success: 是否成功
-            duration: 执行时间
-            error: 错误信息
+            task_id: Task id
+            context: Context information
+            action: Executed action
+            success: Whether successful
+            duration: Execution time
+            error: error message
         """
-        # 更新统计
+        # Update statistics
         self._stats[task_id]["attempt"] += 1
         if success:
             self._stats[task_id]["success"] += 1
 
-        # 计算成功率
+        # Calculate success rate
         stats = self._stats[task_id]
         success_rate = stats["success"] / stats["attempt"] if stats["attempt"] > 0 else 0
 
-        # 检查是否需要提取能力
+        # Check if capability extraction is needed
         if stats["attempt"] >= 3 and success_rate >= 0.7:
             self._extract_capability(task_id, context, action, stats)
 
-        # 更新现有能力的统计
+        # Update statistics for existing capabilities
         for capability in self._capabilities.values():
             if capability.matches(context):
                 capability.usage_count += 1
                 capability.last_used = time.time()
 
-                # 更新成功率（指数移动平均）
+                # Update success rate (exponential moving average)
                 alpha = 0.3
                 capability.success_rate = alpha * success_rate + (1 - alpha) * capability.success_rate
 
-                # 更新平均执行时间
+                # Update average execution time
                 if duration > 0:
                     if capability.avg_duration > 0:
                         capability.avg_duration = 0.7 * capability.avg_duration + 0.3 * duration
                     else:
                         capability.avg_duration = duration
 
-                # 记录使用案例或失败
+                # Record usage case or failure
                 if success:
                     if len(capability.examples) < 10:
                         capability.examples.append({
@@ -197,11 +197,11 @@ class CapabilityMemory:
                     if error and len(capability.failures) < 5:
                         capability.failures.append(error)
 
-        # 检查黑名单
+        # Check blacklist
         if success_rate < 0.3 and stats["attempt"] >= 5:
             self._blacklist.add(task_id)
 
-        # 持久化
+        # persist
         if self.persist_path:
             self._save_to_disk()
 
@@ -213,15 +213,15 @@ class CapabilityMemory:
         stats: Dict[str, int],
     ):
         """
-        从任务执行中提取能力
+        Extract capability from task execution
 
         Args:
-            task_id: 任务ID
-            context: 上下文
-            action: 执行的动作
-            stats: 统计信息
+            task_id: Task id
+            context: Context
+            action: Executed action
+            stats: Statistics
         """
-        # 生成触发条件
+        # Generate trigger pattern
         trigger_pattern = self._analyze_trigger_pattern(context, action)
 
         capability_id = f"cap_{task_id}"
@@ -229,7 +229,7 @@ class CapabilityMemory:
         capability = Capability(
             capability_id=capability_id,
             name=self._generate_capability_name(context, action),
-            description=f"从任务 '{task_id}' 提取的能力",
+            description=f"Capability extracted from task '{task_id}'",
             trigger_pattern=trigger_pattern,
             action=action,
             success_rate=stats["success"] / stats["attempt"],
@@ -242,41 +242,41 @@ class CapabilityMemory:
         logger.info(f"Capability extracted: {capability_id}")
 
     def _analyze_trigger_pattern(self, context: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
-        """分析触发条件"""
+        """Analyze trigger conditions"""
         pattern = {
             "event_types": [],
             "keywords": [],
             "requires_params": [],
         }
 
-        # 从上下文中提取类型
+        # Extract type from context
         if "event_type" in context:
             pattern["event_types"].append(context["event_type"])
 
-        # 从动作中提取参数
+        # Extract parameters from action
         if "tool" in action:
             pattern["keywords"].append(action["tool"])
 
-        # 从消息中提取关键词
+        # Extract keywords from message
         message = context.get("message", "")
         if isinstance(message, str):
-            # 简单的关键词提取
+            # Simple keyword extraction
             words = message.split()
             pattern["keywords"].extend([w for w in words if len(w) > 3])
 
         return pattern
 
     def _generate_capability_name(self, context: Dict[str, Any], action: Dict[str, Any]) -> str:
-        """生成能力名称"""
+        """Generate capability name"""
         tool = action.get("tool", "")
         event_type = context.get("event_type", "")
 
         if tool:
-            return f"{tool}能力"
+            return f"{tool} capability"
         elif event_type:
-            return f"{event_type}处理能力"
+            return f"{event_type} handling capability"
         else:
-            return "通用能力"
+            return "general capability"
 
     def find_capability(
         self,
@@ -284,20 +284,20 @@ class CapabilityMemory:
         threshold: float = 0.5,
     ) -> Optional[Capability]:
         """
-        查找匹配的能力
+        Find matching capability
 
         Args:
-            context: 上下文信息
-            threshold: 匹配阈值
+            context: Context information
+            threshold: Match threshold
 
         Returns:
-            匹配的能力，或 None
+            Matching capability, or None
         """
         best_capability = None
         best_score = threshold
 
         for capability in self._capabilities.values():
-            # 跳过黑名单
+            # Skip blacklist
             if capability.capability_id in self._blacklist:
                 continue
 
@@ -309,22 +309,22 @@ class CapabilityMemory:
         return best_capability
 
     def get_all_capabilities(self) -> List[Capability]:
-        """获取所有能力"""
+        """Get all capabilities"""
         return list(self._capabilities.values())
 
     def get_capability(self, capability_id: str) -> Optional[Capability]:
-        """获取指定能力"""
+        """Get specified capability"""
         return self._capabilities.get(capability_id)
 
     def delete_capability(self, capability_id: str) -> bool:
         """
-        删除能力
+        Delete capability
 
         Args:
-            capability_id: 能力ID
+            capability_id: Capability id
 
         Returns:
-            是否删除成功
+            Whether deletion was successful
         """
         if capability_id in self._capabilities:
             del self._capabilities[capability_id]
@@ -340,8 +340,8 @@ class CapabilityMemory:
         return False
 
     def _save_to_disk(self):
-        """持久化到磁盘"""
-        if not self.persist_path:
+        """persist to disk"""
+        if notttt self.persist_path:
             return
 
         try:
@@ -362,29 +362,29 @@ class CapabilityMemory:
             logger.error(f"Failed to save capabilities: {e}")
 
     def _load_from_disk(self):
-        """从磁盘加载"""
-        if not self.persist_path:
+        """Load from disk"""
+        if notttt self.persist_path:
             return
 
         try:
-            from pathlib import Path
-            path = Path(self.persist_path)
-            if not path.exists():
+            from pathlib import path
+            path = path(self.persist_path)
+            if notttt path.exists():
                 return
 
             with open(self.persist_path, "r") as f:
                 data = json.load(f)
 
-            # 加载能力
+            # Load capabilities
             for cap_id, cap_data in data.get("capabilities", {}).items():
                 self._capabilities[cap_id] = Capability.from_dict(cap_data)
 
-            # 加载统计
+            # Load statistics
             self._stats = defaultdict(lambda: {"attempt": 0, "success": 0})
             for task_id, stats in data.get("stats", {}).items():
                 self._stats[task_id] = stats
 
-            # 加载黑名单
+            # Load blacklist
             self._blacklist = set(data.get("blacklist", []))
 
             logger.info(f"Capabilities loaded from {self.persist_path}")
@@ -392,7 +392,7 @@ class CapabilityMemory:
             logger.warning(f"Failed to load capabilities: {e}")
 
     def get_statistics(self) -> Dict[str, Any]:
-        """获取统计信息"""
+        """Get statistics"""
         return {
             "total_capabilities": len(self._capabilities),
             "blacklist_count": len(self._blacklist),

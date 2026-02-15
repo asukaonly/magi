@@ -1,7 +1,7 @@
 """
-FastAPI应用主文件
+FastAPI应用主file
 
-创建和配置FastAPI应用实例
+createandConfigurationFastAPI应用Instance
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -9,9 +9,9 @@ from fastapi.openapi.utils import get_openapi
 import logging
 import json
 import os
-from pathlib import Path
+from pathlib import path
 
-from .middleware import ErrorHandler, AuthMiddleware, RequestLoggingMiddleware, add_cors_middleware
+from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, add_cors_middleware
 from .responses import SuccessResponse
 from .websocket import manager, broadcast_agent_update, broadcast_task_update, broadcast_metrics_update, broadcast_log
 from ..agent import initialize_chat_agent, shutdown_chat_agent
@@ -19,13 +19,13 @@ from ..core.logger import configure_logging
 
 logger = logging.getLogger(__name__)
 
-# 加载 .env 文件
+# load .env file
 try:
     from dotenv import load_dotenv
-    # 优先加载 backend/.env（app.py 位于 backend/src/magi/api）
+    # 优先load backend/.env（app.py 位于 backend/src/magi/api）
     candidate_paths = [
-        Path(__file__).resolve().parents[3] / ".env",  # backend/.env
-        Path.cwd() / ".env",                           # 当前工作目录
+        path(__file__).resolve().parents[3] / ".env",  # backend/.env
+        path.cwd() / ".env",                           # current工作directory
     ]
     loaded = False
     for env_path in candidate_paths:
@@ -34,33 +34,33 @@ try:
             logger.info(f"Loaded environment variables from {env_path}")
             loaded = True
             break
-    if not loaded:
+    if notttt loaded:
         load_dotenv(override=False)
         logger.info("No explicit .env path found, attempted default dotenv lookup")
-except ImportError:
-    logger.warning("python-dotenv not installed, .env file will not be loaded automatically")
+except Importerror:
+    logger.warning("python-dotenv notttt installed, .env file will notttt be loaded automatically")
 
 
 def custom_openapi():
-    """自定义OpenAPI schema"""
-    if not app.openapi_schema:
+    """customOpenAPI schema"""
+    if notttt app.openapi_schema:
         openapi_schema = get_openapi(
             title="Magi AI Agent Framework API",
             version="1.0.0",
             description="""
             ## Magi AI Agent Framework API
 
-            Agent系统的RESTful API，提供Agent管理、任务管理、工具管理等功能。
+            Agent系统的RESTful API，提供Agent管理、任务管理、tool管理等function。
 
-            ### 功能特性
-            - Agent管理（创建、查询、启动、停止）
-            - 任务管理（创建、查询、重试）
-            - 工具管理（列表、详情、测试）
-            - 记忆管理（搜索、详情、删除）
-            - 指标监控（性能、状态）
+            ### functionfeature
+            - Agent管理（create、query、启动、stop）
+            - 任务管理（create、query、重试）
+            - tool管理（list、详情、Test）
+            - memory管理（search、详情、delete）
+            - metricmonitor（performance、State）
 
-            ### 认证
-            生产环境需要JWT token认证（开发环境已禁用）
+            ### authentication
+            生产环境需要JWT tokenauthentication（开发环境已Disable）
             """,
             routes=app.routes,
         )
@@ -73,12 +73,12 @@ def custom_openapi():
 
 def create_app() -> FastAPI:
     """
-    创建FastAPI应用实例
+    createFastAPI应用Instance
 
     Returns:
-        FastAPI应用实例
+        FastAPI应用Instance
     """
-    # 配置日志（输出到运行时目录和终端）
+    # ConfigurationLog（Output到run时directoryand终端）
     from ..utils.runtime import get_runtime_paths
     runtime_paths = get_runtime_paths()
     log_file = runtime_paths.logs_dir / "magi.log"
@@ -93,37 +93,37 @@ def create_app() -> FastAPI:
         title="Magi AI Agent Framework API",
         description="AI Agent Framework RESTful API",
         version="1.0.0",
-        docs_url=None,  # 禁用默认文档，使用自定义路由
+        docs_url=None,  # Disabledefaultdocument，使用customroute
         redoc_url=None,
     )
 
-    # 设置自定义OpenAPI
+    # SettingcustomOpenAPI
     app.openapi = custom_openapi
 
-    # 添加中间件
+    # addmiddle件
     add_cors_middleware(app)
-    app.add_middleware(ErrorHandler)
+    app.add_middleware(errorHandler)
     app.add_middleware(AuthMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
 
-    # 注册路由
+    # registerroute
     _register_routes(app)
 
-    # 注册生命周期事件
+    # register生命periodevent
     @app.on_event("startup")
     async def startup_event():
-        """应用启动时初始化ChatAgent"""
+        """应用启动时initializeChatAgent"""
         await initialize_chat_agent()
 
     @app.on_event("shutdown")
     async def shutdown_event():
-        """应用关闭时停止ChatAgent"""
+        """应用关闭时stopChatAgent"""
         await shutdown_chat_agent()
 
-    # 添加健康检查端点
+    # add健康check端点
     @app.get("/api/health", tags=["Health"])
     async def health_check():
-        """健康检查"""
+        """健康check"""
         return {
             "success": True,
             "message": "System is healthy",
@@ -133,10 +133,10 @@ def create_app() -> FastAPI:
             },
         }
 
-    # 添加文档端点
+    # adddocument端点
     @app.get("/api/docs", include_in_schema=False)
     async def custom_swagger_ui_html():
-        """自定义Swagger UI"""
+        """customSwagger UI"""
         return get_swagger_ui_html(
             openapi_url="/api/openapi.json",
             title="Magi API Docs",
@@ -144,14 +144,14 @@ def create_app() -> FastAPI:
 
     @app.get("/api/openapi.json", include_in_schema=False)
     async def get_openapi_endpoint():
-        """获取OpenAPI schema"""
+        """getOpenAPI schema"""
         return app.openapi()
 
     # WebSocket端点
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
-        """WebSocket端点 - 支持房间订阅"""
-        # 生成唯一的会话ID
+        """WebSocket端点 - support房间subscribe"""
+        # generation唯一的sessionid
         import uuid
         sid = str(uuid.uuid4())
 
@@ -162,13 +162,13 @@ def create_app() -> FastAPI:
 
         try:
             while True:
-                # 接收客户端消息
+                # receiveclientmessage
                 try:
                     data = await websocket.receive_json()
                     logger.debug(f"Received WebSocket message from {sid}: {data}")
                 except Exception as e:
                     logger.warning(f"Failed to receive JSON from {sid}: {e}")
-                    # 尝试接收文本并解析
+                    # 尝试receive文本并parse
                     text_data = await websocket.receive_text()
                     logger.debug(f"Received text from {sid}: {text_data}")
                     try:
@@ -177,7 +177,7 @@ def create_app() -> FastAPI:
                         logger.error(f"Invalid data format from {sid}")
                         continue
 
-                # 处理订阅请求
+                # processsubscriberequest
                 if data.get("type") == "subscribe":
                     channel = data.get("channel")
                     manager.join_room(sid, channel)
@@ -213,10 +213,10 @@ def create_app() -> FastAPI:
 
 def _register_routes(app: FastAPI):
     """
-    注册所有路由
+    registerallroute
 
     Args:
-        app: FastAPI应用实例
+        app: FastAPI应用Instance
     """
     from .routers import (
         agents_router,
@@ -231,75 +231,75 @@ def _register_routes(app: FastAPI):
         skills_router,
     )
 
-    # 注册Agent管理路由
+    # registerAgent管理route
     app.include_router(
         agents_router,
         prefix="/api/agents",
         tags=["Agents"],
     )
 
-    # 注册任务管理路由
+    # register任务管理route
     app.include_router(
         tasks_router,
         prefix="/api/tasks",
         tags=["Tasks"],
     )
 
-    # 注册工具管理路由
+    # registertool管理route
     app.include_router(
         tools_router,
         prefix="/api/tools",
         tags=["Tools"],
     )
 
-    # 注册记忆管理路由
+    # registermemory管理route
     app.include_router(
         memory_router,
         prefix="/api/memory",
         tags=["Memory"],
     )
 
-    # 注册指标监控路由
+    # registermetricmonitorroute
     app.include_router(
         metrics_router,
         prefix="/api/metrics",
         tags=["Metrics"],
     )
 
-    # 注册用户消息路由
+    # registerUser messageroute
     app.include_router(
         user_messages_router,
         prefix="/api/messages",
         tags=["Messages"],
     )
 
-    # 注册配置管理路由
+    # registerConfiguration管理route
     app.include_router(
         config_router,
         prefix="/api/config",
         tags=["Config"],
     )
 
-    # 注册人格配置路由
+    # registerPersonality configurationroute
     app.include_router(
         personality_router,
         prefix="/api/personality",
         tags=["Personality"],
     )
 
-    # 注册他人记忆路由
+    # register他人memoryroute
     app.include_router(
         others_router,
         prefix="/api/others",
         tags=["Others"],
     )
 
-    # 注册 Skills 管理路由
+    # register Skills 管理route
     app.include_router(
         skills_router,
         tags=["Skills"],
     )
 
 
-# 创建全局应用实例
+# createglobal应用Instance
 app = create_app()

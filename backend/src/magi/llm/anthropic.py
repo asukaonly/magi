@@ -1,5 +1,5 @@
 """
-LLM适配器 - Anthropic实现
+LLMAdapter - AnthropicImplementation
 """
 from typing import Optional, Dict, Any, AsyncIterator
 from anthropic import AsyncAnthropic
@@ -8,9 +8,9 @@ from .base import LLMAdapter
 
 class AnthropicAdapter(LLMAdapter):
     """
-    Anthropic Claude API适配器
+    Anthropic Claude APIAdapter
 
-    支持的模型：
+    support的model：
     - Claude 3 Opus
     - Claude 3 Sonnet
     - Claude 3 Haiku
@@ -25,19 +25,19 @@ class AnthropicAdapter(LLMAdapter):
         timeout: int = 60,
     ):
         """
-        初始化Anthropic适配器
+        initializeAnthropicAdapter
 
         Args:
-            api_key: Anthropic API密钥
-            model: 模型名称
-            base_url: 自定义API endpoint（可选，如使用代理或中转服务）
-            api_base: 兼容旧配置，等同于base_url
-            timeout: 请求超时时间（秒）
+            api_key: Anthropic APIkey
+            model: modelName
+            base_url: customAPI endpoint（optional，如使用proxy或中转service）
+            api_base: compatibleoldConfiguration，等同于base_url
+            timeout: requesttimeout时间（seconds）
         """
         self._model = model
         self._timeout = timeout
 
-        # 优先使用base_url，否则使用api_base（兼容旧配置）
+        # 优先使用base_url，nottt则使用api_base（compatibleoldConfiguration）
         api_endpoint = base_url or api_base
 
         client_kwargs = {"api_key": api_key, "timeout": timeout}
@@ -54,16 +54,16 @@ class AnthropicAdapter(LLMAdapter):
         **kwargs
     ) -> str:
         """
-        生成文本（非流式）
+        generation文本（非流式）
 
         Args:
-            prompt: 输入提示
-            max_tokens: 最大token数
-            temperature: 温度参数
-            **kwargs: 其他参数
+            prompt: Inputprompt
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter
+            **kwargs: otherParameter
 
         Returns:
-            str: 生成的文本
+            str: generation的文本
         """
         response = await self._client.messages.create(
             model=self._model,
@@ -83,16 +83,16 @@ class AnthropicAdapter(LLMAdapter):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        生成文本（流式）
+        generation文本（流式）
 
         Args:
-            prompt: 输入提示
-            max_tokens: 最大token数
-            temperature: 温度参数
-            **kwargs: 其他参数
+            prompt: Inputprompt
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter
+            **kwargs: otherParameter
 
         Yields:
-            str: 生成的文本片段
+            str: generation的文本片段
         """
         stream = await self._client.messages.create(
             model=self._model,
@@ -115,16 +115,16 @@ class AnthropicAdapter(LLMAdapter):
         **kwargs
     ) -> str:
         """
-        对话生成（非流式）
+        dialoguegeneration（非流式）
 
         Args:
-            messages: 对话历史
-            max_tokens: 最大token数
-            temperature: 温度参数
-            **kwargs: 其他参数
+            messages: dialoguehistory
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter
+            **kwargs: otherParameter
 
         Returns:
-            str: 助手的回复
+            str: 助手的response
         """
         response = await self._client.messages.create(
             model=self._model,
@@ -144,16 +144,16 @@ class AnthropicAdapter(LLMAdapter):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        对话生成（流式）
+        dialoguegeneration（流式）
 
         Args:
-            messages: 对话历史
-            max_tokens: 最大token数
-            temperature: 温度参数
-            **kwargs: 其他参数
+            messages: dialoguehistory
+            max_tokens: maximumtoken数
+            temperature: temperatureParameter
+            **kwargs: otherParameter
 
         Yields:
-            str: 生成的文本片段
+            str: generation的文本片段
         """
         stream = await self._client.messages.create(
             model=self._model,
@@ -170,10 +170,10 @@ class AnthropicAdapter(LLMAdapter):
 
     @property
     def model_name(self) -> str:
-        """获取模型名称"""
+        """getmodelName"""
         return self._model
 
     @property
     def provider_name(self) -> str:
-        """获取提供商名称"""
+        """get提供商Name"""
         return "anthropic"

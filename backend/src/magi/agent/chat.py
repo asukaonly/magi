@@ -1,8 +1,8 @@
 """
-ChatAgent - 聊天Agent实现
+ChatAgent - Chat Agent Implementation
 
-处理用户消息，通过LLM生成回复，通过WebSocket推送
-遵循正确的Agent架构：Sense-Plan-Act-Reflect
+processes user messages, generates responses via LLM, pushes via WebSocket
+Follows proper Agent architecture: Sense-Plan-Act-Reflect
 """
 import time
 import logging
@@ -25,9 +25,9 @@ from ..tools.function_calling import FunctionCallingExecutor
 from ..tools.schema import ToolExecutionContext
 from ..memory.self_memory import SelfMemory
 from ..memory.other_memory import OtherMemory
-from ..memory.behavior_evolution import SatisfactionLevel
-from ..memory.emotional_state import InteractionOutcome, EngagementLevel
-from ..memory.growth_memory import InteractionType
+from ..memory.behavior_evolution import Satisfactionlevel
+from ..memory.emotional_state import InteractionOutcome, Engagementlevel
+from ..memory.growth_memory import Interactiontype
 from ..memory.context_builder import Scenario
 from ..memory.models import TaskBehaviorProfile
 from ..utils.runtime import get_runtime_paths
@@ -35,14 +35,14 @@ from ..utils.runtime import get_runtime_paths
 logger = logging.getLogger(__name__)
 agent_logger = get_agent_logger('chat')
 llm_logger = get_llm_logger('chat')
-TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"
+TOOL_intERACTI/ON_EVENT_type = "TOOL_intERACTI/ON"
 
 
 def clean_tool_artifacts(text: str) -> str:
     """
-    清理LLM响应中的工具调用痕迹
+    Clean tool call artifacts from LLM response
 
-    移除类似这样的格式:
+    Removes formats like:
     - <antml:function_calls>...</antml:function_calls>
     - <antml:tool_result>...</antml:tool_result>
     - <tool_result>...</tool_result>
@@ -50,22 +50,22 @@ def clean_tool_artifacts(text: str) -> str:
     - <invoke>...</invoke>
 
     Args:
-        text: 原始LLM响应
+        text: Raw LLM response
 
     Returns:
-        清理后的响应
+        Cleaned response
     """
-    # 移除 function_calls 标签及其内容
-    text = re.sub(r'<antml:function_calls>.*?</antml:function_calls>', '', text, flags=re.DOTALL)
+    # Remove function_calls tag and itsContent
+    text = re.sub(r'<antml:function_calls>.*?</antml:function_calls>', '', text, flags=re.DOTall)
 
-    # 移除 tool_result 标签及其内容
-    text = re.sub(r'<antml:tool_result>.*?</antml:tool_result>', '', text, flags=re.DOTALL)
-    text = re.sub(r'<tool_result>.*?</tool_result>', '', text, flags=re.DOTALL)
+    # Remove tool_result tag and itsContent
+    text = re.sub(r'<antml:tool_result>.*?</antml:tool_result>', '', text, flags=re.DOTall)
+    text = re.sub(r'<tool_result>.*?</tool_result>', '', text, flags=re.DOTall)
 
-    # 移除 invoke 标签及其内容
-    text = re.sub(r'<invoke>.*?</invoke>', '', text, flags=re.DOTALL)
+    # Remove invoke tag and itsContent
+    text = re.sub(r'<invoke>.*?</invoke>', '', text, flags=re.DOTall)
 
-    # 仅移除“独占一行”的函数调用JSON，避免误删正常业务JSON内容
+    # Only remove“occupying a single line”的Function调用JSON，avoid mistakenly deleting notttrmal businessJSONContent
     cleaned_lines = []
     for line in text.splitlines():
         stripped = line.strip()
@@ -81,11 +81,11 @@ def clean_tool_artifacts(text: str) -> str:
                 )
             except Exception:
                 remove_line = False
-        if not remove_line:
+        if notttt remove_line:
             cleaned_lines.append(line)
     text = "\n".join(cleaned_lines)
 
-    # 移除剩余的空行（超过2个连续换行）
+    # Remove剩余的空row（超过2个连续换row）
     text = re.sub(r'\n{3,}', '\n\n', text)
 
     return text.strip()
@@ -93,13 +93,13 @@ def clean_tool_artifacts(text: str) -> str:
 
 class ChatAgent(CompleteAgent):
     """
-    聊天Agent - 处理用户消息并生成回复
+    Chat Agent - Handles user messages and generates responses
 
-    架构流程：
-    1. Sense - 从UserMessageSensor获取用户消息
-    2. Plan - ProcessingModule分析消息，生成响应计划
-    3. Act - 执行动作：调用LLM生成回复，通过WebSocket发送
-    4. Reflect - 保存对话历史到记忆
+    Architecture flow:
+    1. Sense - Get user messages from UserMessageSensor
+    2. Plan - processingModule analyzes messages, generates response plan
+    3. Act - Execute action: call LLM to generate response, send via WebSocket
+    4. Reflect - Save conversation history to memory
     """
 
     def __init__(
@@ -113,39 +113,39 @@ class ChatAgent(CompleteAgent):
         memory_integration = None,
     ):
         """
-        初始化ChatAgent
+        initialize ChatAgent
 
         Args:
-            config: Agent配置
-            message_bus: 消息总线
-            llm_adapter: LLM适配器
-            memory: 自我记忆系统（可选）
-            other_memory: 他人记忆系统（可选）
-            unified_memory: 统一记忆存储（可选，L1-L5）
-            memory_integration: 记忆集成模块（可选）
+            config: Agent configuration
+            message_bus: Message bus
+            llm_adapter: LLM adapter
+            memory: Self memory system (optional)
+            other_memory: Other memory system (optional)
+            unified_memory: Unified memory storage (optional, L1-L5)
+            memory_integration: Memory integration module (optional)
         """
         super().__init__(config, message_bus, llm_adapter)
 
-        # 对话历史（按 user_id + session_id 存储）
+        # Conversation history (by user_id + session_id)
         self._conversation_history: dict[str, list[dict]] = {}
         self._current_session_by_user: dict[str, str] = {}
         runtime_paths = get_runtime_paths()
         self._session_state_file = runtime_paths.data_dir / "chat_sessions.json"
         self._events_db_path = runtime_paths.events_db_path
 
-        # 工具选择器（五步决策流程）- 保留兼容
+        # Tool selector (five-step decision process) - kept for compatibility
         self.tool_selector = ToolSelector(
             tool_registry=tool_registry,
             llm_adapter=llm_adapter,
         )
 
-        # 上下文决策器 - 新的工具选择方式
+        # Context decider - new tool selection method
         self.context_decider = ContextDecider(
             tool_registry=tool_registry,
             llm_adapter=llm_adapter,
         )
 
-        # 函数调用执行器 - 支持连续工具调用
+        # Function calling executor - supports consecutive tool calls
         self.function_calling_executor = FunctionCallingExecutor(
             llm_adapter=llm_adapter,
             tool_registry=tool_registry,
@@ -153,24 +153,24 @@ class ChatAgent(CompleteAgent):
             tool_result_callback=self._record_tool_interaction,
         )
 
-        # 工具交互历史（按 user_id + session_id 存储）
+        # Tool interaction history (by user_id + session_id)
         self._tool_interactions: dict[str, list[dict]] = {}
         self._load_session_state()
         self._restore_conversation_from_events()
 
-        # 自我记忆系统
+        # Self memory system
         self.memory = memory
 
-        # 他人记忆系统
+        # Other memory system
         self.other_memory = other_memory
 
-        # 统一记忆存储（L1-L5）
+        # Unified memory storage (L1-L5)
         self.unified_memory = unified_memory
 
-        # 记忆集成模块
+        # Memory integration module
         self.memory_integration = memory_integration
 
-        # Skill 执行器
+        # Skill executor
         from ..skills.indexer import SkillIndexer
         from ..skills.loader import SkillLoader
         from ..skills.executor import SkillExecutor
@@ -179,10 +179,10 @@ class ChatAgent(CompleteAgent):
         self._skill_loader = SkillLoader(self._skill_indexer)
         self._skill_executor = SkillExecutor(self._skill_loader, llm_adapter)
 
-        # 更新函数调用执行器的skill_executor
+        # Update function calling executor's skill_executor
         self.function_calling_executor.skill_executor = self._skill_executor
 
-        # 初始化 skills 索引
+        # initialize skills index
         skills = self._skill_indexer.scan_all()
         if skills:
             tool_registry.register_skill_index(skills)
@@ -198,28 +198,28 @@ class ChatAgent(CompleteAgent):
 
     async def execute_action(self, action: Any) -> dict:
         """
-        Act阶段 - 执行动作
+        Act phase - Execute action
 
         Args:
-            action: 要执行的动作（ChatResponseAction）
+            action: Action to execute (ChatResponseAction)
 
         Returns:
-            执行结果
+            Execution result
         """
         from ..processing.actions import ChatResponseAction
 
-        if not isinstance(action, ChatResponseAction):
-            return {"success": False, "error": "Unknown action type"}
+        if notttt isinstance(action, ChatResponseAction):
+            return {"success": False, "error": "Unknotttwn action type"}
 
         chain_id = action.chain_id
         user_id = action.user_id
         user_message = action.user_message
         session_id = self._resolve_session_id(user_id, action.session_id)
 
-        log_chain_step(agent_logger, chain_id, "ACT", "Generating LLM response", "DEBUG")
+        log_chain_step(agent_logger, chain_id, "ACT", "Generating LLM response", "debug")
 
         try:
-            # 生成LLM回复
+            # Generate LLM response
             response_text = await self._generate_response(user_id, user_message, session_id)
 
             log_chain_step(
@@ -227,16 +227,16 @@ class ChatAgent(CompleteAgent):
                 chain_id,
                 "ACT",
                 f"Response generated | Length: {len(response_text)} chars",
-                "DEBUG"
+                "debug"
             )
 
-            # 清理工具调用痕迹
+            # Clean tool call artifacts
             cleaned_response = clean_tool_artifacts(response_text)
             if cleaned_response != response_text:
                 agent_logger.info("🧹 Cleaned tool artifacts from response")
                 response_text = cleaned_response
 
-            # 发送回复通过WebSocket
+            # Send response via WebSocket
             from ..api.websocket import manager
 
             room = f"user_{user_id}"
@@ -266,34 +266,34 @@ class ChatAgent(CompleteAgent):
 
     async def _generate_response(self, user_id: str, user_message: str, session_id: str) -> str:
         """
-        生成LLM回复（集成工具调用和技能执行）
+        Generate LLM response (integrated with tool calls and skill execution)
 
-        流程：
-        1. 检查是否为直接 Skill 调用 (/skill-name)
-        2. 使用上下文决策器选择相关工具
-        3. 使用函数调用执行器进行连续工具调用
-        4. 将执行结果反馈给LLM生成最终回复
+        process:
+        1. Check if it's a direct Skill call (/skill-name)
+        2. Use context decider to select relevant tools
+        3. Use function calling executor for consecutive tool calls
+        4. Feed execution results back to LLM to generate final response
 
         Args:
-            user_id: 用户ID
-            user_message: 用户消息
+            user_id: User id
+            user_message: User message
 
         Returns:
-            LLM回复
+            LLM response
         """
         start_time = time.time()
 
-        # 获取对话历史
+        # Get conversation history
         history_key = self._history_key(user_id, session_id)
         history = self._conversation_history.get(history_key, [])
 
-        # Step 0: 检查是否为直接 Skill 调用
+        # Step 0: checkis notttt为直接 Skill 调用
         skill_invocation = self._skill_executor.validate_skill_invocation(user_message)
         if skill_invocation:
             skill_name, arguments = skill_invocation
             agent_logger.info(f"🎯 Direct skill invocation | Skill: /{skill_name} | Arguments: {arguments}")
 
-            # 执行 Skill
+            # Execute Skill
             skill_result = await self._execute_skill(
                 skill_name,
                 arguments,
@@ -305,16 +305,16 @@ class ChatAgent(CompleteAgent):
             if skill_result["success"]:
                 return skill_result["response"]
             else:
-                # Skill 执行失败，返回错误信息
-                return f"Skill execution failed: {skill_result.get('error', 'Unknown error')}"
+                # Skill execution failed, return error message
+                return f"Skill execution failed: {skill_result.get('error', 'Unknotttwn error')}"
 
-        # Step 1: 上下文决策 - 选择相关工具
+        # Step 1: Context decision - select relevant tools
         import os
         import platform
         context = {
             "os": platform.system(),
             "os_version": platform.release(),
-            "current_user": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
+            "current_user": os.getenv("user") or os.getenv("username") or "unknotttwn",
             "home_dir": os.path.expanduser("~"),
             "current_dir": os.getcwd(),
         }
@@ -325,7 +325,7 @@ class ChatAgent(CompleteAgent):
             f"Tools: {context_decision.tools} | Reasoning: {context_decision.reasoning}"
         )
 
-        # Step 2: 使用函数调用执行器处理
+        # Step 2: Use function calling executor to process
         response_text = await self._generate_response_with_function_calling(
             user_id=user_id,
             session_id=session_id,
@@ -334,29 +334,29 @@ class ChatAgent(CompleteAgent):
             history=history,
         )
 
-        # 计算任务持续时间
+        # Calculate task duration
         duration = time.time() - start_time
 
-        # 保存到对话历史
+        # Save to conversation history
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": response_text})
         self._conversation_history[history_key] = history
 
-        # 记录交互到记忆系统
+        # Record interaction to memory system
         if self.memory:
             try:
                 outcome = InteractionOutcome.SUCCESS
                 await self.memory.record_interaction(
                     user_id=user_id,
-                    interaction_type=InteractionType.CHAT,
+                    interaction_type=Interactiontype.CHAT,
                     outcome="success",
                     sentiment=0.0,
-                    notes=f"Message: {user_message[:100]}..."
+                    nottttes=f"Message: {user_message[:100]}..."
                 )
 
                 await self.memory.update_after_interaction(
                     outcome=outcome,
-                    user_engagement=EngagementLevel.MEDIUM,
+                    user_engagement=Engagementlevel.MEDIUM,
                     complexity=0.5
                 )
 
@@ -364,7 +364,7 @@ class ChatAgent(CompleteAgent):
                 await self.memory.record_task_outcome(
                     task_id=task_id,
                     task_category=context_decision.intent,
-                    user_satisfaction=SatisfactionLevel.NEUTRAL,
+                    user_satisfaction=Satisfactionlevel.NEUTRAL,
                     accepted=True,
                     task_complexity=0.5,
                     task_duration=duration,
@@ -373,14 +373,14 @@ class ChatAgent(CompleteAgent):
             except Exception as e:
                 agent_logger.warning(f"Failed to record interaction: {e}")
 
-        # 更新他人记忆
+        # Update other memory
         if self.other_memory:
             try:
                 self.other_memory.update_interaction(
                     user_id=user_id,
                     interaction_type="chat",
                     outcome="positive",
-                    notes=f"消息: {user_message[:100]}{'...' if len(user_message) > 100 else ''}",
+                    nottttes=f"Message: {user_message[:100]}{'...' if len(user_message) > 100 else ''}",
                 )
             except Exception as e:
                 agent_logger.warning(f"Failed to update other memory: {e}")
@@ -396,16 +396,16 @@ class ChatAgent(CompleteAgent):
         history: list[dict],
     ) -> str:
         """
-        使用函数调用执行器生成回复
+        Generate response using function calling executor
 
         Args:
-            user_id: 用户ID
-            user_message: 用户消息
-            context_decision: 上下文决策结果
-            history: 对话历史
+            user_id: User id
+            user_message: User message
+            context_decision: Context decision result
+            history: Conversation history
 
         Returns:
-            LLM回复
+            LLM response
         """
         try:
             tool_context = self._build_relevant_tool_context(
@@ -415,17 +415,17 @@ class ChatAgent(CompleteAgent):
                 intent=context_decision.intent,
             )
 
-            # 构建系统提示
+            # Build system prompt
             system_prompt = await self._build_system_prompt(
-                tool_decision=None,  # 不再需要 tool_decision
+                tool_decision=None,  # tool_decision nottt longer needed
                 scenario=Scenario.CHAT,
                 user_id=user_id,
                 task_category=context_decision.intent,
                 tool_memory_context=tool_context,
             )
 
-            # 如果没有选择工具，直接调用LLM
-            if not context_decision.tools:
+            # If nottt tools selected, call LLM directly
+            if notttt context_decision.tools:
                 agent_logger.info("ℹ️  No tools selected, using direct LLM response")
 
                 messages = []
@@ -436,11 +436,11 @@ class ChatAgent(CompleteAgent):
                 response_text = await self._call_llm(
                     system_prompt,
                     messages,
-                    disable_thinking=not context_decision.deep_thinking,
+                    disable_thinking=notttt context_decision.deep_thinking,
                 )
                 return clean_tool_artifacts(response_text)
 
-            # 使用函数调用执行器
+            # Use function calling executor
             agent_logger.info(f"🔧 Using function calling with tools: {context_decision.tools}")
 
             response_text = await self.function_calling_executor.execute_with_tools(
@@ -450,14 +450,14 @@ class ChatAgent(CompleteAgent):
                 user_id=user_id,
                 session_id=session_id,
                 conversation_history=history,
-                disable_thinking=not context_decision.deep_thinking,
+                disable_thinking=notttt context_decision.deep_thinking,
                 intent=context_decision.intent,
             )
 
             return response_text
 
         except Exception as e:
-            agent_logger.error(f"❌ Error in _generate_response_with_function_calling: {e}")
+            agent_logger.error(f"❌ error in _generate_response_with_function_calling: {e}")
             import traceback
             agent_logger.error(f"Traceback: {traceback.format_exc()}")
 
@@ -474,7 +474,7 @@ class ChatAgent(CompleteAgent):
                 return await self._call_llm(system_prompt, messages, disable_thinking=True)
             except Exception as e2:
                 agent_logger.error(f"❌ Fallback LLM call also failed: {e2}")
-                return "抱歉，我遇到了一些问题，请稍后再试。"
+                return "抱歉，我遇到了一些problem，请稍后再试。"
 
     async def _build_system_prompt(
         self,
@@ -485,18 +485,18 @@ class ChatAgent(CompleteAgent):
         tool_memory_context: str = "",
     ) -> str:
         """
-        构建系统提示
+        Build system prompt
 
         Args:
-            tool_decision: 工具决策信息
-            scenario: 交互场景
-            user_id: 用户ID（可选，用于获取关系信息）
-            task_category: 任务类别
+            tool_decision: Tool decision info
+            scenario: Interaction scenario
+            user_id: User id (optional, used to get relationship info)
+            task_category: Task category
 
         Returns:
-            系统提示
+            System prompt
         """
-        # 如果有记忆系统，使用人格上下文
+        # If memory system exists, use personality context
         if self.memory:
             try:
                 personality_context = await self.memory.build_context(
@@ -511,32 +511,32 @@ class ChatAgent(CompleteAgent):
                 agent_logger.warning(f"Failed to build personality context: {e}")
                 personality_context = ""
         else:
-            agent_logger.warning("⚠️ Memory system not enabled, using default personality")
+            agent_logger.warning("⚠️ Memory system notttt enabled, using default personality")
             personality_context = ""
 
-        # 基础提示（不重复身份信息，identity已包含在 personality_context 中）
+        # Base prompt (don't repeat identity info, identity already included in personality_context)
         base_prompt = (
-            "请始终以上述身份回应用户。"
-            "你的任务是帮助用户解答问题、提供建议和执行任务。"
+            "Always respond to the user in the above identity."
+            "Your task is to help users answer questions, provide advice, and execute tasks."
         )
 
-        # 组装提示
+        # Assemble prompt
         if personality_context:
-            full_prompt = personality_context  # 已包含完整身份信息，不再添加 base_prompt
+            full_prompt = personality_context  # Already includes complete identity info, don't add base_prompt
         else:
-            # 没有人格上下文时的默认提示
+            # Default prompt when nottt personality context
             full_prompt = (
-                "你是一个友好的AI助手。"
-                "你的任务是帮助用户解答问题、提供建议和执行任务。"
+                "You are a friendly AI assistant."
+                "Your task is to help users answer questions, provide advice, and execute tasks."
             )
 
-        # 添加工具相关提示
+        # Add tool-related prompts
         if tool_decision and tool_decision.get("tool"):
             tool_name = tool_decision.get("tool")
             full_prompt += (
-                f"\n\n[系统提示] 已为用户调用工具: {tool_name}"
-                f"\n如果下方有工具调用结果，请基于结果回答用户问题。"
-                f"\n如果没有工具调用结果，说明工具执行失败，请告知用户。"
+                f"\n\n[系统prompt] 已为user调用tool: {tool_name}"
+                f"\nIf there are belowtool调用Result，please base onResultanswer user's question。"
+                f"\nIf there are nottttool调用Result，it meanstoolExecutefailure，请告知user。"
             )
 
         if tool_memory_context:
@@ -551,7 +551,7 @@ class ChatAgent(CompleteAgent):
     def _record_tool_interaction(self, payload: Dict[str, Any]) -> None:
         """Record tool execution facts for short-term cross-turn context."""
         user_id = payload.get("user_id")
-        if not user_id:
+        if notttt user_id:
             return
         session_id = self._resolve_session_id(user_id, payload.get("session_id"))
 
@@ -560,12 +560,12 @@ class ChatAgent(CompleteAgent):
         error_code = payload.get("error_code") or ""
         data = payload.get("data")
         data_summary = ""
-        if data is not None:
+        if data is notttt None:
             data_summary = str(data)
             if len(data_summary) > 240:
                 data_summary = data_summary[:240] + "..."
 
-        tool_name = str(payload.get("tool_name") or "unknown")
+        tool_name = str(payload.get("tool_name") or "unknotttwn")
         args_text = str(payload.get("arguments") or {})
         if len(args_text) > 160:
             args_text = args_text[:160] + "..."
@@ -574,21 +574,21 @@ class ChatAgent(CompleteAgent):
         tags: list[str] = []
         for keyword, tag in (
             ("weather", "weather"),
-            ("天气", "weather"),
+            ("days气", "weather"),
             ("api_key", "api_key"),
             ("api key", "api_key"),
             ("qweather", "weather_provider"),
             ("missing", "missing"),
-            ("not set", "missing"),
-            ("配置", "config"),
-            ("环境变量", "env"),
+            ("notttt set", "missing"),
+            ("Configuration", "config"),
+            ("环境Variable", "env"),
         ):
             if keyword in combined_text:
                 tags.append(tag)
 
         record = {
             "timestamp": time.time(),
-            "intent": payload.get("intent") or "unknown",
+            "intent": payload.get("intent") or "unknotttwn",
             "tool_name": tool_name,
             "status": "success" if success else "error",
             "error_code": error_code,
@@ -616,9 +616,9 @@ class ChatAgent(CompleteAgent):
         session_id: str,
         record: Dict[str, Any],
     ) -> None:
-        """Persist tool interaction record into event_store for restart recovery."""
+        """persist tool interaction record into event_store for restart recovery."""
         try:
-            if not self._events_db_path.exists():
+            if notttt self._events_db_path.exists():
                 return
 
             payload = {
@@ -634,14 +634,14 @@ class ChatAgent(CompleteAgent):
             cur = conn.cursor()
             cur.execute(
                 """
-                INSERT INTO event_store (
+                INSERT intO event_store (
                     id, type, data, media_path, timestamp, source,
                     level, correlation_id, metadata, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event_id,
-                    TOOL_INTERACTION_EVENT_TYPE,
+                    TOOL_intERACTI/ON_EVENT_type,
                     json.dumps(payload, ensure_ascii=False),
                     None,
                     timestamp,
@@ -666,20 +666,20 @@ class ChatAgent(CompleteAgent):
     ) -> str:
         """Always include recent tool errors from current session."""
         records = self._tool_interactions.get(self._history_key(user_id, session_id), [])
-        if not records:
+        if notttt records:
             return ""
 
-        now = time.time()
+        notttw = time.time()
         recent_errors: list[dict] = []
         for record in records:
-            age_seconds = now - float(record.get("timestamp", now))
+            age_seconds = notttw - float(record.get("timestamp", notttw))
             ttl = int(record.get("ttl_seconds", 0))
             if ttl > 0 and age_seconds > ttl:
                 continue
             if str(record.get("status", "success")) == "error":
                 recent_errors.append(record)
 
-        if not recent_errors:
+        if notttt recent_errors:
             return ""
 
         recent_errors.sort(key=lambda item: float(item.get("timestamp", 0.0)), reverse=True)
@@ -687,10 +687,10 @@ class ChatAgent(CompleteAgent):
 
         lines: list[str] = []
         for record in selected:
-            status = record.get("status", "unknown")
-            tool_name = record.get("tool_name", "unknown")
+            status = record.get("status", "unknotttwn")
+            tool_name = record.get("tool_name", "unknotttwn")
             if status == "error":
-                error_code = record.get("error_code") or "UNKNOWN_ERROR"
+                error_code = record.get("error_code") or "UNKNOWN_error"
                 error_message = record.get("error_message") or "No error message"
                 lines.append(f"- [{status}] {tool_name}: {error_code} | {error_message}")
             else:
@@ -703,21 +703,21 @@ class ChatAgent(CompleteAgent):
         """Extract lightweight tokens for relevance matching."""
         tokens = set(re.findall(r"[a-z0-9_]{2,}", text))
         for phrase in [
-            "天气",
-            "报错",
-            "错误",
-            "失败",
-            "故障",
-            "怎么回事",
-            "为什么",
-            "为啥",
-            "原因",
-            "问题",
-            "配置",
-            "环境变量",
+            "days气",
+            "error report",
+            "error",
+            "failure",
+            "malfunction",
+            "what happened",
+            "why",
+            "why",
+            "reason",
+            "problem",
+            "Configuration",
+            "环境Variable",
             "api",
             "key",
-            "没配置",
+            "没Configuration",
         ]:
             if phrase in text:
                 tokens.add(phrase)
@@ -777,7 +777,7 @@ class ChatAgent(CompleteAgent):
     def _restore_conversation_from_events(self) -> None:
         """Restore in-memory chat histories and tool interactions from event_store."""
         try:
-            if not self._events_db_path.exists():
+            if notttt self._events_db_path.exists():
                 return
             conn = sqlite3.connect(str(self._events_db_path))
             cur = conn.cursor()
@@ -785,12 +785,12 @@ class ChatAgent(CompleteAgent):
                 """
                 SELECT type, data
                 FROM event_store
-                WHERE type IN ('USER_INPUT', 'AI_RESPONSE', ?)
-                ORDER BY timestamp ASC
+                WHERE type IN ('user_input', 'AI_RESPONSE', ?)
+                order BY timestamp asC
                 LIMIT 5000
                 """
                 ,
-                (TOOL_INTERACTION_EVENT_TYPE,)
+                (TOOL_intERACTI/ON_EVENT_type,)
             )
             rows = cur.fetchall()
             conn.close()
@@ -805,12 +805,12 @@ class ChatAgent(CompleteAgent):
             except Exception:
                 continue
             user_id = payload.get("user_id")
-            if not user_id:
+            if notttt user_id:
                 continue
             session_id = self._resolve_session_id(user_id, payload.get("session_id"))
             key = self._history_key(user_id, session_id)
             history = self._conversation_history.setdefault(key, [])
-            if event_type == "USER_INPUT":
+            if event_type == "user_input":
                 content = payload.get("message", "")
                 if content:
                     history.append({"role": "user", "content": str(content)})
@@ -820,9 +820,9 @@ class ChatAgent(CompleteAgent):
                 if content:
                     history.append({"role": "assistant", "content": str(content)})
                     restored += 1
-            elif event_type == TOOL_INTERACTION_EVENT_TYPE:
+            elif event_type == TOOL_intERACTI/ON_EVENT_type:
                 record = payload.get("record")
-                if not isinstance(record, dict):
+                if notttt isinstance(record, dict):
                     continue
                 records = self._tool_interactions.setdefault(key, [])
                 records.append(record)
@@ -838,25 +838,25 @@ class ChatAgent(CompleteAgent):
         disable_thinking: bool = True,
     ) -> str:
         """
-        调用LLM生成回复
+        Call LLM to generate response
 
         Args:
-            system_prompt: 系统提示
-            messages: 消息列表
+            system_prompt: System prompt
+            messages: Message list
 
         Returns:
-            LLM回复
+            LLM response
         """
         import time
         import uuid
 
-        # 生成请求ID
+        # Generate request id
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
 
         model_name = self.llm.model_name
 
-        # 记录请求日志
+        # Log request
         log_llm_request(
             llm_logger,
             request_id=request_id,
@@ -877,10 +877,10 @@ class ChatAgent(CompleteAgent):
                 disable_thinking=disable_thinking,
             )
 
-            # 清理工具调用痕迹
+            # Clean tool call artifacts
             response_text = clean_tool_artifacts(response_text)
 
-            # 记录响应日志
+            # Log response
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(
                 llm_logger,
@@ -893,7 +893,7 @@ class ChatAgent(CompleteAgent):
             return response_text
 
         except Exception as e:
-            # 记录错误日志
+            # Log error
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(
                 llm_logger,
@@ -912,35 +912,35 @@ class ChatAgent(CompleteAgent):
         user_id: str
     ) -> Dict[str, Any]:
         """
-        执行工具
+        Execute tool
 
         Args:
-            tool_name: 工具名称
-            parameters: 工具参数
-            user_id: 用户ID
+            tool_name: Tool name
+            parameters: Tool parameters
+            user_id: User id
 
         Returns:
-            执行结果
+            Execution result
         """
         try:
-            # 确定所需权限
+            # Determine required permissions
             permissions = ["authenticated"]
 
-            # 检查工具是否需要危险操作权限
+            # Check if tool requires dangerous operation permission
             tool_info = tool_registry.get_tool_info(tool_name)
             if tool_info and tool_info.get("dangerous", False):
                 permissions.append("dangerous_tools")
 
-            # 创建执行上下文
+            # Create execution context
             context = ToolExecutionContext(
-                agent_id=self.config.name,  # 使用 Agent 配置中的名称
+                agent_id=self.config.name,  # Use name from Agent config
                 user_id=user_id,
-                workspace="/tmp",  # 使用 /tmp 作为默认工作目录
+                workspace="/tmp",  # Use /tmp as default working directory
                 env_vars={},
                 permissions=permissions,
             )
 
-            # 执行工具
+            # Execute tool
             result = await tool_registry.execute(tool_name, parameters, context)
 
             return {
@@ -967,37 +967,37 @@ class ChatAgent(CompleteAgent):
         conversation_history: list[dict],
     ) -> Dict[str, Any]:
         """
-        执行 Skill
+        Execute Skill
 
         Args:
-            skill_name: Skill 名称（不带 / 前缀）
-            arguments: 命令行参数
-            user_id: 用户ID
-            user_message: 原始用户消息
-            conversation_history: 对话历史
+            skill_name: Skill name (without / prefix)
+            arguments: Command line arguments
+            user_id: User id
+            user_message: Original user message
+            conversation_history: Conversation history
 
         Returns:
-            执行结果 {"success": bool, "response": str, "error": ...}
+            Execution result {"success": bool, "response": str, "error": ...}
         """
         import os
 
-        # 构建 Skill 执行上下文
+        # Build Skill execution context
         skill_context = {
             "user_id": user_id,
             "session_id": f"session_{user_id}",
             "user_message": user_message,
             "conversation_history": conversation_history,
             "env_vars": {
-                "USER": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
+                "user": os.getenv("user") or os.getenv("username") or "unknotttwn",
                 "HOME": os.path.expanduser("~"),
                 "PWD": os.getcwd(),
-                "CLAUDE_SESSION_ID": f"session_{user_id}",
-                "USER_ID": user_id,
+                "CLAUDE_session_id": f"session_{user_id}",
+                "user_id": user_id,
             },
         }
 
         try:
-            # 执行 Skill
+            # Execute Skill
             result = await self._skill_executor.execute(
                 skill_name=skill_name,
                 arguments=arguments,
@@ -1005,23 +1005,23 @@ class ChatAgent(CompleteAgent):
             )
 
             if result.success:
-                # 如果 Skill 执行成功，返回内容
+                # If Skill execution succeeded, return content
                 response_content = result.content or ""
 
-                # 如果 Skill 返回的是指令（direct mode），需要通过 LLM 生成最终回复
+                # If Skill returns instructions (direct mode), need to generate final response via LLM
                 if result.metadata.get("mode") == "direct":
-                    # 使用 Skill 内容作为系统提示
+                    # Use Skill content as system prompt
                     system_prompt = response_content
 
                     messages = []
-                    # 添加历史对话
+                    # Add conversation history
                     for msg in conversation_history[-5:]:
                         messages.append(msg)
-                    # 添加当前用户消息
+                    # Add current user message
                     messages.append({"role": "user", "content": user_message})
 
                     response_text = await self._call_llm(system_prompt, messages)
-                    # 清理工具调用痕迹
+                    # Clean tool call artifacts
                     response_text = clean_tool_artifacts(response_text)
 
                     return {
@@ -1030,7 +1030,7 @@ class ChatAgent(CompleteAgent):
                         "mode": "direct_with_llm",
                     }
                 else:
-                    # Sub-agent 模式，清理工具调用痕迹后返回结果
+                    # Sub-agent mode, clean tool call artifacts and return result
                     response_content = clean_tool_artifacts(response_content)
                     return {
                         "success": True,
@@ -1054,23 +1054,23 @@ class ChatAgent(CompleteAgent):
 
     def get_conversation_history(self, user_id: str, session_id: Optional[str] = None) -> list[dict]:
         """
-        获取对话历史
+        Get conversation history
 
         Args:
-            user_id: 用户ID
+            user_id: User id
 
         Returns:
-            对话历史
+            Conversation history
         """
         active_session = self._resolve_session_id(user_id, session_id)
         return self._conversation_history.get(self._history_key(user_id, active_session), [])
 
     def clear_conversation_history(self, user_id: str, session_id: Optional[str] = None):
         """
-        清空对话历史
+        Clear conversation history
 
         Args:
-            user_id: 用户ID
+            user_id: User id
         """
         active_session = self._resolve_session_id(user_id, session_id)
         key = self._history_key(user_id, active_session)

@@ -1,7 +1,7 @@
 """
-Agent日志配置
+AgentLogConfiguration
 
-为Agent处理链路提供专门的日志记录
+为Agentprocess链路提供专门的Logrecord
 """
 import logging
 import os
@@ -10,14 +10,14 @@ from datetime import datetime
 
 
 def _get_agent_log_file():
-    """获取Agent日志文件路径（使用运行时目录）"""
+    """getAgentLogfilepath（使用run时directory）"""
     from ..utils.runtime import get_runtime_paths
     runtime_paths = get_runtime_paths()
     return str(runtime_paths.logs_dir / 'agent_chain.log')
 
 
 class AgentFormatter(logging.Formatter):
-    """Agent日志格式化器 - 添加时间戳和链路追踪信息"""
+    """AgentLogformat化器 - addtimestampand链路追踪info"""
 
     def __init__(self):
         super().__init__(
@@ -28,81 +28,81 @@ class AgentFormatter(logging.Formatter):
 
 def setup_agent_logger():
     """
-    配置Agent专用logger
+    ConfigurationAgent专用logger
 
     Returns:
-        logging.Logger: Agent专用logger实例
+        logging.Logger: Agent专用loggerInstance
     """
-    # 创建logger
+    # createlogger
     agent_logger = logging.getLogger('magi.agent')
-    agent_logger.setLevel(logging.DEBUG)
+    agent_logger.setlevel(logging.debug)
 
-    # 防止重复添加handler
+    # 防止重复addhandler
     if agent_logger.handlers:
         return agent_logger
 
-    # 获取日志文件路径
+    # getLogfilepath
     agent_log_file = _get_agent_log_file()
-    # 确保目录存在
+    # 确保directoryexists
     os.makedirs(os.path.dirname(agent_log_file), exist_ok=True)
 
-    # 文件handler - 自动轮转
+    # filehandler - 自动轮转
     file_handler = RotatingFileHandler(
         agent_log_file,
         maxBytes=10*1024*1024,  # 10MB
         backupCount=5,
         encoding='utf-8'
     )
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setlevel(logging.debug)
     file_handler.setFormatter(AgentFormatter())
 
     # 控制台handler
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_handler.setlevel(logging.INFO)
     console_handler.setFormatter(AgentFormatter())
 
-    # 添加handler
+    # addhandler
     agent_logger.addHandler(file_handler)
     agent_logger.addHandler(console_handler)
 
     return agent_logger
 
 
-# 全局Agent logger实例
+# globalAgent loggerInstance
 agent_logger = setup_agent_logger()
 
 
 def get_agent_logger(name: str = None) -> logging.Logger:
     """
-    获取Agent logger实例
+    getAgent loggerInstance
 
     Args:
-        name: logger名称（可选）
+        name: loggerName（optional）
 
     Returns:
-        logging.Logger: Agent logger实例
+        logging.Logger: Agent loggerInstance
     """
     if name:
         return logging.getLogger(f'magi.agent.{name}')
     return agent_logger
 
 
-# Agent链路日志辅助函数
+# Agent链路LogHelper Functions
 def log_chain_start(logger: logging.Logger, chain_id: str, message: str):
-    """记录链路开始"""
+    """record链路Start"""
     logger.info(f"{'='*60}")
-    logger.info(f"[CHAIN:{chain_id}] START | {message}")
+    logger.info(f"[chain:{chain_id}] start | {message}")
     logger.info(f"{'='*60}")
 
 
 def log_chain_step(logger: logging.Logger, chain_id: str, step: str, message: str, level: str = "INFO"):
-    """记录链路步骤"""
+    """record链路step"""
     log_func = getattr(logger, level.lower(), logger.info)
-    log_func(f"[CHAIN:{chain_id}] [{step}] {message}")
+    log_func(f"[chain:{chain_id}] [{step}] {message}")
 
 
 def log_chain_end(logger: logging.Logger, chain_id: str, message: str, success: bool = True):
-    """记录链路结束"""
-    status = "✅ SUCCESS" if success else "❌ FAILED"
-    logger.info(f"[CHAIN:{chain_id}] END {status} | {message}")
+    """record链路End"""
+    status = "✅ SUCCESS" if success else "❌ failED"
+    logger.info(f"[chain:{chain_id}] end {status} | {message}")
     logger.info(f"{'='*60}")

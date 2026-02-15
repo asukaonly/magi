@@ -1,20 +1,20 @@
 """
-行为偏好层演化 (L3) - Behavior Evolution Layer
+Behavior Evolution Layer (L3) - Behavior Evolution Layer
 
-行为偏好层记录AI在处理不同类型任务时的行为模式演化。
-这些偏好通过与用户交互逐渐形成，并根据用户反馈动态调整。
+Records AI behavior pattern evolution when processing different task types。
+These preferences are formed through user interaction and dynamically adjusted based on user feedback。
 
-演化规则：
-1. 任务类别学习 - 统计不同任务类型的用户反馈
-2. 模糊容忍度调整 - 根据用户确认频率调整
-3. 信息密度调整 - 根据用户追问频率调整
+evolutionrule：
+1. 任务Class别learning - statistics不同任务type的user反馈
+2. 模糊容忍度调整 - 根据user确认frequency调整
+3. info密度调整 - 根据user追问frequency调整
 """
 import aiosqlite
 import json
 import time
 import logging
 from typing import Dict, Any, Optional, List, Tuple
-from pathlib import Path
+from pathlib import path
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
@@ -23,10 +23,10 @@ from .models import TaskBehaviorProfile, AmbiguityTolerance
 logger = logging.getLogger(__name__)
 
 
-# ===== 数据模型 =====
+# ===== data Models =====
 
-class SatisfactionLevel(Enum):
-    """用户满意度等级"""
+class Satisfactionlevel(Enum):
+    """usersatisfactiongrade"""
     VERY_LOW = "very_low"
     LOW = "low"
     NEUTRAL = "neutral"
@@ -36,26 +36,26 @@ class SatisfactionLevel(Enum):
 
 @dataclass
 class TaskInteractionRecord:
-    """任务交互记录"""
+    """任务交互record"""
     task_id: str
     task_category: str
     timestamp: float
-    # 用户行为指标
-    clarification_count: int  # 用户追问次数
-    confirmation_count: int   # 用户确认次数
-    correction_count: int     # 用户纠正次数
-    # 满意度反馈
-    satisfaction: SatisfactionLevel
+    # userrow为metric
+    clarification_count: int  # user追问count
+    confirmation_count: int   # user确认count
+    correction_count: int     # user纠正count
+    # satisfaction反馈
+    satisfaction: Satisfactionlevel
     # 任务特征
     task_complexity: float    # 0-1
-    task_duration: float      # 秒
-    # 是否被接受
+    task_duration: float      # seconds
+    # is notttt被接受
     accepted: bool
 
 
 @dataclass
 class CategoryStatistics:
-    """类别统计信息"""
+    """Class别statisticsinfo"""
     category: str
     total_tasks: int = 0
     accepted_tasks: int = 0
@@ -65,27 +65,27 @@ class CategoryStatistics:
     avg_satisfaction: float = 0.0
     avg_complexity: float = 0.0
 
-    # 偏好指标
+    # preferencemetric
     cautious_score: float = 0.5    # 谨慎度（0-1）
     impatient_score: float = 0.5   # 急进度（0-1）
-    dense_score: float = 0.5       # 信息密度偏好（0-1）
+    dense_score: float = 0.5       # info密度preference（0-1）
 
 
-# ===== 演化引擎 =====
+# ===== evolution引擎 =====
 
 class BehaviorEvolutionEngine:
     """
-    行为演化引擎
+    row为evolution引擎
 
-    根据用户交互记录，动态调整AI的行为偏好
+    根据user交互record，dynamic调整AI的row为preference
     """
 
     def __init__(self, db_path: str = "~/.magi/data/memories/behavior_evolution.db"):
         """
-        初始化行为演化引擎
+        initializerow为evolution引擎
 
         Args:
-            db_path: 数据库文件路径
+            db_path: databasefilepath
         """
         self.db_path = db_path
         self._cache: Dict[str, TaskBehaviorProfile] = {}
@@ -93,74 +93,74 @@ class BehaviorEvolutionEngine:
 
     @property
     def _expanded_db_path(self) -> str:
-        """获取展开后的数据库路径（处理 ~）"""
-        from pathlib import Path
-        return str(Path(self.db_path).expanduser())
+        """get expanded database path (process ~)"""
+        from pathlib import path
+        return str(path(self.db_path).expanduser())
 
     async def init(self):
-        """初始化数据库"""
-        Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
+        """initializedatabase"""
+        path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            # 任务交互记录表
+            # 任务交互recordtable
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS task_interactions (
-                    task_id TEXT PRIMARY KEY,
+                create table IF NOT EXISTS task_interactions (
+                    task_id TEXT primary key,
                     task_category TEXT NOT NULL,
-                    timestamp REAL NOT NULL,
-                    clarification_count INTEGER NOT NULL,
-                    confirmation_count INTEGER NOT NULL,
-                    correction_count INTEGER NOT NULL,
+                    timestamp real NOT NULL,
+                    clarification_count intEGER NOT NULL,
+                    confirmation_count intEGER NOT NULL,
+                    correction_count intEGER NOT NULL,
                     satisfaction TEXT NOT NULL,
-                    task_complexity REAL NOT NULL,
-                    task_duration REAL NOT NULL,
-                    accepted INTEGER NOT NULL,
+                    task_complexity real NOT NULL,
+                    task_duration real NOT NULL,
+                    accepted intEGER NOT NULL,
                     data_json TEXT NOT NULL
                 )
             """)
 
-            # 类别统计表
+            # Class别statisticstable
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS category_statistics (
-                    category TEXT PRIMARY KEY,
-                    total_tasks INTEGER NOT NULL,
-                    accepted_tasks INTEGER NOT NULL,
-                    avg_clarifications REAL NOT NULL,
-                    avg_confirmations REAL NOT NULL,
-                    avg_corrections REAL NOT NULL,
-                    avg_satisfaction REAL NOT NULL,
-                    avg_complexity REAL NOT NULL,
-                    cautious_score REAL NOT NULL,
-                    impatient_score REAL NOT NULL,
-                    dense_score REAL NOT NULL,
-                    updated_at REAL NOT NULL
+                create table IF NOT EXISTS category_statistics (
+                    category TEXT primary key,
+                    total_tasks intEGER NOT NULL,
+                    accepted_tasks intEGER NOT NULL,
+                    avg_clarifications real NOT NULL,
+                    avg_confirmations real NOT NULL,
+                    avg_corrections real NOT NULL,
+                    avg_satisfaction real NOT NULL,
+                    avg_complexity real NOT NULL,
+                    cautious_score real NOT NULL,
+                    impatient_score real NOT NULL,
+                    dense_score real NOT NULL,
+                    updated_at real NOT NULL
                 )
             """)
 
-            # 行为偏好表
+            # row为preferencetable
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS behavior_profiles (
-                    task_category TEXT PRIMARY KEY,
+                create table IF NOT EXISTS behavior_profiles (
+                    task_category TEXT primary key,
                     profile_json TEXT NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at real NOT NULL
                 )
             """)
 
-            # 创建索引
+            # createindex
             await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_task_interactions_category
+                create index IF NOT EXISTS idx_task_interactions_category
                 ON task_interactions(task_category)
             """)
 
             await db.commit()
 
-    # ===== 记录交互 =====
+    # ===== record交互 =====
 
     async def record_task_outcome(
         self,
         task_id: str,
         task_category: str,
-        user_satisfaction: SatisfactionLevel = SatisfactionLevel.NEUTRAL,
+        user_satisfaction: Satisfactionlevel = Satisfactionlevel.NEUTRAL,
         clarification_count: int = 0,
         confirmation_count: int = 0,
         correction_count: int = 0,
@@ -169,27 +169,27 @@ class BehaviorEvolutionEngine:
         accepted: bool = True,
     ) -> None:
         """
-        记录任务交互结果
+        record任务交互Result
 
         Args:
-            task_id: 任务ID
-            task_category: 任务类别
-            user_satisfaction: 用户满意度
-            clarification_count: 用户追问次数
-            confirmation_count: 用户确认次数
-            correction_count: 用户纠正次数
-            task_complexity: 任务复杂度（0-1）
-            task_duration: 任务持续时间（秒）
-            accepted: 是否被接受
+            task_id: 任务id
+            task_category: 任务Class别
+            user_satisfaction: usersatisfaction
+            clarification_count: user追问count
+            confirmation_count: user确认count
+            correction_count: user纠正count
+            task_complexity: 任务complex度（0-1）
+            task_duration: 任务duration（seconds）
+            accepted: is notttt被接受
         """
         if isinstance(user_satisfaction, str):
             try:
-                user_satisfaction = SatisfactionLevel(user_satisfaction)
-            except ValueError:
+                user_satisfaction = Satisfactionlevel(user_satisfaction)
+            except Valueerror:
                 logger.warning(
-                    f"Unknown satisfaction level '{user_satisfaction}', fallback to neutral"
+                    f"Unknotttwn satisfaction level '{user_satisfaction}', fallback to neutral"
                 )
-                user_satisfaction = SatisfactionLevel.NEUTRAL
+                user_satisfaction = Satisfactionlevel.NEUTRAL
 
         record = TaskInteractionRecord(
             task_id=task_id,
@@ -204,16 +204,16 @@ class BehaviorEvolutionEngine:
             accepted=accepted,
         )
         record_data = asdict(record)
-        # JSON cannot serialize Enum directly.
+        # JSON cannotttt serialize Enum directly.
         record_data["satisfaction"] = record.satisfaction.value
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT OR REPLACE INTO task_interactions
+                """INSERT OR REPLACE intO task_interactions
                    (task_id, task_category, timestamp, clarification_count,
                     confirmation_count, correction_count, satisfaction,
                     task_complexity, task_duration, accepted, data_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task_id,
                     task_category,
@@ -230,13 +230,13 @@ class BehaviorEvolutionEngine:
             )
             await db.commit()
 
-        # 清除缓存
+        # 清除cache
         if task_category in self._cache:
             del self._cache[task_category]
         if task_category in self._stats_cache:
             del self._stats_cache[task_category]
 
-        # 更新统计和行为偏好
+        # Update statisticsandrow为preference
         await self._update_category_statistics(task_category)
 
         logger.debug(
@@ -244,19 +244,19 @@ class BehaviorEvolutionEngine:
             f"satisfaction={user_satisfaction.value}, accepted={accepted}"
         )
 
-    # ===== 获取行为偏好 =====
+    # ===== getrow为preference =====
 
     async def get_behavior_profile(self, task_category: str) -> TaskBehaviorProfile:
         """
-        获取任务类别的行为偏好
+        get任务Class别的row为preference
 
         Args:
-            task_category: 任务类别
+            task_category: 任务Class别
 
         Returns:
-            TaskBehaviorProfile对象
+            TaskBehaviorProfileObject
         """
-        # 检查缓存
+        # checkcache
         if task_category in self._cache:
             return self._cache[task_category]
 
@@ -275,29 +275,29 @@ class BehaviorEvolutionEngine:
                 self._cache[task_category] = profile
                 return profile
 
-        # 如果没有保存的偏好，根据统计生成
+        # If there are notttsave的preference，根据statisticsgeneration
         stats = await self.get_category_statistics(task_category)
         profile = self._infer_profile_from_stats(stats)
 
-        # 保存生成的偏好
+        # savegeneration的preference
         await self._save_behavior_profile(task_category, profile)
 
         self._cache[task_category] = profile
         return profile
 
-    # ===== 统计信息 =====
+    # ===== statisticsinfo =====
 
     async def get_category_statistics(self, task_category: str) -> CategoryStatistics:
         """
-        获取类别统计信息
+        getClass别statisticsinfo
 
         Args:
-            task_category: 任务类别
+            task_category: 任务Class别
 
         Returns:
-            CategoryStatistics对象
+            CategoryStatisticsObject
         """
-        # 检查缓存
+        # checkcache
         if task_category in self._stats_cache:
             return self._stats_cache[task_category]
 
@@ -325,28 +325,28 @@ class BehaviorEvolutionEngine:
                 self._stats_cache[task_category] = stats
                 return stats
 
-        # 如果没有统计，从交互记录计算
+        # If there are notttstatistics，从交互recordcalculate
         await self._update_category_statistics(task_category)
         return await self.get_category_statistics(task_category)
 
     async def get_all_categories(self) -> List[str]:
-        """获取所有任务类别"""
+        """getall任务Class别"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT DISTINCT task_category FROM task_interactions ORDER BY task_category"
+                "SELECT DISTINCT task_category FROM task_interactions order BY task_category"
             )
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
-    # ===== 内部方法 =====
+    # ===== internalMethod =====
 
     async def _update_category_statistics(self, task_category: str) -> None:
-        """更新类别统计信息"""
+        """updateClass别statisticsinfo"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT
                     COUNT(*) as total,
-                    SUM(accepted) as accepted,
+                    sum(accepted) as accepted,
                     AVG(clarification_count) as avg_clar,
                     AVG(confirmation_count) as avg_conf,
                     AVG(correction_count) as avg_corr,
@@ -357,16 +357,16 @@ class BehaviorEvolutionEngine:
             )
             row = await cursor.fetchone()
 
-            if not row or row[0] == 0:
-                # 没有数据，创建默认统计
+            if notttt row or row[0] == 0:
+                # 没有data，createdefaultstatistics
                 stats = CategoryStatistics(category=task_category)
             else:
-                # 计算平均满意度
+                # calculate平均satisfaction
                 satisfaction_values = {"very_low": 0.0, "low": 0.25, "neutral": 0.5, "high": 0.75, "very_high": 1.0}
 
                 cursor = await db.execute(
                     """SELECT satisfaction, COUNT(*) FROM task_interactions
-                       WHERE task_category = ? GROUP BY satisfaction""",
+                       WHERE task_category = ? group BY satisfaction""",
                     (task_category,)
                 )
                 sat_rows = await cursor.fetchall()
@@ -379,18 +379,18 @@ class BehaviorEvolutionEngine:
 
                 avg_satisfaction = weighted_sum / total_count if total_count > 0 else 0.5
 
-                # 计算偏好指标
+                # calculatepreferencemetric
                 avg_confirmations = row[3] or 0
                 avg_clarifications = row[2] or 0
                 avg_corrections = row[4] or 0
 
-                # 谨慎度：用户确认越多，AI应该越谨慎
+                # 谨慎度：user确认越多，AI应该越谨慎
                 cautious_score = min(1.0, 0.3 + avg_confirmations * 0.2)
 
-                # 急进度：用户追问越少，越可以急躁
+                # 急进度：user追问越少，越可以急躁
                 impatient_score = max(0.0, 1.0 - avg_clarifications * 0.15)
 
-                # 信息密度：用户纠正越多，说明信息不够详细
+                # info密度：user纠正越多，it meansinfo不够详细
                 dense_score = min(1.0, 0.3 + avg_corrections * 0.3)
 
                 stats = CategoryStatistics(
@@ -407,14 +407,14 @@ class BehaviorEvolutionEngine:
                     dense_score=dense_score,
                 )
 
-            # 保存统计
+            # savestatistics
             await db.execute(
-                """INSERT OR REPLACE INTO category_statistics
+                """INSERT OR REPLACE intO category_statistics
                    (category, total_tasks, accepted_tasks, avg_clarifications,
                     avg_confirmations, avg_corrections, avg_satisfaction,
                     avg_complexity, cautious_score, impatient_score, dense_score,
                     updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task_category,
                     stats.total_tasks,
@@ -432,28 +432,28 @@ class BehaviorEvolutionEngine:
             )
             await db.commit()
 
-            # 更新缓存
+            # updatecache
             self._stats_cache[task_category] = stats
 
     def _infer_profile_from_stats(self, stats: CategoryStatistics) -> TaskBehaviorProfile:
         """
-        从统计信息推断行为偏好
+        从statisticsinfo推断row为preference
 
         Args:
-            stats: 类别统计信息
+            stats: Class别statisticsinfo
 
         Returns:
-            TaskBehaviorProfile对象
+            TaskBehaviorProfileObject
         """
-        # 根据统计推断模糊容忍度
+        # 根据statistics推断模糊容忍度
         if stats.cautious_score > 0.7:
-            ambiguity_tolerance = AmbiguityTolerance.CAUTIOUS
+            ambiguity_tolerance = AmbiguityTolerance.CAUTI/OUS
         elif stats.impatient_score > 0.7:
             ambiguity_tolerance = AmbiguityTolerance.IMPATIENT
         else:
             ambiguity_tolerance = AmbiguityTolerance.ADAPTIVE
 
-        # 根据统计推断信息密度
+        # 根据statistics推断info密度
         if stats.dense_score > 0.7:
             information_density = "dense"
         elif stats.dense_score < 0.3:
@@ -461,15 +461,15 @@ class BehaviorEvolutionEngine:
         else:
             information_density = "medium"
 
-        # 根据统计推断主动性
+        # 根据statistics推断主动性
         if stats.avg_corrections > 1:
-            proactivity = "proactive"  # 用户经常纠正，需要更主动
+            proactivity = "proactive"  # user经常纠正，需要更主动
         elif stats.avg_confirmations > 2:
-            proactivity = "passive"  # 用户经常确认，可以更保守
+            proactivity = "passive"  # user经常确认，可以更保守
         else:
             proactivity = "reactive"
 
-        # 根据统计推断容错度
+        # 根据statistics推断容错度
         error_tolerance = 1.0 - (stats.avg_corrections / 5.0)
         error_tolerance = max(0.0, min(1.0, error_tolerance))
 
@@ -484,32 +484,32 @@ class BehaviorEvolutionEngine:
         )
 
     async def _save_behavior_profile(self, task_category: str, profile: TaskBehaviorProfile) -> None:
-        """保存行为偏好"""
-        # 转换枚举为字符串
+        """saverow为preference"""
+        # convert枚举为string
         data = asdict(profile)
         if "ambiguity_tolerance" in data:
             data["ambiguity_tolerance"] = data["ambiguity_tolerance"].value
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT OR REPLACE INTO behavior_profiles
+                """INSERT OR REPLACE intO behavior_profiles
                    (task_category, profile_json, updated_at)
-                   VALUES (?, ?, ?)""",
+                   valueS (?, ?, ?)""",
                 (task_category, json.dumps(data), time.time())
             )
             await db.commit()
 
-    # ===== 重置和导出 =====
+    # ===== resetandexport =====
 
     async def reset_category(self, task_category: str) -> None:
-        """重置类别的行为演化"""
+        """resetClass别的row为evolution"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            await db.execute("DELETE FROM task_interactions WHERE task_category = ?", (task_category,))
-            await db.execute("DELETE FROM category_statistics WHERE category = ?", (task_category,))
-            await db.execute("DELETE FROM behavior_profiles WHERE task_category = ?", (task_category,))
+            await db.execute("delete FROM task_interactions WHERE task_category = ?", (task_category,))
+            await db.execute("delete FROM category_statistics WHERE category = ?", (task_category,))
+            await db.execute("delete FROM behavior_profiles WHERE task_category = ?", (task_category,))
             await db.commit()
 
-        # 清除缓存
+        # 清除cache
         if task_category in self._cache:
             del self._cache[task_category]
         if task_category in self._stats_cache:
@@ -519,13 +519,13 @@ class BehaviorEvolutionEngine:
 
     async def export_data(self, task_category: str = None) -> Dict[str, Any]:
         """
-        导出演化数据
+        exportevolutiondata
 
         Args:
-            task_category: 指定类别，None表示导出全部
+            task_category: 指定Class别，Nonetable示exportall
 
         Returns:
-            导出的数据字典
+            export的datadictionary
         """
         result = {}
 

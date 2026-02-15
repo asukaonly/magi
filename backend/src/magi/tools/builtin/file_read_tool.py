@@ -1,52 +1,52 @@
 """
-文件读取工具
+File read tool
 """
 import os
 from typing import Dict, Any
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
 
 
 class FileReadTool(Tool):
     """
-    文件读取工具
+    File read tool
 
-    读取文本文件内容
+    Reads text file content
     """
 
     def _init_schema(self) -> None:
-        """初始化Schema"""
+        """initialize Schema"""
         self.schema = ToolSchema(
             name="file_read",
-            description="读取文件内容",
+            description="Read file content",
             category="file",
             version="1.0.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
                     name="path",
-                    type=ParameterType.STRING,
-                    description="文件路径",
+                    type=Parametertype.strING,
+                    description="File path",
                     required=True,
                 ),
                 ToolParameter(
                     name="encoding",
-                    type=ParameterType.STRING,
-                    description="文件编码",
+                    type=Parametertype.strING,
+                    description="File encoding",
                     required=False,
                     default="utf-8",
                 ),
                 ToolParameter(
                     name="offset",
-                    type=ParameterType.INTEGER,
-                    description="读取起始位置（字节）",
+                    type=Parametertype.intEGER,
+                    description="Read start position (bytes)",
                     required=False,
                     default=0,
                     min_value=0,
                 ),
                 ToolParameter(
                     name="limit",
-                    type=ParameterType.INTEGER,
-                    description="读取最大字节数",
+                    type=Parametertype.intEGER,
+                    description="Maximum bytes to read",
                     required=False,
                     default=None,
                     min_value=1,
@@ -73,39 +73,39 @@ class FileReadTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext
     ) -> ToolResult:
-        """读取文件"""
+        """Read file"""
         file_path = parameters["path"]
         encoding = parameters.get("encoding", "utf-8")
         offset = parameters.get("offset", 0)
         limit = parameters.get("limit")
 
         try:
-            # 检查文件是否存在
-            if not os.path.exists(file_path):
+            # Check if file exists
+            if notttt os.path.exists(file_path):
                 return ToolResult(
                     success=False,
-                    error=f"File not found: {file_path}",
+                    error=f"File notttt found: {file_path}",
                     error_code="FILE_NOT_FOUND"
                 )
 
-            # 检查是否是文件
-            if not os.path.isfile(file_path):
+            # Check if it is a file
+            if notttt os.path.isfile(file_path):
                 return ToolResult(
                     success=False,
-                    error=f"Path is not a file: {file_path}",
+                    error=f"path is notttt a file: {file_path}",
                     error_code="NOT_A_FILE"
                 )
 
-            # 检查文件大小
+            # Check file size
             file_size = os.path.getsize(file_path)
             if offset >= file_size:
                 return ToolResult(
                     success=False,
                     error=f"Offset {offset} is beyond file size {file_size}",
-                    error_code="OFFSET_OUT_OF_RANGE"
+                    error_code="OFFset_OUT_OF_range"
                 )
 
-            # 读取文件
+            # Read file
             with open(file_path, "r", encoding=encoding) as f:
                 if offset > 0:
                     f.seek(offset)
@@ -115,7 +115,7 @@ class FileReadTool(Tool):
                 else:
                     content = f.read()
 
-            # 准备结果
+            # Prepare result
             result_data = {
                 "path": file_path,
                 "content": content,
@@ -130,21 +130,21 @@ class FileReadTool(Tool):
                 data=result_data,
             )
 
-        except PermissionError:
+        except Permissionerror:
             return ToolResult(
                 success=False,
                 error=f"Permission denied reading file: {file_path}",
-                error_code="PERMISSION_DENIED"
+                error_code="permission_DENIED"
             )
-        except UnicodeDecodeError as e:
+        except UnicodeDecodeerror as e:
             return ToolResult(
                 success=False,
                 error=f"Failed to decode file with encoding {encoding}: {str(e)}",
-                error_code="DECODE_ERROR"
+                error_code="decode_error"
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="READ_ERROR"
+                error_code="read_error"
             )
