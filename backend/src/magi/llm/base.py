@@ -109,6 +109,11 @@ class LLMAdapter(ABC):
         """获取模型名称"""
         pass
 
+    @property
+    def provider_name(self) -> str:
+        """获取提供商名称（默认使用类名推断）"""
+        return self.__class__.__name__.replace("Adapter", "").lower()
+
     async def get_embedding(
         self,
         text: str,

@@ -172,3 +172,8 @@ class AnthropicAdapter(LLMAdapter):
     def model_name(self) -> str:
         """获取模型名称"""
         return self._model
+
+    @property
+    def provider_name(self) -> str:
+        """获取提供商名称"""
+        return "anthropic"

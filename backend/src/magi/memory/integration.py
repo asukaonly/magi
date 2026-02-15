@@ -62,34 +62,34 @@ class MemoryIntegrationConfig:
     # ========== L1 事件过滤配置 ==========
     # 要记录的事件类型（白名单）
     l1_event_whitelist: Set[str] = field(default_factory=lambda: {
-        "USER_MESSAGE",      # 用户输入 → 转换为 USER_INPUT
-        "ACTION_EXECUTED",   # 动作执行 → 转换为 AI_RESPONSE 或 TOOL_INVOKED
-        "TASK_COMPLETED",    # 任务完成
-        "TASK_FAILED",       # 任务失败
-        "ERROR_OCCURRED",    # 只记录 level=ERROR 的严重错误
+        EventTypes.USER_MESSAGE,      # 用户输入 → 转换为 USER_INPUT
+        EventTypes.ACTION_EXECUTED,   # 动作执行 → 转换为 AI_RESPONSE 或 TOOL_INVOKED
+        EventTypes.TASK_COMPLETED,    # 任务完成
+        EventTypes.TASK_FAILED,       # 任务失败
+        EventTypes.ERROR_OCCURRED,    # 只记录 level=ERROR 的严重错误
     })
 
     # 要过滤的事件类型（黑名单）- LoopEngine 内部事件
     l1_event_blacklist: Set[str] = field(default_factory=lambda: {
-        "PERCEPTION_RECEIVED",
-        "PERCEPTION_PROCESSED",
-        "EXPERIENCE_STORED",
-        "LOOP_STARTED",
-        "LOOP_COMPLETED",
-        "LOOP_PAUSED",
-        "LOOP_RESUMED",
-        "LOOP_PHASE_STARTED",
-        "LOOP_PHASE_COMPLETED",
-        "AGENT_STARTED",
-        "AGENT_STOPPED",
-        "STATE_CHANGED",
-        "CAPABILITY_CREATED",
-        "CAPABILITY_UPDATED",
-        "HEALTH_WARNING",
-        "HANDLER_FAILED",
-        "TASK_CREATED",
-        "TASK_ASSIGNED",
-        "TASK_STARTED",
+        EventTypes.PERCEPTION_RECEIVED,
+        EventTypes.PERCEPTION_PROCESSED,
+        EventTypes.EXPERIENCE_STORED,
+        EventTypes.LOOP_STARTED,
+        EventTypes.LOOP_COMPLETED,
+        EventTypes.LOOP_PAUSED,
+        EventTypes.LOOP_RESUMED,
+        EventTypes.LOOP_PHASE_STARTED,
+        EventTypes.LOOP_PHASE_COMPLETED,
+        EventTypes.AGENT_STARTED,
+        EventTypes.AGENT_STOPPED,
+        EventTypes.STATE_CHANGED,
+        EventTypes.CAPABILITY_CREATED,
+        EventTypes.CAPABILITY_UPDATED,
+        EventTypes.HEALTH_WARNING,
+        EventTypes.HANDLER_FAILED,
+        EventTypes.TASK_CREATED,
+        EventTypes.TASK_ASSIGNED,
+        EventTypes.TASK_STARTED,
     })
 
     # 只记录严重错误（level >= ERROR）
@@ -273,7 +273,7 @@ class MemoryIntegrationModule:
             return False
 
         # 错误事件：只记录严重错误
-        if event_type == "ERROR_OCCURRED":
+        if event_type == EventTypes.ERROR_OCCURRED:
             level_value = event.level.value if hasattr(event.level, 'value') else event.level
             if level_value < self.config.l1_error_min_level:
                 logger.debug(f"L1 filtered (error level {level_value} < {self.config.l1_error_min_level}): {event_type}")
@@ -303,7 +303,7 @@ class MemoryIntegrationModule:
         event_type = event.type
 
         # USER_MESSAGE → USER_INPUT
-        if event_type == "USER_MESSAGE":
+        if event_type == EventTypes.USER_MESSAGE:
             return Event(
                 type=BusinessEventTypes.USER_INPUT,
                 data=event.data,
@@ -315,7 +315,7 @@ class MemoryIntegrationModule:
             )
 
         # ACTION_EXECUTED → AI_RESPONSE 或 TOOL_INVOKED
-        elif event_type == "ACTION_EXECUTED":
+        elif event_type == EventTypes.ACTION_EXECUTED:
             data = event.data if isinstance(event.data, dict) else {}
             action_type = data.get("action_type", "")
 
@@ -327,6 +327,8 @@ class MemoryIntegrationModule:
                         "response": data.get("response", ""),
                         "response_time_ms": data.get("execution_time", 0),
                         "action_type": action_type,
+                        "user_id": data.get("user_id"),
+                        "session_id": data.get("session_id"),
                     },
                     timestamp=event.timestamp,
                     source="memory_integration",
@@ -353,7 +355,7 @@ class MemoryIntegrationModule:
                 )
 
         # ERROR_OCCURRED → SYSTEM_ERROR（严重错误）
-        elif event_type == "ERROR_OCCURRED":
+        elif event_type == EventTypes.ERROR_OCCURRED:
             level_value = event.level.value if hasattr(event.level, 'value') else event.level
             if level_value >= self.config.l1_error_min_level:
                 data = event.data if isinstance(event.data, dict) else {}

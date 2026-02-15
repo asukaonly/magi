@@ -22,15 +22,21 @@ logger = logging.getLogger(__name__)
 # 加载 .env 文件
 try:
     from dotenv import load_dotenv
-    # 尝试加载 .env 文件（从 backend 目录）
-    env_path = Path(__file__).parent.parent / ".env"
-    if env_path.exists():
-        load_dotenv(env_path)
-        logger.info(f"Loaded environment variables from {env_path}")
-    else:
-        # 尝试从当前目录加载
-        load_dotenv()
-        logger.info("Loaded environment variables from .env in current directory")
+    # 优先加载 backend/.env（app.py 位于 backend/src/magi/api）
+    candidate_paths = [
+        Path(__file__).resolve().parents[3] / ".env",  # backend/.env
+        Path.cwd() / ".env",                           # 当前工作目录
+    ]
+    loaded = False
+    for env_path in candidate_paths:
+        if env_path.exists():
+            load_dotenv(env_path, override=False)
+            logger.info(f"Loaded environment variables from {env_path}")
+            loaded = True
+            break
+    if not loaded:
+        load_dotenv(override=False)
+        logger.info("No explicit .env path found, attempted default dotenv lookup")
 except ImportError:
     logger.warning("python-dotenv not installed, .env file will not be loaded automatically")
 

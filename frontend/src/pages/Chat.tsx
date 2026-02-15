@@ -4,7 +4,7 @@
  */
 import React, { useState, useRef, useEffect } from 'react';
 import { Card, Input, Button, List, Avatar, Space, Tag, message, Typography, Divider } from 'antd';
-import { SendOutlined, UserOutlined, RobotOutlined, ClearOutlined } from '@ant-design/icons';
+import { SendOutlined, UserOutlined, RobotOutlined, ClearOutlined, PlusOutlined } from '@ant-design/icons';
 import { messagesApi, ConversationHistory } from '../api';
 import { personalityApi } from '../api/modules/personality';
 import ReactMarkdown from 'react-markdown';
@@ -29,6 +29,7 @@ export const ChatPage: React.FC = () => {
   const [_ws, setWs] = useState<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [_sid, setSid] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // 自动滚动到底部
@@ -112,7 +113,14 @@ export const ChatPage: React.FC = () => {
   useEffect(() => {
     const loadHistory = async () => {
       try {
-        const history: ConversationHistory = await messagesApi.getHistory('web_user');
+        const current = await messagesApi.getCurrentSession('web_user');
+        const resolvedSession = current.session_id;
+        setSessionId(resolvedSession);
+        if (resolvedSession) {
+          localStorage.setItem('chat_session_web_user', resolvedSession);
+        }
+
+        const history: ConversationHistory = await messagesApi.getHistory('web_user', resolvedSession || undefined);
         if (history.messages && history.messages.length > 0) {
           const chatMessages: ChatMessage[] = history.messages.map((msg, index) => ({
             id: `history-${index}`,
@@ -200,6 +208,7 @@ export const ChatPage: React.FC = () => {
       await messagesApi.sendMessage({
         message: messageContent,
         user_id: 'web_user',
+        session_id: sessionId || undefined,
       });
       console.log('✅ Message sent successfully');
     } catch (error: any) {
@@ -218,12 +227,29 @@ export const ChatPage: React.FC = () => {
   // 清空对话
   const handleClearMessages = async () => {
     try {
-      await messagesApi.clearHistory('web_user');
+      await messagesApi.clearHistory('web_user', sessionId || undefined);
       setMessages([]);
       message.info('对话已清空');
     } catch (error) {
       console.error('清空对话失败:', error);
       message.error('清空对话失败');
+    }
+  };
+
+  const handleNewSession = async () => {
+    try {
+      const result = await messagesApi.createNewSession('web_user');
+      if (!result.success || !result.session_id) {
+        message.error('创建新会话失败');
+        return;
+      }
+      setSessionId(result.session_id);
+      localStorage.setItem('chat_session_web_user', result.session_id);
+      setMessages([]);
+      message.success('已切换到新会话');
+    } catch (error) {
+      console.error('创建新会话失败:', error);
+      message.error('创建新会话失败');
     }
   };
 
@@ -276,6 +302,13 @@ export const ChatPage: React.FC = () => {
               onClick={handleClearMessages}
             >
               清空对话
+            </Button>
+            <Button
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={handleNewSession}
+            >
+              新会话
             </Button>
           </Space>
         }

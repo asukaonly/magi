@@ -6,9 +6,13 @@ LLM适配器模块
 from .base import LLMAdapter
 from .openai import OpenAIAdapter
 from .anthropic import AnthropicAdapter
+from .provider_bridge import LLMProviderBridge, ProviderResponse, ProviderToolCall
 
 __all__ = [
     "LLMAdapter",
     "OpenAIAdapter",
     "AnthropicAdapter",
+    "LLMProviderBridge",
+    "ProviderResponse",
+    "ProviderToolCall",
 ]

@@ -30,6 +30,7 @@ from .builtin.dynamic_tool import DynamicTool, create_dynamic_tool
 from .builtin.capabilities_tool import CapabilitiesTool
 from .builtin.web_search_tool import WebSearchTool
 from .builtin.skills_creator_tool import SkillsCreatorTool
+from .builtin.weather_tool import WeatherTool
 
 # 导入 Skills 模块
 from ..skills.indexer import SkillIndexer
@@ -46,6 +47,7 @@ _builtin_tools = [
     CapabilitiesTool,
     WebSearchTool,
     SkillsCreatorTool,
+    WeatherTool,
 ]
 
 for tool_class in _builtin_tools:
@@ -107,6 +109,7 @@ __all__ = [
     "CapabilitiesTool",
     "WebSearchTool",
     "SkillsCreatorTool",
+    "WeatherTool",
 
     # Skills
     "SkillIndexer",

@@ -38,6 +38,7 @@ class LLMProvider(str, Enum):
     """LLM提供商"""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    GLM = "glm"
     LOCAL = "local"
 
 

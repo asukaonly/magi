@@ -1,7 +1,7 @@
 """
 内置工具模块
 
-包含常用的内置工具：Bash、文件操作等
+包含常用的内置工具：Bash、文件操作、天气查询等
 """
 from .bash_tool import BashTool
 from .file_read_tool import FileReadTool
@@ -11,6 +11,7 @@ from .dynamic_tool import DynamicTool, create_dynamic_tool
 from .capabilities_tool import CapabilitiesTool
 from .web_search_tool import WebSearchTool
 from .skills_creator_tool import SkillsCreatorTool
+from .weather_tool import WeatherTool
 
 __all__ = [
     "BashTool",
@@ -22,4 +23,5 @@ __all__ = [
     "CapabilitiesTool",
     "WebSearchTool",
     "SkillsCreatorTool",
+    "WeatherTool",
 ]

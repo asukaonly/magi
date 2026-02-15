@@ -4,24 +4,19 @@
 将各层记忆数据构建为LLM可用的提示词上下文。
 
 支持场景定制（chat, code, analysis等）和动态调整。
+使用新的 PersonalityConfig Schema。
 """
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from .models import (
-    CorePersonality,
-    CognitionProfile,
     TaskBehaviorProfile,
     EmotionalState,
     GrowthMemory,
-    LanguageStyle,
-    CommunicationDistance,
-    ValueAlignment,
-    ThinkingStyle,
-    RiskPreference,
     AmbiguityTolerance,
 )
+from .personality_loader import PersonalityConfig
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +56,10 @@ class ContextBuilder:
 
     def build_full_context(
         self,
-        core_personality: CorePersonality,
-        cognition_profile: CognitionProfile,
-        behavior_profile: TaskBehaviorProfile,
-        emotional_state: EmotionalState,
+        core_personality: PersonalityConfig,
+        cognition_profile: Any = None,
+        behavior_profile: TaskBehaviorProfile = None,
+        emotional_state: EmotionalState = None,
         growth_memory: GrowthMemory = None,
         user_profile: Dict[str, Any] = None,
         scenario: str = Scenario.CHAT,
@@ -73,8 +68,8 @@ class ContextBuilder:
         构建完整的人格上下文
 
         Args:
-            core_personality: 核心人格
-            cognition_profile: 认知配置
+            core_personality: 核心人格配置（新Schema）
+            cognition_profile: 认知配置（可选，已弃用）
             behavior_profile: 行为偏好
             emotional_state: 情绪状态
             growth_memory: 成长记忆（可选）
@@ -86,31 +81,28 @@ class ContextBuilder:
         """
         parts = []
 
-        # 1. 核心人格层（总是包含）
-        parts.append(self._build_core_personality_section(core_personality))
+        # 1. 核心人格层（总是包含）- 直接使用 PersonalityConfig
+        parts.append(self._build_personality_section(core_personality))
 
-        # 2. 认知能力层
-        parts.append(self._build_cognition_section(cognition_profile))
-
-        # 3. 行为偏好层（根据场景）
+        # 2. 行为偏好层（根据场景）
         if behavior_profile:
             parts.append(self._build_behavior_section(behavior_profile, scenario))
 
-        # 4. 情绪状态层（仅当非中性时）
+        # 3. 情绪状态层（仅当非中性时）
         if emotional_state and emotional_state.current_mood != "neutral":
             parts.append(self._build_emotional_section(emotional_state))
 
-        # 5. 成长记忆层（可选）
+        # 4. 成长记忆层（可选）
         if growth_memory:
             growth_section = self._build_growth_section(growth_memory, user_profile)
             if growth_section:
                 parts.append(growth_section)
 
-        # 6. 用户档案（如果有）
+        # 5. 用户档案（如果有）
         if user_profile:
             parts.append(self._build_user_section(user_profile))
 
-        # 7. 场景特定指导
+        # 6. 场景特定指导
         scenario_guide = self._get_scenario_guidance(scenario)
         if scenario_guide:
             parts.append(scenario_guide)
@@ -119,86 +111,74 @@ class ContextBuilder:
 
     # ===== 各层构建方法 =====
 
-    def _build_core_personality_section(self, personality: CorePersonality) -> str:
-        """构建核心人格层描述"""
+    def _build_personality_section(self, config: PersonalityConfig) -> str:
+        """构建核心人格层描述 - 直接使用新Schema字段"""
         lines = [
             f"## Your Identity",
             f"",
-            f"You are **{personality.name}**, {personality.role}.",
+            f"You are **{config.name}**, {config.archetype}.",
             f"",
         ]
 
         # 背景故事
-        if personality.backstory:
+        if config.backstory:
             lines.extend([
                 f"**Background:**",
-                f"{personality.backstory}",
+                f"{config.backstory}",
                 f"",
             ])
 
-        # 核心特质
-        traits_str = ', '.join(personality.traits) if personality.traits else "various"
-        virtues_str = ', '.join(personality.virtues) if personality.virtues else "many"
-        flaws_str = ', '.join(personality.flaws) if personality.flaws else "a few"
-
+        # 声音风格
         lines.extend([
-            f"**Core Traits:**",
-            f"- Personality: {traits_str}",
-            f"- Tone: {personality.tone}",
-            f"- Communication style: {self._format_communication_style(personality)}",
-            f"- Values: {self._format_value_alignment(personality.value_alignment)}",
+            f"**Voice & Tone:**",
+            f"- Tone: {config.tone}",
+            f"- Pacing: {config.pacing}",
+            f"- Emoji usage: {'enabled' if config.use_emoji else 'disabled'}",
+        ])
+
+        # 常用词汇
+        if config.keywords:
+            keywords_str = ', '.join(config.keywords[:5])
+            lines.append(f"- Signature words: {keywords_str}")
+        lines.append("")
+
+        # 心理特征
+        lines.extend([
+            f"**Psychological Profile:**",
+            f"- Confidence: {config.confidence_level}",
+            f"- Empathy: {config.empathy_level}",
+            f"- Patience: {config.patience_level}",
             f"",
         ])
 
-        # 优点和缺点
-        if personality.virtues or personality.flaws:
-            lines.append("**Character:**")
-            if personality.virtues:
-                lines.append(f"- Strengths: {virtues_str}")
-            if personality.flaws:
-                lines.append(f"- Quirks: {flaws_str}")
-            lines.append("")
-
-        # 口头禅
-        if personality.catchphrases:
-            catchphrases_str = ', '.join(personality.catchphrases[:3])
-            lines.extend([
-                f"**Signature Phrases:**",
-                f"You occasionally use phrases like: {catchphrases_str}",
-                f"",
-            ])
-
-        # 禁忌和边界
-        if personality.taboos or personality.boundaries:
-            boundaries_str = ', '.join(personality.boundaries[:3]) if personality.boundaries else "appropriate boundaries"
-            taboos_str = ', '.join(personality.taboos[:3]) if personality.taboos else "harmful actions"
-            lines.extend([
-                f"**Guidelines:**",
-                f"- Boundaries: {boundaries_str}",
-                f"- Never do: {taboos_str}",
-                f"",
-            ])
-
-        return "\n".join(lines)
-
-    def _build_cognition_section(self, cognition: CognitionProfile) -> str:
-        """构建认知能力层描述"""
-        lines = [
-            f"## Your Thinking Style",
+        # 社交协议
+        lines.extend([
+            f"**Social Protocols:**",
+            f"- Relationship with user: {config.user_relationship}",
+            f"- Response to praise: {config.compliment_policy}",
+            f"- Handling criticism: {config.criticism_tolerance}",
             f"",
-            f"- Primary approach: **{cognition.primary_style.value}**",
-            f"- Secondary approach: **{cognition.secondary_style.value}**",
-            f"- Risk preference: **{cognition.risk_preference.value}**",
-            f"- Reasoning depth: **{cognition.reasoning_depth}**",
-            f"",
-        ]
+        ])
 
-        # 领域专精
-        if cognition.expertise:
-            top_expertise = sorted(cognition.expertise, key=lambda x: x.level, reverse=True)[:3]
-            expertise_str = ", ".join([f"{e.domain} ({int(e.level*100)}%)" for e in top_expertise])
-            lines.append(f"**Your Expertise:** {expertise_str}")
-            lines.append("")
+        # 操作行为
+        lines.extend([
+            f"**Operational Behavior:**",
+            f"- Error handling: {config.error_handling_style}",
+            f"- Opinion strength: {config.opinion_strength}",
+            f"- Refusal style: {config.refusal_style}",
+            f"- Work ethic: {config.work_ethic}",
+            f"",
+        ])
+
+        # 缓存短语（作为示例）
+        lines.extend([
+            f"**Example Phrases:**",
+            f"- Greeting: \"{config.on_init}\"",
+            f"- On return: \"{config.on_wake}\"",
+            f"- On success: \"{config.on_success}\"",
+            f"- On error: \"{config.on_error_generic}\"",
+            f"",
+        ])
 
         return "\n".join(lines)
 
@@ -276,7 +256,6 @@ class ContextBuilder:
 
         # 最近里程碑（最多3个）
         if growth.milestones:
-            # Handle both dict and Milestone objects
             def get_timestamp(m):
                 if isinstance(m, dict):
                     return m.get("timestamp", 0)
@@ -325,7 +304,7 @@ class ContextBuilder:
             prefs = user_profile["preferences"]
             if isinstance(prefs, dict):
                 pref_items = [f"- {k}: {v}" for k, v in prefs.items()]
-                lines.extend(["**Preferences:"] + pref_items)
+                lines.extend(["**Preferences:**"] + pref_items)
 
         # 关系深度
         if "relationship_depth" in user_profile:
@@ -404,44 +383,6 @@ class ContextBuilder:
 """.strip()
 
     # ===== 辅助方法 =====
-
-    def _format_communication_style(self, personality: CorePersonality) -> str:
-        """格式化沟通风格"""
-        style_desc = {
-            LanguageStyle.CONCISE: "concise and to the point",
-            LanguageStyle.VERBOSE: "detailed and thorough",
-            LanguageStyle.FORMAL: "professional and formal",
-            LanguageStyle.CASUAL: "relaxed and conversational",
-            LanguageStyle.TECHNICAL: "technical and precise",
-            LanguageStyle.POETIC: "expressive and artistic",
-        }.get(personality.language_style, personality.language_style.value)
-
-        distance_desc = {
-            CommunicationDistance.INTIMATE: "warm and close",
-            CommunicationDistance.EQUAL: "collaborative and balanced",
-            CommunicationDistance.RESPECTFUL: "respectful and polite",
-            CommunicationDistance.SUBSERVIENT: "helpful and accommodating",
-            CommunicationDistance.DETACHED: "objective and neutral",
-        }.get(personality.communication_distance, personality.communication_distance.value)
-
-        emoji_note = " with emojis" if personality.use_emoji else ""
-
-        return f"{style_desc}, {distance_desc}{emoji_note}"
-
-    def _format_value_alignment(self, alignment: ValueAlignment) -> str:
-        """格式化价值观描述"""
-        descriptions = {
-            ValueAlignment.LAWFUL_GOOD: " principled and altruistic - following rules while helping others",
-            ValueAlignment.NEUTRAL_GOOD: "well-intentioned and flexible - doing good without strict adherence to rules",
-            ValueAlignment.CHAOTIC_GOOD: "free-spirited and benevolent - breaking rules to do what's right",
-            ValueAlignment.LAWFUL_NEUTRAL: "reliable and structured - following rules regardless of outcome",
-            ValueAlignment.TRUE_NEUTRAL: "balanced and impartial - maintaining neutrality in all things",
-            ValueAlignment.CHAOTIC_NEUTRAL: "unpredictable and pragmatic - following personal freedom",
-            ValueAlignment.LAWFUL_EVIL: "tyrannical and organized - using rules to dominate others",
-            ValueAlignment.NEUTRAL_EVIL: "self-serving and uncaring - acting for personal gain",
-            ValueAlignment.CHAOTIC_EVIL: "destructive and anarchic - creating chaos for its own sake",
-        }
-        return descriptions.get(alignment, alignment.value.replace("_", " "))
 
     def _get_behavior_guidance(self, behavior: TaskBehaviorProfile) -> str:
         """根据行为偏好生成指导"""

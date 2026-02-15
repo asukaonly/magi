@@ -23,7 +23,7 @@ class AgentConfigModel(BaseModel):
 
 class LLMConfigModel(BaseModel):
     """LLM配置"""
-    provider: str = Field(default="openai", description="LLM提供商: openai, anthropic, local")
+    provider: str = Field(default="openai", description="LLM提供商: openai, anthropic, glm, local")
     model: str = Field(default="gpt-4", description="模型名称")
     api_key: Optional[str] = Field(None, description="API密钥")
     base_url: Optional[str] = Field(None, description="API endpoint URL")
@@ -130,10 +130,10 @@ async def get_config():
     """
     # 从环境变量读取LLM配置
     llm_config = LLMConfigModel(
-        provider=os.getenv("LLM_PROVIDER", os.getenv("OPENAI_PROVIDER", "openai")),
-        model=os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL", "gpt-4")),
-        api_key="***" if os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") else None,  # 隐藏密钥
-        base_url=os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL"),
+        provider=os.getenv("LLM_PROVIDER", "openai"),
+        model=os.getenv("LLM_MODEL", "gpt-4"),
+        api_key="***" if os.getenv("LLM_API_KEY") else None,  # 隐藏密钥
+        base_url=os.getenv("LLM_BASE_URL"),
     )
 
     config = SystemConfigModel(

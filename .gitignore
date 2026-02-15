@@ -44,6 +44,7 @@ htmlcov/
 
 # Logs
 *.log
+backend/.backend_uvicorn.pid
 
 # Database
 *.db

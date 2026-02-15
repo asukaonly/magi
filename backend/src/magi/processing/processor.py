@@ -61,8 +61,6 @@ class SelfProcessingModule:
         Returns:
             ChatResponseAction: 聊天响应动作
         """
-        import uuid
-
         # 从perception.data中提取消息数据
         message_data = perception.data.get("message", {})
         if not message_data:
@@ -71,13 +69,17 @@ class SelfProcessingModule:
 
         user_message = message_data.get("message", "")
         user_id = message_data.get("user_id", "unknown")
+        session_id = message_data.get("session_id")
 
         if not user_message:
             logger.warning("User message is empty")
             return None
 
-        # 生成链路ID用于追踪
-        chain_id = str(uuid.uuid4())[:8]
+        # 优先沿用消息事件的 correlation_id，确保整轮链路一致
+        chain_id = message_data.get("correlation_id")
+        if not chain_id:
+            import uuid
+            chain_id = str(uuid.uuid4())
 
         # 意图识别（简化版）
         intent = self._recognize_intent(user_message)
@@ -89,6 +91,7 @@ class SelfProcessingModule:
             chain_id=chain_id,
             user_id=user_id,
             user_message=user_message,
+            session_id=session_id,
             intent=intent,
             timestamp=perception.timestamp,
         )

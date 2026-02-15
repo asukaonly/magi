@@ -17,6 +17,7 @@ class ChatResponseAction:
     chain_id: str
     user_id: str
     user_message: str
+    session_id: Optional[str] = None
     intent: Optional[str] = None
     timestamp: float = 0
 

@@ -25,6 +25,7 @@ class OpenAIAdapter(LLMAdapter):
         self,
         api_key: str,
         model: str = "gpt-4",
+        provider: str = "openai",
         base_url: Optional[str] = None,
         api_base: Optional[str] = None,
         timeout: int = 60,
@@ -41,6 +42,7 @@ class OpenAIAdapter(LLMAdapter):
         """
         self._model = model
         self._timeout = timeout
+        self._provider = provider.lower()
 
         # 优先使用base_url，否则使用api_base（兼容旧配置）
         api_endpoint = base_url or api_base
@@ -254,6 +256,11 @@ class OpenAIAdapter(LLMAdapter):
     def model_name(self) -> str:
         """获取模型名称"""
         return self._model
+
+    @property
+    def provider_name(self) -> str:
+        """获取提供商名称"""
+        return self._provider
 
     def set_embedding_model(self, model: str):
         """

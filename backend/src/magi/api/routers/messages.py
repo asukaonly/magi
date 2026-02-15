@@ -4,7 +4,7 @@
 提供用户消息发送、对话历史等功能
 使用正确的Agent架构：消息 → MessageBus → 感知器订阅 → PerceptionManager → LoopEngine → Agent处理 → WebSocket推送
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import logging
@@ -102,13 +102,13 @@ async def send_user_message(request: UserMessageRequest):
             # 发送错误提示到 WebSocket
             await ws_manager.broadcast_to_user(request.user_id, {
                 "type": "error",
-                "content": "AI 服务未初始化。请设置 LLM_API_KEY 或 OPENAI_API_KEY 环境变量后重启服务。",
+                "content": "AI 服务未初始化。请设置 LLM_API_KEY 环境变量后重启服务。",
                 "timestamp": time.time(),
             })
 
             return MessageResponse(
                 success=False,
-                message="ChatAgent not initialized. Please set LLM_API_KEY or OPENAI_API_KEY environment variable.",
+                message="ChatAgent not initialized. Please set LLM_API_KEY environment variable.",
                 data={
                     "user_id": request.user_id,
                     "error": "ChatAgent not initialized",
@@ -117,11 +117,14 @@ async def send_user_message(request: UserMessageRequest):
 
         message_bus = get_message_bus()
 
+        # 解析会话ID（未指定时使用当前会话）
+        session_id = request.session_id or chat_agent.get_current_session_id(request.user_id)
+
         # 构建消息数据
         message_data = {
             "message": request.message,
             "user_id": request.user_id,
-            "session_id": request.session_id,
+            "session_id": session_id,
             "metadata": request.metadata,
             "timestamp": time.time(),
         }
@@ -155,6 +158,7 @@ async def send_user_message(request: UserMessageRequest):
             message="Message queued for processing",
             data={
                 "user_id": request.user_id,
+                "session_id": session_id,
                 "message_length": len(request.message),
                 "timestamp": time.time(),
             }
@@ -166,7 +170,10 @@ async def send_user_message(request: UserMessageRequest):
 
 
 @user_messages_router.get("/history", response_model=Dict[str, Any])
-async def get_conversation_history(user_id: str = "web_user"):
+async def get_conversation_history(
+    user_id: str = "web_user",
+    session_id: Optional[str] = Query(default=None, description="会话ID，不传则使用当前会话"),
+):
     """
     获取对话历史
 
@@ -180,7 +187,8 @@ async def get_conversation_history(user_id: str = "web_user"):
         from ...agent import get_chat_agent
 
         agent = get_chat_agent()
-        history = agent.get_conversation_history(user_id)
+        resolved_session_id = agent.get_current_session_id(user_id) if not session_id else session_id
+        history = agent.get_conversation_history(user_id, resolved_session_id)
 
         # 转换为前端期望的格式
         messages = []
@@ -193,6 +201,7 @@ async def get_conversation_history(user_id: str = "web_user"):
 
         return {
             "user_id": user_id,
+            "session_id": resolved_session_id,
             "messages": messages,
             "count": len(messages)
         }
@@ -200,13 +209,17 @@ async def get_conversation_history(user_id: str = "web_user"):
         # Agent未初始化，返回空历史
         return {
             "user_id": user_id,
+            "session_id": session_id,
             "messages": [],
             "count": 0
         }
 
 
 @user_messages_router.post("/history/clear")
-async def clear_conversation_history(user_id: str = "web_user"):
+async def clear_conversation_history(
+    user_id: str = "web_user",
+    session_id: Optional[str] = Query(default=None, description="会话ID，不传则清空当前会话"),
+):
     """
     清空对话历史
 
@@ -220,20 +233,47 @@ async def clear_conversation_history(user_id: str = "web_user"):
         from ...agent import get_chat_agent
 
         agent = get_chat_agent()
-        agent.clear_conversation_history(user_id)
+        resolved_session_id = agent.get_current_session_id(user_id) if not session_id else session_id
+        agent.clear_conversation_history(user_id, resolved_session_id)
 
         return {
             "success": True,
             "message": "Conversation history cleared",
-            "user_id": user_id
+            "user_id": user_id,
+            "session_id": resolved_session_id,
         }
     except RuntimeError:
         # Agent未初始化
         return {
             "success": True,
             "message": "Conversation history cleared (no agent initialized)",
-            "user_id": user_id
+            "user_id": user_id,
+            "session_id": session_id,
         }
+
+
+@user_messages_router.get("/session/current", response_model=Dict[str, Any])
+async def get_current_session(user_id: str = "web_user"):
+    """获取当前会话ID"""
+    try:
+        from ...agent import get_chat_agent
+        agent = get_chat_agent()
+        session_id = agent.get_current_session_id(user_id)
+        return {"user_id": user_id, "session_id": session_id}
+    except RuntimeError:
+        return {"user_id": user_id, "session_id": None}
+
+
+@user_messages_router.post("/session/new", response_model=Dict[str, Any])
+async def create_new_session(user_id: str = "web_user"):
+    """创建新会话并切换为当前会话"""
+    try:
+        from ...agent import get_chat_agent
+        agent = get_chat_agent()
+        session_id = agent.create_new_session(user_id)
+        return {"success": True, "user_id": user_id, "session_id": session_id}
+    except RuntimeError:
+        return {"success": False, "user_id": user_id, "session_id": None}
 
 
 @user_messages_router.get("/sensor/status")

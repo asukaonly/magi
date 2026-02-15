@@ -294,6 +294,7 @@ class LoopEngine:
         # 发布感知接收事件
         from ..events.events import Event, EventTypes, EventLevel
         for perception in perceptions:
+            correlation_id = self._extract_perception_correlation_id(perception)
             event = Event(
                 type=EventTypes.PERCEPTION_RECEIVED,
                 data={
@@ -303,6 +304,7 @@ class LoopEngine:
                 },
                 source="LoopEngine",
                 level=EventLevel.DEBUG,
+                correlation_id=correlation_id,
             )
             await self.agent.message_bus.publish(event)
 
@@ -337,6 +339,7 @@ class LoopEngine:
         plan_time = time.time() - plan_start
 
         # 发布感知处理事件
+        correlation_id = self._extract_perception_correlation_id(perception)
         event = Event(
             type=EventTypes.PERCEPTION_PROCESSED,
             data={
@@ -346,6 +349,7 @@ class LoopEngine:
             },
             source="LoopEngine",
             level=EventLevel.DEBUG,
+            correlation_id=correlation_id,
         )
         await self.agent.message_bus.publish(event)
 
@@ -378,17 +382,25 @@ class LoopEngine:
         act_start = time.time()
         result = await self.agent.execute_action(action)
         act_time = time.time() - act_start
+        success = self._extract_result_success(result)
+        response_text = self._extract_result_response(result)
+        error_text = self._extract_result_error(result)
 
         # 发布动作执行事件
         event = Event(
             type=EventTypes.ACTION_EXECUTED,
             data={
                 "action_type": type(action).__name__,
-                "success": getattr(result, 'success', True),
+                "success": success,
                 "execution_time": act_time,
+                "response": response_text,
+                "error": error_text,
+                "user_id": getattr(action, "user_id", None),
+                "session_id": getattr(action, "session_id", None),
             },
             source="LoopEngine",
             level=EventLevel.INFO,
+            correlation_id=self._extract_action_correlation_id(action),
         )
         await self.agent.message_bus.publish(event)
 
@@ -397,7 +409,7 @@ class LoopEngine:
         self._phase_stats["act"]["total_time"] += act_time
 
         # 发布阶段完成事件
-        await self._publish_phase_event("act", "completed", {"success": getattr(result, 'success', True)})
+        await self._publish_phase_event("act", "completed", {"success": success})
 
         return result
 
@@ -429,16 +441,20 @@ class LoopEngine:
             )
 
         # 发布经验存储事件
+        result_success = self._extract_result_success(result)
         event = Event(
             type=EventTypes.EXPERIENCE_STORED,
             data={
                 "perception_type": perception.type,
                 "action_type": type(action).__name__,
-                "result_success": getattr(result, 'success', True),
+                "result_success": result_success,
                 "reflection_time": reflect_time,
+                "user_id": getattr(action, "user_id", None),
+                "session_id": getattr(action, "session_id", None),
             },
             source="LoopEngine",
             level=EventLevel.DEBUG,
+            correlation_id=self._extract_action_correlation_id(action),
         )
         await self.agent.message_bus.publish(event)
 
@@ -496,3 +512,45 @@ class LoopEngine:
             level=EventLevel.ERROR,
         )
         await self.agent.message_bus.publish(event)
+
+    def _extract_perception_correlation_id(self, perception) -> Optional[str]:
+        """Extract correlation ID from perception payload."""
+        try:
+            if getattr(perception, "type", "") == "text":
+                msg = perception.data.get("message", {})
+                if isinstance(msg, dict):
+                    cid = msg.get("correlation_id")
+                    if cid:
+                        return cid
+        except Exception:
+            pass
+        return None
+
+    def _extract_action_correlation_id(self, action) -> Optional[str]:
+        """Use action chain_id as event correlation ID when available."""
+        cid = getattr(action, "chain_id", None)
+        if isinstance(cid, str) and cid:
+            return cid
+        return None
+
+    def _extract_result_success(self, result: Any) -> bool:
+        """Support dict/object result structures."""
+        if isinstance(result, dict):
+            return bool(result.get("success", True))
+        return bool(getattr(result, "success", True))
+
+    def _extract_result_response(self, result: Any) -> str:
+        """Extract response text from action result."""
+        if isinstance(result, dict):
+            value = result.get("response", "")
+        else:
+            value = getattr(result, "response", "")
+        return value if isinstance(value, str) else str(value)
+
+    def _extract_result_error(self, result: Any) -> str:
+        """Extract error text from action result."""
+        if isinstance(result, dict):
+            value = result.get("error", "")
+        else:
+            value = getattr(result, "error", "")
+        return value if isinstance(value, str) else str(value)

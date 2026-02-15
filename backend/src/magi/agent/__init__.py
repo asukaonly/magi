@@ -70,12 +70,12 @@ def _create_llm_adapter():
     """
     # 获取LLM提供商配置
     provider = os.getenv("LLM_PROVIDER", "openai").lower()
-    api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
-    model = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    api_key = os.getenv("LLM_API_KEY")
+    base_url = os.getenv("LLM_BASE_URL")
+    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
     if not api_key:
-        raise ValueError("LLM_API_KEY or OPENAI_API_KEY must be set")
+        raise ValueError("LLM_API_KEY must be set")
 
     logger.info(f"🔧 Creating LLM adapter | Provider: {provider} | Model: {model} | Base URL: {base_url or 'default'}")
 
@@ -87,15 +87,18 @@ def _create_llm_adapter():
             model=model,
             base_url=base_url,
         )
-    elif provider == "openai":
+    elif provider in ("openai", "glm"):
         from ..llm.openai import OpenAIAdapter
         return OpenAIAdapter(
             api_key=api_key,
             model=model,
+            provider=provider,
             base_url=base_url,
         )
     else:
-        raise ValueError(f"Unsupported LLM provider: {provider}. Supported: 'openai', 'anthropic'")
+        raise ValueError(
+            f"Unsupported LLM provider: {provider}. Supported: 'openai', 'anthropic', 'glm'"
+        )
 
 
 async def initialize_chat_agent():
@@ -117,11 +120,11 @@ async def initialize_chat_agent():
         logger.info(f"📁 Runtime directory: {runtime_paths.base_dir}")
 
         # 获取环境变量
-        api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("LLM_API_KEY")
 
         if not api_key:
             logger.warning("=" * 60)
-            logger.warning("⚠️  LLM_API_KEY or OPENAI_API_KEY not set!")
+            logger.warning("⚠️  LLM_API_KEY not set!")
             logger.warning("⚠️  ChatAgent will NOT be initialized.")
             logger.warning("⚠️  Set LLM_API_KEY environment variable to enable AI responses.")
             logger.warning("⚠️  Example: export LLM_API_KEY='sk-...'")

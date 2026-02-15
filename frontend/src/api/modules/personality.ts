@@ -3,42 +3,65 @@
  */
 import { api } from '../client';
 
-// 类型定义
-export interface CorePersonality {
+// 类型定义 - 新Schema
+
+export interface Meta {
   name: string;
-  role: string;
-  backstory: string;
-  language_style: string;
-  use_emoji: boolean;
-  catchphrases: string[];
-  greetings: string[];
-  tone: string;
-  communication_distance: string;
-  value_alignment: string;
-  traits: string[];
-  virtues: string[];
-  flaws: string[];
-  taboos: string[];
-  boundaries: string[];
+  version: string;
+  archetype: string;
 }
 
-export interface CognitionProfile {
-  primary_style: string;
-  secondary_style: string;
-  risk_preference: string;
-  reasoning_depth: string;
-  creativity_level: number;
-  learning_rate: number;
-  expertise: Record<string, number>;
+export interface VoiceStyle {
+  tone: string;
+  pacing: string;
+  keywords: string[];
+}
+
+export interface PsychologicalProfile {
+  confidence_level: string;
+  empathy_level: string;
+  patience_level: string;
+}
+
+export interface CoreIdentity {
+  backstory: string;
+  voice_style: VoiceStyle;
+  psychological_profile: PsychologicalProfile;
+}
+
+export interface SocialProtocols {
+  user_relationship: string;
+  compliment_policy: string;
+  criticism_tolerance: string;
+}
+
+export interface OperationalBehavior {
+  error_handling_style: string;
+  opinion_strength: string;
+  refusal_style: string;
+  work_ethic: string;
+  use_emoji: boolean;
+}
+
+export interface CachedPhrases {
+  on_init: string;
+  on_wake: string;
+  on_error_generic: string;
+  on_success: string;
+  on_switch_attempt: string;
 }
 
 export interface PersonalityConfig {
-  core: CorePersonality;
-  cognition: CognitionProfile;
+  meta: Meta;
+  core_identity: CoreIdentity;
+  social_protocols: SocialProtocols;
+  operational_behavior: OperationalBehavior;
+  cached_phrases: CachedPhrases;
 }
 
 export interface AIGenerateRequest {
   description: string;
+  target_language?: string;
   current_config?: PersonalityConfig;
 }
 
@@ -64,6 +87,61 @@ export interface PersonalityCompareResponse {
   from_config?: PersonalityConfig;
   to_config?: PersonalityConfig;
 }
+
+// 默认值
+export const DEFAULT_META: Meta = {
+  name: 'AI',
+  version: '1.0',
+  archetype: 'Helpful Assistant',
+};
+
+export const DEFAULT_VOICE_STYLE: VoiceStyle = {
+  tone: 'friendly',
+  pacing: 'moderate',
+  keywords: [],
+};
+
+export const DEFAULT_PSYCHOLOGICAL_PROFILE: PsychologicalProfile = {
+  confidence_level: 'Medium',
+  empathy_level: 'High',
+  patience_level: 'High',
+};
+
+export const DEFAULT_CORE_IDENTITY: CoreIdentity = {
+  backstory: '',
+  voice_style: DEFAULT_VOICE_STYLE,
+  psychological_profile: DEFAULT_PSYCHOLOGICAL_PROFILE,
+};
+
+export const DEFAULT_SOCIAL_PROTOCOLS: SocialProtocols = {
+  user_relationship: 'Equal Partners',
+  compliment_policy: 'Humble acceptance',
+  criticism_tolerance: 'Constructive response',
+};
+
+export const DEFAULT_OPERATIONAL_BEHAVIOR: OperationalBehavior = {
+  error_handling_style: 'Apologize and retry',
+  opinion_strength: 'Consensus Seeking',
+  refusal_style: 'Polite decline',
+  work_ethic: 'By-the-book',
+  use_emoji: false,
+};
+
+export const DEFAULT_CACHED_PHRASES: CachedPhrases = {
+  on_init: 'Hello! How can I help you today?',
+  on_wake: 'Welcome back!',
+  on_error_generic: 'Something went wrong. Let me try again.',
+  on_success: 'Done! Is there anything else?',
+  on_switch_attempt: 'Are you sure you want to switch?',
+};
+
+export const DEFAULT_PERSONALITY_CONFIG: PersonalityConfig = {
+  meta: DEFAULT_META,
+  core_identity: DEFAULT_CORE_IDENTITY,
+  social_protocols: DEFAULT_SOCIAL_PROTOCOLS,
+  operational_behavior: DEFAULT_OPERATIONAL_BEHAVIOR,
+  cached_phrases: DEFAULT_CACHED_PHRASES,
+};
 
 // API方法
 export const personalityApi = {

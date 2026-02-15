@@ -13,6 +13,7 @@ import logging
 from typing import Dict, Any, Optional, List
 
 from ..llm.base import LLMAdapter
+from ..llm.provider_bridge import LLMProviderBridge
 from .registry import ToolRegistry
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
@@ -131,6 +132,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         """
         self.tool_registry = tool_registry
         self.llm = llm_adapter
+        self.provider_bridge = LLMProviderBridge(llm_adapter)
         self.max_tools = max_tools
 
     async def decide(
@@ -181,16 +183,12 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 temperature=0.3,
             )
 
-            # Prepare kwargs for LLM generation
-            # Note: disable_thinking defaults to True in OpenAI adapter
-            generate_kwargs = {
-                "max_tokens": 1000,
-                "temperature": 0.3,
-            }
-
-            response = await self.llm.generate(
-                prompt=user_prompt,
-                **generate_kwargs,
+            response = await self.provider_bridge.chat(
+                system_prompt=self.SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}],
+                max_tokens=1000,
+                temperature=0.3,
+                disable_thinking=True,
             )
 
             # Check if response is empty or incomplete
@@ -253,9 +251,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         context: Optional[Dict[str, Any]],
     ) -> str:
         """Build the prompt for context decision"""
-        prompt = f"""{self.SYSTEM_PROMPT}
-
-## Available Tools
+        prompt = """## Available Tools
 
 """
 

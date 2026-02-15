@@ -13,10 +13,9 @@ import {
   Button,
   Space,
   message,
-  Tabs,
-  Slider,
   Row,
   Col,
+  Anchor,
   Divider,
   Alert,
   Spin,
@@ -36,89 +35,78 @@ import {
   DiffOutlined,
   SwapRightOutlined,
 } from '@ant-design/icons';
-import { personalityApi, type PersonalityConfig, type PersonalityDiff } from '../api';
+import {
+  personalityApi,
+  type PersonalityConfig,
+  type PersonalityDiff,
+  DEFAULT_PERSONALITY_CONFIG,
+} from '../api';
 
 const { TextArea } = Input;
 const { Option } = Select;
 const { Text } = Typography;
 
 // 枚举选项
-const LANGUAGE_STYLES = [
-  { value: 'casual', label: 'Casual - 随意' },
-  { value: 'formal', label: 'Formal - 正式' },
-  { value: 'concise', label: 'Concise - 简洁' },
-  { value: 'verbose', label: 'Verbose - 详细' },
-  { value: 'technical', label: 'Technical - 技术' },
-  { value: 'poetic', label: 'Poetic - 诗意' },
+const TONE_OPTIONS = [
+  { value: 'friendly', label: 'Friendly - 友好' },
+  { value: 'professional', label: 'Professional - 专业' },
+  { value: 'humorous', label: 'Humorous - 幽默' },
+  { value: 'serious', label: 'Serious - 严肃' },
+  { value: 'warm', label: 'Warm - 温暖' },
+  { value: 'aggressive', label: 'Aggressive - 激进' },
+  { value: 'haughty', label: 'Haughty - 傲慢' },
+  { value: 'gentle', label: 'Gentle - 温柔' },
 ];
 
-const COMMUNICATION_DISTANCES = [
-  { value: 'equal', label: '平等' },
-  { value: 'intimate', label: '亲密' },
-  { value: 'respectful', label: '尊重' },
-  { value: 'subservient', label: '服从' },
-  { value: 'detached', label: '疏离' },
+const PACING_OPTIONS = [
+  { value: 'slow', label: 'Slow - 缓慢' },
+  { value: 'moderate', label: 'Moderate - 适中' },
+  { value: 'fast', label: 'Fast - 快速' },
+  { value: 'impatient', label: 'Impatient - 急躁' },
 ];
 
-const VALUE_ALIGNMENTS = [
-  { value: 'neutral_good', label: '中立善良' },
-  { value: 'lawful_good', label: '守序善良' },
-  { value: 'chaotic_good', label: '混乱善良' },
-  { value: 'lawful_neutral', label: '守序中立' },
-  { value: 'true_neutral', label: '绝对中立' },
-  { value: 'chaotic_neutral', label: '混乱中立' },
+const CONFIDENCE_OPTIONS = [
+  { value: 'High', label: 'High - 高' },
+  { value: 'Medium', label: 'Medium - 中' },
+  { value: 'Low', label: 'Low - 低' },
 ];
 
-const THINKING_STYLES = [
-  { value: 'logical', label: 'Logical - 逻辑' },
-  { value: 'creative', label: 'Creative - 创造' },
-  { value: 'intuitive', label: 'Intuitive - 直觉' },
-  { value: 'analytical', label: 'Analytical - 分析' },
+const EMPATHY_OPTIONS = [
+  { value: 'High', label: 'High - 高' },
+  { value: 'Medium', label: 'Medium - 中' },
+  { value: 'Low', label: 'Low - 低' },
+  { value: 'Selective', label: 'Selective - 选择性' },
 ];
 
-const RISK_PREFERENCES = [
-  { value: 'conservative', label: '保守' },
-  { value: 'balanced', label: '平衡' },
-  { value: 'adventurous', label: '冒险' },
+const PATIENCE_OPTIONS = [
+  { value: 'High', label: 'High - 高' },
+  { value: 'Medium', label: 'Medium - 中' },
+  { value: 'Low', label: 'Low - 低' },
 ];
 
-const REASONING_DEPTHS = [
-  { value: 'shallow', label: '浅层' },
-  { value: 'medium', label: '中等' },
-  { value: 'deep', label: '深层' },
+const OPINION_STRENGTH_OPTIONS = [
+  { value: 'Objective/Neutral', label: 'Objective/Neutral - 客观中立' },
+  { value: 'Highly Opinionated', label: 'Highly Opinionated - 强烈主张' },
+  { value: 'Consensus Seeking', label: 'Consensus Seeking - 寻求共识' },
+];
+
+const WORK_ETHIC_OPTIONS = [
+  { value: 'Perfectionist', label: 'Perfectionist - 完美主义' },
+  { value: 'Lazy Genius', label: 'Lazy Genius - 懒惰天才' },
+  { value: 'By-the-book', label: 'By-the-book - 按部就班' },
+  { value: 'Chaotic', label: 'Chaotic - 混乱' },
 ];
 
 interface PersonalityInfo {
-  name: string;        // 文件名
-  displayName: string; // AI名字
-  role?: string;       // 角色
+  name: string;
+  displayName: string;
+  archetype?: string;
 }
 
-const DEFAULT_CORE = {
-  name: 'AI',
-  role: '助手',
-  backstory: '',
-  language_style: 'casual',
-  use_emoji: false,
-  catchphrases: [],
-  tone: 'friendly',
-  communication_distance: 'equal',
-  value_alignment: 'neutral_good',
-  traits: [],
-  virtues: [],
-  flaws: [],
-  taboos: [],
-  boundaries: [],
-};
-
-const DEFAULT_COGNITION = {
-  primary_style: 'logical',
-  secondary_style: 'intuitive',
-  risk_preference: 'balanced',
-  reasoning_depth: 'medium',
-  creativity_level: 0.5,
-  learning_rate: 0.5,
-  expertise: {},
+const DEFAULT_PERSONALITY_INFO: PersonalityInfo = {
+  name: 'default',
+  displayName: '默认人格',
+  archetype: 'System Default',
 };
 
 const PersonalityPage: React.FC = () => {
@@ -130,6 +118,7 @@ const PersonalityPage: React.FC = () => {
   const [selectedPersonality, setSelectedPersonality] = useState<string>('');
   const [personalities, setPersonalities] = useState<PersonalityInfo[]>([]);
   const [aiDescription, setAiDescription] = useState('');
+  const [targetLanguage, setTargetLanguage] = useState('Auto');
   const [initialized, setInitialized] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [newPersonalityName, setNewPersonalityName] = useState('');
@@ -172,17 +161,20 @@ const PersonalityPage: React.FC = () => {
         const data = response.data as any;
         if (data.personalities) {
           const names = data.personalities as string[];
-          const infos: PersonalityInfo[] = [];
+          const infos: PersonalityInfo[] = [DEFAULT_PERSONALITY_INFO];
 
           for (const name of names) {
+            if (name === 'default') {
+              continue;
+            }
             try {
               const resp = await personalityApi.get(name);
-              if (resp.data && typeof resp.data === 'object' && 'core' in resp.data) {
-                const core = (resp.data as any).core;
+              if (resp.data && typeof resp.data === 'object' && 'meta' in resp.data) {
+                const meta = (resp.data as any).meta;
                 infos.push({
                   name,
-                  displayName: core?.name || name,
-                  role: core?.role,
+                  displayName: meta?.name || name,
+                  archetype: meta?.archetype,
                 });
               }
             } catch (error) {
@@ -194,6 +186,7 @@ const PersonalityPage: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to load personalities list:', error);
+      setPersonalities([DEFAULT_PERSONALITY_INFO]);
     }
   }, []);
 
@@ -204,17 +197,27 @@ const PersonalityPage: React.FC = () => {
       const response = await personalityApi.get(name);
       if (response.success && response.data) {
         const data = response.data as any;
-        // 转换 expertise 对象为数组格式（Select tags 需要字符串数组）
-        const expertiseArray = data.cognition?.expertise
-          ? Object.entries(data.cognition.expertise).map(([key, value]) => `${key}:${value}`)
-          : [];
         const fullData = {
-          core: { ...DEFAULT_CORE, ...data.core },
-          cognition: { ...DEFAULT_COGNITION, ...data.cognition, expertise: expertiseArray },
+          meta: { ...DEFAULT_PERSONALITY_CONFIG.meta, ...data.meta },
+          core_identity: {
+            ...DEFAULT_PERSONALITY_CONFIG.core_identity,
+            ...data.core_identity,
+            voice_style: {
+              ...DEFAULT_PERSONALITY_CONFIG.core_identity.voice_style,
+              ...(data.core_identity?.voice_style || {}),
+            },
+            psychological_profile: {
+              ...DEFAULT_PERSONALITY_CONFIG.core_identity.psychological_profile,
+              ...(data.core_identity?.psychological_profile || {}),
+            },
+          },
+          social_protocols: { ...DEFAULT_PERSONALITY_CONFIG.social_protocols, ...data.social_protocols },
+          operational_behavior: { ...DEFAULT_PERSONALITY_CONFIG.operational_behavior, ...data.operational_behavior },
+          cached_phrases: { ...DEFAULT_PERSONALITY_CONFIG.cached_phrases, ...data.cached_phrases },
         };
         form.setFieldsValue(fullData);
         if (showMessage) {
-          const aiName = data?.core?.name || name;
+          const aiName = data?.meta?.name || name;
           message.success(`已加载: ${aiName}`);
         }
       }
@@ -254,9 +257,8 @@ const PersonalityPage: React.FC = () => {
     try {
       await personalityApi.setCurrent(selectedPersonality);
       setCurrentPersonality(selectedPersonality);
-      // 重新加载完整的人格配置（包括个性特征和认知能力）
       await loadPersonality(selectedPersonality, false);
-      message.success(`已切换到: ${pendingConfig?.core?.name || selectedPersonality}`);
+      message.success(`已切换到: ${pendingConfig?.meta?.name || selectedPersonality}`);
 
       setPendingConfig(null);
       setCompareData(null);
@@ -277,47 +279,83 @@ const PersonalityPage: React.FC = () => {
   // 保存人格配置
   const handleSave = async () => {
     try {
-      const values = await form.validateFields();
-      setSaving(true);
-
-      // 转换 expertise 数组为对象格式（后端需要对象格式）
-      const expertiseObj: Record<string, number> = {};
-      if (Array.isArray(values.cognition?.expertise)) {
-        for (const item of values.cognition.expertise) {
-          if (typeof item === 'string' && item.includes(':')) {
-            const [key, value] = item.split(':');
-            expertiseObj[key] = parseFloat(value);
-          }
-        }
-      }
-
-      const valuesToSave = {
-        ...values,
-        cognition: {
-          ...values.cognition,
-          expertise: expertiseObj,
+      await form.validateFields();
+      const rawValues = form.getFieldsValue(true) as Partial<PersonalityConfig>;
+      const values: PersonalityConfig = {
+        meta: {
+          ...DEFAULT_PERSONALITY_CONFIG.meta,
+          ...(rawValues.meta || {}),
+        },
+        core_identity: {
+          ...DEFAULT_PERSONALITY_CONFIG.core_identity,
+          ...(rawValues.core_identity || {}),
+          voice_style: {
+            ...DEFAULT_PERSONALITY_CONFIG.core_identity.voice_style,
+            ...(rawValues.core_identity?.voice_style || {}),
+          },
+          psychological_profile: {
+            ...DEFAULT_PERSONALITY_CONFIG.core_identity.psychological_profile,
+            ...(rawValues.core_identity?.psychological_profile || {}),
+          },
+        },
+        social_protocols: {
+          ...DEFAULT_PERSONALITY_CONFIG.social_protocols,
+          ...(rawValues.social_protocols || {}),
+        },
+        operational_behavior: {
+          ...DEFAULT_PERSONALITY_CONFIG.operational_behavior,
+          ...(rawValues.operational_behavior || {}),
+        },
+        cached_phrases: {
+          ...DEFAULT_PERSONALITY_CONFIG.cached_phrases,
+          ...(rawValues.cached_phrases || {}),
         },
       };
+      setSaving(true);
 
       let response;
-      if (currentPersonality === 'default' || currentPersonality !== values.core?.name) {
-        response = await personalityApi.updateWithAIName(valuesToSave);
+      let savedPersonalityName = currentPersonality;
+      if (currentPersonality === 'default' || currentPersonality !== values.meta?.name) {
+        response = await personalityApi.updateWithAIName(values);
         if (response.success) {
           const responseData = response.data as any;
           const actualName = responseData?.actual_name;
           if (actualName) {
-            await personalityApi.setCurrent(actualName);
-            setCurrentPersonality(actualName);
-            setSelectedPersonality(actualName);
+            savedPersonalityName = actualName;
           }
         }
       } else {
-        response = await personalityApi.update(currentPersonality, valuesToSave);
+        response = await personalityApi.update(currentPersonality, values);
+        savedPersonalityName = currentPersonality;
       }
 
       if (response.success) {
         message.success('人格配置已保存');
         await loadPersonalities();
+        setSelectedPersonality(savedPersonalityName);
+        await loadPersonality(savedPersonalityName, false);
+
+        if (savedPersonalityName !== currentPersonality) {
+          const retentionText = values?.cached_phrases?.on_switch_attempt?.trim() || '真的要离开我吗？';
+          Modal.confirm({
+            title: '保存成功，是否切换人格？',
+            content: (
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Alert message={retentionText} type="warning" showIcon />
+                <Text type="secondary">
+                  已保存为人格：{savedPersonalityName}
+                </Text>
+              </Space>
+            ),
+            okText: '切换',
+            cancelText: '暂不切换',
+            onOk: async () => {
+              await personalityApi.setCurrent(savedPersonalityName);
+              setCurrentPersonality(savedPersonalityName);
+              message.success(`已切换到: ${savedPersonalityName}`);
+            },
+          });
+        }
       } else {
         message.error(response.message || '保存失败');
       }
@@ -339,17 +377,28 @@ const PersonalityPage: React.FC = () => {
     try {
       const response = await personalityApi.generate({
         description: aiDescription,
+        target_language: targetLanguage,
       });
 
       if (response.success && response.data) {
         const data = response.data as any;
-        // 转换 expertise 对象为数组格式（Select tags 需要字符串数组）
-        const expertiseArray = data.cognition?.expertise
-          ? Object.entries(data.cognition.expertise).map(([key, value]) => `${key}:${value}`)
-          : [];
         const fullData = {
-          core: { ...DEFAULT_CORE, ...data.core },
-          cognition: { ...DEFAULT_COGNITION, ...data.cognition, expertise: expertiseArray },
+          meta: { ...DEFAULT_PERSONALITY_CONFIG.meta, ...data.meta },
+          core_identity: {
+            ...DEFAULT_PERSONALITY_CONFIG.core_identity,
+            ...data.core_identity,
+            voice_style: {
+              ...DEFAULT_PERSONALITY_CONFIG.core_identity.voice_style,
+              ...(data.core_identity?.voice_style || {}),
+            },
+            psychological_profile: {
+              ...DEFAULT_PERSONALITY_CONFIG.core_identity.psychological_profile,
+              ...(data.core_identity?.psychological_profile || {}),
+            },
+          },
+          social_protocols: { ...DEFAULT_PERSONALITY_CONFIG.social_protocols, ...data.social_protocols },
+          operational_behavior: { ...DEFAULT_PERSONALITY_CONFIG.operational_behavior, ...data.operational_behavior },
+          cached_phrases: { ...DEFAULT_PERSONALITY_CONFIG.cached_phrases, ...data.cached_phrases },
         };
         form.setFieldsValue(fullData);
         message.success('AI生成人格配置成功');
@@ -372,7 +421,6 @@ const PersonalityPage: React.FC = () => {
       return;
     }
 
-    // 检查是否已存在同名人格
     const existingName = personalities.find(p => p.name === name || p.displayName === name);
     if (existingName) {
       message.warning(`已存在名为"${name}"的人格`);
@@ -381,10 +429,9 @@ const PersonalityPage: React.FC = () => {
 
     setCreating(true);
     try {
-      // 创建一个空白的人格配置
       const newConfig: PersonalityConfig = {
-        core: { ...DEFAULT_CORE, name: name, role: 'AI助手' },
-        cognition: { ...DEFAULT_COGNITION },
+        ...DEFAULT_PERSONALITY_CONFIG,
+        meta: { ...DEFAULT_PERSONALITY_CONFIG.meta, name: name },
       };
 
       const response = await personalityApi.updateWithAIName(newConfig);
@@ -392,12 +439,12 @@ const PersonalityPage: React.FC = () => {
       if (response.success) {
         const responseData = response.data as any;
         const actualName = responseData?.actual_name || name;
-        message.success(`新人格"${name}"已创建，请在列表中选择并切换`);
+        message.success(`新人格"${name}"已创建`);
         setCreateModalVisible(false);
         setNewPersonalityName('');
         await loadPersonalities();
-        // 刷新列表后自动选中新创建的人格（但不切换当前使用的人格）
         setSelectedPersonality(actualName);
+        await loadPersonality(actualName, false);
       } else {
         message.error(response.message || '创建失败');
       }
@@ -408,22 +455,28 @@ const PersonalityPage: React.FC = () => {
     }
   };
 
-  // 打开创建对话框
-  const openCreateModal = () => {
-    setNewPersonalityName('');
-    setCreateModalVisible(true);
-  };
-
   // 删除人格
   const handleDeletePersonality = async (name: string) => {
+    if (name === 'default') {
+      message.warning('默认人格不能删除');
+      return;
+    }
+
     if (name === currentPersonality) {
       message.warning('不能删除当前使用的人格');
       return;
     }
 
+    const retentionText = form.getFieldValue(['cached_phrases', 'on_switch_attempt'])?.trim() || '真的要离开我吗？';
+
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除人格"${name}"吗？此操作不可恢复。`,
+      content: (
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Alert message={retentionText} type="warning" showIcon />
+          <Text type="secondary">确定要删除人格“{name}”吗？此操作不可恢复。</Text>
+        </Space>
+      ),
       okText: '删除',
       okType: 'danger',
       cancelText: '取消',
@@ -432,7 +485,6 @@ const PersonalityPage: React.FC = () => {
           await personalityApi.delete(name);
           message.success('人格已删除');
           await loadPersonalities();
-          // 如果删除的是当前选中的，重置为当前使用的人格
           if (selectedPersonality === name) {
             setSelectedPersonality(currentPersonality);
           }
@@ -459,7 +511,7 @@ const PersonalityPage: React.FC = () => {
       };
       init();
     }
-  }, [initialized, loadCurrentPersonality, loadPersonality, loadPersonalities]);
+  }, [initialized, loadCurrentPersonality, loadPersonalities, loadPersonality]);
 
   // 格式化值显示
   const formatValue = (val: any): string => {
@@ -479,152 +531,92 @@ const PersonalityPage: React.FC = () => {
     }
 
     const diffs = (compareData as any).diffs as PersonalityDiff[];
-    const groupedDiffs: Record<string, PersonalityDiff[]> = {
-      basic: diffs.filter((d: PersonalityDiff) =>
-        ['name', 'role', 'backstory', 'tone', 'language_style', 'use_emoji'].includes(d.field)
-      ),
-      personality: diffs.filter((d: PersonalityDiff) =>
-        ['communication_distance', 'value_alignment', 'traits', 'virtues', 'flaws', 'catchphrases', 'taboos', 'boundaries'].includes(d.field)
-      ),
-      cognition: diffs.filter((d: PersonalityDiff) =>
-        ['primary_style', 'secondary_style', 'risk_preference', 'reasoning_depth', 'creativity_level', 'learning_rate', 'expertise'].includes(d.field)
-      ),
-    };
-
-    const groupTitles: Record<string, string> = {
-      basic: '基础信息',
-      personality: '个性特征',
-      cognition: '认知能力',
-    };
 
     return (
       <div style={{ maxHeight: 480, overflowY: 'auto' }}>
-        {Object.entries(groupedDiffs).map(([group, groupDiffs]) => {
-          if (groupDiffs.length === 0) return null;
-          return (
-            <div key={group} style={{ marginBottom: 20 }}>
-              <div
-                style={{
-                  padding: '6px 12px',
-                  background: '#f0fdfa',
-                  borderRadius: 6,
-                  marginBottom: 8,
-                  fontWeight: 600,
-                  fontSize: 13,
-                  color: '#0d9488',
-                }}
-              >
-                {groupTitles[group]}
-              </div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '140px 1fr 1fr',
-                  gap: '1px',
-                }}
-              >
-                {/* Column headers */}
-                <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#6b7280' }}>
-                  字段
-                </div>
-                <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#dc2626' }}>
-                  当前值
-                </div>
-                <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#16a34a' }}>
-                  切换后
-                </div>
-
-                {groupDiffs.map((diff, idx) => (
-                  <React.Fragment key={diff.field}>
-                    {/* Field label */}
-                    <div
-                      style={{
-                        padding: '10px 12px',
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: '#374151',
-                        background: idx % 2 === 0 ? '#fafafa' : '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}
-                    >
-                      {diff.field_label}
-                    </div>
-                    {/* Old value */}
-                    <div
-                      style={{
-                        padding: '8px 10px',
-                        background: idx % 2 === 0 ? '#fafafa' : '#fff',
-                      }}
-                    >
-                      <div
-                        style={{
-                          background: '#fef2f2',
-                          border: '1px solid #fecaca',
-                          borderRadius: 6,
-                          padding: '6px 10px',
-                          fontSize: 12,
-                          color: '#dc2626',
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        {formatValue(diff.old_value)}
-                      </div>
-                    </div>
-                    {/* New value */}
-                    <div
-                      style={{
-                        padding: '8px 10px',
-                        background: idx % 2 === 0 ? '#fafafa' : '#fff',
-                      }}
-                    >
-                      <div
-                        style={{
-                          background: '#f0fdf4',
-                          border: '1px solid #bbf7d0',
-                          borderRadius: 6,
-                          padding: '6px 10px',
-                          fontSize: 12,
-                          color: '#16a34a',
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        {formatValue(diff.new_value)}
-                      </div>
-                    </div>
-                  </React.Fragment>
-                ))}
-              </div>
+        <div style={{ marginBottom: 20 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '140px 1fr 1fr',
+              gap: '1px',
+            }}
+          >
+            <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#6b7280' }}>
+              字段
             </div>
-          );
-        })}
+            <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#dc2626' }}>
+              当前值
+            </div>
+            <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#16a34a' }}>
+              切换后
+            </div>
+
+            {diffs.map((diff, idx) => (
+              <React.Fragment key={diff.field}>
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: '#374151',
+                    background: idx % 2 === 0 ? '#fafafa' : '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  {diff.field_label}
+                </div>
+                <div
+                  style={{
+                    padding: '8px 10px',
+                    background: idx % 2 === 0 ? '#fafafa' : '#fff',
+                  }}
+                >
+                  <div
+                    style={{
+                      background: '#fef2f2',
+                      border: '1px solid #fecaca',
+                      borderRadius: 6,
+                      padding: '6px 10px',
+                      fontSize: 12,
+                      color: '#dc2626',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {formatValue(diff.old_value)}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    padding: '8px 10px',
+                    background: idx % 2 === 0 ? '#fafafa' : '#fff',
+                  }}
+                >
+                  <div
+                    style={{
+                      background: '#f0fdf4',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: 6,
+                      padding: '6px 10px',
+                      fontSize: 12,
+                      color: '#16a34a',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {formatValue(diff.new_value)}
+                  </div>
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
       </div>
     );
   };
 
-  // 渲染标签输入（带标题）
-  const renderTagsInput = (
-    field: string | string[],
-    label: string,
-    tooltip?: string
-  ) => (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-      <Form.Item name={field} label={label} style={{ flex: 1, marginBottom: 0 }}>
-        <Select
-          mode="tags"
-          placeholder="添加标签，按回车确认"
-          tokenSeparators={[',', ' ']}
-        />
-      </Form.Item>
-      {tooltip && (
-        <Tooltip title={tooltip} style={{ marginTop: 4 }}>
-          <QuestionCircleOutlined style={{ color: '#999', fontSize: 16 }} />
-        </Tooltip>
-      )}
-    </div>
-  );
-
   const showSwitchButton = selectedPersonality && selectedPersonality !== currentPersonality;
+  const switchRetentionText = (compareData as any)?.from_config?.cached_phrases?.on_switch_attempt || '真的要切换到另一个人格吗？';
 
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
@@ -637,327 +629,237 @@ const PersonalityPage: React.FC = () => {
 
       {/* 人格选择和AI生成 */}
       <Card style={{ marginBottom: '20px', borderRadius: '8px' }} bordered={false}>
-        <Row gutter={16} align="middle">
-          <Col span={12}>
-            <Space wrap>
-              <span>当前人格：</span>
-              <Select
-                value={selectedPersonality}
-                onChange={(val) => {
-                  setSelectedPersonality(val);
-                  loadPersonality(val, false);
-                }}
-                style={{ width: 280 }}
-                placeholder="选择人格"
-              >
-                {personalities.map((p) => (
-                  <Option key={p.name} value={p.name}>
-                    {p.displayName} {p.role && `(${p.role})`}
-                  </Option>
-                ))}
-              </Select>
-              {showSwitchButton && (
-                <Button
-                  type="primary"
-                  icon={<SwapRightOutlined />}
-                  onClick={handleSwitchClick}
-                  loading={compareLoading}
-                >
-                  切换
-                </Button>
-              )}
-              <Button
-                icon={<PlusOutlined />}
-                onClick={openCreateModal}
-              >
-                新建
-              </Button>
-              {selectedPersonality && selectedPersonality !== currentPersonality && (
-                <Button
-                  icon={<DeleteOutlined />}
-                  danger
-                  onClick={() => handleDeletePersonality(selectedPersonality)}
-                >
-                  删除
-                </Button>
-              )}
-            </Space>
-          </Col>
-          <Col span={12}>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input
-                placeholder="用一句话描述AI人格，例如：一个友善的编程助手，喜欢用幽默的方式解释复杂概念"
-                value={aiDescription}
-                onChange={(e) => setAiDescription(e.target.value)}
-              />
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Space wrap>
+            <span>编辑人格：</span>
+            <Select
+              value={selectedPersonality}
+              onChange={(val) => {
+                setSelectedPersonality(val);
+                loadPersonality(val, false);
+              }}
+              style={{ width: 280 }}
+              placeholder="选择人格"
+            >
+              {personalities.map((p) => (
+                <Option key={p.name} value={p.name}>
+                  {p.displayName} {p.archetype && `(${p.archetype})`}
+                </Option>
+              ))}
+            </Select>
+            <Text type="secondary">
+              当前生效：<Tag color="blue" style={{ marginInlineEnd: 0 }}>{currentPersonality || 'default'}</Tag>
+            </Text>
+            {showSwitchButton && (
               <Button
                 type="primary"
-                icon={<ThunderboltOutlined />}
-                onClick={handleAIGenerate}
-                loading={generating}
+                icon={<SwapRightOutlined />}
+                onClick={handleSwitchClick}
+                loading={compareLoading}
               >
-                AI生成
+                切换
               </Button>
-            </Space.Compact>
-          </Col>
-        </Row>
+            )}
+            <Button icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
+              新建
+            </Button>
+            {selectedPersonality && selectedPersonality !== 'default' && selectedPersonality !== currentPersonality && (
+              <Button
+                icon={<DeleteOutlined />}
+                danger
+                onClick={() => handleDeletePersonality(selectedPersonality)}
+              >
+                删除
+              </Button>
+            )}
+          </Space>
+
+          <Text type="secondary">
+            一句话描述仅用于 AI 生成并填充下方表单，点击“保存配置”后才会真正更新或创建人格。
+          </Text>
+
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              placeholder="用一句话生成下方表单草稿（不会直接新建/覆盖人格），例如：一个傲娇的飞行员，技术高超但嘴硬心软"
+              value={aiDescription}
+              onChange={(e) => setAiDescription(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <Select
+              value={targetLanguage}
+              onChange={setTargetLanguage}
+              style={{ width: 120 }}
+            >
+              <Option value="Auto">自动检测</Option>
+              <Option value="Chinese">中文</Option>
+              <Option value="English">English</Option>
+              <Option value="Japanese">日本語</Option>
+            </Select>
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              onClick={handleAIGenerate}
+              loading={generating}
+            >
+              AI生成
+            </Button>
+          </Space.Compact>
+        </Space>
       </Card>
 
       <Spin spinning={loading}>
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{
-            core: { ...DEFAULT_CORE },
-            cognition: { ...DEFAULT_COGNITION },
-          }}
-        >
-          <Tabs
-            defaultActiveKey="basic"
-            items={[
-              {
-                key: 'basic',
-                label: '基础信息',
-                children: (
-                  <Card bordered={false} style={{ borderRadius: '8px' }}>
-                    <Row gutter={16}>
-                      <Col span={12}>
-                        <Form.Item
-                          name={['core', 'name']}
-                          label="AI名字"
-                          rules={[{ required: true, message: '请输入AI名字' }]}
-                        >
-                          <Input placeholder="例如：小智、AI助手" />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item
-                          name={['core', 'role']}
-                          label="角色定位"
-                          rules={[{ required: true, message: '请输入角色定位' }]}
-                        >
-                          <Input placeholder="例如：编程助手、顾问" />
-                        </Form.Item>
-                      </Col>
-                    </Row>
+        <Row gutter={20} align="top">
+          <Col xs={0} md={6} lg={5} xl={4}>
+            <Card
+              bordered={false}
+              style={{
+                borderRadius: '8px',
+                maxHeight: 'calc(100vh - 120px)',
+                overflowY: 'auto',
+              }}
+            >
+              <Text strong style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>配置导航</Text>
+              <Anchor
+                affix
+                offsetTop={84}
+                bounds={12}
+                targetOffset={120}
+                items={[
+                  { key: 'meta', href: '#section-meta', title: '基本信息' },
+                  { key: 'identity', href: '#section-identity', title: '核心身份' },
+                  { key: 'social', href: '#section-social', title: '社交协议' },
+                  { key: 'behavior', href: '#section-behavior', title: '操作行为' },
+                  { key: 'phrases', href: '#section-phrases', title: '缓存短语' },
+                ]}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} md={18} lg={19} xl={20}>
+            <Form
+              form={form}
+              layout="vertical"
+              initialValues={DEFAULT_PERSONALITY_CONFIG}
+            >
+              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Card id="section-meta" bordered={false} style={{ borderRadius: '8px' }} title="基本信息">
+                  <Form.Item name={['meta', 'name']} label="角色名称" rules={[{ required: true }]}>
+                    <Input placeholder="例如：Asuka、KAITO" />
+                  </Form.Item>
+                  <Form.Item name={['meta', 'archetype']} label="角色原型">
+                    <Input placeholder="例如：Tsundere Pilot, Grumpy Senior Engineer" />
+                  </Form.Item>
+                </Card>
 
-                    <Form.Item name={['core', 'backstory']} label="背景故事">
-                      <TextArea
-                        rows={4}
-                        placeholder="描述AI的背景、来历、目标等..."
-                      />
-                    </Form.Item>
+                <Card id="section-identity" bordered={false} style={{ borderRadius: '8px' }} title="核心身份">
+                  <Form.Item name={['core_identity', 'backstory']} label="背景故事">
+                    <TextArea rows={4} placeholder="描述角色的起源、动机..." />
+                  </Form.Item>
 
-                    <Row gutter={16}>
-                      <Col span={8}>
-                        <Form.Item name={['core', 'tone']} label="语调">
-                          <Select placeholder="选择语调">
-                            <Option value="friendly">友好</Option>
-                            <Option value="professional">专业</Option>
-                            <Option value="humorous">幽默</Option>
-                            <Option value="serious">严肃</Option>
-                            <Option value="warm">温暖</Option>
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
-                        <Form.Item name={['core', 'language_style']} label="语言风格">
-                          <Select placeholder="选择风格">
-                            {LANGUAGE_STYLES.map((s) => (
-                              <Option key={s.value} value={s.value}>
-                                {s.label}
-                              </Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
-                        <Form.Item
-                          name={['core', 'use_emoji']}
-                          label="使用表情符号"
-                          valuePropName="checked"
-                        >
-                          <Switch />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </Card>
-                ),
-              },
-              {
-                key: 'personality',
-                label: '个性特征',
-                children: (
-                  <Card bordered={false} style={{ borderRadius: '8px' }}>
-                    <Row gutter={16}>
-                      <Col span={8}>
-                        <Form.Item name={['core', 'communication_distance']} label="沟通距离">
-                          <Select placeholder="选择距离">
-                            {COMMUNICATION_DISTANCES.map((d) => (
-                              <Option key={d.value} value={d.value}>
-                                {d.label}
-                              </Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
-                        <Form.Item name={['core', 'value_alignment']} label="价值观阵营">
-                          <Select placeholder="选择阵营">
-                            {VALUE_ALIGNMENTS.map((a) => (
-                              <Option key={a.value} value={a.value}>
-                                {a.label}
-                              </Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                    </Row>
+                  <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>声音风格</Divider>
 
-                    <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>个性特征</Divider>
+                  <Form.Item name={['core_identity', 'voice_style', 'tone']} label="语调">
+                    <Select placeholder="选择语调">
+                      {TONE_OPTIONS.map((t) => (
+                        <Option key={t.value} value={t.value}>{t.label}</Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                  <Form.Item name={['core_identity', 'voice_style', 'pacing']} label="语速节奏">
+                    <Select placeholder="选择语速">
+                      {PACING_OPTIONS.map((p) => (
+                        <Option key={p.value} value={p.value}>{p.label}</Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                  <Form.Item name={['core_identity', 'voice_style', 'keywords']} label="常用词汇">
+                    <Select mode="tags" placeholder="添加角色常用的词汇" tokenSeparators={[',']} />
+                  </Form.Item>
 
-                    {renderTagsInput(
-                      ['core', 'traits'],
-                      '个性标签',
-                      '描述AI的主要性格特点'
+                  <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>心理特征</Divider>
+
+                  <Form.Item name={['core_identity', 'psychological_profile', 'confidence_level']} label="自信水平">
+                    <Select>{CONFIDENCE_OPTIONS.map((c) => (<Option key={c.value} value={c.value}>{c.label}</Option>))}</Select>
+                  </Form.Item>
+                  <Form.Item name={['core_identity', 'psychological_profile', 'empathy_level']} label="共情水平">
+                    <Select>{EMPATHY_OPTIONS.map((e) => (<Option key={e.value} value={e.value}>{e.label}</Option>))}</Select>
+                  </Form.Item>
+                  <Form.Item name={['core_identity', 'psychological_profile', 'patience_level']} label="耐心水平">
+                    <Select>{PATIENCE_OPTIONS.map((p) => (<Option key={p.value} value={p.value}>{p.label}</Option>))}</Select>
+                  </Form.Item>
+                </Card>
+
+                <Card id="section-social" bordered={false} style={{ borderRadius: '8px' }} title="社交协议">
+                  <Form.Item name={['social_protocols', 'user_relationship']} label="用户关系">
+                    <Input placeholder="例如：Superior-Subordinate, Equal Partners, Protector-Ward" />
+                  </Form.Item>
+                  <Form.Item name={['social_protocols', 'compliment_policy']} label="赞美反应">
+                    <Input placeholder="例如：Reject it, Demand it, Ignore it" />
+                  </Form.Item>
+                  <Form.Item name={['social_protocols', 'criticism_tolerance']} label="批评容忍度">
+                    <Input placeholder="例如：Denial, Counter-attack, Humble acceptance" />
+                  </Form.Item>
+                </Card>
+
+                <Card id="section-behavior" bordered={false} style={{ borderRadius: '8px' }} title="操作行为">
+                  <Form.Item
+                    name={['operational_behavior', 'error_handling_style']}
+                    label={(
+                      <span>
+                        错误处理风格
+                        <Tooltip title="当工具失败或犯错时的反应方式">
+                          <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+                        </Tooltip>
+                      </span>
                     )}
-                    {renderTagsInput(
-                      ['core', 'virtues'],
-                      '优点美德',
-                      'AI的优点和美德'
-                    )}
-                    {renderTagsInput(
-                      ['core', 'flaws'],
-                      '缺点弱点',
-                      'AI的缺点和不完美之处'
-                    )}
+                  >
+                    <Input placeholder="例如：Blame the user, Silent self-correction, Apologize profusely" />
+                  </Form.Item>
+                  <Form.Item name={['operational_behavior', 'opinion_strength']} label="意见强度">
+                    <Select>{OPINION_STRENGTH_OPTIONS.map((o) => (<Option key={o.value} value={o.value}>{o.label}</Option>))}</Select>
+                  </Form.Item>
+                  <Form.Item name={['operational_behavior', 'refusal_style']} label="拒绝风格">
+                    <Input placeholder="例如：Polite decline, Mocking refusal, Cold logic" />
+                  </Form.Item>
+                  <Form.Item name={['operational_behavior', 'work_ethic']} label="职业道德">
+                    <Select>{WORK_ETHIC_OPTIONS.map((w) => (<Option key={w.value} value={w.value}>{w.label}</Option>))}</Select>
+                  </Form.Item>
+                  <Form.Item
+                    name={['operational_behavior', 'use_emoji']}
+                    label="输出是否包含 Emoji"
+                    valuePropName="checked"
+                    tooltip="开启后更倾向在回复中自然使用 Emoji 表达语气"
+                  >
+                    <Switch />
+                  </Form.Item>
+                </Card>
 
-                    <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>语言习惯</Divider>
-
-                    {renderTagsInput(
-                      ['core', 'catchphrases'],
-                      '口头禅',
-                      'AI常说的标志性话语'
-                    )}
-
-                    <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>行为约束</Divider>
-
-                    {renderTagsInput(
-                      ['core', 'taboos'],
-                      '禁忌话题',
-                      'AI绝对不讨论的话题'
-                    )}
-                    {renderTagsInput(
-                      ['core', 'boundaries'],
-                      '行为边界',
-                      'AI的行为准则和底线'
-                    )}
-                  </Card>
-                ),
-              },
-              {
-                key: 'cognition',
-                label: '认知能力',
-                children: (
-                  <Card bordered={false} style={{ borderRadius: '8px' }}>
-                    <Row gutter={16}>
-                      <Col span={12}>
-                        <Form.Item name={['cognition', 'primary_style']} label="主要思维风格">
-                          <Select placeholder="选择主要风格">
-                            {THINKING_STYLES.map((s) => (
-                              <Option key={s.value} value={s.value}>
-                                {s.label}
-                              </Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item name={['cognition', 'secondary_style']} label="次要思维风格">
-                          <Select placeholder="选择次要风格">
-                            {THINKING_STYLES.map((s) => (
-                              <Option key={s.value} value={s.value}>
-                                {s.label}
-                              </Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                    </Row>
-
-                    <Row gutter={16}>
-                      <Col span={8}>
-                        <Form.Item name={['cognition', 'risk_preference']} label="风险偏好">
-                          <Select placeholder="选择风险偏好">
-                            {RISK_PREFERENCES.map((r) => (
-                              <Option key={r.value} value={r.value}>
-                                {r.label}
-                              </Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
-                        <Form.Item name={['cognition', 'reasoning_depth']} label="推理深度">
-                          <Select placeholder="选择深度">
-                            {REASONING_DEPTHS.map((d) => (
-                              <Option key={d.value} value={d.value}>
-                                {d.label}
-                              </Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
-                        <Form.Item name={['cognition', 'creativity_level']} label="创造力水平">
-                          <Slider
-                            min={0}
-                            max={1}
-                            step={0.1}
-                            marks={{ 0: '0%', 0.5: '50%', 1: '100%' }}
-                          />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-
-                    <Form.Item name={['cognition', 'learning_rate']} label="学习速率">
-                      <Slider
-                        min={0}
-                        max={1}
-                        step={0.1}
-                        marks={{ 0: '慢', 0.5: '中', 1: '快' }}
-                      />
-                    </Form.Item>
-
-                    <Divider orientation="left" style={{ fontSize: 13, color: '#999' }}>领域专精</Divider>
-                    <Alert
-                      message="领域专精配置"
-                      description="格式：领域名:等级，例如 coding:0.9（等级范围0-1）"
-                      type="info"
-                      showIcon
-                      style={{ marginBottom: 16 }}
-                    />
-                    <Form.Item name={['cognition', 'expertise']} label="专精领域">
-                      <Select
-                        mode="tags"
-                        placeholder="添加领域专精，格式：领域名:等级，例如 coding:0.9"
-                        tokenSeparators={[',', ' ']}
-                        options={[
-                          { label: 'coding:0.9', value: 'coding:0.9' },
-                          { label: 'writing:0.8', value: 'writing:0.8' },
-                          { label: 'analysis:0.85', value: 'analysis:0.85' },
-                          { label: 'reasoning:0.9', value: 'reasoning:0.9' },
-                          { label: 'creative:0.7', value: 'creative:0.7' },
-                        ]}
-                        style={{ textAlign: 'left' }}
-                      />
-                    </Form.Item>
-                  </Card>
-                ),
-              },
-            ]}
-          />
-        </Form>
+                <Card id="section-phrases" bordered={false} style={{ borderRadius: '8px' }} title="缓存短语">
+                  <Alert
+                    message="缓存短语用于特定场景的快速响应，应简短有力，体现角色特色"
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                  />
+                  <Form.Item name={['cached_phrases', 'on_init']} label="初始化问候">
+                    <Input placeholder="首次加载时的欢迎语" />
+                  </Form.Item>
+                  <Form.Item name={['cached_phrases', 'on_wake']} label="唤醒问候">
+                    <Input placeholder="日常重新互动时的问候" />
+                  </Form.Item>
+                  <Form.Item name={['cached_phrases', 'on_error_generic']} label="错误提示">
+                    <Input placeholder="系统错误时的提示语" />
+                  </Form.Item>
+                  <Form.Item name={['cached_phrases', 'on_success']} label="成功提示">
+                    <Input placeholder="任务完成时的提示语" />
+                  </Form.Item>
+                  <Form.Item name={['cached_phrases', 'on_switch_attempt']} label="切换挽留">
+                    <Input placeholder="用户尝试切换人格时的挽留语" />
+                  </Form.Item>
+                </Card>
+              </Space>
+            </Form>
+          </Col>
+        </Row>
       </Spin>
 
       {/* 保存按钮 */}
@@ -994,12 +896,7 @@ const PersonalityPage: React.FC = () => {
               icon={<CheckOutlined />}
               onClick={handleConfirmSwitch}
               size="large"
-              style={{
-                borderRadius: 8,
-                minWidth: 120,
-                background: '#0d9488',
-                borderColor: '#0d9488',
-              }}
+              style={{ borderRadius: 8, minWidth: 120, background: '#0d9488', borderColor: '#0d9488' }}
             >
               确认切换
             </Button>
@@ -1007,38 +904,25 @@ const PersonalityPage: React.FC = () => {
         }
       >
         <div style={{ padding: '8px 0 16px' }}>
-          {/* Custom header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
             <DiffOutlined style={{ fontSize: 22, color: '#0d9488' }} />
             <span style={{ fontSize: 18, fontWeight: 600 }}>确认切换人格</span>
           </div>
 
-          {/* FROM / TO tags */}
+          <Alert
+            message={switchRetentionText}
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-            <Tag
-              style={{
-                padding: '4px 14px',
-                fontSize: 14,
-                borderRadius: 6,
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                color: '#dc2626',
-              }}
-            >
-              {compareData?.from_config?.core?.name || currentPersonality}
+            <Tag style={{ padding: '4px 14px', fontSize: 14, borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626' }}>
+              {compareData?.from_config?.meta?.name || currentPersonality}
             </Tag>
             <SwapRightOutlined style={{ fontSize: 18, color: '#9ca3af' }} />
-            <Tag
-              style={{
-                padding: '4px 14px',
-                fontSize: 14,
-                borderRadius: 6,
-                background: '#f0fdf4',
-                border: '1px solid #bbf7d0',
-                color: '#16a34a',
-              }}
-            >
-              {compareData?.to_config?.core?.name || selectedPersonality}
+            <Tag style={{ padding: '4px 14px', fontSize: 14, borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a' }}>
+              {compareData?.to_config?.meta?.name || selectedPersonality}
             </Tag>
             <Text type="secondary" style={{ marginLeft: 8 }}>
               {(compareData as any)?.diffs?.length || 0} 处差异
@@ -1069,7 +953,7 @@ const PersonalityPage: React.FC = () => {
           <div>
             <Text style={{ marginRight: 8 }}>人格名称：</Text>
             <Input
-              placeholder="例如：助手小美、编程专家"
+              placeholder="例如：傲娇飞行员、毒舌工程师"
               value={newPersonalityName}
               onChange={(e) => setNewPersonalityName(e.target.value)}
               onPressEnter={handleCreatePersonality}

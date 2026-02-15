@@ -10,11 +10,16 @@ export type { UserMessageRequest, MessageData, SensorStatus, ConversationHistory
 export { configApi } from './modules/config';
 export type { SystemConfig } from './modules/config';
 
-export { personalityApi } from './modules/personality';
+export { personalityApi, DEFAULT_PERSONALITY_CONFIG } from './modules/personality';
 export type {
   PersonalityConfig,
-  CorePersonality,
-  CognitionProfile,
+  Meta,
+  VoiceStyle,
+  PsychologicalProfile,
+  CoreIdentity,
+  SocialProtocols,
+  OperationalBehavior,
+  CachedPhrases,
   AIGenerateRequest,
   PersonalityResponse,
   PersonalityCompareResponse,

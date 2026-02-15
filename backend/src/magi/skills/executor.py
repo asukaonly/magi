@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from .schema import SkillContent, SkillFrontmatter, SkillResult
 from .loader import SkillLoader
 from ..llm.base import LLMAdapter
+from ..llm.provider_bridge import LLMProviderBridge
 
 logger = logging.getLogger(__name__)
 
@@ -240,28 +241,14 @@ class SkillExecutor:
 
         try:
             # Call LLM with the skill prompt as system instructions
-            from ..llm.anthropic import AnthropicAdapter
-            from ..llm.openai import OpenAIAdapter
-
-            is_anthropic = isinstance(self.llm, AnthropicAdapter)
-
-            if is_anthropic:
-                response = await self.llm._client.messages.create(
-                    model=self.llm.model_name,
-                    max_tokens=4000,
-                    temperature=0.7,
-                    system=system_prompt,
-                    messages=messages,
-                )
-                content = response.content[0].text
-            else:
-                # OpenAI or others
-                full_messages = [{"role": "system", "content": system_prompt}] + messages
-                content = await self.llm.chat(
-                    messages=full_messages,
-                    max_tokens=4000,
-                    temperature=0.7,
-                )
+            provider_bridge = LLMProviderBridge(self.llm)
+            content = await provider_bridge.chat(
+                system_prompt=system_prompt,
+                messages=messages,
+                max_tokens=4000,
+                temperature=0.7,
+                disable_thinking=True,
+            )
 
             return SkillResult(
                 success=True,

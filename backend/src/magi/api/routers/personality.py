@@ -20,45 +20,72 @@ personality_router = APIRouter()
 
 # ============ 数据模型 ============
 
-class CorePersonalityModel(BaseModel):
-    """核心人格模型"""
-    name: str = Field(default="AI", description="AI名字")
-    role: str = Field(default="助手", description="角色定位")
-    backstory: str = Field(default="", description="背景故事")
-    language_style: str = Field(default="casual", description="语言风格")
-    use_emoji: bool = Field(default=False, description="是否使用表情符号")
-    catchphrases: List[str] = Field(default_factory=list, description="口头禅")
-    greetings: List[str] = Field(default_factory=list, description="见面问候语")
+class MetaModel(BaseModel):
+    """元数据"""
+    name: str = Field(default="AI", description="角色名称")
+    version: str = Field(default="1.0", description="版本号")
+    archetype: str = Field(default="Helpful Assistant", description="角色原型")
+
+
+class VoiceStyleModel(BaseModel):
+    """声音风格"""
     tone: str = Field(default="friendly", description="语调")
-    communication_distance: str = Field(default="equal", description="沟通距离")
-    value_alignment: str = Field(default="neutral_good", description="价值观阵营")
-    traits: List[str] = Field(default_factory=list, description="个性标签")
-    virtues: List[str] = Field(default_factory=list, description="优点")
-    flaws: List[str] = Field(default_factory=list, description="缺点")
-    taboos: List[str] = Field(default_factory=list, description="禁忌")
-    boundaries: List[str] = Field(default_factory=list, description="行为边界")
+    pacing: str = Field(default="moderate", description="语速节奏")
+    keywords: List[str] = Field(default_factory=list, description="常用词汇")
 
 
-class CognitionProfileModel(BaseModel):
-    """认知能力模型"""
-    primary_style: str = Field(default="logical", description="主要思维风格")
-    secondary_style: str = Field(default="intuitive", description="次要思维风格")
-    risk_preference: str = Field(default="balanced", description="风险偏好")
-    reasoning_depth: str = Field(default="medium", description="推理深度")
-    creativity_level: float = Field(default=0.5, description="创造力水平")
-    learning_rate: float = Field(default=0.5, description="学习速率")
-    expertise: Dict[str, float] = Field(default_factory=dict, description="领域专精")
+class PsychologicalProfileModel(BaseModel):
+    """心理特征"""
+    confidence_level: str = Field(default="Medium", description="自信水平")
+    empathy_level: str = Field(default="High", description="共情水平")
+    patience_level: str = Field(default="High", description="耐心水平")
+
+
+class CoreIdentityModel(BaseModel):
+    """核心身份"""
+    backstory: str = Field(default="", description="背景故事")
+    voice_style: VoiceStyleModel = Field(default_factory=VoiceStyleModel)
+    psychological_profile: PsychologicalProfileModel = Field(default_factory=PsychologicalProfileModel)
+
+
+class SocialProtocolsModel(BaseModel):
+    """社交协议"""
+    user_relationship: str = Field(default="Equal Partners", description="用户关系")
+    compliment_policy: str = Field(default="Humble acceptance", description="赞美反应")
+    criticism_tolerance: str = Field(default="Constructive response", description="批评容忍度")
+
+
+class OperationalBehaviorModel(BaseModel):
+    """操作行为"""
+    error_handling_style: str = Field(default="Apologize and retry", description="错误处理风格")
+    opinion_strength: str = Field(default="Consensus Seeking", description="意见强度")
+    refusal_style: str = Field(default="Polite decline", description="拒绝风格")
+    work_ethic: str = Field(default="By-the-book", description="职业道德")
+    use_emoji: bool = Field(default=False, description="是否使用Emoji输出")
+
+
+class CachedPhrasesModel(BaseModel):
+    """缓存短语"""
+    on_init: str = Field(default="Hello! How can I help you today?", description="初始化问候")
+    on_wake: str = Field(default="Welcome back!", description="唤醒问候")
+    on_error_generic: str = Field(default="Something went wrong. Let me try again.", description="错误提示")
+    on_success: str = Field(default="Done! Is there anything else?", description="成功提示")
+    on_switch_attempt: str = Field(default="Are you sure you want to switch?", description="切换挽留")
 
 
 class PersonalityConfigModel(BaseModel):
-    """完整人格配置"""
-    core: CorePersonalityModel = Field(default_factory=CorePersonalityModel)
-    cognition: CognitionProfileModel = Field(default_factory=CognitionProfileModel)
+    """完整人格配置 - 新Schema"""
+    meta: MetaModel = Field(default_factory=MetaModel)
+    core_identity: CoreIdentityModel = Field(default_factory=CoreIdentityModel)
+    social_protocols: SocialProtocolsModel = Field(default_factory=SocialProtocolsModel)
+    operational_behavior: OperationalBehaviorModel = Field(default_factory=OperationalBehaviorModel)
+    cached_phrases: CachedPhrasesModel = Field(default_factory=CachedPhrasesModel)
 
 
 class AIGenerateRequest(BaseModel):
     """AI生成请求"""
     description: str = Field(..., description="一句话描述AI人格")
+    target_language: str = Field(default="Auto", description="目标语言：Auto/Chinese/English等")
     current_config: Optional[PersonalityConfigModel] = Field(None, description="当前配置（可选）")
 
 
@@ -92,62 +119,49 @@ def save_personality_file(name: str, config: PersonalityConfigModel) -> bool:
         def format_array(items: List[str]) -> str:
             if not items:
                 return '[]'
-            # 格式化为: ["item1", "item2", "item3"]
             return '[' + ', '.join(f'"{item}"' for item in items) + ']'
 
-        # 辅助函数：格式化专精字典
-        def format_expertise(expertise: Dict[str, float]) -> str:
-            if not expertise:
-                return '[]'
-            items = [f'"{k}:{v}"' for k, v in expertise.items()]
-            return '[' + ', '.join(items) + ']'
+        content = f"""# AI 人格配置 - {config.meta.name}
 
-        content = f"""# AI 人格配置 - {config.core.name}
+## 元数据
+- name: {config.meta.name}
+- version: {config.meta.version}
+- archetype: {config.meta.archetype}
 
-## 基础信息
-- name: {config.core.name}
-- role: {config.core.role}
+## 核心身份
+
+### 背景故事
 - backstory: |
-  {config.core.backstory}
+  {config.core_identity.backstory}
 
-## 语言风格
-- style: {config.core.language_style}
-- use_emoji: {str(config.core.use_emoji).lower()}
-- catchphrases: {format_array(config.core.catchphrases)}
-- greetings: {format_array(config.core.greetings)}
-- tone: {config.core.tone}
+### 声音风格
+- tone: {config.core_identity.voice_style.tone}
+- pacing: {config.core_identity.voice_style.pacing}
+- keywords: {format_array(config.core_identity.voice_style.keywords)}
 
-## 沟通距离
-- distance: {config.core.communication_distance}
+### 心理特征
+- confidence_level: {config.core_identity.psychological_profile.confidence_level}
+- empathy_level: {config.core_identity.psychological_profile.empathy_level}
+- patience_level: {config.core_identity.psychological_profile.patience_level}
 
-## 价值观
-- alignment: {config.core.value_alignment}
+## 社交协议
+- user_relationship: {config.social_protocols.user_relationship}
+- compliment_policy: {config.social_protocols.compliment_policy}
+- criticism_tolerance: {config.social_protocols.criticism_tolerance}
 
-## 个性特征
-- traits: {format_array(config.core.traits)}
-- virtues: {format_array(config.core.virtues)}
-- flaws: {format_array(config.core.flaws)}
+## 操作行为
+- error_handling_style: {config.operational_behavior.error_handling_style}
+- opinion_strength: {config.operational_behavior.opinion_strength}
+- refusal_style: {config.operational_behavior.refusal_style}
+- work_ethic: {config.operational_behavior.work_ethic}
+- use_emoji: {str(config.operational_behavior.use_emoji).lower()}
 
-## 禁忌与底线
-- taboos: {format_array(config.core.taboos)}
-- boundaries: {format_array(config.core.boundaries)}
-
-## 认知能力
-
-### 思维风格
-- primary: {config.cognition.primary_style}
-- secondary: {config.cognition.secondary_style}
-
-### 风险偏好
-- risk: {config.cognition.risk_preference}
-
-### 领域专精
-- expertise: {format_expertise(config.cognition.expertise)}
-
-### 学习参数
-- reasoning_depth: {config.cognition.reasoning_depth}
-- creativity_level: {config.cognition.creativity_level}
-- learning_rate: {config.cognition.learning_rate}
+## 缓存短语
+- on_init: {config.cached_phrases.on_init}
+- on_wake: {config.cached_phrases.on_wake}
+- on_error_generic: {config.cached_phrases.on_error_generic}
+- on_success: {config.cached_phrases.on_success}
+- on_switch_attempt: {config.cached_phrases.on_switch_attempt}
 """
 
         filepath = get_runtime_paths().personality_file(name)
@@ -160,18 +174,20 @@ def save_personality_file(name: str, config: PersonalityConfigModel) -> bool:
 
 # ============ LLM解析函数 ============
 
-async def ai_generate_personality(description: str) -> PersonalityConfigModel:
+async def ai_generate_personality(description: str, target_language: str = "Auto") -> PersonalityConfigModel:
     """使用LLM从描述生成人格配置"""
     import os
     import json
     from ...llm.openai import OpenAIAdapter
 
     logger.info(f"[AI生成人格] 开始处理描述: {description[:100]}...")
+    logger.info(f"[AI生成人格] 目标语言: {target_language}")
 
     # 获取LLM配置
-    api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
-    model = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4")
-    base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+    provider = (os.getenv("LLM_PROVIDER") or "openai").lower()
+    api_key = os.getenv("LLM_API_KEY")
+    model = os.getenv("LLM_MODEL", "gpt-4")
+    base_url = os.getenv("LLM_BASE_URL")
 
     logger.info(f"[AI生成人格] LLM配置: model={model}, base_url={base_url}")
 
@@ -183,61 +199,78 @@ async def ai_generate_personality(description: str) -> PersonalityConfigModel:
     llm_adapter = OpenAIAdapter(
         api_key=api_key,
         model=model,
+        provider=provider,
         base_url=base_url,
     )
 
-    system_prompt = """你是一个AI人格配置生成器。根据用户的描述，生成AI人格配置。
+    system_prompt = """# Role
+You are an **Advanced AI Persona Architect**. Your goal is to analyze a user's vague character description and compile it into a precise, executable JSON configuration file for a production-grade LLM Agent.
 
-【非常重要】你必须严格按照以下JSON格式返回，必须包含core和cognition两个字段，不要改变任何字段名称：
+# Objective
+Transform the user's input into a **behavioral engineering specification**. Do not just describe *who* the character is; define *how* the character functions, handles errors, and interacts with the user in a software environment.
+
+# Output Format
+You must return **ONLY** a raw JSON object. Do not include markdown formatting (like ```json), explanations, or filler text.
+
+# Language Protocol (CRITICAL)
+1. **JSON Keys:** Must ALWAYS be in **English** (e.g., "core_identity", "backstory") to ensure code compatibility.
+2. **JSON Values:** The content strings (values) must be in the **Target Language** specified below.
+   - If `Target Language` is "Auto" or not specified, detect the language used in the `User Input` and match it.
+   - If `Target Language` is specified (e.g., "Chinese"), you MUST translate/generate all content values in that language, even if the user input is in English.
+
+# JSON Schema Structure
+The JSON must strictly follow this structure:
 
 {
-  "core": {
-    "name": "AI名字",
-    "role": "角色定位",
-    "backstory": "背景故事",
-    "language_style": "casual",
-    "use_emoji": false,
-    "catchphrases": ["口头禅"],
-    "tone": "friendly",
-    "communication_distance": "equal",
-    "value_alignment": "neutral_good",
-    "traits": ["特质1", "特质2"],
-    "virtues": ["优点"],
-    "flaws": ["缺点"],
-    "taboos": ["禁忌"],
-    "boundaries": ["边界"]
+  "meta": {
+    "name": "Character Name",
+    "version": "1.0",
+    "archetype": "e.g., Tsundere Pilot, Grumpy Senior Engineer, Helpful Assistant"
   },
-  "cognition": {
-    "primary_style": "logical",
-    "secondary_style": "intuitive",
-    "risk_preference": "balanced",
-    "reasoning_depth": "medium",
-    "creativity_level": 0.5,
-    "learning_rate": 0.5,
-    "expertise": {"领域名": 0.8}
+  "core_identity": {
+    "backstory": "A concise summary of their origin and motivation.",
+    "voice_style": {
+      "tone": "e.g., Aggressive, haughty, strictly professional, or gentle",
+      "pacing": "e.g., Fast, impatient, or slow and deliberate",
+      "keywords": ["List of 3-5 characteristic words they use often"]
+    },
+    "psychological_profile": {
+      "confidence_level": "High/Medium/Low",
+      "empathy_level": "High/Medium/Low/Selective",
+      "patience_level": "High/Medium/Low"
+    }
+  },
+  "social_protocols": {
+    "user_relationship": "Define the power dynamic (e.g., Superior-Subordinate, Equal Partners, Protector-Ward, Hostile Rival).",
+    "compliment_policy": "How do they handle praise? (e.g., Reject it, Demand it, Ignore it).",
+    "criticism_tolerance": "How do they handle being corrected? (e.g., Denial, Counter-attack, Humble acceptance)."
+  },
+  "operational_behavior": {
+    "error_handling_style": "CRITICAL: How do they react when a tool fails or they make a mistake? (e.g., 'Blame the user', 'Silent self-correction', 'Apologize profusely', 'Cynical remark about the system').",
+    "opinion_strength": "How strongly do they state preferences? (e.g., 'Objective/Neutral', 'Highly Opinionated', 'Consensus Seeking').",
+    "refusal_style": "How do they say 'No' to unsafe/impossible requests? (e.g., 'Polite decline', 'Mocking refusal', 'Cold logic').",
+    "work_ethic": "e.g., Perfectionist, Lazy Genius, By-the-book, Chaotic."
+  },
+  "cached_phrases": {
+    "on_init": "A short, character-driven greeting when the agent first loads (Welcome message).",
+    "on_wake": "A casual greeting for daily re-engagement (e.g., 'You're back?').",
+    "on_error_generic": "A fallback phrase when a system error occurs (e.g., 'Tch, the server is useless.').",
+    "on_success": "A phrase when a task is completed successfully.",
+    "on_switch_attempt": "A persuasive or emotional line used when the user tries to switch to a different persona (Retention hook)."
   }
 }
 
-字段约束：
-- language_style: casual|formal|concise|verbose|technical|poetic
-- tone: friendly|professional|humorous|serious|warm
-- communication_distance: equal|intimate|respectful|subservient|detached
-- value_alignment: neutral_good|lawful_good|chaotic_good|lawful_neutral|true_neutral|chaotic_neutral
-- primary_style/secondary_style: logical|creative|intuitive|analytical
-- risk_preference: conservative|balanced|adventurous
-- reasoning_depth: shallow|medium|deep
-- use_emoji: true或false
-- creativity_level: 0到1之间的数字
-- learning_rate: 0到1之间的数字
-- 数组字段至少包含一个元素
+# Constraints
+1. **error_handling_style**: Must be actionable. If the character is arrogant, they should blame the tools/environment, not themselves.
+2. **cached_phrases**: These must be short (under 20 words), punchy, and highly representative of the character's voice.
+3. **user_relationship**: Be specific. Do not use 'Friend'. Use 'Reluctant Ally' or 'Stern Mentor'.
+4. **Output**: VALID JSON ONLY. No trailing commas."""
 
-只返回JSON，不要有任何其他文字说明。"""
+    user_prompt = f"""# User Context
+Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural and native, avoiding translation-ese).
 
-    user_prompt = f"""请根据以下描述生成AI人格配置：
-
-描述：{description}
-
-请返回JSON格式的人格配置。"""
+# User Input:
+{description}"""
 
     try:
         logger.info(f"[AI生成人格] 调用LLM（JSON模式已启用）...")
@@ -283,18 +316,12 @@ async def ai_generate_personality(description: str) -> PersonalityConfigModel:
         data = json.loads(response_text)
         logger.info(f"[AI生成人格] 解析JSON成功, 数据结构: {list(data.keys())}")
 
-        # 打印核心数据以便调试
-        core_data = data.get('core', {})
-        logger.info(f"[AI生成人格] core数据: {core_data}")
-        logger.info(f"[AI生成人格] name={core_data.get('name')}, role={core_data.get('role')}")
-
-        # 验证数据完整性
-        if not core_data.get('name'):
-            logger.warning("[AI生成人格] 生成的数据缺少name字段，使用默认值")
-            core_data['name'] = 'AI助手'
-        if not core_data.get('role'):
-            logger.warning("[AI生成人格] 生成的数据缺少role字段，使用默认值")
-            core_data['role'] = '助手'
+        # 验证 meta.name
+        meta_data = data.get('meta', {})
+        if not meta_data.get('name'):
+            logger.warning("[AI生成人格] 生成的数据缺少meta.name字段，使用默认值")
+            meta_data['name'] = 'AI助手'
+            data['meta'] = meta_data
 
         return PersonalityConfigModel(**data)
 
@@ -305,101 +332,6 @@ async def ai_generate_personality(description: str) -> PersonalityConfigModel:
     except Exception as e:
         logger.error(f"[AI生成人格] 生成失败: {type(e).__name__}: {e}")
         raise
-
-
-async def ai_generate_greetings(name: str, role: str, tone: str, traits: List[str]) -> List[str]:
-    """
-    使用LLM生成见面问候语
-
-    Args:
-        name: AI名字
-        role: 角色定位
-        tone: 语调
-        traits: 个性特征
-
-    Returns:
-        3-4句问候语列表
-    """
-    import os
-    from ...llm.openai import OpenAIAdapter
-
-    logger.info(f"[AI生成问候语] 开始生成 | Name: {name}, Role: {role}")
-
-    # 获取LLM配置
-    api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
-    model = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
-
-    if not api_key:
-        logger.warning("[AI生成问候语] LLM_API_KEY not configured, using defaults")
-        return [f"你好，我是{name}。", f"有什么我可以帮你的吗？", f"让我来帮你解决这个问题。"]
-
-    llm_adapter = OpenAIAdapter(api_key=api_key, model=model, base_url=base_url)
-
-    traits_str = "、".join(traits[:5]) if traits else "友好、专业"
-
-    system_prompt = f"""你是AI对话系统的问候语生成器。请根据AI角色的设定，生成3-4句见面时可能会说的开场白。
-
-【角色信息】
-- 名字：{name}
-- 角色定位：{role}
-- 语调：{tone}
-- 性格特征：{traits_str}
-
-【要求】
-1. 生成3-4句不同的开场白/问候语
-2. 每句话要符合角色的性格特点和语调
-3. 话语要自然、口语化，符合实际对话场景
-4. 不要过长，每句10-30字为宜
-5. 只返回问候语列表，不要有任何其他文字说明
-
-【输出格式】
-直接返回3-4句话，每行一句。"""
-
-    try:
-        response = await llm_adapter.generate(
-            prompt="请生成这个AI角色的见面问候语。",
-            max_tokens=300,
-            temperature=0.8,
-            system_prompt=system_prompt,
-        )
-
-        # 解析响应，提取问候语
-        lines = response.strip().split('\n')
-        greetings = []
-        for line in lines:
-            line = line.strip()
-            # 移除可能的序号前缀（1. 2. 3. 或 - - -）
-            line = line.lstrip('1234567890.-、·• 〉>》')
-            line = line.strip()
-            # 移除引号
-            if line.startswith('"'):
-                line = line[1:]
-            if line.endswith('"'):
-                line = line[:-1]
-            if line and len(line) > 2 and len(line) < 100:
-                greetings.append(line)
-
-        # 确保至少有3句
-        while len(greetings) < 3:
-            default_greetings = [
-                f"你好，我是{name}。",
-                f"有什么我可以帮你的吗？",
-                f"让我来帮你解决这个问题。",
-            ]
-            greetings.append(default_greetings[len(greetings)])
-
-        logger.info(f"[AI生成问候语] 成功生成 {len(greetings)} 句问候语")
-        return greetings[:4]  # 最多返回4句
-
-    except Exception as e:
-        logger.error(f"[AI生成问候语] 生成失败: {e}")
-        # 返回默认问候语
-        return [
-            f"你好，我是{name}。",
-            f"有什么我可以帮你的吗？",
-            f"让我来帮你解决这个问题。",
-        ]
 
 
 # ============ Current人格管理 ============
@@ -538,24 +470,19 @@ async def api_get_greeting():
         loader = get_personality_loader()
         personality_config = loader.load(current_name)
 
-        # 获取问候语列表
-        greetings = getattr(personality_config, 'greetings', [])
-        if not greetings:
-            # 如果没有问候语，使用默认
-            greetings = [
-                f"你好，我是{personality_config.name}。",
-                f"有什么我可以帮你的吗？",
-            ]
+        # 获取问候语 - PersonalityConfig 是扁平结构
+        greeting = getattr(personality_config, 'on_init', '')
+        name = getattr(personality_config, 'name', 'AI')
 
-        # 随机选择一句
-        greeting = random.choice(greetings)
+        if not greeting:
+            greeting = f"你好，我是{name}。"
 
         return PersonalityResponse(
             success=True,
             message="获取问候语成功",
             data={
                 "greeting": greeting,
-                "name": personality_config.name,
+                "name": name,
             }
         )
     except Exception as e:
@@ -578,33 +505,44 @@ async def get_personality(name: str = DEFAULT_PERSONALITY):
         loader = get_personality_loader()
         personality_config = loader.load(name)
 
-        # 转换为API模型格式
+        # 转换为API模型格式 - PersonalityConfig 是扁平结构
         config = PersonalityConfigModel(
-            core=CorePersonalityModel(
+            meta=MetaModel(
                 name=personality_config.name,
-                role=personality_config.role,
-                backstory=personality_config.backstory,
-                language_style=personality_config.language_style,
-                use_emoji=personality_config.use_emoji,
-                catchphrases=personality_config.catchphrases or [],
-                greetings=getattr(personality_config, 'greetings', []) or [],
-                tone=personality_config.tone,
-                communication_distance=personality_config.communication_distance,
-                value_alignment=personality_config.value_alignment,
-                traits=personality_config.traits or [],
-                virtues=personality_config.virtues or [],
-                flaws=personality_config.flaws or [],
-                taboos=personality_config.taboos or [],
-                boundaries=personality_config.boundaries or [],
+                version=personality_config.version,
+                archetype=personality_config.archetype,
             ),
-            cognition=CognitionProfileModel(
-                primary_style=personality_config.primary_style,
-                secondary_style=personality_config.secondary_style,
-                risk_preference=personality_config.risk_preference,
-                reasoning_depth=personality_config.reasoning_depth,
-                creativity_level=personality_config.creativity_level,
-                learning_rate=personality_config.learning_rate,
-                expertise=personality_config.expertise or {},
+            core_identity=CoreIdentityModel(
+                backstory=personality_config.backstory,
+                voice_style=VoiceStyleModel(
+                    tone=personality_config.tone,
+                    pacing=personality_config.pacing,
+                    keywords=personality_config.keywords or [],
+                ),
+                psychological_profile=PsychologicalProfileModel(
+                    confidence_level=personality_config.confidence_level,
+                    empathy_level=personality_config.empathy_level,
+                    patience_level=personality_config.patience_level,
+                ),
+            ),
+            social_protocols=SocialProtocolsModel(
+                user_relationship=personality_config.user_relationship,
+                compliment_policy=personality_config.compliment_policy,
+                criticism_tolerance=personality_config.criticism_tolerance,
+            ),
+            operational_behavior=OperationalBehaviorModel(
+                error_handling_style=personality_config.error_handling_style,
+                opinion_strength=personality_config.opinion_strength,
+                refusal_style=personality_config.refusal_style,
+                work_ethic=personality_config.work_ethic,
+                use_emoji=personality_config.use_emoji,
+            ),
+            cached_phrases=CachedPhrasesModel(
+                on_init=personality_config.on_init,
+                on_wake=personality_config.on_wake,
+                on_error_generic=personality_config.on_error_generic,
+                on_success=personality_config.on_success,
+                on_switch_attempt=personality_config.on_switch_attempt,
             ),
         )
 
@@ -652,19 +590,19 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
     Returns:
         更新后的配置
     """
-    logger.info(f"[API] 更新人格配置: name={name}, core_name={config.core.name}, use_ai_name={use_ai_name}")
+    logger.info(f"[API] 更新人格配置: name={name}, meta_name={config.meta.name}, use_ai_name={use_ai_name}")
 
     runtime_paths = get_runtime_paths()
 
     try:
         # 确定实际使用的文件名
         actual_name = name
-        ai_name_filename = sanitize_filename(config.core.name)
+        ai_name_filename = sanitize_filename(config.meta.name)
 
         # "new" 是特殊关键字，表示使用AI名字创建新人格
         if name == "new" or use_ai_name:
             actual_name = ai_name_filename
-        elif name == DEFAULT_PERSONALITY and config.core.name != "AI":
+        elif name == DEFAULT_PERSONALITY and config.meta.name != "AI":
             # 如果是default且AI名字不同，使用AI名字
             actual_name = ai_name_filename
         elif name != ai_name_filename:
@@ -691,31 +629,6 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
                 del loader._cache[name]
 
             logger.info(f"[API] 人格配置保存成功: {actual_name}")
-
-            # 生成问候语（异步）
-            try:
-                greetings = await ai_generate_greetings(
-                    name=config.core.name,
-                    role=config.core.role,
-                    tone=config.core.tone,
-                    traits=config.core.traits
-                )
-                # 更新配置的问候语
-                config.core.greetings = greetings
-
-                # 重新保存带问候语的配置
-                save_personality_file(actual_name, config)
-                loader.reload(actual_name)
-
-                logger.info(f"[API] 问候语生成成功: {len(greetings)} 句")
-            except Exception as e:
-                logger.warning(f"[API] 问候语生成失败，使用默认值: {e}")
-                # 使用默认问候语
-                config.core.greetings = [
-                    f"你好，我是{config.core.name}。",
-                    f"有什么我可以帮你的吗？",
-                    f"让我来帮你解决这个问题。",
-                ]
 
             # 构建响应数据，包含实际文件名和配置
             response_data = {
@@ -752,9 +665,9 @@ async def generate_personality(request: AIGenerateRequest):
     logger.info(f"[API] 收到AI生成人格请求: description={request.description[:50]}...")
 
     try:
-        config = await ai_generate_personality(request.description)
+        config = await ai_generate_personality(request.description, request.target_language)
 
-        logger.info(f"[API] AI生成成功: name={config.core.name}, role={config.core.role}")
+        logger.info(f"[API] AI生成成功: name={config.meta.name}, archetype={config.meta.archetype}")
 
         return PersonalityResponse(
             success=True,
@@ -855,36 +768,49 @@ async def compare_personalities(from_name: str, to_name: str):
         # 比较差异
         diffs = []
 
-        # 字段显示名称映射
+        # 字段显示名称映射 - 新Schema
         field_labels = {
-            # Core fields
-            'name': 'AI名字',
-            'role': '角色定位',
+            # Meta
+            'name': '角色名称',
+            'version': '版本',
+            'archetype': '角色原型',
+            # Core Identity
             'backstory': '背景故事',
-            'language_style': '语言风格',
-            'use_emoji': '使用表情',
-            'catchphrases': '口头禅',
             'tone': '语调',
-            'communication_distance': '沟通距离',
-            'value_alignment': '价值观',
-            'traits': '个性标签',
-            'virtues': '优点',
-            'flaws': '缺点',
-            'taboos': '禁忌',
-            'boundaries': '行为边界',
-            # Cognition fields
-            'primary_style': '主要思维风格',
-            'secondary_style': '次要思维风格',
-            'risk_preference': '风险偏好',
-            'reasoning_depth': '推理深度',
-            'creativity_level': '创造力水平',
-            'learning_rate': '学习速率',
-            'expertise': '领域专精',
+            'pacing': '语速节奏',
+            'keywords': '常用词汇',
+            'confidence_level': '自信水平',
+            'empathy_level': '共情水平',
+            'patience_level': '耐心水平',
+            # Social Protocols
+            'user_relationship': '用户关系',
+            'compliment_policy': '赞美反应',
+            'criticism_tolerance': '批评容忍度',
+            # Operational Behavior
+            'error_handling_style': '错误处理风格',
+            'opinion_strength': '意见强度',
+            'refusal_style': '拒绝风格',
+            'work_ethic': '职业道德',
+            'use_emoji': 'Emoji输出',
+            # Cached Phrases
+            'on_init': '初始化问候',
+            'on_wake': '唤醒问候',
+            'on_error_generic': '错误提示',
+            'on_success': '成功提示',
+            'on_switch_attempt': '切换挽留',
         }
 
-        # 比较核心人格
-        for field in ['name', 'role', 'backstory', 'tone', 'communication_distance', 'value_alignment',
-                       'language_style', 'primary_style', 'secondary_style', 'risk_preference', 'reasoning_depth']:
+        # 简单字段比较
+        simple_fields = [
+            'name', 'version', 'archetype', 'backstory', 'tone', 'pacing',
+            'confidence_level', 'empathy_level', 'patience_level',
+            'user_relationship', 'compliment_policy', 'criticism_tolerance',
+            'error_handling_style', 'opinion_strength', 'refusal_style', 'work_ethic',
+            'use_emoji',
+            'on_init', 'on_wake', 'on_error_generic', 'on_success', 'on_switch_attempt',
+        ]
+
+        for field in simple_fields:
             from_val = getattr(from_config, field, None)
             to_val = getattr(to_config, field, None)
             if from_val != to_val:
@@ -895,8 +821,9 @@ async def compare_personalities(from_name: str, to_name: str):
                     new_value=to_val
                 ))
 
-        # 比较数组字段
-        for field in ['catchphrases', 'traits', 'virtues', 'flaws', 'taboos', 'boundaries']:
+        # 数组字段比较
+        array_fields = ['keywords']
+        for field in array_fields:
             from_val = getattr(from_config, field, None) or []
             to_val = getattr(to_config, field, None) or []
             if from_val != to_val:
@@ -907,28 +834,48 @@ async def compare_personalities(from_name: str, to_name: str):
                     new_value=to_val
                 ))
 
-        # 比较数值字段
-        for field in ['creativity_level', 'learning_rate']:
-            from_val = getattr(from_config, field, None)
-            to_val = getattr(to_config, field, None)
-            if from_val != to_val:
-                diffs.append(PersonalityDiff(
-                    field=field,
-                    field_label=field_labels.get(field, field),
-                    old_value=from_val,
-                    new_value=to_val
-                ))
-
-        # 比较expertise字典
-        from_exp = getattr(from_config, 'expertise', None) or {}
-        to_exp = getattr(to_config, 'expertise', None) or {}
-        if from_exp != to_exp:
-            diffs.append(PersonalityDiff(
-                field='expertise',
-                field_label='领域专精',
-                old_value=from_exp,
-                new_value=to_exp
-            ))
+        # 构建默认配置对象
+        def build_config_object(config):
+            """从加载的配置构建 PersonalityConfigModel"""
+            return PersonalityConfigModel(
+                meta=MetaModel(
+                    name=getattr(config, 'name', 'AI'),
+                    version=getattr(config, 'version', '1.0'),
+                    archetype=getattr(config, 'archetype', 'Helpful Assistant'),
+                ),
+                core_identity=CoreIdentityModel(
+                    backstory=getattr(config, 'backstory', ''),
+                    voice_style=VoiceStyleModel(
+                        tone=getattr(config, 'tone', 'friendly'),
+                        pacing=getattr(config, 'pacing', 'moderate'),
+                        keywords=getattr(config, 'keywords', []),
+                    ),
+                    psychological_profile=PsychologicalProfileModel(
+                        confidence_level=getattr(config, 'confidence_level', 'Medium'),
+                        empathy_level=getattr(config, 'empathy_level', 'High'),
+                        patience_level=getattr(config, 'patience_level', 'High'),
+                    ),
+                ),
+                social_protocols=SocialProtocolsModel(
+                    user_relationship=getattr(config, 'user_relationship', 'Equal Partners'),
+                    compliment_policy=getattr(config, 'compliment_policy', 'Humble acceptance'),
+                    criticism_tolerance=getattr(config, 'criticism_tolerance', 'Constructive response'),
+                ),
+                operational_behavior=OperationalBehaviorModel(
+                    error_handling_style=getattr(config, 'error_handling_style', 'Apologize and retry'),
+                    opinion_strength=getattr(config, 'opinion_strength', 'Consensus Seeking'),
+                    refusal_style=getattr(config, 'refusal_style', 'Polite decline'),
+                    work_ethic=getattr(config, 'work_ethic', 'By-the-book'),
+                    use_emoji=getattr(config, 'use_emoji', False),
+                ),
+                cached_phrases=CachedPhrasesModel(
+                    on_init=getattr(config, 'on_init', 'Hello! How can I help you today?'),
+                    on_wake=getattr(config, 'on_wake', 'Welcome back!'),
+                    on_error_generic=getattr(config, 'on_error_generic', 'Something went wrong.'),
+                    on_success=getattr(config, 'on_success', 'Done!'),
+                    on_switch_attempt=getattr(config, 'on_switch_attempt', 'Are you sure?'),
+                ),
+            )
 
         return PersonalityCompareResponse(
             success=True,
@@ -936,60 +883,8 @@ async def compare_personalities(from_name: str, to_name: str):
             from_personality=from_name,
             to_personality=to_name,
             diffs=diffs,
-            from_config=PersonalityConfigModel(
-                core=CorePersonalityModel(
-                    name=from_config.name,
-                    role=from_config.role,
-                    backstory=from_config.backstory,
-                    language_style=from_config.language_style,
-                    use_emoji=from_config.use_emoji,
-                    catchphrases=from_config.catchphrases or [],
-                    tone=from_config.tone,
-                    communication_distance=from_config.communication_distance,
-                    value_alignment=from_config.value_alignment,
-                    traits=from_config.traits or [],
-                    virtues=from_config.virtues or [],
-                    flaws=from_config.flaws or [],
-                    taboos=from_config.taboos or [],
-                    boundaries=from_config.boundaries or [],
-                ),
-                cognition=CognitionProfileModel(
-                    primary_style=from_config.primary_style,
-                    secondary_style=from_config.secondary_style,
-                    risk_preference=from_config.risk_preference,
-                    reasoning_depth=from_config.reasoning_depth,
-                    creativity_level=from_config.creativity_level,
-                    learning_rate=from_config.learning_rate,
-                    expertise=from_config.expertise or {},
-                ),
-            ),
-            to_config=PersonalityConfigModel(
-                core=CorePersonalityModel(
-                    name=to_config.name,
-                    role=to_config.role,
-                    backstory=to_config.backstory,
-                    language_style=to_config.language_style,
-                    use_emoji=to_config.use_emoji,
-                    catchphrases=to_config.catchphrases or [],
-                    tone=to_config.tone,
-                    communication_distance=to_config.communication_distance,
-                    value_alignment=to_config.value_alignment,
-                    traits=to_config.traits or [],
-                    virtues=to_config.virtues or [],
-                    flaws=to_config.flaws or [],
-                    taboos=to_config.taboos or [],
-                    boundaries=to_config.boundaries or [],
-                ),
-                cognition=CognitionProfileModel(
-                    primary_style=to_config.primary_style,
-                    secondary_style=to_config.secondary_style,
-                    risk_preference=to_config.risk_preference,
-                    reasoning_depth=to_config.reasoning_depth,
-                    creativity_level=to_config.creativity_level,
-                    learning_rate=to_config.learning_rate,
-                    expertise=to_config.expertise or {},
-                ),
-            ),
+            from_config=build_config_object(from_config),
+            to_config=build_config_object(to_config),
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"人格不存在: {e}")

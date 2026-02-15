@@ -9,11 +9,13 @@ Handles tool execution using LLM's native function calling capability:
 """
 import json
 import logging
-from typing import Dict, Any, List, Optional, Callable
+import inspect
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from ..llm.base import LLMAdapter
-from .registry import ToolRegistry, tool_registry
+from ..llm.provider_bridge import LLMProviderBridge
+from .registry import ToolRegistry
 from .schema import ToolExecutionContext
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
@@ -37,6 +39,7 @@ class ToolCallResult:
     success: bool
     data: Any = None
     error: Optional[str] = None
+    error_code: Optional[str] = None
     execution_time: float = 0.0
 
 
@@ -55,6 +58,7 @@ class FunctionCallingExecutor:
         llm_adapter: LLMAdapter,
         tool_registry: ToolRegistry,
         skill_executor=None,
+        tool_result_callback=None,
     ):
         """
         Initialize the executor
@@ -65,8 +69,10 @@ class FunctionCallingExecutor:
             skill_executor: Optional skill executor for skill-based tools
         """
         self.llm = llm_adapter
+        self.provider_bridge = LLMProviderBridge(llm_adapter)
         self.tool_registry = tool_registry
         self.skill_executor = skill_executor
+        self.tool_result_callback = tool_result_callback
 
     async def execute_with_tools(
         self,
@@ -74,8 +80,11 @@ class FunctionCallingExecutor:
         system_prompt: str,
         selected_tools: List[str],
         user_id: str,
+        session_id: Optional[str] = None,
         conversation_history: List[Dict] = None,
         max_iterations: int = MAX_ITERATIONS,
+        disable_thinking: bool = True,
+        intent: str = "unknown",
     ) -> str:
         """
         Execute with continuous tool calling
@@ -109,7 +118,13 @@ class FunctionCallingExecutor:
                 system_prompt=system_prompt,
                 messages=messages,
                 tools=tools,
+                disable_thinking=disable_thinking,
             )
+
+            # Preserve assistant tool_call message for protocol-correct next turn
+            assistant_message = response.get("assistant_message")
+            if assistant_message:
+                messages.append(assistant_message)
 
             # Check if LLM wants to call tools
             if response.get("tool_calls"):
@@ -124,6 +139,14 @@ class FunctionCallingExecutor:
                         user_id=user_id,
                     )
                     tool_results.append(result)
+                    await self._emit_tool_result(
+                        user_id=user_id,
+                        session_id=session_id,
+                        user_message=user_message,
+                        intent=intent,
+                        tool_call=tool_call,
+                        result=result,
+                    )
 
                     # Add tool result message
                     messages.append({
@@ -138,7 +161,20 @@ class FunctionCallingExecutor:
 
                 # Check if all tools failed
                 if all(not r.success for r in tool_results):
-                    logger.warning("[FunctionCalling] All tools failed, stopping loop")
+                    failed_details = []
+                    for r in tool_results:
+                        failed_details.append({
+                            "tool_call_id": r.tool_call_id,
+                            "tool_name": r.tool_name,
+                            "error": r.error or "unknown error",
+                            "execution_time": round(r.execution_time, 3),
+                        })
+                    logger.warning(
+                        f"[FunctionCalling] All tools failed, stopping loop | details={failed_details}"
+                    )
+                    llm_logger.warning(
+                        f"FUNCTION_CALLING_ALL_TOOLS_FAILED | iteration={iteration} | details={failed_details}"
+                    )
                     break
 
                 # Continue loop for potential more tool calls
@@ -158,8 +194,44 @@ class FunctionCallingExecutor:
         final_response = await self._call_llm_without_tools(
             system_prompt=system_prompt,
             messages=messages,
+            disable_thinking=disable_thinking,
         )
         return final_response.get("content", "No response generated")
+
+    async def _emit_tool_result(
+        self,
+        user_id: str,
+        session_id: Optional[str],
+        user_message: str,
+        intent: str,
+        tool_call: ToolCall,
+        result: ToolCallResult,
+    ) -> None:
+        """Emit tool execution result to external callback if provided."""
+        if not self.tool_result_callback:
+            return
+
+        payload = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "user_message": user_message,
+            "intent": intent,
+            "tool_name": tool_call.name,
+            "tool_call_id": tool_call.id,
+            "arguments": tool_call.arguments,
+            "success": result.success,
+            "data": result.data,
+            "error": result.error,
+            "error_code": result.error_code,
+            "execution_time": result.execution_time,
+        }
+
+        try:
+            callback_result = self.tool_result_callback(payload)
+            if inspect.isawaitable(callback_result):
+                await callback_result
+        except Exception as e:
+            logger.warning(f"[FunctionCalling] Tool result callback failed: {e}")
 
     def _build_tools_parameter(self, selected_tools: List[str]) -> List[Dict]:
         """
@@ -250,6 +322,7 @@ class FunctionCallingExecutor:
         system_prompt: str,
         messages: List[Dict],
         tools: List[Dict],
+        disable_thinking: bool = True,
     ) -> Dict[str, Any]:
         """
         Call LLM with tools parameter
@@ -264,8 +337,6 @@ class FunctionCallingExecutor:
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
 
-        # Check LLM type
-        is_anthropic = hasattr(self.llm, '__class__') and 'anthropic' in self.llm.__class__.__module__.lower()
         model_name = self.llm.model_name
 
         log_llm_request(
@@ -280,71 +351,37 @@ class FunctionCallingExecutor:
         )
 
         try:
-            if is_anthropic:
-                # Anthropic API with tool use
-                import anthropic
+            provider_response = await self.provider_bridge.chat_with_tools(
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                max_tokens=4096,
+                temperature=0.7,
+                disable_thinking=disable_thinking,
+            )
 
-                # Convert messages to Anthropic format
-                api_messages = self._convert_messages_to_anthropic(messages)
-
-                response = await self.llm._client.messages.create(
-                    model=model_name,
-                    max_tokens=4096,
-                    temperature=0.7,
-                    system=system_prompt,
-                    messages=api_messages,
-                    tools=tools if tools else None,
-                )
-
-                duration_ms = int((time.time() - start_time) * 1000)
-
-                # Parse response
-                result = self._parse_anthropic_response(response)
-                log_llm_response(
-                    llm_logger,
-                    request_id=request_id,
-                    response=str(result),
-                    success=True,
-                    duration_ms=duration_ms,
-                )
-                return result
-
-            else:
-                # OpenAI API
-                # Build full messages with system prompt
-                full_messages = [{"role": "system", "content": system_prompt}] + messages
-
-                # Use chat method if available, otherwise raw generate
-                if hasattr(self.llm, '_client'):
-                    # OpenAI client
-                    response = await self.llm._client.chat.completions.create(
-                        model=model_name,
-                        messages=full_messages,
-                        tools=tools if tools else None,
-                        tool_choice="auto" if tools else None,
-                        max_tokens=4096,
-                        temperature=0.7,
+            result: Dict[str, Any] = {"content": provider_response.content}
+            if provider_response.assistant_message:
+                result["assistant_message"] = provider_response.assistant_message
+            if provider_response.tool_calls:
+                result["tool_calls"] = [
+                    ToolCall(
+                        id=tc.id,
+                        name=tc.name,
+                        arguments=tc.arguments,
                     )
+                    for tc in provider_response.tool_calls
+                ]
 
-                    duration_ms = int((time.time() - start_time) * 1000)
-                    result = self._parse_openai_response(response)
-
-                    log_llm_response(
-                        llm_logger,
-                        request_id=request_id,
-                        response=str(result),
-                        success=True,
-                        duration_ms=duration_ms,
-                    )
-                    return result
-                else:
-                    # Fallback to regular generate
-                    content = await self.llm.generate(
-                        prompt=system_prompt + "\n\n" + "\n".join(m.get("content", "") for m in messages),
-                        max_tokens=4096,
-                        temperature=0.7,
-                    )
-                    return {"content": content}
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_llm_response(
+                llm_logger,
+                request_id=request_id,
+                response=str(result),
+                success=True,
+                duration_ms=duration_ms,
+            )
+            return result
 
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
@@ -363,80 +400,58 @@ class FunctionCallingExecutor:
         self,
         system_prompt: str,
         messages: List[Dict],
+        disable_thinking: bool = True,
     ) -> Dict[str, Any]:
         """Call LLM without tools for final response"""
-        return await self._call_llm_with_tools(
+        import time
+        import uuid
+
+        request_id = str(uuid.uuid4())[:8]
+        start_time = time.time()
+        model_name = self.llm.model_name
+
+        log_llm_request(
+            llm_logger,
+            request_id=request_id,
+            model=model_name,
             system_prompt=system_prompt,
             messages=messages,
-            tools=[],
+            max_tokens=4096,
+            temperature=0.7,
+            fallback_reason="function_calling_final_response_without_tools",
         )
 
-    def _convert_messages_to_anthropic(self, messages: List[Dict]) -> List[Dict]:
-        """Convert messages to Anthropic format"""
-        converted = []
-        for msg in messages:
-            if msg["role"] == "tool":
-                # Tool result message
-                converted.append({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": msg["tool_call_id"],
-                        "content": msg.get("content", ""),
-                    }],
-                })
-            else:
-                converted.append({
-                    "role": msg["role"],
-                    "content": msg.get("content", ""),
-                })
-        return converted
+        try:
+            content = await self.provider_bridge.chat(
+                system_prompt=system_prompt,
+                messages=messages,
+                max_tokens=4096,
+                temperature=0.7,
+                disable_thinking=disable_thinking,
+            )
 
-    def _parse_anthropic_response(self, response) -> Dict[str, Any]:
-        """Parse Anthropic response with tool calls"""
-        tool_calls = []
-        content = None
-
-        for block in response.content:
-            if block.type == "text":
-                content = block.text
-            elif block.type == "tool_use":
-                tool_calls.append(ToolCall(
-                    id=block.id,
-                    name=block.name,
-                    arguments=block.input,
-                ))
-
-        if tool_calls:
-            return {"tool_calls": tool_calls}
-        return {"content": content or ""}
-
-    def _parse_openai_response(self, response) -> Dict[str, Any]:
-        """Parse OpenAI response with tool calls"""
-        choice = response.choices[0]
-        message = choice.message
-
-        tool_calls = []
-        if hasattr(message, 'tool_calls') and message.tool_calls:
-            for tc in message.tool_calls:
-                # Parse arguments
-                arguments = {}
-                if tc.function.arguments:
-                    try:
-                        arguments = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        arguments = {"raw": tc.function.arguments}
-
-                tool_calls.append(ToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    arguments=arguments,
-                ))
-
-        if tool_calls:
-            return {"tool_calls": tool_calls}
-
-        return {"content": message.content or ""}
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_llm_response(
+                llm_logger,
+                request_id=request_id,
+                response=content,
+                success=True,
+                duration_ms=duration_ms,
+                fallback_reason="function_calling_final_response_without_tools",
+            )
+            return {"content": content}
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_llm_response(
+                llm_logger,
+                request_id=request_id,
+                response="",
+                success=False,
+                error=str(e),
+                duration_ms=duration_ms,
+                fallback_reason="function_calling_final_response_without_tools",
+            )
+            raise
 
     async def _execute_tool_call(
         self,
@@ -486,6 +501,11 @@ class FunctionCallingExecutor:
             )
 
             result = await self.tool_registry.execute(tool_name, arguments, context)
+            if not result.success:
+                logger.warning(
+                    f"[FunctionCalling] Tool failed: {tool_name} | "
+                    f"error={result.error} | code={result.error_code}"
+                )
 
             return ToolCallResult(
                 tool_call_id=tool_call.id,
@@ -493,6 +513,7 @@ class FunctionCallingExecutor:
                 success=result.success,
                 data=result.data,
                 error=result.error,
+                error_code=getattr(result, "error_code", None),
                 execution_time=time.time() - start_time,
             )
 

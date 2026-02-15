@@ -4,76 +4,62 @@
 支持：
 - 解析Markdown格式的人格配置
 - 验证配置完整性
-- 转换为CorePersonality和CognitionProfile对象
+- 新Schema结构
+- 向后兼容旧模型
 """
 import re
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .models import (
     CorePersonality,
     CognitionProfile,
     DomainExpertise,
-    LanguageStyle,
-    CommunicationDistance,
-    ValueAlignment,
-    ThinkingStyle,
-    RiskPreference,
 )
 
 logger = logging.getLogger(__name__)
 
 
-# ===== 配置模型 =====
+# ===== 配置模型（新Schema）=====
 
 @dataclass
 class PersonalityConfig:
-    """人格配置"""
-    name: str
-    role: str
+    """人格配置 - 新Schema结构"""
+
+    # Meta
+    name: str = "AI"
+    version: str = "1.0"
+    archetype: str = "Helpful Assistant"
+
+    # Core Identity
     backstory: str = ""
-    language_style: str = "casual"
-    use_emoji: bool = False
-    catchphrases: List[str] = None
-    greetings: List[str] = None
     tone: str = "friendly"
-    communication_distance: str = "equal"
-    value_alignment: str = "neutral_good"
-    traits: List[str] = None
-    virtues: List[str] = None
-    flaws: List[str] = None
-    taboos: List[str] = None
-    boundaries: List[str] = None
+    pacing: str = "moderate"
+    keywords: List[str] = field(default_factory=list)
+    confidence_level: str = "Medium"
+    empathy_level: str = "High"
+    patience_level: str = "High"
 
-    # 认知配置
-    primary_style: str = "logical"
-    secondary_style: str = "intuitive"
-    risk_preference: str = "balanced"
-    expertise: Dict[str, float] = None
-    reasoning_depth: str = "medium"
-    creativity_level: float = 0.5
-    learning_rate: float = 0.5
+    # Social Protocols
+    user_relationship: str = "Equal Partners"
+    compliment_policy: str = "Humble acceptance"
+    criticism_tolerance: str = "Constructive response"
 
-    def __post_init__(self):
-        """初始化默认值"""
-        if self.catchphrases is None:
-            self.catchphrases = []
-        if self.greetings is None:
-            self.greetings = []
-        if self.traits is None:
-            self.traits = []
-        if self.virtues is None:
-            self.virtues = []
-        if self.flaws is None:
-            self.flaws = []
-        if self.taboos is None:
-            self.taboos = []
-        if self.boundaries is None:
-            self.boundaries = []
-        if self.expertise is None:
-            self.expertise = {}
+    # Operational Behavior
+    error_handling_style: str = "Apologize and retry"
+    opinion_strength: str = "Consensus Seeking"
+    refusal_style: str = "Polite decline"
+    work_ethic: str = "By-the-book"
+    use_emoji: bool = False
+
+    # Cached Phrases
+    on_init: str = "Hello! How can I help you today?"
+    on_wake: str = "Welcome back!"
+    on_error_generic: str = "Something went wrong. Let me try again."
+    on_success: str = "Done! Is there anything else?"
+    on_switch_attempt: str = "Are you sure you want to switch?"
 
 
 # ===== 解析器 =====
@@ -81,18 +67,8 @@ class PersonalityConfig:
 class MarkdownPersonalityParser:
     """Markdown人格配置解析器"""
 
-    # 段落解析模式
-    PATTERNS = {
-        "list_item": re.compile(r"^-\s*(\w+):\s*(.+)$"),
-        "key_value": re.compile(r"^(\w+):\s*(.+)$"),
-        "array_start": re.compile(r'^(\w+):\s*\[$'),
-        "section": re.compile(r"^#+\s+(.+)$"),
-    }
-
     def __init__(self):
         self.config: Dict[str, Any] = {}
-        self.current_section: Optional[str] = None
-        self.current_array: Optional[tuple[str, List]] = None  # (field_name, items)
 
     def parse(self, content: str) -> PersonalityConfig:
         """
@@ -105,121 +81,52 @@ class MarkdownPersonalityParser:
             PersonalityConfig对象
         """
         self.config = {}
-        self.current_section = None
-        self.current_array: Optional[tuple[str, List]] = None
 
         for line in content.split('\n'):
             line = line.rstrip()
             if not line:
-                # 空行结束当前数组
-                if self.current_array:
-                    field_name, items = self.current_array
-                    self.config[field_name] = items
-                    self.current_array = None
                 continue
 
-            # 处理数组结束
-            if self.current_array and line == ']':
-                field_name, items = self.current_array
-                self.config[field_name] = items
-                self.current_array = None
+            # 处理数组（格式: - key: ["item1", "item2"]）
+            array_match = re.match(r'^-\s*(\w+):\s*\[(.*)\]$', line)
+            if array_match:
+                key = array_match.group(1)
+                items_str = array_match.group(2)
+                items = self._parse_array(items_str)
+                self.config[key] = items
                 continue
 
-            # 处理数组内容
-            if self.current_array:
-                field_name, items = self.current_array
-                # 移除引号、逗号和闭合括号
-                item = line.strip()
-                # Remove leading/trailing quotes
-                if item.startswith('"'):
-                    item = item[1:]
-                if item.endswith('"'):
-                    item = item[:-1]
-                # Remove trailing comma/bracket
-                item = item.rstrip(',]').strip()
-                if item:
-                    items.append(item)
-                continue
-
-            # 处理数组开始（格式1: - key: [item1, item2]）
-            list_array_match = re.match(r'^-\s*(\w+):\s*\[(.*)$', line)
-            if list_array_match:
-                key = list_array_match.group(1)
-                key = self._normalize_key(key)
-                remainder = list_array_match.group(2).strip()
-                items = []
-                if remainder and remainder != ']':
-                    # 单行数组
-                    for item in remainder.split(','):
-                        item = item.strip()
-                        # Remove trailing bracket first
-                        item = item.rstrip(']')
-                        # Remove quotes
-                        if item.startswith('"'):
-                            item = item[1:]
-                        if item.endswith('"'):
-                            item = item[:-1]
-                        if item:
-                            items.append(item)
-                if line.rstrip().endswith(']'):
-                    self.config[key] = items
-                else:
-                    self.current_array = (key, items)
-                continue
-
-            # 处理章节标题
-            section_match = re.match(r'^#+\s+(.+)$', line)
-            if section_match:
-                self.current_section = section_match.group(1).lower()
+            # 处理多行文本（backstory）
+            if line.startswith('  ') and 'backstory' in self.config:
+                self.config['backstory'] += '\n' + line.strip()
                 continue
 
             # 处理键值对（- key: value 格式）
-            kv_match = re.match(r'^-\s*(\w+):\s*(.+)$', line)
+            kv_match = re.match(r'^-\s*(\w+):\s*(.*)$', line)
             if kv_match:
                 key = kv_match.group(1)
-                value = self._parse_value(kv_match.group(2))
-                # 处理字段名映射
-                key = self._normalize_key(key)
+                value = kv_match.group(2).strip()
+
+                # 处理多行文本标记
+                if value == '|':
+                    self.config[key] = ''
+                    continue
+
+                # 处理引号包裹的值
+                if value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+
+                # 处理布尔值
+                lowered = value.lower()
+                if lowered == "true":
+                    self.config[key] = True
+                    continue
+                if lowered == "false":
+                    self.config[key] = False
+                    continue
+
                 self.config[key] = value
                 continue
-
-            # 处理简单键值对（key: value 格式）
-            simple_kv_match = re.match(r'^(\w+):\s*(.+)$', line)
-            if simple_kv_match:
-                key = simple_kv_match.group(1)
-                value = self._parse_value(simple_kv_match.group(2))
-                # 处理字段名映射
-                key = self._normalize_key(key)
-                self.config[key] = value
-                continue
-
-            # 处理多行文本（背景故事）
-            if self.current_section and line and not line.startswith('#'):
-                if 'backstory' not in self.config:
-                    self.config['backstory'] = ''
-                self.config['backstory'] += line + '\n'
-
-        # 解析expertise字典
-        if 'expertise' in self.config:
-            if isinstance(self.config['expertise'], dict):
-                pass  # 已经是字典
-            elif isinstance(self.config['expertise'], list):
-                # 转换列表为字典
-                expertise_dict = {}
-                for item in self.config['expertise']:
-                    if isinstance(item, str) and ':' in item:
-                        domain, level = item.split(':', 1)
-                        # Strip whitespace and trailing ]/commas
-                        level = level.strip().rstrip(']')
-                        try:
-                            expertise_dict[domain.strip()] = float(level.strip())
-                        except ValueError:
-                            # Skip invalid entries
-                            pass
-                self.config['expertise'] = expertise_dict
-            else:
-                # 字符串或其他类型，转换为空字典
-                self.config['expertise'] = {}
 
         # 清理backstory
         if 'backstory' in self.config:
@@ -227,35 +134,22 @@ class MarkdownPersonalityParser:
 
         return PersonalityConfig(**self.config)
 
-    def _parse_value(self, value: str) -> Any:
-        """解析值类型"""
-        value = value.strip()
+    def _parse_array(self, items_str: str) -> List[str]:
+        """解析数组字符串"""
+        items = []
+        if not items_str:
+            return items
 
-        # 布尔值
-        if value.lower() in ('true', 'false'):
-            return value.lower() == 'true'
+        # 简单分割，处理引号包裹的项目
+        for item in items_str.split(','):
+            item = item.strip()
+            # 移除引号
+            if item.startswith('"') and item.endswith('"'):
+                item = item[1:-1]
+            if item:
+                items.append(item)
 
-        # 数字
-        if value.replace('.', '').isdigit():
-            if '.' in value:
-                return float(value)
-            return int(value)
-
-        # 字符串
-        return value
-
-    def _normalize_key(self, key: str) -> str:
-        """规范化键名，处理Markdown和代码之间的命名差异"""
-        mappings = {
-            "style": "language_style",
-            "distance": "communication_distance",
-            "alignment": "value_alignment",
-            "risk": "risk_preference",
-            "primary": "primary_style",
-            "secondary": "secondary_style",
-            "path": "db_path",  # Avoid conflict with pathlib.Path
-        }
-        return mappings.get(key, key)
+        return items
 
 
 # ===== 加载器 =====
@@ -296,21 +190,31 @@ class PersonalityLoader:
         file_path = self.personalities_path / f"{name}.md"
 
         if not file_path.exists():
-            # 尝试其他可能的路径
+            # 尝试其他可能的路径（按优先级）
             alternative_paths = [
+                # 运行时目录
+                Path.home() / ".magi" / "personalities" / f"{name}.md",
+                # 当前工作目录
                 Path(f"./personalities/{name}.md"),
+                # 项目目录结构
+                Path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
+                # backend 目录
                 Path(f"./backend/personalities/{name}.md"),
-                Path(f"./backend/src/personalities/{name}.md"),
             ]
 
             for alt_path in alternative_paths:
                 if alt_path.exists():
                     file_path = alt_path
+                    logger.info(f"Found personality file at alternative path: {alt_path}")
                     break
             else:
+                # 如果找不到文件，对于 default 返回默认配置而不是报错
+                if name == "default":
+                    logger.warning(f"Default personality file not found, using built-in defaults")
+                    return PersonalityConfig()
                 raise FileNotFoundError(
                     f"Personality file not found: {name}.md "
-                    f"(searched in {self.personalities_path})"
+                    f"(searched in {self.personalities_path} and alternative paths)"
                 )
 
         # 读取文件
@@ -323,16 +227,48 @@ class PersonalityLoader:
         try:
             config = self.parser.parse(content)
         except Exception as e:
-            raise ValueError(f"Failed to parse personality file {file_path}: {e}")
-
-        # 验证配置
-        self._validate_config(config)
+            logger.warning(f"Failed to parse personality file {file_path}: {e}, using defaults")
+            config = PersonalityConfig()
 
         # 缓存
         self._cache[name] = config
         logger.info(f"Loaded personality: {name} from {file_path}")
 
         return config
+
+    def load_raw(self, name: str = "default") -> str:
+        """
+        加载原始 Markdown 内容
+
+        Args:
+            name: 人格名称
+
+        Returns:
+            原始 Markdown 内容字符串
+        """
+        # 构建文件路径
+        file_path = self.personalities_path / f"{name}.md"
+
+        if not file_path.exists():
+            # 尝试其他可能的路径
+            alternative_paths = [
+                Path.home() / ".magi" / "personalities" / f"{name}.md",
+                Path(f"./personalities/{name}.md"),
+                Path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
+                Path(f"./backend/personalities/{name}.md"),
+            ]
+
+            for alt_path in alternative_paths:
+                if alt_path.exists():
+                    file_path = alt_path
+                    break
+            else:
+                return ""
+
+        try:
+            return file_path.read_text(encoding='utf-8')
+        except Exception:
+            return ""
 
     def reload(self, name: str) -> PersonalityConfig:
         """重新加载人格配置"""
@@ -366,55 +302,9 @@ class PersonalityLoader:
 
         return sorted(personalities)
 
-    def _validate_config(self, config: PersonalityConfig):
-        """验证人格配置"""
-        required_fields = ['name', 'role']
-        missing_fields = [f for f in required_fields if not getattr(config, f, None)]
-
-        if missing_fields:
-            raise ValueError(f"Missing required fields: {missing_fields}")
-
-        # 验证枚举值
-        try:
-            LanguageStyle(config.language_style)
-        except ValueError:
-            raise ValueError(f"Invalid language_style: {config.language_style}")
-
-        try:
-            CommunicationDistance(config.communication_distance)
-        except ValueError:
-            raise ValueError(f"Invalid communication_distance: {config.communication_distance}")
-
-        try:
-            ValueAlignment(config.value_alignment)
-        except ValueError:
-            raise ValueError(f"Invalid value_alignment: {config.value_alignment}")
-
-        try:
-            ThinkingStyle(config.primary_style)
-        except ValueError:
-            raise ValueError(f"Invalid primary_style: {config.primary_style}")
-
-        try:
-            ThinkingStyle(config.secondary_style)
-        except ValueError:
-            raise ValueError(f"Invalid secondary_style: {config.secondary_style}")
-
-        try:
-            RiskPreference(config.risk_preference)
-        except ValueError:
-            raise ValueError(f"Invalid risk_preference: {config.risk_preference}")
-
-        # 验证数值范围
-        if not 0 <= config.creativity_level <= 1:
-            raise ValueError(f"creativity_level must be between 0 and 1, got {config.creativity_level}")
-
-        if not 0 <= config.learning_rate <= 1:
-            raise ValueError(f"learning_rate must be between 0 and 1, got {config.learning_rate}")
-
     def to_core_personality(self, config: PersonalityConfig) -> CorePersonality:
         """
-        将PersonalityConfig转换为CorePersonality
+        将PersonalityConfig转换为CorePersonality（向后兼容）
 
         Args:
             config: PersonalityConfig对象
@@ -422,27 +312,71 @@ class PersonalityLoader:
         Returns:
             CorePersonality对象
         """
+        from .models import CommunicationDistance, ValueAlignment, LanguageStyle
+
+        # 映射 user_relationship 到 communication_distance
+        comm_distance = CommunicationDistance.EQUAL
+        rel_lower = config.user_relationship.lower()
+        if "superior" in rel_lower or "subservient" in rel_lower:
+            comm_distance = CommunicationDistance.SUBSERVIENT
+        elif "intimate" in rel_lower or "protector" in rel_lower:
+            comm_distance = CommunicationDistance.INTIMATE
+        elif "respectful" in rel_lower or "mentor" in rel_lower:
+            comm_distance = CommunicationDistance.RESPECTFUL
+        elif "detached" in rel_lower or "hostile" in rel_lower:
+            comm_distance = CommunicationDistance.DETACHED
+
+        # 映射 work_ethic + confidence 到 value_alignment
+        value_alignment = ValueAlignment.NEUTRAL_GOOD
+        work_lower = config.work_ethic.lower()
+        if "by-the-book" in work_lower or "perfectionist" in work_lower:
+            value_alignment = ValueAlignment.LAWFUL_GOOD
+        elif "chaotic" in work_lower:
+            value_alignment = ValueAlignment.CHAOTIC_GOOD
+        elif "lazy" in work_lower:
+            value_alignment = ValueAlignment.CHAOTIC_NEUTRAL
+
+        # 从心理特征提取 traits
+        traits = []
+        if config.confidence_level.lower() == "high":
+            traits.append("confident")
+        elif config.confidence_level.lower() == "low":
+            traits.append("cautious")
+        if config.empathy_level.lower() == "high":
+            traits.append("empathetic")
+        if config.patience_level.lower() == "low":
+            traits.append("impatient")
+
+        # 从批评容忍度提取 virtues/flaws
+        virtues = []
+        flaws = []
+        crit_lower = config.criticism_tolerance.lower()
+        if "humble" in crit_lower or "acceptance" in crit_lower:
+            virtues.append("humble")
+        elif "denial" in crit_lower or "counter" in crit_lower:
+            flaws.append("defensive")
+
         return CorePersonality(
             name=config.name,
-            role=config.role,
+            role=config.archetype,
             backstory=config.backstory,
-            language_style=LanguageStyle(config.language_style),
+            language_style=LanguageStyle.CASUAL,
             use_emoji=config.use_emoji,
-            catchphrases=config.catchphrases or [],
-            greetings=config.greetings or [],
+            catchphrases=config.keywords,
+            greetings=[config.on_init, config.on_wake],
             tone=config.tone,
-            communication_distance=CommunicationDistance(config.communication_distance),
-            value_alignment=ValueAlignment(config.value_alignment),
-            traits=config.traits or [],
-            virtues=config.virtues or [],
-            flaws=config.flaws or [],
-            taboos=config.taboos or [],
-            boundaries=config.boundaries or [],
+            communication_distance=comm_distance,
+            value_alignment=value_alignment,
+            traits=traits,
+            virtues=virtues,
+            flaws=flaws,
+            taboos=[],
+            boundaries=[],
         )
 
     def to_cognition_profile(self, config: PersonalityConfig) -> CognitionProfile:
         """
-        将PersonalityConfig转换为CognitionProfile
+        将PersonalityConfig转换为CognitionProfile（向后兼容）
 
         Args:
             config: PersonalityConfig对象
@@ -450,24 +384,31 @@ class PersonalityLoader:
         Returns:
             CognitionProfile对象
         """
-        # 转换expertise字典为DomainExpertise列表
-        expertise_list = []
-        if config.expertise:
-            for domain, level in config.expertise.items():
-                expertise_list.append(DomainExpertise(
-                    domain=domain,
-                    level=min(1.0, max(0.0, float(level))),
-                    confidence=0.5,
-                ))
+        # 映射新字段到旧的认知配置
+        from .models import ThinkingStyle, RiskPreference
+
+        # 根据特征推断思维风格
+        primary_style = ThinkingStyle.LOGICAL
+        if "creative" in config.opinion_strength.lower():
+            primary_style = ThinkingStyle.CREATIVE
+        elif "intuitive" in config.empathy_level.lower():
+            primary_style = ThinkingStyle.INTUITIVE
+
+        # 根据职业道德推断风险偏好
+        risk_preference = RiskPreference.BALANCED
+        if "adventurous" in config.work_ethic.lower() or "chaotic" in config.work_ethic.lower():
+            risk_preference = RiskPreference.ADVENTUROUS
+        elif "perfectionist" in config.work_ethic.lower() or "by-the-book" in config.work_ethic.lower():
+            risk_preference = RiskPreference.CONSERVATIVE
 
         return CognitionProfile(
-            primary_style=ThinkingStyle(config.primary_style),
-            secondary_style=ThinkingStyle(config.secondary_style),
-            risk_preference=RiskPreference(config.risk_preference),
-            expertise=expertise_list,
-            reasoning_depth=config.reasoning_depth,
-            creativity_level=config.creativity_level,
-            learning_rate=config.learning_rate,
+            primary_style=primary_style,
+            secondary_style=ThinkingStyle.INTUITIVE,
+            risk_preference=risk_preference,
+            expertise=[],  # 新 schema 不再有 expertise 列表
+            reasoning_depth="medium",
+            creativity_level=0.5,
+            learning_rate=0.5,
         )
 
 

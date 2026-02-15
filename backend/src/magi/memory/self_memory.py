@@ -32,7 +32,7 @@ from .models import (
     AmbiguityTolerance,
     DomainExpertise,
 )
-from .personality_loader import PersonalityLoader
+from .personality_loader import PersonalityLoader, PersonalityConfig
 from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
 from .emotional_state import EmotionalStateEngine, InteractionOutcome, EngagementLevel
 from .growth_memory import GrowthMemoryEngine, MilestoneType, InteractionType
@@ -82,9 +82,9 @@ class SelfMemory:
         self._growth_engine: Optional[GrowthMemoryEngine] = None
         self._context_builder: ContextBuilder = ContextBuilder()
 
-        # 缓存
-        self._core_personality: Optional[CorePersonality] = None
-        self._cognition_profiles: Dict[str, CognitionProfile] = {}
+        # 缓存 - 直接存储原始内容和配置
+        self._personality_config: Optional[PersonalityConfig] = None
+        self._raw_personality_content: str = ""  # 原始 md 内容
 
     async def init(self):
         """初始化所有组件"""
@@ -112,7 +112,7 @@ class SelfMemory:
             # 记录初始化里程碑
             await self._growth_engine.record_milestone(
                 milestone_type=MilestoneType.FIRST_USE,
-                title=f"Initialized as {self._core_personality.name}",
+                title=f"Initialized as {self._personality_config.name}",
                 description=f"Personality {self.personality_name} loaded and initialized"
             )
 
@@ -122,16 +122,14 @@ class SelfMemory:
         """从Markdown加载人格配置"""
         try:
             config = self._personality_loader.load(self.personality_name)
-            self._core_personality = self._personality_loader.to_core_personality(config)
-            self._cognition_profiles["default"] = self._personality_loader.to_cognition_profile(config)
-            logger.info(f"Loaded personality: {self._core_personality.name}")
+            self._personality_config = config
+            # 同时加载原始 md 内容
+            self._raw_personality_content = self._personality_loader.load_raw(self.personality_name)
+            logger.info(f"Loaded personality: {config.name}")
         except FileNotFoundError:
             logger.warning(f"Personality {self.personality_name} not found, using default")
-            self._core_personality = CorePersonality(
-                name="AI Assistant",
-                role="Helper"
-            )
-            self._cognition_profiles["default"] = CognitionProfile()
+            self._personality_config = PersonalityConfig()
+            self._raw_personality_content = ""
 
     async def reload_personality(self, new_personality_name: str = None):
         """
@@ -152,37 +150,35 @@ class SelfMemory:
                 self._personality_loader.clear_cache(new_personality_name)
 
         # 清除已加载的人格数据
-        self._core_personality = None
-        self._cognition_profiles.clear()
+        self._personality_config = None
+        self._raw_personality_content = ""
 
         # 重新加载
         await self._load_personality()
 
         # 记录切换里程碑
-        if self.enable_evolution and self._growth_engine:
+        if self.enable_evolution and self._growth_engine and self._personality_config:
             from .growth_memory import MilestoneType
             await self._growth_engine.record_milestone(
                 milestone_type=MilestoneType.FIRST_USE,
-                title=f"Personality switched to {self._core_personality.name}",
+                title=f"Personality switched to {self._personality_config.name}",
                 description=f"Reloaded personality configuration: {self.personality_name}"
             )
 
-        logger.info(f"Personality reloaded: {old_personality_name} -> {self.personality_name} ({self._core_personality.name})")
+        name = self._personality_config.name if self._personality_config else "Unknown"
+        logger.info(f"Personality reloaded: {old_personality_name} -> {self.personality_name} ({name})")
 
     # ===== 核心人格层 =====
 
-    async def get_core_personality(self) -> CorePersonality:
-        """获取核心人格"""
-        return self._core_personality
+    async def get_core_personality(self) -> PersonalityConfig:
+        """获取核心人格配置"""
+        return self._personality_config or PersonalityConfig()
 
     # ===== 认知能力层 =====
 
     async def get_cognition_profile(self, scenario: str = "default") -> CognitionProfile:
-        """获取场景的认知配置"""
-        if scenario not in self._cognition_profiles:
-            # 使用默认配置
-            return self._cognition_profiles.get("default", CognitionProfile())
-        return self._cognition_profiles[scenario]
+        """获取场景的认知配置 - 已弃用，返回默认值"""
+        return CognitionProfile()
 
     # ===== 行为偏好层 =====
 
@@ -358,6 +354,8 @@ class SelfMemory:
         """
         构建人格上下文（用于LLM提示词）
 
+        直接使用原始 md 文件内容，不做额外处理
+
         Args:
             scenario: 交互场景
             task_category: 任务类别
@@ -366,45 +364,25 @@ class SelfMemory:
         Returns:
             格式化的人格描述
         """
-        # 获取各层数据
-        core = await self.get_core_personality()
-        cognition = await self.get_cognition_profile(scenario)
-        behavior = await self.get_behavior_profile(task_category)
-        emotion = await self.get_emotional_state()
+        parts = []
 
-        # 获取成长记忆
-        growth = None
-        if self.enable_evolution and self._growth_engine:
-            summary = await self._growth_engine.get_growth_summary()
-            milestones = await self._growth_engine.get_milestones(limit=10)
-            growth = GrowthMemory(
-                milestones=milestones,
-                total_interactions=summary.get("total_interactions", 0),
-                interaction_days=summary.get("active_days", 0),
-            )
+        # 1. 直接使用原始 md 内容作为人格定义
+        if self._raw_personality_content:
+            parts.append(self._raw_personality_content)
 
-        # 获取用户档案
-        user_profile = None
+        # 2. 获取情绪状态（仅当非中性时）
+        if self.enable_evolution and self._emotion_engine:
+            emotion = await self._emotion_engine.get_current_state()
+            if emotion.current_mood != "neutral":
+                parts.append(f"\n## Current State\n\n- Mood: {emotion.current_mood}\n- Energy: {int(emotion.energy_level*100)}%\n")
+
+        # 3. 获取用户档案
         if user_id and self._growth_engine:
             relationship = await self._growth_engine.get_relationship(user_id)
             if relationship:
-                user_profile = {
-                    "user_id": user_id,
-                    "relationship_depth": relationship.depth,
-                    "trust_level": relationship.trust_level,
-                    "preferences": {},
-                }
+                parts.append(f"\n## About the User\n\n- Relationship depth: {relationship.depth:.1f}\n- Trust level: {relationship.trust_level:.1f}\n")
 
-        # 构建上下文
-        return self._context_builder.build_full_context(
-            core_personality=core,
-            cognition_profile=cognition,
-            behavior_profile=behavior,
-            emotional_state=emotion,
-            growth_memory=growth,
-            user_profile=user_profile,
-            scenario=scenario,
-        )
+        return "\n\n".join(parts)
 
     async def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
         """获取用户档案（包含关系信息）"""
@@ -420,29 +398,28 @@ class SelfMemory:
 
     async def export_personality_card(self) -> Dict[str, Any]:
         """导出完整人格卡"""
-        core = await self.get_core_personality()
+        config = await self.get_core_personality()
         emotion = await self.get_emotional_state()
         growth_summary = await self.get_growth_summary()
 
         return {
-            "name": core.name,
-            "role": core.role,
-            "backstory": core.backstory,
+            "name": config.name,
+            "archetype": config.archetype,
+            "backstory": config.backstory,
             "personality": {
-                "traits": core.traits,
-                "virtues": core.virtues,
-                "flaws": core.flaws,
-                "communication_style": core.communication_distance.value,
-                "value_alignment": core.value_alignment.value,
+                "tone": config.tone,
+                "confidence": config.confidence_level,
+                "empathy": config.empathy_level,
+                "patience": config.patience_level,
             },
             "level": {
                 "total_interactions": growth_summary.get("total_interactions", 0),
                 "active_days": growth_summary.get("active_days", 0),
             },
             "current_state": {
-                "mood": emotion.current_mood,
-                "energy": int(emotion.energy_level * 100),
-                "stress": int(emotion.stress_level * 100),
+                "mood": emotion.current_mood if emotion else "neutral",
+                "energy": int(emotion.energy_level * 100) if emotion else 100,
+                "stress": int(emotion.stress_level * 100) if emotion else 0,
             },
             "milestones": growth_summary.get("milestones", []),
         }

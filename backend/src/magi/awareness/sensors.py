@@ -150,7 +150,10 @@ class UserMessageSensor:
             return
 
         # 将事件数据转换为感知消息格式
-        message_data = event.data
+        message_data = dict(event.data) if isinstance(event.data, dict) else {"message": event.data}
+        # 保留消息链路关联ID，便于后续事件统一追踪
+        if event.correlation_id:
+            message_data["correlation_id"] = event.correlation_id
         await self._queue.put(message_data)
 
 

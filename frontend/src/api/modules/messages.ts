@@ -13,6 +13,7 @@ export interface UserMessageRequest {
 // 后端实际返回的 data 结构
 export interface MessageData {
   user_id: string;
+  session_id?: string;
   message_length: number;
   timestamp: number;
 }
@@ -33,8 +34,14 @@ export interface ChatHistoryMessage {
 
 export interface ConversationHistory {
   user_id: string;
+  session_id?: string;
   messages: ChatHistoryMessage[];
   count: number;
+}
+
+export interface SessionInfo {
+  user_id: string;
+  session_id: string | null;
 }
 
 export const messagesApi = {
@@ -73,9 +80,9 @@ export const messagesApi = {
   /**
    * 获取对话历史
    */
-  getHistory: async (userId: string = 'web_user'): Promise<ConversationHistory> => {
+  getHistory: async (userId: string = 'web_user', sessionId?: string): Promise<ConversationHistory> => {
     const response = await api.get<ConversationHistory>('/messages/history', {
-      params: { user_id: userId },
+      params: { user_id: userId, session_id: sessionId },
     });
     return response;
   },
@@ -83,8 +90,25 @@ export const messagesApi = {
   /**
    * 清空对话历史
    */
-  clearHistory: async (userId: string = 'web_user'): Promise<{ success: boolean; message: string; user_id: string }> => {
+  clearHistory: async (
+    userId: string = 'web_user',
+    sessionId?: string
+  ): Promise<{ success: boolean; message: string; user_id: string; session_id?: string }> => {
     const response = await api.post<{ success: boolean; message: string; user_id: string }>('/messages/history/clear', null, {
+      params: { user_id: userId, session_id: sessionId },
+    });
+    return response;
+  },
+
+  getCurrentSession: async (userId: string = 'web_user'): Promise<SessionInfo> => {
+    const response = await api.get<SessionInfo>('/messages/session/current', {
+      params: { user_id: userId },
+    });
+    return response;
+  },
+
+  createNewSession: async (userId: string = 'web_user'): Promise<{ success: boolean; user_id: string; session_id: string | null }> => {
+    const response = await api.post<{ success: boolean; user_id: string; session_id: string | null }>('/messages/session/new', null, {
       params: { user_id: userId },
     });
     return response;

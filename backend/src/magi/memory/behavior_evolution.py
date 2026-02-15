@@ -182,6 +182,15 @@ class BehaviorEvolutionEngine:
             task_duration: 任务持续时间（秒）
             accepted: 是否被接受
         """
+        if isinstance(user_satisfaction, str):
+            try:
+                user_satisfaction = SatisfactionLevel(user_satisfaction)
+            except ValueError:
+                logger.warning(
+                    f"Unknown satisfaction level '{user_satisfaction}', fallback to neutral"
+                )
+                user_satisfaction = SatisfactionLevel.NEUTRAL
+
         record = TaskInteractionRecord(
             task_id=task_id,
             task_category=task_category,
@@ -194,6 +203,9 @@ class BehaviorEvolutionEngine:
             task_duration=task_duration,
             accepted=accepted,
         )
+        record_data = asdict(record)
+        # JSON cannot serialize Enum directly.
+        record_data["satisfaction"] = record.satisfaction.value
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
@@ -213,7 +225,7 @@ class BehaviorEvolutionEngine:
                     task_complexity,
                     task_duration,
                     1 if accepted else 0,
-                    json.dumps(asdict(record)),
+                    json.dumps(record_data),
                 )
             )
             await db.commit()
