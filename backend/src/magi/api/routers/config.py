@@ -132,7 +132,7 @@ async def get_config():
     llm_config = LLMConfigModel(
         provider=os.getenv("LLM_PROVidER", "openai"),
         model=os.getenv("LLM_MOdel", "gpt-4"),
-        api_key="***" if os.getenv("LLM_API_key") else None,  # 隐藏key
+        api_key="***" if os.getenv("LLM_API_KEY") else None,  # 隐藏key
         base_url=os.getenv("LLM_BasE_url"),
     )
 
@@ -172,7 +172,7 @@ async def update_config(config: SystemConfigModel):
 
         # 如果提供了APIkey，Setting环境Variable
         if config.llm.api_key and config.llm.api_key != "***":
-            os.environ["LLM_API_key"] = config.llm.api_key
+            os.environ["LLM_API_KEY"] = config.llm.api_key
             logger.info("LLM API Key 已update")
 
         if config.llm.base_url:
@@ -248,10 +248,10 @@ async def test_config(config: SystemConfigModel):
     try:
         # Validate必填field
         if not config.llm.provider:
-            raise Valueerror("LLM provider is required")
+            raise ValueError("LLM provider is required")
 
         if not config.llm.model:
-            raise Valueerror("LLM model is required")
+            raise ValueError("LLM model is required")
 
         # 这里可以addmore的Validate逻辑
         # 例如TestLLMconnection等
@@ -261,7 +261,7 @@ async def test_config(config: SystemConfigModel):
             message="ConfigurationValidate通过",
             data=config,
         )
-    except Valueerror as e:
+    except ValueError as e:
         return ConfigResponse(
             success=False,
             message=f"ConfigurationValidatefailure: {str(e)}",

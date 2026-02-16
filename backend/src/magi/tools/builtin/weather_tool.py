@@ -123,7 +123,7 @@ class WeatherTool(Tool):
                     float(parts[1].strip())
                     # It's coordinates, return as-is
                     return location
-                except Valueerror:
+                except ValueError:
                     pass
 
         # Use GeoAPI to find Locationid

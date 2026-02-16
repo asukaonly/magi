@@ -185,15 +185,15 @@ async def ai_generate_personality(description: str, target_language: str = "Auto
 
     # Get LLM configuration
     provider = (os.getenv("LLM_PROVidER") or "openai").lower()
-    api_key = os.getenv("LLM_API_key")
+    api_key = os.getenv("LLM_API_KEY")
     model = os.getenv("LLM_MOdel", "gpt-4")
     base_url = os.getenv("LLM_BasE_url")
 
     logger.info(f"[AI Generate Personality] LLM configuration: model={model}, base_url={base_url}")
 
     if not api_key:
-        logger.error("[AI Generate Personality] LLM_API_key not configured")
-        raise Valueerror("LLM_API_key not configured")
+        logger.error("[AI Generate Personality] LLM_API_KEY not configured")
+        raise ValueError("LLM_API_KEY not configured")
 
     # Create LLM adapter
     llm_adapter = OpenAIAdapter(
@@ -328,7 +328,7 @@ Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural an
     except json.JSONDecodeerror as e:
         logger.error(f"[AI Generate Personality] JSON parsing failed: {e}")
         logger.error(f"[AI Generate Personality] Response content (first 500 chars): {response_text[:500]}")
-        raise Valueerror(f"AI returned invalid JSON format: {e}")
+        raise ValueError(f"AI returned invalid JSON format: {e}")
     except Exception as e:
         logger.error(f"[AI Generate Personality] Generation failed: {type(e).__name__}: {e}")
         raise

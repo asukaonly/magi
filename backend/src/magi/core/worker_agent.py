@@ -259,7 +259,7 @@ class WorkerAgent(Agent):
         parameters = task_data.get("parameters", {})
 
         if not tool_name:
-            raise Valueerror("tool_name is required for tool_execution task")
+            raise ValueError("tool_name is required for tool_execution task")
 
         # Executetool
         result = await self.tool_registry.execute(tool_name, parameters)

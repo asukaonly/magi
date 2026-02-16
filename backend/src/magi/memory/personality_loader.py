@@ -180,7 +180,7 @@ class PersonalityLoader:
 
         Raises:
             FileNotFounderror: Configurationfilenot found
-            Valueerror: Configurationfileformaterror
+            ValueError: Configurationfileformaterror
         """
         # checkcache
         if name in self._cache:
@@ -221,7 +221,7 @@ class PersonalityLoader:
         try:
             content = file_path.read_text(encoding='utf-8')
         except Exception as e:
-            raise Valueerror(f"Failed to read personality file {file_path}: {e}")
+            raise ValueError(f"Failed to read personality file {file_path}: {e}")
 
         # parseContent
         try:

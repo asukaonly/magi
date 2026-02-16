@@ -96,7 +96,7 @@ class ToolRegistry:
         schema = temp_instance.get_schema()
 
         if not schema:
-            raise Valueerror(f"Tool {tool_class.__name__} must define a schema")
+            raise ValueError(f"Tool {tool_class.__name__} must define a schema")
 
         tool_name = schema.name
 

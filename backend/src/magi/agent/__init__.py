@@ -70,12 +70,12 @@ def _create_llm_adapter():
     """
     # getLLM提供商Configuration
     provider = os.getenv("LLM_PROVidER", "openai").lower()
-    api_key = os.getenv("LLM_API_key")
+    api_key = os.getenv("LLM_API_KEY")
     base_url = os.getenv("LLM_BasE_url")
     model = os.getenv("LLM_MOdel", "gpt-4o-mini")
 
     if not api_key:
-        raise Valueerror("LLM_API_key must be set")
+        raise ValueError("LLM_API_KEY must be set")
 
     logger.info(f"🔧 Creating LLM adapter | Provider: {provider} | Model: {model} | Base url: {base_url or 'default'}")
 
@@ -96,7 +96,7 @@ def _create_llm_adapter():
             base_url=base_url,
         )
     else:
-        raise Valueerror(
+        raise ValueError(
             f"Unsupported LLM provider: {provider}. Supported: 'openai', 'anthropic', 'glm'"
         )
 
@@ -120,14 +120,14 @@ async def initialize_chat_agent():
         logger.info(f"📁 Runtime directory: {runtime_paths.base_dir}")
 
         # get环境Variable
-        api_key = os.getenv("LLM_API_key")
+        api_key = os.getenv("LLM_API_KEY")
 
         if not api_key:
             logger.warning("=" * 60)
-            logger.warning("⚠️  LLM_API_key not set!")
+            logger.warning("⚠️  LLM_API_KEY not set!")
             logger.warning("⚠️  ChatAgent will NOT be initialized.")
-            logger.warning("⚠️  Set LLM_API_key environment variable to enable AI responses.")
-            logger.warning("⚠️  Example: export LLM_API_key='sk-...'")
+            logger.warning("⚠️  Set LLM_API_KEY environment variable to enable AI responses.")
+            logger.warning("⚠️  Example: export LLM_API_KEY='sk-...'")
             logger.warning("=" * 60)
             return
 

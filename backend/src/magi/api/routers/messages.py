@@ -102,13 +102,13 @@ async def send_user_message(request: UserMessageRequest):
             # senderror message到 WebSocket
             await ws_manager.broadcast_to_user(request.user_id, {
                 "type": "error",
-                "content": "AI service未initialize。请Setting LLM_API_key 环境Variable后重启service。",
+                "content": "AI service未initialize。请Setting LLM_API_KEY 环境Variable后重启service。",
                 "timestamp": time.time(),
             })
 
             return MessageResponse(
                 success=False,
-                message="ChatAgent not initialized. Please set LLM_API_key environment variable.",
+                message="ChatAgent not initialized. Please set LLM_API_KEY environment variable.",
                 data={
                     "user_id": request.user_id,
                     "error": "ChatAgent not initialized",

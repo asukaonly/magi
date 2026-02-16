@@ -318,7 +318,7 @@ class ToolVersionManager:
                 return (int(parts[0]), int(parts[1]), 0)
             elif len(parts) == 1:
                 return (int(parts[0]), 0, 0)
-        except (Valueerror, Indexerror):
+        except (ValueError, Indexerror):
             pass
 
         return (0, 0, 0)

@@ -185,7 +185,7 @@ class BehaviorEvolutionEngine:
         if isinstance(user_satisfaction, str):
             try:
                 user_satisfaction = Satisfactionlevel(user_satisfaction)
-            except Valueerror:
+            except ValueError:
                 logger.warning(
                     f"Unknotttwn satisfaction level '{user_satisfaction}', fallback to neutral"
                 )

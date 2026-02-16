@@ -334,7 +334,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
 
                 # Validate required fields
                 if not isinstance(data, dict):
-                    raise Valueerror("Response is not a JSON object")
+                    raise ValueError("Response is not a JSON object")
 
                 intent = data.get("intent", "unknotttwn")
                 tools = data.get("tools", [])
@@ -358,7 +358,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 )
             except json.JSONDecodeerror as e:
                 logger.warning(f"[ContextDecider] JSON decode error: {e}")
-            except Valueerror as e:
+            except ValueError as e:
                 logger.warning(f"[ContextDecider] Invalid response structure: {e}")
 
         # Fallback: nottt tools selected

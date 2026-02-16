@@ -91,7 +91,7 @@ def create_dynamic_tool(
         if "type" in param_def:
             try:
                 param_type = Parametertype(param_def["type"])
-            except Valueerror:
+            except ValueError:
                 pass
 
         param_objects.append(ToolParameter(

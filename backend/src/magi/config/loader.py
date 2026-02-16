@@ -50,7 +50,7 @@ class ConfigLoader:
 
         Raises:
             FileNotFounderror: Configurationfilenot found
-            Valueerror: Configurationfileformaterror
+            ValueError: Configurationfileformaterror
         """
         if self._config is not None:
             return self._config

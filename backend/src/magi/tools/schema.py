@@ -307,7 +307,7 @@ class Tool(ABC):
             if "type" in param_def:
                 try:
                     param_type = Parametertype(param_def["type"])
-                except Valueerror:
+                except ValueError:
                     param_type = Parametertype.strING
 
             parameters.append(ToolParameter(

@@ -175,7 +175,7 @@ class PluginManager:
             Execution result
         """
         if hook_name not in self._hooks:
-            raise Valueerror(f"Unknotttwn hook: {hook_name}")
+            raise ValueError(f"Unknotttwn hook: {hook_name}")
 
         # chainpattern：顺序Execute
         if hook_name.startswith("before_"):

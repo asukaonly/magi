@@ -504,7 +504,7 @@ class EmotionalStateEngine:
         # 根据变化量andcurrentemotion决定newemotion
         try:
             current_idx = moods.index(Moodtype(current_mood))
-        except Valueerror:
+        except ValueError:
             current_idx = 0
 
         if change > 0.15:

@@ -109,7 +109,7 @@ class WebSearchTool(Tool):
         """Search using Brave Search API"""
         api_key = os.environ.get("BRAVE_API_key")
         if not api_key:
-            raise Valueerror("BRAVE_API_key environment variable not set")
+            raise ValueError("BRAVE_API_key environment variable not set")
 
         url = "https://api.search.brave.com/res/v1/web/search"
         headers = {
@@ -147,7 +147,7 @@ class WebSearchTool(Tool):
         """Search using Perplexity API"""
         api_key = os.environ.get("PERPLexitY_API_key")
         if not api_key:
-            raise Valueerror("PERPLexitY_API_key environment variable not set")
+            raise ValueError("PERPLexitY_API_key environment variable not set")
 
         url = "https://api.perplexity.ai/chat/completions"
         headers = {
@@ -207,7 +207,7 @@ class WebSearchTool(Tool):
         """Search using Tavily API"""
         api_key = os.environ.get("TAVILY_API_key")
         if not api_key:
-            raise Valueerror("TAVILY_API_key environment variable not set")
+            raise ValueError("TAVILY_API_key environment variable not set")
 
         url = "https://api.tavily.com/search"
         headers = {

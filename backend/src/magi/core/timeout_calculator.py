@@ -101,17 +101,17 @@ class TimeoutCalculator:
         # Convert to enums
         try:
             task_type = TaskType(type_str)
-        except Valueerror:
+        except ValueError:
             task_type = TaskType.QUERY
 
         try:
             priority = TaskPriority(priority_value)
-        except Valueerror:
+        except ValueError:
             priority = TaskPriority.NORMAL
 
         try:
             interaction_level = Interactionlevel(interaction_str)
-        except Valueerror:
+        except ValueError:
             interaction_level = Interactionlevel.notttne
 
         return cls.calculate(task_type, priority, interaction_level)
