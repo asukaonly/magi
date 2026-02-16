@@ -162,7 +162,7 @@ class TaskAgent(Agent):
 
             # Publish task started event
             await self._publish_event(
-                EventTypes.task_startED,
+                EventTypes.TASK_STARTED,
                 {
                     "task_id": task.task_id,
                     "task_agent_id": self.agent_id,
@@ -397,7 +397,7 @@ Return only the tool name."""
     async def _publish_error_event(self, source: str, error_message: str):
         """Publish error event"""
         event = Event(
-            type=EventTypes.error_OCCURRED,
+            type=EventTypes.ERROR_OCCURRED,
             data={
                 "source": source,
                 "error": error_message,
@@ -664,7 +664,7 @@ Provide a helpful response."""
         from ..events.events import Event, EventLevel
 
         event = Event(
-            type=EventTypes.task_failED,
+            type=EventTypes.TASK_FAILED,
             data={
                 "source": source,
                 "error": error_message,

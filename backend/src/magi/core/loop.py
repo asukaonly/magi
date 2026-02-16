@@ -128,7 +128,7 @@ class LoopEngine:
         if self._pause_event:
             self._pause_event.clear()
 
-        await self._publish_event(EventTypes.LOOP_pauseD, {})
+        await self._publish_event(EventTypes.LOOP_PAUSED, {})
 
     async def resume(self):
         """Resume loop"""
@@ -140,7 +140,7 @@ class LoopEngine:
         if self._pause_event:
             self._pause_event.set()
 
-        await self._publish_event(EventTypes.LOOP_resumeD, {})
+        await self._publish_event(EventTypes.LOOP_RESUMED, {})
 
     async def step_sense(self) -> List:
         """
@@ -204,7 +204,7 @@ class LoopEngine:
         """Main loop"""
         try:
             # Publish loop started event
-            await self._publish_event(EventTypes.LOOP_startED, {})
+            await self._publish_event(EventTypes.LOOP_STARTED, {})
 
             while self._state != LoopState.stopPED:
                 try:
@@ -296,7 +296,7 @@ class LoopEngine:
         for perception in perceptions:
             correlation_id = self._extract_perception_correlation_id(perception)
             event = Event(
-                type=EventTypes.PERCEPTION_receiveD,
+                type=EventTypes.PERCEPTION_RECEIVED,
                 data={
                     "perception_type": perception.type,
                     "source": perception.source,
@@ -388,7 +388,7 @@ class LoopEngine:
 
         # Publish action executed event
         event = Event(
-            type=EventTypes.ACTION_executeD,
+            type=EventTypes.ACTION_EXECUTED,
             data={
                 "action_type": type(action).__name__,
                 "success": success,
@@ -506,7 +506,7 @@ class LoopEngine:
     async def _publish_error_event(self, error_message: str):
         """Publish error event"""
         event = Event(
-            type=EventTypes.error_OCCURRED,
+            type=EventTypes.ERROR_OCCURRED,
             data={"error": error_message},
             source="LoopEngine",
             level=EventLevel.error,

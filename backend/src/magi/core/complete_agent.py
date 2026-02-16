@@ -73,7 +73,7 @@ class CompleteAgent(Agent):
         from ..events.events import Event, EventTypes, EventLevel
 
         event = Event(
-            type=EventTypes.AGENT_startED,
+            type=EventTypes.AGENT_STARTED,
             data={
                 "agent_id": self.config.name,
                 "agent_type": self.__class__.__name__,
@@ -96,7 +96,7 @@ class CompleteAgent(Agent):
         from ..events.events import Event, EventTypes, EventLevel
 
         event = Event(
-            type=EventTypes.AGENT_stopPED,
+            type=EventTypes.AGENT_STOPPED,
             data={
                 "agent_id": self.config.name,
                 "loop_count": self.loop_engine.get_stats()["loop_count"],

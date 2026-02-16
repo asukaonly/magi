@@ -78,7 +78,7 @@ class MasterAgent(Agent):
 
         # Publish startup event
         await self._publish_event(
-            EventTypes.AGENT_startED,
+            EventTypes.AGENT_STARTED,
             {"agent_type": "master", "name": self.config.name}
         )
 
@@ -107,7 +107,7 @@ class MasterAgent(Agent):
 
         # Publish stop event
         await self._publish_event(
-            EventTypes.AGENT_stopPED,
+            EventTypes.AGENT_STOPPED,
             {"agent_type": "master", "name": self.config.name}
         )
 
@@ -171,7 +171,7 @@ class MasterAgent(Agent):
 
                 # Publish task created event
                 await self._publish_event(
-                    EventTypes.task_createD,
+                    EventTypes.TASK_CREATED,
                     {
                         "task_id": task.task_id,
                         "task_type": task.type,
@@ -454,7 +454,7 @@ class MasterAgent(Agent):
     async def _publish_error_event(self, source: str, error_message: str):
         """Publish error event"""
         event = Event(
-            type=EventTypes.error_OCCURRED,
+            type=EventTypes.ERROR_OCCURRED,
             data={
                 "source": source,
                 "error": error_message,
