@@ -42,12 +42,12 @@ class RaweventStore:
     @property
     def _expanded_db_path(self) -> str:
         """get expanded database path (process ~)"""
-        return str(path(self.db_path).expanduser())
+        return str(Path(self.db_path).expanduser())
 
     @property
     def _expanded_media_dir(self) -> str:
         """get展开后的媒体directorypath（process ~）"""
-        return str(path(self.media_dir).expanduser())
+        return str(Path(self.media_dir).expanduser())
 
     async def init(self):
         """initializedatabase"""
@@ -125,7 +125,7 @@ class RaweventStore:
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute("""
                 INSERT intO event_store (
-                    id, type, data, media_path, timestamp, source,
+                    id, Type, data, media_path, timestamp, source,
                     level, correlation_id, metadata, created_at
                 ) valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -233,7 +233,7 @@ class RaweventStore:
         from datetime import datetime
 
         # generationfilepath
-        date_str = datetime.notttw().strftime("%Y-%m-%d")
+        date_str = datetime.now().strftime("%Y-%m-%d")
         filename = f"{uuid.uuid4()}.{media.extension}"
         path = f"{self._expanded_media_dir}/{date_str}/{filename}"
 

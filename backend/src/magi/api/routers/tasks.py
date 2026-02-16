@@ -112,7 +112,7 @@ async def get_task(task_id: str):
     return _tasks_store[task_id]
 
 
-@tasks_router.post("/", response_model=TaskResponse, status_code=status.HTTP_201_createD)
+@tasks_router.post("/", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(request: TaskCreateRequest):
     """
     create任务
@@ -132,7 +132,7 @@ async def create_task(request: TaskCreateRequest):
         "priority": request.priority,
         "status": "pending",
         "assignee": request.assignee,
-        "created_at": datetime.notttw(),
+        "created_at": datetime.now(),
         "updated_at": None,
     }
 
@@ -170,7 +170,7 @@ async def retry_task(task_id: str, request: TaskRetryRequest):
 
     # reset任务State
     task["status"] = "pending"
-    task["updated_at"] = datetime.notttw()
+    task["updated_at"] = datetime.now()
 
     logger.info(f"Retried task: {task_id} (count: {request.retry_count})")
 

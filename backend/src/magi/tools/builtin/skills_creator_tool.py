@@ -168,7 +168,7 @@ class SkillsCreatorTool(Tool):
             },
         )
 
-    def _get_skills_directory(self) -> path:
+    def _get_skills_directory(self) -> Path:
         """Get the user's skills directory"""
         # Check for custom skills directory
         custom_dir = os.environ.get("MAGI_SKILLS_dir")
@@ -176,7 +176,7 @@ class SkillsCreatorTool(Tool):
             return path(custom_dir)
 
         # Default to ~/.magi/skills
-        home = path.home()
+        home = Path.home()
         return home / ".magi" / "skills"
 
     def _escape_yaml(self, value: str) -> str:

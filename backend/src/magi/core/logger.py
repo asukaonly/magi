@@ -33,7 +33,7 @@ def configure_logging(
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackinfoRenderer(),
+        structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
 
@@ -59,11 +59,11 @@ def configure_logging(
 
     # Configure file logging
     if log_file:
-        log_path = path(log_file)
+        log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         file_handler = logging.FileHandler(log_file)
-        file_handler.setlevel(getattr(logging, level.upper(), logging.INFO))
+        file_handler.setLevel(getattr(logging, level.upper(), logging.INFO))
 
         if json_logs:
             from structlog.dev import PlainFileRenderer

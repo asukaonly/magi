@@ -403,8 +403,8 @@ class eventEmbeddingStore:
             import json
             from pathlib import Path
 
-            path = path(self.persist_path)
-            if not path.exists():
+            path = Path(self.persist_path)
+            if not Path.exists():
                 return
 
             with open(self.persist_path, "r") as f:

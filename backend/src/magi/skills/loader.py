@@ -13,7 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .schema import SkillContent, SkillFrontmatter, Skillmetadata
+from .schema import SkillContent, SkillFrontmatter, SkillMetadata
 from .indexer import SkillIndexer
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ class SkillLoader:
             logger.warning(f"Failed to parse frontmatter: {e}")
             return SkillFrontmatter(name="", description=""), body
 
-    def _resolve_references(self, content: str, skill_dir: path) -> str:
+    def _resolve_references(self, content: str, skill_dir: Path) -> str:
         """
         Resolve variable references in skill content
 
@@ -199,7 +199,7 @@ class SkillLoader:
 
         return re.sub(pattern, replace_command, content)
 
-    def _resolve_file_references(self, content: str, skill_dir: path) -> str:
+    def _resolve_file_references(self, content: str, skill_dir: Path) -> str:
         """
         Resolve file references
 
@@ -225,7 +225,7 @@ class SkillLoader:
 
             # Resolve relative to skill directory
             file_path = skill_dir / filename
-            if not file_path.exists():
+            if not file_Path.exists():
                 # Keep original if file doesn't exist
                 return match.group(0)
 
@@ -241,7 +241,7 @@ class SkillLoader:
 
         return re.sub(pattern, replace_file, content)
 
-    def _load_supporting_data(self, skill_dir: path) -> Dict[str, Any]:
+    def _load_supporting_data(self, skill_dir: Path) -> Dict[str, Any]:
         """
         Load supporting data from the skill directory
 

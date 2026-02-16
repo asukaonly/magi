@@ -111,7 +111,7 @@ async def get_agent(agent_id: str):
     return _agents_store[agent_id]
 
 
-@agents_router.post("/", response_model=AgentResponse, status_code=status.HTTP_201_createD)
+@agents_router.post("/", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
 async def create_agent(request: AgentCreateRequest):
     """
     createAgent
@@ -130,7 +130,7 @@ async def create_agent(request: AgentCreateRequest):
         "agent_type": request.agent_type,
         "state": "stopped",
         "config": request.config,
-        "created_at": datetime.notttw(),
+        "created_at": datetime.now(),
         "updated_at": None,
     }
 
@@ -166,7 +166,7 @@ async def update_agent(agent_id: str, request: AgentUpdateRequest):
     if request.config:
         agent["config"].update(request.config)
 
-    agent["updated_at"] = datetime.notttw()
+    agent["updated_at"] = datetime.now()
 
     logger.info(f"Updated agent: {agent_id}")
     return agent
@@ -239,7 +239,7 @@ async def agent_action(agent_id: str, request: AgentActionRequest):
             detail=f"Unknotttwn action: {request.action}",
         )
 
-    agent["updated_at"] = datetime.notttw()
+    agent["updated_at"] = datetime.now()
 
     return {
         "success": True,

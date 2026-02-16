@@ -164,7 +164,7 @@ class PersonalityLoader:
         Args:
             personalities_path: Personality configurationfiledirectory
         """
-        self.personalities_path = path(personalities_path)
+        self.personalities_path = Path(personalities_path)
         self.parser = MarkdownPersonalityParser()
         self._cache: Dict[str, PersonalityConfig] = {}
 
@@ -189,21 +189,21 @@ class PersonalityLoader:
         # buildfilepath
         file_path = self.personalities_path / f"{name}.md"
 
-        if not file_path.exists():
+        if not file_Path.exists():
             # 尝试other可能的path（按priority）
             alternative_paths = [
                 # run时directory
-                path.home() / ".magi" / "personalities" / f"{name}.md",
+                Path.home() / ".magi" / "personalities" / f"{name}.md",
                 # current工作directory
                 path(f"./personalities/{name}.md"),
                 # 项目directorystructure
-                path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
+                Path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
                 # backend directory
                 path(f"./backend/personalities/{name}.md"),
             ]
 
             for alt_path in alternative_paths:
-                if alt_path.exists():
+                if alt_Path.exists():
                     file_path = alt_path
                     logger.info(f"Found personality file at alternative path: {alt_path}")
                     break
@@ -249,17 +249,17 @@ class PersonalityLoader:
         # buildfilepath
         file_path = self.personalities_path / f"{name}.md"
 
-        if not file_path.exists():
+        if not file_Path.exists():
             # 尝试other可能的path
             alternative_paths = [
-                path.home() / ".magi" / "personalities" / f"{name}.md",
+                Path.home() / ".magi" / "personalities" / f"{name}.md",
                 path(f"./personalities/{name}.md"),
-                path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
+                Path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
                 path(f"./backend/personalities/{name}.md"),
             ]
 
             for alt_path in alternative_paths:
-                if alt_path.exists():
+                if alt_Path.exists():
                     file_path = alt_path
                     break
             else:
@@ -293,7 +293,7 @@ class PersonalityLoader:
 
     def list_available(self) -> List[str]:
         """List all available personalitiesConfiguration"""
-        if not self.personalities_path.exists():
+        if not self.personalities_Path.exists():
             return []
 
         personalities = []

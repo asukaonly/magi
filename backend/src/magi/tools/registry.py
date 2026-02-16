@@ -5,15 +5,15 @@ Implementationtool的register、query、Execute、monitor等function
 """
 import asyncio
 import time
-from typing import Dict, List, Optional, Any, type, type_checkING
+from typing import Dict, List, Optional, Any, Type, TYPE_CHECKING
 from collections import defaultdict
 import logging
 
 from .schema import Tool, ToolSchema, ToolExecutionContext, ToolResult
 
 # Avoid circular import
-if type_checkING:
-    from ..skills.schema import Skillmetadata
+if TYPE_CHECKING:
+    from ..skills.schema import SkillMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,8 @@ class ToolRegistry:
         # Executestatistics {tool_name: ToolExecutionStats}
         self._stats: Dict[str, ToolExecutionStats] = defaultdict(ToolExecutionStats)
 
-        # Skills index {name: Skillmetadata} - 按需load，仅storagemetadata
-        self._skills: Dict[str, "Skillmetadata"] = {}
+        # Skills index {name: SkillMetadata} - 按需load，仅storagemetadata
+        self._skills: Dict[str, "SkillMetadata"] = {}
 
         # Skill indexer Instance
         self._skill_indexer = skill_indexer
@@ -244,12 +244,12 @@ class ToolRegistry:
 
         return tools_info
 
-    def register_skill_index(self, skills: Dict[str, "Skillmetadata"]) -> None:
+    def register_skill_index(self, skills: Dict[str, "SkillMetadata"]) -> None:
         """
         register Skill index
 
         Args:
-            skills: {name: Skillmetadata} dictionary
+            skills: {name: SkillMetadata} dictionary
         """
         self._skills.update(skills)
         logger.info(f"Registered {len(skills)} skills to registry")
@@ -263,7 +263,7 @@ class ToolRegistry:
         """
         return list(self._skills.keys())
 
-    def get_skill_metadata(self, name: str) -> Optional["Skillmetadata"]:
+    def get_skill_metadata(self, name: str) -> Optional["SkillMetadata"]:
         """
         get指定 Skill 的metadata
 
@@ -271,7 +271,7 @@ class ToolRegistry:
             name: Skill Name
 
         Returns:
-            Skillmetadata 或 None
+            SkillMetadata 或 None
         """
         return self._skills.get(name)
 
@@ -287,7 +287,7 @@ class ToolRegistry:
         """
         return name in self._skills
 
-    def refresh_skills(self) -> Dict[str, "Skillmetadata"]:
+    def refresh_skills(self) -> Dict[str, "SkillMetadata"]:
         """
         刷new Skills index
 

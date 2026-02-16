@@ -8,7 +8,7 @@ memory管理APIroute
 - L4: Time Summaries
 - L5: capabilitylist
 """
-from fastapi import APIRouter, HTTPException, status, query
+from fastapi import APIRouter, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -117,8 +117,8 @@ def get_memory_integration():
 
 @memory_router.get("/l1/events")
 async def get_l1_events(
-    limit: int = query(default=50, ge=1, le=500, description="Returnquantitylimitation"),
-    event_type: Optional[str] = query(None, description="filtereventtype"),
+    limit: int = Query(default=50, ge=1, le=500, description="Returnquantitylimitation"),
+    event_type: Optional[str] = Query(None, description="filtereventtype"),
 ):
     """
     get L1 原始eventlist
@@ -147,7 +147,7 @@ async def get_l1_events(
         async with aiosqlite.connect(unified_memory.l1_raw._expanded_db_path) as db:
             if event_type:
                 cursor = await db.execute("""
-                    SELECT id, type, data, timestamp, source, level, correlation_id, metadata
+                    SELECT id, Type, data, timestamp, source, level, correlation_id, metadata
                     FROM event_store
                     WHERE type = ?
                     order BY timestamp DESC
@@ -155,7 +155,7 @@ async def get_l1_events(
                 """, (event_type, limit))
             else:
                 cursor = await db.execute("""
-                    SELECT id, type, data, timestamp, source, level, correlation_id, metadata
+                    SELECT id, Type, data, timestamp, source, level, correlation_id, metadata
                     FROM event_store
                     order BY timestamp DESC
                     LIMIT ?
@@ -292,7 +292,7 @@ async def semantic_search(request: SemanticSearchRequest):
 @memory_router.get("/event/{event_id}/context", response_model=eventContextResponse)
 async def get_event_context(
     event_id: str,
-    max_depth: int = query(default=2, ge=1, le=5, description="maximumdepth"),
+    max_depth: int = Query(default=2, ge=1, le=5, description="maximumdepth"),
 ):
     """
     geteventcontext (L2)
@@ -336,8 +336,8 @@ async def get_event_context(
 @memory_router.get("/summary/{period_type}", response_model=Optional[SummaryResponse])
 async def get_summary(
     period_type: str,
-    period_key: Optional[str] = query(None, description="时间窗口identifier（default为current）"),
-    force_generate: bool = query(False, description="is not强制重newgeneration"),
+    period_key: Optional[str] = Query(None, description="时间窗口identifier（default为current）"),
+    force_generate: bool = Query(False, description="is not强制重newgeneration"),
 ):
     """
     getTime Summaries (L4)
@@ -410,7 +410,7 @@ async def get_summary(
 
 @memory_router.get("/capabilities", response_model=List[CapabilityResponse])
 async def get_capabilities(
-    limit: int = query(default=50, ge=1, le=200, description="Returnquantitylimitation"),
+    limit: int = Query(default=50, ge=1, le=200, description="Returnquantitylimitation"),
 ):
     """
     getcapabilitylist (L5)
@@ -559,7 +559,7 @@ _legacy_memory_store: Dict[str, Dict] = {
         "type": "self",
         "content": {"event": "Learned to use Python"},
         "metadata": {"source": "learning", "importance": 0.8},
-        "created_at": datetime.notttw(),
+        "created_at": datetime.now(),
         "updated_at": None,
     },
     "mem_2": {
@@ -567,7 +567,7 @@ _legacy_memory_store: Dict[str, Dict] = {
         "type": "other",
         "content": {"user": "Alice", "preference": "likes cats"},
         "metadata": {"source": "conversation", "importance": 0.6},
-        "created_at": datetime.notttw(),
+        "created_at": datetime.now(),
         "updated_at": None,
     },
 }

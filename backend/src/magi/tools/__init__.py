@@ -36,7 +36,7 @@ from .builtin.weather_tool import WeatherTool
 from ..skills.indexer import SkillIndexer
 from ..skills.loader import SkillLoader
 from ..skills.executor import SkillExecutor
-from ..skills.schema import Skillmetadata, SkillContent, SkillResult
+from ..skills.schema import SkillMetadata, SkillContent, SkillResult
 
 # Register all built-in tools
 _builtin_tools = [
@@ -55,7 +55,7 @@ for tool_class in _builtin_tools:
         tool_registry.register(tool_class)
     except Exception as e:
         import logging
-        logging.error(f"Failed to register tool {tool_class.__name__}: {e}")
+        logging.ERROR(f"Failed to register tool {tool_class.__name__}: {e}")
 
 __all__ = [
     # Base classes
@@ -115,7 +115,7 @@ __all__ = [
     "SkillIndexer",
     "SkillLoader",
     "SkillExecutor",
-    "Skillmetadata",
+    "SkillMetadata",
     "SkillContent",
     "SkillResult",
 ]

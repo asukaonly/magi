@@ -4,14 +4,14 @@ Skill Indexer - Scan and index skill metadata
 Implements the "Index" phase of the skill system:
 - Scans SKILL.md files in configured directories
 - Parses only YAML frontmatter (not full content)
-- Returns lightweight Skillmetadata for skill discovery
+- Returns lightweight SkillMetadata for skill discovery
 """
 import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .schema import Skillmetadata, SkillFrontmatter
+from .schema import SkillMetadata, SkillFrontmatter
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +26,12 @@ class SkillIndexer:
 
     # Skill directories in priority order (higher priority first)
     SKILL_LOCATIONS = [
-        path.home() / ".claude" / "skills",     # Personal (high priority)
-        path(__file__).parent.parent.parent.parent.parent / "skills",  # Project predefined skills (magi/skills)
-        path.cwd() / ".claude" / "skills",       # Project local (lower priority)
+        Path.home() / ".claude" / "skills",     # Personal (high priority)
+        Path(__file__).parent.parent.parent.parent.parent / "skills",  # Project predefined skills (magi/skills)
+        Path.cwd() / ".claude" / "skills",       # Project local (lower priority)
     ]
 
-    def __init__(self, skill_locations: Optional[List[path]] = None):
+    def __init__(self, skill_locations: Optional[List[Path]] = None):
         """
         initialize the Skill Indexer
 
@@ -39,9 +39,9 @@ class SkillIndexer:
             skill_locations: Custom skill directories (optional)
         """
         self.skill_locations = skill_locations or self.SKILL_LOCATIONS
-        self._cache: Dict[str, Skillmetadata] = {}
+        self._cache: Dict[str, SkillMetadata] = {}
 
-    def scan_all(self) -> Dict[str, Skillmetadata]:
+    def scan_all(self) -> Dict[str, SkillMetadata]:
         """
         Scan all SKILL.md files and return metadata
 
@@ -49,7 +49,7 @@ class SkillIndexer:
         Skills with the same name follow priority (later locations override earlier ones).
 
         Returns:
-            Dict mapping skill name to Skillmetadata
+            Dict mapping skill name to SkillMetadata
         """
         skills = {}
 
@@ -69,7 +69,7 @@ class SkillIndexer:
 
         return skills
 
-    def _scan_directory(self, directory: path) -> Dict[str, Skillmetadata]:
+    def _scan_directory(self, directory: Path) -> Dict[str, SkillMetadata]:
         """
         Scan a single directory for skills
 
@@ -100,17 +100,17 @@ class SkillIndexer:
 
         return skills
 
-    def _parse_skill_metadata(self, skill_file: path) -> Optional[Skillmetadata]:
+    def _parse_skill_metadata(self, skill_file: Path) -> Optional[SkillMetadata]:
         """
         Parse skill metadata from SKILL.md file
 
         Only reads and parses the YAML frontmatter.
 
         Args:
-            skill_file: path to SKILL.md
+            skill_file: Path to SKILL.md
 
         Returns:
-            Skillmetadata or None if parsing fails
+            SkillMetadata or None if parsing fails
         """
         try:
             content = skill_file.read_text(encoding="utf-8")
@@ -130,7 +130,7 @@ class SkillIndexer:
         if not frontmatter:
             return None
 
-        return Skillmetadata(
+        return SkillMetadata(
             name=frontmatter.name,
             description=frontmatter.description,
             directory=skill_file.parent,
@@ -143,7 +143,7 @@ class SkillIndexer:
             tags=frontmatter.tags,
         )
 
-    def _parse_yaml_frontmatter(self, yaml_content: str, source_file: path) -> Optional[SkillFrontmatter]:
+    def _parse_yaml_frontmatter(self, yaml_content: str, source_file: Path) -> Optional[SkillFrontmatter]:
         """
         Parse YAML frontmatter into SkillFrontmatter
 
@@ -198,7 +198,7 @@ class SkillIndexer:
         """
         return list(self._cache.keys())
 
-    def get_metadata(self, name: str) -> Optional[Skillmetadata]:
+    def get_metadata(self, name: str) -> Optional[SkillMetadata]:
         """
         Get metadata for a specific skill
 
@@ -206,11 +206,11 @@ class SkillIndexer:
             name: Skill name
 
         Returns:
-            Skillmetadata or None
+            SkillMetadata or None
         """
         return self._cache.get(name)
 
-    def refresh(self) -> Dict[str, Skillmetadata]:
+    def refresh(self) -> Dict[str, SkillMetadata]:
         """
         Refresh the skill index by rescanning all directories
 

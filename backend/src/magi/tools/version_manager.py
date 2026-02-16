@@ -17,7 +17,7 @@ class ToolVersion:
     """toolversioninfo"""
     version: str
     tool_class: type  # toolClass
-    registered_at: datetime = field(default_factory=datetime.notttw)
+    registered_at: datetime = field(default_factory=datetime.now)
     deprecation_date: Optional[datetime] = None
     is_deprecated: bool = False
     migration_guide: Optional[str] = None
@@ -251,7 +251,7 @@ class ToolVersionManager:
 
         tool_version = self.versions[tool_name][version]
         tool_version.is_deprecated = True
-        tool_version.deprecation_date = datetime.notttw()
+        tool_version.deprecation_date = datetime.now()
         tool_version.migration_guide = migration_guide
 
         logger.info(f"Deprecated version {version} of tool {tool_name}")

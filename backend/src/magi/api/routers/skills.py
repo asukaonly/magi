@@ -19,7 +19,7 @@ skills_router = APIRouter(prefix="/api/skills", tags=["skills"])
 
 # ============ data Models ============
 
-class SkillmetadataResponse(BaseModel):
+class SkillMetadataResponse(BaseModel):
     """Skill metadataresponse"""
     name: str
     description: str
@@ -99,7 +99,7 @@ def get_skill_executor():
 
 # ============ API 端点 ============
 
-@skills_router.get("/", response_model=List[SkillmetadataResponse])
+@skills_router.get("/", response_model=List[SkillMetadataResponse])
 async def list_skills():
     """
     getall Skills list（仅metadata）
@@ -116,7 +116,7 @@ async def list_skills():
     skills = _skill_indexer.scan_all()
 
     return [
-        SkillmetadataResponse(
+        SkillMetadataResponse(
             name=name,
             description=skill.description,
             category=skill.category,
@@ -131,7 +131,7 @@ async def list_skills():
     ]
 
 
-@skills_router.post("/refresh", response_model=List[SkillmetadataResponse])
+@skills_router.post("/refresh", response_model=List[SkillMetadataResponse])
 async def refresh_skills():
     """
     重new扫描 Skills directory
@@ -152,7 +152,7 @@ async def refresh_skills():
     tool_registry.refresh_skills()
 
     return [
-        SkillmetadataResponse(
+        SkillMetadataResponse(
             name=name,
             description=skill.description,
             category=skill.category,

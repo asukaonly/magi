@@ -61,12 +61,12 @@ class CapabilityStore:
     @property
     def _expanded_db_path(self) -> str:
         """get expanded database path (process ~)"""
-        return str(path(self.db_path).expanduser())
+        return str(Path(self.db_path).expanduser())
 
     @property
     def _expanded_chromadb_path(self) -> str:
         """get展开后的ChromaDBpath（process ~）"""
-        return str(path(self.chromadb_path).expanduser())
+        return str(Path(self.chromadb_path).expanduser())
 
     async def init(self):
         """initializedatabase"""

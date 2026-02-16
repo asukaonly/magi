@@ -35,7 +35,7 @@ def setup_agent_logger():
     """
     # createlogger
     agent_logger = logging.getLogger('magi.agent')
-    agent_logger.setlevel(logging.debug)
+    agent_logger.setLevel(logging.DEBUG)
 
     # 防止重复addhandler
     if agent_logger.handlers:
@@ -53,12 +53,12 @@ def setup_agent_logger():
         backupCount=5,
         encoding='utf-8'
     )
-    file_handler.setlevel(logging.debug)
+    file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(AgentFormatter())
 
     # 控制台handler
     console_handler = logging.StreamHandler()
-    console_handler.setlevel(logging.INFO)
+    console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(AgentFormatter())
 
     # addhandler

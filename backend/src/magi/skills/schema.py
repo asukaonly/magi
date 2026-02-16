@@ -28,7 +28,7 @@ class SkillFrontmatter:
 
 
 @dataclass
-class Skillmetadata:
+class SkillMetadata:
     """
     Skill metadata (lightweight, kept in memory)
 
@@ -37,7 +37,7 @@ class Skillmetadata:
     """
     name: str
     description: str
-    directory: path  # Used for loading full content later
+    directory: Path  # Used for loading full content later
     argument_hint: Optional[str] = None
     disable_model_invocation: bool = False
     user_invocable: bool = True
@@ -59,7 +59,7 @@ class SkillContent:
     frontmatter: SkillFrontmatter
     prompt_template: str  # processed template with resolved references
     supporting_data: Dict[str, Any] = field(default_factory=dict)
-    source_file: Optional[path] = None
+    source_file: Optional[Path] = None
 
 
 @dataclass

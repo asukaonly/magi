@@ -291,7 +291,7 @@ class OtherMemory:
             runtime_paths = get_runtime_paths()
             self.others_dir = runtime_paths.others_dir
         else:
-            self.others_dir = path(others_dir)
+            self.others_dir = Path(others_dir)
 
         # 确保directoryexists
         self.others_dir.mkdir(parents=True, exist_ok=True)
@@ -301,7 +301,7 @@ class OtherMemory:
 
         self.formatter = OtherProfileFormatter()
 
-    def _get_profile_path(self, user_id: str) -> path:
+    def _get_profile_path(self, user_id: str) -> Path:
         """getuser画像filepath"""
         # 将userid转成safe的filename
         safe_name = user_id.replace("/", "_").replace("\\", "_").replace(":", "_")
@@ -323,7 +323,7 @@ class OtherMemory:
 
         profile_path = self._get_profile_path(user_id)
 
-        if not profile_path.exists():
+        if not profile_Path.exists():
             return None
 
         try:
@@ -501,7 +501,7 @@ class OtherMemory:
         """
         try:
             profile_path = self._get_profile_path(user_id)
-            if profile_path.exists():
+            if profile_Path.exists():
                 profile_path.unlink()
             if user_id in self._cache:
                 del self._cache[user_id]

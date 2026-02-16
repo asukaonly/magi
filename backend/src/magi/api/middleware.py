@@ -35,7 +35,7 @@ class errorHandler(BaseHTTPMiddleware):
                     "success": False,
                     "message": "Internal server error",
                     "error_code": "internal_error",
-                    "details": str(exc) if logger.isEnabledFor(logging.debug) else None,
+                    "details": str(exc) if logger.isEnabledFor(logging.DEBUG) else None,
                 },
             )
 

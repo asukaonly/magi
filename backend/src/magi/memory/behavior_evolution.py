@@ -95,7 +95,7 @@ class BehaviorEvolutionEngine:
     def _expanded_db_path(self) -> str:
         """get expanded database path (process ~)"""
         from pathlib import Path
-        return str(path(self.db_path).expanduser())
+        return str(Path(self.db_path).expanduser())
 
     async def init(self):
         """initializedatabase"""

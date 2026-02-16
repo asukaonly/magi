@@ -110,7 +110,7 @@ class TaskDatabase:
     def _expanded_db_path(self) -> str:
         """get expanded database path (process ~)"""
         from pathlib import Path
-        return str(path(self.db_path).expanduser())
+        return str(Path(self.db_path).expanduser())
 
     async def _init_db(self):
         """initializedatabasetable"""
@@ -188,7 +188,7 @@ class TaskDatabase:
             async with aiosqlite.connect(self._expanded_db_path) as db:
                 await db.execute("""
                     INSERT intO tasks (
-                        task_id, type, status, priority, data, parent_id,
+                        task_id, Type, status, priority, data, parent_id,
                         retry_count, max_retries, timeout, created_at
                     ) valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (

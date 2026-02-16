@@ -618,7 +618,7 @@ class ChatAgent(CompleteAgent):
     ) -> None:
         """persist tool interaction record into event_store for restart recovery."""
         try:
-            if not self._events_db_path.exists():
+            if not self._events_db_Path.exists():
                 return
 
             payload = {
@@ -635,7 +635,7 @@ class ChatAgent(CompleteAgent):
             cur.execute(
                 """
                 INSERT intO event_store (
-                    id, type, data, media_path, timestamp, source,
+                    id, Type, data, media_path, timestamp, source,
                     level, correlation_id, metadata, created_at
                 ) valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -777,7 +777,7 @@ class ChatAgent(CompleteAgent):
     def _restore_conversation_from_events(self) -> None:
         """Restore in-memory chat histories and tool interactions from event_store."""
         try:
-            if not self._events_db_path.exists():
+            if not self._events_db_Path.exists():
                 return
             conn = sqlite3.connect(str(self._events_db_path))
             cur = conn.cursor()

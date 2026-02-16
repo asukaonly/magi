@@ -107,7 +107,7 @@ class GrowthMemoryEngine:
     def _expanded_db_path(self) -> str:
         """get expanded database path (process ~)"""
         from pathlib import Path
-        return str(path(self.db_path).expanduser())
+        return str(Path(self.db_path).expanduser())
 
     async def init(self):
         """initializedatabase"""
@@ -210,7 +210,7 @@ class GrowthMemoryEngine:
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
-                """INSERT intO milestones (id, type, title, description, timestamp, metadata)
+                """INSERT intO milestones (id, Type, title, description, timestamp, metadata)
                    valueS (?, ?, ?, ?, ?, ?)""",
                 (
                     milestone_id,
@@ -255,14 +255,14 @@ class GrowthMemoryEngine:
         async with aiosqlite.connect(self._expanded_db_path) as db:
             if milestone_type:
                 cursor = await db.execute(
-                    """SELECT id, type, title, description, timestamp, metadata
+                    """SELECT id, Type, title, description, timestamp, metadata
                        FROM milestones WHERE type = ?
                        order BY timestamp DESC LIMIT ?""",
                     (milestone_type.value, limit)
                 )
             else:
                 cursor = await db.execute(
-                    """SELECT id, type, title, description, timestamp, metadata
+                    """SELECT id, Type, title, description, timestamp, metadata
                        FROM milestones
                        order BY timestamp DESC LIMIT ?""",
                     (limit,)

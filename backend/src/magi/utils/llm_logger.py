@@ -35,7 +35,7 @@ def setup_llm_logger():
     """
     # createlogger
     llm_logger = logging.getLogger('magi.llm')
-    llm_logger.setlevel(logging.debug)
+    llm_logger.setLevel(logging.DEBUG)
 
     # 防止重复addhandler
     if llm_logger.handlers:
@@ -53,7 +53,7 @@ def setup_llm_logger():
         backupCount=10,
         encoding='utf-8'
     )
-    file_handler.setlevel(logging.debug)
+    file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(LLMFormatter())
 
     # addhandler

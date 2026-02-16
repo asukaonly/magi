@@ -69,7 +69,7 @@ class UnifiedMemoryStore:
         if not persist_dir:
             persist_dir = str(runtime_paths.memories_dir)
 
-        persist_path = path(persist_dir)
+        persist_path = Path(persist_dir)
 
         # parseembeddingConfiguration
         emb_config = embedding_config or {}

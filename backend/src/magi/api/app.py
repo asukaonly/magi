@@ -24,8 +24,8 @@ try:
     from dotenv import load_dotenv
     # 优先load backend/.env（app.py 位于 backend/src/magi/api）
     candidate_paths = [
-        path(__file__).resolve().parents[3] / ".env",  # backend/.env
-        path.cwd() / ".env",                           # current工作directory
+        Path(__file__).resolve().parents[3] / ".env",  # backend/.env
+        Path.cwd() / ".env",                           # current工作directory
     ]
     loaded = False
     for env_path in candidate_paths:

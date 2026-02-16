@@ -4,7 +4,7 @@ messageAPIroute
 提供User messagesend、dialoguehistory等function
 使用正确的Agentarchitecture：message → MessageBus → Perception器subscribe → PerceptionManager → LoopEngine → Agentprocess → WebSocketpush
 """
-from fastapi import APIRouter, HTTPException, query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import logging
@@ -172,7 +172,7 @@ async def send_user_message(request: UserMessageRequest):
 @user_messages_router.get("/history", response_model=Dict[str, Any])
 async def get_conversation_history(
     user_id: str = "web_user",
-    session_id: Optional[str] = query(default=None, description="sessionid，不传则使用currentsession"),
+    session_id: Optional[str] = Query(default=None, description="sessionid，不传则使用currentsession"),
 ):
     """
     getdialoguehistory
@@ -218,7 +218,7 @@ async def get_conversation_history(
 @user_messages_router.post("/history/clear")
 async def clear_conversation_history(
     user_id: str = "web_user",
-    session_id: Optional[str] = query(default=None, description="sessionid，不传则clearcurrentsession"),
+    session_id: Optional[str] = Query(default=None, description="sessionid，不传则clearcurrentsession"),
 ):
     """
     cleardialoguehistory

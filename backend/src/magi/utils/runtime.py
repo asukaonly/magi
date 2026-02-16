@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class Runtimepaths:
     """Runtime path management"""
 
-    def __init__(self, base_dir: Optional[path] = None):
+    def __init__(self, base_dir: Optional[Path] = None):
         """
         initialize runtime paths
 
@@ -23,10 +23,10 @@ class Runtimepaths:
         """
         if base_dir is None:
             # Use .magi folder under user home directory
-            home = path.home()
+            home = Path.home()
             base_dir = home / ".magi"
 
-        self.base_dir = path(base_dir)
+        self.base_dir = Path(base_dir)
         self._ensure_directories()
 
     def _ensure_directories(self):
@@ -46,56 +46,56 @@ class Runtimepaths:
         logger.info(f"Runtime directory: {self.base_dir}")
 
     @property
-    def personalities_dir(self) -> path:
+    def personalities_dir(self) -> Path:
         """Personality configuration directory"""
         return self.base_dir / "personalities"
 
     @property
-    def data_dir(self) -> path:
+    def data_dir(self) -> Path:
         """data directory"""
         return self.base_dir / "data"
 
     @property
-    def memories_dir(self) -> path:
+    def memories_dir(self) -> Path:
         """Memory database directory"""
         return self.data_dir / "memories"
 
     @property
-    def others_dir(self) -> path:
+    def others_dir(self) -> Path:
         """Others' memory directory (MD file storage)"""
         return self.base_dir / "others"
 
     @property
-    def logs_dir(self) -> path:
+    def logs_dir(self) -> Path:
         """Log directory"""
         return self.base_dir / "logs"
 
     @property
-    def behavior_db_path(self) -> path:
+    def behavior_db_path(self) -> Path:
         """Behavior evolution database path"""
         return self.memories_dir / "behavior_evolution.db"
 
     @property
-    def emotional_db_path(self) -> path:
+    def emotional_db_path(self) -> Path:
         """Emotional state database path"""
         return self.memories_dir / "emotional_state.db"
 
     @property
-    def growth_db_path(self) -> path:
+    def growth_db_path(self) -> Path:
         """Growth memory database path"""
         return self.memories_dir / "growth_memory.db"
 
     @property
-    def self_memory_db_path(self) -> path:
+    def self_memory_db_path(self) -> Path:
         """Self memory database path (compatible)"""
         return self.memories_dir / "self_memory_v2.db"
 
     @property
-    def events_db_path(self) -> path:
+    def events_db_path(self) -> Path:
         """event database path"""
         return self.data_dir / "events.db"
 
-    def other_file(self, user_id: str) -> path:
+    def other_file(self, user_id: str) -> Path:
         """
         Get others' memory file path
 
@@ -109,7 +109,7 @@ class Runtimepaths:
         safe_name = user_id.replace("/", "_").replace("\\", "_").replace(":", "_")
         return self.others_dir / f"{safe_name}.md"
 
-    def personality_file(self, name: str) -> path:
+    def personality_file(self, name: str) -> Path:
         """
         Get personality configuration file path
 
@@ -148,7 +148,7 @@ class Runtimepaths:
             possible_sources = [
                 path("./personalities/default.md"),
                 path("./backend/personalities/default.md"),
-                path(__file__).parent.parent.parent.parent / "personalities" / "default.md",
+                Path(__file__).parent.parent.parent.parent / "personalities" / "default.md",
             ]
 
             for source in possible_sources:
@@ -182,7 +182,7 @@ class Runtimepaths:
             logger.info(f"Current personality: {current_name}")
 
     @property
-    def current_personality_file(self) -> path:
+    def current_personality_file(self) -> Path:
         """Get current personality file path"""
         current_file = self.personalities_dir / "current"
         if current_file.exists():
@@ -204,7 +204,7 @@ def get_runtime_paths() -> Runtimepaths:
     return _runtime_paths
 
 
-def set_runtime_dir(path: str | path):
+def set_runtime_dir(path: str | Path):
     """
     Set custom runtime directory
 
@@ -212,7 +212,7 @@ def set_runtime_dir(path: str | path):
         path: Custom directory path
     """
     global _runtime_paths
-    _runtime_paths = Runtimepaths(path(path))
+    _runtime_paths = Runtimepaths(Path(path))
 
 
 def init_runtime_data():

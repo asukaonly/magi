@@ -4,7 +4,7 @@ toolSchemaandmetadata定义
 定义tool的standardInterfaceandmetadatastructure
 """
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, type
+from typing import Any, Dict, List, Optional, Type
 from pydantic import BaseModel, Field
 from enum import Enum
 
