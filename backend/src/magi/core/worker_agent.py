@@ -180,7 +180,7 @@ class WorkerAgent(Agent):
 
                 break  # success，退出重试循环
 
-            except asyncio.Timeouterror:
+            except asyncio.TimeoutError:
                 # timeout
                 self._error = Exception(f"Task timeout after {timeout}s")
                 retry_count += 1

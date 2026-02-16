@@ -385,7 +385,7 @@ class ToolRegistry:
 
             return result
 
-        except asyncio.Timeouterror:
+        except asyncio.TimeoutError:
             execution_time = time.time() - start_time
             stats.record_call(False, execution_time)
 

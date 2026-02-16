@@ -493,7 +493,7 @@ class WorkerAgent(Agent):
 
             logger.info(f"WorkerAgent-{self.task_id} completed successfully")
 
-        except asyncio.Timeouterror:
+        except asyncio.TimeoutError:
             # Task timeout
             await self.task_database.update_task_status(
                 self.task_id,

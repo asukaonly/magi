@@ -77,7 +77,7 @@ class UserMessageSensor:
                 source="user_message_sensor",
                 timestamp=time.time(),
             )
-        except asyncio.Timeouterror:
+        except asyncio.TimeoutError:
             return None
 
     async def listen(self, callback):

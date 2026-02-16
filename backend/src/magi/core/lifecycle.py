@@ -116,7 +116,7 @@ class GracefulShutdownManager:
                 started_stages.append(stage)
                 print(f"✓ {stage['name']} started")
 
-            except asyncio.Timeouterror:
+            except asyncio.TimeoutError:
                 print(f"✗ {stage['name']} startup timeout")
                 if stage["critical"]:
                     # 关key阶段failure，rollback
@@ -180,7 +180,7 @@ class GracefulShutdownManager:
                 stage["started"] = False
                 print(f"✓ {stage['name']} stopped")
 
-            except asyncio.Timeouterror:
+            except asyncio.TimeoutError:
                 print(f"✗ {stage['name']} stop timeout")
                 # 继续stopother阶段
             except Exception as e:

@@ -106,7 +106,7 @@ class BashTool(Tool):
                     error_code="COMMAND_failED" if return_code != 0 else None,
                 )
 
-            except asyncio.Timeouterror:
+            except asyncio.TimeoutError:
                 # Timeout, kill the process
                 process.kill()
                 await process.wait()

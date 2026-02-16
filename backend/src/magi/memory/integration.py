@@ -614,7 +614,7 @@ class MemoryIntegrationModule:
                 if event_id in self._embedding_event_ids:
                     self._embedding_event_ids.remove(event_id)
 
-            except asyncio.Timeouterror:
+            except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
                 break
