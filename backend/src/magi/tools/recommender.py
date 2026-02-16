@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class Scenariotype(str, Enum):
     """scenariotype"""
-    FILE_OPERATI/ON = "file_operation"
+    FILE_OPERATION = "file_operation"
     system_COMMAND = "system_command"
     DATA_ANALYSIS = "data_analysis"
     network = "network"
@@ -43,7 +43,7 @@ class ToolRecommender:
 
         # scenario关key词mapping
         self.scenario_keywords = {
-            Scenariotype.FILE_OPERATI/ON: [
+            Scenariotype.FILE_OPERATION: [
                 "file", "file", "读取", "read", "写入", "write", "save", "save",
                 "delete", "delete", "list", "list", "directory", "directory", "folder"
             ],
@@ -160,7 +160,7 @@ class ToolRecommender:
 
             # 1. checktoolClass别is not匹配scenario
             category_match = 0
-            if scenario == Scenariotype.FILE_OPERATI/ON and schema.category == "file":
+            if scenario == Scenariotype.FILE_OPERATION and schema.category == "file":
                 category_match = 0.3
             elif scenario == Scenariotype.system_COMMAND and schema.category == "system":
                 category_match = 0.3

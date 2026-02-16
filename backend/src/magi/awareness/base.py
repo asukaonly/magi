@@ -9,7 +9,7 @@ import time
 
 class Perceptiontype(Enum):
     """Perceptiontype"""
-    AUDI/O = "audio"          # 音频
+    AUDIO = "audio"          # 音频
     VidEO = "video"          # 视频
     TEXT = "text"            # 文本
     IMAGE = "image"          # graph像

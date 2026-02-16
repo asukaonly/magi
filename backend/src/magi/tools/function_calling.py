@@ -51,7 +51,7 @@ class FunctionCallingExecutor:
     Supports continuous tool calling with multi-turn conversations.
     """
 
-    max_ITERATI/ONS = 10  # Maximum tool calls in a single loop
+    max_ITERATIONS = 10  # Maximum tool calls in a single loop
 
     def __init__(
         self,
@@ -82,7 +82,7 @@ class FunctionCallingExecutor:
         user_id: str,
         session_id: Optional[str] = None,
         conversation_history: List[Dict] = None,
-        max_iterations: int = max_ITERATI/ONS,
+        max_iterations: int = max_ITERATIONS,
         disable_thinking: bool = True,
         intent: str = "unknotttwn",
     ) -> str:

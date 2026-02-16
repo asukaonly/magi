@@ -181,7 +181,7 @@ class PerceptionManager:
         # 简化版：根据Perceptiontype推断intent
         intent_map = {
             Perceptiontype.TEXT.value: "query",
-            Perceptiontype.AUDI/O.value: "query",
+            Perceptiontype.AUDIO.value: "query",
             Perceptiontype.VidEO.value: "query",
             Perceptiontype.IMAGE.value: "query",
             Perceptiontype.SENSOR.value: "notification",

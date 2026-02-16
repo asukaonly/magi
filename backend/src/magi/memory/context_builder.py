@@ -399,7 +399,7 @@ class ContextBuilder:
         # 模糊容忍度指导
         ambiguity_guidance = {
             AmbiguityTolerance.IMPATIENT: "Make reasonable assumptions and proceed. Don't ask too many clarifying questions.",
-            AmbiguityTolerance.CAUTI/OUS: "Ask clarifying questions when uncertain. Verify understanding before proceeding.",
+            AmbiguityTolerance.CAUTIOUS: "Ask clarifying questions when uncertain. Verify understanding before proceeding.",
             AmbiguityTolerance.ADAPTIVE: "Gauge the situation - be cautious for complex tasks, more direct for simple ones.",
         }
         guidance_parts.append(ambiguity_guidance.get(behavior.ambiguity_tolerance, ""))

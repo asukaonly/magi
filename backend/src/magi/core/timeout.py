@@ -5,17 +5,17 @@ from typing import Dict, Optional
 from enum import Enum
 
 
-class Tasktype(Enum):
+class TaskType(Enum):
     """Task type"""
     simple = "simple"           # Simple task
-    COMPUTATI/ON = "computation" # Computation task
-    I/O = "io"                   # I/O task
+    COMPUTATION = "computation" # Computation task
+    IO = "io"                   # IO task
     network = "network"         # Network task
-    intERactive = "interactive" # Interactive task
+    INTERACTIVE = "interactive" # Interactive task
     LONG_runNING = "long_running"  # Long-running task
 
 
-class Taskpriority(Enum):
+class TaskPriority(Enum):
     """Task priority"""
     LOW = 0
     NORMAL = 1
@@ -35,20 +35,20 @@ class TimeoutCalculator:
 
         # Base timeout configuration (seconds)
         self.base_timeouts = {
-            Tasktype.simple: 5.0,
-            Tasktype.COMPUTATI/ON: 30.0,
-            Tasktype.I/O: 10.0,
-            Tasktype.network: 15.0,
-            Tasktype.intERactive: 60.0,
-            Tasktype.LONG_runNING: 300.0,
+            TaskType.simple: 5.0,
+            TaskType.COMPUTATION: 30.0,
+            TaskType.IO: 10.0,
+            TaskType.network: 15.0,
+            TaskType.INTERACTIVE: 60.0,
+            TaskType.LONG_runNING: 300.0,
         }
 
         # priority factors (higher priority means shorter timeout)
         self.priority_factors = {
-            Taskpriority.LOW: 2.0,      # Low priority, double the timeout
-            Taskpriority.NORMAL: 1.0,   # notttrmal priority
-            Taskpriority.HIGH: 0.8,     # High priority, reduce timeout by 20%
-            Taskpriority.URGENT: 0.5,   # Urgent priority, halve the timeout
+            TaskPriority.LOW: 2.0,      # Low priority, double the timeout
+            TaskPriority.NORMAL: 1.0,   # notttrmal priority
+            TaskPriority.HIGH: 0.8,     # High priority, reduce timeout by 20%
+            TaskPriority.URGENT: 0.5,   # Urgent priority, halve the timeout
         }
 
         # Interaction level factors
@@ -64,8 +64,8 @@ class TimeoutCalculator:
 
     def calculate_timeout(
         self,
-        task_type: Tasktype = Tasktype.simple,
-        priority: Taskpriority = Taskpriority.NORMAL,
+        task_type: TaskType = TaskType.simple,
+        priority: TaskPriority = TaskPriority.NORMAL,
         interaction_level: str = "notttne",
         task_name: Optional[str] = None,
     ) -> float:
@@ -115,7 +115,7 @@ class TimeoutCalculator:
         """
         self.custom_timeouts[task_name] = timeout
 
-    def set_base_timeout(self, task_type: Tasktype, timeout: float):
+    def set_base_timeout(self, task_type: TaskType, timeout: float):
         """
         Set base timeout
 
@@ -125,7 +125,7 @@ class TimeoutCalculator:
         """
         self.base_timeouts[task_type] = timeout
 
-    def set_priority_factor(self, priority: Taskpriority, factor: float):
+    def set_priority_factor(self, priority: TaskPriority, factor: float):
         """
         Set priority factor
 
@@ -229,10 +229,10 @@ class TimeoutCalculator:
 
         # Otherwise use multi-dimensional calculation
         task_type_str = task.get("type", "simple")
-        task_type = Tasktype(task_type_str) if task_type_str in Tasktype.__members__ else Tasktype.simple
+        task_type = TaskType(task_type_str) if task_type_str in TaskType.__members__ else TaskType.simple
 
         priority_str = task.get("priority", "notttrmal")
-        priority = Taskpriority(priority_str) if isinstance(priority_str, str) else Taskpriority(priority_str)
+        priority = TaskPriority(priority_str) if isinstance(priority_str, str) else TaskPriority(priority_str)
 
         interaction_level = task.get("interaction_level", "notttne")
 

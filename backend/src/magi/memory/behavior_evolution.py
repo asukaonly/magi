@@ -447,7 +447,7 @@ class BehaviorEvolutionEngine:
         """
         # 根据statistics推断模糊容忍度
         if stats.cautious_score > 0.7:
-            ambiguity_tolerance = AmbiguityTolerance.CAUTI/OUS
+            ambiguity_tolerance = AmbiguityTolerance.CAUTIOUS
         elif stats.impatient_score > 0.7:
             ambiguity_tolerance = AmbiguityTolerance.IMPATIENT
         else:

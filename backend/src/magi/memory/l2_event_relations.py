@@ -65,7 +65,7 @@ class eventRelationStore:
         "SAME_user": "Same user: A and B are from the same user",
 
         # Entity relationships
-        "MENTI/ON": "Mention: A mentions entities from B",
+        "MENTION": "Mention: A mentions entities from B",
         "reference": "Reference: A references B",
         "RESPONSE": "Response: A is a response to B",
 

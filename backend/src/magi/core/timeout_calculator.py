@@ -4,7 +4,7 @@ Timeout Calculator - Multi-dimensional Timeout Calculation
 Calculates timeout based on task type, priority, and interaction level
 """
 from enum import Enum
-from .task_database import Tasktype, Taskpriority
+from .task_database import TaskType, TaskPriority
 
 
 class Interactionlevel(Enum):
@@ -27,24 +27,24 @@ class TimeoutCalculator:
     BasE_timeout = 60.0
 
     # priority factors
-    PRI/ORITY_FACTORS = {
-        Taskpriority.LOW: 2.0,        # Low priority tasks can run longer
-        Taskpriority.NORMAL: 1.0,     # notttrmal priority
-        Taskpriority.HIGH: 0.8,       # High priority for fast processing
-        Taskpriority.URGENT: 0.5,     # Urgent tasks fail fast
-        Taskpriority.EmergeNCY: 0.3,  # emergency tasks fail very fast
+    PRIORITY_FACTORS = {
+        TaskPriority.LOW: 2.0,        # Low priority tasks can run longer
+        TaskPriority.NORMAL: 1.0,     # notttrmal priority
+        TaskPriority.HIGH: 0.8,       # High priority for fast processing
+        TaskPriority.URGENT: 0.5,     # Urgent tasks fail fast
+        TaskPriority.EMERGENCY: 0.3,  # emergency tasks fail very fast
     }
 
     # Task type factors
     type_FACTORS = {
-        Tasktype.QUERY: 0.5,          # query type for fast response
-        Tasktype.COMPUTATI/ON: 3.0,    # Computation type needs more time
-        Tasktype.intERactive: 2.0,    # Interactive type waits for user
-        Tasktype.BATCH: 5.0,          # Batch type allows longest time
+        TaskType.QUERY: 0.5,          # query type for fast response
+        TaskType.COMPUTATION: 3.0,    # Computation type needs more time
+        TaskType.INTERACTIVE: 2.0,    # Interactive type waits for user
+        TaskType.BATCH: 5.0,          # Batch type allows longest time
     }
 
     # Interaction level factors
-    intERACTI/ON_FACTORS = {
+    intERACTION_FACTORS = {
         Interactionlevel.notttne: 1.0,    # No interaction
         Interactionlevel.LOW: 1.2,     # Low interaction
         Interactionlevel.MEDIUM: 1.5,  # Medium interaction
@@ -54,8 +54,8 @@ class TimeoutCalculator:
     @classmethod
     def calculate(
         cls,
-        task_type: Tasktype = Tasktype.QUERY,
-        priority: Taskpriority = Taskpriority.NORMAL,
+        task_type: TaskType = TaskType.QUERY,
+        priority: TaskPriority = TaskPriority.NORMAL,
         interaction_level: Interactionlevel = Interactionlevel.notttne,
         base_timeout: float = None,
     ) -> float:
@@ -73,9 +73,9 @@ class TimeoutCalculator:
         """
         base = base_timeout or cls.BasE_timeout
 
-        priority_factor = cls.PRI/ORITY_FACTORS.get(priority, 1.0)
+        priority_factor = cls.PRIORITY_FACTORS.get(priority, 1.0)
         type_factor = cls.type_FACTORS.get(task_type, 1.0)
-        interaction_factor = cls.intERACTI/ON_FACTORS.get(interaction_level, 1.0)
+        interaction_factor = cls.intERACTION_FACTORS.get(interaction_level, 1.0)
 
         timeout = base * priority_factor * type_factor * interaction_factor
 
@@ -94,20 +94,20 @@ class TimeoutCalculator:
             Timeout (seconds)
         """
         # Extract parameters from task data
-        type_str = task_data.get("type", Tasktype.QUERY.value)
-        priority_value = task_data.get("priority", Taskpriority.NORMAL.value)
+        type_str = task_data.get("type", TaskType.QUERY.value)
+        priority_value = task_data.get("priority", TaskPriority.NORMAL.value)
         interaction_str = task_data.get("interaction_level", Interactionlevel.notttne.value)
 
         # Convert to enums
         try:
-            task_type = Tasktype(type_str)
+            task_type = TaskType(type_str)
         except Valueerror:
-            task_type = Tasktype.QUERY
+            task_type = TaskType.QUERY
 
         try:
-            priority = Taskpriority(priority_value)
+            priority = TaskPriority(priority_value)
         except Valueerror:
-            priority = Taskpriority.NORMAL
+            priority = TaskPriority.NORMAL
 
         try:
             interaction_level = Interactionlevel(interaction_str)

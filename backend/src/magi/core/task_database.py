@@ -27,20 +27,20 @@ class TaskStatus(Enum):
     timeout = "timeout"          # timeout
 
 
-class Taskpriority(Enum):
+class TaskPriority(Enum):
     """任务priority"""
     LOW = 1
     NORMAL = 2
     HIGH = 3
     URGENT = 4
-    EmergeNCY = 5
+    EMERGENCY = 5
 
 
-class Tasktype(Enum):
+class TaskType(Enum):
     """任务type"""
     QUERY = "query"              # queryClass
-    COMPUTATI/ON = "computation"  # calculateClass
-    intERactive = "interactive"  # 交互Class
+    COMPUTATION = "computation"  # calculateClass
+    INTERACTIVE = "interactive"  # 交互Class
     BATCH = "batch"              # 批processClass
 
 
@@ -48,9 +48,9 @@ class Tasktype(Enum):
 class Task:
     """任务datastructure"""
     task_id: str
-    type: str                    # Tasktype.value
+    type: str                    # TaskType.value
     status: str                  # TaskStatus.value
-    priority: int                # Taskpriority.value
+    priority: int                # TaskPriority.value
     data: Dict[str, Any]         # 任务data
     assigned_to: Optional[str] = None  # 分配给的TaskAgent id
     parent_id: Optional[str] = None    # 父任务id（用于子任务）
@@ -88,7 +88,7 @@ class Task:
         return cls(**data)
 
 
-class Taskdatabase:
+class TaskDatabase:
     """
     任务database
 
@@ -161,8 +161,8 @@ class Taskdatabase:
 
     async def create_task(
         self,
-        task_type: Tasktype,
-        priority: Taskpriority = Taskpriority.NORMAL,
+        task_type: TaskType,
+        priority: TaskPriority = TaskPriority.NORMAL,
         data: Dict[str, Any] = None,
         parent_id: str = None,
         timeout: float = 60.0,

@@ -17,14 +17,14 @@ class eventlevel(IntEnum):
     2: warnING   - Warning
     3: error     - error
     4: CRITICAL  - critical error
-    5: EmergeNCY - emergency event (highest priority)
+    5: EMERGENCY - emergency event (highest priority)
     """
     debug = 0
     INFO = 1
     warnING = 2
     error = 3
     CRITICAL = 4
-    EmergeNCY = 5
+    EMERGENCY = 5
 
 
 class propagationMode:
@@ -97,11 +97,11 @@ class eventtypes:
     STATE_CHANGED = "StateChanged"
 
     # Perceptionevent
-    PERCEPTI/ON_receiveD = "PerceptionReceived"
-    PERCEPTI/ON_processED = "Perceptionprocessed"
+    PERCEPTION_receiveD = "PerceptionReceived"
+    PERCEPTION_processED = "Perceptionprocessed"
 
     # processevent
-    ACTI/ON_executeD = "ActionExecuted"
+    ACTION_executeD = "ActionExecuted"
     CAPABILITY_createD = "CapabilityCreated"
     CAPABILITY_updateD = "CapabilityUpdated"
 
@@ -146,10 +146,10 @@ class Businesseventtypes:
     # userInputevent（来自 user_MESSAGE）
     user_input = "user_input"
 
-    # AI responseevent（来自 ACTI/ON_executeD，当 action_type=ChatResponseAction）
+    # AI responseevent（来自 ACTION_executeD，当 action_type=ChatResponseAction）
     AI_RESPONSE = "AI_RESPONSE"
 
-    # tool调用event（来自 ACTI/ON_executeD，当 action_type istool调用）
+    # tool调用event（来自 ACTION_executeD，当 action_type istool调用）
     TOOL_INVOKED = "TOOL_INVOKED"
 
     # 系统Exceptionevent（只recordcritical error，level >= error）

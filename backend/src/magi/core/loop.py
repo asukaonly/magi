@@ -296,7 +296,7 @@ class LoopEngine:
         for perception in perceptions:
             correlation_id = self._extract_perception_correlation_id(perception)
             event = event(
-                type=eventtypes.PERCEPTI/ON_receiveD,
+                type=eventtypes.PERCEPTION_receiveD,
                 data={
                     "perception_type": perception.type,
                     "source": perception.source,
@@ -341,7 +341,7 @@ class LoopEngine:
         # Publish perception processed event
         correlation_id = self._extract_perception_correlation_id(perception)
         event = event(
-            type=eventtypes.PERCEPTI/ON_processED,
+            type=eventtypes.PERCEPTION_processED,
             data={
                 "perception_type": perception.type,
                 "action_type": type(action).__name__,
@@ -388,7 +388,7 @@ class LoopEngine:
 
         # Publish action executed event
         event = event(
-            type=eventtypes.ACTI/ON_executeD,
+            type=eventtypes.ACTION_executeD,
             data={
                 "action_type": type(action).__name__,
                 "success": success,

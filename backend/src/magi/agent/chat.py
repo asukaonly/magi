@@ -35,7 +35,7 @@ from ..utils.runtime import get_runtime_paths
 logger = logging.getLogger(__name__)
 agent_logger = get_agent_logger('chat')
 llm_logger = get_llm_logger('chat')
-TOOL_intERACTI/ON_EVENT_type = "TOOL_intERACTI/ON"
+TOOL_intERACTION_EVENT_type = "TOOL_intERACTION"
 
 
 def clean_tool_artifacts(text: str) -> str:
@@ -641,7 +641,7 @@ class ChatAgent(CompleteAgent):
                 """,
                 (
                     event_id,
-                    TOOL_intERACTI/ON_EVENT_type,
+                    TOOL_intERACTION_EVENT_type,
                     json.dumps(payload, ensure_ascii=False),
                     None,
                     timestamp,
@@ -790,7 +790,7 @@ class ChatAgent(CompleteAgent):
                 LIMIT 5000
                 """
                 ,
-                (TOOL_intERACTI/ON_EVENT_type,)
+                (TOOL_intERACTION_EVENT_type,)
             )
             rows = cur.fetchall()
             conn.close()
@@ -820,7 +820,7 @@ class ChatAgent(CompleteAgent):
                 if content:
                     history.append({"role": "assistant", "content": str(content)})
                     restored += 1
-            elif event_type == TOOL_intERACTI/ON_EVENT_type:
+            elif event_type == TOOL_intERACTION_EVENT_type:
                 record = payload.get("record")
                 if not isinstance(record, dict):
                     continue

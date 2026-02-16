@@ -63,7 +63,7 @@ class MemoryIntegrationConfig:
     # 要record的eventtype（白名单）
     l1_event_whitelist: Set[str] = field(default_factory=lambda: {
         eventtypes.user_MESSAGE,      # userInput → convert为 user_input
-        eventtypes.ACTI/ON_executeD,   # actionExecute → convert为 AI_RESPONSE 或 TOOL_INVOKED
+        eventtypes.ACTION_executeD,   # actionExecute → convert为 AI_RESPONSE 或 TOOL_INVOKED
         eventtypes.task_COMPLETED,    # 任务complete
         eventtypes.task_failED,       # 任务failure
         eventtypes.error_OCCURRED,    # 只record level=error 的critical error
@@ -71,8 +71,8 @@ class MemoryIntegrationConfig:
 
     # 要filter的eventtype（黑名单）- LoopEngine internalevent
     l1_event_blacklist: Set[str] = field(default_factory=lambda: {
-        eventtypes.PERCEPTI/ON_receiveD,
-        eventtypes.PERCEPTI/ON_processED,
+        eventtypes.PERCEPTION_receiveD,
+        eventtypes.PERCEPTION_processED,
         eventtypes.EXPERIENCE_STORED,
         eventtypes.LOOP_startED,
         eventtypes.LOOP_COMPLETED,
@@ -101,9 +101,9 @@ class MemoryIntegrationConfig:
     # subscribe的eventtype（保持原subscribeway）
     subscribed_events: Set[str] = field(default_factory=lambda: {
         eventtypes.user_MESSAGE,
-        eventtypes.PERCEPTI/ON_receiveD,
-        eventtypes.PERCEPTI/ON_processED,
-        eventtypes.ACTI/ON_executeD,
+        eventtypes.PERCEPTION_receiveD,
+        eventtypes.PERCEPTION_processED,
+        eventtypes.ACTION_executeD,
         eventtypes.EXPERIENCE_STORED,
         eventtypes.task_COMPLETED,
         eventtypes.error_OCCURRED,
@@ -293,8 +293,8 @@ class MemoryIntegrationModule:
 
         convertrule：
         - user_MESSAGE → user_input
-        - ACTI/ON_executeD (ChatResponseAction) → AI_RESPONSE
-        - ACTI/ON_executeD (othertool) → TOOL_INVOKED
+        - ACTION_executeD (ChatResponseAction) → AI_RESPONSE
+        - ACTION_executeD (othertool) → TOOL_INVOKED
         - error_OCCURRED (level >= error) → system_error
         """
         if not self.config.l1_enable_event_transform:
@@ -314,8 +314,8 @@ class MemoryIntegrationModule:
                 metadata=event.metadata,
             )
 
-        # ACTI/ON_executeD → AI_RESPONSE 或 TOOL_INVOKED
-        elif event_type == eventtypes.ACTI/ON_executeD:
+        # ACTION_executeD → AI_RESPONSE 或 TOOL_INVOKED
+        elif event_type == eventtypes.ACTION_executeD:
             data = event.data if isinstance(event.data, dict) else {}
             action_type = data.get("action_type", "")
 
@@ -491,12 +491,12 @@ class MemoryIntegrationModule:
                         relations_extracted += 1
 
             # 2. 根据eventtype提取特定relationship
-            if event_type == eventtypes.PERCEPTI/ON_processED:
-                # 查找同 correlation_id 的 PERCEPTI/ON_receiveD
+            if event_type == eventtypes.PERCEPTION_processED:
+                # 查找同 correlation_id 的 PERCEPTION_receiveD
                 if correlation_id in self._correlation_tracker:
                     for related_id in self._correlation_tracker[correlation_id]:
                         related_event = self.unified_memory.l2_relations._events.get(related_id, {})
-                        if related_event.get("type") == eventtypes.PERCEPTI/ON_receiveD:
+                        if related_event.get("type") == eventtypes.PERCEPTION_receiveD:
                             self.unified_memory.l2_relations.add_relation(
                                 source_event_id=related_id,
                                 target_event_id=event_id,
@@ -706,7 +706,7 @@ class MemoryIntegrationModule:
             # 只process特定eventtype
             if event_type == eventtypes.task_COMPLETED:
                 self._record_task_capability(event)
-            elif event_type == eventtypes.ACTI/ON_executeD:
+            elif event_type == eventtypes.ACTION_executeD:
                 self._record_action_attempt(event)
 
         except Exception as e:

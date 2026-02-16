@@ -29,7 +29,7 @@ class DropPolicy(Enum):
     """丢弃strategy"""
     reject = "reject"                    # 拒绝newevent
     oldEST = "oldest"                    # 丢弃最oldevent
-    LOWEST_PRI/ORITY = "lowest_priority" # 丢弃最低priorityevent
+    LOWEST_PRIORITY = "lowest_priority" # 丢弃最低priorityevent
 
 
 class BoundedpriorityQueue:
@@ -45,7 +45,7 @@ class BoundedpriorityQueue:
     def __init__(
         self,
         max_size: int = 1000,
-        drop_policy: DropPolicy = DropPolicy.LOWEST_PRI/ORITY,
+        drop_policy: DropPolicy = DropPolicy.LOWEST_PRIORITY,
     ):
         """
         initialize有界priorityqueue
@@ -146,7 +146,7 @@ class BoundedpriorityQueue:
             self._stats["enqueued"] += 1
             return True
 
-        elif self.drop_policy == DropPolicy.LOWEST_PRI/ORITY:
+        elif self.drop_policy == DropPolicy.LOWEST_PRIORITY:
             # 比较neweventandqueue中最低priority
             if self._queue:
                 lowest_priority = -self._queue[0][0]
@@ -296,7 +296,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         self,
         max_queue_size: int = 1000,
         num_workers: int = 4,
-        drop_policy: DropPolicy = DropPolicy.LOWEST_PRI/ORITY,
+        drop_policy: DropPolicy = DropPolicy.LOWEST_PRIORITY,
     ):
         """
         initialize增强的message后端

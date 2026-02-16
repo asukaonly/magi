@@ -16,7 +16,7 @@ class MessageBusBackend(str, Enum):
 class DropPolicy(str, Enum):
     """queue丢弃strategy"""
     oldEST = "oldest"
-    LOWEST_PRI/ORITY = "lowest_priority"
+    LOWEST_PRIORITY = "lowest_priority"
     reject = "reject"
 
 
@@ -24,7 +24,7 @@ class MessageBusConfig(BaseModel):
     """message busConfiguration"""
     backend: MessageBusBackend = Field(default=MessageBusBackend.MEMORY)
     max_queue_size: int = Field(default=1000, ge=1)
-    drop_policy: DropPolicy = Field(default=DropPolicy.LOWEST_PRI/ORITY)
+    drop_policy: DropPolicy = Field(default=DropPolicy.LOWEST_PRIORITY)
     num_workers: int = Field(default=4, ge=1)
 
     # SQLiteConfiguration

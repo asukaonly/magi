@@ -177,7 +177,7 @@ class SummaryStore:
             event_types[event_type] += 1
 
             # record关keyevent
-            if event.get("level") in ["EmergeNCY", "HIGH"] or event_type == "errorOccurred":
+            if event.get("level") in ["EMERGENCY", "HIGH"] or event_type == "errorOccurred":
                 key_events.append({
                     "timestamp": event.get("timestamp", 0),
                     "type": event_type,
@@ -250,7 +250,7 @@ class SummaryStore:
                 lines.append(f"  - {event_type}: {count}")
 
         # 关keyevent
-        key_events = [e for e in events if e.get("level") in ["EmergeNCY", "HIGH"]]
+        key_events = [e for e in events if e.get("level") in ["EMERGENCY", "HIGH"]]
         if key_events:
             lines.append("- 关keyevent:")
             for event in key_events[:5]:

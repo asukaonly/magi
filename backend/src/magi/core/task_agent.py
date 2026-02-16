@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import Optional, Dict, Any, List
 from .agent import Agent, AgentState, AgentConfig
-from .task_database import Task, TaskStatus, Taskdatabase
+from .task_database import Task, TaskStatus, TaskDatabase
 from .timeout_calculator import TimeoutCalculator
 from ..events.events import event, eventtypes, eventlevel
 from ..events.backend import MessageBusBackend
@@ -64,7 +64,7 @@ class TaskAgent(Agent):
         agent_id: int,
         config: AgentConfig,
         message_bus: MessageBusBackend,
-        task_database: Taskdatabase,
+        task_database: TaskDatabase,
         llm_adapter: LLMAdapter,
         tool_registry: ToolRegistry,
     ):

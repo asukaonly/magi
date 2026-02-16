@@ -1,7 +1,7 @@
 """
 WebSocketservice器
 
-ImplementationSocket.I/Oservice器andconnection管理
+ImplementationSocket.IOservice器andconnection管理
 """
 import socketio
 import asyncio
@@ -20,7 +20,7 @@ class WebSocketManager:
     """
 
     def __init__(self):
-        # Socket.I/Oasynchronotttusservice器
+        # Socket.IOasynchronotttusservice器
         self.sio = socketio.AsyncServer(
             async_mode='aiohttp',
             cors_allowed_origins='*',
@@ -35,7 +35,7 @@ class WebSocketManager:
         self._register_handlers()
 
     def _register_handlers(self):
-        """registerSocket.I/Oeventprocess器"""
+        """registerSocket.IOeventprocess器"""
 
         @self.sio.event
         async def connect(sid, environ):
@@ -143,15 +143,15 @@ ws_manager = WebSocketManager()
 
 def create_socketio_app(app):
     """
-    createSocket.I/O应用并挂载到aiohttp应用
+    createSocket.IO应用并挂载到aiohttp应用
 
     Args:
         app: aiohttp应用Instance
 
     Returns:
-        Socket.I/O应用
+        Socket.IO应用
     """
-    # 将Socket.I/O附加到aiohttp应用
+    # 将Socket.IO附加到aiohttp应用
     sio_app = socketio.asGIApp(ws_manager.sio)
     app['/ws'] = sio_app
 

@@ -6,7 +6,7 @@ import psutil
 import logging
 from typing import List, Optional, Dict, Any
 from .agent import Agent, AgentState, AgentConfig
-from .task_database import Taskdatabase, Tasktype, Taskpriority, TaskStatus
+from .task_database import TaskDatabase, TaskType, TaskPriority, TaskStatus
 from .timeout_calculator import TimeoutCalculator
 from ..events.events import event, eventtypes, eventlevel
 from ..events.backend import MessageBusBackend
@@ -32,7 +32,7 @@ class MasterAgent(Agent):
         config: AgentConfig,
         message_bus: MessageBusBackend,
         task_agents: List,
-        task_database: Taskdatabase,
+        task_database: TaskDatabase,
         llm_adapter: LLMAdapter = None,
     ):
         """
@@ -202,22 +202,22 @@ class MasterAgent(Agent):
         message_lower = message.lower()
 
         # Determine task type
-        task_type = Tasktype.QUERY
-        priority = Taskpriority.NORMAL
+        task_type = TaskType.QUERY
+        priority = TaskPriority.NORMAL
         interaction_level = "notttne"  # notttne, low, medium, high
 
         # Detect keywords
         if any(word in message_lower for word in ["calculate", "statistics", "analysis", "compute", "calculate"]):
-            task_type = Tasktype.COMPUTATI/ON
+            task_type = TaskType.COMPUTATION
         elif any(word in message_lower for word in ["帮我", "请", "能不能", "can you", "help"]):
-            task_type = Tasktype.intERactive
+            task_type = TaskType.INTERACTIVE
             interaction_level = "medium"
 
         # Detect priority
         if any(word in message_lower for word in ["紧急", "urgent", "asap", "马上"]):
-            priority = Taskpriority.URGENT
+            priority = TaskPriority.URGENT
         elif any(word in message_lower for word in ["重要", "important", "priority"]):
-            priority = Taskpriority.HIGH
+            priority = TaskPriority.HIGH
 
         # Calculate timeout
         timeout = TimeoutCalculator.calculate(

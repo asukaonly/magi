@@ -53,7 +53,7 @@ class DynamicTool(Tool):
                 return ToolResult(
                     success=False,
                     error=str(e),
-                    error_code="EXECUTI/ON_error"
+                    error_code="EXECUTION_error"
                 )
 
         return ToolResult(

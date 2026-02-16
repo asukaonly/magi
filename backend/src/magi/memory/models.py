@@ -61,7 +61,7 @@ class ThinkingStyle(Enum):
 class AmbiguityTolerance(Enum):
     """模糊容忍度"""
     IMPATIENT = "impatient"
-    CAUTI/OUS = "cautious"
+    CAUTIOUS = "cautious"
     ADAPTIVE = "adaptive"
 
 

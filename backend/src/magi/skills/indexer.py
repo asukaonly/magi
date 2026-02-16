@@ -25,7 +25,7 @@ class SkillIndexer:
     """
 
     # Skill directories in priority order (higher priority first)
-    SKILL_LOCATI/ONS = [
+    SKILL_LOCATIONS = [
         path.home() / ".claude" / "skills",     # Personal (high priority)
         path(__file__).parent.parent.parent.parent.parent / "skills",  # Project predefined skills (magi/skills)
         path.cwd() / ".claude" / "skills",       # Project local (lower priority)
@@ -38,7 +38,7 @@ class SkillIndexer:
         Args:
             skill_locations: Custom skill directories (optional)
         """
-        self.skill_locations = skill_locations or self.SKILL_LOCATI/ONS
+        self.skill_locations = skill_locations or self.SKILL_LOCATIONS
         self._cache: Dict[str, Skillmetadata] = {}
 
     def scan_all(self) -> Dict[str, Skillmetadata]:

@@ -12,7 +12,7 @@ import time
 from typing import Dict, Any, Optional, Callable
 from .agent import Agent, AgentConfig, AgentState
 from .task_database import Task, TaskStatus
-from .timeout import TimeoutCalculator, Tasktype, Taskpriority
+from .timeout import TimeoutCalculator, TaskType, TaskPriority
 from .monitoring import AgentMetrics
 
 
@@ -330,26 +330,26 @@ class WorkerAgent(Agent):
 
         # nottt则根据任务type自动calculate
         task_type_map = {
-            "tool_execution": Tasktype.I/O,
-            "llm_generation": Tasktype.network,
-            "custom": Tasktype.COMPUTATI/ON,
+            "tool_execution": TaskType.IO,
+            "llm_generation": TaskType.network,
+            "custom": TaskType.COMPUTATION,
         }
 
         task_type = task_type_map.get(
             self.task.type,
-            Tasktype.simple
+            TaskType.simple
         )
 
         priority_map = {
-            0: Taskpriority.LOW,
-            1: Taskpriority.NORMAL,
-            2: Taskpriority.HIGH,
-            3: Taskpriority.URGENT,
+            0: TaskPriority.LOW,
+            1: TaskPriority.NORMAL,
+            2: TaskPriority.HIGH,
+            3: TaskPriority.URGENT,
         }
 
         priority = priority_map.get(
             self.task.priority.value,
-            Taskpriority.NORMAL
+            TaskPriority.NORMAL
         )
 
         # calculatebasetimeout
