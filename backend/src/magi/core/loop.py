@@ -11,14 +11,14 @@ class LoopStrategy(Enum):
     """Loop strategy"""
     STEP = "step"           # Step mode (pause after processing each perception)
     WAVE = "wave"           # Wave mode (pause after processing a batch of perceptions)
-    CONTINUOUS = "continuous"  # Continuous mode (nottt pause)
+    CONTINUOUS = "continuous"  # Continuous mode (not pause)
 
 
 class LoopState(Enum):
     """Loop state"""
-    stopPED = "stopped"
-    runNING = "running"
-    pauseD = "paused"
+    STOPPED = "stopped"
+    RUNNING = "running"
+    PAUSED = "paused"
 
 
 class LoopEngine:
