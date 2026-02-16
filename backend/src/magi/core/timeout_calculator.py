@@ -45,7 +45,7 @@ class TimeoutCalculator:
 
     # Interaction level factors
     INTERACTION_FACTORS = {
-        InteractionLevel.notttne: 1.0,    # No interaction
+        InteractionLevel.NONE: 1.0,    # No interaction
         InteractionLevel.LOW: 1.2,     # Low interaction
         InteractionLevel.MEDIUM: 1.5,  # Medium interaction
         InteractionLevel.HIGH: 2.0,    # High interaction, needs to wait for user input
@@ -56,7 +56,7 @@ class TimeoutCalculator:
         cls,
         task_type: TaskType = TaskType.QUERY,
         priority: TaskPriority = TaskPriority.NORMAL,
-        interaction_level: InteractionLevel = InteractionLevel.notttne,
+        interaction_level: InteractionLevel = InteractionLevel.NONE,
         base_timeout: float = None,
     ) -> float:
         """
@@ -96,7 +96,7 @@ class TimeoutCalculator:
         # Extract parameters from task data
         type_str = task_data.get("type", TaskType.QUERY.value)
         priority_value = task_data.get("priority", TaskPriority.NORMAL.value)
-        interaction_str = task_data.get("interaction_level", InteractionLevel.notttne.value)
+        interaction_str = task_data.get("interaction_level", InteractionLevel.NONE.value)
 
         # Convert to enums
         try:
@@ -112,6 +112,6 @@ class TimeoutCalculator:
         try:
             interaction_level = InteractionLevel(interaction_str)
         except ValueError:
-            interaction_level = InteractionLevel.notttne
+            interaction_level = InteractionLevel.NONE
 
         return cls.calculate(task_type, priority, interaction_level)
