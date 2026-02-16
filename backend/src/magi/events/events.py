@@ -8,33 +8,33 @@ from time import time
 import uuid
 
 
-class eventlevel(IntEnum):
+class EventLevel(IntEnum):
     """
     event level (affects priority and persistence strategy)
 
-    0: debug     - Debuginfo
-    1: INFO      - notttrmal info
-    2: warnING   - Warning
-    3: error     - error
-    4: CRITICAL  - critical error
-    5: EMERGENCY - emergency event (highest priority)
+    0: DEBUG     - Debug info
+    1: INFO      - Normal info
+    2: WARNING   - Warning
+    3: ERROR     - Error
+    4: CRITICAL  - Critical error
+    5: EMERGENCY - Emergency event (highest priority)
     """
-    debug = 0
+    DEBUG = 0
     INFO = 1
-    warnING = 2
-    error = 3
+    WARNING = 2
+    ERROR = 3
     CRITICAL = 4
     EMERGENCY = 5
 
 
-class propagationMode:
+class PropagationMode:
     """event propagation pattern"""
-    BROADCasT = "broadcast"  # broadcast: all subscribers receive
+    BROADCAST = "broadcast"  # broadcast: all subscribers receive
     COMPETING = "competing"  # competing: only one subscriber receives
 
 
 @dataclass
-class event:
+class Event:
     """
     eventdatastructure
 
@@ -51,7 +51,7 @@ class event:
     data: Any
     timestamp: float = field(default_factory=time)
     source: str = "unknown"
-    level: eventlevel = EventLevel.INFO
+    level: EventLevel = EventLevel.INFO
     correlation_id: Optional[str] = field(default=None)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -74,68 +74,68 @@ class event:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "event":
+    def from_dict(cls, data: Dict[str, Any]) -> "Event":
         """从dictionarycreateevent"""
         return cls(
             type=data["type"],
             data=data["data"],
             timestamp=data.get("timestamp", time()),
             source=data.get("source", "unknown"),
-            level=eventlevel(data.get("level", EventLevel.INFO)),
+            level=EventLevel(data.get("level", EventLevel.INFO)),
             correlation_id=data.get("correlation_id"),
             metadata=data.get("metadata", {}),
         )
 
 
 # coreeventtype定义
-class eventtypes:
+class EventTypes:
     """coreeventtypeConstant"""
 
     # 生命periodevent
-    AGENT_startED = "AgentStarted"
-    AGENT_stopPED = "AgentStopped"
+    AGENT_STARTED = "AgentStarted"
+    AGENT_STOPPED = "AgentStopped"
     STATE_CHANGED = "StateChanged"
 
     # Perceptionevent
-    PERCEPTION_receiveD = "PerceptionReceived"
-    PERCEPTION_processED = "Perceptionprocessed"
+    PERCEPTION_RECEIVED = "PerceptionReceived"
+    PERCEPTION_PROCESSED = "Perceptionprocessed"
 
     # processevent
-    ACTION_executeD = "ActionExecuted"
-    CAPABILITY_createD = "CapabilityCreated"
-    CAPABILITY_updateD = "CapabilityUpdated"
+    ACTION_EXECUTED = "ActionExecuted"
+    CAPABILITY_CREATED = "CapabilityCreated"
+    CAPABILITY_UPDATED = "CapabilityUpdated"
 
     # learningevent
     EXPERIENCE_STORED = "ExperienceStored"
 
     # errorevent
-    error_OCCURRED = "errorOccurred"
-    handler_failED = "HandlerFailed"
+    ERROR_OCCURRED = "errorOccurred"
+    HANDLER_FAILED = "HandlerFailed"
 
     # 循环event
-    LOOP_startED = "LoopStarted"
+    LOOP_STARTED = "LoopStarted"
     LOOP_COMPLETED = "LoopCompleted"
-    LOOP_pauseD = "LoopPaused"
-    LOOP_resumeD = "LoopResumed"
-    LOOP_PHasE_startED = "LoopPhaseStarted"
-    LOOP_PHasE_COMPLETED = "LoopPhaseCompleted"
+    LOOP_PAUSED = "LoopPaused"
+    LOOP_RESUMED = "LoopResumed"
+    LOOP_PHASE_STARTED = "LoopPhaseStarted"
+    LOOP_PHASE_COMPLETED = "LoopPhaseCompleted"
 
     # 健康event
-    HEALTH_warnING = "HealthWarning"
+    HEALTH_WARNING = "HealthWarning"
 
     # 任务event
-    task_createD = "TaskCreated"
-    task_assignED = "TaskAssigned"
-    task_startED = "TaskStarted"
-    task_COMPLETED = "TaskCompleted"
-    task_failED = "TaskFailed"
+    TASK_CREATED = "TaskCreated"
+    TASK_ASSIGNED = "TaskAssigned"
+    TASK_STARTED = "TaskStarted"
+    TASK_COMPLETED = "TaskCompleted"
+    TASK_FAILED = "TaskFailed"
 
     # User messageevent
-    user_MESSAGE = "UserMessage"
+    USER_MESSAGE = "UserMessage"
 
 
 # 业务eventtypeConstant（L1 层storage使用）
-class Businesseventtypes:
+class BusinessEventTypes:
     """
     业务eventtypeConstant
 
@@ -143,14 +143,14 @@ class Businesseventtypes:
     用于 L1 层storage，专注于userrow为analysis。
     """
 
-    # userInputevent（来自 user_MESSAGE）
-    user_input = "user_input"
+    # userInputevent（来自 USER_MESSAGE）
+    USER_INPUT = "USER_INPUT"
 
-    # AI responseevent（来自 ACTION_executeD，当 action_type=ChatResponseAction）
+    # AI responseevent（来自 ACTION_EXECUTED，当 action_type=ChatResponseAction）
     AI_RESPONSE = "AI_RESPONSE"
 
-    # tool调用event（来自 ACTION_executeD，当 action_type istool调用）
+    # tool调用event（来自 ACTION_EXECUTED，当 action_type istool调用）
     TOOL_INVOKED = "TOOL_INVOKED"
 
     # 系统Exceptionevent（只recordcritical error，level >= error）
-    system_error = "system_error"
+    SYSTEM_ERROR = "SYSTEM_ERROR"

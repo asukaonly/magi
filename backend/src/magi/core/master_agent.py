@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any
 from .agent import Agent, AgentState, AgentConfig
 from .task_database import TaskDatabase, TaskType, TaskPriority, TaskStatus
 from .timeout_calculator import TimeoutCalculator
-from ..events.events import event, eventtypes, eventlevel
+from ..events.events import Event, EventTypes, EventLevel
 from ..events.backend import MessageBusBackend
 from ..llm.base import LLMAdapter
 
@@ -144,7 +144,7 @@ class MasterAgent(Agent):
                 logger.error(f"MasterAgent main loop error: {e}")
                 await self._publish_error_event("MasterAgent", str(e))
 
-    async def _on_user_message(self, event: event):
+    async def _on_user_message(self, Event: Event):
         """
         Handle user message event, recognize and create task
 

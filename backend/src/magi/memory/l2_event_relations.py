@@ -14,7 +14,7 @@ import json
 logger = logging.getLogger(__name__)
 
 
-class eventRelation:
+class EventRelation:
     """event relationship"""
 
     def __init__(
@@ -41,11 +41,11 @@ class eventRelation:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "eventRelation":
+    def from_dict(cls, data: Dict[str, Any]) -> "EventRelation":
         return cls(**data)
 
 
-class eventRelationStore:
+class EventRelationStore:
     """
     event relationship store
 
@@ -53,7 +53,7 @@ class eventRelationStore:
     """
 
     # Relationship type definitions
-    relation_typeS = {
+    relation_types = {
         # Causal relationships
         "CAUSE": "Causal: A causes B to happen",
         "PRECEDE": "Temporal: A happens before B",
@@ -84,13 +84,13 @@ class eventRelationStore:
         """
         self.persist_path = persist_path
 
-        # Graph data structure: {event_id: {relation_type: {target_event_id: eventRelation}}}
-        self._graph: Dict[str, Dict[str, Dict[str, eventRelation]]] = defaultdict(
+        # Graph data structure: {event_id: {relation_type: {target_event_id: EventRelation}}}
+        self._graph: Dict[str, Dict[str, Dict[str, EventRelation]]] = defaultdict(
             lambda: defaultdict(lambda: defaultdict(dict))
         )
 
-        # Reverse graph: {event_id: {relation_type: {source_event_id: eventRelation}}}
-        self._reverse_graph: Dict[str, Dict[str, Dict[str, eventRelation]]] = defaultdict(
+        # Reverse graph: {event_id: {relation_type: {source_event_id: EventRelation}}}
+        self._reverse_graph: Dict[str, Dict[str, Dict[str, EventRelation]]] = defaultdict(
             lambda: defaultdict(lambda: defaultdict(dict))
         )
 
@@ -134,7 +134,7 @@ class eventRelationStore:
             confidence: Confidence (0-1)
             metadata: metadata
         """
-        relation = eventRelation(
+        relation = EventRelation(
             source_event_id=source_event_id,
             target_event_id=target_event_id,
             relation_type=relation_type,
@@ -155,7 +155,7 @@ class eventRelationStore:
         event_id: str,
         relation_type: str = None,
         direction: str = "outgoing",
-    ) -> List[eventRelation]:
+    ) -> List[EventRelation]:
         """
         Get event relationships
 
@@ -381,7 +381,7 @@ class eventRelationStore:
 
         return extracted_count
 
-    def _extract_tool_relations(self, event: Dict[str, Any], event_index: Dict):
+    def _extract_tool_relations(self, Event: Dict[str, Any], event_index: Dict):
         """Extract tool execution event relationships"""
         event_id = event.get("id", "")
         data = event.get("data", {})
@@ -402,7 +402,7 @@ class eventRelationStore:
                             metadata={"tool": tool_name},
                         )
 
-    def _extract_llm_relations(self, event: Dict[str, Any], event_index: Dict):
+    def _extract_llm_relations(self, Event: Dict[str, Any], event_index: Dict):
         """Extract LLM call event relationships"""
         event_id = event.get("id", "")
         data = event.get("data", {})
@@ -420,7 +420,7 @@ class eventRelationStore:
                         confidence=0.9,
                     )
 
-    def _extract_message_relations(self, event: Dict[str, Any], event_index: Dict):
+    def _extract_message_relations(self, Event: Dict[str, Any], event_index: Dict):
         """Extract user message event relationships"""
         # User messages may have session relationships
         event_id = event.get("id", "")

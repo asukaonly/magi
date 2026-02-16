@@ -8,7 +8,7 @@ import signal
 from typing import List, Callable, Optional, Dict, Any
 from enum import Enum
 import time
-from ..events.events import event, eventlevel
+from ..events.events import Event, EventLevel
 
 
 class ShutdownState(Enum):

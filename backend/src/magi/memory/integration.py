@@ -2,8 +2,8 @@
 Memory Integration Module - Memory Integration Module
 
 将 LoopEngine event自动分发到 L1-L5 五层memoryarchitecture：
-- L1: RaweventStore - Raw event Storage
-- L2: eventRelationStore - event Relation Graph
+- L1: RawEventStore - Raw event Storage
+- L2: EventRelationStore - event Relation Graph
 - L3: eventEmbeddingStore - Semantic Embeddings
 - L4: SummaryStore - Time Summaries
 - L5: CapabilityMemory - Capability Extraction
@@ -25,7 +25,7 @@ from collections import deque
 
 # UnifiedMemoryStore is defined in __init__.py
 from . import UnifiedMemoryStore
-from ..events.events import event, eventtypes, Businesseventtypes
+from ..events.events import Event, EventTypes, BusinessEventTypes
 from ..events.backend import MessageBusBackend
 
 logger = logging.getLogger(__name__)
@@ -256,7 +256,7 @@ class MemoryIntegrationModule:
 
     # ==================== L1 eventfilterandconvert ====================
 
-    def _should_store_l1_event(self, event: event) -> bool:
+    def _should_store_l1_event(self, Event: Event) -> bool:
         """
         判断eventis not应该storage到 L1
 
@@ -287,7 +287,7 @@ class MemoryIntegrationModule:
 
         return True
 
-    def _transform_to_business_event(self, event: event) -> event:
+    def _transform_to_business_event(self, Event: Event) -> Event:
         """
         将internaleventconvert为业务event
 
@@ -377,7 +377,7 @@ class MemoryIntegrationModule:
         # otherevent不convert
         return event
 
-    async def _handle_event(self, event: event):
+    async def _handle_event(self, Event: Event):
         """
         processreceive到的event
 
@@ -443,7 +443,7 @@ class MemoryIntegrationModule:
 
     # ==================== L1: Raw event Storage ====================
 
-    async def _store_l1_event(self, event: event):
+    async def _store_l1_event(self, Event: Event):
         """storage原始event到 L1 层"""
         try:
             event_id = await self.unified_memory.l1_raw.store(event)
@@ -454,7 +454,7 @@ class MemoryIntegrationModule:
 
     # ==================== L2: eventrelationship提取 ====================
 
-    async def _extract_l2_relations(self, event: event, event_id: str):
+    async def _extract_l2_relations(self, Event: Event, event_id: str):
         """提取eventrelationship到 L2 层"""
         try:
             event_type = event.type
@@ -545,7 +545,7 @@ class MemoryIntegrationModule:
         except Exception as e:
             logger.error(f"L2 relation extraction failed: {e}")
 
-    def _extract_user_id_from_event(self, event: event) -> Optional[str]:
+    def _extract_user_id_from_event(self, Event: Event) -> Optional[str]:
         """从event中提取user id"""
         # 从 data field中查找 user_id
         if isinstance(event.data, dict):
@@ -557,7 +557,7 @@ class MemoryIntegrationModule:
 
     # ==================== L3: Semantic Embeddingsgeneration ====================
 
-    async def _queue_l3_embedding(self, event: event, event_id: str):
+    async def _queue_l3_embedding(self, Event: Event, event_id: str):
         """将event放入 L3 embeddingqueue"""
         try:
             if self._embedding_queue and not self._embedding_queue.full():
@@ -569,7 +569,7 @@ class MemoryIntegrationModule:
         except Exception as e:
             logger.error(f"L3 embedding queue failed: {e}")
 
-    async def _generate_l3_embedding(self, event: event, event_id: str):
+    async def _generate_l3_embedding(self, Event: Event, event_id: str):
         """直接generation L3 embedding（synchronotttus）"""
         try:
             # 提取文本
@@ -623,7 +623,7 @@ class MemoryIntegrationModule:
 
         logger.info("L3 embedding processor stopped")
 
-    def _extract_text_from_event(self, event: event) -> str:
+    def _extract_text_from_event(self, Event: Event) -> str:
         """从event中提取文本用于embedding"""
         parts = []
 
@@ -643,7 +643,7 @@ class MemoryIntegrationModule:
 
     # ==================== L4: summarycache ====================
 
-    def _cache_l4_event(self, event: event):
+    def _cache_l4_event(self, Event: Event):
         """将eventadd到 L4 summarycache"""
         try:
             # convert为dictionaryformat
@@ -698,7 +698,7 @@ class MemoryIntegrationModule:
 
     # ==================== L5: Capability Extraction ====================
 
-    async def _handle_l5_capability(self, event: event):
+    async def _handle_l5_capability(self, Event: Event):
         """process L5 capabilityrecordand提取"""
         try:
             event_type = event.type
@@ -712,7 +712,7 @@ class MemoryIntegrationModule:
         except Exception as e:
             logger.error(f"L5 capability handling failed: {e}")
 
-    def _record_task_capability(self, event: event):
+    def _record_task_capability(self, Event: Event):
         """record任务complete到capabilitymemory"""
         data = event.data if isinstance(event.data, dict) else {}
         self.unified_memory.l5_capabilities.record_attempt(
@@ -724,7 +724,7 @@ class MemoryIntegrationModule:
             error=data.get("error"),
         )
 
-    def _record_action_attempt(self, event: event):
+    def _record_action_attempt(self, Event: Event):
         """recordactionExecute尝试"""
         data = event.data if isinstance(event.data, dict) else {}
         action_type = data.get("action_type", "")

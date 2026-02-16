@@ -70,7 +70,7 @@ class CompleteAgent(Agent):
     async def _on_start(self):
         """processing on startup"""
         # Publish Agent startup event
-        from ..events.events import event, eventtypes, eventlevel
+        from ..events.events import Event, EventTypes, EventLevel
 
         event = Event(
             type=EventTypes.AGENT_startED,
@@ -93,7 +93,7 @@ class CompleteAgent(Agent):
         await self.loop_engine.stop()
 
         # Publish Agent shutdown event
-        from ..events.events import event, eventtypes, eventlevel
+        from ..events.events import Event, EventTypes, EventLevel
 
         event = Event(
             type=EventTypes.AGENT_stopPED,

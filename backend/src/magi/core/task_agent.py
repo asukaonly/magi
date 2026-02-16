@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any, List
 from .agent import Agent, AgentState, AgentConfig
 from .task_database import Task, TaskStatus, TaskDatabase
 from .timeout_calculator import TimeoutCalculator
-from ..events.events import event, eventtypes, eventlevel
+from ..events.events import Event, EventTypes, EventLevel
 from ..events.backend import MessageBusBackend
 from ..llm.base import LLMAdapter
 from ..tools.registry import ToolRegistry, ToolExecutionContext
@@ -649,7 +649,7 @@ Provide a helpful response."""
 
     async def _publish_event(self, event_type: str, data: dict):
         """Publish event"""
-        from ..events.events import event, eventlevel
+        from ..events.events import Event, EventLevel
 
         event = Event(
             type=event_type,
@@ -661,7 +661,7 @@ Provide a helpful response."""
 
     async def _publish_error_event(self, source: str, error_message: str):
         """Publish error event"""
-        from ..events.events import event, eventlevel
+        from ..events.events import Event, EventLevel
 
         event = Event(
             type=EventTypes.task_failED,

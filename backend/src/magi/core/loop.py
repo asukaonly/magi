@@ -4,7 +4,7 @@ AgentLoop Engine - Sense-Plan-Act-Reflect循环
 import asyncio
 from typing import List, Optional, Callable, Any
 from enum import Enum
-from ..events.events import event, eventtypes, eventlevel
+from ..events.events import Event, EventTypes, EventLevel
 
 
 class Loopstrategy(Enum):
@@ -292,7 +292,7 @@ class LoopEngine:
         perceptions = await self.agent.perception_module.perceive()
 
         # Publish perception received event
-        from ..events.events import event, eventtypes, eventlevel
+        from ..events.events import Event, EventTypes, EventLevel
         for perception in perceptions:
             correlation_id = self._extract_perception_correlation_id(perception)
             event = Event(
@@ -328,7 +328,7 @@ class LoopEngine:
             Action: Action plan
         """
         import time
-        from ..events.events import event, eventtypes, eventlevel
+        from ..events.events import Event, EventTypes, EventLevel
 
         # Publish phase started event
         await self._publish_phase_event("plan", "started", {"perception_type": perception.type})
@@ -373,7 +373,7 @@ class LoopEngine:
             ActionResult: Execution result
         """
         import time
-        from ..events.events import event, eventtypes, eventlevel
+        from ..events.events import Event, EventTypes, EventLevel
 
         # Publish phase started event
         await self._publish_phase_event("act", "started", {"action_type": type(action).__name__})
@@ -423,7 +423,7 @@ class LoopEngine:
             result: Result
         """
         import time
-        from ..events.events import event, eventtypes, eventlevel
+        from ..events.events import Event, EventTypes, EventLevel
 
         # Publish phase started event
         await self._publish_phase_event("reflect", "started")

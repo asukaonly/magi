@@ -18,7 +18,7 @@ from collections import defaultdict
 logger = logging.getLogger(__name__)
 
 
-class eventEmbedding:
+class EventEmbedding:
     """event vector embedding"""
 
     def __init__(
@@ -181,8 +181,8 @@ class eventEmbeddingStore:
         self.backend = backend or LocalEmbeddingBackend()
         self.persist_path = persist_path
 
-        # Vector store: {event_id: eventEmbedding}
-        self._embeddings: Dict[str, eventEmbedding] = {}
+        # Vector store: {event_id: EventEmbedding}
+        self._embeddings: Dict[str, EventEmbedding] = {}
 
         # Text index (for regenerating embeddings)
         self._text_index: Dict[str, str] = {}  # {event_id: text}
@@ -227,7 +227,7 @@ class eventEmbeddingStore:
         """
         embedding = await self._generate_embedding(text)
 
-        self._embeddings[event_id] = eventEmbedding(
+        self._embeddings[event_id] = EventEmbedding(
             event_id=event_id,
             embedding=embedding,
             text=text[:500],  # Save first 500 characters for regeneration
@@ -333,7 +333,7 @@ class eventEmbeddingStore:
                 await self.add_event(
                     event_id=event_id,
                     text=text,
-                    metadata={"event_type": event.get("type", "unknown")},
+                    metadata={"event_type": event.get("type", "unknotttwn")},
                 )
 
         logger.info(f"Added {len(events)} events to embedding store")
@@ -411,7 +411,7 @@ class eventEmbeddingStore:
                 data = json.load(f)
 
             for event_id, emb_data in data.get("embeddings", {}).items():
-                self._embeddings[event_id] = eventEmbedding(
+                self._embeddings[event_id] = EventEmbedding(
                     event_id=event_id,
                     embedding=emb_data["embedding"],
                     text=emb_data.get("text", ""),

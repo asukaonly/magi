@@ -28,7 +28,7 @@ class EventTracker:
         self.received_events = []
         self.processed_events = []
 
-    async def handle(self, event: Event):
+    async def handle(self, Event: Event):
         """处理事件"""
         self.received_events.append(event)
 
@@ -322,7 +322,7 @@ async def test_backpressure():
             self.count = 0
             self.lock = asyncio.Lock()
 
-        async def handle(self, event: Event):
+        async def handle(self, Event: Event):
             async with self.lock:
                 self.count += 1
                 # 模拟慢速处理

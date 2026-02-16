@@ -3,7 +3,7 @@ Message Bus - Abstract Backend Interface
 """
 from abc import ABC, abstractmethod
 from typing import Callable, Optional, List
-from .events import event
+from .events import Event
 
 
 class MessageBusBackend(ABC):
@@ -17,12 +17,12 @@ class MessageBusBackend(ABC):
     """
 
     @abstractmethod
-    async def publish(self, event: event) -> bool:
+    async def publish(self, Event: Event) -> bool:
         """
         Publish event to message bus
 
         Args:
-            event: event to publish
+            event: Event to publish
 
         Returns:
             bool: Whether the event was successfully published
@@ -35,14 +35,14 @@ class MessageBusBackend(ABC):
         event_type: str,
         handler: Callable,
         propagation_mode: str = "broadcast",
-        filter_func: Optional[Callable[[event], bool]] = None,
+        filter_func: Optional[Callable[[Event], bool]] = None,
     ) -> str:
         """
         Subscribe to event
 
         Args:
             event_type: event type (e.g. "AgentStarted")
-            handler: event handler function (async def handler(event: event))
+            handler: event handler function (async def handler(event: Event))
             propagation_mode: propagation mode ("broadcast" | "competing")
             filter_func: event filter function (only process when returns True)
 

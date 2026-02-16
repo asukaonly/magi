@@ -131,13 +131,13 @@ async def broadcast_system_event(event_type: str, data: dict):
     logger.debug(f"broadcasted system event: {event_type}")
 
 
-async def send_to_client(sid: str, event: str, data: dict):
+async def send_to_client(sid: str, Event: str, data: dict):
     """
     sendmessage给指定client
 
     Args:
         sid: clientid
-        event: event名
+        event: Event名
         data: data
     """
     await ws_manager.sio.emit(event, data, to=sid)

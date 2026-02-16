@@ -9,7 +9,7 @@ import time
 from typing import Callable, Dict, List, Optional
 from collections import defaultdict
 from .backend import MessageBusBackend
-from .events import event
+from .events import Event
 
 
 class SQLiteMessageBackend(MessageBusBackend):
@@ -126,12 +126,12 @@ class SQLiteMessageBackend(MessageBusBackend):
 
             await db.commit()
 
-    async def publish(self, event: event) -> bool:
+    async def publish(self, Event: Event) -> bool:
         """
         publish event to SQLite database
 
         Args:
-            event: event to publish
+            event: Event to publish
 
         Returns:
             bool: is notsuccessrelease
@@ -186,7 +186,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         event_type: str,
         handler: Callable,
         propagation_mode: str = "broadcast",
-        filter_func: Optional[Callable[[event], bool]] = None,
+        filter_func: Optional[Callable[[Event], bool]] = None,
     ) -> str:
         """subscribeevent"""
         subscription_id = f"{event_type}_{id(handler)}_{time.time()}"
@@ -280,7 +280,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             except Exception as e:
                 self._stats["error_count"] += 1
 
-    async def _get_next_event(self) -> Optional[event]:
+    async def _get_next_event(self) -> Optional[Event]:
         """get from database and atomically mark next unprocessed event (by priority)"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             # atomic operation: SELECT + update in same transaction, prevent multiple workers from processing same event
@@ -303,7 +303,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             event_data = json.loads(row[0])
             return event.from_dict(event_data)
 
-    async def _process_event(self, event: event):
+    async def _process_event(self, Event: Event):
         """processevent"""
         subscriptions = self._subscriptions.get(event.type, [])
 
@@ -324,7 +324,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             )
             await self._handle_event(subscription, event)
 
-    async def _handle_event(self, subscription: Dict, event: event):
+    async def _handle_event(self, subscription: Dict, Event: Event):
         """call handler to process event"""
         if subscription["filter_func"]:
             try:

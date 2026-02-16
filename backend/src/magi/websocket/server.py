@@ -110,12 +110,12 @@ class WebSocketManager:
             """心跳检测"""
             await self.sio.emit("pong", to=sid)
 
-    async def broadcast(self, event: str, data: dict, room: str = None):
+    async def broadcast(self, Event: str, data: dict, room: str = None):
         """
         广播message
 
         Args:
-            event: event名
+            event: Event名
             data: data
             room: 房间名（optional，不指定则广播给allclient）
         """

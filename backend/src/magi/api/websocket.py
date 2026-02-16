@@ -54,12 +54,12 @@ class ConnectionManager:
                 logger.error(f"Failed to send to {sid}: {e}")
                 self.disconnect(sid)
 
-    async def broadcast(self, event: str, data: dict, room: str = None):
+    async def broadcast(self, Event: str, data: dict, room: str = None):
         """
         广播message
 
         Args:
-            event: event名
+            event: Event名
             data: data
             room: 房间名（optional）
         """

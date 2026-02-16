@@ -14,7 +14,7 @@ import time
 from typing import Callable, Dict, List, Optional, Set
 from collections import defaultdict
 from enum import Enum
-from .events import event, eventlevel
+from .events import Event, EventLevel
 from .backend import MessageBusBackend
 
 
@@ -71,12 +71,12 @@ class BoundedpriorityQueue:
             "rejected": 0,
         }
 
-    async def enqueue(self, event: event) -> bool:
+    async def enqueue(self, Event: Event) -> bool:
         """
         入队（带背压）
 
         Args:
-            event: event
+            event: Event
 
         Returns:
             is notsuccess入队
@@ -95,7 +95,7 @@ class BoundedpriorityQueue:
             self._stats["enqueued"] += 1
             return True
 
-    async def dequeue(self, timeout: float = 1.0) -> Optional[event]:
+    async def dequeue(self, timeout: float = 1.0) -> Optional[Event]:
         """
         出队
 
@@ -119,7 +119,7 @@ class BoundedpriorityQueue:
         except Exception:
             return None
 
-    async def _handle_queue_full(self, event: event) -> bool:
+    async def _handle_queue_full(self, Event: Event) -> bool:
         """
         processqueue满的情况
 
@@ -335,12 +335,12 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
             "round_robin_count": 0,
         }
 
-    async def publish(self, event: event) -> bool:
+    async def publish(self, Event: Event) -> bool:
         """
         Publish event
 
         Args:
-            event: event
+            event: Event
 
         Returns:
             is notsuccessrelease
@@ -364,7 +364,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         event_type: str,
         handler: Callable,
         propagation_mode: propagationMode = propagationMode.BROADCasT,
-        filter_func: Optional[Callable[[event], bool]] = None,
+        filter_func: Optional[Callable[[Event], bool]] = None,
     ) -> str:
         """
         subscribeevent
@@ -480,12 +480,12 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
             except Exception as e:
                 self._stats["error_count"] += 1
 
-    async def _process_event(self, event: event):
+    async def _process_event(self, Event: Event):
         """
         processevent（根据传播pattern分发）
 
         Args:
-            event: event
+            event: Event
         """
         subscriptions = self._subscriptions.get(event.type, [])
 
@@ -531,13 +531,13 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
                 await self._handle_event(selected, event)
                 self._stats["round_robin_count"] += 1
 
-    async def _handle_event(self, subscription: Dict, event: event):
+    async def _handle_event(self, subscription: Dict, Event: Event):
         """
         call handler to process event（带error隔离）
 
         Args:
             subscription: subscribeinfo
-            event: event
+            event: Event
         """
         # checkfilterFunction
         filter_func = subscription.get("filter_func")

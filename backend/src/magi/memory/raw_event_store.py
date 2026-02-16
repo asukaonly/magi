@@ -1,5 +1,5 @@
 """
-Memory Storage - L1Raw event Storage（RaweventStore）
+Memory Storage - L1Raw event Storage（RawEventStore）
 完整的非structure化eventinfo
 """
 import aiosqlite
@@ -9,12 +9,12 @@ import uuid
 from typing import Optional
 from pathlib import Path
 import time
-from ..events.events import event
+from ..events.events import Event
 
 logger = logging.getLogger(__name__)
 
 
-class RaweventStore:
+class RawEventStore:
     """
     L1Raw event Storage - 完整eventinfo
 
@@ -103,7 +103,7 @@ class RaweventStore:
             """)
             await db.commit()
 
-    async def store(self, event: event) -> str:
+    async def store(self, Event: Event) -> str:
         """
         storageevent
 
@@ -144,7 +144,7 @@ class RaweventStore:
 
         return event_id
 
-    async def get_event(self, event_id: str) -> Optional[event]:
+    async def get_event(self, event_id: str) -> Optional[Event]:
         """
         getevent
 
@@ -170,7 +170,7 @@ class RaweventStore:
         self,
         event_type: str,
         limit: int = 100,
-    ) -> list[event]:
+    ) -> list[Event]:
         """
         按typegetevent
 
@@ -197,7 +197,7 @@ class RaweventStore:
         start_time: float,
         end_time: float,
         limit: int = 100,
-    ) -> list[event]:
+    ) -> list[Event]:
         """
         按时间rangegetevent
 
@@ -246,7 +246,7 @@ class RaweventStore:
 
         return path
 
-    def _row_to_event(self, row) -> event:
+    def _row_to_event(self, row) -> Event:
         """将databaserowconvert为eventObject"""
         return event(
             type=row[1],

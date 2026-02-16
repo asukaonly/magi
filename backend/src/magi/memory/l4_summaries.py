@@ -14,7 +14,7 @@ import json
 logger = logging.getLogger(__name__)
 
 
-class eventSummary:
+class EventSummary:
     """eventsummary"""
 
     def __init__(
@@ -55,7 +55,7 @@ class eventSummary:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "eventSummary":
+    def from_dict(cls, data: Dict[str, Any]) -> "EventSummary":
         return cls(**data)
 
 
@@ -75,8 +75,8 @@ class SummaryStore:
         """
         self.persist_path = persist_path
 
-        # summarystorage：{period_type: {period_key: eventSummary}}
-        self._summaries: Dict[str, Dict[str, eventSummary]] = defaultdict(dict)
+        # summarystorage：{period_type: {period_key: EventSummary}}
+        self._summaries: Dict[str, Dict[str, EventSummary]] = defaultdict(dict)
 
         # eventcache：{period_type: {period_key: [events]}}
         self._event_cache: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
@@ -85,7 +85,7 @@ class SummaryStore:
         if persist_path:
             self._load_from_disk()
 
-    def add_event(self, event: Dict[str, Any]):
+    def add_event(self, Event: Dict[str, Any]):
         """
         addevent到cache
 
@@ -109,7 +109,7 @@ class SummaryStore:
         period_type: str,
         period_key: str = None,
         force: bool = False,
-    ) -> Optional[eventSummary]:
+    ) -> Optional[EventSummary]:
         """
         generation指scheduled间窗口的summary
 
@@ -152,7 +152,7 @@ class SummaryStore:
         events: List[Dict[str, Any]],
         period_type: str,
         period_key: str,
-    ) -> eventSummary:
+    ) -> EventSummary:
         """
         从eventlistgenerationsummary
 
@@ -173,7 +173,7 @@ class SummaryStore:
         error_count = 0
 
         for event in events:
-            event_type = event.get("type", "unknown")
+            event_type = event.get("type", "unknotttwn")
             event_types[event_type] += 1
 
             # record关keyevent
@@ -199,10 +199,10 @@ class SummaryStore:
         metrics = {
             "duration_hours": (end_time - start_time) / 3600,
             "error_rate": error_count / len(events) if events else 0,
-            "most_common_type": max(event_types.items(), key=lambda x: x[1])[0] if event_types else "unknown",
+            "most_common_type": max(event_types.items(), key=lambda x: x[1])[0] if event_types else "unknotttwn",
         }
 
-        return eventSummary(
+        return EventSummary(
             period_type=period_type,
             period_key=period_key,
             start_time=start_time,
@@ -255,7 +255,7 @@ class SummaryStore:
             lines.append("- 关keyevent:")
             for event in key_events[:5]:
                 timestamp = datetime.fromtimestamp(event.get("timestamp", 0)).strftime("%H:%M:%S")
-                lines.append(f"  - [{timestamp}] {event.get('type', 'unknown')}")
+                lines.append(f"  - [{timestamp}] {event.get('type', 'unknotttwn')}")
 
         # errorstatistics
         error_count = event_types.get("errorOccurred", 0)
@@ -268,7 +268,7 @@ class SummaryStore:
         self,
         period_type: str,
         period_key: str = None,
-    ) -> Optional[eventSummary]:
+    ) -> Optional[EventSummary]:
         """
         getsummary
 
@@ -288,7 +288,7 @@ class SummaryStore:
         self,
         period_type: str,
         limit: int = 10,
-    ) -> List[eventSummary]:
+    ) -> List[EventSummary]:
         """
         get多个summary
 
@@ -318,7 +318,7 @@ class SummaryStore:
         elif period_type == "month":
             return dt.strftime("%Y-%m")
         else:
-            return "unknown"
+            return "unknotttwn"
 
     def _format_period_name(self, period_type: str, period_key: str) -> str:
         """format化时间窗口Name"""
@@ -377,7 +377,7 @@ class SummaryStore:
             summaries_data = data.get("summaries", {})
             for period_type, summaries in summaries_data.items():
                 for period_key, summary_data in summaries.items():
-                    self._summaries[period_type][period_key] = eventSummary.from_dict(summary_data)
+                    self._summaries[period_type][period_key] = EventSummary.from_dict(summary_data)
 
             logger.info(f"Summaries loaded from {self.persist_path}")
         except Exception as e:

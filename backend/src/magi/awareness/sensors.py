@@ -126,7 +126,7 @@ class UserMessageSensor:
             event_type: eventtype（如 "UserMessage"）
         """
         if self._message_bus:
-            from ..events.events import eventtypes
+            from ..events.events import EventTypes
             self._subscription_id = await self._message_bus.subscribe(
                 EventTypes.user_MESSAGE,
                 self._on_message_event,
@@ -240,7 +240,7 @@ class eventSensor:
                 await self._callback(perception)
             await asyncio.sleep(0.1)
 
-    async def on_event(self, event: Dict[str, Any]):
+    async def on_event(self, Event: Dict[str, Any]):
         """
         eventcallback（由event总线调用）
 

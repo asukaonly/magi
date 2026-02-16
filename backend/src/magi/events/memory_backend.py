@@ -8,7 +8,7 @@ import time
 from typing import Callable, Dict, List, Optional, Set
 from collections import defaultdict
 from .backend import MessageBusBackend
-from .events import event
+from .events import Event
 
 
 class MemoryMessageBackend(MessageBusBackend):
@@ -70,12 +70,12 @@ class MemoryMessageBackend(MessageBusBackend):
             "error_count": 0,
         }
 
-    async def publish(self, event: event) -> bool:
+    async def publish(self, Event: Event) -> bool:
         """
         Publish event to queue
 
         Args:
-            event: event to publish
+            event: Event to publish
 
         Returns:
             bool: Whether the event was successfully published
@@ -116,7 +116,7 @@ class MemoryMessageBackend(MessageBusBackend):
         event_type: str,
         handler: Callable,
         propagation_mode: str = "broadcast",
-        filter_func: Optional[Callable[[event], bool]] = None,
+        filter_func: Optional[Callable[[Event], bool]] = None,
     ) -> str:
         """
         Subscribe to event
@@ -224,7 +224,7 @@ class MemoryMessageBackend(MessageBusBackend):
             except Exception as e:
                 self._stats["error_count"] += 1
 
-    async def _get_next_event(self) -> Optional[event]:
+    async def _get_next_event(self) -> Optional[Event]:
         """Get next event from queue"""
         async with self._queue_lock:
             if not self._queue:
@@ -233,12 +233,12 @@ class MemoryMessageBackend(MessageBusBackend):
             _, _, event = heapq.heappop(self._queue)
             return event
 
-    async def _process_event(self, event: event):
+    async def _process_event(self, Event: Event):
         """
         process event (dispatch to subscribers)
 
         Args:
-            event: event to process
+            event: Event to process
         """
         subscriptions = self._subscriptions.get(event.type, [])
 
@@ -261,13 +261,13 @@ class MemoryMessageBackend(MessageBusBackend):
             )
             await self._handle_event(subscription, event)
 
-    async def _handle_event(self, subscription: Dict, event: event):
+    async def _handle_event(self, subscription: Dict, Event: Event):
         """
         Call single handler to process event
 
         Args:
             subscription: Subscription info
-            event: event
+            event: Event
         """
         # Check filter function
         if subscription["filter_func"]:

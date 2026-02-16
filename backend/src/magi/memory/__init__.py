@@ -2,8 +2,8 @@
 Memory Storagemodule
 
 五层memoryarchitecture：
-- L1: RaweventStore - Raw event Storage（完整eventinfo）
-- L2: eventRelationStore - eventrelationshipstorage（graphstructure）
+- L1: RawEventStore - Raw event Storage（完整eventinfo）
+- L2: EventRelationStore - eventrelationshipstorage（graphstructure）
 - L3: eventEmbeddingStore - Semantic Embeddingsstorage（vectorsearch）
 - L4: SummaryStore - Time Summariesstorage（多粒度）
 - L5: CapabilityMemory - capabilityMemory Storage（可复用capability）
@@ -13,18 +13,18 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from .self_memory import SelfMemory
 from .other_memory import OtherMemory
-from .raw_event_store import RaweventStore
-from .l2_event_relations import eventRelationStore, eventRelation
+from .raw_event_store import RawEventStore
+from .l2_event_relations import EventRelationStore, EventRelation
 from .l3_semantic_embeddings import (
     eventEmbeddingStore,
-    eventEmbedding,
+    EventEmbedding,
     HybrideventSearch,
     EmbeddingBackend,
     LocalEmbeddingBackend,
     RemoteEmbeddingBackend,
     create_embedding_store,
 )
-from .l4_summaries import SummaryStore, eventSummary, AutoSummarizer
+from .l4_summaries import SummaryStore, EventSummary, AutoSummarizer
 from .l5_capabilities import CapabilityMemory, Capability
 
 logger = logging.getLogger(__name__)
@@ -77,10 +77,10 @@ class UnifiedMemoryStore:
         self._llm_adapter = llm_adapter
 
         # L1: Raw event Storage
-        self.l1_raw = RaweventStore(db_path=db_path)
+        self.l1_raw = RawEventStore(db_path=db_path)
 
         # L2: eventrelationshipstorage
-        self.l2_relations = eventRelationStore(
+        self.l2_relations = EventRelationStore(
             persist_path=str(persist_path / "relations.pkl")
         )
 
@@ -154,7 +154,7 @@ class UnifiedMemoryStore:
             event["id"] = event_id
 
         # L1: storage原始event（使用eventObject）
-        from ..events.events import event
+        from ..events.events import Event
         await self.l1_raw.store(event(
             type=event.get("type", "unknown"),
             data=event.get("data", {}),
@@ -187,7 +187,7 @@ class UnifiedMemoryStore:
 
         return event_id
 
-    def _extract_text_from_event(self, event: Dict[str, Any]) -> str:
+    def _extract_text_from_event(self, Event: Dict[str, Any]) -> str:
         """从event中提取文本用于embedding"""
         parts = []
 
@@ -207,7 +207,7 @@ class UnifiedMemoryStore:
 
         return " ".join(parts) if parts else ""
 
-    def _record_task_attempt(self, event: Dict[str, Any]):
+    def _record_task_attempt(self, Event: Dict[str, Any]):
         """record任务尝试到capabilitymemory"""
         data = event.get("data", {})
         self.l5_capabilities.record_attempt(
@@ -276,7 +276,7 @@ class UnifiedMemoryStore:
         self,
         period_type: str = "day",
         period_key: str = None,
-    ) -> Optional[eventSummary]:
+    ) -> Optional[EventSummary]:
         """
         getTime Summaries（L4层）
 
@@ -296,7 +296,7 @@ class UnifiedMemoryStore:
         period_type: str = "day",
         period_key: str = None,
         force: bool = False,
-    ) -> Optional[eventSummary]:
+    ) -> Optional[EventSummary]:
         """
         generationTime Summaries（L4层）
 
@@ -381,15 +381,15 @@ __all__ = [
     "OtherMemory",
 
     # L1层
-    "RaweventStore",
+    "RawEventStore",
 
     # L2层
-    "eventRelationStore",
-    "eventRelation",
+    "EventRelationStore",
+    "EventRelation",
 
     # L3层
     "eventEmbeddingStore",
-    "eventEmbedding",
+    "EventEmbedding",
     "HybrideventSearch",
     "EmbeddingBackend",
     "LocalEmbeddingBackend",
@@ -398,7 +398,7 @@ __all__ = [
 
     # L4层
     "SummaryStore",
-    "eventSummary",
+    "EventSummary",
     "AutoSummarizer",
 
     # L5层
