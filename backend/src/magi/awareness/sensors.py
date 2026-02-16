@@ -3,7 +3,7 @@
 """
 import asyncio
 from typing import Optional, Dict, Any
-from .base import Perception, Perceptiontype, TriggerMode
+from .base import Perception, PerceptionType, TriggerMode
 
 
 class UserMessageSensor:
@@ -32,9 +32,9 @@ class UserMessageSensor:
         self._subscription_id = None
 
     @property
-    def perception_type(self) -> Perceptiontype:
-        """Perceptiontype"""
-        return Perceptiontype.TEXT
+    def perception_type(self) -> PerceptionType:
+        """PerceptionType"""
+        return PerceptionType.TEXT
 
     @property
     def trigger_mode(self) -> TriggerMode:
@@ -157,7 +157,7 @@ class UserMessageSensor:
         await self._queue.put(message_data)
 
 
-class eventSensor:
+class EventSensor:
     """
     event传感器
 
@@ -180,9 +180,9 @@ class eventSensor:
         self._max_cache_size = 100
 
     @property
-    def perception_type(self) -> Perceptiontype:
-        """Perceptiontype"""
-        return Perceptiontype.EVENT
+    def perception_type(self) -> PerceptionType:
+        """PerceptionType"""
+        return PerceptionType.EVENT
 
     @property
     def trigger_mode(self) -> TriggerMode:
@@ -284,9 +284,9 @@ class SensordataSensor:
         self._data_generator = self._create_data_generator(sensor_type)
 
     @property
-    def perception_type(self) -> Perceptiontype:
-        """Perceptiontype"""
-        return Perceptiontype.SENSOR
+    def perception_type(self) -> PerceptionType:
+        """PerceptionType"""
+        return PerceptionType.SENSOR
 
     @property
     def trigger_mode(self) -> TriggerMode:
@@ -391,14 +391,14 @@ class TimerSensor:
         self._task = None
 
     @property
-    def perception_type(self) -> Perceptiontype:
-        """Perceptiontype"""
-        return Perceptiontype.EVENT
+    def perception_type(self) -> PerceptionType:
+        """PerceptionType"""
+        return PerceptionType.EVENT
 
     @property
     def trigger_mode(self) -> TriggerMode:
         """触发pattern"""
-        return TriggerMode.HYBRid
+        return TriggerMode.HYBRID
 
     @property
     def enabled(self) -> bool:

@@ -7,10 +7,10 @@ from typing import Any, Optional, List
 import time
 
 
-class Perceptiontype(Enum):
-    """Perceptiontype"""
+class PerceptionType(Enum):
+    """PerceptionType"""
     AUDIO = "audio"          # 音频
-    VidEO = "video"          # 视频
+    VIDEO = "video"          # 视频
     TEXT = "text"            # 文本
     IMAGE = "image"          # graph像
     SENSOR = "sensor"        # 传感器data
@@ -29,7 +29,7 @@ class Perception:
     """
     Perceptiondata
     """
-    type: str                 # Perceptiontype
+    type: str                 # PerceptionType
     data: Any                 # Perceptiondata
     timestamp: float           # timestamp
     source: str                # Perception源identifier

@@ -4,7 +4,7 @@
 import asyncio
 from typing import List, Optional, Callable, Dict, Any
 from collections import deque
-from .base import Perception, Perceptiontype, TriggerMode
+from .base import Perception, PerceptionType, TriggerMode
 
 
 class PerceptionManager:
@@ -178,14 +178,14 @@ class PerceptionManager:
         Returns:
             intent（如：query、command、notification）
         """
-        # 简化版：根据Perceptiontype推断intent
+        # 简化版：根据PerceptionType推断intent
         intent_map = {
-            Perceptiontype.TEXT.value: "query",
-            Perceptiontype.AUDIO.value: "query",
-            Perceptiontype.VidEO.value: "query",
-            Perceptiontype.IMAGE.value: "query",
-            Perceptiontype.SENSOR.value: "notification",
-            Perceptiontype.EVENT.value: "notification",
+            PerceptionType.TEXT.value: "query",
+            PerceptionType.AUDIO.value: "query",
+            PerceptionType.VIDEO.value: "query",
+            PerceptionType.IMAGE.value: "query",
+            PerceptionType.SENSOR.value: "notification",
+            PerceptionType.EVENT.value: "notification",
         }
         return intent_map.get(perception.type, "unknown")
 
@@ -203,7 +203,7 @@ class PerceptionManager:
         # 简化版：根据intent判断priority
         if intent == "notification":
             return 1  # 重要
-        elif perception.type == Perceptiontype.SENSOR.value and perception.data.get("urgent"):
+        elif perception.type == PerceptionType.SENSOR.value and perception.data.get("urgent"):
             return 2  # 紧急
         else:
             return 0  # 普通
@@ -244,7 +244,7 @@ class PerceptionManager:
 class Sensor:
     """传感器Base class（占位）"""
     @property
-    def perception_type(self) -> Perceptiontype:
+    def perception_type(self) -> PerceptionType:
         pass
 
     @property
