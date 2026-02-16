@@ -484,7 +484,7 @@ class WorkerAgent(Agent):
             )
 
             await self._publish_event(
-                EventTypes.task_COMPLETED,
+                EventTypes.TASK_COMPLETED,
                 {
                     "task_id": self.task_id,
                     "result": result,

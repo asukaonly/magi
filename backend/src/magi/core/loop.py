@@ -264,7 +264,7 @@ class LoopEngine:
 
                     # Check if alert is needed
                     if self._error_count >= 5:
-                        await self._publish_event(EventTypes.HEALTH_warnING, {
+                        await self._publish_event(EventTypes.HEALTH_WARNING, {
                             "error": "Multiple errors in loop",
                             "error_count": self._error_count,
                         })
@@ -341,7 +341,7 @@ class LoopEngine:
         # Publish perception processed event
         correlation_id = self._extract_perception_correlation_id(perception)
         event = Event(
-            type=EventTypes.PERCEPTION_processED,
+            type=EventTypes.PERCEPTION_PROCESSED,
             data={
                 "perception_type": perception.type,
                 "action_type": type(action).__name__,
@@ -496,7 +496,7 @@ class LoopEngine:
             event_data.update(data)
 
         event = Event(
-            type=EventTypes.LOOP_PHasE_COMPLETED if status == "completed" else EventTypes.LOOP_PHasE_startED,
+            type=EventTypes.LOOP_PHASE_COMPLETED if status == "completed" else EventTypes.LOOP_PHASE_STARTED,
             data=event_data,
             source="LoopEngine",
             level=EventLevel.debug,

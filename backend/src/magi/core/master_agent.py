@@ -286,7 +286,7 @@ class MasterAgent(Agent):
 
             # Publish task assigned event
             await self._publish_event(
-                EventTypes.task_assignED,
+                EventTypes.TASK_ASSIGNED,
                 {
                     "task_id": task.task_id,
                     "task_agent_id": task_agent.agent_id,
@@ -344,7 +344,7 @@ class MasterAgent(Agent):
             if not self._system_degraded:
                 self._system_degraded = True
                 await self._publish_event(
-                    EventTypes.HEALTH_warnING,
+                    EventTypes.HEALTH_WARNING,
                     {
                         "reason": "System degraded",
                         "cpu_percent": cpu_percent,
@@ -371,7 +371,7 @@ class MasterAgent(Agent):
         if self._system_degraded and cpu_percent < 80 and memory_percent < 80:
             self._system_degraded = False
             await self._publish_event(
-                EventTypes.HEALTH_warnING,
+                EventTypes.HEALTH_WARNING,
                 {"reason": "System recovered", "cpu_percent": cpu_percent}
             )
             logger.info("System recovered from degraded state")

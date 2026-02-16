@@ -64,7 +64,7 @@ class MemoryIntegrationConfig:
     l1_event_whitelist: Set[str] = field(default_factory=lambda: {
         EventTypes.USER_MESSAGE,      # userInput → convert为 user_input
         EventTypes.ACTION_EXECUTED,   # actionExecute → convert为 AI_RESPONSE 或 TOOL_INVOKED
-        EventTypes.task_COMPLETED,    # 任务complete
+        EventTypes.TASK_COMPLETED,    # 任务complete
         EventTypes.TASK_FAILED,       # 任务failure
         EventTypes.ERROR_OCCURRED,    # 只record level=error 的critical error
     })
@@ -72,23 +72,23 @@ class MemoryIntegrationConfig:
     # 要filter的eventtype（黑名单）- LoopEngine internalevent
     l1_event_blacklist: Set[str] = field(default_factory=lambda: {
         EventTypes.PERCEPTION_RECEIVED,
-        EventTypes.PERCEPTION_processED,
+        EventTypes.PERCEPTION_PROCESSED,
         EventTypes.EXPERIENCE_STORED,
         EventTypes.LOOP_STARTED,
         EventTypes.LOOP_COMPLETED,
         EventTypes.LOOP_PAUSED,
         EventTypes.LOOP_RESUMED,
-        EventTypes.LOOP_PHasE_startED,
-        EventTypes.LOOP_PHasE_COMPLETED,
+        EventTypes.LOOP_PHASE_STARTED,
+        EventTypes.LOOP_PHASE_COMPLETED,
         EventTypes.AGENT_STARTED,
         EventTypes.AGENT_STOPPED,
         EventTypes.STATE_CHANGED,
-        EventTypes.CAPABILITY_createD,
-        EventTypes.CAPABILITY_updateD,
-        EventTypes.HEALTH_warnING,
-        EventTypes.handler_failED,
+        EventTypes.CAPABILITY_CREATED,
+        EventTypes.CAPABILITY_UPDATED,
+        EventTypes.HEALTH_WARNING,
+        EventTypes.HANDLER_FAILED,
         EventTypes.TASK_CREATED,
-        EventTypes.task_assignED,
+        EventTypes.TASK_ASSIGNED,
         EventTypes.TASK_STARTED,
     })
 
@@ -102,10 +102,10 @@ class MemoryIntegrationConfig:
     subscribed_events: Set[str] = field(default_factory=lambda: {
         EventTypes.USER_MESSAGE,
         EventTypes.PERCEPTION_RECEIVED,
-        EventTypes.PERCEPTION_processED,
+        EventTypes.PERCEPTION_PROCESSED,
         EventTypes.ACTION_EXECUTED,
         EventTypes.EXPERIENCE_STORED,
-        EventTypes.task_COMPLETED,
+        EventTypes.TASK_COMPLETED,
         EventTypes.ERROR_OCCURRED,
     })
 
@@ -491,7 +491,7 @@ class MemoryIntegrationModule:
                         relations_extracted += 1
 
             # 2. 根据eventtype提取特定relationship
-            if event_type == EventTypes.PERCEPTION_processED:
+            if event_type == EventTypes.PERCEPTION_PROCESSED:
                 # 查找同 correlation_id 的 PERCEPTION_receiveD
                 if correlation_id in self._correlation_tracker:
                     for related_id in self._correlation_tracker[correlation_id]:
@@ -704,7 +704,7 @@ class MemoryIntegrationModule:
             event_type = event.type
 
             # 只process特定eventtype
-            if event_type == EventTypes.task_COMPLETED:
+            if event_type == EventTypes.TASK_COMPLETED:
                 self._record_task_capability(event)
             elif event_type == EventTypes.ACTION_EXECUTED:
                 self._record_action_attempt(event)
