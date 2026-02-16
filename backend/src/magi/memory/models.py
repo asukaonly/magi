@@ -22,21 +22,21 @@ class LanguageStyle(Enum):
 
 
 class CommunicationDistance(Enum):
-    """沟通distance感"""
-    intIMATE = "intimate"
+    """Communication distance"""
+    INTIMATE = "intimate"
     EQUAL = "equal"
     RESPECTFUL = "respectful"
-    subSERVIENT = "subservient"
-    detachED = "detached"
+    SUBSERVIENT = "subservient"
+    DETACHED = "detached"
 
 
 class ValueAlignment(Enum):
-    """base价Value观 - D&D阵营"""
+    """Value alignment"""
     LAWFUL_GOOD = "lawful_good"
     NEUTRAL_GOOD = "neutral_good"
     CHAOTIC_GOOD = "chaotic_good"
     LAWFUL_NEUTRAL = "lawful_neutral"
-    true_NEUTRAL = "true_neutral"
+    TRUE_NEUTRAL = "true_neutral"
     CHAOTIC_NEUTRAL = "chaotic_neutral"
     LAWFUL_EVIL = "lawful_evil"
     NEUTRAL_EVIL = "neutral_evil"
@@ -51,10 +51,10 @@ class RiskPreference(Enum):
 
 
 class ThinkingStyle(Enum):
-    """思维style"""
+    """Thinking style"""
     LOGICAL = "logical"
     CREATIVE = "creative"
-    intUITIVE = "intuitive"
+    INTUITIVE = "intuitive"
     ANALYTICAL = "analytical"
 
 
