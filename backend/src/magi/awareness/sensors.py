@@ -128,7 +128,7 @@ class UserMessageSensor:
         if self._message_bus:
             from ..events.events import EventTypes
             self._subscription_id = await self._message_bus.subscribe(
-                EventTypes.user_MESSAGE,
+                EventTypes.USER_MESSAGE,
                 self._on_message_event,
                 propagation_mode="broadcast"
             )

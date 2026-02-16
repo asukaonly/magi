@@ -68,7 +68,7 @@ class MasterAgent(Agent):
 
         # Subscribe to user_MESSAGE events for task recognition
         self._event_subscription_id = await self.message_bus.subscribe(
-            EventTypes.user_MESSAGE,
+            EventTypes.USER_MESSAGE,
             self._on_user_message,
             propagation_mode="broadcast",
         )

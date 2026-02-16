@@ -62,7 +62,7 @@ class MemoryIntegrationConfig:
     # ========== L1 eventfilterConfiguration ==========
     # 要record的eventtype（白名单）
     l1_event_whitelist: Set[str] = field(default_factory=lambda: {
-        EventTypes.user_MESSAGE,      # userInput → convert为 user_input
+        EventTypes.USER_MESSAGE,      # userInput → convert为 user_input
         EventTypes.ACTION_executeD,   # actionExecute → convert为 AI_RESPONSE 或 TOOL_INVOKED
         EventTypes.task_COMPLETED,    # 任务complete
         EventTypes.task_failED,       # 任务failure
@@ -100,7 +100,7 @@ class MemoryIntegrationConfig:
 
     # subscribe的eventtype（保持原subscribeway）
     subscribed_events: Set[str] = field(default_factory=lambda: {
-        EventTypes.user_MESSAGE,
+        EventTypes.USER_MESSAGE,
         EventTypes.PERCEPTION_receiveD,
         EventTypes.PERCEPTION_processED,
         EventTypes.ACTION_executeD,
@@ -303,7 +303,7 @@ class MemoryIntegrationModule:
         event_type = event.type
 
         # user_MESSAGE → user_input
-        if event_type == EventTypes.user_MESSAGE:
+        if event_type == EventTypes.USER_MESSAGE:
             return event(
                 type=BusinessEventTypes.user_input,
                 data=event.data,

@@ -132,7 +132,7 @@ async def send_user_message(request: UserMessageRequest):
         # 如果message bus可用，通过message busPublish event
         if message_bus:
             event = Event(
-                type=EventTypes.user_MESSAGE,
+                type=EventTypes.USER_MESSAGE,
                 data=message_data,
                 source="api",
                 level=EventLevel.INFO,
