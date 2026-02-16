@@ -115,7 +115,7 @@ class LoopEngine:
             self._loop_task.cancel()
             try:
                 await self._loop_task
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 pass
 
     async def pause(self):

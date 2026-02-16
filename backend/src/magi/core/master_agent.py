@@ -91,7 +91,7 @@ class MasterAgent(Agent):
             self._main_loop_task.cancel()
             try:
                 await self._main_loop_task
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 pass
 
         # Cancel event subscription
@@ -138,7 +138,7 @@ class MasterAgent(Agent):
                 # 4. Wait for a while
                 await asyncio.sleep(self.config.loop_interval)
 
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"MasterAgent main loop error: {e}")

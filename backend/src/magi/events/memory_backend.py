@@ -219,7 +219,7 @@ class MemoryMessageBackend(MessageBusBackend):
                 # process event
                 await self._process_event(event)
 
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._stats["error_count"] += 1

@@ -411,7 +411,7 @@ class AgentLifecycleManager:
                     task.cancel()
                     try:
                         await task
-                    except asyncio.Cancellederror:
+                    except asyncio.CancelledError:
                         pass
 
             # SettingState

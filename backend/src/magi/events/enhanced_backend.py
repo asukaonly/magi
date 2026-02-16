@@ -114,7 +114,7 @@ class BoundedpriorityQueue:
                 self._stats["dequeued"] += 1
                 return event
 
-        except asyncio.Cancellederror:
+        except asyncio.CancelledError:
             raise  # Re-raise to allow proper cancellation
         except Exception:
             return None
@@ -475,7 +475,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
                 # processevent
                 await self._process_event(event)
 
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._stats["error_count"] += 1

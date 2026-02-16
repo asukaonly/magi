@@ -212,7 +212,7 @@ class MemoryIntegrationModule:
             self._embedding_task.cancel()
             try:
                 await self._embedding_task
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 pass
             logger.info("L3 embedding processor stopped")
 
@@ -221,7 +221,7 @@ class MemoryIntegrationModule:
             self._summary_task.cancel()
             try:
                 await self._summary_task
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 pass
             logger.info("L4 summary generator stopped")
 
@@ -616,7 +616,7 @@ class MemoryIntegrationModule:
 
             except asyncio.Timeouterror:
                 continue
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"L3 embedding processor error: {e}")
@@ -689,7 +689,7 @@ class MemoryIntegrationModule:
                             self._stats["l4_summaries_generated"] += 1
                             logger.info(f"Summary generated: {period_type}/{period_key}")
 
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"L4 summary generator error: {e}")

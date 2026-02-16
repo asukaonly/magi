@@ -65,7 +65,7 @@ class SystemMonitor:
             self._task.cancel()
             try:
                 await self._task
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 pass
             self._task = None
 
@@ -189,7 +189,7 @@ class SystemMonitor:
             try:
                 await self.update()
                 await asyncio.sleep(self.update_interval)
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 break
             except Exception as e:
                 print(f"error in monitor loop: {e}")

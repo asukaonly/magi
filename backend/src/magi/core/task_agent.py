@@ -100,7 +100,7 @@ class TaskAgent(Agent):
             self._scan_task.cancel()
             try:
                 await self._scan_task
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 pass
 
         # Wait for all WorkerAgents to finish
@@ -132,7 +132,7 @@ class TaskAgent(Agent):
                 # Wait for a while
                 await asyncio.sleep(1.0)
 
-            except asyncio.Cancellederror:
+            except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"TaskAgent-{self.agent_id} scan error: {e}")
