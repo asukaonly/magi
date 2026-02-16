@@ -9,7 +9,7 @@ Memory Storagemodule
 - L5: CapabilityMemory - capabilityMemory Storage（可复用capability）
 """
 import logging
-from pathlib import path
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from .self_memory import SelfMemory
 from .other_memory import OtherMemory

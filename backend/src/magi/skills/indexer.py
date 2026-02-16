@@ -8,7 +8,7 @@ Implements the "Index" phase of the skill system:
 """
 import logging
 import re
-from pathlib import path
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from .schema import Skillmetadata, SkillFrontmatter

@@ -6,7 +6,7 @@ import aiosqlite
 import json
 import uuid
 from typing import Optional, List
-from pathlib import path
+from pathlib import Path
 import time
 
 

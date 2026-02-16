@@ -10,7 +10,7 @@ AI 对他人的memory，package括：
 import logging
 import time
 from typing import Dict, Any, Optional, List
-from pathlib import path
+from pathlib import Path
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

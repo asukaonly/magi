@@ -4,7 +4,7 @@ Configuration管理module - YAMLConfigurationload器
 import os
 import logging
 import yaml
-from pathlib import path
+from pathlib import Path
 from typing import Optional, Dict, Any
 from .models import Config, AgentConfig
 

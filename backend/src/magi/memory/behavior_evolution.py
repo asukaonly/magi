@@ -14,7 +14,7 @@ import json
 import time
 import logging
 from typing import Dict, Any, Optional, List, Tuple
-from pathlib import path
+from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
@@ -94,7 +94,7 @@ class BehaviorEvolutionEngine:
     @property
     def _expanded_db_path(self) -> str:
         """get expanded database path (process ~)"""
-        from pathlib import path
+        from pathlib import Path
         return str(path(self.db_path).expanduser())
 
     async def init(self):

@@ -3,7 +3,7 @@ Skills Creator Tool - Create new skills in user's ~/.magi/skills directory
 """
 import os
 import re
-from pathlib import path
+from pathlib import Path
 from typing import Dict, Any, List
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
 

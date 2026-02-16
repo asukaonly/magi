@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 import logging
 import os
 import json
-from pathlib import path
+from pathlib import Path
 
 from ...memory.personality_loader import PersonalityLoader
 from ...utils.runtime import get_runtime_paths

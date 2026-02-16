@@ -106,7 +106,7 @@ class SystemMonitor:
             if len(self._history) > self._max_history:
                 self._history.pop(0)
 
-        except Importerror:
+        except ImportError:
             # psutil not installed, return default values
             self._current_metrics = SystemMetrics(
                 cpu_percent=0.0,

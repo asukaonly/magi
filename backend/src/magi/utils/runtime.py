@@ -4,7 +4,7 @@ Runtime data directory management
 Put all runtime-generated data in ~/.magi directory, separate from code
 """
 import os
-from pathlib import path
+from pathlib import Path
 from typing import Optional
 import logging
 

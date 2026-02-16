@@ -5,7 +5,7 @@ import logging
 import sys
 from typing import Any
 import structlog
-from pathlib import path
+from pathlib import Path
 
 
 def configure_logging(

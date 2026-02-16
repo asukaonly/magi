@@ -7,7 +7,7 @@ import json
 import logging
 import uuid
 from typing import Optional
-from pathlib import path
+from pathlib import Path
 import time
 from ..events.events import event
 

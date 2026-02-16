@@ -71,13 +71,13 @@ class SQLiteMessageBackend(MessageBusBackend):
     @property
     def _expanded_db_path(self) -> str:
         """get expanded database path (process ~)"""
-        from pathlib import path
+        from pathlib import Path
         return str(path(self.db_path).expanduser())
 
     async def _init_db(self):
         """initializedatabasetable"""
         # expand ~ to user home directory
-        from pathlib import path
+        from pathlib import Path
         db_path = path(self._expanded_db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
 

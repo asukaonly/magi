@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import subprocess
-from pathlib import path
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .schema import SkillContent, SkillFrontmatter, Skillmetadata

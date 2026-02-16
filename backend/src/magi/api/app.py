@@ -9,7 +9,7 @@ from fastapi.openapi.utils import get_openapi
 import logging
 import json
 import os
-from pathlib import path
+from pathlib import Path
 
 from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, add_cors_middleware
 from .responses import SuccessResponse

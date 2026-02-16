@@ -109,7 +109,7 @@ class Taskdatabase:
     @property
     def _expanded_db_path(self) -> str:
         """get expanded database path (process ~)"""
-        from pathlib import path
+        from pathlib import Path
         return str(path(self.db_path).expanduser())
 
     async def _init_db(self):

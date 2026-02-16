@@ -367,7 +367,7 @@ class CapabilityMemory:
             return
 
         try:
-            from pathlib import path
+            from pathlib import Path
             path = path(self.persist_path)
             if not path.exists():
                 return

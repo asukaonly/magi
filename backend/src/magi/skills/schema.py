@@ -4,7 +4,7 @@ Skill Schema - data models for skills
 Defines the data structures used throughout the skills system.
 """
 from dataclasses import dataclass, field
-from pathlib import path
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 

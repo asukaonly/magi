@@ -5,7 +5,7 @@ import asyncio
 import importlib
 import inspect
 from typing import List, Dict, Optional, type, Any
-from pathlib import path
+from pathlib import Path
 from .base import Plugin, Plugintype
 
 

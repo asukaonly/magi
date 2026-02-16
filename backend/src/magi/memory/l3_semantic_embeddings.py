@@ -73,7 +73,7 @@ class LocalEmbeddingBackend(EmbeddingBackend):
             self._dimension = self._model.get_sentence_embedding_dimension()
             self._model_loaded = True
             logger.info(f"Local embedding model loaded, dimension: {self._dimension}")
-        except Importerror:
+        except ImportError:
             logger.warning("sentence-transformers not installed, using dummy embeddings")
             self._model = None
             self._model_loaded = True
@@ -401,7 +401,7 @@ class eventEmbeddingStore:
 
         try:
             import json
-            from pathlib import path
+            from pathlib import Path
 
             path = path(self.persist_path)
             if not path.exists():
