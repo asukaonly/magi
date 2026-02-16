@@ -62,51 +62,51 @@ class MemoryIntegrationConfig:
     # ========== L1 eventfilterConfiguration ==========
     # 要record的eventtype（白名单）
     l1_event_whitelist: Set[str] = field(default_factory=lambda: {
-        eventtypes.user_MESSAGE,      # userInput → convert为 user_input
-        eventtypes.ACTION_executeD,   # actionExecute → convert为 AI_RESPONSE 或 TOOL_INVOKED
-        eventtypes.task_COMPLETED,    # 任务complete
-        eventtypes.task_failED,       # 任务failure
-        eventtypes.error_OCCURRED,    # 只record level=error 的critical error
+        EventTypes.user_MESSAGE,      # userInput → convert为 user_input
+        EventTypes.ACTION_executeD,   # actionExecute → convert为 AI_RESPONSE 或 TOOL_INVOKED
+        EventTypes.task_COMPLETED,    # 任务complete
+        EventTypes.task_failED,       # 任务failure
+        EventTypes.error_OCCURRED,    # 只record level=error 的critical error
     })
 
     # 要filter的eventtype（黑名单）- LoopEngine internalevent
     l1_event_blacklist: Set[str] = field(default_factory=lambda: {
-        eventtypes.PERCEPTION_receiveD,
-        eventtypes.PERCEPTION_processED,
-        eventtypes.EXPERIENCE_STORED,
-        eventtypes.LOOP_startED,
-        eventtypes.LOOP_COMPLETED,
-        eventtypes.LOOP_pauseD,
-        eventtypes.LOOP_resumeD,
-        eventtypes.LOOP_PHasE_startED,
-        eventtypes.LOOP_PHasE_COMPLETED,
-        eventtypes.AGENT_startED,
-        eventtypes.AGENT_stopPED,
-        eventtypes.STATE_CHANGED,
-        eventtypes.CAPABILITY_createD,
-        eventtypes.CAPABILITY_updateD,
-        eventtypes.HEALTH_warnING,
-        eventtypes.handler_failED,
-        eventtypes.task_createD,
-        eventtypes.task_assignED,
-        eventtypes.task_startED,
+        EventTypes.PERCEPTION_receiveD,
+        EventTypes.PERCEPTION_processED,
+        EventTypes.EXPERIENCE_STORED,
+        EventTypes.LOOP_startED,
+        EventTypes.LOOP_COMPLETED,
+        EventTypes.LOOP_pauseD,
+        EventTypes.LOOP_resumeD,
+        EventTypes.LOOP_PHasE_startED,
+        EventTypes.LOOP_PHasE_COMPLETED,
+        EventTypes.AGENT_startED,
+        EventTypes.AGENT_stopPED,
+        EventTypes.STATE_CHANGED,
+        EventTypes.CAPABILITY_createD,
+        EventTypes.CAPABILITY_updateD,
+        EventTypes.HEALTH_warnING,
+        EventTypes.handler_failED,
+        EventTypes.task_createD,
+        EventTypes.task_assignED,
+        EventTypes.task_startED,
     })
 
     # 只recordcritical error（level >= error）
-    l1_error_min_level: int = 3  # eventlevel.error = 3
+    l1_error_min_level: int = 3  # EventLevel.error = 3
 
     # is notEnableeventtypeconvert（user_MESSAGE → user_input）
     l1_enable_event_transform: bool = True
 
     # subscribe的eventtype（保持原subscribeway）
     subscribed_events: Set[str] = field(default_factory=lambda: {
-        eventtypes.user_MESSAGE,
-        eventtypes.PERCEPTION_receiveD,
-        eventtypes.PERCEPTION_processED,
-        eventtypes.ACTION_executeD,
-        eventtypes.EXPERIENCE_STORED,
-        eventtypes.task_COMPLETED,
-        eventtypes.error_OCCURRED,
+        EventTypes.user_MESSAGE,
+        EventTypes.PERCEPTION_receiveD,
+        EventTypes.PERCEPTION_processED,
+        EventTypes.ACTION_executeD,
+        EventTypes.EXPERIENCE_STORED,
+        EventTypes.task_COMPLETED,
+        EventTypes.error_OCCURRED,
     })
 
 
@@ -273,7 +273,7 @@ class MemoryIntegrationModule:
             return False
 
         # errorevent：只recordcritical error
-        if event_type == eventtypes.error_OCCURRED:
+        if event_type == EventTypes.error_OCCURRED:
             level_value = event.level.value if hasattr(event.level, 'value') else event.level
             if level_value < self.config.l1_error_min_level:
                 logger.debug(f"L1 filtered (error level {level_value} < {self.config.l1_error_min_level}): {event_type}")
@@ -303,9 +303,9 @@ class MemoryIntegrationModule:
         event_type = event.type
 
         # user_MESSAGE → user_input
-        if event_type == eventtypes.user_MESSAGE:
+        if event_type == EventTypes.user_MESSAGE:
             return event(
-                type=Businesseventtypes.user_input,
+                type=BusinessEventTypes.user_input,
                 data=event.data,
                 timestamp=event.timestamp,
                 source=event.source,
@@ -315,14 +315,14 @@ class MemoryIntegrationModule:
             )
 
         # ACTION_executeD → AI_RESPONSE 或 TOOL_INVOKED
-        elif event_type == eventtypes.ACTION_executeD:
+        elif event_type == EventTypes.ACTION_executeD:
             data = event.data if isinstance(event.data, dict) else {}
             action_type = data.get("action_type", "")
 
             if action_type == "ChatResponseAction":
                 # convert为 AI_RESPONSE
                 return event(
-                    type=Businesseventtypes.AI_RESPONSE,
+                    type=BusinessEventTypes.AI_RESPONSE,
                     data={
                         "response": data.get("response", ""),
                         "response_time_ms": data.get("execution_time", 0),
@@ -339,7 +339,7 @@ class MemoryIntegrationModule:
             else:
                 # otheractionconvert为 TOOL_INVOKED
                 return event(
-                    type=Businesseventtypes.TOOL_INVOKED,
+                    type=BusinessEventTypes.TOOL_INVOKED,
                     data={
                         "tool_name": action_type,
                         "tool_params": data.get("params", {}),
@@ -355,12 +355,12 @@ class MemoryIntegrationModule:
                 )
 
         # error_OCCURRED → system_error（critical error）
-        elif event_type == eventtypes.error_OCCURRED:
+        elif event_type == EventTypes.error_OCCURRED:
             level_value = event.level.value if hasattr(event.level, 'value') else event.level
             if level_value >= self.config.l1_error_min_level:
                 data = event.data if isinstance(event.data, dict) else {}
                 return event(
-                    type=Businesseventtypes.system_error,
+                    type=BusinessEventTypes.system_error,
                     data={
                         "error_code": data.get("error_code", "UNKNOWN"),
                         "error_message": data.get("error_message", str(data.get("error", ""))),
@@ -491,12 +491,12 @@ class MemoryIntegrationModule:
                         relations_extracted += 1
 
             # 2. 根据eventtype提取特定relationship
-            if event_type == eventtypes.PERCEPTION_processED:
+            if event_type == EventTypes.PERCEPTION_processED:
                 # 查找同 correlation_id 的 PERCEPTION_receiveD
                 if correlation_id in self._correlation_tracker:
                     for related_id in self._correlation_tracker[correlation_id]:
                         related_event = self.unified_memory.l2_relations._events.get(related_id, {})
-                        if related_event.get("type") == eventtypes.PERCEPTION_receiveD:
+                        if related_event.get("type") == EventTypes.PERCEPTION_receiveD:
                             self.unified_memory.l2_relations.add_relation(
                                 source_event_id=related_id,
                                 target_event_id=event_id,
@@ -505,7 +505,7 @@ class MemoryIntegrationModule:
                             )
                             relations_extracted += 1
 
-            elif event_type == eventtypes.EXPERIENCE_STORED:
+            elif event_type == EventTypes.EXPERIENCE_STORED:
                 # 建立与前置event的 FOLLOW relationship
                 if correlation_id in self._correlation_tracker:
                     for related_id in self._correlation_tracker[correlation_id]:
@@ -704,9 +704,9 @@ class MemoryIntegrationModule:
             event_type = event.type
 
             # 只process特定eventtype
-            if event_type == eventtypes.task_COMPLETED:
+            if event_type == EventTypes.task_COMPLETED:
                 self._record_task_capability(event)
-            elif event_type == eventtypes.ACTION_executeD:
+            elif event_type == EventTypes.ACTION_executeD:
                 self._record_action_attempt(event)
 
         except Exception as e:
@@ -716,7 +716,7 @@ class MemoryIntegrationModule:
         """record任务complete到capabilitymemory"""
         data = event.data if isinstance(event.data, dict) else {}
         self.unified_memory.l5_capabilities.record_attempt(
-            task_id=data.get("task_id", "unknotttwn"),
+            task_id=data.get("task_id", "unknown"),
             context=event.metadata or {},
             action=data.get("action", {}),
             success=data.get("success", True),

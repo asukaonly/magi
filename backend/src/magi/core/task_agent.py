@@ -162,7 +162,7 @@ class TaskAgent(Agent):
 
             # Publish task started event
             await self._publish_event(
-                eventtypes.task_startED,
+                EventTypes.task_startED,
                 {
                     "task_id": task.task_id,
                     "task_agent_id": self.agent_id,
@@ -396,24 +396,24 @@ Return only the tool name."""
 
     async def _publish_error_event(self, source: str, error_message: str):
         """Publish error event"""
-        event = event(
-            type=eventtypes.error_OCCURRED,
+        event = Event(
+            type=EventTypes.error_OCCURRED,
             data={
                 "source": source,
                 "error": error_message,
             },
             source=f"TaskAgent-{self.agent_id}",
-            level=eventlevel.error,
+            level=EventLevel.error,
         )
         await self.message_bus.publish(event)
 
     async def _publish_event(self, event_type: str, data: dict):
         """Publish event"""
-        event = event(
+        event = Event(
             type=event_type,
             data=data,
             source=f"TaskAgent-{self.agent_id}",
-            level=eventlevel.INFO,
+            level=EventLevel.INFO,
         )
         await self.message_bus.publish(event)
 
@@ -484,7 +484,7 @@ class WorkerAgent(Agent):
             )
 
             await self._publish_event(
-                eventtypes.task_COMPLETED,
+                EventTypes.task_COMPLETED,
                 {
                     "task_id": self.task_id,
                     "result": result,
@@ -609,7 +609,7 @@ class WorkerAgent(Agent):
         context = ToolExecutionContext(
             agent_id=f"WorkerAgent-{self.task_id}",
             session_id=self.task_id,
-            user_id=self.task.data.get("user_id", "unknotttwn"),
+            user_id=self.task.data.get("user_id", "unknown"),
             permissions=["authenticated"],
             env_vars={
                 "task_id": self.task_id,
@@ -651,11 +651,11 @@ Provide a helpful response."""
         """Publish event"""
         from ..events.events import event, eventlevel
 
-        event = event(
+        event = Event(
             type=event_type,
             data=data,
             source=f"WorkerAgent-{self.task_id}",
-            level=eventlevel.INFO,
+            level=EventLevel.INFO,
         )
         await self.message_bus.publish(event)
 
@@ -663,13 +663,13 @@ Provide a helpful response."""
         """Publish error event"""
         from ..events.events import event, eventlevel
 
-        event = event(
-            type=eventtypes.task_failED,
+        event = Event(
+            type=EventTypes.task_failED,
             data={
                 "source": source,
                 "error": error_message,
             },
             source=source,
-            level=eventlevel.error,
+            level=EventLevel.error,
         )
         await self.message_bus.publish(event)

@@ -145,7 +145,7 @@ class CapabilityExtractor:
 
     def _generate_capability_name(self, task: Dict[str, Any]) -> str:
         """generationcapabilityName"""
-        task_type = task.get("type", "unknotttwn")
+        task_type = task.get("type", "unknown")
         return f"handle_{task_type}"
 
 

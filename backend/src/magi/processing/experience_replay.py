@@ -128,7 +128,7 @@ class ExperienceReplay:
 
         grouped = defaultdict(list)
         for exp in successes:
-            task_type = exp["task"].get("type", "unknotttwn")
+            task_type = exp["task"].get("type", "unknown")
             grouped[task_type].append(exp)
 
         capabilities = []

@@ -165,7 +165,7 @@ importANT: Respond ONLY with the JSON object. No explanations, nottt markdown, n
             duration_ms = int((time.time() - start_time) * 1000) if 'start_time' in locals() else 0
             log_llm_response(
                 llm_logger,
-                request_id=request_id if 'request_id' in locals() else "unknotttwn",
+                request_id=request_id if 'request_id' in locals() else "unknown",
                 response="",
                 success=False,
                 error=str(e),
@@ -185,7 +185,7 @@ importANT: Respond ONLY with the JSON object. No explanations, nottt markdown, n
 
         descriptions = []
         for tool in tools_info:
-            name = tool.get("name", "unknotttwn")
+            name = tool.get("name", "unknown")
             desc = tool.get("description", "No description")
             tool_type = tool.get("type", "tool")
             params = tool.get("parameters", [])

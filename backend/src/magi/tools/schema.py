@@ -207,7 +207,7 @@ class Tool(ABC):
         return {
             "name": self.schema.name if self.schema else "Unknotttwn",
             "description": self.schema.description if self.schema else "",
-            "category": self.schema.category if self.schema else "unknotttwn",
+            "category": self.schema.category if self.schema else "unknown",
             "parameters": [p.dict() for p in self.schema.parameters] if self.schema else [],
             "examples": self.schema.examples if self.schema else [],
             "version": self.schema.version if self.schema else "1.0.0",
@@ -322,7 +322,7 @@ class Tool(ABC):
             ))
 
         return ToolSchema(
-            name=tool_def.get("name", "unknotttwn"),
+            name=tool_def.get("name", "unknown"),
             description=tool_def.get("description", ""),
             category="external",  # 从 Claude import的tooldefault为 external
             parameters=parameters,

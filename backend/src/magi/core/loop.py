@@ -128,7 +128,7 @@ class LoopEngine:
         if self._pause_event:
             self._pause_event.clear()
 
-        await self._publish_event(eventtypes.LOOP_pauseD, {})
+        await self._publish_event(EventTypes.LOOP_pauseD, {})
 
     async def resume(self):
         """Resume loop"""
@@ -140,7 +140,7 @@ class LoopEngine:
         if self._pause_event:
             self._pause_event.set()
 
-        await self._publish_event(eventtypes.LOOP_resumeD, {})
+        await self._publish_event(EventTypes.LOOP_resumeD, {})
 
     async def step_sense(self) -> List:
         """
@@ -204,7 +204,7 @@ class LoopEngine:
         """Main loop"""
         try:
             # Publish loop started event
-            await self._publish_event(eventtypes.LOOP_startED, {})
+            await self._publish_event(EventTypes.LOOP_startED, {})
 
             while self._state != LoopState.stopPED:
                 try:
@@ -264,14 +264,14 @@ class LoopEngine:
 
                     # Check if alert is needed
                     if self._error_count >= 5:
-                        await self._publish_event(eventtypes.HEALTH_warnING, {
+                        await self._publish_event(EventTypes.HEALTH_warnING, {
                             "error": "Multiple errors in loop",
                             "error_count": self._error_count,
                         })
 
         finally:
             # Publish loop stopped event
-            await self._publish_event(eventtypes.LOOP_COMPLETED, {
+            await self._publish_event(EventTypes.LOOP_COMPLETED, {
                 "loop_count": self._loop_count,
                 "error_count": self._error_count,
             })
@@ -295,15 +295,15 @@ class LoopEngine:
         from ..events.events import event, eventtypes, eventlevel
         for perception in perceptions:
             correlation_id = self._extract_perception_correlation_id(perception)
-            event = event(
-                type=eventtypes.PERCEPTION_receiveD,
+            event = Event(
+                type=EventTypes.PERCEPTION_receiveD,
                 data={
                     "perception_type": perception.type,
                     "source": perception.source,
                     "data": perception.data,
                 },
                 source="LoopEngine",
-                level=eventlevel.debug,
+                level=EventLevel.debug,
                 correlation_id=correlation_id,
             )
             await self.agent.message_bus.publish(event)
@@ -340,15 +340,15 @@ class LoopEngine:
 
         # Publish perception processed event
         correlation_id = self._extract_perception_correlation_id(perception)
-        event = event(
-            type=eventtypes.PERCEPTION_processED,
+        event = Event(
+            type=EventTypes.PERCEPTION_processED,
             data={
                 "perception_type": perception.type,
                 "action_type": type(action).__name__,
                 "processing_time": plan_time,
             },
             source="LoopEngine",
-            level=eventlevel.debug,
+            level=EventLevel.debug,
             correlation_id=correlation_id,
         )
         await self.agent.message_bus.publish(event)
@@ -387,8 +387,8 @@ class LoopEngine:
         error_text = self._extract_result_error(result)
 
         # Publish action executed event
-        event = event(
-            type=eventtypes.ACTION_executeD,
+        event = Event(
+            type=EventTypes.ACTION_executeD,
             data={
                 "action_type": type(action).__name__,
                 "success": success,
@@ -399,7 +399,7 @@ class LoopEngine:
                 "session_id": getattr(action, "session_id", None),
             },
             source="LoopEngine",
-            level=eventlevel.INFO,
+            level=EventLevel.INFO,
             correlation_id=self._extract_action_correlation_id(action),
         )
         await self.agent.message_bus.publish(event)
@@ -442,8 +442,8 @@ class LoopEngine:
 
         # Publish experience stored event
         result_success = self._extract_result_success(result)
-        event = event(
-            type=eventtypes.EXPERIENCE_STORED,
+        event = Event(
+            type=EventTypes.EXPERIENCE_STORED,
             data={
                 "perception_type": perception.type,
                 "action_type": type(action).__name__,
@@ -453,7 +453,7 @@ class LoopEngine:
                 "session_id": getattr(action, "session_id", None),
             },
             source="LoopEngine",
-            level=eventlevel.debug,
+            level=EventLevel.debug,
             correlation_id=self._extract_action_correlation_id(action),
         )
         await self.agent.message_bus.publish(event)
@@ -481,11 +481,11 @@ class LoopEngine:
 
     async def _publish_event(self, event_type: str, data: dict):
         """Publish event"""
-        event = event(
+        event = Event(
             type=event_type,
             data=data,
             source="LoopEngine",
-            level=eventlevel.INFO,
+            level=EventLevel.INFO,
         )
         await self.agent.message_bus.publish(event)
 
@@ -495,21 +495,21 @@ class LoopEngine:
         if data:
             event_data.update(data)
 
-        event = event(
-            type=eventtypes.LOOP_PHasE_COMPLETED if status == "completed" else eventtypes.LOOP_PHasE_startED,
+        event = Event(
+            type=EventTypes.LOOP_PHasE_COMPLETED if status == "completed" else EventTypes.LOOP_PHasE_startED,
             data=event_data,
             source="LoopEngine",
-            level=eventlevel.debug,
+            level=EventLevel.debug,
         )
         await self.agent.message_bus.publish(event)
 
     async def _publish_error_event(self, error_message: str):
         """Publish error event"""
-        event = event(
-            type=eventtypes.error_OCCURRED,
+        event = Event(
+            type=EventTypes.error_OCCURRED,
             data={"error": error_message},
             source="LoopEngine",
-            level=eventlevel.error,
+            level=EventLevel.error,
         )
         await self.agent.message_bus.publish(event)
 

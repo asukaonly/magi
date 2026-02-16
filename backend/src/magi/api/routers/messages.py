@@ -14,7 +14,7 @@ import asyncio
 from ..websocket import manager as ws_manager
 from ...awareness.sensors import UserMessageSensor
 from ...utils.agent_logger import get_agent_logger
-from ...events.events import event, eventtypes, eventlevel
+from ...events.events import Event, EventTypes, EventLevel
 
 logger = logging.getLogger(__name__)
 agent_logger = get_agent_logger('api')
@@ -131,15 +131,15 @@ async def send_user_message(request: UserMessageRequest):
 
         # 如果message bus可用，通过message busPublish event
         if message_bus:
-            event = event(
-                type=eventtypes.user_MESSAGE,
+            event = Event(
+                type=EventTypes.user_MESSAGE,
                 data=message_data,
                 source="api",
-                level=eventlevel.INFO,
+                level=EventLevel.INFO,
             )
             await message_bus.publish(event)
 
-            queue_size = "unknotttwn"
+            queue_size = "unknown"
             stats = await message_bus.get_stats()
             if stats:
                 queue_size = stats.get("queue_size", 0)

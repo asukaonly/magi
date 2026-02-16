@@ -231,7 +231,7 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
         "user_message": request.user_message,
         "conversation_history": [],
         "env_vars": {
-            "user": os.getenv("user") or os.getenv("username") or "unknotttwn",
+            "user": os.getenv("user") or os.getenv("username") or "unknown",
             "HOME": os.path.expanduser("~"),
             "PWD": os.getcwd(),
             "CLAUDE_session_id": f"api_session_{request.user_id}",

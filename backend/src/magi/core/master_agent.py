@@ -68,7 +68,7 @@ class MasterAgent(Agent):
 
         # Subscribe to user_MESSAGE events for task recognition
         self._event_subscription_id = await self.message_bus.subscribe(
-            eventtypes.user_MESSAGE,
+            EventTypes.user_MESSAGE,
             self._on_user_message,
             propagation_mode="broadcast",
         )
@@ -78,7 +78,7 @@ class MasterAgent(Agent):
 
         # Publish startup event
         await self._publish_event(
-            eventtypes.AGENT_startED,
+            EventTypes.AGENT_startED,
             {"agent_type": "master", "name": self.config.name}
         )
 
@@ -107,7 +107,7 @@ class MasterAgent(Agent):
 
         # Publish stop event
         await self._publish_event(
-            eventtypes.AGENT_stopPED,
+            EventTypes.AGENT_stopPED,
             {"agent_type": "master", "name": self.config.name}
         )
 
@@ -158,7 +158,7 @@ class MasterAgent(Agent):
         try:
             message_data = event.data
             user_message = message_data.get("message", "")
-            user_id = message_data.get("user_id", "unknotttwn")
+            user_id = message_data.get("user_id", "unknown")
 
             if not user_message:
                 return
@@ -171,7 +171,7 @@ class MasterAgent(Agent):
 
                 # Publish task created event
                 await self._publish_event(
-                    eventtypes.task_createD,
+                    EventTypes.task_createD,
                     {
                         "task_id": task.task_id,
                         "task_type": task.type,
@@ -286,7 +286,7 @@ class MasterAgent(Agent):
 
             # Publish task assigned event
             await self._publish_event(
-                eventtypes.task_assignED,
+                EventTypes.task_assignED,
                 {
                     "task_id": task.task_id,
                     "task_agent_id": task_agent.agent_id,
@@ -344,7 +344,7 @@ class MasterAgent(Agent):
             if not self._system_degraded:
                 self._system_degraded = True
                 await self._publish_event(
-                    eventtypes.HEALTH_warnING,
+                    EventTypes.HEALTH_warnING,
                     {
                         "reason": "System degraded",
                         "cpu_percent": cpu_percent,
@@ -371,7 +371,7 @@ class MasterAgent(Agent):
         if self._system_degraded and cpu_percent < 80 and memory_percent < 80:
             self._system_degraded = False
             await self._publish_event(
-                eventtypes.HEALTH_warnING,
+                EventTypes.HEALTH_warnING,
                 {"reason": "System recovered", "cpu_percent": cpu_percent}
             )
             logger.info("System recovered from degraded state")
@@ -443,23 +443,23 @@ class MasterAgent(Agent):
 
     async def _publish_event(self, event_type: str, data: dict):
         """Publish event"""
-        event = event(
+        event = Event(
             type=event_type,
             data=data,
             source="MasterAgent",
-            level=eventlevel.INFO,
+            level=EventLevel.INFO,
         )
         await self.message_bus.publish(event)
 
     async def _publish_error_event(self, source: str, error_message: str):
         """Publish error event"""
-        event = event(
-            type=eventtypes.error_OCCURRED,
+        event = Event(
+            type=EventTypes.error_OCCURRED,
             data={
                 "source": source,
                 "error": error_message,
             },
             source="MasterAgent",
-            level=eventlevel.error,
+            level=EventLevel.error,
         )
         await self.message_bus.publish(event)

@@ -119,5 +119,5 @@ class HumanInLoop:
         Returns:
             suggestion文本
         """
-        task_type = task.get("type", "unknotttwn")
+        task_type = task.get("type", "unknown")
         return f"suggestion人工process {task_type} type的任务"

@@ -153,7 +153,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         if not self.llm:
             logger.warning("[ContextDecider] LLM not available")
             return ContextDecision(
-                intent="unknotttwn",
+                intent="unknown",
                 tools=[],
                 deep_thinking=False,
                 reasoning="LLM not available",
@@ -256,7 +256,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
 """
 
         for tool in available_tools:
-            name = tool.get("name", "unknotttwn")
+            name = tool.get("name", "unknown")
             desc = tool.get("description", "No description")
             prompt += f"- {name}: {desc}\n"
 
@@ -302,7 +302,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         if not response:
             logger.warning("[ContextDecider] Empty LLM response")
             return ContextDecision(
-                intent="unknotttwn",
+                intent="unknown",
                 tools=[],
                 deep_thinking=False,
                 reasoning="Empty LLM response",
@@ -312,7 +312,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         if response == "{" or response == "{}":
             logger.warning(f"[ContextDecider] Incomplete LLM response: {response}")
             return ContextDecision(
-                intent="unknotttwn",
+                intent="unknown",
                 tools=[],
                 deep_thinking=False,
                 reasoning="Incomplete LLM response",
@@ -336,7 +336,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 if not isinstance(data, dict):
                     raise ValueError("Response is not a JSON object")
 
-                intent = data.get("intent", "unknotttwn")
+                intent = data.get("intent", "unknown")
                 tools = data.get("tools", [])
                 deep_thinking = data.get("deep_thinking", False)
                 reasoning = data.get("reasoning", "")
@@ -364,7 +364,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         # Fallback: nottt tools selected
         logger.warning(f"[ContextDecider] Failed to parse response: {response[:200]}")
         return ContextDecision(
-            intent="unknotttwn",
+            intent="unknown",
             tools=[],
             deep_thinking=False,
             reasoning="Failed to parse LLM response",

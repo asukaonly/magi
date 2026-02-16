@@ -72,15 +72,15 @@ class CompleteAgent(Agent):
         # Publish Agent startup event
         from ..events.events import event, eventtypes, eventlevel
 
-        event = event(
-            type=eventtypes.AGENT_startED,
+        event = Event(
+            type=EventTypes.AGENT_startED,
             data={
                 "agent_id": self.config.name,
                 "agent_type": self.__class__.__name__,
                 "config": self.config.to_dict() if hasattr(self.config, 'to_dict') else {},
             },
             source="agent",
-            level=eventlevel.INFO,
+            level=EventLevel.INFO,
         )
         await self.message_bus.publish(event)
 
@@ -95,13 +95,13 @@ class CompleteAgent(Agent):
         # Publish Agent shutdown event
         from ..events.events import event, eventtypes, eventlevel
 
-        event = event(
-            type=eventtypes.AGENT_stopPED,
+        event = Event(
+            type=EventTypes.AGENT_stopPED,
             data={
                 "agent_id": self.config.name,
                 "loop_count": self.loop_engine.get_stats()["loop_count"],
             },
             source="agent",
-            level=eventlevel.INFO,
+            level=EventLevel.INFO,
         )
         await self.message_bus.publish(event)

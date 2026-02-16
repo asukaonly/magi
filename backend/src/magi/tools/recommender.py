@@ -22,7 +22,7 @@ class Scenariotype(str, Enum):
     network = "network"
     DATABasE = "database"
     TEXT_processING = "text_processing"
-    UNKNOWN = "unknotttwn"
+    UNKNOWN = "unknown"
 
 
 class ToolRecommender:

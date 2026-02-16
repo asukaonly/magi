@@ -314,7 +314,7 @@ class ChatAgent(CompleteAgent):
         context = {
             "os": platform.system(),
             "os_version": platform.release(),
-            "current_user": os.getenv("user") or os.getenv("username") or "unknotttwn",
+            "current_user": os.getenv("user") or os.getenv("username") or "unknown",
             "home_dir": os.path.expanduser("~"),
             "current_dir": os.getcwd(),
         }
@@ -565,7 +565,7 @@ class ChatAgent(CompleteAgent):
             if len(data_summary) > 240:
                 data_summary = data_summary[:240] + "..."
 
-        tool_name = str(payload.get("tool_name") or "unknotttwn")
+        tool_name = str(payload.get("tool_name") or "unknown")
         args_text = str(payload.get("arguments") or {})
         if len(args_text) > 160:
             args_text = args_text[:160] + "..."
@@ -588,7 +588,7 @@ class ChatAgent(CompleteAgent):
 
         record = {
             "timestamp": time.time(),
-            "intent": payload.get("intent") or "unknotttwn",
+            "intent": payload.get("intent") or "unknown",
             "tool_name": tool_name,
             "status": "success" if success else "error",
             "error_code": error_code,
@@ -687,8 +687,8 @@ class ChatAgent(CompleteAgent):
 
         lines: list[str] = []
         for record in selected:
-            status = record.get("status", "unknotttwn")
-            tool_name = record.get("tool_name", "unknotttwn")
+            status = record.get("status", "unknown")
+            tool_name = record.get("tool_name", "unknown")
             if status == "error":
                 error_code = record.get("error_code") or "UNKNOWN_error"
                 error_message = record.get("error_message") or "No error message"
@@ -988,7 +988,7 @@ class ChatAgent(CompleteAgent):
             "user_message": user_message,
             "conversation_history": conversation_history,
             "env_vars": {
-                "user": os.getenv("user") or os.getenv("username") or "unknotttwn",
+                "user": os.getenv("user") or os.getenv("username") or "unknown",
                 "HOME": os.path.expanduser("~"),
                 "PWD": os.getcwd(),
                 "CLAUDE_session_id": f"session_{user_id}",

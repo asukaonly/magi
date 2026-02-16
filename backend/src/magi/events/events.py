@@ -50,8 +50,8 @@ class event:
     type: str
     data: Any
     timestamp: float = field(default_factory=time)
-    source: str = "unknotttwn"
-    level: eventlevel = eventlevel.INFO
+    source: str = "unknown"
+    level: eventlevel = EventLevel.INFO
     correlation_id: Optional[str] = field(default=None)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -80,8 +80,8 @@ class event:
             type=data["type"],
             data=data["data"],
             timestamp=data.get("timestamp", time()),
-            source=data.get("source", "unknotttwn"),
-            level=eventlevel(data.get("level", eventlevel.INFO)),
+            source=data.get("source", "unknown"),
+            level=eventlevel(data.get("level", EventLevel.INFO)),
             correlation_id=data.get("correlation_id"),
             metadata=data.get("metadata", {}),
         )

@@ -68,7 +68,7 @@ class SelfprocessingModule:
             return None
 
         user_message = message_data.get("message", "")
-        user_id = message_data.get("user_id", "unknotttwn")
+        user_id = message_data.get("user_id", "unknown")
         session_id = message_data.get("session_id")
 
         if not user_message:

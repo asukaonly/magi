@@ -234,7 +234,7 @@ async def import_tools_claude_format(tools: List[Dict[str, Any]]):
             from ...tools.builtin import create_dynamic_tool
 
             dynamic_tool = create_dynamic_tool(
-                name=tool_def.get("name", "unknotttwn"),
+                name=tool_def.get("name", "unknown"),
                 description=tool_def.get("description", ""),
                 parameters=tool_def.get("input_schema", {}).get("properties", []),
                 executor=executor,
@@ -245,7 +245,7 @@ async def import_tools_claude_format(tools: List[Dict[str, Any]]):
 
         except Exception as e:
             failed.append({
-                "name": tool_def.get("name", "unknotttwn"),
+                "name": tool_def.get("name", "unknown"),
                 "error": str(e)
             })
 

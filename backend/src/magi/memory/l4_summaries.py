@@ -173,7 +173,7 @@ class SummaryStore:
         error_count = 0
 
         for event in events:
-            event_type = event.get("type", "unknotttwn")
+            event_type = event.get("type", "unknown")
             event_types[event_type] += 1
 
             # record关keyevent
@@ -199,7 +199,7 @@ class SummaryStore:
         metrics = {
             "duration_hours": (end_time - start_time) / 3600,
             "error_rate": error_count / len(events) if events else 0,
-            "most_common_type": max(event_types.items(), key=lambda x: x[1])[0] if event_types else "unknotttwn",
+            "most_common_type": max(event_types.items(), key=lambda x: x[1])[0] if event_types else "unknown",
         }
 
         return eventSummary(
@@ -255,7 +255,7 @@ class SummaryStore:
             lines.append("- 关keyevent:")
             for event in key_events[:5]:
                 timestamp = datetime.fromtimestamp(event.get("timestamp", 0)).strftime("%H:%M:%S")
-                lines.append(f"  - [{timestamp}] {event.get('type', 'unknotttwn')}")
+                lines.append(f"  - [{timestamp}] {event.get('type', 'unknown')}")
 
         # errorstatistics
         error_count = event_types.get("errorOccurred", 0)
@@ -318,7 +318,7 @@ class SummaryStore:
         elif period_type == "month":
             return dt.strftime("%Y-%m")
         else:
-            return "unknotttwn"
+            return "unknown"
 
     def _format_period_name(self, period_type: str, period_key: str) -> str:
         """format化时间窗口Name"""

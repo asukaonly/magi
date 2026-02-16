@@ -84,7 +84,7 @@ class FunctionCallingExecutor:
         conversation_history: List[Dict] = None,
         max_iterations: int = max_ITERATIONS,
         disable_thinking: bool = True,
-        intent: str = "unknotttwn",
+        intent: str = "unknown",
     ) -> str:
         """
         Execute with continuous tool calling
@@ -166,7 +166,7 @@ class FunctionCallingExecutor:
                         failed_details.append({
                             "tool_call_id": r.tool_call_id,
                             "tool_name": r.tool_name,
-                            "error": r.error or "unknotttwn error",
+                            "error": r.error or "unknown error",
                             "execution_time": round(r.execution_time, 3),
                         })
                     logger.warning(
@@ -547,7 +547,7 @@ class FunctionCallingExecutor:
             "user_id": user_id,
             "session_id": f"session_{user_id}",
             "env_vars": {
-                "user": os.getenv("user") or os.getenv("username") or "unknotttwn",
+                "user": os.getenv("user") or os.getenv("username") or "unknown",
                 "HOME": os.path.expanduser("~"),
                 "PWD": os.getcwd(),
             },

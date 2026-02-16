@@ -156,7 +156,7 @@ class UnifiedMemoryStore:
         # L1: storage原始event（使用eventObject）
         from ..events.events import event
         await self.l1_raw.store(event(
-            type=event.get("type", "unknotttwn"),
+            type=event.get("type", "unknown"),
             data=event.get("data", {}),
             timestamp=event.get("timestamp", 0),
             source=event.get("source", ""),
@@ -174,7 +174,7 @@ class UnifiedMemoryStore:
                 await self.l3_embeddings.add_event(
                     event_id=event_id,
                     text=text,
-                    metadata={"event_type": event.get("type", "unknotttwn")},
+                    metadata={"event_type": event.get("type", "unknown")},
                 )
 
         # L4: add到summarycache
@@ -211,7 +211,7 @@ class UnifiedMemoryStore:
         """record任务尝试到capabilitymemory"""
         data = event.get("data", {})
         self.l5_capabilities.record_attempt(
-            task_id=data.get("task_id", "unknotttwn"),
+            task_id=data.get("task_id", "unknown"),
             context=event.get("metadata", {}),
             action=data.get("action", {}),
             success=data.get("success", True),

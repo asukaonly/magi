@@ -187,7 +187,7 @@ class PerceptionManager:
             Perceptiontype.SENSOR.value: "notification",
             Perceptiontype.EVENT.value: "notification",
         }
-        return intent_map.get(perception.type, "unknotttwn")
+        return intent_map.get(perception.type, "unknown")
 
     def _assess_priority(self, perception: Perception, intent: str) -> int:
         """

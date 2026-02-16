@@ -333,7 +333,7 @@ class eventEmbeddingStore:
                 await self.add_event(
                     event_id=event_id,
                     text=text,
-                    metadata={"event_type": event.get("type", "unknotttwn")},
+                    metadata={"event_type": event.get("type", "unknown")},
                 )
 
         logger.info(f"Added {len(events)} events to embedding store")
