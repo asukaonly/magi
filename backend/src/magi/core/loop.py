@@ -96,7 +96,7 @@ class LoopEngine:
             return
 
         self._state = LoopState.runNING
-        self._pause_event = asyncio.event()
+        self._pause_event = asyncio.Event()
         self._pause_event.set()  # 初始未pause
 
         self._loop_task = asyncio.create_task(self._main_loop())

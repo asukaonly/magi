@@ -462,7 +462,7 @@ class WorkerAgent(Agent):
         self.tool_registry = tool_registry
         self.timeout = timeout
         self.max_retries = max_retries
-        self._completion_event = asyncio.event()
+        self._completion_event = asyncio.Event()
         self._final_result = None
 
     async def _on_start(self):
