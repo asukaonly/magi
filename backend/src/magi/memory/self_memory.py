@@ -126,7 +126,7 @@ class SelfMemory:
             # 同时load原始 md Content
             self._raw_personality_content = self._personality_loader.load_raw(self.personality_name)
             logger.info(f"Loaded personality: {config.name}")
-        except FileNotFounderror:
+        except FileNotFoundError:
             logger.warning(f"Personality {self.personality_name} not found, using default")
             self._personality_config = PersonalityConfig()
             self._raw_personality_content = ""

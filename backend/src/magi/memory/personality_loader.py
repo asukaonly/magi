@@ -179,7 +179,7 @@ class PersonalityLoader:
             PersonalityConfigObject
 
         Raises:
-            FileNotFounderror: Configurationfilenot found
+            FileNotFoundError: Configurationfilenot found
             ValueError: Configurationfileformaterror
         """
         # checkcache
@@ -189,7 +189,7 @@ class PersonalityLoader:
         # buildfilepath
         file_path = self.personalities_path / f"{name}.md"
 
-        if not file_Path.exists():
+        if not file_path.exists():
             # 尝试other可能的path（按priority）
             alternative_paths = [
                 # run时directory
@@ -212,7 +212,7 @@ class PersonalityLoader:
                 if name == "default":
                     logger.warning(f"Default personality file not found, using built-in defaults")
                     return PersonalityConfig()
-                raise FileNotFounderror(
+                raise FileNotFoundError(
                     f"Personality file not found: {name}.md "
                     f"(searched in {self.personalities_path} and alternative paths)"
                 )
@@ -249,7 +249,7 @@ class PersonalityLoader:
         # buildfilepath
         file_path = self.personalities_path / f"{name}.md"
 
-        if not file_Path.exists():
+        if not file_path.exists():
             # 尝试other可能的path
             alternative_paths = [
                 Path.home() / ".magi" / "personalities" / f"{name}.md",

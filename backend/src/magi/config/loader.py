@@ -49,7 +49,7 @@ class ConfigLoader:
             Config: ConfigurationObject
 
         Raises:
-            FileNotFounderror: Configurationfilenot found
+            FileNotFoundError: Configurationfilenot found
             ValueError: Configurationfileformaterror
         """
         if self._config is not None:

@@ -323,7 +323,7 @@ class OtherMemory:
 
         profile_path = self._get_profile_path(user_id)
 
-        if not profile_Path.exists():
+        if not profile_path.exists():
             return None
 
         try:
@@ -501,7 +501,7 @@ class OtherMemory:
         """
         try:
             profile_path = self._get_profile_path(user_id)
-            if profile_Path.exists():
+            if profile_path.exists():
                 profile_path.unlink()
             if user_id in self._cache:
                 del self._cache[user_id]

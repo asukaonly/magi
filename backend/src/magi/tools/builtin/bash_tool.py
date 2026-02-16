@@ -117,7 +117,7 @@ class BashTool(Tool):
                     error_code="timeout"
                 )
 
-        except FileNotFounderror:
+        except FileNotFoundError:
             return ToolResult(
                 success=False,
                 error=f"Working directory not found: {cwd}",

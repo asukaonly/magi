@@ -225,7 +225,7 @@ class SkillLoader:
 
             # Resolve relative to skill directory
             file_path = skill_dir / filename
-            if not file_Path.exists():
+            if not file_path.exists():
                 # Keep original if file doesn't exist
                 return match.group(0)
 

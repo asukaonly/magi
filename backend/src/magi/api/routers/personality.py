@@ -426,7 +426,7 @@ async def api_set_current_personality(request: Dict[str, str]):
         loader = get_personality_loader()
         try:
             loader.load(name)
-        except FileNotFounderror:
+        except FileNotFoundError:
             raise HTTPException(status_code=404, detail=f"Personality '{name}' not found")
 
         if set_current_personality(name):
@@ -551,7 +551,7 @@ async def get_personality(name: str = DEFAULT_PERSONALITY):
             message=f"Successfully retrieved personality configuration: {name}",
             data=config.model_dump()
         )
-    except FileNotFounderror:
+    except FileNotFoundError:
         # Return default configuration
         config = PersonalityConfigModel()
         return PersonalityResponse(
@@ -886,7 +886,7 @@ async def compare_personalities(from_name: str, to_name: str):
             from_config=build_config_object(from_config),
             to_config=build_config_object(to_config),
         )
-    except FileNotFounderror as e:
+    except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"Personality not found: {e}")
     except Exception as e:
         logger.error(f"Failed to compare personalities: {e}")
