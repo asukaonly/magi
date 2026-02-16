@@ -7,7 +7,7 @@ from .agent import Agent, AgentConfig, AgentState
 from .master_agent import MasterAgent
 from .task_agent import TaskAgent
 from .worker_agent import WorkerAgent, WorkerAgentConfig
-from .loop import LoopEngine, Loopstrategy
+from .loop import LoopEngine, LoopStrategy
 from .task_database import (
     TaskDatabase,
     Task,
@@ -40,7 +40,7 @@ __all__ = [
 
     # Loop Engine
     "LoopEngine",
-    "Loopstrategy",
+    "LoopStrategy",
 
     # 任务database
     "TaskDatabase",

@@ -7,7 +7,7 @@ from enum import Enum
 from ..events.events import Event, EventTypes, EventLevel
 
 
-class Loopstrategy(Enum):
+class LoopStrategy(Enum):
     """Loop strategy"""
     STEP = "step"           # Step mode (pause after processing each perception)
     WAVE = "wave"           # Wave mode (pause after processing a batch of perceptions)
@@ -46,7 +46,7 @@ class LoopEngine:
     def __init__(
         self,
         agent,
-        strategy: Loopstrategy = Loopstrategy.CONTINUOUS,
+        strategy: LoopStrategy = LoopStrategy.CONTINUOUS,
         loop_interval: float = 1.0,
     ):
         """
@@ -60,7 +60,7 @@ class LoopEngine:
         self.agent = agent
         self.strategy = strategy
         self.loop_interval = loop_interval
-        self._state = LoopState.stopPED
+        self._state = LoopState.STOPPED
         self._loop_task: Optional[asyncio.Task] = None
         self._pause_event: Optional[asyncio.event] = None
 
@@ -83,19 +83,19 @@ class LoopEngine:
     @property
     def is_running(self) -> bool:
         """Whether running"""
-        return self._state == LoopState.runNING
+        return self._state == LoopState.RUNNING
 
     @property
     def is_paused(self) -> bool:
         """Whether paused"""
-        return self._state == LoopState.pauseD
+        return self._state == LoopState.PAUSED
 
     async def start(self):
         """Start loop engine"""
-        if self._state == LoopState.runNING:
+        if self._state == LoopState.RUNNING:
             return
 
-        self._state = LoopState.runNING
+        self._state = LoopState.RUNNING
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # 初始未pause
 
@@ -103,10 +103,10 @@ class LoopEngine:
 
     async def stop(self):
         """Stop loop engine"""
-        if self._state == LoopState.stopPED:
+        if self._state == LoopState.STOPPED:
             return
 
-        self._state = LoopState.stopPED
+        self._state = LoopState.STOPPED
 
         if self._pause_event:
             self._pause_event.set()
@@ -120,10 +120,10 @@ class LoopEngine:
 
     async def pause(self):
         """Pause loop"""
-        if self._state != LoopState.runNING:
+        if self._state != LoopState.RUNNING:
             return
 
-        self._state = LoopState.pauseD
+        self._state = LoopState.PAUSED
 
         if self._pause_event:
             self._pause_event.clear()
@@ -132,10 +132,10 @@ class LoopEngine:
 
     async def resume(self):
         """Resume loop"""
-        if self._state != LoopState.pauseD:
+        if self._state != LoopState.PAUSED:
             return
 
-        self._state = LoopState.runNING
+        self._state = LoopState.RUNNING
 
         if self._pause_event:
             self._pause_event.set()
@@ -206,12 +206,12 @@ class LoopEngine:
             # Publish loop started event
             await self._publish_event(EventTypes.LOOP_STARTED, {})
 
-            while self._state != LoopState.stopPED:
+            while self._state != LoopState.STOPPED:
                 try:
                     # Check if paused
-                    if self._state == LoopState.pauseD:
+                    if self._state == LoopState.PAUSED:
                         await self._wait_for_resume()
-                        if self._state == LoopState.stopPED:
+                        if self._state == LoopState.STOPPED:
                             break
 
                     # 1. Sense - Perceive the world
@@ -227,11 +227,11 @@ class LoopEngine:
                     # 2. Plan & Act - process each perception
                     for perception in perceptions:
                         # Check if should pause
-                        if self.strategy == Loopstrategy.STEP:
+                        if self.strategy == LoopStrategy.STEP:
                             await self._wait()
-                        elif self._state == LoopState.pauseD:
+                        elif self._state == LoopState.PAUSED:
                             await self._wait_for_resume()
-                            if self._state == LoopState.stopPED:
+                            if self._state == LoopState.STOPPED:
                                 break
 
                         # Plan - Decision
@@ -253,7 +253,7 @@ class LoopEngine:
                         self._loop_count += 1
 
                     # WAVEIn mode, pause after processing a batch
-                    if self.strategy == Loopstrategy.WAVE:
+                    if self.strategy == LoopStrategy.WAVE:
                         await self._wait()
 
                 except Exception as e:
@@ -472,7 +472,7 @@ class LoopEngine:
 
     async def _wait(self):
         """Wait (based on strategy)"""
-        if self.strategy == Loopstrategy.STEP:
+        if self.strategy == LoopStrategy.STEP:
             # Wait for user confirmation (for debugging)
             await asyncio.sleep(0)  # 实际应该isinput()
         else:
