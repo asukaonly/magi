@@ -320,12 +320,12 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
 
         # Try to extract JSON - multiple patterns
         # pattern 1: Standard nested JSON
-        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTall)
+        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
 
         # pattern 2: If pattern 1 fails, try to find any JSON-like structure
         if not json_match:
             # Try to find JSON that starts with { and ends with }
-            json_match = re.search(r'\{.*\}', response, re.DOTall)
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
 
         if json_match:
             try:

@@ -107,7 +107,7 @@ class SkillLoader:
         import yaml
 
         # Extract YAML frontmatter
-        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)', content, re.DOTall)
+        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)', content, re.DOTALL)
         if not frontmatter_match:
             logger.warning("No frontmatter found, using defaults")
             return SkillFrontmatter(name="", description=""), content

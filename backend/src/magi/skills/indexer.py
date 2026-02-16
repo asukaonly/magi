@@ -119,7 +119,7 @@ class SkillIndexer:
             return None
 
         # Extract YAML frontmatter
-        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTall)
+        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
         if not frontmatter_match:
             logger.warning(f"No frontmatter found in {skill_file}")
             return None

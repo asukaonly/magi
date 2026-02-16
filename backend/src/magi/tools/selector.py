@@ -400,7 +400,7 @@ Respond with ONLY the JSON object.
 
         # strategy 3: Find first valid JSON object
         json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
-        matches = re.findall(json_pattern, response, re.DOTall)
+        matches = re.findall(json_pattern, response, re.DOTALL)
 
         for match in matches:
             try:

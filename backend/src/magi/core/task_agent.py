@@ -266,7 +266,7 @@ Format: [{{"subtask_id": "1", "description": "...", "dependencies": []}}]"""
 
         try:
             # Try to extract JSON
-            json_match = re.search(r'\[.*?\]', response, re.DOTall)
+            json_match = re.search(r'\[.*?\]', response, re.DOTALL)
             if json_match:
                 subtasks_data = json.loads(json_match.group())
                 return [

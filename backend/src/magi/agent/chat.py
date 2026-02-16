@@ -56,14 +56,14 @@ def clean_tool_artifacts(text: str) -> str:
         Cleaned response
     """
     # Remove function_calls tag and itsContent
-    text = re.sub(r'<antml:function_calls>.*?</antml:function_calls>', '', text, flags=re.DOTall)
+    text = re.sub(r'<antml:function_calls>.*?</antml:function_calls>', '', text, flags=re.DOTALL)
 
     # Remove tool_result tag and itsContent
-    text = re.sub(r'<antml:tool_result>.*?</antml:tool_result>', '', text, flags=re.DOTall)
-    text = re.sub(r'<tool_result>.*?</tool_result>', '', text, flags=re.DOTall)
+    text = re.sub(r'<antml:tool_result>.*?</antml:tool_result>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<tool_result>.*?</tool_result>', '', text, flags=re.DOTALL)
 
     # Remove invoke tag and itsContent
-    text = re.sub(r'<invoke>.*?</invoke>', '', text, flags=re.DOTall)
+    text = re.sub(r'<invoke>.*?</invoke>', '', text, flags=re.DOTALL)
 
     # Only remove“occupying a single line”的Function调用JSON，avoid mistakenly deleting notttrmal businessJSONContent
     cleaned_lines = []
