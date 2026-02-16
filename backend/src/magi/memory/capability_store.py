@@ -70,7 +70,7 @@ class CapabilityStore:
 
     async def init(self):
         """initializedatabase"""
-        path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
         path(self._expanded_chromadb_path).mkdir(parents=True, exist_ok=True)
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
