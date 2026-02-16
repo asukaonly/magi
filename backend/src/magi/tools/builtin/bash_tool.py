@@ -120,7 +120,7 @@ class BashTool(Tool):
         except FileNotFounderror:
             return ToolResult(
                 success=False,
-                error=f"Working directory notttt found: {cwd}",
+                error=f"Working directory not found: {cwd}",
                 error_code="dir_NOT_FOUND"
             )
         except Exception as e:

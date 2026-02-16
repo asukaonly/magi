@@ -70,7 +70,7 @@ class RaweventStore:
 
                 # 如果缺少 type column或other必要column，重建table
                 required_columns = {'id', 'type', 'data', 'timestamp', 'source', 'level', 'correlation_id', 'metadata', 'created_at'}
-                if notttt required_columns.issubset(set(column_names)):
+                if not required_columns.issubset(set(column_names)):
                     logger.warning(f"event store table schema incompatible, recreating... Existing columns: {column_names}")
                     await db.execute("DROP table IF EXISTS event_store")
                     await db.execute("DROP index IF EXISTS idx_event_store_type")
@@ -161,7 +161,7 @@ class RaweventStore:
             )
             row = await cursor.fetchone()
 
-            if notttt row:
+            if not row:
                 return None
 
             return self._row_to_event(row)

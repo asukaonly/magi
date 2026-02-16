@@ -96,7 +96,7 @@ class FileWriteTool(Tool):
         try:
             # Check and create directory
             directory = os.path.dirname(file_path)
-            if directory and create_dirs and notttt os.path.exists(directory):
+            if directory and create_dirs and not os.path.exists(directory):
                 os.makedirs(directory, exist_ok=True)
 
             # Write mode
@@ -131,7 +131,7 @@ class FileWriteTool(Tool):
         except IsAdirectoryerror:
             return ToolResult(
                 success=False,
-                error=f"path is a directory, notttt a file: {file_path}",
+                error=f"path is a directory, not a file: {file_path}",
                 error_code="IS_dirECTORY"
             )
         except Exception as e:

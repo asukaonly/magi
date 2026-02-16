@@ -57,7 +57,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     }
 
     async def dispatch(self, request: Request, call_next: Callable):
-        # checkis notttt豁免authentication
+        # checkis not豁免authentication
         if request.url.path in self.EXEMPT_pathS:
             return await call_next(request)
 

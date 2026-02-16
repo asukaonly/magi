@@ -60,23 +60,23 @@ class FailureLearner:
         # storagefailurecase
         self._failures_by_type[failure_type].append(case)
 
-        # checkis notttt需要识别pattern
+        # checkis not需要识别pattern
         if await self._should_recognize_pattern(failure_type):
             await self._recognize_pattern(failure_type)
 
     async def should_request_help(self, task: Dict[str, Any]) -> bool:
         """
-        判断is notttt应该request人Class帮助
+        判断is not应该request人Class帮助
 
         Args:
             task: 任务Description
 
         Returns:
-            is notttt需要帮助
+            is not需要帮助
         """
         failure_type = self._classify_failure_type(task)
 
-        # 如果该type有failurepattern，checkis notttt匹配
+        # 如果该type有failurepattern，checkis not匹配
         if failure_type in self._patterns:
             pattern = self._patterns[failure_type]
             # TODO: 更精细的匹配逻辑
@@ -141,7 +141,7 @@ class FailureLearner:
         return f"{task_type}:Unknotttwn"
 
     async def _should_recognize_pattern(self, failure_type: str) -> bool:
-        """判断is notttt应该识别failurepattern"""
+        """判断is not应该识别failurepattern"""
         failures = self._failures_by_type.get(failure_type, [])
         return len(failures) >= self.pattern_recognition_threshold
 
@@ -154,7 +154,7 @@ class FailureLearner:
         """
         failures = self._failures_by_type.get(failure_type, [])
 
-        if notttt failures:
+        if not failures:
             return
 
         # 简化版：基于failurereasongenerationpattern

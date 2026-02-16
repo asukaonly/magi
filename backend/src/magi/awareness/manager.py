@@ -112,7 +112,7 @@ class PerceptionManager:
 
                 if trigger_mode == TriggerMode.POLL:
                     # 轮询pattern
-                    if hasattr(sensor, 'enabled') and notttt sensor.enabled:
+                    if hasattr(sensor, 'enabled') and not sensor.enabled:
                         continue
 
                     perception = await sensor.sense()
@@ -132,13 +132,13 @@ class PerceptionManager:
 
     def _is_duplicate(self, perception: Perception) -> bool:
         """
-        checkis notttt重复
+        checkis not重复
 
         Args:
             perception: Perception
 
         Returns:
-            is notttt重复
+            is not重复
         """
         # generationPerception指纹
         fingerprint = f"{perception.type}:{str(perception.data)}"
@@ -176,7 +176,7 @@ class PerceptionManager:
             perception: Perception
 
         Returns:
-            intent（如：query、command、nottttification）
+            intent（如：query、command、notification）
         """
         # 简化版：根据Perceptiontype推断intent
         intent_map = {
@@ -184,8 +184,8 @@ class PerceptionManager:
             Perceptiontype.AUDI/O.value: "query",
             Perceptiontype.VidEO.value: "query",
             Perceptiontype.IMAGE.value: "query",
-            Perceptiontype.SENSOR.value: "nottttification",
-            Perceptiontype.EVENT.value: "nottttification",
+            Perceptiontype.SENSOR.value: "notification",
+            Perceptiontype.EVENT.value: "notification",
         }
         return intent_map.get(perception.type, "unknotttwn")
 
@@ -201,7 +201,7 @@ class PerceptionManager:
             priority（0=普通，1=重要，2=紧急）
         """
         # 简化版：根据intent判断priority
-        if intent == "nottttification":
+        if intent == "notification":
             return 1  # 重要
         elif perception.type == Perceptiontype.SENSOR.value and perception.data.get("urgent"):
             return 2  # 紧急

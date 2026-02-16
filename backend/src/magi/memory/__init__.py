@@ -53,9 +53,9 @@ class UnifiedMemoryStore:
         Args:
             db_path: databasepath（L1层）
             persist_dir: 持久化directory（L2-L5层）
-            enable_embeddings: is nottttEnableSemantic Embeddings（L3层）
-            enable_summaries: is nottttEnablesummary（L4层）
-            enable_capabilities: is nottttEnablecapabilitymemory（L5层）
+            enable_embeddings: is notEnableSemantic Embeddings（L3层）
+            enable_summaries: is notEnablesummary（L4层）
+            enable_capabilities: is notEnablecapabilitymemory（L5层）
             embedding_config: embeddingvectorConfiguration（backend, model等）
             llm_adapter: LLMAdapter（用于远程embedding）
         """
@@ -64,9 +64,9 @@ class UnifiedMemoryStore:
         runtime_paths = get_runtime_paths()
 
         # Settingdefaultpath
-        if notttt db_path:
+        if not db_path:
             db_path = str(runtime_paths.events_db_path)
-        if notttt persist_dir:
+        if not persist_dir:
             persist_dir = str(runtime_paths.memories_dir)
 
         persist_path = path(persist_dir)
@@ -141,14 +141,14 @@ class UnifiedMemoryStore:
 
         Args:
             event: eventdata
-            extract_relations: is notttt提取relationship
-            generate_embeddings: is nottttgenerationembedding
+            extract_relations: is not提取relationship
+            generate_embeddings: is notgenerationembedding
 
         Returns:
             eventid
         """
         event_id = event.get("id", event.get("event_id"))
-        if notttt event_id:
+        if not event_id:
             import uuid
             event_id = str(uuid.uuid4())
             event["id"] = event_id
@@ -287,7 +287,7 @@ class UnifiedMemoryStore:
         Returns:
             eventsummary
         """
-        if notttt self.l4_summaries:
+        if not self.l4_summaries:
             return None
         return self.l4_summaries.get_summary(period_type, period_key)
 
@@ -303,12 +303,12 @@ class UnifiedMemoryStore:
         Args:
             period_type: 时间粒度
             period_key: 时间窗口identifier
-            force: is notttt强制重newgeneration
+            force: is not强制重newgeneration
 
         Returns:
             eventsummary
         """
-        if notttt self.l4_summaries:
+        if not self.l4_summaries:
             return None
         return self.l4_summaries.generate_summary(period_type, period_key, force)
 
@@ -327,7 +327,7 @@ class UnifiedMemoryStore:
         Returns:
             匹配的capability
         """
-        if notttt self.l5_capabilities:
+        if not self.l5_capabilities:
             return None
         return self.l5_capabilities.find_capability(context, threshold)
 

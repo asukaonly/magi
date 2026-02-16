@@ -97,7 +97,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
                 # if missing required column, rebuild table
                 required_columns = {'id', 'event_type', 'event_data', 'priority', 'source', 'correlation_id', 'metadata', 'created_at', 'processed'}
-                if notttt required_columns.issubset(set(column_names)):
+                if not required_columns.issubset(set(column_names)):
                     import logging
                     logger = logging.getLogger(__name__)
                     logger.warning(f"Message queue table schema incompatible, recreating... Existing columns: {column_names}")
@@ -134,7 +134,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             event: event to publish
 
         Returns:
-            bool: is nottttsuccessrelease
+            bool: is notsuccessrelease
         """
         try:
             async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -206,7 +206,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
     async def unsubscribe(self, subscription_id: str) -> bool:
         """cancelsubscribe"""
-        if subscription_id notttt in self._subscription_index:
+        if subscription_id not in self._subscription_index:
             return False
 
         subscription = self._subscription_index[subscription_id]
@@ -234,7 +234,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
     async def stop(self):
         """stop message bus"""
-        if notttt self._running:
+        if not self._running:
             return
 
         self._running = False
@@ -297,7 +297,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             row = await cursor.fetchone()
             await db.commit()
 
-            if notttt row:
+            if not row:
                 return None
 
             event_data = json.loads(row[0])
@@ -307,7 +307,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         """processevent"""
         subscriptions = self._subscriptions.get(event.type, [])
 
-        if notttt subscriptions:
+        if not subscriptions:
             return
 
         broadcast_subscriptions = [s for s in subscriptions if s["mode"] == "broadcast"]
@@ -328,7 +328,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         """call handler to process event"""
         if subscription["filter_func"]:
             try:
-                if notttt subscription["filter_func"](event):
+                if not subscription["filter_func"](event):
                     return
             except Exception:
                 pass

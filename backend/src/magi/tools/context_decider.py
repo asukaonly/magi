@@ -150,13 +150,13 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         Returns:
             ContextDecision with selected tools
         """
-        if notttt self.llm:
-            logger.warning("[ContextDecider] LLM notttt available")
+        if not self.llm:
+            logger.warning("[ContextDecider] LLM not available")
             return ContextDecision(
                 intent="unknotttwn",
                 tools=[],
                 deep_thinking=False,
-                reasoning="LLM notttt available",
+                reasoning="LLM not available",
             )
 
         # Get available tools
@@ -192,7 +192,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             )
 
             # Check if response is empty or incomplete
-            if notttt response or notttt response.strip():
+            if not response or not response.strip():
                 logger.warning("[ContextDecider] LLM returned empty response, using rule-based fallback")
                 return self._rule_based_fallback(user_message)
 
@@ -299,7 +299,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         response = response.strip()
 
         # Handle empty response
-        if notttt response:
+        if not response:
             logger.warning("[ContextDecider] Empty LLM response")
             return ContextDecision(
                 intent="unknotttwn",
@@ -323,7 +323,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTall)
 
         # pattern 2: If pattern 1 fails, try to find any JSON-like structure
-        if notttt json_match:
+        if not json_match:
             # Try to find JSON that starts with { and ends with }
             json_match = re.search(r'\{.*\}', response, re.DOTall)
 
@@ -333,8 +333,8 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 data = json.loads(json_str)
 
                 # Validate required fields
-                if notttt isinstance(data, dict):
-                    raise Valueerror("Response is notttt a JSON object")
+                if not isinstance(data, dict):
+                    raise Valueerror("Response is not a JSON object")
 
                 intent = data.get("intent", "unknotttwn")
                 tools = data.get("tools", [])

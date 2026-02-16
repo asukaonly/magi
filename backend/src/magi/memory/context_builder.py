@@ -376,7 +376,7 @@ class ContextBuilder:
         return """
 **Debug Guidelines:**
 - Be systematic in troubleshooting
-- Identify root causes, notttt symptoms
+- Identify root causes, not symptoms
 - Suggest multiple possible causes
 - Propose verification steps
 - Document findings clearly
@@ -391,7 +391,7 @@ class ContextBuilder:
         # info密度指导
         density_guidance = {
             "sparse": "Be brief and direct. Focus on key points only.",
-            "medium": "Provide balanced information - notttt too brief, notttt overwhelming.",
+            "medium": "Provide balanced information - not too brief, not overwhelming.",
             "dense": "Be thorough and detailed. Include relevant context and examples.",
         }
         guidance_parts.append(density_guidance.get(behavior.information_density, ""))

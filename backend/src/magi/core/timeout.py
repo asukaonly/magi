@@ -191,7 +191,7 @@ class TimeoutCalculator:
         Returns:
             Estimated timeout duration
         """
-        if notttt historical_durations:
+        if not historical_durations:
             return 30.0  # Default 30 seconds
 
         # Sort

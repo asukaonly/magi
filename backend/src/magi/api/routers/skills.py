@@ -110,7 +110,7 @@ async def list_skills():
     if _skill_indexer is None:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Skills module notttt initialized",
+            detail="Skills module not initialized",
         )
 
     skills = _skill_indexer.scan_all()
@@ -142,7 +142,7 @@ async def refresh_skills():
     if _skill_indexer is None:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Skills module notttt initialized",
+            detail="Skills module not initialized",
         )
 
     skills = _skill_indexer.refresh()
@@ -181,14 +181,14 @@ async def get_skill_detail(skill_name: str):
     if _skill_loader is None:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Skills module notttt initialized",
+            detail="Skills module not initialized",
         )
 
     skill_content = _skill_loader.load_skill(skill_name)
-    if notttt skill_content:
+    if not skill_content:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill notttt found: {skill_name}",
+            detail=f"Skill not found: {skill_name}",
         )
 
     return SkillDetailResponse(
@@ -220,7 +220,7 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
     if _skill_executor is None:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Skills module notttt initialized",
+            detail="Skills module not initialized",
         )
 
     # buildExecutecontext
@@ -275,7 +275,7 @@ async def list_skill_categories():
     if _skill_indexer is None:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Skills module notttt initialized",
+            detail="Skills module not initialized",
         )
 
     skills = _skill_indexer.scan_all()

@@ -49,7 +49,7 @@ class MemoryConfigModel(BaseModel):
 
 class WebSocketConfigModel(BaseModel):
     """WebSocketConfiguration"""
-    enabled: bool = Field(default=True, description="is nottttEnableWebSocket")
+    enabled: bool = Field(default=True, description="is notEnableWebSocket")
     port: Optional[int] = Field(None, description="WebSocketport")
 
 
@@ -237,7 +237,7 @@ async def get_config_template():
 @config_router.post("/test", response_model=ConfigResponse)
 async def test_config(config: SystemConfigModel):
     """
-    TestConfigurationis nottttvalid
+    TestConfigurationis notvalid
 
     Args:
         config: 要Test的Configuration
@@ -247,10 +247,10 @@ async def test_config(config: SystemConfigModel):
     """
     try:
         # Validate必填field
-        if notttt config.llm.provider:
+        if not config.llm.provider:
             raise Valueerror("LLM provider is required")
 
-        if notttt config.llm.model:
+        if not config.llm.model:
             raise Valueerror("LLM model is required")
 
         # 这里可以addmore的Validate逻辑

@@ -341,7 +341,7 @@ class CapabilityMemory:
 
     def _save_to_disk(self):
         """persist to disk"""
-        if notttt self.persist_path:
+        if not self.persist_path:
             return
 
         try:
@@ -363,13 +363,13 @@ class CapabilityMemory:
 
     def _load_from_disk(self):
         """Load from disk"""
-        if notttt self.persist_path:
+        if not self.persist_path:
             return
 
         try:
             from pathlib import path
             path = path(self.persist_path)
-            if notttt path.exists():
+            if not path.exists():
                 return
 
             with open(self.persist_path, "r") as f:

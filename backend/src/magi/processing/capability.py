@@ -40,7 +40,7 @@ class CapabilityExtractor:
         # generation任务指纹
         fingerprint = self._generate_fingerprint(task)
 
-        if fingerprint notttt in self._success_cases:
+        if fingerprint not in self._success_cases:
             self._success_cases[fingerprint] = []
 
         self._success_cases[fingerprint].append({
@@ -50,13 +50,13 @@ class CapabilityExtractor:
 
     async def should_extract(self, task: Dict[str, Any]) -> bool:
         """
-        判断is notttt应该提取capability
+        判断is not应该提取capability
 
         Args:
             task: 任务Description
 
         Returns:
-            is notttt应该提取
+            is not应该提取
         """
         fingerprint = self._generate_fingerprint(task)
         cases = self._success_cases.get(fingerprint, [])
@@ -80,7 +80,7 @@ class CapabilityExtractor:
         fingerprint = self._generate_fingerprint(task)
         cases = self._success_cases.get(fingerprint, [])
 
-        if notttt cases:
+        if not cases:
             return None
 
         # analysissuccesscase
@@ -102,7 +102,7 @@ class CapabilityExtractor:
         Returns:
             capability定义或None
         """
-        if notttt cases:
+        if not cases:
             return None
 
         # 简化版：从第一个case提取
@@ -177,9 +177,9 @@ class CapabilityVerifier:
             executor: Execute器
 
         Returns:
-            is notttt通过Validate
+            is not通过Validate
         """
-        if notttt test_tasks:
+        if not test_tasks:
             return True  # 无Test任务，default通过
 
         # calculatesuccess率
@@ -207,13 +207,13 @@ class CapabilityVerifier:
 
     async def should淘汰(self, capability: Capability) -> bool:
         """
-        判断is notttt应该淘汰capability
+        判断is not应该淘汰capability
 
         Args:
             capability: capability
 
         Returns:
-            is notttt应该淘汰
+            is not应该淘汰
         """
         # success率过低
         if capability.success_rate < self.淘汰_threshold:

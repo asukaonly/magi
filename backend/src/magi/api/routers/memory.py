@@ -132,7 +132,7 @@ async def get_l1_events(
     """
     unified_memory = get_unified_memory()
 
-    if notttt unified_memory or notttt unified_memory.l1_raw:
+    if not unified_memory or not unified_memory.l1_raw:
         return {
             "events": [],
             "stats": {"total": 0},
@@ -200,7 +200,7 @@ async def get_l2_statistics():
     """
     unified_memory = get_unified_memory()
 
-    if notttt unified_memory or notttt unified_memory.l2_relations:
+    if not unified_memory or not unified_memory.l2_relations:
         return {
             "total_events": 0,
             "total_relations": 0,
@@ -228,10 +228,10 @@ async def get_memory_statistics():
     unified_memory = get_unified_memory()
     memory_integration = get_memory_integration()
 
-    if notttt unified_memory:
+    if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Memory system notttt initialized",
+            detail="Memory system not initialized",
         )
 
     stats = unified_memory.get_statistics()
@@ -258,10 +258,10 @@ async def semantic_search(request: SemanticSearchRequest):
     """
     unified_memory = get_unified_memory()
 
-    if notttt unified_memory or notttt unified_memory.l3_embeddings:
+    if not unified_memory or not unified_memory.l3_embeddings:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Semantic search notttt available (L3 embeddings disabled)",
+            detail="Semantic search not available (L3 embeddings disabled)",
         )
 
     try:
@@ -308,10 +308,10 @@ async def get_event_context(
     """
     unified_memory = get_unified_memory()
 
-    if notttt unified_memory:
+    if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Memory system notttt initialized",
+            detail="Memory system not initialized",
         )
 
     try:
@@ -337,7 +337,7 @@ async def get_event_context(
 async def get_summary(
     period_type: str,
     period_key: Optional[str] = query(None, description="时间窗口identifier（default为current）"),
-    force_generate: bool = query(False, description="is notttt强制重newgeneration"),
+    force_generate: bool = query(False, description="is not强制重newgeneration"),
 ):
     """
     getTime Summaries (L4)
@@ -347,14 +347,14 @@ async def get_summary(
     Args:
         period_type: 时间粒度（hour/day/week/month）
         period_key: 时间窗口identifier（default为current）
-        force_generate: is notttt强制重newgeneration
+        force_generate: is not强制重newgeneration
 
     Returns:
         eventsummary
     """
     # Validate period_type
     valid_period_types = {"hour", "day", "week", "month"}
-    if period_type notttt in valid_period_types:
+    if period_type not in valid_period_types:
         raise HTTPException(
             status_code=status.HTTP_422_UNprocessABLE_entity,
             detail=f"Invalid period_type '{period_type}'. Must be one of: {', '.join(valid_period_types)}",
@@ -362,10 +362,10 @@ async def get_summary(
 
     unified_memory = get_unified_memory()
 
-    if notttt unified_memory or notttt unified_memory.l4_summaries:
+    if not unified_memory or not unified_memory.l4_summaries:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Summary service notttt available (L4 summaries disabled)",
+            detail="Summary service not available (L4 summaries disabled)",
         )
 
     try:
@@ -382,10 +382,10 @@ async def get_summary(
                 period_key=period_key,
             )
 
-        if notttt summary:
+        if not summary:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Summary notttt found for {period_type}/{period_key or 'current'}",
+                detail=f"Summary not found for {period_type}/{period_key or 'current'}",
             )
 
         return SummaryResponse(
@@ -425,7 +425,7 @@ async def get_capabilities(
     """
     unified_memory = get_unified_memory()
 
-    if notttt unified_memory or notttt unified_memory.l5_capabilities:
+    if not unified_memory or not unified_memory.l5_capabilities:
         return []
 
     try:
@@ -470,18 +470,18 @@ async def get_capability(capability_id: str):
     """
     unified_memory = get_unified_memory()
 
-    if notttt unified_memory or notttt unified_memory.l5_capabilities:
+    if not unified_memory or not unified_memory.l5_capabilities:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Capability service notttt available (L5 capabilities disabled)",
+            detail="Capability service not available (L5 capabilities disabled)",
         )
 
     capability = unified_memory.l5_capabilities.get_capability(capability_id)
 
-    if notttt capability:
+    if not capability:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Capability {capability_id} notttt found",
+            detail=f"Capability {capability_id} not found",
         )
 
     return CapabilityResponse(
@@ -505,10 +505,10 @@ async def generate_pending_summaries():
     """
     memory_integration = get_memory_integration()
 
-    if notttt memory_integration:
+    if not memory_integration:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Memory integration notttt available",
+            detail="Memory integration not available",
         )
 
     try:
@@ -535,18 +535,18 @@ async def delete_capability(capability_id: str):
     """
     unified_memory = get_unified_memory()
 
-    if notttt unified_memory or notttt unified_memory.l5_capabilities:
+    if not unified_memory or not unified_memory.l5_capabilities:
         raise HTTPException(
             status_code=status.HTTP_503_service_UNAVAILABLE,
-            detail="Capability service notttt available",
+            detail="Capability service not available",
         )
 
     success = unified_memory.l5_capabilities.delete_capability(capability_id)
 
-    if notttt success:
+    if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Capability {capability_id} notttt found",
+            detail=f"Capability {capability_id} not found",
         )
 
 
@@ -612,10 +612,10 @@ async def get_memory(memory_id: str):
     Returns:
         memory详情
     """
-    if memory_id notttt in _legacy_memory_store:
+    if memory_id not in _legacy_memory_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Memory {memory_id} notttt found",
+            detail=f"Memory {memory_id} not found",
         )
 
     return _legacy_memory_store[memory_id]
@@ -629,10 +629,10 @@ async def delete_memory(memory_id: str):
     Args:
         memory_id: memoryid
     """
-    if memory_id notttt in _legacy_memory_store:
+    if memory_id not in _legacy_memory_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Memory {memory_id} notttt found",
+            detail=f"Memory {memory_id} not found",
         )
 
     del _legacy_memory_store[memory_id]

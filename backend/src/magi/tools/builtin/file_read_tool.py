@@ -81,18 +81,18 @@ class FileReadTool(Tool):
 
         try:
             # Check if file exists
-            if notttt os.path.exists(file_path):
+            if not os.path.exists(file_path):
                 return ToolResult(
                     success=False,
-                    error=f"File notttt found: {file_path}",
+                    error=f"File not found: {file_path}",
                     error_code="FILE_NOT_FOUND"
                 )
 
             # Check if it is a file
-            if notttt os.path.isfile(file_path):
+            if not os.path.isfile(file_path):
                 return ToolResult(
                     success=False,
-                    error=f"path is notttt a file: {file_path}",
+                    error=f"path is not a file: {file_path}",
                     error_code="NOT_A_FILE"
                 )
 

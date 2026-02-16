@@ -40,7 +40,7 @@ class GracefulShutdownManager:
 
         Args:
             shutdown_timeout: 关闭timeout时间（seconds）
-            stop_order_reversed: is notttt逆序stop
+            stop_order_reversed: is not逆序stop
         """
         self.shutdown_timeout = shutdown_timeout
         self.stop_order_reversed = stop_order_reversed
@@ -75,7 +75,7 @@ class GracefulShutdownManager:
             stop_func: stopFunction
             dependencies: dependency的阶段Namelist
             timeout: timeout时间（seconds）
-            critical: is notttt关key阶段（failure则rollback）
+            critical: is not关key阶段（failure则rollback）
         """
         stage = {
             "name": name,
@@ -93,7 +93,7 @@ class GracefulShutdownManager:
         顺序启动all阶段
 
         Returns:
-            is nottttall启动success
+            is notall启动success
         """
         print("\n=== Starting System ===")
 
@@ -140,7 +140,7 @@ class GracefulShutdownManager:
         逆序stopall阶段
 
         Returns:
-            is nottttallstopsuccess
+            is notallstopsuccess
         """
         if self._shutdown_state != ShutdownState.runNING:
             print(f"Already shutting down: {self._shutdown_state}")
@@ -149,7 +149,7 @@ class GracefulShutdownManager:
         print("\n=== Shutting Down System ===")
         self._shutdown_state = ShutdownState.SHUTDOWN_REQUESTED
 
-        # 1. nottttify关闭callback
+        # 1. notify关闭callback
         for callback in self._shutdown_callbacks:
             try:
                 await callback()
@@ -242,7 +242,7 @@ class GracefulShutdownManager:
                 if dependencies_met:
                     ready.append(stage)
 
-            if notttt ready:
+            if not ready:
                 # 循环dependency，按原顺序add
                 ready = [remaining[0]]
 
@@ -289,10 +289,10 @@ class GracefulShutdownManager:
 
     def is_shutting_down(self) -> bool:
         """
-        is notttt正在关闭
+        is not正在关闭
 
         Returns:
-            is notttt正在关闭
+            is not正在关闭
         """
         return self._shutdown_state != ShutdownState.runNING
 
@@ -407,7 +407,7 @@ class AgentLifecycleManager:
             # stopMain loop任务
             if hasattr(self.master_agent, '_main_loop_task'):
                 task = self.master_agent._main_loop_task
-                if task and notttt task.done():
+                if task and not task.done():
                     task.cancel()
                     try:
                         await task
@@ -447,7 +447,7 @@ class AgentLifecycleManager:
         启动allAgent
 
         Returns:
-            is notttt启动success
+            is not启动success
         """
         return await self.shutdown_manager.startup()
 
@@ -456,7 +456,7 @@ class AgentLifecycleManager:
         stopallAgent
 
         Returns:
-            is nottttstopsuccess
+            is notstopsuccess
         """
         return await self.shutdown_manager.shutdown()
 
@@ -478,9 +478,9 @@ class AgentLifecycleManager:
 
     def is_shutting_down(self) -> bool:
         """
-        is notttt正在关闭
+        is not正在关闭
 
         Returns:
-            is notttt正在关闭
+            is not正在关闭
         """
         return self.shutdown_manager.is_shutting_down()

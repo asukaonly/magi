@@ -252,19 +252,19 @@ class WorkerAgent(Agent):
         Returns:
             toolExecution result
         """
-        if notttt self.tool_registry:
-            raise Runtimeerror("Tool registry notttt configured")
+        if not self.tool_registry:
+            raise Runtimeerror("Tool registry not configured")
 
         tool_name = task_data.get("tool_name")
         parameters = task_data.get("parameters", {})
 
-        if notttt tool_name:
+        if not tool_name:
             raise Valueerror("tool_name is required for tool_execution task")
 
         # Executetool
         result = await self.tool_registry.execute(tool_name, parameters)
 
-        if notttt result.success:
+        if not result.success:
             raise Runtimeerror(f"Tool execution failed: {result.error}")
 
         return result.data
@@ -418,7 +418,7 @@ class WorkerAgent(Agent):
             timeout: timeout时间（seconds）
 
         Returns:
-            is nottttsuccesscomplete
+            is notsuccesscomplete
         """
         start_time = time.time()
 

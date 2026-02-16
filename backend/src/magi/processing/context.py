@@ -64,21 +64,21 @@ class ContextManager:
         if len(self._context.recent_tasks) > self.max_recent_tasks:
             self._context.recent_tasks.pop(0)
 
-    async def should_nottttify(self) -> bool:
+    async def should_notify(self) -> bool:
         """
-        判断is notttt应该nottttifyuser
+        判断is not应该notifyuser
 
         Returns:
-            is notttt应该nottttify
+            is not应该notify
         """
         # 基于userState判断
         user_status = self._context.user_status
 
-        # 如果user忙碌，不nottttify
+        # 如果user忙碌，不notify
         if user_status.get("busy", False):
             return False
 
-        # 如果is深夜，减少nottttify
+        # 如果is深夜，减少notify
         current_hour = time.localtime(self._context.current_time).tm_hour
         if current_hour >= 23 or current_hour <= 6:
             return False

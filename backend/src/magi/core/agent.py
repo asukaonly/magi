@@ -82,7 +82,7 @@ class Agent:
             Runtimeerror: 如果Agent未在run
         """
         if self.state != AgentState.runNING:
-            raise Runtimeerror(f"Agent {self.config.name} is notttt running")
+            raise Runtimeerror(f"Agent {self.config.name} is not running")
 
         self.state = AgentState.stopPING
 
@@ -105,7 +105,7 @@ class Agent:
             Runtimeerror: 如果Agent未在run
         """
         if self.state != AgentState.runNING:
-            raise Runtimeerror(f"Agent {self.config.name} is notttt running")
+            raise Runtimeerror(f"Agent {self.config.name} is not running")
 
         self.state = AgentState.pauseD
 
@@ -120,7 +120,7 @@ class Agent:
             Runtimeerror: 如果Agent未pause
         """
         if self.state != AgentState.pauseD:
-            raise Runtimeerror(f"Agent {self.config.name} is notttt paused")
+            raise Runtimeerror(f"Agent {self.config.name} is not paused")
 
         self.state = AgentState.runNING
 

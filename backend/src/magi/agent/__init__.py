@@ -33,7 +33,7 @@ def get_chat_agent() -> ChatAgent:
     """
     global _chat_agent
     if _chat_agent is None:
-        raise Runtimeerror("ChatAgent notttt initialized. Call initialize_chat_agent() first.")
+        raise Runtimeerror("ChatAgent not initialized. Call initialize_chat_agent() first.")
     return _chat_agent
 
 
@@ -46,7 +46,7 @@ def get_memory_integration() -> MemoryIntegrationModule:
     """
     global _memory_integration
     if _memory_integration is None:
-        raise Runtimeerror("MemoryIntegrationModule notttt initialized. Call initialize_chat_agent() first.")
+        raise Runtimeerror("MemoryIntegrationModule not initialized. Call initialize_chat_agent() first.")
     return _memory_integration
 
 
@@ -74,7 +74,7 @@ def _create_llm_adapter():
     base_url = os.getenv("LLM_BasE_url")
     model = os.getenv("LLM_MOdel", "gpt-4o-mini")
 
-    if notttt api_key:
+    if not api_key:
         raise Valueerror("LLM_API_key must be set")
 
     logger.info(f"🔧 Creating LLM adapter | Provider: {provider} | Model: {model} | Base url: {base_url or 'default'}")
@@ -109,7 +109,7 @@ async def initialize_chat_agent():
     """
     global _chat_agent
 
-    if _chat_agent is notttt None:
+    if _chat_agent is not None:
         logger.warning("ChatAgent already initialized")
         return
 
@@ -122,9 +122,9 @@ async def initialize_chat_agent():
         # get环境Variable
         api_key = os.getenv("LLM_API_key")
 
-        if notttt api_key:
+        if not api_key:
             logger.warning("=" * 60)
-            logger.warning("⚠️  LLM_API_key notttt set!")
+            logger.warning("⚠️  LLM_API_key not set!")
             logger.warning("⚠️  ChatAgent will NOT be initialized.")
             logger.warning("⚠️  Set LLM_API_key environment variable to enable AI responses.")
             logger.warning("⚠️  Example: export LLM_API_key='sk-...'")

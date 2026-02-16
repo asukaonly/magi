@@ -30,7 +30,7 @@ class ToolSchema:
     description: str
     parameters: Dict[str, Any]  # JSON Schemaformat
     permissions: List[str] = None
-    internal: bool = False  # is notttt为internaltool（不对user可见）
+    internal: bool = False  # is not为internaltool（不对user可见）
 
 
 class Tool(ABC):

@@ -219,7 +219,7 @@ class LoopEngine:
                     perceptions = await self.sense()
                     sense_time = asyncio.get_event_loop().time() - sense_start
 
-                    if notttt perceptions:
+                    if not perceptions:
                         # No perception input, wait
                         await self._wait()
                         continue

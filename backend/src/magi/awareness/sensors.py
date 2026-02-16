@@ -43,7 +43,7 @@ class UserMessageSensor:
 
     @property
     def enabled(self) -> bool:
-        """is nottttEnable"""
+        """is notEnable"""
         return self._enabled
 
     def enable(self):
@@ -61,7 +61,7 @@ class UserMessageSensor:
         Returns:
             Perception或None
         """
-        if notttt self._enabled:
+        if not self._enabled:
             return None
 
         try:
@@ -146,7 +146,7 @@ class UserMessageSensor:
         Args:
             event: user_MESSAGEevent
         """
-        if notttt self._enabled:
+        if not self._enabled:
             return
 
         # 将eventdataconvert为Perceptionmessageformat
@@ -191,7 +191,7 @@ class eventSensor:
 
     @property
     def enabled(self) -> bool:
-        """is nottttEnable"""
+        """is notEnable"""
         return self._enabled
 
     def enable(self):
@@ -209,7 +209,7 @@ class eventSensor:
         Returns:
             Perception或None
         """
-        if notttt self._enabled:
+        if not self._enabled:
             return None
 
         # 从cachegetevent
@@ -247,7 +247,7 @@ class eventSensor:
         Args:
             event: eventdata
         """
-        if notttt self._enabled:
+        if not self._enabled:
             return
 
         # add到cache
@@ -295,7 +295,7 @@ class SensordataSensor:
 
     @property
     def enabled(self) -> bool:
-        """is nottttEnable"""
+        """is notEnable"""
         return self._enabled
 
     def enable(self):
@@ -313,7 +313,7 @@ class SensordataSensor:
         Returns:
             Perception或None
         """
-        if notttt self._enabled:
+        if not self._enabled:
             return None
 
         # generation模拟data
@@ -402,7 +402,7 @@ class TimerSensor:
 
     @property
     def enabled(self) -> bool:
-        """is nottttEnable"""
+        """is notEnable"""
         return self._enabled
 
     def enable(self):

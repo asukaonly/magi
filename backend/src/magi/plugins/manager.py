@@ -95,8 +95,8 @@ class PluginManager:
         plugin_class = getattr(module, class_name)
 
         # ValidateisPlugin子Class
-        if notttt issubclass(plugin_class, Plugin):
-            raise typeerror(f"{class_name} is notttt a subclass of Plugin")
+        if not issubclass(plugin_class, Plugin):
+            raise typeerror(f"{class_name} is not a subclass of Plugin")
 
         # loadplugin
         return await self.load_plugin(plugin_class, config)
@@ -109,9 +109,9 @@ class PluginManager:
             plugin_name: pluginName
 
         Returns:
-            is nottttsuccessuninstall
+            is notsuccessuninstall
         """
-        if plugin_name notttt in self._plugins:
+        if plugin_name not in self._plugins:
             return False
 
         plugin = self._plugins[plugin_name]
@@ -120,7 +120,7 @@ class PluginManager:
         dependent_plugins = self._get_dependents(plugin_name)
         if dependent_plugins:
             raise Runtimeerror(
-                f"Cannotttt unload plugin {plugin_name}: "
+                f"Cannot unload plugin {plugin_name}: "
                 f"required by {', '.join(dependent_plugins)}"
             )
 
@@ -174,7 +174,7 @@ class PluginManager:
         Returns:
             Execution result
         """
-        if hook_name notttt in self._hooks:
+        if hook_name not in self._hooks:
             raise Valueerror(f"Unknotttwn hook: {hook_name}")
 
         # chainpattern：顺序Execute
@@ -202,7 +202,7 @@ class PluginManager:
             plugin = hook_info["plugin"]
             method = hook_info["method"]
 
-            if notttt plugin.enabled:
+            if not plugin.enabled:
                 continue
 
             try:
@@ -237,7 +237,7 @@ class PluginManager:
             plugin = hook_info["plugin"]
             method = hook_info["method"]
 
-            if notttt plugin.enabled:
+            if not plugin.enabled:
                 continue
 
             async def execute_hook():
@@ -251,7 +251,7 @@ class PluginManager:
 
         # 等待all钩子complete
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        return [r for r in results if r is notttt None]
+        return [r for r in results if r is not None]
 
     def _register_hooks(self, plugin: Plugin):
         """registerplugin的生命period钩子"""
@@ -265,8 +265,8 @@ class PluginManager:
         }
 
         for hook_name, method in hook_methods.items():
-            # checkis notttt覆盖了defaultImplementation
-            if notttt self._is_default_implementation(method):
+            # checkis not覆盖了defaultImplementation
+            if not self._is_default_implementation(method):
                 self._hooks[hook_name].append({
                     "plugin": plugin,
                     "method": method,
@@ -281,7 +281,7 @@ class PluginManager:
             ]
 
     def _is_default_implementation(self, method) -> bool:
-        """checkis nottttisdefaultImplementation"""
+        """checkis notisdefaultImplementation"""
         # getPluginBase class的Method
         base_method = getattr(Plugin, method.__name__)
         return method.__func__ == base_method

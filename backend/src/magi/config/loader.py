@@ -49,13 +49,13 @@ class ConfigLoader:
             Config: ConfigurationObject
 
         Raises:
-            FileNotFounderror: Configurationfilenotttt found
+            FileNotFounderror: Configurationfilenot found
             Valueerror: Configurationfileformaterror
         """
-        if self._config is notttt None:
+        if self._config is not None:
             return self._config
 
-        if self.config_path is None or notttt os.path.exists(self.config_path):
+        if self.config_path is None or not os.path.exists(self.config_path):
             # Return default configuration
             self._config = self._load_default_config()
             return self._config
@@ -99,12 +99,12 @@ class ConfigLoader:
 
                 def replace_var(match):
                     var_name = match.group(1)
-                    default_value = match.group(2) if match.group(2) is notttt None else ""
+                    default_value = match.group(2) if match.group(2) is not None else ""
                     return os.getenv(var_name, default_value)
 
                 result = re.sub(pattern, replace_var, data)
                 # 如果replace后还is环境Variableformat且Value为空，Return空string
-                if result.startswith("${") and notttt os.getenv(data[2:data.index('}')]):
+                if result.startswith("${") and not os.getenv(data[2:data.index('}')]):
                     return ""
                 return result
             return data
@@ -155,7 +155,7 @@ def reload_config() -> Config:
     """
     global _global_loader
 
-    if _global_loader is notttt None:
+    if _global_loader is not None:
         return _global_loader.reload()
 
     return get_config()

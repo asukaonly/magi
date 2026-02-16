@@ -95,12 +95,12 @@ class ToolRegistry:
         temp_instance = tool_class()
         schema = temp_instance.get_schema()
 
-        if notttt schema:
+        if not schema:
             raise Valueerror(f"Tool {tool_class.__name__} must define a schema")
 
         tool_name = schema.name
 
-        # checkis nottttregistered
+        # checkis notregistered
         if tool_name in self._tools:
             logger.warning(f"Tool {tool_name} already registered, overwriting")
 
@@ -129,10 +129,10 @@ class ToolRegistry:
             tool_name: toolName
 
         Returns:
-            is nottttsuccess
+            is notsuccess
         """
-        if tool_name notttt in self._tools:
-            logger.warning(f"Tool {tool_name} notttt registered")
+        if tool_name not in self._tools:
+            logger.warning(f"Tool {tool_name} not registered")
             return False
 
         # getschema
@@ -206,7 +206,7 @@ class ToolRegistry:
             toolinfo或None
         """
         tool = self.get_tool(tool_name)
-        if notttt tool:
+        if not tool:
             return None
 
         info = tool.get_info()
@@ -277,13 +277,13 @@ class ToolRegistry:
 
     def is_skill(self, name: str) -> bool:
         """
-        check指定Nameis notttt为 Skill
+        check指定Nameis not为 Skill
 
         Args:
             name: tool/Skill Name
 
         Returns:
-            is notttt为 Skill
+            is not为 Skill
         """
         return name in self._skills
 
@@ -318,10 +318,10 @@ class ToolRegistry:
             Execution result
         """
         tool = self.get_tool(tool_name)
-        if notttt tool:
+        if not tool:
             return ToolResult(
                 success=False,
-                error=f"Tool {tool_name} notttt found",
+                error=f"Tool {tool_name} not found",
                 error_code="TOOL_NOT_FOUND"
             )
 
@@ -329,7 +329,7 @@ class ToolRegistry:
         stats = self._stats[tool_name]
 
         # permissioncheck
-        if schema.dangerous and "dangerous_tools" notttt in context.permissions:
+        if schema.dangerous and "dangerous_tools" not in context.permissions:
             logger.warning(f"Tool {tool_name} requires dangerous_tools permission")
             return ToolResult(
                 success=False,
@@ -338,7 +338,7 @@ class ToolRegistry:
             )
 
         # checkauthentication要求
-        if schema.requires_auth and "authenticated" notttt in context.permissions:
+        if schema.requires_auth and "authenticated" not in context.permissions:
             logger.warning(f"Tool {tool_name} requires authentication")
             return ToolResult(
                 success=False,
@@ -349,7 +349,7 @@ class ToolRegistry:
         # checkrolepermission
         if schema.allowed_roles:
             agent_role = context.env_vars.get("role", "guest")
-            if agent_role notttt in schema.allowed_roles:
+            if agent_role not in schema.allowed_roles:
                 logger.warning(f"Tool {tool_name} requires one of roles: {schema.allowed_roles}")
                 return ToolResult(
                     success=False,
@@ -359,7 +359,7 @@ class ToolRegistry:
 
         # ValidateParameter
         valid, error_msg = await tool.validate_parameters(parameters)
-        if notttt valid:
+        if not valid:
             return ToolResult(
                 success=False,
                 error=error_msg,
@@ -421,7 +421,7 @@ class ToolRegistry:
         Args:
             commands: commandlist [{"tool": name, "parameters": {...}}, ...]
             context: Executecontext
-            parallel: is nottttparallelExecute
+            parallel: is notparallelExecute
 
         Returns:
             Resultlist
@@ -446,7 +446,7 @@ class ToolRegistry:
                 results.append(result)
 
                 # 如果failure且不要求继续，stopExecute
-                if notttt result.success:
+                if not result.success:
                     break
 
             return results

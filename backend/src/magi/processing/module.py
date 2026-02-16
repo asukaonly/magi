@@ -203,7 +203,7 @@ class SelfprocessingModule:
         Returns:
             Capability or None
         """
-        if notttt self.memory_store:
+        if not self.memory_store:
             return None
 
         # query capability from L5 layer

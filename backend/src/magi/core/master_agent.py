@@ -129,7 +129,7 @@ class MasterAgent(Agent):
                 await self._check_system_health()
 
                 # 2. Scan pending tasks and dispatch
-                if notttt self._system_degraded:
+                if not self._system_degraded:
                     await self._scan_and_dispatch_tasks()
 
                 # 3. Publish heartbeat event
@@ -152,7 +152,7 @@ class MasterAgent(Agent):
             event: user_MESSAGE event
         """
         if self._system_degraded:
-            # Do notttt process new tasks when system is degraded
+            # Do not process new tasks when system is degraded
             return
 
         try:
@@ -160,7 +160,7 @@ class MasterAgent(Agent):
             user_message = message_data.get("message", "")
             user_id = message_data.get("user_id", "unknotttwn")
 
-            if notttt user_message:
+            if not user_message:
                 return
 
             # Recognize task
@@ -341,7 +341,7 @@ class MasterAgent(Agent):
 
         if cpu_alert or memory_alert:
             # Trigger degradation
-            if notttt self._system_degraded:
+            if not self._system_degraded:
                 self._system_degraded = True
                 await self._publish_event(
                     eventtypes.HEALTH_warnING,
@@ -397,7 +397,7 @@ class MasterAgent(Agent):
         Returns:
             Selected TaskAgent or None
         """
-        if notttt self.task_agents:
+        if not self.task_agents:
             return None
 
         # Filter running TaskAgents
@@ -406,7 +406,7 @@ class MasterAgent(Agent):
             if agent.state == AgentState.runNING
         ]
 
-        if notttt running_agents:
+        if not running_agents:
             return None
 
         # Select TaskAgent with fewest pending tasks

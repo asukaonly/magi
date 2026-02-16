@@ -80,10 +80,10 @@ class ConnectionManager:
 
     def join_room(self, sid: str, room: str):
         """加入房间"""
-        if sid notttt in self.active_connections:
+        if sid not in self.active_connections:
             return
 
-        if room notttt in self.rooms:
+        if room not in self.rooms:
             self.rooms[room] = set()
 
         self.rooms[room].add(sid)
@@ -94,7 +94,7 @@ class ConnectionManager:
         """离开房间"""
         if room in self.rooms:
             self.rooms[room].discard(sid)
-            if notttt self.rooms[room]:
+            if not self.rooms[room]:
                 del self.rooms[room]
 
         if sid in self.connection_rooms:

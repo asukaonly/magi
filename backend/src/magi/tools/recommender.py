@@ -99,7 +99,7 @@ class ToolRecommender:
             if score > 0:
                 scores[scenario] = score
 
-        if notttt scores:
+        if not scores:
             return Scenariotype.UNKNOWN
 
         # Returnscore最高的scenario
@@ -126,7 +126,7 @@ class ToolRecommender:
 
         # filter停用词
         stopwords = {"的", "is", "在", "and", "与", "或", "the", "is", "at", "which", "on"}
-        keywords = [w for w in words if len(w) > 1 and w notttt in stopwords]
+        keywords = [w for w in words if len(w) > 1 and w not in stopwords]
 
         return keywords
 
@@ -152,13 +152,13 @@ class ToolRecommender:
 
         for tool_name in tools:
             tool = self.registry.get_tool(tool_name)
-            if notttt tool:
+            if not tool:
                 continue
 
             schema = tool.get_schema()
             score = 0.0
 
-            # 1. checktoolClass别is notttt匹配scenario
+            # 1. checktoolClass别is not匹配scenario
             category_match = 0
             if scenario == Scenariotype.FILE_OPERATI/ON and schema.category == "file":
                 category_match = 0.3
@@ -203,7 +203,7 @@ class ToolRecommender:
         """
         tool评估
 
-        评估toolis notttt适合在currentcontext中使用
+        评估toolis not适合在currentcontext中使用
 
         Args:
             tool_name: toolName
@@ -213,23 +213,23 @@ class ToolRecommender:
             (is_suitable, reason)
         """
         tool = self.registry.get_tool(tool_name)
-        if notttt tool:
-            return False, f"Tool {tool_name} notttt found"
+        if not tool:
+            return False, f"Tool {tool_name} not found"
 
         schema = tool.get_schema()
 
-        # checkis nottttdangerousoperation
-        if schema.dangerous and "dangerous_tools" notttt in context.permissions:
+        # checkis notdangerousoperation
+        if schema.dangerous and "dangerous_tools" not in context.permissions:
             return False, f"Tool requires dangerous_tools permission"
 
         # checkauthentication要求
-        if schema.requires_auth and "authenticated" notttt in context.permissions:
+        if schema.requires_auth and "authenticated" not in context.permissions:
             return False, f"Tool requires authentication"
 
         # checkrolepermission
         if schema.allowed_roles:
             agent_role = context.env_vars.get("role", "guest")
-            if agent_role notttt in schema.allowed_roles:
+            if agent_role not in schema.allowed_roles:
                 return False, f"Tool requires one of roles: {schema.allowed_roles}"
 
         # checkhistorysuccess率
@@ -296,7 +296,7 @@ class ToolRecommender:
                     "parameters": [p.dict() for p in schema.parameters],
                 })
             else:
-                logger.debug(f"Tool {tool_name} notttt suitable: {reason}")
+                logger.debug(f"Tool {tool_name} not suitable: {reason}")
 
             if len(recommendations) >= top_k:
                 break
@@ -325,7 +325,7 @@ class ToolRecommender:
             Parametersuggestiondictionary
         """
         tool = self.registry.get_tool(tool_name)
-        if notttt tool:
+        if not tool:
             return {}
 
         schema = tool.get_schema()
@@ -333,7 +333,7 @@ class ToolRecommender:
 
         # 从intent中提取Parameter
         for param in schema.parameters:
-            if param.default is notttt None:
+            if param.default is not None:
                 parameters[param.name] = param.default
 
             # 尝试从intent中提取filepath

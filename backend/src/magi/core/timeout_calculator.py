@@ -10,7 +10,7 @@ from .task_database import Tasktype, Taskpriority
 class Interactionlevel(Enum):
     """Interaction level"""
     notttne = "notttne"          # No interaction, pure background computation
-    LOW = "low"            # Low interaction, occasional nottttifications
+    LOW = "low"            # Low interaction, occasional notifications
     MEDIUM = "medium"      # Medium interaction, requires confirmation
     HIGH = "high"          # High interaction, requires frequent user input
 

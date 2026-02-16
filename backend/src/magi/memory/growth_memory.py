@@ -69,7 +69,7 @@ class RelationshipProfile:
     interaction_types: Dict[str, int]    # 各type交互count
     sentiment_score: float               # 情感score -1到1
     trust_level: float                   # trust度 0-1
-    nottttes: List[str] = field(default_factory=list)  # notttte
+    notes: List[str] = field(default_factory=list)  # note
 
 
 @dataclass
@@ -137,7 +137,7 @@ class GrowthMemoryEngine:
                     interaction_types TEXT NOT NULL,
                     sentiment_score real NOT NULL,
                     trust_level real NOT NULL,
-                    nottttes TEXT NOT NULL,
+                    notes TEXT NOT NULL,
                     updated_at real NOT NULL
                 )
             """)
@@ -249,7 +249,7 @@ class GrowthMemoryEngine:
             milestonelist
         """
         # 使用cache
-        if self._milestone_cache is notttt None and milestone_type is None:
+        if self._milestone_cache is not None and milestone_type is None:
             return self._milestone_cache[:limit]
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -294,7 +294,7 @@ class GrowthMemoryEngine:
         interaction_type: Interactiontype,
         outcome: str = "neutral",
         sentiment: float = 0.0,
-        nottttes: str = ""
+        notes: str = ""
     ) -> RelationshipProfile:
         """
         record与user的交互
@@ -304,7 +304,7 @@ class GrowthMemoryEngine:
             interaction_type: 交互type
             outcome: Result（success/failure/neutral）
             sentiment: 情感score（-1到1）
-            nottttes: notttte
+            notes: note
 
         Returns:
             update后的relationship档案
@@ -324,7 +324,7 @@ class GrowthMemoryEngine:
                 interaction_types={},
                 sentiment_score=0.0,
                 trust_level=0.5,
-                nottttes=[],
+                notes=[],
             )
 
         # Update statistics
@@ -348,11 +348,11 @@ class GrowthMemoryEngine:
         # calculaterelationshipdepth
         profile.depth = await self._calculate_relationship_depth(profile)
 
-        # addnotttte
-        if nottttes:
-            profile.nottttes.append(f"[{datetime.fromtimestamp(notttw).strftime('%Y-%m-%d')}] {nottttes}")
-            # 只保留最近20条notttte
-            profile.nottttes = profile.nottttes[-20:]
+        # addnote
+        if notes:
+            profile.notes.append(f"[{datetime.fromtimestamp(notttw).strftime('%Y-%m-%d')}] {notes}")
+            # 只保留最近20条note
+            profile.notes = profile.notes[-20:]
 
         # save
         await self._save_relationship(profile)
@@ -378,7 +378,7 @@ class GrowthMemoryEngine:
             user_id: userid
 
         Returns:
-            relationship档案，notttt found则ReturnNone
+            relationship档案，not found则ReturnNone
         """
         # checkcache
         if user_id in self._relationship_cache:
@@ -388,7 +388,7 @@ class GrowthMemoryEngine:
             cursor = await db.execute(
                 """SELECT user_id, depth, first_interaction, last_interaction,
                           total_interactions, interaction_types, sentiment_score,
-                          trust_level, nottttes
+                          trust_level, notes
                    FROM relationships WHERE user_id = ?""",
                 (user_id,)
             )
@@ -404,7 +404,7 @@ class GrowthMemoryEngine:
                     interaction_types=json.loads(row[5]),
                     sentiment_score=row[6],
                     trust_level=row[7],
-                    nottttes=json.loads(row[8]),
+                    notes=json.loads(row[8]),
                 )
                 self._relationship_cache[user_id] = profile
                 return profile
@@ -493,13 +493,13 @@ class GrowthMemoryEngine:
             reason: 变化reason
 
         Returns:
-            is nottttrecord了evolution
+            is notrecord了evolution
         """
         # 置信度阈Value
         if confidence < 0.8:
             return False
 
-        # checkis notttttrue的有变化
+        # checkis nottrue的有变化
         if previous_value == new_value:
             return False
 
@@ -552,14 +552,14 @@ class GrowthMemoryEngine:
 
         for threshold, title in depth_milestones.items():
             if profile.depth >= threshold:
-                # checkis notttt已经record过
+                # checkis not已经record过
                 existing = await self.get_milestones(
                     milestone_type=Milestonetype.relationship,
                     limit=100
                 )
                 milestone_title = f"{title}: {user_id}"
 
-                if notttt any(m.title == milestone_title for m in existing):
+                if not any(m.title == milestone_title for m in existing):
                     await self.record_milestone(
                         milestone_type=Milestonetype.relationship,
                         title=milestone_title,
@@ -651,7 +651,7 @@ class GrowthMemoryEngine:
                 """INSERT OR REPLACE intO relationships
                    (user_id, depth, first_interaction, last_interaction,
                     total_interactions, interaction_types, sentiment_score,
-                    trust_level, nottttes, updated_at)
+                    trust_level, notes, updated_at)
                    valueS (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     profile.user_id,
@@ -662,7 +662,7 @@ class GrowthMemoryEngine:
                     json.dumps(profile.interaction_types),
                     profile.sentiment_score,
                     profile.trust_level,
-                    json.dumps(profile.nottttes),
+                    json.dumps(profile.notes),
                     time.time(),
                 )
             )
@@ -679,7 +679,7 @@ class GrowthMemoryEngine:
             cursor = await db.execute(
                 """SELECT user_id, depth, first_interaction, last_interaction,
                           total_interactions, interaction_types, sentiment_score,
-                          trust_level, nottttes
+                          trust_level, notes
                    FROM relationships
                    order BY depth DESC"""
             )
@@ -696,7 +696,7 @@ class GrowthMemoryEngine:
                     "interaction_types": json.loads(row[5]),
                     "sentiment_score": row[6],
                     "trust_level": row[7],
-                    "nottttes": json.loads(row[8]),
+                    "notes": json.loads(row[8]),
                 })
 
             return relationships

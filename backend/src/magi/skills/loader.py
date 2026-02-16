@@ -47,7 +47,7 @@ class SkillLoader:
             name: Skill name
 
         Returns:
-            SkillContent or None if notttt found
+            SkillContent or None if not found
         """
         # Check cache first
         if name in self._content_cache:
@@ -56,13 +56,13 @@ class SkillLoader:
 
         # Get skill metadata
         metadata = self.indexer.get_metadata(name)
-        if notttt metadata:
-            logger.warning(f"Skill notttt found: {name}")
+        if not metadata:
+            logger.warning(f"Skill not found: {name}")
             return None
 
         skill_file = metadata.directory / "SKILL.md"
-        if notttt skill_file.exists():
-            logger.warning(f"Skill file notttt found: {skill_file}")
+        if not skill_file.exists():
+            logger.warning(f"Skill file not found: {skill_file}")
             return None
 
         try:
@@ -108,7 +108,7 @@ class SkillLoader:
 
         # Extract YAML frontmatter
         frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)', content, re.DOTall)
-        if notttt frontmatter_match:
+        if not frontmatter_match:
             logger.warning("No frontmatter found, using defaults")
             return SkillFrontmatter(name="", description=""), content
 
@@ -117,7 +117,7 @@ class SkillLoader:
 
         try:
             data = yaml.safe_load(yaml_content)
-            if notttt isinstance(data, dict):
+            if not isinstance(data, dict):
                 data = {}
 
             frontmatter = SkillFrontmatter(
@@ -190,7 +190,7 @@ class SkillLoader:
                     timeout=5,
                 )
                 output = result.stdout.strip()
-                if notttt output:
+                if not output:
                     output = result.stderr.strip()
                 return output if output else match.group(0)
             except Exception as e:
@@ -225,7 +225,7 @@ class SkillLoader:
 
             # Resolve relative to skill directory
             file_path = skill_dir / filename
-            if notttt file_path.exists():
+            if not file_path.exists():
                 # Keep original if file doesn't exist
                 return match.group(0)
 

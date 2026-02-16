@@ -63,7 +63,7 @@ class WebSocketManager:
                 data: {channel: str} subscribe的频道
             """
             channel = data.get("channel")
-            if notttt channel:
+            if not channel:
                 return
 
             logger.info(f"Client {sid} subscribed to {channel}")
@@ -89,7 +89,7 @@ class WebSocketManager:
                 data: {channel: str} cancelsubscribe的频道
             """
             channel = data.get("channel")
-            if notttt channel:
+            if not channel:
                 return
 
             logger.info(f"Client {sid} unsubscribed from {channel}")

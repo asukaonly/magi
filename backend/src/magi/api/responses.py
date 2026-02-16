@@ -83,7 +83,7 @@ def error(message: str, error_code: str = None, details: Any = None) -> dict:
     }
     if error_code:
         response["error_code"] = error_code
-    if details is notttt None:
+    if details is not None:
         response["details"] = details
     return response
 

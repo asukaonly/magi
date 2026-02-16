@@ -302,7 +302,7 @@ Format: [{{"subtask_id": "1", "description": "...", "dependencies": []}}]"""
 
             for tool_name in available_tools:
                 tool_info = self.tool_registry.get_tool_info(tool_name)
-                if notttt tool_info:
+                if not tool_info:
                     continue
 
                 # Check tool keywords
@@ -315,7 +315,7 @@ Format: [{{"subtask_id": "1", "description": "...", "dependencies": []}}]"""
                     break
 
             # If nottt tool matched, use default
-            if notttt subtask.tool_name:
+            if not subtask.tool_name:
                 # For chat tasks, nottt tool needed
                 if any(word in description_lower for word in ["你好", "hello", "help", "帮助"]):
                     subtask.tool_name = "chat"
@@ -556,7 +556,7 @@ class WorkerAgent(Agent):
                 # Increment retry count
                 await self.task_database.increment_retry_count(self.task_id)
 
-                # If notttt the last attempt, wait for a while
+                # If not the last attempt, wait for a while
                 if attempt < self.max_retries:
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
 
@@ -574,8 +574,8 @@ class WorkerAgent(Agent):
 
         for subtask in self.subtasks:
             # Check dependencies
-            if notttt self._check_dependencies(subtask, results):
-                logger.warning(f"Subtask {subtask.subtask_id} dependencies notttt met")
+            if not self._check_dependencies(subtask, results):
+                logger.warning(f"Subtask {subtask.subtask_id} dependencies not met")
                 continue
 
             # Execute subtask
@@ -596,7 +596,7 @@ class WorkerAgent(Agent):
 
     def _check_dependencies(self, subtask: Subtask, results: List) -> bool:
         """Check if subtask dependencies are satisfied"""
-        if notttt subtask.dependencies:
+        if not subtask.dependencies:
             return True
 
         # Simplified version: assume dependent subtasks are executed in order
@@ -623,14 +623,14 @@ class WorkerAgent(Agent):
             context,
         )
 
-        if notttt result.success:
+        if not result.success:
             raise Exception(f"Tool execution failed: {result.error}")
 
         return result.data
 
     async def _execute_with_llm(self, subtask: Subtask) -> str:
         """Execute subtask using LLM"""
-        if notttt self.llm:
+        if not self.llm:
             return f"processed: {subtask.description}"
 
         prompt = f"""process the following request:

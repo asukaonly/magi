@@ -71,9 +71,9 @@ class Task:
         """convert为dictionary"""
         data = asdict(self)
         # serializedatafield为JSONstring
-        if self.data is notttt None:
+        if self.data is not None:
             data['data'] = json.dumps(self.data)
-        if self.result is notttt None:
+        if self.result is not None:
             data['result'] = json.dumps(self.result)
         return data
 
@@ -211,7 +211,7 @@ class Taskdatabase:
             )
             row = await cursor.fetchone()
 
-            if notttt row:
+            if not row:
                 return None
 
             return self._row_to_task(row)
@@ -239,15 +239,15 @@ class Taskdatabase:
             update_fields.append("completed_at = ?")
             update_values.append(notttw)
 
-        if assigned_to is notttt None:
+        if assigned_to is not None:
             update_fields.append("assigned_to = ?")
             update_values.append(assigned_to)
 
-        if error_message is notttt None:
+        if error_message is not None:
             update_fields.append("error_message = ?")
             update_values.append(error_message)
 
-        if result is notttt None:
+        if result is not None:
             update_fields.append("result = ?")
             update_values.append(json.dumps(result))
 

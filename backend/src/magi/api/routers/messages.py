@@ -91,13 +91,13 @@ async def send_user_message(request: UserMessageRequest):
         确认response
     """
     try:
-        # check ChatAgent is notttt已initialize
+        # check ChatAgent is not已initialize
         from ...agent import get_chat_agent
         try:
             chat_agent = get_chat_agent()
         except Runtimeerror:
             # Agent 未initialize（可能is没有Setting API Key）
-            agent_logger.warning(f"⚠️ ChatAgent notttt initialized when user {request.user_id} sent message")
+            agent_logger.warning(f"⚠️ ChatAgent not initialized when user {request.user_id} sent message")
 
             # senderror message到 WebSocket
             await ws_manager.broadcast_to_user(request.user_id, {
@@ -108,10 +108,10 @@ async def send_user_message(request: UserMessageRequest):
 
             return MessageResponse(
                 success=False,
-                message="ChatAgent notttt initialized. Please set LLM_API_key environment variable.",
+                message="ChatAgent not initialized. Please set LLM_API_key environment variable.",
                 data={
                     "user_id": request.user_id,
-                    "error": "ChatAgent notttt initialized",
+                    "error": "ChatAgent not initialized",
                 }
             )
 
@@ -187,7 +187,7 @@ async def get_conversation_history(
         from ...agent import get_chat_agent
 
         agent = get_chat_agent()
-        resolved_session_id = agent.get_current_session_id(user_id) if notttt session_id else session_id
+        resolved_session_id = agent.get_current_session_id(user_id) if not session_id else session_id
         history = agent.get_conversation_history(user_id, resolved_session_id)
 
         # convert为前端expectation的format
@@ -233,7 +233,7 @@ async def clear_conversation_history(
         from ...agent import get_chat_agent
 
         agent = get_chat_agent()
-        resolved_session_id = agent.get_current_session_id(user_id) if notttt session_id else session_id
+        resolved_session_id = agent.get_current_session_id(user_id) if not session_id else session_id
         agent.clear_conversation_history(user_id, resolved_session_id)
 
         return {

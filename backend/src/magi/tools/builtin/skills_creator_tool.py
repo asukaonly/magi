@@ -104,7 +104,7 @@ class SkillsCreatorTool(Tool):
         user_invocable = parameters.get("user_invocable", True)
 
         # Validate name
-        if notttt re.match(r'^[a-z0-9-]+$', name):
+        if not re.match(r'^[a-z0-9-]+$', name):
             return ToolResult(
                 success=False,
                 error="Skill name must be lowercase alphanumeric with hyphens only (e.g., 'my-skill')",

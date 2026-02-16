@@ -244,7 +244,7 @@ class EmotionalStateEngine:
         state.stress_level = max(0.0, min(1.0, state.stress_level + stress_change))
         state.updated_at = time.time()
 
-        # updatenotttteState
+        # updatenoteState
         state.focus_state = self._determine_focus_state(state)
 
         # update社交State
@@ -283,7 +283,7 @@ class EmotionalStateEngine:
         任务complete后updateemotionState
 
         Args:
-            success: is nottttsuccess
+            success: is notsuccess
             complexity: 任务complex度（0-1）
             duration: 任务duration（seconds）
 
@@ -519,7 +519,7 @@ class EmotionalStateEngine:
         return moods[new_idx].value
 
     def _determine_focus_state(self, state: EmotionalState) -> str:
-        """根据State确定notttteState"""
+        """根据State确定noteState"""
         if state.stress_level > 0.8:
             return "distracted"
         elif state.energy_level > 0.8 and state.stress_level < 0.3:

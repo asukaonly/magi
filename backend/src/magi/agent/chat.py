@@ -81,7 +81,7 @@ def clean_tool_artifacts(text: str) -> str:
                 )
             except Exception:
                 remove_line = False
-        if notttt remove_line:
+        if not remove_line:
             cleaned_lines.append(line)
     text = "\n".join(cleaned_lines)
 
@@ -208,7 +208,7 @@ class ChatAgent(CompleteAgent):
         """
         from ..processing.actions import ChatResponseAction
 
-        if notttt isinstance(action, ChatResponseAction):
+        if not isinstance(action, ChatResponseAction):
             return {"success": False, "error": "Unknotttwn action type"}
 
         chain_id = action.chain_id
@@ -287,7 +287,7 @@ class ChatAgent(CompleteAgent):
         history_key = self._history_key(user_id, session_id)
         history = self._conversation_history.get(history_key, [])
 
-        # Step 0: checkis notttt为直接 Skill 调用
+        # Step 0: checkis not为直接 Skill 调用
         skill_invocation = self._skill_executor.validate_skill_invocation(user_message)
         if skill_invocation:
             skill_name, arguments = skill_invocation
@@ -351,7 +351,7 @@ class ChatAgent(CompleteAgent):
                     interaction_type=Interactiontype.CHAT,
                     outcome="success",
                     sentiment=0.0,
-                    nottttes=f"Message: {user_message[:100]}..."
+                    notes=f"Message: {user_message[:100]}..."
                 )
 
                 await self.memory.update_after_interaction(
@@ -380,7 +380,7 @@ class ChatAgent(CompleteAgent):
                     user_id=user_id,
                     interaction_type="chat",
                     outcome="positive",
-                    nottttes=f"Message: {user_message[:100]}{'...' if len(user_message) > 100 else ''}",
+                    notes=f"Message: {user_message[:100]}{'...' if len(user_message) > 100 else ''}",
                 )
             except Exception as e:
                 agent_logger.warning(f"Failed to update other memory: {e}")
@@ -425,7 +425,7 @@ class ChatAgent(CompleteAgent):
             )
 
             # If nottt tools selected, call LLM directly
-            if notttt context_decision.tools:
+            if not context_decision.tools:
                 agent_logger.info("ℹ️  No tools selected, using direct LLM response")
 
                 messages = []
@@ -436,7 +436,7 @@ class ChatAgent(CompleteAgent):
                 response_text = await self._call_llm(
                     system_prompt,
                     messages,
-                    disable_thinking=notttt context_decision.deep_thinking,
+                    disable_thinking=not context_decision.deep_thinking,
                 )
                 return clean_tool_artifacts(response_text)
 
@@ -450,7 +450,7 @@ class ChatAgent(CompleteAgent):
                 user_id=user_id,
                 session_id=session_id,
                 conversation_history=history,
-                disable_thinking=notttt context_decision.deep_thinking,
+                disable_thinking=not context_decision.deep_thinking,
                 intent=context_decision.intent,
             )
 
@@ -511,7 +511,7 @@ class ChatAgent(CompleteAgent):
                 agent_logger.warning(f"Failed to build personality context: {e}")
                 personality_context = ""
         else:
-            agent_logger.warning("⚠️ Memory system notttt enabled, using default personality")
+            agent_logger.warning("⚠️ Memory system not enabled, using default personality")
             personality_context = ""
 
         # Base prompt (don't repeat identity info, identity already included in personality_context)
@@ -536,7 +536,7 @@ class ChatAgent(CompleteAgent):
             full_prompt += (
                 f"\n\n[系统prompt] 已为user调用tool: {tool_name}"
                 f"\nIf there are belowtool调用Result，please base onResultanswer user's question。"
-                f"\nIf there are nottttool调用Result，it meanstoolExecutefailure，请告知user。"
+                f"\nIf there are notool调用Result，it meanstoolExecutefailure，请告知user。"
             )
 
         if tool_memory_context:
@@ -551,7 +551,7 @@ class ChatAgent(CompleteAgent):
     def _record_tool_interaction(self, payload: Dict[str, Any]) -> None:
         """Record tool execution facts for short-term cross-turn context."""
         user_id = payload.get("user_id")
-        if notttt user_id:
+        if not user_id:
             return
         session_id = self._resolve_session_id(user_id, payload.get("session_id"))
 
@@ -560,7 +560,7 @@ class ChatAgent(CompleteAgent):
         error_code = payload.get("error_code") or ""
         data = payload.get("data")
         data_summary = ""
-        if data is notttt None:
+        if data is not None:
             data_summary = str(data)
             if len(data_summary) > 240:
                 data_summary = data_summary[:240] + "..."
@@ -579,7 +579,7 @@ class ChatAgent(CompleteAgent):
             ("api key", "api_key"),
             ("qweather", "weather_provider"),
             ("missing", "missing"),
-            ("notttt set", "missing"),
+            ("not set", "missing"),
             ("Configuration", "config"),
             ("环境Variable", "env"),
         ):
@@ -618,7 +618,7 @@ class ChatAgent(CompleteAgent):
     ) -> None:
         """persist tool interaction record into event_store for restart recovery."""
         try:
-            if notttt self._events_db_path.exists():
+            if not self._events_db_path.exists():
                 return
 
             payload = {
@@ -666,7 +666,7 @@ class ChatAgent(CompleteAgent):
     ) -> str:
         """Always include recent tool errors from current session."""
         records = self._tool_interactions.get(self._history_key(user_id, session_id), [])
-        if notttt records:
+        if not records:
             return ""
 
         notttw = time.time()
@@ -679,7 +679,7 @@ class ChatAgent(CompleteAgent):
             if str(record.get("status", "success")) == "error":
                 recent_errors.append(record)
 
-        if notttt recent_errors:
+        if not recent_errors:
             return ""
 
         recent_errors.sort(key=lambda item: float(item.get("timestamp", 0.0)), reverse=True)
@@ -777,7 +777,7 @@ class ChatAgent(CompleteAgent):
     def _restore_conversation_from_events(self) -> None:
         """Restore in-memory chat histories and tool interactions from event_store."""
         try:
-            if notttt self._events_db_path.exists():
+            if not self._events_db_path.exists():
                 return
             conn = sqlite3.connect(str(self._events_db_path))
             cur = conn.cursor()
@@ -805,7 +805,7 @@ class ChatAgent(CompleteAgent):
             except Exception:
                 continue
             user_id = payload.get("user_id")
-            if notttt user_id:
+            if not user_id:
                 continue
             session_id = self._resolve_session_id(user_id, payload.get("session_id"))
             key = self._history_key(user_id, session_id)
@@ -822,7 +822,7 @@ class ChatAgent(CompleteAgent):
                     restored += 1
             elif event_type == TOOL_intERACTI/ON_EVENT_type:
                 record = payload.get("record")
-                if notttt isinstance(record, dict):
+                if not isinstance(record, dict):
                     continue
                 records = self._tool_interactions.setdefault(key, [])
                 records.append(record)

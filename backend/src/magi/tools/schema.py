@@ -25,7 +25,7 @@ class ToolParameter(BaseModel):
     name: str = Field(..., description="Parameter名")
     type: Parametertype = Field(..., description="Parametertype")
     description: str = Field(..., description="ParameterDescription")
-    required: bool = Field(default=False, description="is notttt必需")
+    required: bool = Field(default=False, description="is not必需")
     default: Any = Field(None, description="defaultValue")
     enum: Optional[List[Any]] = Field(None, description="枚举Value")
     min_value: Optional[float] = Field(None, description="minimumValue（numbertype）")
@@ -44,13 +44,13 @@ class ToolSchema(BaseModel):
 
     # ExecuteConfiguration
     timeout: int = Field(default=30, description="timeout时间（seconds）")
-    retry_on_failure: bool = Field(default=False, description="failure时is notttt重试")
+    retry_on_failure: bool = Field(default=False, description="failure时is not重试")
     max_retries: int = Field(default=3, description="maximum重试count")
 
     # permissionandsafe
-    requires_auth: bool = Field(default=False, description="is notttt需要authentication")
+    requires_auth: bool = Field(default=False, description="is not需要authentication")
     allowed_roles: List[str] = Field(default_factory=list, description="允许的role")
-    dangerous: bool = Field(default=False, description="is nottttdangerousoperation")
+    dangerous: bool = Field(default=False, description="is notdangerousoperation")
 
     # metadata
     tags: List[str] = Field(default_factory=list, description="label")
@@ -125,14 +125,14 @@ class Tool(ABC):
             parameters: 待Validate的Parameter
 
         Returns:
-            (is nottttvalid, errorinfo)
+            (is notvalid, errorinfo)
         """
-        if notttt self.schema:
+        if not self.schema:
             return True, None
 
         # check必需Parameter
         for param in self.schema.parameters:
-            if param.required and param.name notttt in parameters:
+            if param.required and param.name not in parameters:
                 return False, f"Missing required parameter: {param.name}"
 
             # checktype
@@ -141,34 +141,34 @@ class Tool(ABC):
 
                 # typeValidate
                 if param.type == Parametertype.strING:
-                    if notttt isinstance(value, str):
+                    if not isinstance(value, str):
                         return False, f"Parameter {param.name} must be a string"
                 elif param.type == Parametertype.intEGER:
-                    if notttt isinstance(value, int):
+                    if not isinstance(value, int):
                         return False, f"Parameter {param.name} must be an integer"
                 elif param.type == Parametertype.float:
-                    if notttt isinstance(value, (int, float)):
+                    if not isinstance(value, (int, float)):
                         return False, f"Parameter {param.name} must be a number"
                 elif param.type == Parametertype.boolEAN:
-                    if notttt isinstance(value, bool):
+                    if not isinstance(value, bool):
                         return False, f"Parameter {param.name} must be a boolean"
                 elif param.type == Parametertype.array:
-                    if notttt isinstance(value, list):
+                    if not isinstance(value, list):
                         return False, f"Parameter {param.name} must be an array"
                 elif param.type == Parametertype.object:
-                    if notttt isinstance(value, dict):
+                    if not isinstance(value, dict):
                         return False, f"Parameter {param.name} must be an object"
 
                 # 枚举ValueValidate
-                if param.enum and value notttt in param.enum:
+                if param.enum and value not in param.enum:
                     return False, f"Parameter {param.name} must be one of {param.enum}"
 
                 # rangeValidate
-                if param.min_value is notttt None and isinstance(value, (int, float)):
+                if param.min_value is not None and isinstance(value, (int, float)):
                     if value < param.min_value:
                         return False, f"Parameter {param.name} must be >= {param.min_value}"
 
-                if param.max_value is notttt None and isinstance(value, (int, float)):
+                if param.max_value is not None and isinstance(value, (int, float)):
                     if value > param.max_value:
                         return False, f"Parameter {param.name} must be <= {param.max_value}"
 
@@ -234,7 +234,7 @@ class Tool(ABC):
         Returns:
             Claude tools API format的tool定义
         """
-        if notttt self.schema:
+        if not self.schema:
             return {}
 
         # build properties
@@ -248,7 +248,7 @@ class Tool(ABC):
             }
 
             # adddefaultValue
-            if param.default is notttt None:
+            if param.default is not None:
                 prop_def["default"] = param.default
 
             # add枚举Value
@@ -256,9 +256,9 @@ class Tool(ABC):
                 prop_def["enum"] = param.enum
 
             # addrangelimitation
-            if param.min_value is notttt None:
+            if param.min_value is not None:
                 prop_def["min"] = param.min_value
-            if param.max_value is notttt None:
+            if param.max_value is not None:
                 prop_def["max"] = param.max_value
 
             properties[param.name] = prop_def

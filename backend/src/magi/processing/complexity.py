@@ -9,7 +9,7 @@ class ComplexityEvaluator:
     """
     complex度评估器
 
-    评估任务complex度，决定is nottttrequest人Class帮助
+    评估任务complex度，决定is notrequest人Class帮助
     """
 
     def __init__(self):
@@ -83,7 +83,7 @@ class ComplexityEvaluator:
         """评估Parameter不确定性"""
         params = task.get("parameters", {})
 
-        if notttt params:
+        if not params:
             return 0.0  # 无Parameter，不确定性低
 
         # statistics缺失Parameter

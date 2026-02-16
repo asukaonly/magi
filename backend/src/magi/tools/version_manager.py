@@ -30,7 +30,7 @@ class VersionCompatibility:
     min_version: str
     max_version: Optional[str] = None
     compatible: bool = True
-    nottttes: str = ""
+    notes: str = ""
 
 
 class ToolVersionManager:
@@ -64,15 +64,15 @@ class ToolVersionManager:
             tool_name: toolName
             version: Version number（遵循语义化version SemVer）
             tool_class: toolClass
-            is_active: is notttt设为活跃version
+            is_active: is not设为活跃version
             deprecation_date: 弃用日期
             migration_guide: 迁移指南
             breaking_changes: 破坏性变更list
         """
-        if tool_name notttt in self.versions:
+        if tool_name not in self.versions:
             self.versions[tool_name] = {}
 
-        # checkversionis notttt已exists
+        # checkversionis not已exists
         if version in self.versions[tool_name]:
             logger.warning(f"Version {version} of tool {tool_name} already exists, overwriting")
 
@@ -80,7 +80,7 @@ class ToolVersionManager:
             version=version,
             tool_class=tool_class,
             deprecation_date=deprecation_date,
-            is_deprecated=deprecation_date is notttt None,
+            is_deprecated=deprecation_date is not None,
             migration_guide=migration_guide,
             breaking_changes=breaking_changes or []
         )
@@ -117,7 +117,7 @@ class ToolVersionManager:
         Returns:
             toolClass或None
         """
-        if tool_name notttt in self.versions:
+        if tool_name not in self.versions:
             return None
 
         if version is None:
@@ -138,7 +138,7 @@ class ToolVersionManager:
         Returns:
             versionlist（按Version numbersort）
         """
-        if tool_name notttt in self.versions:
+        if tool_name not in self.versions:
             return []
 
         versions = list(self.versions[tool_name].values())
@@ -148,19 +148,19 @@ class ToolVersionManager:
 
     def is_deprecated(self, tool_name: str, version: Optional[str] = None) -> bool:
         """
-        checkversionis nottttdeprecated
+        checkversionis notdeprecated
 
         Args:
             tool_name: toolName
             version: Version number（Nonetable示check活跃version）
 
         Returns:
-            is nottttdeprecated
+            is notdeprecated
         """
         if version is None:
             version = self.active_versions.get(tool_name)
 
-        if notttt version or tool_name notttt in self.versions:
+        if not version or tool_name not in self.versions:
             return False
 
         return self.versions[tool_name][version].is_deprecated
@@ -182,11 +182,11 @@ class ToolVersionManager:
         """
         active_version = self.active_versions.get(tool_name)
 
-        if notttt active_version:
+        if not active_version:
             return VersionCompatibility(
                 min_version=required_version,
                 compatible=False,
-                nottttes=f"Tool {tool_name} has nottt active version"
+                notes=f"Tool {tool_name} has nottt active version"
             )
 
         # simple的version比较（实际应使用语义化version比较）
@@ -198,13 +198,13 @@ class ToolVersionManager:
                 min_version=required_version,
                 max_version=active_version,
                 compatible=True,
-                nottttes="Version is compatible"
+                notes="Version is compatible"
             )
         else:
             return VersionCompatibility(
                 min_version=required_version,
                 compatible=False,
-                nottttes=f"Active version {active_version} is less than required {required_version}"
+                notes=f"Active version {active_version} is less than required {required_version}"
             )
 
     def set_active_version(self, tool_name: str, version: str) -> bool:
@@ -216,10 +216,10 @@ class ToolVersionManager:
             version: Version number
 
         Returns:
-            is nottttsuccess
+            is notsuccess
         """
-        if tool_name notttt in self.versions or version notttt in self.versions[tool_name]:
-            logger.warning(f"Version {version} of tool {tool_name} does notttt exist")
+        if tool_name not in self.versions or version not in self.versions[tool_name]:
+            logger.warning(f"Version {version} of tool {tool_name} does not exist")
             return False
 
         old_version = self.active_versions.get(tool_name)
@@ -243,10 +243,10 @@ class ToolVersionManager:
             migration_guide: 迁移指南
 
         Returns:
-            is nottttsuccess
+            is notsuccess
         """
-        if tool_name notttt in self.versions or version notttt in self.versions[tool_name]:
-            logger.warning(f"Version {version} of tool {tool_name} does notttt exist")
+        if tool_name not in self.versions or version not in self.versions[tool_name]:
+            logger.warning(f"Version {version} of tool {tool_name} does not exist")
             return False
 
         tool_version = self.versions[tool_name][version]
@@ -268,7 +268,7 @@ class ToolVersionManager:
         Returns:
             迁移指南或None
         """
-        if tool_name notttt in self.versions or from_version notttt in self.versions[tool_name]:
+        if tool_name not in self.versions or from_version not in self.versions[tool_name]:
             return None
 
         return self.versions[tool_name][from_version].migration_guide
@@ -288,7 +288,7 @@ class ToolVersionManager:
         if to_version is None:
             to_version = self.active_versions.get(tool_name)
 
-        if notttt to_version or tool_name notttt in self.versions:
+        if not to_version or tool_name not in self.versions:
             return []
 
         # 简化Implementation：Returntargetversion的破坏性变更

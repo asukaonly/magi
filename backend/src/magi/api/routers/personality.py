@@ -117,7 +117,7 @@ def save_personality_file(name: str, config: PersonalityConfigModel) -> bool:
 
         # Helper function: format array
         def format_array(items: List[str]) -> str:
-            if notttt items:
+            if not items:
                 return '[]'
             return '[' + ', '.join(f'"{item}"' for item in items) + ']'
 
@@ -191,9 +191,9 @@ async def ai_generate_personality(description: str, target_language: str = "Auto
 
     logger.info(f"[AI Generate Personality] LLM configuration: model={model}, base_url={base_url}")
 
-    if notttt api_key:
-        logger.error("[AI Generate Personality] LLM_API_key notttt configured")
-        raise Valueerror("LLM_API_key notttt configured")
+    if not api_key:
+        logger.error("[AI Generate Personality] LLM_API_key not configured")
+        raise Valueerror("LLM_API_key not configured")
 
     # Create LLM adapter
     llm_adapter = OpenAIAdapter(
@@ -207,15 +207,15 @@ async def ai_generate_personality(description: str, target_language: str = "Auto
 You are an **Advanced AI Persona Architect**. Your goal is to analyze a user's vague character description and compile it into a precise, executable JSON configuration file for a production-grade LLM Agent.
 
 # Objective
-Transform the user's input into a **behavioral engineering specification**. Do notttt just describe *who* the character is; define *how* the character functions, handles errors, and interacts with the user in a software environment.
+Transform the user's input into a **behavioral engineering specification**. Do not just describe *who* the character is; define *how* the character functions, handles errors, and interacts with the user in a software environment.
 
 # Output Format
-You must return **ONLY** a raw JSON object. Do notttt include markdown formatting (like ```json), explanations, or filler text.
+You must return **ONLY** a raw JSON object. Do not include markdown formatting (like ```json), explanations, or filler text.
 
 # Language Protocol (CRITICAL)
 1. **JSON Keys:** Must ALWAYS be in **English** (e.g., "core_identity", "backstory") to ensure code compatibility.
 2. **JSON Values:** The content strings (values) must be in the **Target Language** specified below.
-   - If `Target Language` is "Auto" or notttt specified, detect the language used in the `User Input` and match it.
+   - If `Target Language` is "Auto" or not specified, detect the language used in the `User Input` and match it.
    - If `Target Language` is specified (e.g., "Chinese"), you MUST translate/generate all content values in that language, even if the user input is in English.
 
 # JSON Schema structure
@@ -261,9 +261,9 @@ The JSON must strictly follow this structure:
 }
 
 # Constraints
-1. **error_handling_style**: Must be actionable. If the character is arrogant, they should blame the tools/environment, notttt themselves.
+1. **error_handling_style**: Must be actionable. If the character is arrogant, they should blame the tools/environment, not themselves.
 2. **cached_phrases**: These must be short (under 20 words), punchy, and highly representative of the character's voice.
-3. **user_relationship**: Be specific. Do notttt use 'Friend'. Use 'Reluctant Ally' or 'Stern Mentor'.
+3. **user_relationship**: Be specific. Do not use 'Friend'. Use 'Reluctant Ally' or 'Stern Mentor'.
 4. **Output**: VALid JSON ONLY. No trailing commas."""
 
     user_prompt = f"""# User Context
@@ -318,7 +318,7 @@ Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural an
 
         # Validate meta.name
         meta_data = data.get('meta', {})
-        if notttt meta_data.get('name'):
+        if not meta_data.get('name'):
             logger.warning("[AI Generate Personality] Generated data missing meta.name field, using default value")
             meta_data['name'] = 'AI Assistant'
             data['meta'] = meta_data
@@ -419,7 +419,7 @@ async def api_set_current_personality(request: Dict[str, str]):
     """
     try:
         name = request.get("name")
-        if notttt name:
+        if not name:
             raise HTTPException(status_code=400, detail="Missing personality name")
 
         # Validate personality exists
@@ -427,7 +427,7 @@ async def api_set_current_personality(request: Dict[str, str]):
         try:
             loader.load(name)
         except FileNotFounderror:
-            raise HTTPException(status_code=404, detail=f"Personality '{name}' notttt found")
+            raise HTTPException(status_code=404, detail=f"Personality '{name}' not found")
 
         if set_current_personality(name):
             # Notify Agent to reload personality configuration
@@ -474,7 +474,7 @@ async def api_get_greeting():
         greeting = getattr(personality_config, 'on_init', '')
         name = getattr(personality_config, 'name', 'AI')
 
-        if notttt greeting:
+        if not greeting:
             greeting = f"Hello, I am {name}."
 
         return PersonalityResponse(
@@ -556,7 +556,7 @@ async def get_personality(name: str = DEFAULT_PERSONALITY):
         config = PersonalityConfigModel()
         return PersonalityResponse(
             success=True,
-            message=f"Personality configuration notttt found, using default: {name}",
+            message=f"Personality configuration not found, using default: {name}",
             data=config.model_dump()
         )
     except Exception as e:
@@ -610,7 +610,7 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
             old_filepath = runtime_paths.personality_file(name)
             if old_filepath.exists():
                 new_filepath = runtime_paths.personality_file(ai_name_filename)
-                if notttt new_filepath.exists():
+                if not new_filepath.exists():
                     logger.info(f"[API] Rename personality file: {name} -> {ai_name_filename}")
                     old_filepath.rename(new_filepath)
                     actual_name = ai_name_filename
@@ -724,7 +724,7 @@ async def delete_personality(name: str):
     """
     try:
         if name == DEFAULT_PERSONALITY:
-            raise HTTPException(status_code=400, detail="Cannotttt delete default personality")
+            raise HTTPException(status_code=400, detail="Cannot delete default personality")
 
         runtime_paths = get_runtime_paths()
         filepath = runtime_paths.personality_file(name)
@@ -737,7 +737,7 @@ async def delete_personality(name: str):
                 data=None
             )
         else:
-            raise HTTPException(status_code=404, detail="Personality configuration notttt found")
+            raise HTTPException(status_code=404, detail="Personality configuration not found")
 
     except HTTPException:
         raise
@@ -887,7 +887,7 @@ async def compare_personalities(from_name: str, to_name: str):
             to_config=build_config_object(to_config),
         )
     except FileNotFounderror as e:
-        raise HTTPException(status_code=404, detail=f"Personality notttt found: {e}")
+        raise HTTPException(status_code=404, detail=f"Personality not found: {e}")
     except Exception as e:
         logger.error(f"Failed to compare personalities: {e}")
         raise HTTPException(status_code=500, detail=str(e))

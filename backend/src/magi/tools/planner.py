@@ -45,7 +45,7 @@ class PlanNode:
         self.dependents: Set[str] = set()
 
     def is_ready(self, completed_notttdes: Set[str]) -> bool:
-        """checknotttdeis notttt准备好Execute"""
+        """checknotttdeis not准备好Execute"""
         return self.depends_on.issubset(completed_notttdes)
 
     def __repr__(self):
@@ -98,7 +98,7 @@ class ExecutionPlan:
         return ready
 
     def is_complete(self) -> bool:
-        """checkplanis nottttcomplete"""
+        """checkplanis notcomplete"""
         return all(
             notttde.status in [TaskStatus.COMPLETED, TaskStatus.failED, TaskStatus.SKIPPED]
             for notttde in self.notttdes.values()
@@ -126,7 +126,7 @@ class ExecutionPlan:
                 if notttde.is_ready(completed_in_prev_levels):
                     current_level.append(notttde_id)
 
-            if notttt current_level:
+            if not current_level:
                 # 没有可Execute的notttde，可能有循环dependency
                 logger.warning(f"Possible circular dependency detected. Remaining: {remaining}")
                 break
@@ -207,8 +207,8 @@ class ExecutionPlanner:
         Args:
             plan: Executeplan
             context: Executecontext
-            parallel: is nottttparallelExecute同一层级的任务
-            stop_on_failure: 遇到failureis nottttstop
+            parallel: is notparallelExecute同一层级的任务
+            stop_on_failure: 遇到failureis notstop
 
         Returns:
             {notttde_id: ToolResult}
@@ -235,11 +235,11 @@ class ExecutionPlanner:
 
             results.update(level_results)
 
-            # checkis notttt需要stop
+            # checkis not需要stop
             if stop_on_failure:
                 failed = [
                     nid for nid, result in level_results.items()
-                    if notttt result.success
+                    if not result.success
                 ]
                 if failed:
                     logger.warning(f"level {level_idx + 1} has failures: {failed}")

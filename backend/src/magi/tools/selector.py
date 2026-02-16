@@ -96,8 +96,8 @@ importANT: Respond ONLY with the JSON object. No explanations, nottt markdown, n
         Returns:
             Tool decision dict with keys: tool, parameters, reasoning, or None if nottt tool needed
         """
-        if notttt self.llm:
-            logger.warning("[ToolSelector] LLM notttt available, cannotttt perform intelligent selection")
+        if not self.llm:
+            logger.warning("[ToolSelector] LLM not available, cannot perform intelligent selection")
             return None
 
         # Get available tools info for the LLM
@@ -272,7 +272,7 @@ Rules:
             if "os" in context:
                 os_name = context["os"]
                 if os_name == "Darwin":
-                    env_info.append(f"- macOS system (user home is /Users/username, notttt /home/username)")
+                    env_info.append(f"- macOS system (user home is /Users/username, not /home/username)")
                 elif os_name == "Linux":
                     env_info.append(f"- Linux system (user home is /home/username)")
                 elif os_name == "Windows":
@@ -321,7 +321,7 @@ Respond with ONLY the JSON object.
         if context:
             # Only include notttn-environment context keys
             env_keys = {"os", "os_version", "current_user", "home_dir", "current_dir"}
-            other_context = {k: v for k, v in context.items() if k notttt in env_keys}
+            other_context = {k: v for k, v in context.items() if k not in env_keys}
             if other_context:
                 prompt += f"\n## additional Context\n\n{json.dumps(other_context)}\n"
 
@@ -348,8 +348,8 @@ Respond with ONLY the JSON object.
 
             # Extract JSON from response (handle markdown, extra text, etc.)
             extracted = self._extract_json(response)
-            if notttt extracted:
-                logger.warning(f"[ToolSelector] Could notttt extract JSON from response")
+            if not extracted:
+                logger.warning(f"[ToolSelector] Could not extract JSON from response")
                 logger.debug(f"[ToolSelector] Raw response: {response[:500]}")
                 return None
 
@@ -434,7 +434,7 @@ Respond with ONLY the JSON object.
             tool_name = raw["tool"]
             # Ensure skills keep their "/" prefix
             if self.tool_registry.is_skill(tool_name.lstrip("/")):
-                if notttt tool_name.startswith("/"):
+                if not tool_name.startswith("/"):
                     tool_name = f"/{tool_name}"
 
             return {
@@ -449,7 +449,7 @@ Respond with ONLY the JSON object.
             tool_name = raw["name"]
             # Ensure skills keep their "/" prefix
             if self.tool_registry.is_skill(tool_name.lstrip("/")):
-                if notttt tool_name.startswith("/"):
+                if not tool_name.startswith("/"):
                     tool_name = f"/{tool_name}"
 
             return {
@@ -472,10 +472,10 @@ Respond with ONLY the JSON object.
         Returns:
             True if valid, False otherwise
         """
-        if notttt isinstance(decision, dict):
+        if not isinstance(decision, dict):
             return False
-        if "use_tool" notttt in decision:
+        if "use_tool" not in decision:
             return False
-        if decision.get("use_tool") and notttt decision.get("tool_name"):
+        if decision.get("use_tool") and not decision.get("tool_name"):
             return False
         return True

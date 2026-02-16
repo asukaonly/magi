@@ -70,10 +70,10 @@ class SkillExecutor:
 
         # Load skill content
         skill = self.loader.load_skill(skill_name)
-        if notttt skill:
+        if not skill:
             return SkillResult(
                 success=False,
-                error=f"Skill notttt found: {skill_name}",
+                error=f"Skill not found: {skill_name}",
                 execution_time=time.time() - start_time,
             )
 
@@ -219,8 +219,8 @@ class SkillExecutor:
         Returns:
             SkillResult with sub-agent response
         """
-        if notttt self.llm:
-            logger.warning("LLM adapter notttt available, falling back to direct mode")
+        if not self.llm:
+            logger.warning("LLM adapter not available, falling back to direct mode")
             return await self._execute_direct(skill, prompt, context)
 
         # Build messages for the sub-agent
@@ -282,13 +282,13 @@ class SkillExecutor:
             message: User message to check
 
         Returns:
-            Tuple of (skill_name, arguments) or None if notttt a skill invocation
+            Tuple of (skill_name, arguments) or None if not a skill invocation
         """
-        if notttt message.startswith("/"):
+        if not message.startswith("/"):
             return None
 
         parts = message[1:].split()
-        if notttt parts:
+        if not parts:
             return None
 
         skill_name = parts[0]

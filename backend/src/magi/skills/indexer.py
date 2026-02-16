@@ -3,7 +3,7 @@ Skill Indexer - Scan and index skill metadata
 
 Implements the "Index" phase of the skill system:
 - Scans SKILL.md files in configured directories
-- Parses only YAML frontmatter (notttt full content)
+- Parses only YAML frontmatter (not full content)
 - Returns lightweight Skillmetadata for skill discovery
 """
 import logging
@@ -45,7 +45,7 @@ class SkillIndexer:
         """
         Scan all SKILL.md files and return metadata
 
-        Only parses YAML frontmatter, notttt the full markdown content.
+        Only parses YAML frontmatter, not the full markdown content.
         Skills with the same name follow priority (later locations override earlier ones).
 
         Returns:
@@ -55,8 +55,8 @@ class SkillIndexer:
 
         # Scan in reverse order so higher priority locations override lower ones
         for location in reversed(self.skill_locations):
-            if notttt location.exists():
-                logger.debug(f"Skill location does notttt exist: {location}")
+            if not location.exists():
+                logger.debug(f"Skill location does not exist: {location}")
                 continue
 
             found_skills = self._scan_directory(location)
@@ -83,11 +83,11 @@ class SkillIndexer:
 
         # Look for SKILL.md files in subdirectories
         for skill_dir in directory.iterdir():
-            if notttt skill_dir.is_dir():
+            if not skill_dir.is_dir():
                 continue
 
             skill_file = skill_dir / "SKILL.md"
-            if notttt skill_file.exists():
+            if not skill_file.exists():
                 continue
 
             try:
@@ -120,14 +120,14 @@ class SkillIndexer:
 
         # Extract YAML frontmatter
         frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTall)
-        if notttt frontmatter_match:
+        if not frontmatter_match:
             logger.warning(f"No frontmatter found in {skill_file}")
             return None
 
         yaml_content = frontmatter_match.group(1)
         frontmatter = self._parse_yaml_frontmatter(yaml_content, skill_file)
 
-        if notttt frontmatter:
+        if not frontmatter:
             return None
 
         return Skillmetadata(
@@ -158,18 +158,18 @@ class SkillIndexer:
 
         try:
             data = yaml.safe_load(yaml_content)
-            if notttt isinstance(data, dict):
-                logger.warning(f"Invalid frontmatter in {source_file}: notttt a dict")
+            if not isinstance(data, dict):
+                logger.warning(f"Invalid frontmatter in {source_file}: not a dict")
                 return None
 
             # Required fields
             name = data.get("name")
-            if notttt name:
+            if not name:
                 logger.warning(f"Skill missing 'name' field in {source_file}")
                 return None
 
             description = data.get("description", "")
-            if notttt description:
+            if not description:
                 description = f"Skill: {name}"
 
             return SkillFrontmatter(

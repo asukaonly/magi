@@ -233,7 +233,7 @@ class eventRelationStore:
             # Get outgoing edges
             relations = self.get_relations(current_event, relation_types, "outgoing")
             for relation in relations:
-                if relation.target_event_id notttt in visited:
+                if relation.target_event_id not in visited:
                     new_path = path + [relation.target_event_id]
                     queue.append((relation.target_event_id, depth + 1, new_path))
 
@@ -268,7 +268,7 @@ class eventRelationStore:
                 relations = self.get_relations(current_event, relation_types, "outgoing")
                 for relation in relations:
                     target_id = relation.target_event_id
-                    if target_id notttt in visited and target_id in self._events:
+                    if target_id not in visited and target_id in self._events:
                         visited.add(target_id)
                         next_level.append(target_id)
                         event_data = self._events[target_id].copy()
@@ -276,7 +276,7 @@ class eventRelationStore:
                         result[depth].append(event_data)
 
             current_level = next_level
-            if notttt current_level:
+            if not current_level:
                 break
 
         return result
@@ -336,7 +336,7 @@ class eventRelationStore:
             event_id = event.get("id", event.get("event_id", ""))
             event_type = event.get("type", "")
 
-            if notttt event_id:
+            if not event_id:
                 continue
 
             # Rule-based structured event relationship extraction
@@ -442,7 +442,7 @@ class eventRelationStore:
 
     def _save_to_disk(self):
         """persist to disk"""
-        if notttt self.persist_path:
+        if not self.persist_path:
             return
 
         try:
@@ -462,7 +462,7 @@ class eventRelationStore:
 
     def _load_from_disk(self):
         """Load from disk"""
-        if notttt self.persist_path:
+        if not self.persist_path:
             return
 
         try:
@@ -470,7 +470,7 @@ class eventRelationStore:
             from pathlib import path
 
             path = path(self.persist_path)
-            if notttt path.exists():
+            if not path.exists():
                 return
 
             with open(self.persist_path, "rb") as f:

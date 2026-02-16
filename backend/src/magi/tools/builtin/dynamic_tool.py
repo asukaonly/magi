@@ -23,7 +23,7 @@ class DynamicTool(Tool):
 
         Subclasses should set self.schema or pass in schema parameter
         """
-        if notttt hasattr(self, 'schema') or self.schema is None:
+        if not hasattr(self, 'schema') or self.schema is None:
             # Create default schema
             self.schema = ToolSchema(
                 name=self.__class__.__name__,
@@ -58,7 +58,7 @@ class DynamicTool(Tool):
 
         return ToolResult(
             success=False,
-            error="Dynamic tool executor notttt implemented",
+            error="Dynamic tool executor not implemented",
             error_code="NOT_IMPLEMENTED"
         )
 

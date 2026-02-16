@@ -131,10 +131,10 @@ async def get_tool(tool_name: str):
     Returns:
         Tool details
     """
-    if tool_name notttt in _tools_store:
+    if tool_name not in _tools_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_name} notttt found",
+            detail=f"Tool {tool_name} not found",
         )
 
     return _tools_store[tool_name]
@@ -152,10 +152,10 @@ async def test_tool(tool_name: str, request: ToolTestRequest):
     Returns:
         Test result
     """
-    if tool_name notttt in _tools_store:
+    if tool_name not in _tools_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_name} notttt found",
+            detail=f"Tool {tool_name} not found",
         )
 
     # TODO: Actual tool test execution

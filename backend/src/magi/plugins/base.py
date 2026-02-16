@@ -41,7 +41,7 @@ class Plugin(ABC):
 
     @property
     def enabled(self) -> bool:
-        """is nottttEnable"""
+        """is notEnable"""
         return self._enabled
 
     @enabled.setter

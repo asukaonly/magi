@@ -160,7 +160,7 @@ class FunctionCallingExecutor:
                     })
 
                 # Check if all tools failed
-                if all(notttt r.success for r in tool_results):
+                if all(not r.success for r in tool_results):
                     failed_details = []
                     for r in tool_results:
                         failed_details.append({
@@ -208,7 +208,7 @@ class FunctionCallingExecutor:
         result: ToolCallResult,
     ) -> None:
         """Emit tool execution result to external callback if provided."""
-        if notttt self.tool_result_callback:
+        if not self.tool_result_callback:
             return
 
         payload = {
@@ -273,7 +273,7 @@ class FunctionCallingExecutor:
 
             # Regular tool
             tool_info = self.tool_registry.get_tool_info(tool_name)
-            if notttt tool_info:
+            if not tool_info:
                 continue
 
             tool_def = {
@@ -296,7 +296,7 @@ class FunctionCallingExecutor:
 
             for param in params:
                 param_name = param.get("name")
-                if notttt param_name:
+                if not param_name:
                     continue
 
                 prop_def = {"type": param.get("type", "string")}
@@ -501,7 +501,7 @@ class FunctionCallingExecutor:
             )
 
             result = await self.tool_registry.execute(tool_name, arguments, context)
-            if notttt result.success:
+            if not result.success:
                 logger.warning(
                     f"[FunctionCalling] Tool failed: {tool_name} | "
                     f"error={result.error} | code={result.error_code}"
@@ -534,12 +534,12 @@ class FunctionCallingExecutor:
         user_id: str,
     ) -> ToolCallResult:
         """Execute a skill"""
-        if notttt self.skill_executor:
+        if not self.skill_executor:
             return ToolCallResult(
                 tool_call_id="",
                 tool_name=skill_name,
                 success=False,
-                error="Skill executor notttt available",
+                error="Skill executor not available",
             )
 
         import os
@@ -560,7 +560,7 @@ class FunctionCallingExecutor:
                 for key, value in arguments.items():
                     if isinstance(value, str):
                         args_list.append(value)
-                    elif value is notttt None:
+                    elif value is not None:
                         args_list.append(str(value))
 
             result = await self.skill_executor.execute(

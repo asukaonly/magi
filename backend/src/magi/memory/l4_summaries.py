@@ -116,21 +116,21 @@ class SummaryStore:
         Args:
             period_type: 时间粒度（hour/day/week/month）
             period_key: 时间窗口identifier（Nonetable示current窗口）
-            force: is notttt强制重newgeneration
+            force: is not强制重newgeneration
 
         Returns:
             eventsummary
         """
-        if notttt period_key:
+        if not period_key:
             period_key = self._get_period_key(time.time(), period_type)
 
-        # checkis notttt已exists
-        if notttt force and period_key in self._summaries[period_type]:
+        # checkis not已exists
+        if not force and period_key in self._summaries[period_type]:
             return self._summaries[period_type][period_key]
 
         # get该时间窗口的event
         events = self._event_cache[period_type].get(period_key, [])
-        if notttt events:
+        if not events:
             return None
 
         # generationsummary
@@ -164,7 +164,7 @@ class SummaryStore:
         Returns:
             eventsummary
         """
-        if notttt events:
+        if not events:
             return None
 
         # analysisevent
@@ -279,7 +279,7 @@ class SummaryStore:
         Returns:
             eventsummary
         """
-        if notttt period_key:
+        if not period_key:
             period_key = self._get_period_key(time.time(), period_type)
 
         return self._summaries[period_type].get(period_key)
@@ -339,7 +339,7 @@ class SummaryStore:
 
     def _save_to_disk(self):
         """持久化到磁盘"""
-        if notttt self.persist_path:
+        if not self.persist_path:
             return
 
         try:
@@ -362,13 +362,13 @@ class SummaryStore:
 
     def _load_from_disk(self):
         """从磁盘load"""
-        if notttt self.persist_path:
+        if not self.persist_path:
             return
 
         try:
             from pathlib import path
             path = path(self.persist_path)
-            if notttt path.exists():
+            if not path.exists():
                 return
 
             with open(self.persist_path, "r") as f:
@@ -444,8 +444,8 @@ class AutoSummarizer:
         for period_type in ["hour", "day", "week"]:
             period_key = self.summary_store._get_period_key(notttw, period_type)
 
-            # 如果该窗口的summarynotttt found，generation它
-            if period_key notttt in self.summary_store._summaries[period_type]:
+            # 如果该窗口的summarynot found，generation它
+            if period_key not in self.summary_store._summaries[period_type]:
                 self.summary_store.generate_summary(period_type, period_key)
 
         logger.info("All pending summaries generated")

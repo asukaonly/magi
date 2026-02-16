@@ -133,7 +133,7 @@ class PersonalityConfig(BaseModel):
     name: str = Field(default="default")
     # Personality configurationfiledirectory
     path: str = Field(default="~/.magi/personalities")
-    # is nottttEnablepersonalityevolution（L3/L4/L5层）
+    # is notEnablepersonalityevolution（L3/L4/L5层）
     enable_evolution: bool = Field(default=True)
     # personalitydatabasepath
     db_path: str = Field(default="~/.magi/data/memories/self_memory_v2.db")

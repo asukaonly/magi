@@ -34,16 +34,16 @@ try:
             logger.info(f"Loaded environment variables from {env_path}")
             loaded = True
             break
-    if notttt loaded:
+    if not loaded:
         load_dotenv(override=False)
         logger.info("No explicit .env path found, attempted default dotenv lookup")
-except Importerror:
-    logger.warning("python-dotenv notttt installed, .env file will notttt be loaded automatically")
+except ImportError:
+    logger.warning("python-dotenv not installed, .env file will not be loaded automatically")
 
 
 def custom_openapi():
     """customOpenAPI schema"""
-    if notttt app.openapi_schema:
+    if not app.openapi_schema:
         openapi_schema = get_openapi(
             title="Magi AI Agent Framework API",
             version="1.0.0",

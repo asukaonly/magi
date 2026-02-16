@@ -56,13 +56,13 @@ class ProgressiveLearning:
         complexity: Complexitylevel
     ) -> bool:
         """
-        判断is notttt应该自主process
+        判断is not应该自主process
 
         Args:
             complexity: 任务complex度
 
         Returns:
-            is notttt自主process
+            is not自主process
         """
         stage = self.current_stage
         tolerance = self.stage_tolerance.get(stage, [])
@@ -74,15 +74,15 @@ class ProgressiveLearning:
         complexity: Complexitylevel
     ) -> bool:
         """
-        判断is notttt应该request人Class帮助
+        判断is not应该request人Class帮助
 
         Args:
             complexity: 任务complex度
 
         Returns:
-            is notttt需要帮助
+            is not需要帮助
         """
-        return notttt await self.should_handle_autonotttmously(complexity)
+        return not await self.should_handle_autonotttmously(complexity)
 
     def get_stage_info(self) -> Dict[str, Any]:
         """get阶段info"""

@@ -91,7 +91,7 @@ async def get_profile(user_id: str):
         if profile is None:
             return UserProfileResponse(
                 success=False,
-                message=f"user {user_id} 的画像notttt found",
+                message=f"user {user_id} 的画像not found",
                 data=None
             )
 
@@ -188,7 +188,7 @@ async def record_interaction(user_id: str, interaction: Dict[str, Any]):
         interaction: 交互data
             - interaction_type: 交互type
             - outcome: Result（positive/negative/neutral）
-            - nottttes: notttte
+            - notes: note
 
     Returns:
         update后的画像
@@ -200,7 +200,7 @@ async def record_interaction(user_id: str, interaction: Dict[str, Any]):
             user_id=user_id,
             interaction_type=interaction.get("interaction_type", "chat"),
             outcome=interaction.get("outcome", "neutral"),
-            nottttes=interaction.get("nottttes", ""),
+            notes=interaction.get("notes", ""),
         )
 
         return UserProfileResponse(

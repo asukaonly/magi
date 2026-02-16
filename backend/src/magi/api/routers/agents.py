@@ -102,10 +102,10 @@ async def get_agent(agent_id: str):
     Returns:
         Agent详情
     """
-    if agent_id notttt in _agents_store:
+    if agent_id not in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} notttt found",
+            detail=f"Agent {agent_id} not found",
         )
 
     return _agents_store[agent_id]
@@ -152,10 +152,10 @@ async def update_agent(agent_id: str, request: AgentUpdateRequest):
     Returns:
         update后的Agent
     """
-    if agent_id notttt in _agents_store:
+    if agent_id not in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} notttt found",
+            detail=f"Agent {agent_id} not found",
         )
 
     agent = _agents_store[agent_id]
@@ -180,10 +180,10 @@ async def delete_agent(agent_id: str):
     Args:
         agent_id: Agent id
     """
-    if agent_id notttt in _agents_store:
+    if agent_id not in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} notttt found",
+            detail=f"Agent {agent_id} not found",
         )
 
     del _agents_store[agent_id]
@@ -202,10 +202,10 @@ async def agent_action(agent_id: str, request: AgentActionRequest):
     Returns:
         operationResult
     """
-    if agent_id notttt in _agents_store:
+    if agent_id not in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} notttt found",
+            detail=f"Agent {agent_id} not found",
         )
 
     agent = _agents_store[agent_id]
@@ -259,10 +259,10 @@ async def get_agent_stats(agent_id: str):
     Returns:
         Agentstatisticsinfo
     """
-    if agent_id notttt in _agents_store:
+    if agent_id not in _agents_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent {agent_id} notttt found",
+            detail=f"Agent {agent_id} not found",
         )
 
     # TODO: Return实际的statisticsinfo（pending任务数、processcount等）

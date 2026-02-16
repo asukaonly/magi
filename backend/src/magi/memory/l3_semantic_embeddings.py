@@ -74,7 +74,7 @@ class LocalEmbeddingBackend(EmbeddingBackend):
             self._model_loaded = True
             logger.info(f"Local embedding model loaded, dimension: {self._dimension}")
         except Importerror:
-            logger.warning("sentence-transformers notttt installed, using dummy embeddings")
+            logger.warning("sentence-transformers not installed, using dummy embeddings")
             self._model = None
             self._model_loaded = True
         except Exception as e:
@@ -84,7 +84,7 @@ class LocalEmbeddingBackend(EmbeddingBackend):
 
     async def generate(self, text: str) -> List[float]:
         """Generate vector"""
-        if notttt self._model_loaded:
+        if not self._model_loaded:
             self._load_model()
 
         if self._model:
@@ -135,11 +135,11 @@ class RemoteEmbeddingBackend(EmbeddingBackend):
 
     async def generate(self, text: str) -> List[float]:
         """Generate vector"""
-        if notttt text or notttt text.strip():
+        if not text or not text.strip():
             return [0.0] * self._dimension
 
-        if notttt self.llm_adapter.supports_embeddings:
-            logger.warning("LLM adapter does notttt support embeddings, using dummy")
+        if not self.llm_adapter.supports_embeddings:
+            logger.warning("LLM adapter does not support embeddings, using dummy")
             return self._dummy_embedding(text)
 
         embedding = await self.llm_adapter.get_embedding(text, self.model)
@@ -175,7 +175,7 @@ class eventEmbeddingStore:
         initialize vector store
 
         Args:
-            backend: Embedding backend (uses default local backend if notttt specified)
+            backend: Embedding backend (uses default local backend if not specified)
             persist_path: persistence file path
         """
         self.backend = backend or LocalEmbeddingBackend()
@@ -256,7 +256,7 @@ class eventEmbeddingStore:
         Returns:
             List of similar events
         """
-        if notttt self._embeddings:
+        if not self._embeddings:
             return []
 
         # Generate query vector
@@ -369,7 +369,7 @@ class eventEmbeddingStore:
 
     def _save_to_disk(self):
         """persist to disk"""
-        if notttt self.persist_path:
+        if not self.persist_path:
             return
 
         try:
@@ -396,7 +396,7 @@ class eventEmbeddingStore:
 
     def _load_from_disk(self):
         """Load from disk"""
-        if notttt self.persist_path:
+        if not self.persist_path:
             return
 
         try:
@@ -404,7 +404,7 @@ class eventEmbeddingStore:
             from pathlib import path
 
             path = path(self.persist_path)
-            if notttt path.exists():
+            if not path.exists():
                 return
 
             with open(self.persist_path, "r") as f:
@@ -576,8 +576,8 @@ def create_embedding_store(
     if backend == "local":
         embedding_backend = LocalEmbeddingBackend(local_model, local_dimension)
     elif backend in ("openai", "anthropic"):
-        if notttt llm_adapter:
-            logger.warning(f"LLM adapter notttt provided for {backend}, falling back to local")
+        if not llm_adapter:
+            logger.warning(f"LLM adapter not provided for {backend}, falling back to local")
             embedding_backend = LocalEmbeddingBackend(local_model, local_dimension)
         else:
             embedding_backend = RemoteEmbeddingBackend(

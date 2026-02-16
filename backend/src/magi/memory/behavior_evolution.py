@@ -49,7 +49,7 @@ class TaskInteractionRecord:
     # 任务特征
     task_complexity: float    # 0-1
     task_duration: float      # seconds
-    # is notttt被接受
+    # is not被接受
     accepted: bool
 
 
@@ -180,7 +180,7 @@ class BehaviorEvolutionEngine:
             correction_count: user纠正count
             task_complexity: 任务complex度（0-1）
             task_duration: 任务duration（seconds）
-            accepted: is notttt被接受
+            accepted: is not被接受
         """
         if isinstance(user_satisfaction, str):
             try:
@@ -204,7 +204,7 @@ class BehaviorEvolutionEngine:
             accepted=accepted,
         )
         record_data = asdict(record)
-        # JSON cannotttt serialize Enum directly.
+        # JSON cannot serialize Enum directly.
         record_data["satisfaction"] = record.satisfaction.value
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -357,7 +357,7 @@ class BehaviorEvolutionEngine:
             )
             row = await cursor.fetchone()
 
-            if notttt row or row[0] == 0:
+            if not row or row[0] == 0:
                 # 没有data，createdefaultstatistics
                 stats = CategoryStatistics(category=task_category)
             else:

@@ -74,10 +74,10 @@ class WeatherTool(Tool):
             api_key = os.environ.get("QWEATHER_API_key")
             api_host = os.environ.get("QWEATHER_API_host", "devapi.qweather.com")
 
-            if notttt api_key:
+            if not api_key:
                 return ToolResult(
                     success=False,
-                    error="QWEATHER_API_key environment variable notttt set. Please get your API key from https://dev.qweather.com/",
+                    error="QWEATHER_API_key environment variable not set. Please get your API key from https://dev.qweather.com/",
                     error_code="MISSING_API_key",
                 )
 
@@ -143,8 +143,8 @@ class WeatherTool(Tool):
             raise Exception(f"Failed to resolve location: {data.get('message', 'Unknotttwn error')}")
 
         locations = data.get("location", [])
-        if notttt locations:
-            raise Exception(f"Location notttt found: {location}")
+        if not locations:
+            raise Exception(f"Location not found: {location}")
 
         return locations[0].get("id", location)
 

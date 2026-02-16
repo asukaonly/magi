@@ -37,7 +37,7 @@ class OtherProfile:
         total_interactions: int = 0,
         preferences: Dict[str, Any] = None,
         important_events: List[Dict[str, Any]] = None,
-        nottttes: str = "",
+        notes: str = "",
     ):
         self.user_id = user_id
         self.name = name
@@ -53,7 +53,7 @@ class OtherProfile:
         self.total_interactions = total_interactions
         self.preferences = preferences or {}
         self.important_events = important_events or []
-        self.nottttes = nottttes
+        self.notes = notes
 
     def to_dict(self) -> Dict[str, Any]:
         """convert为dictionary"""
@@ -72,7 +72,7 @@ class OtherProfile:
             "total_interactions": self.total_interactions,
             "preferences": self.preferences,
             "important_events": self.important_events,
-            "nottttes": self.nottttes,
+            "notes": self.notes,
         }
 
     @classmethod
@@ -162,13 +162,13 @@ class OtherProfileFormatter:
                 date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d') if timestamp else "未知"
                 lines.append(f"- **{date_str}**: {event.get('description', event.get('title', '无Description'))}")
 
-        # notttte
-        if profile.nottttes:
+        # note
+        if profile.notes:
             lines.extend([
                 "",
-                "## notttte",
+                "## note",
                 "",
-                profile.nottttes,
+                profile.notes,
             ])
 
         return "\n".join(lines)
@@ -227,7 +227,7 @@ class OtherProfileFormatter:
         current_section = None
         for line in content.split('\n'):
             line = line.strip()
-            if notttt line or line.startswith('>'):
+            if not line or line.startswith('>'):
                 continue
 
             if line.startswith('## '):
@@ -242,8 +242,8 @@ class OtherProfileFormatter:
                     current_section = 'preferences'
                 elif 'event' in section:
                     current_section = 'events'
-                elif 'notttte' in section:
-                    current_section = 'nottttes'
+                elif 'note' in section:
+                    current_section = 'notes'
                 else:
                     current_section = None
             elif line.startswith('- '):
@@ -323,7 +323,7 @@ class OtherMemory:
 
         profile_path = self._get_profile_path(user_id)
 
-        if notttt profile_path.exists():
+        if not profile_path.exists():
             return None
 
         try:
@@ -343,7 +343,7 @@ class OtherMemory:
             profile: user画像
 
         Returns:
-            is nottttsavesuccess
+            is notsavesuccess
         """
         try:
             profile_path = self._get_profile_path(profile.user_id)
@@ -361,7 +361,7 @@ class OtherMemory:
         user_id: str,
         interaction_type: str = "chat",
         outcome: str = "neutral",
-        nottttes: str = "",
+        notes: str = "",
     ) -> OtherProfile:
         """
         update交互record
@@ -370,7 +370,7 @@ class OtherMemory:
             user_id: userid
             interaction_type: 交互type
             outcome: Result（positive/negative/neutral）
-            nottttes: notttte
+            notes: note
 
         Returns:
             update后的画像
@@ -396,12 +396,12 @@ class OtherMemory:
             profile.relationship_depth = max(0.0, profile.relationship_depth - 0.02)
             profile.trust_level = max(0.0, profile.trust_level - 0.01)
 
-        # 如果有notttte，add到重要event
-        if nottttes:
+        # 如果有note，add到重要event
+        if notes:
             profile.important_events.append({
                 "timestamp": time.time(),
                 "type": interaction_type,
-                "description": nottttes,
+                "description": notes,
             })
             # 只保留最近50条
             if len(profile.important_events) > 50:
@@ -438,15 +438,15 @@ class OtherMemory:
         # update画像info
         if extracted_info:
             if extracted_info.get("interests"):
-                new_interests = [i for i in extracted_info["interests"] if i notttt in profile.interests]
+                new_interests = [i for i in extracted_info["interests"] if i not in profile.interests]
                 profile.interests.extend(new_interests)
 
             if extracted_info.get("habits"):
-                new_habits = [h for h in extracted_info["habits"] if h notttt in profile.habits]
+                new_habits = [h for h in extracted_info["habits"] if h not in profile.habits]
                 profile.habits.extend(new_habits)
 
             if extracted_info.get("personality_traits"):
-                new_traits = [t for t in extracted_info["personality_traits"] if t notttt in profile.personality_traits]
+                new_traits = [t for t in extracted_info["personality_traits"] if t not in profile.personality_traits]
                 profile.personality_traits.extend(new_traits)
 
             if extracted_info.get("name"):
@@ -480,7 +480,7 @@ class OtherMemory:
         for md_file in self.others_dir.glob("*.md"):
             user_id = md_file.stem
             # 还原原始userid（反转replace）
-            # notttte：这里可能无法完全还原，如果有特殊字符conflict的话
+            # note：这里可能无法完全还原，如果有特殊字符conflict的话
             profile = self.get_profile(user_id)
             if profile:
                 profiles.append(profile)
@@ -497,7 +497,7 @@ class OtherMemory:
             user_id: userid
 
         Returns:
-            is nottttdeletesuccess
+            is notdeletesuccess
         """
         try:
             profile_path = self._get_profile_path(user_id)

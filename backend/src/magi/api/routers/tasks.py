@@ -103,10 +103,10 @@ async def get_task(task_id: str):
     Returns:
         任务详情
     """
-    if task_id notttt in _tasks_store:
+    if task_id not in _tasks_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {task_id} notttt found",
+            detail=f"Task {task_id} not found",
         )
 
     return _tasks_store[task_id]
@@ -154,18 +154,18 @@ async def retry_task(task_id: str, request: TaskRetryRequest):
     Returns:
         重试Result
     """
-    if task_id notttt in _tasks_store:
+    if task_id not in _tasks_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {task_id} notttt found",
+            detail=f"Task {task_id} not found",
         )
 
     task = _tasks_store[task_id]
 
-    if task["status"] notttt in ["failed", "completed"]:
+    if task["status"] not in ["failed", "completed"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Task {task_id} status is {task['status']}, cannotttt retry",
+            detail=f"Task {task_id} status is {task['status']}, cannot retry",
         )
 
     # reset任务State
@@ -193,10 +193,10 @@ async def delete_task(task_id: str):
     Args:
         task_id: 任务id
     """
-    if task_id notttt in _tasks_store:
+    if task_id not in _tasks_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {task_id} notttt found",
+            detail=f"Task {task_id} not found",
         )
 
     del _tasks_store[task_id]

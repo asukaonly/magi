@@ -127,7 +127,7 @@ class LLMAdapter(ABC):
             model: embeddingmodelName（optional）
 
         Returns:
-            vectorembedding，如果notttt support则ReturnNone
+            vectorembedding，如果not support则ReturnNone
         """
         return None
 
@@ -150,5 +150,5 @@ class LLMAdapter(ABC):
 
     @property
     def supports_embeddings(self) -> bool:
-        """is nottttsupportembeddingvector"""
+        """is notsupportembeddingvector"""
         return False

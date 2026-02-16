@@ -143,7 +143,7 @@ class Runtimepaths:
         # Copy default.md template (if it doesn't exist)
         default_file = self.personality_file("default")
 
-        if notttt default_file.exists():
+        if not default_file.exists():
             # Try to copy from code directory
             possible_sources = [
                 path("./personalities/default.md"),
@@ -158,13 +158,13 @@ class Runtimepaths:
                     logger.info(f"Copied default personality from {source} to {default_file}")
                     break
             else:
-                logger.warning(f"Could notttt find default personality to copy to {default_file}")
+                logger.warning(f"Could not find default personality to copy to {default_file}")
         else:
             logger.info(f"Default personality exists: {default_file}")
 
         # Ensure current file exists
         current_file = self.personalities_dir / "current"
-        if notttt current_file.exists():
+        if not current_file.exists():
             # Try to select a personality from existing .md files as default
             md_files = list(self.personalities_dir.glob("*.md"))
             valid_personalities = [f.stem for f in md_files if f.stem != "default"]

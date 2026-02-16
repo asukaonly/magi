@@ -84,7 +84,7 @@ class MarkdownPersonalityParser:
 
         for line in content.split('\n'):
             line = line.rstrip()
-            if notttt line:
+            if not line:
                 continue
 
             # processarray（format: - key: ["item1", "item2"]）
@@ -137,7 +137,7 @@ class MarkdownPersonalityParser:
     def _parse_array(self, items_str: str) -> List[str]:
         """parsearraystring"""
         items = []
-        if notttt items_str:
+        if not items_str:
             return items
 
         # simple分割，process引号package裹的项目
@@ -179,7 +179,7 @@ class PersonalityLoader:
             PersonalityConfigObject
 
         Raises:
-            FileNotFounderror: Configurationfilenotttt found
+            FileNotFounderror: Configurationfilenot found
             Valueerror: Configurationfileformaterror
         """
         # checkcache
@@ -189,7 +189,7 @@ class PersonalityLoader:
         # buildfilepath
         file_path = self.personalities_path / f"{name}.md"
 
-        if notttt file_path.exists():
+        if not file_path.exists():
             # 尝试other可能的path（按priority）
             alternative_paths = [
                 # run时directory
@@ -208,12 +208,12 @@ class PersonalityLoader:
                     logger.info(f"Found personality file at alternative path: {alt_path}")
                     break
             else:
-                # 如果找不到file，对于 default Return default configuration而notttterror report
+                # 如果找不到file，对于 default Return default configuration而noterror report
                 if name == "default":
-                    logger.warning(f"Default personality file notttt found, using built-in defaults")
+                    logger.warning(f"Default personality file not found, using built-in defaults")
                     return PersonalityConfig()
                 raise FileNotFounderror(
-                    f"Personality file notttt found: {name}.md "
+                    f"Personality file not found: {name}.md "
                     f"(searched in {self.personalities_path} and alternative paths)"
                 )
 
@@ -249,7 +249,7 @@ class PersonalityLoader:
         # buildfilepath
         file_path = self.personalities_path / f"{name}.md"
 
-        if notttt file_path.exists():
+        if not file_path.exists():
             # 尝试other可能的path
             alternative_paths = [
                 path.home() / ".magi" / "personalities" / f"{name}.md",
@@ -293,7 +293,7 @@ class PersonalityLoader:
 
     def list_available(self) -> List[str]:
         """List all available personalitiesConfiguration"""
-        if notttt self.personalities_path.exists():
+        if not self.personalities_path.exists():
             return []
 
         personalities = []
@@ -420,7 +420,7 @@ _default_loader: Optional[PersonalityLoader] = None
 def get_personality_loader(path: str = None) -> PersonalityLoader:
     """getglobalPersonality Loader"""
     global _default_loader
-    if _default_loader is None or path is notttt None:
+    if _default_loader is None or path is not None:
         _default_loader = PersonalityLoader(path or "./personalities")
     return _default_loader
 

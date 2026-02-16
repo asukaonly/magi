@@ -71,7 +71,7 @@ class OpenAIAdapter(LLMAdapter):
             max_tokens: maximumtoken数
             temperature: temperatureParameter
             system_prompt: 系统prompt（optional）
-            json_mode: is nottttEnableJSONpattern（强制ReturnvalidJSON）
+            json_mode: is notEnableJSONpattern（强制ReturnvalidJSON）
             **kwargs: otherParameter（传递给OpenAI API）
 
         Returns:
@@ -130,17 +130,17 @@ class OpenAIAdapter(LLMAdapter):
             elif hasattr(response, 'dict'):
                 _logger.debug(f"[GLM] Full response dict: {response.dict()}")
         except Exception as e:
-            _logger.debug(f"[GLM] Could notttt serialize response: {e}")
+            _logger.debug(f"[GLM] Could not serialize response: {e}")
         if hasattr(message, 'reasoning_content'):
             _logger.debug(f"[GLM] reasoning_content: {repr(message.reasoning_content[:200] if message.reasoning_content else message.reasoning_content)}")
 
         # Check for reasoning_content (GLM thinking mode)
-        if notttt content and hasattr(message, 'reasoning_content') and message.reasoning_content:
+        if not content and hasattr(message, 'reasoning_content') and message.reasoning_content:
             content = message.reasoning_content
             _logger.info("GLM thinking mode detected, using reasoning_content")
 
         # Debug: log the response structure when content is empty or incomplete
-        if notttt content or content == "{":
+        if not content or content == "{":
             _logger.warning(f"[GLM] Incomplete/empty content: {repr(content)}")
             _logger.warning(f"[GLM] Full response: {response}")
             _logger.warning(f"[GLM] Choice: {response.choices[0]}")
@@ -215,7 +215,7 @@ class OpenAIAdapter(LLMAdapter):
         message = response.choices[0].message
         content = message.content or ""
 
-        if notttt content and hasattr(message, 'reasoning_content') and message.reasoning_content:
+        if not content and hasattr(message, 'reasoning_content') and message.reasoning_content:
             content = message.reasoning_content
 
         return content or ""
@@ -286,7 +286,7 @@ class OpenAIAdapter(LLMAdapter):
         Returns:
             vectorembedding
         """
-        if notttt text or notttt text.strip():
+        if not text or not text.strip():
             return None
 
         embedding_model = model or self._embedding_model
@@ -319,7 +319,7 @@ class OpenAIAdapter(LLMAdapter):
         """
         # filter空文本
         valid_texts = [(i, t) for i, t in enumerate(texts) if t and t.strip()]
-        if notttt valid_texts:
+        if not valid_texts:
             return [None] * len(texts)
 
         embedding_model = model or self._embedding_model
@@ -346,7 +346,7 @@ class OpenAIAdapter(LLMAdapter):
 
     @property
     def supports_embeddings(self) -> bool:
-        """is nottttsupportembeddingvector"""
+        """is notsupportembeddingvector"""
         return True
 
     @property

@@ -137,7 +137,7 @@ class CapabilityStore:
             """)
             row = await cursor.fetchone()
 
-            if notttt row:
+            if not row:
                 return None
 
             return CapabilityMemory(
@@ -160,7 +160,7 @@ class CapabilityStore:
 
         Args:
             capability_id: capabilityid
-            success: is nottttsuccess
+            success: is notsuccess
         """
         # getcurrentcapability
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -170,7 +170,7 @@ class CapabilityStore:
             )
             row = await cursor.fetchone()
 
-            if notttt row:
+            if not row:
                 return
 
             current_rate = row[0]

@@ -65,7 +65,7 @@ class SelfMemory:
             personality_name: Personality name
             personalities_path: Personality configurationfiledirectory（default使用run时directory）
             db_path: databasepath（default使用run时directory）
-            enable_evolution: is nottttEnablepersonalityevolution
+            enable_evolution: is notEnablepersonalityevolution
         """
         # 使用run时path作为defaultValue
         runtime_paths = get_runtime_paths()
@@ -127,7 +127,7 @@ class SelfMemory:
             self._raw_personality_content = self._personality_loader.load_raw(self.personality_name)
             logger.info(f"Loaded personality: {config.name}")
         except FileNotFounderror:
-            logger.warning(f"Personality {self.personality_name} notttt found, using default")
+            logger.warning(f"Personality {self.personality_name} not found, using default")
             self._personality_config = PersonalityConfig()
             self._raw_personality_content = ""
 
@@ -184,7 +184,7 @@ class SelfMemory:
 
     async def get_behavior_profile(self, task_category: str) -> TaskBehaviorProfile:
         """get任务Class别的row为Configuration"""
-        if notttt self.enable_evolution or self._behavior_engine is None:
+        if not self.enable_evolution or self._behavior_engine is None:
             return TaskBehaviorProfile(task_category=task_category)
 
         return await self._behavior_engine.get_behavior_profile(task_category)
@@ -219,7 +219,7 @@ class SelfMemory:
 
     async def get_emotional_state(self) -> EmotionalState:
         """getcurrentemotionState"""
-        if notttt self.enable_evolution or self._emotion_engine is None:
+        if not self.enable_evolution or self._emotion_engine is None:
             return EmotionalState()
 
         return await self._emotion_engine.get_current_state()
@@ -294,7 +294,7 @@ class SelfMemory:
                 user_id=user_id,
                 interaction_type=Interactiontype.CHAT,
                 outcome=outcome,
-                nottttes=f"Action: {type(action).__name__ if action else 'None'}"
+                notes=f"Action: {type(action).__name__ if action else 'None'}"
             )
             logger.debug(f"Experience stored for user {user_id}")
 
@@ -306,7 +306,7 @@ class SelfMemory:
         interaction_type: Interactiontype,
         outcome: str = "neutral",
         sentiment: float = 0.0,
-        nottttes: str = ""
+        notes: str = ""
     ):
         """record与user的交互"""
         if self.enable_evolution and self._growth_engine:
@@ -315,12 +315,12 @@ class SelfMemory:
                 interaction_type=interaction_type,
                 outcome=outcome,
                 sentiment=sentiment,
-                nottttes=nottttes,
+                notes=notes,
             )
 
     async def get_relationship(self, user_id: str) -> Optional[Dict]:
         """get与user的relationship"""
-        if notttt self.enable_evolution or self._growth_engine is None:
+        if not self.enable_evolution or self._growth_engine is None:
             return None
 
         profile = await self._growth_engine.get_relationship(user_id)
@@ -330,7 +330,7 @@ class SelfMemory:
 
     async def get_milestones(self, milestone_type: Milestonetype = None, limit: int = 100) -> List[Dict]:
         """getmilestone"""
-        if notttt self.enable_evolution or self._growth_engine is None:
+        if not self.enable_evolution or self._growth_engine is None:
             return []
 
         milestones = await self._growth_engine.get_milestones(milestone_type, limit)
@@ -338,7 +338,7 @@ class SelfMemory:
 
     async def get_growth_summary(self) -> Dict[str, Any]:
         """getgrowthsummary"""
-        if notttt self.enable_evolution or self._growth_engine is None:
+        if not self.enable_evolution or self._growth_engine is None:
             return {}
 
         return await self._growth_engine.get_growth_summary()
@@ -386,7 +386,7 @@ class SelfMemory:
 
     async def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
         """getuser档案（containsrelationshipinfo）"""
-        if notttt user_id or notttt self.enable_evolution or self._growth_engine is None:
+        if not user_id or not self.enable_evolution or self._growth_engine is None:
             return None
 
         relationship = await self._growth_engine.get_relationship(user_id)
@@ -426,7 +426,7 @@ class SelfMemory:
 
     async def reset_evolution(self, category: str = None):
         """resetevolutiondata"""
-        if notttt self.enable_evolution:
+        if not self.enable_evolution:
             return
 
         if category and self._behavior_engine:

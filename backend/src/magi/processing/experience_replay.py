@@ -89,7 +89,7 @@ class ExperienceReplay:
 
         # 1. Separate successful and failed cases
         successes = [e for e in self._experiences if e["success"]]
-        failures = [e for e in self._experiences if notttt e["success"]]
+        failures = [e for e in self._experiences if not e["success"]]
 
         capabilities = []
 

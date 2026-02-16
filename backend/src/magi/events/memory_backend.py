@@ -19,7 +19,7 @@ class MemoryMessageBackend(MessageBusBackend):
     - Uses asyncio.priorityQueue for priority queue implementation
     - Fully async event processing, notttn-blocking publisher
     - Worker pool for concurrent event processing
-    - error isolation: single handler failure does notttt affect others
+    - error isolation: single handler failure does not affect others
 
     Limitations:
     - No persistence, unprocessed messages are lost after Agent restart
@@ -155,7 +155,7 @@ class MemoryMessageBackend(MessageBusBackend):
         Returns:
             bool: Whether unsubscription was successful
         """
-        if subscription_id notttt in self._subscription_index:
+        if subscription_id not in self._subscription_index:
             return False
 
         subscription = self._subscription_index[subscription_id]
@@ -181,7 +181,7 @@ class MemoryMessageBackend(MessageBusBackend):
 
     async def stop(self):
         """Stop message bus (graceful shutdown)"""
-        if notttt self._running:
+        if not self._running:
             return
 
         self._running = False
@@ -227,7 +227,7 @@ class MemoryMessageBackend(MessageBusBackend):
     async def _get_next_event(self) -> Optional[event]:
         """Get next event from queue"""
         async with self._queue_lock:
-            if notttt self._queue:
+            if not self._queue:
                 return None
 
             _, _, event = heapq.heappop(self._queue)
@@ -242,7 +242,7 @@ class MemoryMessageBackend(MessageBusBackend):
         """
         subscriptions = self._subscriptions.get(event.type, [])
 
-        if notttt subscriptions:
+        if not subscriptions:
             return
 
         # Handle according to propagation mode
@@ -272,10 +272,10 @@ class MemoryMessageBackend(MessageBusBackend):
         # Check filter function
         if subscription["filter_func"]:
             try:
-                if notttt subscription["filter_func"](event):
+                if not subscription["filter_func"](event):
                     return
             except Exception:
-                # Filter function error, default to notttt filtering
+                # Filter function error, default to not filtering
                 pass
 
         handler = subscription["handler"]
@@ -293,7 +293,7 @@ class MemoryMessageBackend(MessageBusBackend):
             self._stats["processed_count"] += 1
 
         except Exception as e:
-            # error isolation: single handler failure does notttt affect others
+            # error isolation: single handler failure does not affect others
             self._stats["error_count"] += 1
 
         finally:

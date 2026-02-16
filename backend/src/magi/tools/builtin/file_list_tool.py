@@ -78,18 +78,18 @@ class FileListTool(Tool):
 
         try:
             # Check if path exists
-            if notttt os.path.exists(dir_path):
+            if not os.path.exists(dir_path):
                 return ToolResult(
                     success=False,
-                    error=f"path notttt found: {dir_path}",
+                    error=f"path not found: {dir_path}",
                     error_code="path_NOT_FOUND"
                 )
 
             # Check if it is a directory
-            if notttt os.path.isdir(dir_path):
+            if not os.path.isdir(dir_path):
                 return ToolResult(
                     success=False,
-                    error=f"path is notttt a directory: {dir_path}",
+                    error=f"path is not a directory: {dir_path}",
                     error_code="NOT_A_dirECTORY"
                 )
 
@@ -101,16 +101,16 @@ class FileListTool(Tool):
                 # Recursively list all files
                 for root, dirs, files in os.walk(dir_path):
                     # Filter hidden directories
-                    if notttt include_hidden:
-                        dirs[:] = [d for d in dirs if notttt d.startswith(".")]
+                    if not include_hidden:
+                        dirs[:] = [d for d in dirs if not d.startswith(".")]
 
                     for file in files:
                         # Filter hidden files
-                        if notttt include_hidden and file.startswith("."):
+                        if not include_hidden and file.startswith("."):
                             continue
 
                         # pattern filter
-                        if pattern and notttt fnmatch.fnmatch(file, pattern):
+                        if pattern and not fnmatch.fnmatch(file, pattern):
                             continue
 
                         # Get file info
@@ -129,11 +129,11 @@ class FileListTool(Tool):
                 # Non-recursive, only list direct children
                 for item in os.listdir(dir_path):
                     # Filter hidden files
-                    if notttt include_hidden and item.startswith("."):
+                    if not include_hidden and item.startswith("."):
                         continue
 
                     # pattern filter
-                    if pattern and notttt fnmatch.fnmatch(item, pattern):
+                    if pattern and not fnmatch.fnmatch(item, pattern):
                         continue
 
                     full_path = os.path.join(dir_path, item)

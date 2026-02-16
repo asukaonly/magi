@@ -79,10 +79,10 @@ class BoundedpriorityQueue:
             event: event
 
         Returns:
-            is nottttsuccess入队
+            is notsuccess入队
         """
         async with self._lock:
-            # checkqueueis notttt已满
+            # checkqueueis not已满
             if len(self._queue) >= self.max_size:
                 return await self._handle_queue_full(event)
 
@@ -107,7 +107,7 @@ class BoundedpriorityQueue:
         """
         try:
             async with self._lock:
-                if notttt self._queue:
+                if not self._queue:
                     return None
 
                 _, _, event = heapq.heappop(self._queue)
@@ -127,7 +127,7 @@ class BoundedpriorityQueue:
             event: newevent
 
         Returns:
-            is nottttsuccess入队
+            is notsuccess入队
         """
         if self.drop_policy == DropPolicy.reject:
             self._stats["rejected"] += 1
@@ -175,11 +175,11 @@ class BoundedpriorityQueue:
         return len(self._queue)
 
     def is_empty(self) -> bool:
-        """is notttt为空"""
+        """is not为空"""
         return len(self._queue) == 0
 
     def is_full(self) -> bool:
-        """is notttt已满"""
+        """is not已满"""
         return len(self._queue) >= self.max_size
 
     def get_stats(self) -> dict:
@@ -222,7 +222,7 @@ class LoadAwareDispatcher:
         Returns:
             选中的subscribe或None
         """
-        if notttt subscriptions:
+        if not subscriptions:
             return None
 
         # 选择pending最少的handler
@@ -248,7 +248,7 @@ class LoadAwareDispatcher:
         Returns:
             选中的subscribe或None
         """
-        if notttt subscriptions:
+        if not subscriptions:
             return None
 
         # get或initializeindex
@@ -343,9 +343,9 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
             event: event
 
         Returns:
-            is nottttsuccessrelease
+            is notsuccessrelease
         """
-        # checkis notttt正在关闭
+        # checkis not正在关闭
         if self._shutdown_requested:
             return False
 
@@ -401,9 +401,9 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
             subscription_id: subscribeid
 
         Returns:
-            is nottttsuccess
+            is notsuccess
         """
-        if subscription_id notttt in self._subscription_index:
+        if subscription_id not in self._subscription_index:
             return False
 
         subscription = self._subscription_index[subscription_id]
@@ -433,7 +433,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
 
     async def stop(self):
         """stop message bus（优雅关闭）"""
-        if notttt self._running:
+        if not self._running:
             return
 
         # request关闭
@@ -443,7 +443,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         timeout = 30  # seconds
         start_time = time.time()
 
-        while notttt self._queue.is_empty() and (time.time() - start_time) < timeout:
+        while not self._queue.is_empty() and (time.time() - start_time) < timeout:
             await asyncio.sleep(0.1)
 
         # stopworker
@@ -489,7 +489,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         """
         subscriptions = self._subscriptions.get(event.type, [])
 
-        if notttt subscriptions:
+        if not subscriptions:
             return
 
         # 按传播patterngroup
@@ -543,7 +543,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         filter_func = subscription.get("filter_func")
         if filter_func:
             try:
-                if notttt filter_func(event):
+                if not filter_func(event):
                     return  # 被filter
             except Exception:
                 # filterFunction出错，default不filter

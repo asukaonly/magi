@@ -94,7 +94,7 @@ def truncate_text(text: str, max_length: int = 5000) -> str:
     Returns:
         截断后的文本
     """
-    # checkis nottttEnable完整Log
+    # checkis notEnable完整Log
     if os.getenv("MAGI_full_LOG") == "1":
         return text
 
@@ -149,7 +149,7 @@ def log_llm_response(
         logger: loggerInstance
         request_id: requestid
         response: Response content
-        success: is nottttsuccess
+        success: is notsuccess
         error: errorinfo
         duration_ms: 耗时（毫seconds）
         **metadata: othermetadata

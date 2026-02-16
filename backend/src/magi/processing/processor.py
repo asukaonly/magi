@@ -37,7 +37,7 @@ class SelfprocessingModule:
         Returns:
             Action: Action plan
         """
-        if notttt perception:
+        if not perception:
             return None
 
         # Dispatch processing based on perception type
@@ -63,7 +63,7 @@ class SelfprocessingModule:
         """
         # Extract message data from perception.data
         message_data = perception.data.get("message", {})
-        if notttt message_data:
+        if not message_data:
             logger.warning("Text perception has nottt message data")
             return None
 
@@ -71,13 +71,13 @@ class SelfprocessingModule:
         user_id = message_data.get("user_id", "unknotttwn")
         session_id = message_data.get("session_id")
 
-        if notttt user_message:
+        if not user_message:
             logger.warning("User message is empty")
             return None
 
         # Prefer to use correlation_id from message event to ensure consistent chain
         chain_id = message_data.get("correlation_id")
-        if notttt chain_id:
+        if not chain_id:
             import uuid
             chain_id = str(uuid.uuid4())
 

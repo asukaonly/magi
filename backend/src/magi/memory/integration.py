@@ -10,9 +10,9 @@ Memory Integration Module - Memory Integration Module
 
 Design Principles：
 1. Minimal intrusion - 不修改 LoopEngine core逻辑
-2. Async priority - Memory operations run in background, do notttt block main chain
+2. Async priority - Memory operations run in background, do not block main chain
 3. Configurable - Each layer can be independently enabled/Disable
-4. Graceful degradation - Failure in one layer does notttt affect other layers or main chain
+4. Graceful degradation - Failure in one layer does not affect other layers or main chain
 """
 import asyncio
 import logging
@@ -95,7 +95,7 @@ class MemoryIntegrationConfig:
     # 只recordcritical error（level >= error）
     l1_error_min_level: int = 3  # eventlevel.error = 3
 
-    # is nottttEnableeventtypeconvert（user_MESSAGE → user_input）
+    # is notEnableeventtypeconvert（user_MESSAGE → user_input）
     l1_enable_event_transform: bool = True
 
     # subscribe的eventtype（保持原subscribeway）
@@ -198,7 +198,7 @@ class MemoryIntegrationModule:
 
     async def stop(self):
         """stopMemory Integration Module"""
-        if notttt self._running:
+        if not self._running:
             return
 
         logger.info("Stopping MemoryIntegrationModule...")
@@ -258,7 +258,7 @@ class MemoryIntegrationModule:
 
     def _should_store_l1_event(self, event: event) -> bool:
         """
-        判断eventis notttt应该storage到 L1
+        判断eventis not应该storage到 L1
 
         filter逻辑：
         1. 黑名单优先 - 直接filter LoopEngine internalevent
@@ -281,8 +281,8 @@ class MemoryIntegrationModule:
 
         # 白名单check：只record有价Value的event
         if self.config.l1_event_whitelist:
-            if event_type notttt in self.config.l1_event_whitelist:
-                logger.debug(f"L1 filtered (notttt in whitelist): {event_type}")
+            if event_type not in self.config.l1_event_whitelist:
+                logger.debug(f"L1 filtered (not in whitelist): {event_type}")
                 return False
 
         return True
@@ -297,7 +297,7 @@ class MemoryIntegrationModule:
         - ACTI/ON_executeD (othertool) → TOOL_INVOKED
         - error_OCCURRED (level >= error) → system_error
         """
-        if notttt self.config.l1_enable_event_transform:
+        if not self.config.l1_enable_event_transform:
             return event
 
         event_type = event.type
@@ -396,13 +396,13 @@ class MemoryIntegrationModule:
             # 追踪 correlation_id 用于relationship提取
             correlation_id = event.correlation_id
             if correlation_id:
-                if correlation_id notttt in self._correlation_tracker:
+                if correlation_id not in self._correlation_tracker:
                     self._correlation_tracker[correlation_id] = []
                 self._correlation_tracker[correlation_id].append(event_id)
 
             # L1: storage原始event（带filterandconvert）
             if self.config.enable_l1_raw:
-                # checkis notttt应该storage到 L1
+                # checkis not应该storage到 L1
                 if self._should_store_l1_event(event):
                     # convert为业务event
                     business_event = self._transform_to_business_event(event)
@@ -560,8 +560,8 @@ class MemoryIntegrationModule:
     async def _queue_l3_embedding(self, event: event, event_id: str):
         """将event放入 L3 embeddingqueue"""
         try:
-            if self._embedding_queue and notttt self._embedding_queue.full():
-                if event_id and event_id notttt in self._embedding_event_ids:
+            if self._embedding_queue and not self._embedding_queue.full():
+                if event_id and event_id not in self._embedding_event_ids:
                     await self._embedding_queue.put(event)
                     self._embedding_event_ids.add(event_id)
         except asyncio.QueueFull:
@@ -574,7 +574,7 @@ class MemoryIntegrationModule:
         try:
             # 提取文本
             text = self._extract_text_from_event(event)
-            if notttt text:
+            if not text:
                 return
 
             await self.unified_memory.l3_embeddings.add_event(
@@ -680,8 +680,8 @@ class MemoryIntegrationModule:
                         time.time(), period_type
                     )
 
-                    # checkis notttt需要generation
-                    if period_key notttt in self.unified_memory.l4_summaries._summaries[period_type]:
+                    # checkis not需要generation
+                    if period_key not in self.unified_memory.l4_summaries._summaries[period_type]:
                         summary = self.unified_memory.l4_summaries.generate_summary(
                             period_type, period_key
                         )
@@ -789,7 +789,7 @@ class MemoryIntegrationModule:
 
     async def generate_pending_summaries(self):
         """手动generationallpending的summary"""
-        if notttt self.config.enable_l4_summaries:
+        if not self.config.enable_l4_summaries:
             return
 
         for period_type in ["hour", "day", "week"]:
@@ -797,7 +797,7 @@ class MemoryIntegrationModule:
                 time.time(), period_type
             )
 
-            if period_key notttt in self.unified_memory.l4_summaries._summaries[period_type]:
+            if period_key not in self.unified_memory.l4_summaries._summaries[period_type]:
                 summary = self.unified_memory.l4_summaries.generate_summary(
                     period_type, period_key
                 )

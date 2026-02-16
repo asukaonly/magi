@@ -43,7 +43,7 @@ class Capability:
     execution_steps: List[Dict]        # Executestep
     success_rate: float = 0.0          # success率
     usage_count: int = 0               # 使用count
-    verified: bool = False             # is notttt已Validate
+    verified: bool = False             # is not已Validate
     created_at: float = field(default_factory=time.time)
     last_used_at: float = field(default_factory=time.time)
 
@@ -81,7 +81,7 @@ class processingContext:
 class processingResult:
     """processResult"""
     action: Dict[str, Any]             # action
-    needs_human_help: bool = False     # is notttt需要人Class帮助
+    needs_human_help: bool = False     # is not需要人Class帮助
     complexity: TaskComplexity = None
     human_help_context: Dict = None    # 人Class帮助context
     metadata: Dict = field(default_factory=dict)
