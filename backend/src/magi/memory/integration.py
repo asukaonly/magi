@@ -93,7 +93,7 @@ class MemoryIntegrationConfig:
     })
 
     # 只recordcritical error（level >= error）
-    l1_error_min_level: int = 3  # EventLevel.error = 3
+    l1_error_min_level: int = 3  # EventLevel.ERROR = 3
 
     # is notEnableeventtypeconvert（user_MESSAGE → user_input）
     l1_enable_event_transform: bool = True

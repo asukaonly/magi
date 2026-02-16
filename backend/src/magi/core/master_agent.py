@@ -460,6 +460,6 @@ class MasterAgent(Agent):
                 "error": error_message,
             },
             source="MasterAgent",
-            level=EventLevel.error,
+            level=EventLevel.ERROR,
         )
         await self.message_bus.publish(event)

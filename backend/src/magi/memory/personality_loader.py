@@ -203,7 +203,7 @@ class PersonalityLoader:
             ]
 
             for alt_path in alternative_paths:
-                if alt_Path.exists():
+                if alt_path.exists():
                     file_path = alt_path
                     logger.info(f"Found personality file at alternative path: {alt_path}")
                     break
@@ -259,7 +259,7 @@ class PersonalityLoader:
             ]
 
             for alt_path in alternative_paths:
-                if alt_Path.exists():
+                if alt_path.exists():
                     file_path = alt_path
                     break
             else:
@@ -293,7 +293,7 @@ class PersonalityLoader:
 
     def list_available(self) -> List[str]:
         """List all available personalitiesConfiguration"""
-        if not self.personalities_Path.exists():
+        if not self.personalities_path.exists():
             return []
 
         personalities = []

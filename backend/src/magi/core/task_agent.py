@@ -403,7 +403,7 @@ Return only the tool name."""
                 "error": error_message,
             },
             source=f"TaskAgent-{self.agent_id}",
-            level=EventLevel.error,
+            level=EventLevel.ERROR,
         )
         await self.message_bus.publish(event)
 
@@ -670,6 +670,6 @@ Provide a helpful response."""
                 "error": error_message,
             },
             source=source,
-            level=EventLevel.error,
+            level=EventLevel.ERROR,
         )
         await self.message_bus.publish(event)

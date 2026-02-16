@@ -608,9 +608,9 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
         elif name != ai_name_filename:
             # Check if file needs to be renamed
             old_filepath = runtime_paths.personality_file(name)
-            if old_filePath.exists():
+            if old_file_path.exists():
                 new_filepath = runtime_paths.personality_file(ai_name_filename)
-                if not new_filePath.exists():
+                if not new_file_path.exists():
                     logger.info(f"[API] Rename personality file: {name} -> {ai_name_filename}")
                     old_filepath.rename(new_filepath)
                     actual_name = ai_name_filename
@@ -729,7 +729,7 @@ async def delete_personality(name: str):
         runtime_paths = get_runtime_paths()
         filepath = runtime_paths.personality_file(name)
 
-        if filePath.exists():
+        if file_path.exists():
             filepath.unlink()
             return PersonalityResponse(
                 success=True,

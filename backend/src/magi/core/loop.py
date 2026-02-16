@@ -303,7 +303,7 @@ class LoopEngine:
                     "data": perception.data,
                 },
                 source="LoopEngine",
-                level=EventLevel.debug,
+                level=EventLevel.DEBUG,
                 correlation_id=correlation_id,
             )
             await self.agent.message_bus.publish(event)
@@ -348,7 +348,7 @@ class LoopEngine:
                 "processing_time": plan_time,
             },
             source="LoopEngine",
-            level=EventLevel.debug,
+            level=EventLevel.DEBUG,
             correlation_id=correlation_id,
         )
         await self.agent.message_bus.publish(event)
@@ -453,7 +453,7 @@ class LoopEngine:
                 "session_id": getattr(action, "session_id", None),
             },
             source="LoopEngine",
-            level=EventLevel.debug,
+            level=EventLevel.DEBUG,
             correlation_id=self._extract_action_correlation_id(action),
         )
         await self.agent.message_bus.publish(event)
@@ -499,7 +499,7 @@ class LoopEngine:
             type=EventTypes.LOOP_PHASE_COMPLETED if status == "completed" else EventTypes.LOOP_PHASE_STARTED,
             data=event_data,
             source="LoopEngine",
-            level=EventLevel.debug,
+            level=EventLevel.DEBUG,
         )
         await self.agent.message_bus.publish(event)
 
@@ -509,7 +509,7 @@ class LoopEngine:
             type=EventTypes.ERROR_OCCURRED,
             data={"error": error_message},
             source="LoopEngine",
-            level=EventLevel.error,
+            level=EventLevel.ERROR,
         )
         await self.agent.message_bus.publish(event)
 

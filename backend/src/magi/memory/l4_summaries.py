@@ -368,7 +368,7 @@ class SummaryStore:
         try:
             from pathlib import Path
             path = Path(self.persist_path)
-            if not Path.exists():
+            if not path.exists():
                 return
 
             with open(self.persist_path, "r") as f:
