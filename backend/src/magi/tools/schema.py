@@ -9,21 +9,21 @@ from pydantic import BaseModel, Field
 from enum import Enum
 
 
-class Parametertype(str, Enum):
-    """Parametertype"""
-    strING = "string"
-    intEGER = "integer"
-    float = "float"
-    boolEAN = "boolean"
-    array = "array"
-    object = "object"
+class ParameterType(str, Enum):
+    """ParameterType"""
+    STRING = "string"
+    INTEGER = "integer"
+    FLOAT = "float"
+    BOOLEAN = "boolean"
+    ARRAY = "array"
+    OBJECT = "object"
     FILE = "file"
 
 
 class ToolParameter(BaseModel):
     """toolParameter定义"""
     name: str = Field(..., description="Parameter名")
-    type: Parametertype = Field(..., description="Parametertype")
+    type: ParameterType = Field(..., description="ParameterType")
     description: str = Field(..., description="ParameterDescription")
     required: bool = Field(default=False, description="is not必需")
     default: Any = Field(None, description="defaultValue")
@@ -140,22 +140,22 @@ class Tool(ABC):
                 value = parameters[param.name]
 
                 # typeValidate
-                if param.type == Parametertype.strING:
+                if param.type == ParameterType.STRING:
                     if not isinstance(value, str):
                         return False, f"Parameter {param.name} must be a string"
-                elif param.type == Parametertype.intEGER:
+                elif param.type == ParameterType.INTEGER:
                     if not isinstance(value, int):
                         return False, f"Parameter {param.name} must be an integer"
-                elif param.type == Parametertype.float:
+                elif param.type == ParameterType.float:
                     if not isinstance(value, (int, float)):
                         return False, f"Parameter {param.name} must be a number"
-                elif param.type == Parametertype.boolEAN:
+                elif param.type == ParameterType.BOOLEAN:
                     if not isinstance(value, bool):
                         return False, f"Parameter {param.name} must be a boolean"
-                elif param.type == Parametertype.array:
+                elif param.type == ParameterType.ARRAY:
                     if not isinstance(value, list):
                         return False, f"Parameter {param.name} must be an array"
-                elif param.type == Parametertype.object:
+                elif param.type == ParameterType.object:
                     if not isinstance(value, dict):
                         return False, f"Parameter {param.name} must be an object"
 
@@ -303,12 +303,12 @@ class Tool(ABC):
         required_list = input_schema.get("required", [])
 
         for param_name, param_def in props.items():
-            param_type = Parametertype.strING
+            param_type = ParameterType.STRING
             if "type" in param_def:
                 try:
-                    param_type = Parametertype(param_def["type"])
+                    param_type = ParameterType(param_def["type"])
                 except ValueError:
-                    param_type = Parametertype.strING
+                    param_type = ParameterType.STRING
 
             parameters.append(ToolParameter(
                 name=param_name,

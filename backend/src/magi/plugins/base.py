@@ -6,7 +6,7 @@ from typing import List, Optional, Any, Dict
 from enum import Enum
 
 
-class Plugintype(Enum):
+class PluginType(Enum):
     """plugintype"""
     TOOL = "tool"           # toolplugin
     STORAGE = "storage"     # storageplugin

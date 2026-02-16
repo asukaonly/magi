@@ -83,14 +83,14 @@ def create_dynamic_tool(
     Returns:
         DynamicTool instance
     """
-    from ..schema import ToolParameter, Parametertype
+    from ..schema import ToolParameter, ParameterType
 
     param_objects = []
     for param_def in parameters:
-        param_type = Parametertype.strING
+        param_type = ParameterType.STRING
         if "type" in param_def:
             try:
-                param_type = Parametertype(param_def["type"])
+                param_type = ParameterType(param_def["type"])
             except ValueError:
                 pass
 

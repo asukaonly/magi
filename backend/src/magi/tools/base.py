@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from enum import Enum
 
 
-class Permissionlevel(Enum):
+class PermissionLevel(Enum):
     """toolpermissionlevel"""
     safe = "safe"           # safe：可自动Execute
     confirm = "confirm"      # 需确认：需要user确认

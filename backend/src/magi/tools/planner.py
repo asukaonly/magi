@@ -16,40 +16,40 @@ logger = logging.getLogger(__name__)
 
 
 class TaskStatus(str, Enum):
-    """任务State"""
-    pending = "pending"
-    ready = "ready"
-    runNING = "running"
+    """Task State"""
+    PENDING = "pending"
+    READY = "ready"
+    RUNNING = "running"
     COMPLETED = "completed"
-    failED = "failed"
+    FAILED = "failed"
     SKIPPED = "skipped"
 
 
 class PlanNode:
-    """plannotttde"""
+    """plannode"""
 
     def __init__(
         self,
-        notttde_id: str,
+        node_id: str,
         tool: str,
         parameters: Dict[str, Any],
         dependencies: Optional[List[str]] = None
     ):
-        self.notttde_id = notttde_id
+        self.node_id = node_id
         self.tool = tool
         self.parameters = parameters
         self.dependencies = dependencies or []
-        self.status = TaskStatus.pending
+        self.status = TaskStatus.PENDING
         self.result: Optional[ToolResult] = None
         self.depends_on: Set[str] = set(dependencies)
         self.dependents: Set[str] = set()
 
-    def is_ready(self, completed_notttdes: Set[str]) -> bool:
-        """checknotttdeis not准备好Execute"""
-        return self.depends_on.issubset(completed_notttdes)
+    def is_ready(self, completed_nodes: Set[str]) -> bool:
+        """checknodeis not准备好Execute"""
+        return self.depends_on.issubset(completed_nodes)
 
     def __repr__(self):
-        return f"PlanNode(id={self.notttde_id}, tool={self.tool}, status={self.status})"
+        return f"PlanNode(id={self.node_id}, tool={self.tool}, status={self.status})"
 
 
 class ExecutionPlan:
@@ -57,51 +57,51 @@ class ExecutionPlan:
 
     def __init__(self, plan_id: str):
         self.plan_id = plan_id
-        self.notttdes: Dict[str, PlanNode] = {}
+        self.nodes: Dict[str, PlanNode] = {}
         self.edges: Dict[str, Set[str]] = defaultdict(set)
 
-    def add_notttde(
+    def add_node(
         self,
-        notttde_id: str,
+        node_id: str,
         tool: str,
         parameters: Dict[str, Any],
         dependencies: Optional[List[str]] = None
     ) -> None:
         """
-        addnotttde
+        addnode
 
         Args:
-            notttde_id: notttdeid
+            node_id: nodeid
             tool: toolName
             parameters: toolParameter
-            dependencies: dependency的notttdeidlist
+            dependencies: dependency的nodeidlist
         """
-        notttde = PlanNode(notttde_id, tool, parameters, dependencies)
-        self.notttdes[notttde_id] = notttde
+        node = PlanNode(node_id, tool, parameters, dependencies)
+        self.nodes[node_id] = node
 
         # adddependency边
         if dependencies:
             for dep_id in dependencies:
-                self.edges[dep_id].add(notttde_id)
-                notttde.dependents.update(self.edges[dep_id])
+                self.edges[dep_id].add(node_id)
+                node.dependents.update(self.edges[dep_id])
 
-    def get_ready_notttdes(self) -> List[PlanNode]:
-        """get准备好的notttde"""
-        completed = {nid for nid, notttde in self.notttdes.items() if notttde.status == TaskStatus.COMPLETED}
+    def get_ready_nodes(self) -> List[PlanNode]:
+        """get准备好的node"""
+        completed = {nid for nid, node in self.nodes.items() if node.status == TaskStatus.COMPLETED}
         ready = []
 
-        for notttde in self.notttdes.values():
-            if notttde.status == TaskStatus.pending and notttde.is_ready(completed):
-                notttde.status = TaskStatus.ready
-                ready.append(notttde)
+        for node in self.nodes.values():
+            if node.status == TaskStatus.PENDING and node.is_ready(completed):
+                node.status = TaskStatus.READY
+                ready.append(node)
 
         return ready
 
     def is_complete(self) -> bool:
         """checkplanis notcomplete"""
         return all(
-            notttde.status in [TaskStatus.COMPLETED, TaskStatus.failED, TaskStatus.SKIPPED]
-            for notttde in self.notttdes.values()
+            node.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SKIPPED]
+            for node in self.nodes.values()
         )
 
     def get_execution_order(self) -> List[List[str]]:
@@ -109,25 +109,25 @@ class ExecutionPlan:
         getExecute顺序（按层级）
 
         Returns:
-            [[notttde_ids_level_1], [notttde_ids_level_2], ...]
+            [[node_ids_level_1], [node_ids_level_2], ...]
         """
         levels = []
-        remaining = set(self.notttdes.keys())
+        remaining = set(self.nodes.keys())
 
         while remaining:
-            # 找出current层级的notttde（没有incomplete的dependency）
+            # 找出current层级的node（没有incomplete的dependency）
             completed_in_prev_levels = set()
             for level in levels:
                 completed_in_prev_levels.update(level)
 
             current_level = []
-            for notttde_id in remaining:
-                notttde = self.notttdes[notttde_id]
-                if notttde.is_ready(completed_in_prev_levels):
-                    current_level.append(notttde_id)
+            for node_id in remaining:
+                node = self.nodes[node_id]
+                if node.is_ready(completed_in_prev_levels):
+                    current_level.append(node_id)
 
             if not current_level:
-                # 没有可Execute的notttde，可能有循环dependency
+                # 没有可Execute的node，可能有循环dependency
                 logger.warning(f"Possible circular dependency detected. Remaining: {remaining}")
                 break
 
@@ -140,11 +140,11 @@ class ExecutionPlan:
         """可视化plan（文本形式）"""
         lines = [f"Execution Plan: {self.plan_id}", "=" * 50]
 
-        for notttde in self.notttdes.values():
-            deps = ", ".join(notttde.dependencies) if notttde.dependencies else "None"
-            lines.append(f"  {notttde.notttde_id}: {notttde.tool}")
+        for node in self.nodes.values():
+            deps = ", ".join(node.dependencies) if node.dependencies else "None"
+            lines.append(f"  {node.node_id}: {node.tool}")
             lines.append(f"    Dependencies: {deps}")
-            lines.append(f"    Status: {notttde.status}")
+            lines.append(f"    Status: {node.status}")
 
         return "\n".join(lines)
 
@@ -182,16 +182,16 @@ class ExecutionPlanner:
         """
         plan = ExecutionPlan(plan_id)
 
-        # 先addallnotttde
+        # 先addallnode
         for task in tasks:
-            plan.add_notttde(
-                notttde_id=task["id"],
+            plan.add_node(
+                node_id=task["id"],
                 tool=task["tool"],
                 parameters=task.get("parameters", {}),
                 dependencies=task.get("depends_on", [])
             )
 
-        logger.info(f"Created execution plan {plan_id} with {len(plan.notttdes)} notttdes")
+        logger.info(f"Created execution plan {plan_id} with {len(plan.nodes)} nodes")
         return plan
 
     async def execute_plan(
@@ -211,7 +211,7 @@ class ExecutionPlanner:
             stop_on_failure: 遇到failureis notstop
 
         Returns:
-            {notttde_id: ToolResult}
+            {node_id: ToolResult}
         """
         logger.info(f"Executing plan: {plan.plan_id}")
         results = {}
@@ -219,18 +219,18 @@ class ExecutionPlanner:
         # 按层级Execute
         levels = plan.get_execution_order()
 
-        for level_idx, level_notttdes in enumerate(levels):
-            logger.info(f"Executing level {level_idx + 1}/{len(levels)}: {len(level_notttdes)} notttdes")
+        for level_idx, level_nodes in enumerate(levels):
+            logger.info(f"Executing level {level_idx + 1}/{len(levels)}: {len(level_nodes)} nodes")
 
-            if parallel and len(level_notttdes) > 1:
+            if parallel and len(level_nodes) > 1:
                 # parallelExecutecurrent层级
                 level_results = await self._execute_level_parallel(
-                    plan, level_notttdes, context, stop_on_failure
+                    plan, level_nodes, context, stop_on_failure
                 )
             else:
                 # serialExecute
                 level_results = await self._execute_level_serial(
-                    plan, level_notttdes, context, stop_on_failure
+                    plan, level_nodes, context, stop_on_failure
                 )
 
             results.update(level_results)
@@ -243,7 +243,7 @@ class ExecutionPlanner:
                 ]
                 if failed:
                     logger.warning(f"level {level_idx + 1} has failures: {failed}")
-                    # mark后续notttde为跳过
+                    # mark后续node为跳过
                     self._mark_remaining_skipped(plan)
                     break
 
@@ -253,40 +253,40 @@ class ExecutionPlanner:
     async def _execute_level_serial(
         self,
         plan: ExecutionPlan,
-        notttde_ids: List[str],
+        node_ids: List[str],
         context: ToolExecutionContext,
         stop_on_failure: bool
     ) -> Dict[str, ToolResult]:
         """serialExecute一个层级"""
         results = {}
 
-        for notttde_id in notttde_ids:
-            notttde = plan.notttdes[notttde_id]
-            notttde.status = TaskStatus.runNING
+        for node_id in node_ids:
+            node = plan.nodes[node_id]
+            node.status = TaskStatus.RUNNING
 
-            logger.info(f"Executing notttde: {notttde_id} (tool: {notttde.tool})")
+            logger.info(f"Executing node: {node_id} (tool: {node.tool})")
 
-            # 使用上一个notttde的ResultupdateParameter
+            # 使用上一个node的ResultupdateParameter
             updated_params = self._update_parameters_from_results(
-                notttde.parameters,
+                node.parameters,
                 results
             )
 
             result = await self.registry.execute(
-                notttde.tool,
+                node.tool,
                 updated_params,
                 context
             )
 
-            notttde.result = result
-            results[notttde_id] = result
+            node.result = result
+            results[node_id] = result
 
             if result.success:
-                notttde.status = TaskStatus.COMPLETED
-                logger.info(f"Node {notttde_id} completed successfully")
+                node.status = TaskStatus.COMPLETED
+                logger.info(f"Node {node_id} completed successfully")
             else:
-                notttde.status = TaskStatus.failED
-                logger.error(f"Node {notttde_id} failed: {result.error}")
+                node.status = TaskStatus.FAILED
+                logger.error(f"Node {node_id} failed: {result.error}")
 
                 if stop_on_failure:
                     break
@@ -296,47 +296,47 @@ class ExecutionPlanner:
     async def _execute_level_parallel(
         self,
         plan: ExecutionPlan,
-        notttde_ids: List[str],
+        node_ids: List[str],
         context: ToolExecutionContext,
         stop_on_failure: bool
     ) -> Dict[str, ToolResult]:
         """parallelExecute一个层级"""
         results = {}
 
-        # markallnotttde为run中
-        for notttde_id in notttde_ids:
-            plan.notttdes[notttde_id].status = TaskStatus.runNING
+        # markallnode为run中
+        for node_id in node_ids:
+            plan.nodes[node_id].status = TaskStatus.RUNNING
 
         # create任务
-        async def execute_notttde(notttde_id: str):
-            notttde = plan.notttdes[notttde_id]
-            logger.info(f"Executing notttde: {notttde_id} (tool: {notttde.tool})")
+        async def execute_node(node_id: str):
+            node = plan.nodes[node_id]
+            logger.info(f"Executing node: {node_id} (tool: {node.tool})")
 
-            # 使用completed的notttdeResultupdateParameter
+            # 使用completed的nodeResultupdateParameter
             updated_params = self._update_parameters_from_results(
-                notttde.parameters,
+                node.parameters,
                 results
             )
 
             result = await self.registry.execute(
-                notttde.tool,
+                node.tool,
                 updated_params,
                 context
             )
 
-            notttde.result = result
+            node.result = result
 
             if result.success:
-                notttde.status = TaskStatus.COMPLETED
-                logger.info(f"Node {notttde_id} completed successfully")
+                node.status = TaskStatus.COMPLETED
+                logger.info(f"Node {node_id} completed successfully")
             else:
-                notttde.status = TaskStatus.failED
-                logger.error(f"Node {notttde_id} failed: {result.error}")
+                node.status = TaskStatus.FAILED
+                logger.error(f"Node {node_id} failed: {result.error}")
 
-            return notttde_id, result
+            return node_id, result
 
         # parallelExecuteall任务
-        tasks = [execute_notttde(nid) for nid in notttde_ids]
+        tasks = [execute_node(nid) for nid in node_ids]
         task_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # 收集Result
@@ -345,8 +345,8 @@ class ExecutionPlanner:
                 logger.exception(f"Task execution failed with exception")
                 continue
 
-            notttde_id, result = task_result
-            results[notttde_id] = result
+            node_id, result = task_result
+            results[node_id] = result
 
         return results
 
@@ -356,9 +356,9 @@ class ExecutionPlanner:
         results: Dict[str, ToolResult]
     ) -> Dict[str, Any]:
         """
-        从before的notttdeResult中updateParameter
+        从before的nodeResult中updateParameter
 
-        supportParameterreferenceformat：${notttde_id.field}
+        supportParameterreferenceformat：${node_id.field}
         """
         import re
 
@@ -368,11 +368,11 @@ class ExecutionPlanner:
             if isinstance(value, str) and "${" in value:
                 # replaceParameterreference
                 def replace_ref(match):
-                    notttde_id = match.group(1)
+                    node_id = match.group(1)
                     field = match.group(2) if match.group(2) else "data"
 
-                    if notttde_id in results and results[notttde_id].success:
-                        result_data = results[notttde_id].data
+                    if node_id in results and results[node_id].success:
+                        result_data = results[node_id].data
                         if isinstance(result_data, dict):
                             return str(result_data.get(field, ""))
                     return match.group(0)
@@ -382,10 +382,10 @@ class ExecutionPlanner:
         return updated
 
     def _mark_remaining_skipped(self, plan: ExecutionPlan) -> None:
-        """mark剩余notttde为跳过"""
-        for notttde in plan.notttdes.values():
-            if notttde.status == TaskStatus.pending:
-                notttde.status = TaskStatus.SKIPPED
+        """mark剩余node为跳过"""
+        for node in plan.nodes.values():
+            if node.status == TaskStatus.PENDING:
+                node.status = TaskStatus.SKIPPED
 
     def validate_plan(self, plan: ExecutionPlan) -> tuple[bool, Optional[str]]:
         """
@@ -403,25 +403,25 @@ class ExecutionPlanner:
         visited = set()
         temp_visited = set()
 
-        def has_cycle(notttde_id: str) -> bool:
-            if notttde_id in temp_visited:
+        def has_cycle(node_id: str) -> bool:
+            if node_id in temp_visited:
                 return True  # Found循环
-            if notttde_id in visited:
+            if node_id in visited:
                 return False
 
-            temp_visited.add(notttde_id)
-            notttde = plan.notttdes[notttde_id]
+            temp_visited.add(node_id)
+            node = plan.nodes[node_id]
 
-            for dep_id in notttde.dependencies:
-                if dep_id in plan.notttdes and has_cycle(dep_id):
+            for dep_id in node.dependencies:
+                if dep_id in plan.nodes and has_cycle(dep_id):
                     return True
 
-            temp_visited.remove(notttde_id)
-            visited.add(notttde_id)
+            temp_visited.remove(node_id)
+            visited.add(node_id)
             return False
 
-        for notttde_id in plan.notttdes:
-            if has_cycle(notttde_id):
-                return False, f"Circular dependency detected involving notttde: {notttde_id}"
+        for node_id in plan.nodes:
+            if has_cycle(node_id):
+                return False, f"Circular dependency detected involving node: {node_id}"
 
         return True, None

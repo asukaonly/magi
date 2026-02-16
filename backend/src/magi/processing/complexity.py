@@ -2,7 +2,7 @@
 complex度评估器 - 评估任务complex度
 """
 from typing import Dict, Any, List
-from .base import TaskComplexity, Complexitylevel
+from .base import TaskComplexity, ComplexityLevel
 
 
 class ComplexityEvaluator:
@@ -16,10 +16,10 @@ class ComplexityEvaluator:
         """initializecomplex度评估器"""
         # complex度阈ValueConfiguration
         self.thresholds = {
-            Complexitylevel.LOW: 30,
-            Complexitylevel.MEDIUM: 50,
-            Complexitylevel.HIGH: 70,
-            Complexitylevel.CRITICAL: 85,
+            ComplexityLevel.LOW: 30,
+            ComplexityLevel.MEDIUM: 50,
+            ComplexityLevel.HIGH: 70,
+            ComplexityLevel.CRITICAL: 85,
         }
 
     def evaluate(self, task: Dict[str, Any]) -> TaskComplexity:
@@ -133,13 +133,13 @@ class ComplexityEvaluator:
         total_score = tool_score + step_score + uncertainty_score + dep_score
         return min(total_score, 100)
 
-    def _determine_level(self, score: float) -> Complexitylevel:
+    def _determine_level(self, score: float) -> ComplexityLevel:
         """根据score确定complex度level"""
-        if score < self.thresholds[Complexitylevel.LOW]:
-            return Complexitylevel.LOW
-        elif score < self.thresholds[Complexitylevel.MEDIUM]:
-            return Complexitylevel.MEDIUM
-        elif score < self.thresholds[Complexitylevel.HIGH]:
-            return Complexitylevel.HIGH
+        if score < self.thresholds[ComplexityLevel.LOW]:
+            return ComplexityLevel.LOW
+        elif score < self.thresholds[ComplexityLevel.MEDIUM]:
+            return ComplexityLevel.MEDIUM
+        elif score < self.thresholds[ComplexityLevel.HIGH]:
+            return ComplexityLevel.HIGH
         else:
-            return Complexitylevel.CRITICAL
+            return ComplexityLevel.CRITICAL

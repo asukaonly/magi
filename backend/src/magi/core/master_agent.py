@@ -144,7 +144,7 @@ class MasterAgent(Agent):
                 logger.error(f"MasterAgent main loop error: {e}")
                 await self._publish_error_event("MasterAgent", str(e))
 
-    async def _on_user_message(self, Event: Event):
+    async def _on_user_message(self, event: Event):
         """
         Handle user message event, recognize and create task
 
@@ -307,7 +307,7 @@ class MasterAgent(Agent):
             # error occurred, restore state
             await self.task_database.update_task_status(
                 task.task_id,
-                TaskStatus.pending,
+                TaskStatus.PENDING,
                 assigned_to=None,
             )
             task_agent._pending_count -= 1

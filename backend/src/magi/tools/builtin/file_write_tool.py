@@ -3,7 +3,7 @@ File write tool
 """
 import os
 from typing import Dict, Any
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
 
 
 class FileWriteTool(Tool):
@@ -24,26 +24,26 @@ class FileWriteTool(Tool):
             parameters=[
                 ToolParameter(
                     name="path",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="File path",
                     required=True,
                 ),
                 ToolParameter(
                     name="content",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Content to write",
                     required=True,
                 ),
                 ToolParameter(
                     name="encoding",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="File encoding",
                     required=False,
                     default="utf-8",
                 ),
                 ToolParameter(
                     name="mode",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Write mode: overwrite=overwrite, append=append",
                     required=False,
                     default="overwrite",
@@ -51,7 +51,7 @@ class FileWriteTool(Tool):
                 ),
                 ToolParameter(
                     name="create_dirs",
-                    type=Parametertype.boolEAN,
+                    type=ParameterType.BOOLEAN,
                     description="Whether to automatically create directories",
                     required=False,
                     default=False,

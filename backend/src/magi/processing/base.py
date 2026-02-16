@@ -7,7 +7,7 @@ from typing import Any, Optional, List, Dict
 import time
 
 
-class Complexitylevel(Enum):
+class ComplexityLevel(Enum):
     """complex度level"""
     LOW = "low"                  # 自主process
     MEDIUM = "medium"            # 可自主
@@ -18,14 +18,14 @@ class Complexitylevel(Enum):
 class LearningStage(Enum):
     """learning阶段"""
     INITIAL = "initial"          # 初始阶段（前100次）
-    GrowTH = "growth"            # growth阶段（100-1000次）
+    GROWTH = "growth"            # growth阶段（100-1000次）
     MATURE = "mature"            # 成熟阶段（1000次以上）
 
 
 @dataclass
 class TaskComplexity:
     """任务complex度"""
-    level: Complexitylevel
+    level: ComplexityLevel
     score: float                        # complex度score (0-100)
     tool_count: int = 0                 # toolquantity
     step_count: int = 0                 # stepquantity

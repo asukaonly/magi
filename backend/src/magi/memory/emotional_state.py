@@ -26,13 +26,13 @@ logger = logging.getLogger(__name__)
 
 # ===== 枚举定义 =====
 
-class Moodtype(Enum):
+class MoodType(Enum):
     """emotiontype"""
     NEUTRAL = "neutral"
     happy = "happy"
     EXCITED = "excited"
     SATISFIED = "satisfied"
-    CuriOUS = "curious"
+    CURIOUS = "curious"
     TIRED = "tired"
     strESSED = "stressed"
     CONFUSED = "confused"
@@ -50,7 +50,7 @@ class InteractionOutcome(Enum):
     timeout = "timeout"              # timeout
 
 
-class Engagementlevel(Enum):
+class EngagementLevel(Enum):
     """user参与度"""
     notttne = "notttne"                    # 无参与
     LOW = "low"                      # 低参与
@@ -205,7 +205,7 @@ class EmotionalStateEngine:
     async def update_after_interaction(
         self,
         outcome: InteractionOutcome,
-        user_engagement: Engagementlevel = Engagementlevel.MEDIUM,
+        user_engagement: EngagementLevel = EngagementLevel.MEDIUM,
         complexity: float = 0.5,
         description: str = ""
     ) -> EmotionalState:
@@ -312,8 +312,8 @@ class EmotionalStateEngine:
         # 长时间任务后可能感到疲劳
         if duration > 3600:  # 超过1hours
             state.energy_level = max(0.0, state.energy_level - 0.1)
-            if state.current_mood == Moodtype.NEUTRAL.value:
-                state.current_mood = Moodtype.TIRED.value
+            if state.current_mood == MoodType.NEUTRAL.value:
+                state.current_mood = MoodType.TIRED.value
 
         await self._save_current_state()
 
@@ -357,11 +357,11 @@ class EmotionalStateEngine:
                 state.social_state = "neutral"
 
         # emotionregression中性
-        if state.current_mood != Moodtype.NEUTRAL.value:
+        if state.current_mood != MoodType.NEUTRAL.value:
             # emotion强度逐渐降低
             state.mood_intensity = max(0.0, state.mood_intensity - 0.1 * elapsed_minutes / 60)
             if state.mood_intensity <= 0.1:
-                state.current_mood = Moodtype.NEUTRAL.value
+                state.current_mood = MoodType.NEUTRAL.value
                 state.mood_intensity = 0.5
 
         state.updated_at = time.time()
@@ -401,8 +401,8 @@ class EmotionalStateEngine:
         state.stress_level = max(0.0, state.stress_level + recovery["stress"])
 
         # restore后通常emotion变好
-        if state.current_mood in [Moodtype.TIRED.value, Moodtype.strESSED.value]:
-            state.current_mood = Moodtype.NEUTRAL.value
+        if state.current_mood in [MoodType.TIRED.value, MoodType.strESSED.value]:
+            state.current_mood = MoodType.NEUTRAL.value
 
         state.focus_state = "notttrmal"
         state.updated_at = time.time()
@@ -429,7 +429,7 @@ class EmotionalStateEngine:
     def _calculate_mood_change(
         self,
         outcome: InteractionOutcome,
-        engagement: Engagementlevel,
+        engagement: EngagementLevel,
         complexity: float
     ) -> float:
         """calculateemotion变化量"""
@@ -447,11 +447,11 @@ class EmotionalStateEngine:
 
         # 参与度调整
         engagement_multiplier = {
-            Engagementlevel.notttne: 0.5,
-            Engagementlevel.LOW: 0.8,
-            Engagementlevel.MEDIUM: 1.0,
-            Engagementlevel.HIGH: 1.2,
-            Engagementlevel.VERY_HIGH: 1.5,
+            EngagementLevel.notttne: 0.5,
+            EngagementLevel.LOW: 0.8,
+            EngagementLevel.MEDIUM: 1.0,
+            EngagementLevel.HIGH: 1.2,
+            EngagementLevel.VERY_HIGH: 1.5,
         }
 
         multiplier = engagement_multiplier.get(engagement, 1.0)
@@ -487,23 +487,23 @@ class EmotionalStateEngine:
 
     def _apply_mood_change(self, current_mood: str, change: float) -> str:
         """应用emotion变化，Returnnewemotion"""
-        moods = list(Moodtype)
+        moods = list(MoodType)
 
         # 如果currentemotionis中性，直接根据变化确定newemotion
-        if current_mood == Moodtype.NEUTRAL.value:
+        if current_mood == MoodType.NEUTRAL.value:
             if change > 0.2:
-                return Moodtype.EXCITED.value
+                return MoodType.EXCITED.value
             elif change > 0.1:
-                return Moodtype.happy.value
+                return MoodType.happy.value
             elif change < -0.15:
-                return Moodtype.strESSED.value
+                return MoodType.strESSED.value
             elif change < -0.05:
-                return Moodtype.TIRED.value
-            return Moodtype.NEUTRAL.value
+                return MoodType.TIRED.value
+            return MoodType.NEUTRAL.value
 
         # 根据变化量andcurrentemotion决定newemotion
         try:
-            current_idx = moods.index(Moodtype(current_mood))
+            current_idx = moods.index(MoodType(current_mood))
         except ValueError:
             current_idx = 0
 
@@ -526,11 +526,11 @@ class EmotionalStateEngine:
             return "flow"
         return "notttrmal"
 
-    def _determine_social_state(self, engagement: Engagementlevel, current: str) -> str:
+    def _determine_social_state(self, engagement: EngagementLevel, current: str) -> str:
         """根据参与度确定社交State"""
-        if engagement in [Engagementlevel.HIGH, Engagementlevel.VERY_HIGH]:
+        if engagement in [EngagementLevel.HIGH, EngagementLevel.VERY_HIGH]:
             return "engaged"
-        elif engagement == Engagementlevel.notttne:
+        elif engagement == EngagementLevel.notttne:
             return "withdrawn"
         return current if current in ["engaged", "neutral", "withdrawn"] else "neutral"
 

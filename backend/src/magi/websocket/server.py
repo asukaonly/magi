@@ -20,7 +20,7 @@ class WebSocketManager:
     """
 
     def __init__(self):
-        # Socket.IOasynchronotttusservice器
+        # Socket.IOasynchronot useervice器
         self.sio = socketio.AsyncServer(
             async_mode='aiohttp',
             cors_allowed_origins='*',
@@ -110,7 +110,7 @@ class WebSocketManager:
             """心跳检测"""
             await self.sio.emit("pong", to=sid)
 
-    async def broadcast(self, Event: str, data: dict, room: str = None):
+    async def broadcast(self, event: str, data: dict, room: str = None):
         """
         广播message
 
@@ -152,7 +152,7 @@ def create_socketio_app(app):
         Socket.IO应用
     """
     # 将Socket.IO附加到aiohttp应用
-    sio_app = socketio.asGIApp(ws_manager.sio)
+    sio_app = socketio.ASGIApp(ws_manager.sio)
     app['/ws'] = sio_app
 
     # addWebSocket端点route

@@ -3,7 +3,7 @@ File read tool
 """
 import os
 from typing import Dict, Any
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
 
 
 class FileReadTool(Tool):
@@ -24,20 +24,20 @@ class FileReadTool(Tool):
             parameters=[
                 ToolParameter(
                     name="path",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="File path",
                     required=True,
                 ),
                 ToolParameter(
                     name="encoding",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="File encoding",
                     required=False,
                     default="utf-8",
                 ),
                 ToolParameter(
                     name="offset",
-                    type=Parametertype.intEGER,
+                    type=ParameterType.INTEGER,
                     description="Read start position (bytes)",
                     required=False,
                     default=0,
@@ -45,7 +45,7 @@ class FileReadTool(Tool):
                 ),
                 ToolParameter(
                     name="limit",
-                    type=Parametertype.intEGER,
+                    type=ParameterType.INTEGER,
                     description="Maximum bytes to read",
                     required=False,
                     default=None,

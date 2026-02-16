@@ -3,7 +3,7 @@ File list tool
 """
 import os
 from typing import Dict, Any, List
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
 
 
 class FileListTool(Tool):
@@ -24,27 +24,27 @@ class FileListTool(Tool):
             parameters=[
                 ToolParameter(
                     name="path",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="directory path",
                     required=True,
                 ),
                 ToolParameter(
                     name="recursive",
-                    type=Parametertype.boolEAN,
+                    type=ParameterType.BOOLEAN,
                     description="Whether to recursively list subdirectories",
                     required=False,
                     default=False,
                 ),
                 ToolParameter(
                     name="include_hidden",
-                    type=Parametertype.boolEAN,
+                    type=ParameterType.BOOLEAN,
                     description="Whether to include hidden files (starting with .)",
                     required=False,
                     default=False,
                 ),
                 ToolParameter(
                     name="pattern",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Filename pattern filter (e.g., *.txt)",
                     required=False,
                 ),

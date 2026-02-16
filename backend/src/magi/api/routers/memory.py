@@ -100,7 +100,7 @@ def get_unified_memory():
     try:
         from ...agent import get_unified_memory
         return get_unified_memory()
-    except Runtimeerror:
+    except RuntimeError:
         return None
 
 
@@ -109,7 +109,7 @@ def get_memory_integration():
     try:
         from ...agent import get_memory_integration
         return get_memory_integration()
-    except Runtimeerror:
+    except RuntimeError:
         return None
 
 

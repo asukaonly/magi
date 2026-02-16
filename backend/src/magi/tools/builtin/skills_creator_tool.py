@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, Any, List
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
 
 
 class SkillsCreatorTool(Tool):
@@ -26,46 +26,46 @@ class SkillsCreatorTool(Tool):
             parameters=[
                 ToolParameter(
                     name="name",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Skill name (alphanumeric with hyphens, e.g., 'code-review')",
                     required=True,
                 ),
                 ToolParameter(
                     name="description",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Brief description of what the skill does",
                     required=True,
                 ),
                 ToolParameter(
                     name="content",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="The skill content in markdown format (the main prompt/instructions)",
                     required=True,
                 ),
                 ToolParameter(
                     name="category",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Category for organizing skills (optional)",
                     required=False,
                     default=None,
                 ),
                 ToolParameter(
                     name="argument_hint",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Hint for how to invoke the skill with arguments (optional)",
                     required=False,
                     default=None,
                 ),
                 ToolParameter(
                     name="tags",
-                    type=Parametertype.array,
+                    type=ParameterType.ARRAY,
                     description="List of tags for the skill (optional)",
                     required=False,
                     default=[],
                 ),
                 ToolParameter(
                     name="user_invocable",
-                    type=Parametertype.boolEAN,
+                    type=ParameterType.BOOLEAN,
                     description="Whether users can directly invoke this skill",
                     required=False,
                     default=True,

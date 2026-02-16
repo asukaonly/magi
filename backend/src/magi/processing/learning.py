@@ -2,7 +2,7 @@
 渐进式learningstrategy
 """
 from typing import Dict, Any
-from .base import LearningStage, Complexitylevel
+from .base import LearningStage, ComplexityLevel
 
 
 class ProgressiveLearning:
@@ -19,31 +19,31 @@ class ProgressiveLearning:
         # 阶段阈Value
         self.stage_thresholds = {
             LearningStage.INITIAL: 0,
-            LearningStage.GrowTH: 100,
+            LearningStage.GROWTH: 100,
             LearningStage.MATURE: 1000,
         }
 
         # 各阶段的complex度容忍度
         self.stage_tolerance = {
-            LearningStage.INITIAL: [Complexitylevel.LOW],
-            LearningStage.GrowTH: [
-                Complexitylevel.LOW,
-                Complexitylevel.MEDIUM
+            LearningStage.INITIAL: [ComplexityLevel.LOW],
+            LearningStage.GROWTH: [
+                ComplexityLevel.LOW,
+                ComplexityLevel.MEDIUM
             ],
             LearningStage.MATURE: [
-                Complexitylevel.LOW,
-                Complexitylevel.MEDIUM,
-                Complexitylevel.HIGH
+                ComplexityLevel.LOW,
+                ComplexityLevel.MEDIUM,
+                ComplexityLevel.HIGH
             ],
         }
 
     @property
     def current_stage(self) -> LearningStage:
         """getcurrentlearning阶段"""
-        if self.interaction_count < self.stage_thresholds[LearningStage.GrowTH]:
+        if self.interaction_count < self.stage_thresholds[LearningStage.GROWTH]:
             return LearningStage.INITIAL
         elif self.interaction_count < self.stage_thresholds[LearningStage.MATURE]:
-            return LearningStage.GrowTH
+            return LearningStage.GROWTH
         else:
             return LearningStage.MATURE
 
@@ -53,7 +53,7 @@ class ProgressiveLearning:
 
     async def should_handle_autonotttmously(
         self,
-        complexity: Complexitylevel
+        complexity: ComplexityLevel
     ) -> bool:
         """
         判断is not应该自主process
@@ -71,7 +71,7 @@ class ProgressiveLearning:
 
     async def should_request_help(
         self,
-        complexity: Complexitylevel
+        complexity: ComplexityLevel
     ) -> bool:
         """
         判断is not应该request人Class帮助
@@ -98,8 +98,8 @@ class ProgressiveLearning:
         stage = self.current_stage
 
         if stage == LearningStage.INITIAL:
-            return self.stage_thresholds[LearningStage.GrowTH]
-        elif stage == LearningStage.GrowTH:
+            return self.stage_thresholds[LearningStage.GROWTH]
+        elif stage == LearningStage.GROWTH:
             return self.stage_thresholds[LearningStage.MATURE]
         else:
             return -1  # 已达到最高阶段

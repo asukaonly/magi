@@ -155,7 +155,7 @@ class UnifiedMemoryStore:
 
         # L1: storage原始event（使用eventObject）
         from ..events.events import Event
-        await self.l1_raw.store(event(
+        await self.l1_raw.store(Event(
             type=event.get("type", "unknown"),
             data=event.get("data", {}),
             timestamp=event.get("timestamp", 0),
@@ -187,7 +187,7 @@ class UnifiedMemoryStore:
 
         return event_id
 
-    def _extract_text_from_event(self, Event: Dict[str, Any]) -> str:
+    def _extract_text_from_event(self, event: Dict[str, Any]) -> str:
         """从event中提取文本用于embedding"""
         parts = []
 
@@ -207,7 +207,7 @@ class UnifiedMemoryStore:
 
         return " ".join(parts) if parts else ""
 
-    def _record_task_attempt(self, Event: Dict[str, Any]):
+    def _record_task_attempt(self, event: Dict[str, Any]):
         """record任务尝试到capabilitymemory"""
         data = event.get("data", {})
         self.l5_capabilities.record_attempt(

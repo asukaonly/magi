@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional, List
 from .base import (
     processingResult,
     processingContext,
-    Complexitylevel,
+    ComplexityLevel,
 )
 from .complexity import ComplexityEvaluator
 from .capability import CapabilityExtractor, CapabilityVerifier
@@ -185,7 +185,7 @@ class SelfprocessingModule:
             return True
 
         # 3. CRITICAL level must have human
-        if complexity.level == Complexitylevel.CRITICAL:
+        if complexity.level == ComplexityLevel.CRITICAL:
             return True
 
         return False

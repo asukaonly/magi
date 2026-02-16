@@ -18,13 +18,13 @@ from dataclasses import dataclass, asdict
 
 
 class TaskStatus(Enum):
-    """任务State"""
-    pending = "pending"           # pending
-    processING = "processing"     # processing
-    COMPLETED = "completed"       # completed
-    failED = "failed"            # failure
-    CANCELLED = "cancelled"      # cancelled
-    timeout = "timeout"          # timeout
+    """Task State"""
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    TIMEOUT = "timeout"
 
 
 class TaskPriority(Enum):
@@ -176,7 +176,7 @@ class TaskDatabase:
         task = Task(
             task_id=task_id,
             type=task_type.value,
-            status=TaskStatus.pending.value,
+            status=TaskStatus.PENDING.value,
             priority=priority.value,
             data=data or {},
             parent_id=parent_id,
@@ -235,7 +235,7 @@ class TaskDatabase:
         if status == TaskStatus.processING:
             update_fields.append("started_at = ?")
             update_values.append(notttw)
-        elif status in [TaskStatus.COMPLETED, TaskStatus.failED, TaskStatus.timeout, TaskStatus.CANCELLED]:
+        elif status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.timeout, TaskStatus.CANCELLED]:
             update_fields.append("completed_at = ?")
             update_values.append(notttw)
 
@@ -293,14 +293,14 @@ class TaskDatabase:
                     WHERE status = ? AND assigned_to = ?
                     order BY priority DESC, created_at asC
                     LIMIT ?
-                """, (TaskStatus.pending.value, assigned_to, limit))
+                """, (TaskStatus.PENDING.value, assigned_to, limit))
             else:
                 cursor = await db.execute("""
                     SELECT * FROM tasks
                     WHERE status = ?
                     order BY priority DESC, created_at asC
                     LIMIT ?
-                """, (TaskStatus.pending.value, limit))
+                """, (TaskStatus.PENDING.value, limit))
 
             rows = await cursor.fetchall()
 
@@ -376,7 +376,7 @@ class TaskDatabase:
         """清理old任务"""
         await self._init_db()
 
-        keep_status = keep_status or [TaskStatus.pending, TaskStatus.processING]
+        keep_status = keep_status or [TaskStatus.PENDING, TaskStatus.processING]
 
         cutoff_time = time.time() - (days * 86400)
 

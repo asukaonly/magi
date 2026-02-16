@@ -201,7 +201,7 @@ class LLMProviderBridge:
                 if tc.function.arguments:
                     try:
                         arguments = json.loads(tc.function.arguments)
-                    except json.JSONDecodeerror:
+                    except json.JSONDecodeError:
                         arguments = {"raw": tc.function.arguments}
 
                 tool_calls.append(ProviderToolCall(

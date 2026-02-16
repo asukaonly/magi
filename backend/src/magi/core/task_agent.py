@@ -126,7 +126,7 @@ class TaskAgent(Agent):
                 )
 
                 for task in pending_tasks:
-                    if task.status == TaskStatus.pending.value:
+                    if task.status == TaskStatus.PENDING.value:
                         await self._process_task(task)
 
                 # Wait for a while
@@ -188,7 +188,7 @@ class TaskAgent(Agent):
             # Mark task as failed
             await self.task_database.update_task_status(
                 task.task_id,
-                TaskStatus.failED,
+                TaskStatus.FAILED,
                 error_message=str(e),
             )
 
@@ -278,7 +278,7 @@ Format: [{{"subtask_id": "1", "description": "...", "dependencies": []}}]"""
                     )
                     for s in subtasks_data
                 ]
-        except (json.JSONDecodeerror, Keyerror) as e:
+        except (json.JSONDecodeError, Keyerror) as e:
             logger.warning(f"Failed to parse LLM decomposition: {e}")
 
         return None
@@ -510,7 +510,7 @@ class WorkerAgent(Agent):
             # Task failed
             await self.task_database.update_task_status(
                 self.task_id,
-                TaskStatus.failED,
+                TaskStatus.FAILED,
                 error_message=str(e),
             )
 

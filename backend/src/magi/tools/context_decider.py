@@ -356,7 +356,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                     deep_thinking=deep_thinking,
                     reasoning=reasoning,
                 )
-            except json.JSONDecodeerror as e:
+            except json.JSONDecodeError as e:
                 logger.warning(f"[ContextDecider] JSON decode error: {e}")
             except ValueError as e:
                 logger.warning(f"[ContextDecider] Invalid response structure: {e}")

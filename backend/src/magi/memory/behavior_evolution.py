@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ===== data Models =====
 
-class Satisfactionlevel(Enum):
+class SatisfactionLevel(Enum):
     """usersatisfactiongrade"""
     VERY_LOW = "very_low"
     LOW = "low"
@@ -45,7 +45,7 @@ class TaskInteractionRecord:
     confirmation_count: int   # user确认count
     correction_count: int     # user纠正count
     # satisfaction反馈
-    satisfaction: Satisfactionlevel
+    satisfaction: SatisfactionLevel
     # 任务特征
     task_complexity: float    # 0-1
     task_duration: float      # seconds
@@ -160,7 +160,7 @@ class BehaviorEvolutionEngine:
         self,
         task_id: str,
         task_category: str,
-        user_satisfaction: Satisfactionlevel = Satisfactionlevel.NEUTRAL,
+        user_satisfaction: SatisfactionLevel = SatisfactionLevel.NEUTRAL,
         clarification_count: int = 0,
         confirmation_count: int = 0,
         correction_count: int = 0,
@@ -184,12 +184,12 @@ class BehaviorEvolutionEngine:
         """
         if isinstance(user_satisfaction, str):
             try:
-                user_satisfaction = Satisfactionlevel(user_satisfaction)
+                user_satisfaction = SatisfactionLevel(user_satisfaction)
             except ValueError:
                 logger.warning(
                     f"Unknotttwn satisfaction level '{user_satisfaction}', fallback to neutral"
                 )
-                user_satisfaction = Satisfactionlevel.NEUTRAL
+                user_satisfaction = SatisfactionLevel.NEUTRAL
 
         record = TaskInteractionRecord(
             task_id=task_id,

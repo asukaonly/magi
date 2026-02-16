@@ -7,12 +7,12 @@ from enum import Enum
 
 class TaskType(Enum):
     """Task type"""
-    simple = "simple"           # Simple task
-    COMPUTATION = "computation" # Computation task
-    IO = "io"                   # IO task
-    network = "network"         # Network task
-    INTERACTIVE = "interactive" # Interactive task
-    LONG_runNING = "long_running"  # Long-running task
+    SIMPLE = "simple"
+    COMPUTATION = "computation"
+    IO = "io"
+    NETWORK = "network"
+    INTERACTIVE = "interactive"
+    LONG_RUNNING = "long_running"
 
 
 class TaskPriority(Enum):

@@ -16,7 +16,7 @@ class LanguageStyle(Enum):
     CONCISE = "concise"
     VERBOSE = "verbose"
     FORMAL = "formal"
-    CasUAL = "casual"
+    CASUAL = "casual"
     TECHNICAL = "technical"
     POETIC = "poetic"
 
@@ -73,7 +73,7 @@ class CorePersonality:
     name: str
     role: str
     backstory: str = ""
-    language_style: LanguageStyle = LanguageStyle.CasUAL
+    language_style: LanguageStyle = LanguageStyle.CASUAL
     use_emoji: bool = False
     catchphrases: List[str] = field(default_factory=list)
     greetings: List[str] = field(default_factory=list)

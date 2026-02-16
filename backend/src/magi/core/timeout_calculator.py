@@ -7,12 +7,12 @@ from enum import Enum
 from .task_database import TaskType, TaskPriority
 
 
-class Interactionlevel(Enum):
+class InteractionLevel(Enum):
     """Interaction level"""
-    notttne = "notttne"          # No interaction, pure background computation
-    LOW = "low"            # Low interaction, occasional notifications
-    MEDIUM = "medium"      # Medium interaction, requires confirmation
-    HIGH = "high"          # High interaction, requires frequent user input
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 class TimeoutCalculator:
@@ -24,19 +24,19 @@ class TimeoutCalculator:
     """
 
     # Base timeout (seconds)
-    BasE_timeout = 60.0
+    BASE_TIMEOUT = 60.0
 
     # priority factors
     PRIORITY_FACTORS = {
         TaskPriority.LOW: 2.0,        # Low priority tasks can run longer
-        TaskPriority.NORMAL: 1.0,     # notttrmal priority
+        TaskPriority.NORMAL: 1.0,     # normal priority
         TaskPriority.HIGH: 0.8,       # High priority for fast processing
         TaskPriority.URGENT: 0.5,     # Urgent tasks fail fast
         TaskPriority.EMERGENCY: 0.3,  # emergency tasks fail very fast
     }
 
     # Task type factors
-    type_FACTORS = {
+    TYPE_FACTORS = {
         TaskType.QUERY: 0.5,          # query type for fast response
         TaskType.COMPUTATION: 3.0,    # Computation type needs more time
         TaskType.INTERACTIVE: 2.0,    # Interactive type waits for user
@@ -44,11 +44,11 @@ class TimeoutCalculator:
     }
 
     # Interaction level factors
-    intERACTION_FACTORS = {
-        Interactionlevel.notttne: 1.0,    # No interaction
-        Interactionlevel.LOW: 1.2,     # Low interaction
-        Interactionlevel.MEDIUM: 1.5,  # Medium interaction
-        Interactionlevel.HIGH: 2.0,    # High interaction, needs to wait for user input
+    INTERACTION_FACTORS = {
+        InteractionLevel.notttne: 1.0,    # No interaction
+        InteractionLevel.LOW: 1.2,     # Low interaction
+        InteractionLevel.MEDIUM: 1.5,  # Medium interaction
+        InteractionLevel.HIGH: 2.0,    # High interaction, needs to wait for user input
     }
 
     @classmethod
@@ -56,7 +56,7 @@ class TimeoutCalculator:
         cls,
         task_type: TaskType = TaskType.QUERY,
         priority: TaskPriority = TaskPriority.NORMAL,
-        interaction_level: Interactionlevel = Interactionlevel.notttne,
+        interaction_level: InteractionLevel = InteractionLevel.notttne,
         base_timeout: float = None,
     ) -> float:
         """
@@ -71,11 +71,11 @@ class TimeoutCalculator:
         Returns:
             Timeout (seconds)
         """
-        base = base_timeout or cls.BasE_timeout
+        base = base_timeout or cls.BASE_TIMEOUT
 
         priority_factor = cls.PRIORITY_FACTORS.get(priority, 1.0)
-        type_factor = cls.type_FACTORS.get(task_type, 1.0)
-        interaction_factor = cls.intERACTION_FACTORS.get(interaction_level, 1.0)
+        type_factor = cls.TYPE_FACTORS.get(task_type, 1.0)
+        interaction_factor = cls.INTERACTION_FACTORS.get(interaction_level, 1.0)
 
         timeout = base * priority_factor * type_factor * interaction_factor
 
@@ -96,7 +96,7 @@ class TimeoutCalculator:
         # Extract parameters from task data
         type_str = task_data.get("type", TaskType.QUERY.value)
         priority_value = task_data.get("priority", TaskPriority.NORMAL.value)
-        interaction_str = task_data.get("interaction_level", Interactionlevel.notttne.value)
+        interaction_str = task_data.get("interaction_level", InteractionLevel.notttne.value)
 
         # Convert to enums
         try:
@@ -110,8 +110,8 @@ class TimeoutCalculator:
             priority = TaskPriority.NORMAL
 
         try:
-            interaction_level = Interactionlevel(interaction_str)
+            interaction_level = InteractionLevel(interaction_str)
         except ValueError:
-            interaction_level = Interactionlevel.notttne
+            interaction_level = InteractionLevel.notttne
 
         return cls.calculate(task_type, priority, interaction_level)

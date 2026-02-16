@@ -11,13 +11,13 @@ from .schema import (
     ToolParameter,
     ToolExecutionContext,
     ToolResult,
-    Parametertype,
+    ParameterType,
 )
 from .registry import ToolRegistry, tool_registry
 from .selector import ToolSelector
 from .context_decider import ContextDecider, ContextDecision
 from .function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
-from .recommender import ToolRecommender, Scenariotype
+from .recommender import ToolRecommender, ScenarioType
 from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
 from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
 
@@ -64,7 +64,7 @@ __all__ = [
     "ToolParameter",
     "ToolExecutionContext",
     "ToolResult",
-    "Parametertype",
+    "ParameterType",
 
     # Registry
     "ToolRegistry",
@@ -84,7 +84,7 @@ __all__ = [
 
     # recommended引擎
     "ToolRecommender",
-    "Scenariotype",
+    "ScenarioType",
 
     # Executeplan器
     "ExecutionPlanner",

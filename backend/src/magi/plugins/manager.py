@@ -6,7 +6,7 @@ import importlib
 import inspect
 from typing import List, Dict, Optional, Type, Any
 from pathlib import Path
-from .base import Plugin, Plugintype
+from .base import Plugin, PluginType
 
 
 class PluginManager:
@@ -96,7 +96,7 @@ class PluginManager:
 
         # ValidateisPlugin子Class
         if not issubclass(plugin_class, Plugin):
-            raise typeerror(f"{class_name} is not a subclass of Plugin")
+            raise TypeError(f"{class_name} is not a subclass of Plugin")
 
         # loadplugin
         return await self.load_plugin(plugin_class, config)
@@ -119,7 +119,7 @@ class PluginManager:
         # checkdependency
         dependent_plugins = self._get_dependents(plugin_name)
         if dependent_plugins:
-            raise Runtimeerror(
+            raise RuntimeError(
                 f"Cannot unload plugin {plugin_name}: "
                 f"required by {', '.join(dependent_plugins)}"
             )

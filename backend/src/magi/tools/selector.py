@@ -380,7 +380,7 @@ Respond with ONLY the JSON object.
         # strategy 1: Try direct JSON parse
         try:
             return json.loads(response)
-        except json.JSONDecodeerror:
+        except json.JSONDecodeError:
             pass
 
         # strategy 2: Remove markdown code blocks
@@ -395,7 +395,7 @@ Respond with ONLY the JSON object.
 
         try:
             return json.loads(cleaned)
-        except json.JSONDecodeerror:
+        except json.JSONDecodeError:
             pass
 
         # strategy 3: Find first valid JSON object
@@ -405,7 +405,7 @@ Respond with ONLY the JSON object.
         for match in matches:
             try:
                 return json.loads(match)
-            except json.JSONDecodeerror:
+            except json.JSONDecodeError:
                 continue
 
         return None

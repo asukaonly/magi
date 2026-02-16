@@ -33,7 +33,7 @@ def get_chat_agent() -> ChatAgent:
     """
     global _chat_agent
     if _chat_agent is None:
-        raise Runtimeerror("ChatAgent not initialized. Call initialize_chat_agent() first.")
+        raise RuntimeError("ChatAgent not initialized. Call initialize_chat_agent() first.")
     return _chat_agent
 
 
@@ -46,7 +46,7 @@ def get_memory_integration() -> MemoryIntegrationModule:
     """
     global _memory_integration
     if _memory_integration is None:
-        raise Runtimeerror("MemoryIntegrationModule not initialized. Call initialize_chat_agent() first.")
+        raise RuntimeError("MemoryIntegrationModule not initialized. Call initialize_chat_agent() first.")
     return _memory_integration
 
 
@@ -69,10 +69,10 @@ def _create_llm_adapter():
         LLMAdapterInstance
     """
     # getLLM提供商Configuration
-    provider = os.getenv("LLM_PROVidER", "openai").lower()
+    provider = (os.getenv("LLM_PROVIDER") or os.getenv("LLM_PROVidER") or "openai").lower()
     api_key = os.getenv("LLM_API_KEY")
-    base_url = os.getenv("LLM_BasE_url")
-    model = os.getenv("LLM_MOdel", "gpt-4o-mini")
+    base_url = os.getenv("LLM_BASE_URL") or os.getenv("LLM_BasE_url")
+    model = os.getenv("LLM_MODEL") or os.getenv("LLM_MOdel") or "gpt-4o-mini"
 
     if not api_key:
         raise ValueError("LLM_API_KEY must be set")

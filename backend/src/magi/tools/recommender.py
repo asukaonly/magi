@@ -14,13 +14,13 @@ from .schema import Tool, ToolSchema, ToolParameter
 logger = logging.getLogger(__name__)
 
 
-class Scenariotype(str, Enum):
+class ScenarioType(str, Enum):
     """scenariotype"""
     FILE_OPERATION = "file_operation"
     system_COMMAND = "system_command"
     DATA_ANALYSIS = "data_analysis"
     network = "network"
-    DATABasE = "database"
+    DATABASE = "database"
     TEXT_processING = "text_processing"
     UNKNOWN = "unknown"
 
@@ -43,27 +43,27 @@ class ToolRecommender:
 
         # scenario关key词mapping
         self.scenario_keywords = {
-            Scenariotype.FILE_OPERATION: [
+            ScenarioType.FILE_OPERATION: [
                 "file", "file", "读取", "read", "写入", "write", "save", "save",
                 "delete", "delete", "list", "list", "directory", "directory", "folder"
             ],
-            Scenariotype.system_COMMAND: [
+            ScenarioType.system_COMMAND: [
                 "command", "command", "Execute", "execute", "shell", "bash", "终端",
                 "terminal", "run", "run", "script", "script"
             ],
-            Scenariotype.DATA_ANALYSIS: [
+            ScenarioType.DATA_ANALYSIS: [
                 "analysis", "analyze", "statistics", "statistics", "calculate", "calculate",
                 "data", "data", "process", "process"
             ],
-            Scenariotype.network: [
+            ScenarioType.network: [
                 "network", "network", "request", "request", "http", "api", "下载",
                 "download", "上传", "upload", "url", "访问", "fetch"
             ],
-            Scenariotype.DATABasE: [
+            ScenarioType.DATABASE: [
                 "database", "database", "query", "query", "sql", "storage", "store",
                 "insert", "insert", "update", "update"
             ],
-            Scenariotype.TEXT_processING: [
+            ScenarioType.TEXT_processING: [
                 "文本", "text", "string", "string", "replace", "replace", "匹配",
                 "match", "search", "search", "parse", "parse"
             ],
@@ -77,7 +77,7 @@ class ToolRecommender:
             "bash": ["Executecommand", "runscript", "shellcommand", "execute command"],
         }
 
-    def classify_scenario(self, intent: str) -> Scenariotype:
+    def classify_scenario(self, intent: str) -> ScenarioType:
         """
         scenario分Class
 
@@ -100,7 +100,7 @@ class ToolRecommender:
                 scores[scenario] = score
 
         if not scores:
-            return Scenariotype.UNKNOWN
+            return ScenarioType.UNKNOWN
 
         # Returnscore最高的scenario
         return max(scores.items(), key=lambda x: x[1])[0]
@@ -133,7 +133,7 @@ class ToolRecommender:
     def match_capabilities(
         self,
         intent: str,
-        scenario: Scenariotype
+        scenario: ScenarioType
     ) -> List[Tuple[str, float]]:
         """
         capability匹配
@@ -160,9 +160,9 @@ class ToolRecommender:
 
             # 1. checktoolClass别is not匹配scenario
             category_match = 0
-            if scenario == Scenariotype.FILE_OPERATION and schema.category == "file":
+            if scenario == ScenarioType.FILE_OPERATION and schema.category == "file":
                 category_match = 0.3
-            elif scenario == Scenariotype.system_COMMAND and schema.category == "system":
+            elif scenario == ScenarioType.system_COMMAND and schema.category == "system":
                 category_match = 0.3
 
             score += category_match

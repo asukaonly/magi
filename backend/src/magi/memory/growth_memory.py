@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # ===== 枚举定义 =====
 
-class Milestonetype(Enum):
+class MilestoneType(Enum):
     """milestonetype"""
     FIRST_USE = "first_use"              # 首次使用某capability
     strEAK = "streak"                    # 连续工作/交互
@@ -35,7 +35,7 @@ class Milestonetype(Enum):
     SPECIAL = "special"                  # 特殊event
 
 
-class Interactiontype(Enum):
+class InteractionType(Enum):
     """交互type"""
     CHAT = "chat"                        # 聊days
     task = "task"                        # 任务
@@ -51,7 +51,7 @@ class Interactiontype(Enum):
 class Milestone:
     """growthmilestone"""
     id: str
-    type: Milestonetype
+    type: MilestoneType
     title: str
     description: str
     timestamp: float
@@ -180,7 +180,7 @@ class GrowthMemoryEngine:
 
     async def record_milestone(
         self,
-        milestone_type: Milestonetype,
+        milestone_type: MilestoneType,
         title: str,
         description: str,
         metadata: Dict[str, Any] = None
@@ -235,7 +235,7 @@ class GrowthMemoryEngine:
 
     async def get_milestones(
         self,
-        milestone_type: Milestonetype = None,
+        milestone_type: MilestoneType = None,
         limit: int = 100
     ) -> List[Milestone]:
         """
@@ -274,7 +274,7 @@ class GrowthMemoryEngine:
             for row in rows:
                 milestones.append(Milestone(
                     id=row[0],
-                    type=Milestonetype(row[1]),
+                    type=MilestoneType(row[1]),
                     title=row[2],
                     description=row[3],
                     timestamp=row[4],
@@ -291,7 +291,7 @@ class GrowthMemoryEngine:
     async def record_interaction(
         self,
         user_id: str,
-        interaction_type: Interactiontype,
+        interaction_type: InteractionType,
         outcome: str = "neutral",
         sentiment: float = 0.0,
         notes: str = ""
@@ -438,7 +438,7 @@ class GrowthMemoryEngine:
 
         # 多样性score
         type_count = len([t for t, c in profile.interaction_types.items() if c > 0])
-        diversity_score = min(1.0, type_count / len(Interactiontype))
+        diversity_score = min(1.0, type_count / len(InteractionType))
 
         # 情感score（归一化到0-1）
         sentiment_score = (profile.sentiment_score + 1) / 2
@@ -519,7 +519,7 @@ class GrowthMemoryEngine:
 
         # recordmilestone
         await self.record_milestone(
-            milestone_type=Milestonetype.PERSONALITY_CHANGE,
+            milestone_type=MilestoneType.PERSONALITY_CHANGE,
             title=f"Personality Shift: {aspect}",
             description=f"{aspect} changed from {previous_value} to {new_value}",
             metadata={"confidence": confidence, "reason": reason}
@@ -536,7 +536,7 @@ class GrowthMemoryEngine:
         # 首次交互
         if profile.total_interactions == 1:
             await self.record_milestone(
-                milestone_type=Milestonetype.relationship,
+                milestone_type=MilestoneType.relationship,
                 title=f"First Meeting: {user_id}",
                 description=f"First interaction with user {user_id}",
                 metadata={"user_id": user_id}
@@ -554,14 +554,14 @@ class GrowthMemoryEngine:
             if profile.depth >= threshold:
                 # checkis not已经record过
                 existing = await self.get_milestones(
-                    milestone_type=Milestonetype.relationship,
+                    milestone_type=MilestoneType.relationship,
                     limit=100
                 )
                 milestone_title = f"{title}: {user_id}"
 
                 if not any(m.title == milestone_title for m in existing):
                     await self.record_milestone(
-                        milestone_type=Milestonetype.relationship,
+                        milestone_type=MilestoneType.relationship,
                         title=milestone_title,
                         description=f"Relationship with {user_id} reached {title} level (depth: {profile.depth:.2f})",
                         metadata={"user_id": user_id, "depth": profile.depth}
@@ -572,7 +572,7 @@ class GrowthMemoryEngine:
         for count in interaction_milestones:
             if profile.total_interactions == count:
                 await self.record_milestone(
-                    milestone_type=Milestonetype.relationship,
+                    milestone_type=MilestoneType.relationship,
                     title=f"{count} Interactions: {user_id}",
                     description=f"Reached {count} interactions with {user_id}",
                     metadata={"user_id": user_id, "count": count}

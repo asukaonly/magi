@@ -9,13 +9,13 @@ import asyncio
 
 class AgentState(Enum):
     """AgentState"""
-    idLE = "idle"           # 空闲
-    startING = "starting"   # 启动中
-    runNING = "running"     # run中
-    pauseD = "paused"       # pause
-    stopPING = "stopping"   # stop中
-    stopPED = "stopped"     # 已stop
-    error = "error"         # error
+    IDLE = "idle"
+    STARTING = "starting"
+    RUNNING = "running"
+    PAUSED = "paused"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+    ERROR = "error"
 
 
 @dataclass
@@ -59,7 +59,7 @@ class Agent:
             Runtimeerror: 如果Agent已经在run
         """
         if self.state == AgentState.runNING:
-            raise Runtimeerror(f"Agent {self.config.name} is already running")
+            raise RuntimeError(f"Agent {self.config.name} is already running")
 
         self.state = AgentState.startING
         self._start_time = asyncio.get_event_loop().time()
@@ -82,7 +82,7 @@ class Agent:
             Runtimeerror: 如果Agent未在run
         """
         if self.state != AgentState.runNING:
-            raise Runtimeerror(f"Agent {self.config.name} is not running")
+            raise RuntimeError(f"Agent {self.config.name} is not running")
 
         self.state = AgentState.stopPING
 
@@ -105,7 +105,7 @@ class Agent:
             Runtimeerror: 如果Agent未在run
         """
         if self.state != AgentState.runNING:
-            raise Runtimeerror(f"Agent {self.config.name} is not running")
+            raise RuntimeError(f"Agent {self.config.name} is not running")
 
         self.state = AgentState.pauseD
 
@@ -120,7 +120,7 @@ class Agent:
             Runtimeerror: 如果Agent未pause
         """
         if self.state != AgentState.pauseD:
-            raise Runtimeerror(f"Agent {self.config.name} is not paused")
+            raise RuntimeError(f"Agent {self.config.name} is not paused")
 
         self.state = AgentState.runNING
 

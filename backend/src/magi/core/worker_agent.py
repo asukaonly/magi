@@ -102,7 +102,7 @@ class WorkerAgent(Agent):
         2. 任务complete后自动stop
         """
         if self.state == AgentState.runNING:
-            raise Runtimeerror(f"Agent {self.config.name} is already running")
+            raise RuntimeError(f"Agent {self.config.name} is already running")
 
         self.state = AgentState.startING
         self._start_time = asyncio.get_event_loop().time()
@@ -219,7 +219,7 @@ class WorkerAgent(Agent):
             Exception: Executefailure
         """
         # mark任务为run中
-        self.task.status = TaskStatus.runNING
+        self.task.status = TaskStatus.RUNNING
         self.task.started_at = time.time()
 
         # 根据任务typeExecute
@@ -253,7 +253,7 @@ class WorkerAgent(Agent):
             toolExecution result
         """
         if not self.tool_registry:
-            raise Runtimeerror("Tool registry not configured")
+            raise RuntimeError("Tool registry not configured")
 
         tool_name = task_data.get("tool_name")
         parameters = task_data.get("parameters", {})
@@ -265,7 +265,7 @@ class WorkerAgent(Agent):
         result = await self.tool_registry.execute(tool_name, parameters)
 
         if not result.success:
-            raise Runtimeerror(f"Tool execution failed: {result.error}")
+            raise RuntimeError(f"Tool execution failed: {result.error}")
 
         return result.data
 
@@ -371,7 +371,7 @@ class WorkerAgent(Agent):
         self.metrics.record_task_failed()
 
         # mark任务为failure
-        self.task.status = TaskStatus.failED
+        self.task.status = TaskStatus.FAILED
         self.task.error = str(self._error) if self._error else "Unknotttwn error"
 
         # 调用failurecallback

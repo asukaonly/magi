@@ -126,7 +126,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
             await db.commit()
 
-    async def publish(self, Event: Event) -> bool:
+    async def publish(self, event: Event) -> bool:
         """
         publish event to SQLite database
 
@@ -301,9 +301,9 @@ class SQLiteMessageBackend(MessageBusBackend):
                 return None
 
             event_data = json.loads(row[0])
-            return event.from_dict(event_data)
+            return Event.from_dict(event_data)
 
-    async def _process_event(self, Event: Event):
+    async def _process_event(self, event: Event):
         """processevent"""
         subscriptions = self._subscriptions.get(event.type, [])
 
@@ -324,7 +324,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             )
             await self._handle_event(subscription, event)
 
-    async def _handle_event(self, subscription: Dict, Event: Event):
+    async def _handle_event(self, subscription: Dict, event: Event):
         """call handler to process event"""
         if subscription["filter_func"]:
             try:

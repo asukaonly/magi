@@ -70,7 +70,7 @@ class MemoryMessageBackend(MessageBusBackend):
             "error_count": 0,
         }
 
-    async def publish(self, Event: Event) -> bool:
+    async def publish(self, event: Event) -> bool:
         """
         Publish event to queue
 
@@ -233,7 +233,7 @@ class MemoryMessageBackend(MessageBusBackend):
             _, _, event = heapq.heappop(self._queue)
             return event
 
-    async def _process_event(self, Event: Event):
+    async def _process_event(self, event: Event):
         """
         process event (dispatch to subscribers)
 
@@ -261,7 +261,7 @@ class MemoryMessageBackend(MessageBusBackend):
             )
             await self._handle_event(subscription, event)
 
-    async def _handle_event(self, subscription: Dict, Event: Event):
+    async def _handle_event(self, subscription: Dict, event: Event):
         """
         Call single handler to process event
 

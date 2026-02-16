@@ -4,7 +4,7 @@ Weather Tool - query weather using QWeather (and风days气) API
 import os
 import aiohttp
 from typing import Dict, Any, Optional
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
 
 
 class WeatherTool(Tool):
@@ -26,13 +26,13 @@ class WeatherTool(Tool):
             parameters=[
                 ToolParameter(
                     name="location",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Location to query. Can be a city name (e.g., 'Beijing', '上海') or coordinates as 'longitude,latitude' (e.g., '116.41,39.92')",
                     required=True,
                 ),
                 ToolParameter(
                     name="lang",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Language for weather descriptions: 'zh' (Chinese, default), 'en' (English)",
                     required=False,
                     default="zh",

@@ -130,10 +130,10 @@ async def get_config():
     """
     # 从环境Variable读取LLMConfiguration
     llm_config = LLMConfigModel(
-        provider=os.getenv("LLM_PROVidER", "openai"),
-        model=os.getenv("LLM_MOdel", "gpt-4"),
+        provider=os.getenv("LLM_PROVIDER") or os.getenv("LLM_PROVidER") or "openai",
+        model=os.getenv("LLM_MODEL") or os.getenv("LLM_MOdel") or "gpt-4",
         api_key="***" if os.getenv("LLM_API_KEY") else None,  # 隐藏key
-        base_url=os.getenv("LLM_BasE_url"),
+        base_url=os.getenv("LLM_BASE_URL") or os.getenv("LLM_BasE_url"),
     )
 
     config = SystemConfigModel(
@@ -176,14 +176,17 @@ async def update_config(config: SystemConfigModel):
             logger.info("LLM API Key 已update")
 
         if config.llm.base_url:
+            os.environ["LLM_BASE_URL"] = config.llm.base_url
             os.environ["LLM_BasE_url"] = config.llm.base_url
             logger.info(f"LLM Base url 已update: {config.llm.base_url}")
 
         if config.llm.model:
+            os.environ["LLM_MODEL"] = config.llm.model
             os.environ["LLM_MOdel"] = config.llm.model
             logger.info(f"LLM Model 已update: {config.llm.model}")
 
         if config.llm.provider:
+            os.environ["LLM_PROVIDER"] = config.llm.provider
             os.environ["LLM_PROVidER"] = config.llm.provider
             logger.info(f"LLM Provider 已update: {config.llm.provider}")
 

@@ -25,9 +25,9 @@ from ..tools.function_calling import FunctionCallingExecutor
 from ..tools.schema import ToolExecutionContext
 from ..memory.self_memory import SelfMemory
 from ..memory.other_memory import OtherMemory
-from ..memory.behavior_evolution import Satisfactionlevel
-from ..memory.emotional_state import InteractionOutcome, Engagementlevel
-from ..memory.growth_memory import Interactiontype
+from ..memory.behavior_evolution import SatisfactionLevel
+from ..memory.emotional_state import InteractionOutcome, EngagementLevel
+from ..memory.growth_memory import InteractionType
 from ..memory.context_builder import Scenario
 from ..memory.models import TaskBehaviorProfile
 from ..utils.runtime import get_runtime_paths
@@ -348,7 +348,7 @@ class ChatAgent(CompleteAgent):
                 outcome = InteractionOutcome.SUCCESS
                 await self.memory.record_interaction(
                     user_id=user_id,
-                    interaction_type=Interactiontype.CHAT,
+                    interaction_type=InteractionType.CHAT,
                     outcome="success",
                     sentiment=0.0,
                     notes=f"Message: {user_message[:100]}..."
@@ -356,7 +356,7 @@ class ChatAgent(CompleteAgent):
 
                 await self.memory.update_after_interaction(
                     outcome=outcome,
-                    user_engagement=Engagementlevel.MEDIUM,
+                    user_engagement=EngagementLevel.MEDIUM,
                     complexity=0.5
                 )
 
@@ -364,7 +364,7 @@ class ChatAgent(CompleteAgent):
                 await self.memory.record_task_outcome(
                     task_id=task_id,
                     task_category=context_decision.intent,
-                    user_satisfaction=Satisfactionlevel.NEUTRAL,
+                    user_satisfaction=SatisfactionLevel.NEUTRAL,
                     accepted=True,
                     task_complexity=0.5,
                     task_duration=duration,

@@ -18,9 +18,9 @@ from .events import Event, EventLevel
 from .backend import MessageBusBackend
 
 
-class propagationMode(Enum):
+class PropagationMode(Enum):
     """传播pattern"""
-    BROADCasT = "broadcast"      # broadcast: all subscribers receive
+    BROADCAST = "broadcast"      # broadcast: all subscribers receive
     COMPETING = "competing"      # competing: only one subscriber receives（负载最低的）
     round_RObin = "round_robin"  # 轮询：依次分发给subscribe者
 
@@ -71,7 +71,7 @@ class BoundedpriorityQueue:
             "rejected": 0,
         }
 
-    async def enqueue(self, Event: Event) -> bool:
+    async def enqueue(self, event: Event) -> bool:
         """
         入队（带背压）
 
@@ -119,7 +119,7 @@ class BoundedpriorityQueue:
         except Exception:
             return None
 
-    async def _handle_queue_full(self, Event: Event) -> bool:
+    async def _handle_queue_full(self, event: Event) -> bool:
         """
         processqueue满的情况
 
@@ -284,7 +284,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
     增强的内存message后端
 
     完整Implementation：
-    - 双传播pattern（BROADCasT/COMPETING/round_RObin）
+    - 双传播pattern（BROADCAST/COMPETING/round_RObin）
     - 背压机制（BoundedpriorityQueue）
     - load balance调度（LoadAwareDispatcher）
     - eventfilter机制
@@ -335,7 +335,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
             "round_robin_count": 0,
         }
 
-    async def publish(self, Event: Event) -> bool:
+    async def publish(self, event: Event) -> bool:
         """
         Publish event
 
@@ -363,7 +363,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         self,
         event_type: str,
         handler: Callable,
-        propagation_mode: propagationMode = propagationMode.BROADCasT,
+        propagation_mode: PropagationMode = PropagationMode.BROADCAST,
         filter_func: Optional[Callable[[Event], bool]] = None,
     ) -> str:
         """
@@ -480,7 +480,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
             except Exception as e:
                 self._stats["error_count"] += 1
 
-    async def _process_event(self, Event: Event):
+    async def _process_event(self, event: Event):
         """
         processevent（根据传播pattern分发）
 
@@ -531,7 +531,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
                 await self._handle_event(selected, event)
                 self._stats["round_robin_count"] += 1
 
-    async def _handle_event(self, subscription: Dict, Event: Event):
+    async def _handle_event(self, subscription: Dict, event: Event):
         """
         call handler to process event（带error隔离）
 

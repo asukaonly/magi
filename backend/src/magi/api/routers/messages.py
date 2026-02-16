@@ -95,7 +95,7 @@ async def send_user_message(request: UserMessageRequest):
         from ...agent import get_chat_agent
         try:
             chat_agent = get_chat_agent()
-        except Runtimeerror:
+        except RuntimeError:
             # Agent 未initialize（可能is没有Setting API Key）
             agent_logger.warning(f"⚠️ ChatAgent not initialized when user {request.user_id} sent message")
 
@@ -137,7 +137,15 @@ async def send_user_message(request: UserMessageRequest):
                 source="api",
                 level=EventLevel.INFO,
             )
-            await message_bus.publish(event)
+            published = await message_bus.publish(event)
+            if not published:
+                logger.error("Message bus publish failed, falling back to sensor queue")
+                sensor = get_user_message_sensor()
+                await sensor.send_message(message_data)
+                logger.info(
+                    f"Message from {request.user_id} queued to sensor (publish fallback) | "
+                    f"Queue size: {sensor.get_queue().qsize()}"
+                )
 
             queue_size = "unknown"
             stats = await message_bus.get_stats()
@@ -205,7 +213,7 @@ async def get_conversation_history(
             "messages": messages,
             "count": len(messages)
         }
-    except Runtimeerror:
+    except RuntimeError:
         # Agent未initialize，Return空history
         return {
             "user_id": user_id,
@@ -242,7 +250,7 @@ async def clear_conversation_history(
             "user_id": user_id,
             "session_id": resolved_session_id,
         }
-    except Runtimeerror:
+    except RuntimeError:
         # Agent未initialize
         return {
             "success": True,
@@ -260,7 +268,7 @@ async def get_current_session(user_id: str = "web_user"):
         agent = get_chat_agent()
         session_id = agent.get_current_session_id(user_id)
         return {"user_id": user_id, "session_id": session_id}
-    except Runtimeerror:
+    except RuntimeError:
         return {"user_id": user_id, "session_id": None}
 
 
@@ -272,7 +280,7 @@ async def create_new_session(user_id: str = "web_user"):
         agent = get_chat_agent()
         session_id = agent.create_new_session(user_id)
         return {"success": True, "user_id": user_id, "session_id": session_id}
-    except Runtimeerror:
+    except RuntimeError:
         return {"success": False, "user_id": user_id, "session_id": None}
 
 

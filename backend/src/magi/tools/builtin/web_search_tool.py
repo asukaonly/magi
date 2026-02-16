@@ -4,7 +4,7 @@ Web Search Tool - Search web using multiple providers
 import os
 import aiohttp
 from typing import Dict, Any, List, Optional
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
 
 
 class WebSearchTool(Tool):
@@ -25,13 +25,13 @@ class WebSearchTool(Tool):
             parameters=[
                 ToolParameter(
                     name="query",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="The search query",
                     required=True,
                 ),
                 ToolParameter(
                     name="provider",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Search provider: 'brave', 'perplexity', or 'tavily'",
                     required=False,
                     default="brave",
@@ -39,7 +39,7 @@ class WebSearchTool(Tool):
                 ),
                 ToolParameter(
                     name="num_results",
-                    type=Parametertype.intEGER,
+                    type=ParameterType.INTEGER,
                     description="Number of results to return",
                     required=False,
                     default=10,

@@ -103,7 +103,7 @@ class RawEventStore:
             """)
             await db.commit()
 
-    async def store(self, Event: Event) -> str:
+    async def store(self, event: Event) -> str:
         """
         storageevent
 
@@ -238,7 +238,7 @@ class RawEventStore:
         path = f"{self._expanded_media_dir}/{date_str}/{filename}"
 
         # 确保directoryexists
-        path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
 
         # savefile
         with open(path, "wb") as f:
@@ -248,7 +248,7 @@ class RawEventStore:
 
     def _row_to_event(self, row) -> Event:
         """将databaserowconvert为eventObject"""
-        return event(
+        return Event(
             type=row[1],
             data=json.loads(row[2]),
             timestamp=row[4],

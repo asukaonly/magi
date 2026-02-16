@@ -4,7 +4,7 @@ Bash command execution tool
 import asyncio
 import subprocess
 from typing import Dict, Any
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, Parametertype
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
 
 
 class BashTool(Tool):
@@ -25,20 +25,20 @@ class BashTool(Tool):
             parameters=[
                 ToolParameter(
                     name="command",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Command to execute",
                     required=True,
                 ),
                 ToolParameter(
                     name="cwd",
-                    type=Parametertype.strING,
+                    type=ParameterType.STRING,
                     description="Working directory",
                     required=False,
                     default=".",
                 ),
                 ToolParameter(
                     name="timeout",
-                    type=Parametertype.intEGER,
+                    type=ParameterType.INTEGER,
                     description="Timeout (seconds)",
                     required=False,
                     default=30,

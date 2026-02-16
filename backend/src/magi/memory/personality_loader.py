@@ -360,7 +360,7 @@ class PersonalityLoader:
             name=config.name,
             role=config.archetype,
             backstory=config.backstory,
-            language_style=LanguageStyle.CasUAL,
+            language_style=LanguageStyle.CASUAL,
             use_emoji=config.use_emoji,
             catchphrases=config.keywords,
             greetings=[config.on_init, config.on_wake],

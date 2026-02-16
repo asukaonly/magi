@@ -33,9 +33,9 @@ from .models import (
     DomainExpertise,
 )
 from .personality_loader import PersonalityLoader, PersonalityConfig
-from .behavior_evolution import BehaviorEvolutionEngine, Satisfactionlevel
-from .emotional_state import EmotionalStateEngine, InteractionOutcome, Engagementlevel
-from .growth_memory import GrowthMemoryEngine, Milestonetype, Interactiontype
+from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
+from .emotional_state import EmotionalStateEngine, InteractionOutcome, EngagementLevel
+from .growth_memory import GrowthMemoryEngine, MilestoneType, InteractionType
 from .context_builder import ContextBuilder, Scenario
 from ..utils.runtime import get_runtime_paths
 
@@ -111,7 +111,7 @@ class SelfMemory:
 
             # recordinitializemilestone
             await self._growth_engine.record_milestone(
-                milestone_type=Milestonetype.FIRST_USE,
+                milestone_type=MilestoneType.FIRST_USE,
                 title=f"initialized as {self._personality_config.name}",
                 description=f"Personality {self.personality_name} loaded and initialized"
             )
@@ -158,9 +158,9 @@ class SelfMemory:
 
         # record切换milestone
         if self.enable_evolution and self._growth_engine and self._personality_config:
-            from .growth_memory import Milestonetype
+            from .growth_memory import MilestoneType
             await self._growth_engine.record_milestone(
-                milestone_type=Milestonetype.FIRST_USE,
+                milestone_type=MilestoneType.FIRST_USE,
                 title=f"Personality switched to {self._personality_config.name}",
                 description=f"Reloaded personality configuration: {self.personality_name}"
             )
@@ -193,7 +193,7 @@ class SelfMemory:
         self,
         task_id: str,
         task_category: str,
-        user_satisfaction: Satisfactionlevel = Satisfactionlevel.NEUTRAL,
+        user_satisfaction: SatisfactionLevel = SatisfactionLevel.NEUTRAL,
         clarification_count: int = 0,
         confirmation_count: int = 0,
         correction_count: int = 0,
@@ -227,7 +227,7 @@ class SelfMemory:
     async def update_after_interaction(
         self,
         outcome: InteractionOutcome,
-        user_engagement: Engagementlevel = Engagementlevel.MEDIUM,
+        user_engagement: EngagementLevel = EngagementLevel.MEDIUM,
         complexity: float = 0.5,
     ):
         """交互后updateemotionState"""
@@ -282,7 +282,7 @@ class SelfMemory:
 
         # Record interaction if evolution is enabled and user_id is available
         if user_id and self.enable_evolution:
-            from .growth_memory import Interactiontype
+            from .growth_memory import InteractionType
 
             # Determine outcome based on result
             outcome = "positive"
@@ -292,7 +292,7 @@ class SelfMemory:
             # Record the interaction
             await self.record_interaction(
                 user_id=user_id,
-                interaction_type=Interactiontype.CHAT,
+                interaction_type=InteractionType.CHAT,
                 outcome=outcome,
                 notes=f"Action: {type(action).__name__ if action else 'None'}"
             )
@@ -303,7 +303,7 @@ class SelfMemory:
     async def record_interaction(
         self,
         user_id: str,
-        interaction_type: Interactiontype,
+        interaction_type: InteractionType,
         outcome: str = "neutral",
         sentiment: float = 0.0,
         notes: str = ""
@@ -328,7 +328,7 @@ class SelfMemory:
             return asdict(profile)
         return None
 
-    async def get_milestones(self, milestone_type: Milestonetype = None, limit: int = 100) -> List[Dict]:
+    async def get_milestones(self, milestone_type: MilestoneType = None, limit: int = 100) -> List[Dict]:
         """getmilestone"""
         if not self.enable_evolution or self._growth_engine is None:
             return []

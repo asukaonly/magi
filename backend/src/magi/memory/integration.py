@@ -256,7 +256,7 @@ class MemoryIntegrationModule:
 
     # ==================== L1 eventfilterandconvert ====================
 
-    def _should_store_l1_event(self, Event: Event) -> bool:
+    def _should_store_l1_event(self, event: Event) -> bool:
         """
         判断eventis not应该storage到 L1
 
@@ -287,7 +287,7 @@ class MemoryIntegrationModule:
 
         return True
 
-    def _transform_to_business_event(self, Event: Event) -> Event:
+    def _transform_to_business_event(self, event: Event) -> Event:
         """
         将internaleventconvert为业务event
 
@@ -304,8 +304,8 @@ class MemoryIntegrationModule:
 
         # user_MESSAGE → user_input
         if event_type == EventTypes.USER_MESSAGE:
-            return event(
-                type=BusinessEventTypes.user_input,
+            return Event(
+                type=BusinessEventTypes.USER_INPUT,
                 data=event.data,
                 timestamp=event.timestamp,
                 source=event.source,
@@ -321,7 +321,7 @@ class MemoryIntegrationModule:
 
             if action_type == "ChatResponseAction":
                 # convert为 AI_RESPONSE
-                return event(
+                return Event(
                     type=BusinessEventTypes.AI_RESPONSE,
                     data={
                         "response": data.get("response", ""),
@@ -338,7 +338,7 @@ class MemoryIntegrationModule:
                 )
             else:
                 # otheractionconvert为 TOOL_INVOKED
-                return event(
+                return Event(
                     type=BusinessEventTypes.TOOL_INVOKED,
                     data={
                         "tool_name": action_type,
@@ -359,8 +359,8 @@ class MemoryIntegrationModule:
             level_value = event.level.value if hasattr(event.level, 'value') else event.level
             if level_value >= self.config.l1_error_min_level:
                 data = event.data if isinstance(event.data, dict) else {}
-                return event(
-                    type=BusinessEventTypes.system_error,
+                return Event(
+                    type=BusinessEventTypes.SYSTEM_ERROR,
                     data={
                         "error_code": data.get("error_code", "UNKNOWN"),
                         "error_message": data.get("error_message", str(data.get("error", ""))),
@@ -377,7 +377,7 @@ class MemoryIntegrationModule:
         # otherevent不convert
         return event
 
-    async def _handle_event(self, Event: Event):
+    async def _handle_event(self, event: Event):
         """
         processreceive到的event
 
@@ -443,7 +443,7 @@ class MemoryIntegrationModule:
 
     # ==================== L1: Raw event Storage ====================
 
-    async def _store_l1_event(self, Event: Event):
+    async def _store_l1_event(self, event: Event):
         """storage原始event到 L1 层"""
         try:
             event_id = await self.unified_memory.l1_raw.store(event)
@@ -454,7 +454,7 @@ class MemoryIntegrationModule:
 
     # ==================== L2: eventrelationship提取 ====================
 
-    async def _extract_l2_relations(self, Event: Event, event_id: str):
+    async def _extract_l2_relations(self, event: Event, event_id: str):
         """提取eventrelationship到 L2 层"""
         try:
             event_type = event.type
@@ -545,7 +545,7 @@ class MemoryIntegrationModule:
         except Exception as e:
             logger.error(f"L2 relation extraction failed: {e}")
 
-    def _extract_user_id_from_event(self, Event: Event) -> Optional[str]:
+    def _extract_user_id_from_event(self, event: Event) -> Optional[str]:
         """从event中提取user id"""
         # 从 data field中查找 user_id
         if isinstance(event.data, dict):
@@ -557,7 +557,7 @@ class MemoryIntegrationModule:
 
     # ==================== L3: Semantic Embeddingsgeneration ====================
 
-    async def _queue_l3_embedding(self, Event: Event, event_id: str):
+    async def _queue_l3_embedding(self, event: Event, event_id: str):
         """将event放入 L3 embeddingqueue"""
         try:
             if self._embedding_queue and not self._embedding_queue.full():
@@ -569,7 +569,7 @@ class MemoryIntegrationModule:
         except Exception as e:
             logger.error(f"L3 embedding queue failed: {e}")
 
-    async def _generate_l3_embedding(self, Event: Event, event_id: str):
+    async def _generate_l3_embedding(self, event: Event, event_id: str):
         """直接generation L3 embedding（synchronotttus）"""
         try:
             # 提取文本
@@ -623,7 +623,7 @@ class MemoryIntegrationModule:
 
         logger.info("L3 embedding processor stopped")
 
-    def _extract_text_from_event(self, Event: Event) -> str:
+    def _extract_text_from_event(self, event: Event) -> str:
         """从event中提取文本用于embedding"""
         parts = []
 
@@ -643,7 +643,7 @@ class MemoryIntegrationModule:
 
     # ==================== L4: summarycache ====================
 
-    def _cache_l4_event(self, Event: Event):
+    def _cache_l4_event(self, event: Event):
         """将eventadd到 L4 summarycache"""
         try:
             # convert为dictionaryformat
@@ -698,7 +698,7 @@ class MemoryIntegrationModule:
 
     # ==================== L5: Capability Extraction ====================
 
-    async def _handle_l5_capability(self, Event: Event):
+    async def _handle_l5_capability(self, event: Event):
         """process L5 capabilityrecordand提取"""
         try:
             event_type = event.type
@@ -712,7 +712,7 @@ class MemoryIntegrationModule:
         except Exception as e:
             logger.error(f"L5 capability handling failed: {e}")
 
-    def _record_task_capability(self, Event: Event):
+    def _record_task_capability(self, event: Event):
         """record任务complete到capabilitymemory"""
         data = event.data if isinstance(event.data, dict) else {}
         self.unified_memory.l5_capabilities.record_attempt(
@@ -724,7 +724,7 @@ class MemoryIntegrationModule:
             error=data.get("error"),
         )
 
-    def _record_action_attempt(self, Event: Event):
+    def _record_action_attempt(self, event: Event):
         """recordactionExecute尝试"""
         data = event.data if isinstance(event.data, dict) else {}
         action_type = data.get("action_type", "")
