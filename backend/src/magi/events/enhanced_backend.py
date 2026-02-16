@@ -133,7 +133,7 @@ class BoundedpriorityQueue:
             self._stats["rejected"] += 1
             return False
 
-        elif self.drop_policy == DropPolicy.oldEST:
+        elif self.drop_policy == DropPolicy.OLDEST:
             # 丢弃最old的
             if self._queue:
                 heapq.heappop(self._queue)

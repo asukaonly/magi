@@ -401,7 +401,7 @@ class EmotionalStateEngine:
         state.stress_level = max(0.0, state.stress_level + recovery["stress"])
 
         # restore后通常emotion变好
-        if state.current_mood in [MoodType.TIRED.value, MoodType.strESSED.value]:
+        if state.current_mood in [MoodType.TIRED.value, MoodType.STRESSED.value]:
             state.current_mood = MoodType.NEUTRAL.value
 
         state.focus_state = "notttrmal"
@@ -496,7 +496,7 @@ class EmotionalStateEngine:
             elif change > 0.1:
                 return MoodType.happy.value
             elif change < -0.15:
-                return MoodType.strESSED.value
+                return MoodType.STRESSED.value
             elif change < -0.05:
                 return MoodType.TIRED.value
             return MoodType.NEUTRAL.value

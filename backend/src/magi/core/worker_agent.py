@@ -101,10 +101,10 @@ class WorkerAgent(Agent):
         1. 启动后立即Execute任务
         2. 任务complete后自动stop
         """
-        if self.state == AgentState.runNING:
+        if self.state == AgentState.RUNNING:
             raise RuntimeError(f"Agent {self.config.name} is already running")
 
-        self.state = AgentState.startING
+        self.state = AgentState.STARTING
         self._start_time = asyncio.get_event_loop().time()
         self.metrics.start()
 
@@ -114,7 +114,7 @@ class WorkerAgent(Agent):
 
             # 任务complete后，根据ResultSettingState
             if self._error is None:
-                self.state = AgentState.stopPED
+                self.state = AgentState.STOPPED
             else:
                 self.state = AgentState.error
 
@@ -134,7 +134,7 @@ class WorkerAgent(Agent):
         # WorkerAgent通常在任务complete后自动stop
         # 如果需要手动stop，直接清理资源
         await self._cleanup()
-        self.state = AgentState.stopPED
+        self.state = AgentState.STOPPED
         self._stop_time = asyncio.get_event_loop().time()
 
     async def _execute_with_retry(self):
@@ -423,7 +423,7 @@ class WorkerAgent(Agent):
         start_time = time.time()
 
         # 等待任务complete（State变为stopPED或error）
-        while self.state == AgentState.startING:
+        while self.state == AgentState.STARTING:
             if timeout and (time.time() - start_time) > timeout:
                 return False
 

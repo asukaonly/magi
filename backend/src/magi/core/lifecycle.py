@@ -49,7 +49,7 @@ class GracefulShutdownManager:
         self._startup_stages: List[Dict[str, Any]] = []
 
         # 关闭State
-        self._shutdown_state = ShutdownState.runNING
+        self._shutdown_state = ShutdownState.RUNNING
 
         # 信号process
         self._original_handlers: Dict = {}
@@ -142,7 +142,7 @@ class GracefulShutdownManager:
         Returns:
             is notallstopsuccess
         """
-        if self._shutdown_state != ShutdownState.runNING:
+        if self._shutdown_state != ShutdownState.RUNNING:
             print(f"Already shutting down: {self._shutdown_state}")
             return True
 
@@ -294,7 +294,7 @@ class GracefulShutdownManager:
         Returns:
             is not正在关闭
         """
-        return self._shutdown_state != ShutdownState.runNING
+        return self._shutdown_state != ShutdownState.RUNNING
 
     def get_shutdown_state(self) -> ShutdownState:
         """
@@ -386,7 +386,7 @@ class AgentLifecycleManager:
         else:
             # SettingState
             from .agent import AgentState
-            self.master_agent.state = AgentState.startING
+            self.master_agent.state = AgentState.STARTING
             self.master_agent._start_time = time.time()
 
             # release启动event
@@ -396,7 +396,7 @@ class AgentLifecycleManager:
                     {"agent_type": "master", "name": self.master_agent.config.name}
                 )
 
-            self.master_agent.state = AgentState.runNING
+            self.master_agent.state = AgentState.RUNNING
 
     async def _stop_master_agent(self):
         """stopMaster Agent"""
@@ -416,7 +416,7 @@ class AgentLifecycleManager:
 
             # SettingState
             from .agent import AgentState
-            self.master_agent.state = AgentState.stopPED
+            self.master_agent.state = AgentState.STOPPED
             self.master_agent._stop_time = time.time()
 
     async def _start_task_agent(self, task_agent):
@@ -427,9 +427,9 @@ class AgentLifecycleManager:
         else:
             # SettingState
             from .agent import AgentState
-            task_agent.state = AgentState.startING
+            task_agent.state = AgentState.STARTING
             task_agent._start_time = time.time()
-            task_agent.state = AgentState.runNING
+            task_agent.state = AgentState.RUNNING
 
     async def _stop_task_agent(self, task_agent):
         """stopTask Agent"""
@@ -439,7 +439,7 @@ class AgentLifecycleManager:
         else:
             # SettingState
             from .agent import AgentState
-            task_agent.state = AgentState.stopPED
+            task_agent.state = AgentState.STOPPED
             task_agent._stop_time = time.time()
 
     async def startup(self) -> bool:

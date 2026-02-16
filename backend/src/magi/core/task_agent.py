@@ -117,7 +117,7 @@ class TaskAgent(Agent):
 
         Continuously scan for pending tasks assigned to self and execute them
         """
-        while self.state == AgentState.runNING:
+        while self.state == AgentState.RUNNING:
             try:
                 # Get pending tasks assigned to this TaskAgent
                 pending_tasks = await self.task_database.get_pending_tasks(

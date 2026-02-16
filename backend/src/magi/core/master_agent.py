@@ -123,7 +123,7 @@ class MasterAgent(Agent):
         3. Dispatch tasks
         4. Health check
         """
-        while self.state == AgentState.runNING:
+        while self.state == AgentState.RUNNING:
             try:
                 # 1. Health check (including resource alert handling)
                 await self._check_system_health()
@@ -277,7 +277,7 @@ class MasterAgent(Agent):
             # Update task status to processing
             await self.task_database.update_task_status(
                 task.task_id,
-                TaskStatus.processING,
+                TaskStatus.PROCESSING,
                 assigned_to=str(task_agent.agent_id),
             )
 
@@ -403,7 +403,7 @@ class MasterAgent(Agent):
         # Filter running TaskAgents
         running_agents = [
             agent for agent in self.task_agents
-            if agent.state == AgentState.runNING
+            if agent.state == AgentState.RUNNING
         ]
 
         if not running_agents:
@@ -427,7 +427,7 @@ class MasterAgent(Agent):
         return {
             agent.agent_id: agent.get_pending_count()
             for agent in self.task_agents
-            if agent.state == AgentState.runNING
+            if agent.state == AgentState.RUNNING
         }
 
     async def get_stats(self) -> Dict[str, Any]:

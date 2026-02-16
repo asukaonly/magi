@@ -100,7 +100,7 @@ class DomainExpertise:
 class CognitionProfile:
     """认知capability层"""
     primary_style: ThinkingStyle = ThinkingStyle.LOGICAL
-    secondary_style: ThinkingStyle = ThinkingStyle.intUITIVE
+    secondary_style: ThinkingStyle = ThinkingStyle.INTUITIVE
     risk_preference: RiskPreference = RiskPreference.BALANCED
     expertise: List[DomainExpertise] = field(default_factory=list)
     reasoning_depth: str = "medium"

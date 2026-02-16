@@ -318,13 +318,13 @@ class PersonalityLoader:
         comm_distance = CommunicationDistance.EQUAL
         rel_lower = config.user_relationship.lower()
         if "superior" in rel_lower or "subservient" in rel_lower:
-            comm_distance = CommunicationDistance.subSERVIENT
+            comm_distance = CommunicationDistance.SUBSERVIENT
         elif "intimate" in rel_lower or "protector" in rel_lower:
-            comm_distance = CommunicationDistance.intIMATE
+            comm_distance = CommunicationDistance.INTIMATE
         elif "respectful" in rel_lower or "mentor" in rel_lower:
             comm_distance = CommunicationDistance.RESPECTFUL
         elif "detached" in rel_lower or "hostile" in rel_lower:
-            comm_distance = CommunicationDistance.detachED
+            comm_distance = CommunicationDistance.DETACHED
 
         # mapping work_ethic + confidence 到 value_alignment
         value_alignment = ValueAlignment.NEUTRAL_GOOD
@@ -392,7 +392,7 @@ class PersonalityLoader:
         if "creative" in config.opinion_strength.lower():
             primary_style = ThinkingStyle.CREATIVE
         elif "intuitive" in config.empathy_level.lower():
-            primary_style = ThinkingStyle.intUITIVE
+            primary_style = ThinkingStyle.INTUITIVE
 
         # 根据Work ethic推断风险preference
         risk_preference = RiskPreference.BALANCED
@@ -403,7 +403,7 @@ class PersonalityLoader:
 
         return CognitionProfile(
             primary_style=primary_style,
-            secondary_style=ThinkingStyle.intUITIVE,
+            secondary_style=ThinkingStyle.INTUITIVE,
             risk_preference=risk_preference,
             expertise=[],  # new schema 不再有 expertise list
             reasoning_depth="medium",

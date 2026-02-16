@@ -47,7 +47,7 @@ class Agent:
             config: AgentConfiguration
         """
         self.config = config
-        self.state = AgentState.idLE
+        self.state = AgentState.IDLE
         self._start_time: Optional[float] = None
         self._stop_time: Optional[float] = None
 
@@ -58,17 +58,17 @@ class Agent:
         Raises:
             Runtimeerror: 如果Agent已经在run
         """
-        if self.state == AgentState.runNING:
+        if self.state == AgentState.RUNNING:
             raise RuntimeError(f"Agent {self.config.name} is already running")
 
-        self.state = AgentState.startING
+        self.state = AgentState.STARTING
         self._start_time = asyncio.get_event_loop().time()
 
         try:
             # 子Class覆盖此MethodImplementation具体启动逻辑
             await self._on_start()
 
-            self.state = AgentState.runNING
+            self.state = AgentState.RUNNING
 
         except Exception as e:
             self.state = AgentState.error
@@ -81,16 +81,16 @@ class Agent:
         Raises:
             Runtimeerror: 如果Agent未在run
         """
-        if self.state != AgentState.runNING:
+        if self.state != AgentState.RUNNING:
             raise RuntimeError(f"Agent {self.config.name} is not running")
 
-        self.state = AgentState.stopPING
+        self.state = AgentState.STOPPING
 
         try:
             # 子Class覆盖此MethodImplementation具体stop逻辑
             await self._on_stop()
 
-            self.state = AgentState.stopPED
+            self.state = AgentState.STOPPED
             self._stop_time = asyncio.get_event_loop().time()
 
         except Exception as e:
@@ -104,10 +104,10 @@ class Agent:
         Raises:
             Runtimeerror: 如果Agent未在run
         """
-        if self.state != AgentState.runNING:
+        if self.state != AgentState.RUNNING:
             raise RuntimeError(f"Agent {self.config.name} is not running")
 
-        self.state = AgentState.pauseD
+        self.state = AgentState.PAUSED
 
         # 子Class覆盖此MethodImplementation具体pause逻辑
         await self._on_pause()
@@ -119,10 +119,10 @@ class Agent:
         Raises:
             Runtimeerror: 如果Agent未pause
         """
-        if self.state != AgentState.pauseD:
+        if self.state != AgentState.PAUSED:
             raise RuntimeError(f"Agent {self.config.name} is not paused")
 
-        self.state = AgentState.runNING
+        self.state = AgentState.RUNNING
 
         # 子Class覆盖此MethodImplementation具体restore逻辑
         await self._on_resume()

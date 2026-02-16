@@ -232,7 +232,7 @@ class TaskDatabase:
 
         notttw = time.time()
 
-        if status == TaskStatus.processING:
+        if status == TaskStatus.PROCESSING:
             update_fields.append("started_at = ?")
             update_values.append(notttw)
         elif status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.timeout, TaskStatus.CANCELLED]:
@@ -376,7 +376,7 @@ class TaskDatabase:
         """清理old任务"""
         await self._init_db()
 
-        keep_status = keep_status or [TaskStatus.PENDING, TaskStatus.processING]
+        keep_status = keep_status or [TaskStatus.PENDING, TaskStatus.PROCESSING]
 
         cutoff_time = time.time() - (days * 86400)
 
