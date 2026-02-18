@@ -74,7 +74,7 @@ def _create_llm_adapter(config: AppConfig):
     Returns:
         LLMAdapter instance
     """
-    llm_config = config.agent.llm
+    llm_config = config.llm
     provider = llm_config.provider.value  # Get string value from enum
     api_key = llm_config.api_key
     base_url = llm_config.base_url
@@ -135,7 +135,7 @@ async def _initialize_three_layer_architecture(config: AppConfig):
 
     try:
         # Check API key
-        if not config.agent.llm.api_key:
+        if not config.llm.api_key:
             logger.warning("=" * 60)
             logger.warning("LLM_API_KEY not set!")
             logger.warning("Agent will NOT be initialized.")
@@ -296,7 +296,7 @@ async def _initialize_chat_agent_legacy(config: AppConfig):
         logger.info(f"Runtime directory: {runtime_paths.base_dir}")
 
         # Check API key
-        if not config.agent.llm.api_key:
+        if not config.llm.api_key:
             logger.warning("=" * 60)
             logger.warning("LLM_API_KEY not set!")
             logger.warning("ChatAgent will NOT be initialized.")
