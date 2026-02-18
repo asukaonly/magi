@@ -3,9 +3,13 @@ System Settings Tool - Query and update configuration values.
 
 Actions:
 - list: Show available configuration paths
-- get: Read a configuration value
-- set: Update a runtime configuration value
-- save-env: Save an environment variable to .env file (for API keys, etc.)
+- get: Read a configuration value (sensitive fields blocked)
+- set: Update a configuration value (sensitive fields allowed)
+- save-env: Save to .env file for persistence
+
+Security:
+- Sensitive fields (api_key, password, etc.) can be SET but cannot be READ
+- This allows AI to configure API keys without exposing existing values
 """
 import os
 from pathlib import Path
@@ -291,11 +295,11 @@ class SystemSettingsTool(Tool):
             description=(
                 "Manage system configuration. "
                 "Actions: 'list' (show paths), 'get' (read value), 'set' (update value), "
-                "'save-env' (save API key to .env file). "
-                "Use 'save-env' for setting API keys like QWEATHER_API_KEY."
+                "'save-env' (save to .env file). "
+                "Note: Sensitive fields (api_key, etc.) can be SET but cannot be READ for security."
             ),
             category="system",
-            version="1.1.0",
+            version="1.2.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
@@ -308,7 +312,7 @@ class SystemSettingsTool(Tool):
                 ToolParameter(
                     name="path",
                     type=ParameterType.STRING,
-                    description="Config path (e.g., 'agent.llm.model'). For 'save-env', use env var name here.",
+                    description="Config path (e.g., 'tools.weather.api_key') or env var name for 'save-env'",
                     required=False,
                 ),
                 ToolParameter(
@@ -324,12 +328,12 @@ class SystemSettingsTool(Tool):
                     "output": "Shows available configuration paths",
                 },
                 {
-                    "input": {"action": "save-env", "path": "QWEATHER_API_KEY", "value": "your-api-key"},
-                    "output": "Saves API key to .env file and reloads config",
+                    "input": {"action": "set", "path": "tools.weather.api_key", "value": "your-api-key"},
+                    "output": "Sets weather API key (runtime only)",
                 },
                 {
-                    "input": {"action": "get", "path": "agent.llm.model"},
-                    "output": "Returns the current LLM model name",
+                    "input": {"action": "save-env", "path": "QWEATHER_API_KEY", "value": "your-api-key"},
+                    "output": "Saves API key to .env file (persistent)",
                 },
             ],
             timeout=10,
@@ -413,10 +417,11 @@ class SystemSettingsTool(Tool):
                 error_code="MISSING_PATH",
             )
 
+        # Sensitive fields cannot be read (but can be set)
         if _is_sensitive_field(path):
             return ToolResult(
                 success=False,
-                error=f"Access denied: '{path}' is sensitive. Use 'save-env' to set API keys.",
+                error=f"Access denied: '{path}' is sensitive and cannot be read. You can set it with 'set' or 'save-env' action.",
                 error_code="ACCESS_DENIED",
             )
 
@@ -440,7 +445,7 @@ class SystemSettingsTool(Tool):
         )
 
     def _handle_set(self, path: Optional[str], value: Optional[str]) -> ToolResult:
-        """Handle set action."""
+        """Handle set action - allows setting sensitive fields (like API keys)."""
         if not path:
             return ToolResult(
                 success=False,
@@ -455,12 +460,8 @@ class SystemSettingsTool(Tool):
                 error_code="MISSING_VALUE",
             )
 
-        if _is_sensitive_field(path):
-            return ToolResult(
-                success=False,
-                error=f"Cannot set '{path}' directly. Use 'save-env' action with the env var name.",
-                error_code="ACCESS_DENIED",
-            )
+        # Note: Sensitive fields CAN be set (but not read)
+        # This allows AI to configure API keys without exposing existing values
 
         if _is_read_only_field(path):
             return ToolResult(
