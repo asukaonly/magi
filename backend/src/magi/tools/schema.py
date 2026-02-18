@@ -79,6 +79,15 @@ class ToolResult(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolConfigSpec(BaseModel):
+    """Tool-managed configuration item."""
+    path: str = Field(..., description="Relative config path managed by the tool")
+    type: str = Field(default="string", description="Config value type")
+    description: str = Field(default="", description="Config item description")
+    sensitive: bool = Field(default=False, description="Can be set but not read")
+    read_only: bool = Field(default=False, description="Cannot be changed")
+
+
 class Tool(ABC):
     """
     toolBase class
@@ -295,6 +304,50 @@ class Tool(ABC):
             True if the tool is ready to use, False otherwise
         """
         return True  # Default: always ready
+
+    def list_config_specs(self) -> List[ToolConfigSpec]:
+        """
+        Return tool-managed configuration specs.
+
+        Paths are relative to the tool namespace (for example:
+        providers.brave.api_key). Tool settings can then be routed by
+        system-settings via `tool.<tool_name>.<relative_path>`.
+        """
+        return []
+
+    async def get_config_value(
+        self,
+        path: str,
+        context: ToolExecutionContext
+    ) -> ToolResult:
+        """
+        Get tool-managed configuration value.
+
+        Subclasses can override when tool config is readable at runtime.
+        """
+        return ToolResult(
+            success=False,
+            error=f"Tool '{self.schema.name if self.schema else 'unknown'}' does not support reading tool-scoped config",
+            error_code="UNSUPPORTED",
+        )
+
+    async def update_config(
+        self,
+        path: str,
+        value: Any,
+        context: ToolExecutionContext
+    ) -> ToolResult:
+        """
+        Update tool-managed configuration value.
+
+        Subclasses should override this for tool-specific persistence and
+        validation logic.
+        """
+        return ToolResult(
+            success=False,
+            error=f"Tool '{self.schema.name if self.schema else 'unknown'}' does not support updating tool-scoped config",
+            error_code="UNSUPPORTED",
+        )
 
     @classmethod
     def from_claude_format(cls, tool_def: Dict[str, Any]) -> 'Tool':

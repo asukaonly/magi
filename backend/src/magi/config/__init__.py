@@ -73,6 +73,7 @@ from .models import (
     # Backward compatibility
     Config,
 )
+from .introspection import ConfigPathSpec, list_app_config_specs
 
 __all__ = [
     # Main API
@@ -90,6 +91,8 @@ __all__ = [
 
     # Mappings
     "ENV_MAPPINGS",
+    "ConfigPathSpec",
+    "list_app_config_specs",
 
     # Configuration models
     "AppConfig",

@@ -3,7 +3,7 @@ Weather Tool - Query weather using multiple providers
 """
 from typing import Dict, Any, Optional
 
-from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolConfigSpec
 from ..providers.base import ProviderConfig
 from ..providers.weather import QWeatherProvider
 from ...config import get_config, save_config
@@ -24,30 +24,18 @@ class WeatherTool(MultiProviderTool):
             description=(
                 "Query weather information for a specific location. "
                 "Returns current weather including temperature, humidity, wind, and more.\n\n"
-                "Actions:\n"
-                "- query (default): Get weather for a location\n"
-                "- config: Manage tool configuration (set/get API key)\n\n"
-                "To configure API key:\n"
-                "  {\"action\": \"config\", \"config_action\": \"set\", \"api_key\": \"your-api-key\"}"
+                "Configure provider settings via system-settings tool "
+                "(for example: tool.weather.providers.qweather.api_key)."
             ),
             category="information",
             version="1.1.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
-                    name="action",
-                    type=ParameterType.STRING,
-                    description="Action: 'query' (get weather) or 'config' (manage settings)",
-                    required=False,
-                    default="query",
-                    enum=["query", "config"],
-                ),
-                # Query parameters
-                ToolParameter(
                     name="location",
                     type=ParameterType.STRING,
-                    description="Location to query (for 'query' action). Can be city name or coordinates.",
-                    required=False,
+                    description="Location to query. Can be city name or coordinates.",
+                    required=True,
                 ),
                 ToolParameter(
                     name="lang",
@@ -57,20 +45,6 @@ class WeatherTool(MultiProviderTool):
                     default="zh",
                     enum=["zh", "en"],
                 ),
-                # Config parameters
-                ToolParameter(
-                    name="config_action",
-                    type=ParameterType.STRING,
-                    description="Config action (for 'config' action): 'get' or 'set'",
-                    required=False,
-                    enum=["get", "set"],
-                ),
-                ToolParameter(
-                    name="api_key",
-                    type=ParameterType.STRING,
-                    description="API key to set (for 'config' action with 'set')",
-                    required=False,
-                ),
             ],
             examples=[
                 {
@@ -78,8 +52,8 @@ class WeatherTool(MultiProviderTool):
                     "output": "Returns current weather in Beijing",
                 },
                 {
-                    "input": {"action": "config", "config_action": "set", "api_key": "xxx"},
-                    "output": "Sets the weather API key",
+                    "input": {"location": "Shanghai", "lang": "en"},
+                    "output": "Returns weather in Shanghai (English)",
                 },
             ],
             timeout=15,
@@ -103,80 +77,93 @@ class WeatherTool(MultiProviderTool):
         config = get_config()
         return config.tools.weather.default_provider
 
-    def _get_config_path(self, provider_name: str) -> str:
-        """Get the config path for a provider's API key."""
-        return f"tools.weather.providers.{provider_name}.api_key"
-
     async def execute(
         self,
         parameters: Dict[str, Any],
         context: ToolExecutionContext
     ) -> ToolResult:
-        """Execute weather query or config action"""
-        action = parameters.get("action", "query")
-
-        if action == "config":
-            return await self._handle_config(parameters)
-
+        """Execute weather query."""
         return await self._handle_query(parameters)
 
-    async def _handle_config(self, parameters: Dict[str, Any]) -> ToolResult:
-        """Handle configuration actions."""
-        config_action = parameters.get("config_action")
+    def list_config_specs(self) -> list[ToolConfigSpec]:
+        """Describe tool-scoped config entries managed by this tool."""
+        return [
+            ToolConfigSpec(
+                path="default_provider",
+                type="string",
+                description="Default weather provider",
+            ),
+            ToolConfigSpec(
+                path="providers.{provider}.api_key",
+                type="string",
+                description="Provider API key",
+                sensitive=True,
+            ),
+            ToolConfigSpec(
+                path="providers.{provider}.base_url",
+                type="string",
+                description="Provider base URL (optional)",
+            ),
+        ]
 
-        if not config_action:
-            return ToolResult(
-                success=False,
-                error="Missing 'config_action'. Use 'get' or 'set'.",
-                error_code="MISSING_CONFIG_ACTION",
-            )
+    async def get_config_value(self, path: str, context: ToolExecutionContext) -> ToolResult:
+        """Read non-sensitive tool-scoped config values."""
+        config = get_config().tools.weather
+        if path == "default_provider":
+            return ToolResult(success=True, data=config.default_provider)
 
-        provider_name = self._get_default_provider()
-
-        if config_action == "get":
-            # Return current config status (not the actual key for security)
-            available = self.get_available_providers()
-            return ToolResult(
-                success=True,
-                data={
-                    "provider": provider_name,
-                    "configured": provider_name in available,
-                    "message": f"Provider '{provider_name}' is {'configured' if provider_name in available else 'not configured'}. "
-                               f"Use config_action 'set' with api_key to configure.",
-                },
-            )
-
-        if config_action == "set":
-            api_key = parameters.get("api_key")
-            if not api_key:
-                return ToolResult(
-                    success=False,
-                    error="Missing 'api_key'. Provide the API key to set.",
-                    error_code="MISSING_API_KEY",
-                )
-
-            # Save the API key
-            config_path = self._get_config_path(provider_name)
-            if save_config({config_path: api_key}):
-                return ToolResult(
-                    success=True,
-                    data={
-                        "provider": provider_name,
-                        "configured": True,
-                        "message": f"API key for '{provider_name}' has been saved successfully.",
-                    },
-                )
-            else:
-                return ToolResult(
-                    success=False,
-                    error="Failed to save configuration",
-                    error_code="SAVE_FAILED",
-                )
+        if path.startswith("providers.") and path.endswith(".base_url"):
+            provider_name = path.split(".")[1]
+            return ToolResult(success=True, data=config.get_provider_config(provider_name).base_url)
 
         return ToolResult(
             success=False,
-            error=f"Unknown config_action: {config_action}. Use 'get' or 'set'.",
-            error_code="INVALID_CONFIG_ACTION",
+            error=f"Unsupported config path for weather: {path}",
+            error_code="UNSUPPORTED_PATH",
+        )
+
+    async def update_config(self, path: str, value: Any, context: ToolExecutionContext) -> ToolResult:
+        """Update tool-scoped config values via tool-owned validation logic."""
+        if path == "default_provider":
+            provider_name = str(value)
+            if provider_name not in self.get_all_provider_names():
+                return ToolResult(
+                    success=False,
+                    error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
+                    error_code="INVALID_PROVIDER",
+                )
+            if save_config({"tools.weather.default_provider": provider_name}):
+                return ToolResult(success=True, data={"path": path, "value": provider_name})
+            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+
+        if path.startswith("providers.") and path.endswith(".api_key"):
+            provider_name = path.split(".")[1]
+            if provider_name not in self.get_all_provider_names():
+                return ToolResult(
+                    success=False,
+                    error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
+                    error_code="INVALID_PROVIDER",
+                )
+            if save_config({f"tools.weather.providers.{provider_name}.api_key": str(value)}):
+                return ToolResult(success=True, data={"provider": provider_name, "configured": True})
+            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+
+        if path.startswith("providers.") and path.endswith(".base_url"):
+            provider_name = path.split(".")[1]
+            if provider_name not in self.get_all_provider_names():
+                return ToolResult(
+                    success=False,
+                    error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
+                    error_code="INVALID_PROVIDER",
+                )
+            if save_config({f"tools.weather.providers.{provider_name}.base_url": str(value)}):
+                return ToolResult(success=True, data={"provider": provider_name, "base_url": str(value)})
+            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+
+        return ToolResult(
+            success=False,
+            error=f"Unsupported config path for weather: {path}",
+            error_code="UNSUPPORTED_PATH",
         )
 
     async def _handle_query(self, parameters: Dict[str, Any]) -> ToolResult:

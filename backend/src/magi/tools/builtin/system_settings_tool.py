@@ -1,18 +1,10 @@
 """
-System Settings Tool - Query and update configuration values.
-
-Actions:
-- list: Show available configuration paths
-- get: Read a configuration value (sensitive fields blocked)
-- set: Update a configuration value (persisted to ~/.magi/config/agent.yaml)
-
-Security:
-- Sensitive fields (api_key, password, etc.) can be SET but cannot be READ
-- This allows AI to configure API keys without exposing existing values
+System Settings Tool - Unified app/tool configuration entrypoint.
 """
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
+
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
-from ...config import get_config, save_config, get_config_file_path, AppConfig, ENV_MAPPINGS
+from ...config import get_config, save_config, get_config_file_path, ENV_MAPPINGS, list_app_config_specs
 
 
 # Sensitive field patterns (can be set but not read)
@@ -61,34 +53,6 @@ def _get_nested_value(obj: Any, path: str) -> tuple[bool, Any, str]:
     return True, current, ""
 
 
-def _set_nested_value(obj: Any, path: str, value: Any) -> tuple[bool, str]:
-    """Set a nested value using dot notation."""
-    parts = path.split(".")
-    current = obj
-
-    for part in parts[:-1]:
-        if hasattr(current, part):
-            current = getattr(current, part)
-        elif isinstance(current, dict) and part in current:
-            current = current[part]
-        else:
-            return False, f"Field '{part}' not found in path '{path}'"
-
-    final_field = parts[-1]
-
-    if hasattr(current, final_field):
-        try:
-            setattr(current, final_field, value)
-            return True, ""
-        except Exception as e:
-            return False, f"Failed to set field '{final_field}': {str(e)}"
-    elif isinstance(current, dict):
-        current[final_field] = value
-        return True, ""
-    else:
-        return False, f"Cannot set field '{final_field}' on {type(current).__name__}"
-
-
 def _serialize_value(value: Any, mask_secrets: bool = True) -> Any:
     """Serialize a value for output, masking sensitive data."""
     if value is None:
@@ -118,129 +82,6 @@ def _serialize_value(value: Any, mask_secrets: bool = True) -> Any:
     return str(value)
 
 
-def _get_config_structure() -> Dict[str, Any]:
-    """Get the structure of available config paths."""
-    return {
-        "llm": {
-            "description": "LLM configuration",
-            "fields": {
-                "provider": "LLM provider (openai, anthropic, glm)",
-                "model": "Model name",
-                "api_key": "API key (sensitive)",
-                "base_url": "Custom API endpoint",
-                "temperature": "Sampling temperature",
-                "max_tokens": "Maximum tokens",
-                "timeout": "Request timeout",
-            },
-        },
-        "agent": {
-            "description": "Agent configuration",
-            "fields": {
-                "name": "Agent name",
-                "num_task_agents": "Number of task agents",
-                "loop_interval": "Main loop interval",
-            },
-            "children": {
-                "memory": {
-                    "description": "Memory configuration",
-                    "fields": {
-                        "db_path": "Database path",
-                        "retention_days": "Retention days",
-                        "enable_l1_raw": "Enable L1 storage",
-                        "enable_l3_embeddings": "Enable L3 embeddings",
-                    },
-                },
-                "personality": {
-                    "description": "Personality configuration",
-                    "fields": {
-                        "name": "Personality name",
-                        "enable_evolution": "Enable evolution",
-                    },
-                },
-            },
-        },
-        "tools": {
-            "description": "Tool configuration",
-            "children": {
-                "weather": {
-                    "description": "Weather tool configuration",
-                    "fields": {
-                        "enabled": "Enable weather tool",
-                        "default_provider": "Default weather provider",
-                    },
-                    "children": {
-                        "providers": {
-                            "description": "Weather providers",
-                            "children": {
-                                "qweather": {
-                                    "description": "QWeather (和风天气) provider",
-                                    "fields": {
-                                        "api_key": "API key (sensitive)",
-                                        "base_url": "API host (optional)",
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-                "web_search": {
-                    "description": "Web search tool configuration",
-                    "fields": {
-                        "enabled": "Enable web search",
-                        "default_provider": "Default search provider",
-                    },
-                    "children": {
-                        "providers": {
-                            "description": "Search providers",
-                            "children": {
-                                "brave": {
-                                    "description": "Brave Search provider",
-                                    "fields": {
-                                        "api_key": "API key (sensitive)",
-                                        "base_url": "API endpoint (optional)",
-                                    },
-                                },
-                                "perplexity": {
-                                    "description": "Perplexity AI provider",
-                                    "fields": {
-                                        "api_key": "API key (sensitive)",
-                                        "base_url": "API endpoint (optional)",
-                                    },
-                                },
-                                "tavily": {
-                                    "description": "Tavily provider",
-                                    "fields": {
-                                        "api_key": "API key (sensitive)",
-                                        "base_url": "API endpoint (optional)",
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-        "features": {
-            "description": "Feature flags",
-            "fields": {
-                "enable_three_layer_arch": "Enable three-layer architecture",
-                "enable_skills": "Enable skills",
-                "enable_websocket": "Enable WebSocket",
-            },
-        },
-        "server": {
-            "description": "Server configuration",
-            "fields": {
-                "host": "Server host",
-                "port": "Server port",
-                "debug": "Debug mode",
-            },
-        },
-        "debug": "Global debug flag",
-        "log_level": "Logging level",
-    }
-
-
 class SystemSettingsTool(Tool):
     """
     System Settings Tool
@@ -254,13 +95,13 @@ class SystemSettingsTool(Tool):
         self.schema = ToolSchema(
             name="system-settings",
             description=(
-                "Manage system configuration. "
-                "Actions: 'list' (show paths), 'get' (read), 'set' (update and save). "
-                "Config is persisted to ~/.magi/config/agent.yaml. "
-                "Sensitive fields (api_key) can be SET but not READ."
+                "Unified settings tool for application and tool configuration. "
+                "Actions: 'list' (discover paths), 'get' (read value), 'set' (update value). "
+                "Use path prefixes: 'app.' for global config and 'tool.<tool_name>.' for tool-scoped config. "
+                "Sensitive fields (api_key/secret/token/password) can be set but not read."
             ),
             category="system",
-            version="2.0.0",
+            version="3.0.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
@@ -273,7 +114,7 @@ class SystemSettingsTool(Tool):
                 ToolParameter(
                     name="path",
                     type=ParameterType.STRING,
-                    description="Config path (e.g., 'tools.weather.api_key', 'llm.model')",
+                    description="Path to read/update (e.g., 'app.llm.model', 'tool.web-search.providers.brave.api_key')",
                     required=False,
                 ),
                 ToolParameter(
@@ -286,18 +127,18 @@ class SystemSettingsTool(Tool):
             examples=[
                 {
                     "input": {"action": "list"},
-                    "output": "Shows available configuration paths",
+                    "output": "Shows available app.* and tool.* configuration paths",
                 },
                 {
-                    "input": {"action": "set", "path": "tools.weather.providers.qweather.api_key", "value": "your-key"},
-                    "output": "Sets QWeather API key and saves to config file",
+                    "input": {"action": "set", "path": "app.llm.model", "value": "gpt-4o-mini"},
+                    "output": "Updates global app config and persists to runtime config file",
                 },
                 {
-                    "input": {"action": "set", "path": "tools.web_search.providers.brave.api_key", "value": "your-key"},
-                    "output": "Sets Brave Search API key and saves to config file",
+                    "input": {"action": "set", "path": "tool.web-search.providers.brave.api_key", "value": "your-key"},
+                    "output": "Routes update to web-search tool config logic",
                 },
                 {
-                    "input": {"action": "get", "path": "llm.model"},
+                    "input": {"action": "get", "path": "app.llm.model"},
                     "output": "Returns the current LLM model name",
                 },
             ],
@@ -321,10 +162,10 @@ class SystemSettingsTool(Tool):
             return self._handle_list()
 
         if action == "get":
-            return self._handle_get(path)
+            return await self._handle_get(path, context)
 
         if action == "set":
-            return self._handle_set(path, value)
+            return await self._handle_set(path, value, context)
 
         return ToolResult(
             success=False,
@@ -332,10 +173,72 @@ class SystemSettingsTool(Tool):
             error_code="INVALID_ACTION",
         )
 
+    def _normalize_path(self, path: str) -> str:
+        """Normalize path for backward-compatible app routes."""
+        if path.startswith("app.") or path.startswith("tool."):
+            return path
+
+        app_roots = {"llm", "agent", "server", "features", "tools", "debug", "log_level"}
+        if path.split(".", 1)[0] in app_roots:
+            return f"app.{path}"
+        return path
+
+    def _parse_scope(self, raw_path: str) -> Tuple[bool, str, str, str]:
+        """Parse path into scope and content."""
+        path = self._normalize_path(raw_path)
+        if path.startswith("app."):
+            return True, "app", "", path[4:]
+
+        if path.startswith("tool."):
+            remainder = path[5:]
+            if "." not in remainder:
+                return False, "", "", "Tool path must be in format 'tool.<tool_name>.<field_path>'"
+            tool_name, tool_path = remainder.split(".", 1)
+            if not tool_name or not tool_path:
+                return False, "", "", "Tool path must include both tool name and field path"
+            return True, "tool", tool_name, tool_path
+
+        return (
+            False,
+            "",
+            "",
+            "Invalid path prefix. Use 'app.<path>' or 'tool.<tool_name>.<path>'",
+        )
+
+    def _collect_tool_specs(self) -> List[Dict[str, Any]]:
+        """Collect tool-scoped config specs from registered tools."""
+        from ..registry import tool_registry
+
+        specs: List[Dict[str, Any]] = []
+        for tool_name in tool_registry.list_tools():
+            if tool_name == self.schema.name:
+                continue
+
+            tool = tool_registry.get_tool(tool_name)
+            if not tool:
+                continue
+
+            for item in tool.list_config_specs():
+                full_path = f"tool.{tool_name}.{item.path}"
+                specs.append(
+                    {
+                        "path": full_path,
+                        "type": item.type,
+                        "description": item.description,
+                        "sensitive": item.sensitive,
+                        "read_only": item.read_only,
+                        "scope": "tool",
+                        "tool": tool_name,
+                    }
+                )
+
+        return specs
+
     def _handle_list(self) -> ToolResult:
         """Handle list action."""
-        structure = _get_config_structure()
-        available_paths = self._flatten_structure(structure, "")
+        app_specs = list_app_config_specs(prefix="app")
+        tool_specs = self._collect_tool_specs()
+        available_paths = sorted([item.path for item in app_specs] + [item["path"] for item in tool_specs])
 
         # Get config file path
         config_path = str(get_config_file_path())
@@ -346,33 +249,21 @@ class SystemSettingsTool(Tool):
         return ToolResult(
             success=True,
             data={
-                "structure": structure,
+                "app_paths": [item.path for item in app_specs],
+                "tool_paths": [item["path"] for item in tool_specs],
+                "app_specs": [item.model_dump() for item in app_specs],
+                "tool_specs": tool_specs,
                 "available_paths": available_paths,
                 "env_vars": env_vars,
                 "config_file": config_path,
-                "summary": f"Config file: {config_path}. {len(available_paths)} paths available.",
+                "summary": (
+                    f"Config file: {config_path}. Found {len(app_specs)} app paths and "
+                    f"{len(tool_specs)} tool paths. Use 'set' to update."
+                ),
             },
         )
 
-    def _flatten_structure(self, structure: Dict, prefix: str) -> List[str]:
-        """Flatten config structure into paths."""
-        paths = []
-
-        for key, value in structure.items():
-            current_path = f"{prefix}.{key}" if prefix else key
-
-            if isinstance(value, dict):
-                if "fields" in value:
-                    for field in value["fields"]:
-                        paths.append(f"{current_path}.{field}")
-                if "children" in value:
-                    paths.extend(self._flatten_structure(value["children"], current_path))
-            else:
-                paths.append(current_path)
-
-        return paths
-
-    def _handle_get(self, path: Optional[str]) -> ToolResult:
+    async def _handle_get(self, path: Optional[str], context: ToolExecutionContext) -> ToolResult:
         """Handle get action."""
         if not path:
             return ToolResult(
@@ -381,34 +272,68 @@ class SystemSettingsTool(Tool):
                 error_code="MISSING_PATH",
             )
 
+        normalized_path = self._normalize_path(path)
+
         # Sensitive fields cannot be read
-        if _is_sensitive_field(path):
+        if _is_sensitive_field(normalized_path):
             return ToolResult(
                 success=False,
-                error=f"Access denied: '{path}' is sensitive and cannot be read. You can set it with 'set' action.",
+                error=f"Access denied: '{normalized_path}' is sensitive and cannot be read. You can set it with 'set' action.",
                 error_code="ACCESS_DENIED",
             )
 
-        config = get_config()
-        success, value, error = _get_nested_value(config, path)
+        ok, scope, tool_name, parsed_or_error = self._parse_scope(normalized_path)
+        if not ok:
+            return ToolResult(success=False, error=parsed_or_error, error_code="INVALID_PATH")
 
-        if not success:
+        if scope == "app":
+            config = get_config()
+            success, value, error = _get_nested_value(config, parsed_or_error)
+            if not success:
+                return ToolResult(
+                    success=False,
+                    error=error,
+                    error_code="PATH_NOT_FOUND",
+                )
+            return ToolResult(
+                success=True,
+                data={
+                    "path": normalized_path,
+                    "value": _serialize_value(value, mask_secrets=True),
+                    "type": type(value).__name__,
+                    "scope": "app",
+                },
+            )
+
+        from ..registry import tool_registry
+        tool = tool_registry.get_tool(tool_name)
+        if not tool:
             return ToolResult(
                 success=False,
-                error=error,
-                error_code="PATH_NOT_FOUND",
+                error=f"Tool '{tool_name}' not found",
+                error_code="TOOL_NOT_FOUND",
+            )
+
+        tool_result = await tool.get_config_value(parsed_or_error, context)
+        if not tool_result.success:
+            return ToolResult(
+                success=False,
+                error=tool_result.error,
+                error_code=tool_result.error_code or "READ_FAILED",
+                data=tool_result.data,
             )
 
         return ToolResult(
             success=True,
             data={
-                "path": path,
-                "value": _serialize_value(value, mask_secrets=True),
-                "type": type(value).__name__,
+                "path": normalized_path,
+                "value": _serialize_value(tool_result.data, mask_secrets=True),
+                "scope": "tool",
+                "tool": tool_name,
             },
         )
 
-    def _handle_set(self, path: Optional[str], value: Optional[str]) -> ToolResult:
+    async def _handle_set(self, path: Optional[str], value: Optional[str], context: ToolExecutionContext) -> ToolResult:
         """Handle set action - saves to config file."""
         if not path:
             return ToolResult(
@@ -424,48 +349,83 @@ class SystemSettingsTool(Tool):
                 error_code="MISSING_VALUE",
             )
 
+        normalized_path = self._normalize_path(path)
+
         # Read-only check
-        if _is_read_only_field(path):
+        if _is_read_only_field(normalized_path):
             return ToolResult(
                 success=False,
-                error=f"Field '{path}' is read-only",
+                error=f"Field '{normalized_path}' is read-only",
                 error_code="READ_ONLY",
             )
 
-        # Get current config for type conversion
-        config = get_config()
-        success, current_value, error = _get_nested_value(config, path)
+        ok, scope, tool_name, parsed_or_error = self._parse_scope(normalized_path)
+        if not ok:
+            return ToolResult(success=False, error=parsed_or_error, error_code="INVALID_PATH")
 
-        # Convert value to appropriate type
-        try:
-            if success and current_value is not None:
-                converted_value = self._convert_value(value, current_value)
-            else:
-                converted_value = value
-        except ValueError as e:
-            return ToolResult(
-                success=False,
-                error=f"Type conversion failed: {str(e)}",
-                error_code="TYPE_ERROR",
-            )
+        if scope == "app":
+            # Get current config for type conversion
+            config = get_config()
+            success, current_value, _ = _get_nested_value(config, parsed_or_error)
 
-        # Save to config file
-        if save_config({path: converted_value}):
-            return ToolResult(
-                success=True,
-                data={
-                    "path": path,
-                    "new_value": _serialize_value(converted_value, mask_secrets=_is_sensitive_field(path)),
-                    "config_file": str(get_config_file_path()),
-                    "message": f"Saved to {get_config_file_path()}",
-                },
-            )
-        else:
+            # Convert value to appropriate type
+            try:
+                if success and current_value is not None:
+                    converted_value = self._convert_value(value, current_value)
+                else:
+                    converted_value = value
+            except ValueError as e:
+                return ToolResult(
+                    success=False,
+                    error=f"Type conversion failed: {str(e)}",
+                    error_code="TYPE_ERROR",
+                )
+
+            if save_config({parsed_or_error: converted_value}):
+                return ToolResult(
+                    success=True,
+                    data={
+                        "path": normalized_path,
+                        "new_value": _serialize_value(converted_value, mask_secrets=_is_sensitive_field(normalized_path)),
+                        "config_file": str(get_config_file_path()),
+                        "message": f"Saved to {get_config_file_path()}",
+                        "scope": "app",
+                    },
+                )
+
             return ToolResult(
                 success=False,
                 error="Failed to save configuration",
                 error_code="SAVE_FAILED",
             )
+
+        from ..registry import tool_registry
+        tool = tool_registry.get_tool(tool_name)
+        if not tool:
+            return ToolResult(
+                success=False,
+                error=f"Tool '{tool_name}' not found",
+                error_code="TOOL_NOT_FOUND",
+            )
+
+        update_result = await tool.update_config(parsed_or_error, value, context)
+        if not update_result.success:
+            return ToolResult(
+                success=False,
+                error=update_result.error,
+                error_code=update_result.error_code or "UPDATE_FAILED",
+                data=update_result.data,
+            )
+
+        return ToolResult(
+            success=True,
+            data={
+                "path": normalized_path,
+                "scope": "tool",
+                "tool": tool_name,
+                "result": _serialize_value(update_result.data, mask_secrets=True),
+            },
+        )
 
     def _convert_value(self, value: str, current_value: Any) -> Any:
         """Convert string value to appropriate type."""
