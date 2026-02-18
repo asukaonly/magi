@@ -19,7 +19,17 @@ class WebSearchTool(MultiProviderTool):
         """Initialize Schema"""
         self.schema = ToolSchema(
             name="web-search",
-            description="Search the web for information. Supports multiple search providers.",
+            description=(
+                "Search the web for information. Supports multiple search providers.\n\n"
+                "Configuration:\n"
+                "- This tool requires an API key from one of the supported providers\n"
+                "- Supported providers: brave, perplexity, tavily\n"
+                "- To configure, use system-settings tool:\n"
+                "  - Brave: tools.web_search.providers.brave.api_key (or BRAVE_API_KEY env var)\n"
+                "  - Perplexity: tools.web_search.providers.perplexity.api_key (or PERPLEXITY_API_KEY env var)\n"
+                "  - Tavily: tools.web_search.providers.tavily.api_key (or TAVILY_API_KEY env var)\n"
+                "- Example: system-settings set tools.web_search.providers.brave.api_key \"your-api-key\""
+            ),
             category="web",
             version="1.0.0",
             author="Magi Team",

@@ -20,7 +20,15 @@ class WeatherTool(MultiProviderTool):
         """Initialize Schema"""
         self.schema = ToolSchema(
             name="weather",
-            description="Query weather information for a specific location. Returns current weather including temperature, humidity, wind, and more.",
+            description=(
+                "Query weather information for a specific location. "
+                "Returns current weather including temperature, humidity, wind, and more.\n\n"
+                "Configuration:\n"
+                "- This tool requires an API key from QWeather (https://dev.qweather.com/)\n"
+                "- To configure, use system-settings tool with path: tools.weather.providers.qweather.api_key\n"
+                "- Or set environment variable: QWEATHER_API_KEY\n"
+                "- Example: system-settings set tools.weather.providers.qweather.api_key \"your-api-key\""
+            ),
             category="information",
             version="1.0.0",
             author="Magi Team",
