@@ -1,7 +1,6 @@
 """
 Weather Tool - query weather using QWeather (和风天气) API
 """
-import os
 import aiohttp
 from typing import Dict, Any, Optional
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
@@ -58,28 +57,18 @@ class WeatherTool(Tool):
 
     def _get_api_credentials(self) -> tuple[Optional[str], str]:
         """
-        Get API credentials from config or environment.
+        Get API credentials from config.
 
-        Priority: config > environment variable
+        Config module handles priority: env vars > config file > defaults.
 
         Returns:
             Tuple of (api_key, api_host)
         """
-        # Try config first
-        try:
-            from ...config import get_config
-            config = get_config()
-            api_key = config.tools.weather.api_key
-            base_url = config.tools.weather.base_url
-            if api_key:
-                api_host = base_url or "devapi.qweather.com"
-                return api_key, api_host
-        except Exception:
-            pass
-
-        # Fallback to environment variables
-        api_key = os.environ.get("QWEATHER_API_KEY") or os.environ.get("QWEATHER_API_key")
-        api_host = os.environ.get("QWEATHER_API_HOST") or os.environ.get("QWEATHER_API_host", "devapi.qweather.com")
+        from ...config import get_config
+        config = get_config()
+        api_key = config.tools.weather.api_key
+        base_url = config.tools.weather.base_url
+        api_host = base_url or "devapi.qweather.com"
         return api_key, api_host
 
     def is_ready(self) -> bool:
