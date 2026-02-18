@@ -86,7 +86,7 @@ tools:
     enabled: true
     api_key: ""  # Set your QWeather API key here
     base_url: ""
-    default_location: "Beijing"
+    default_location: ""  # Optional: default location for weather queries
 
   web_search:
     enabled: true

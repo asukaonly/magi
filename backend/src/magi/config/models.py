@@ -139,7 +139,7 @@ class WeatherToolSettings(BaseModel):
     enabled: bool = Field(default=True)
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
-    default_location: str = Field(default="Beijing")
+    default_location: Optional[str] = Field(default=None)  # No default - user must specify location
 
 
 class WebSearchToolSettings(BaseModel):
