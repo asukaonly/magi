@@ -67,10 +67,10 @@ ENV_MAPPINGS: Dict[str, Tuple[str, Callable, Any]] = {
     "features.enable_skills": ("ENABLE_SKILLS", lambda v: v.lower() == "true", True),
     "features.enable_websocket": ("ENABLE_WEBSOCKET", lambda v: v.lower() == "true", True),
 
-    # Tools - Weather
+    # Tools - Weather (QWeather)
     "tools.weather.enabled": ("WEATHER_TOOL_ENABLED", lambda v: v.lower() == "true", True),
-    "tools.weather.api_key": ("WEATHER_API_KEY", str, None),
-    "tools.weather.base_url": ("WEATHER_BASE_URL", str, None),
+    "tools.weather.api_key": ("QWEATHER_API_KEY", str, None),
+    "tools.weather.base_url": ("QWEATHER_API_HOST", str, None),
     "tools.weather.default_location": ("WEATHER_DEFAULT_LOCATION", str, "Beijing"),
 
     # Tools - Web Search

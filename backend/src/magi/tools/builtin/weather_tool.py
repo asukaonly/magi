@@ -1,5 +1,5 @@
 """
-Weather Tool - query weather using QWeather (and风days气) API
+Weather Tool - query weather using QWeather (和风天气) API
 """
 import os
 import aiohttp
@@ -11,15 +11,15 @@ class WeatherTool(Tool):
     """
     Weather Tool
 
-    query weather information using QWeather (and风days气) API.
+    Query weather information using QWeather (和风天气) API.
     Supports querying by city name or coordinates.
     """
 
     def _init_schema(self) -> None:
-        """initialize Schema"""
+        """Initialize Schema"""
         self.schema = ToolSchema(
             name="weather",
-            description="query weather information for a specific location. Returns current weather including temperature, humidity, wind, and more.",
+            description="Query weather information for a specific location. Returns current weather including temperature, humidity, wind, and more.",
             category="information",
             version="1.0.0",
             author="Magi Team",
@@ -48,10 +48,6 @@ class WeatherTool(Tool):
                     "input": {"location": "上海", "lang": "zh"},
                     "output": "Returns current weather in Shanghai with Chinese descriptions",
                 },
-                {
-                    "input": {"location": "116.41,39.92", "lang": "en"},
-                    "output": "Returns current weather at specific coordinates with English descriptions",
-                },
             ],
             timeout=15,
             retry_on_failure=True,
@@ -59,6 +55,32 @@ class WeatherTool(Tool):
             dangerous=False,
             tags=["weather", "information", "qweather"],
         )
+
+    def _get_api_credentials(self) -> tuple[Optional[str], str]:
+        """
+        Get API credentials from config or environment.
+
+        Priority: config > environment variable
+
+        Returns:
+            Tuple of (api_key, api_host)
+        """
+        # Try config first
+        try:
+            from ...config import get_config
+            config = get_config()
+            api_key = config.tools.weather.api_key
+            base_url = config.tools.weather.base_url
+            if api_key:
+                api_host = base_url or "devapi.qweather.com"
+                return api_key, api_host
+        except Exception:
+            pass
+
+        # Fallback to environment variables
+        api_key = os.environ.get("QWEATHER_API_KEY") or os.environ.get("QWEATHER_API_key")
+        api_host = os.environ.get("QWEATHER_API_HOST") or os.environ.get("QWEATHER_API_host", "devapi.qweather.com")
+        return api_key, api_host
 
     async def execute(
         self,
@@ -71,20 +93,19 @@ class WeatherTool(Tool):
 
         try:
             # Get API credentials
-            api_key = os.environ.get("QWEATHER_API_key")
-            api_host = os.environ.get("QWEATHER_API_host", "devapi.qweather.com")
+            api_key, api_host = self._get_api_credentials()
 
             if not api_key:
                 return ToolResult(
                     success=False,
-                    error="QWEATHER_API_key environment variable not set. Please get your API key from https://dev.qweather.com/",
-                    error_code="MISSING_API_key",
+                    error="Weather API key not configured. Set QWEATHER_API_KEY environment variable or configure in agent.yaml. Get your key from https://dev.qweather.com/",
+                    error_code="MISSING_API_KEY",
                 )
 
-            # First, try to resolve location to Locationid if it's a city name
+            # First, try to resolve location to LocationID if it's a city name
             location_id = await self._resolve_location(location, api_key, api_host)
 
-            # query weather
+            # Query weather
             weather_data = await self._query_weather(location_id, api_key, api_host, lang)
 
             return ToolResult(
@@ -100,7 +121,7 @@ class WeatherTool(Tool):
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="WEATHER_QUERY_error",
+                error_code="WEATHER_QUERY_ERROR",
             )
 
     async def _resolve_location(
