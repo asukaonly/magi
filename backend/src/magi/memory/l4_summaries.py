@@ -85,7 +85,7 @@ class SummaryStore:
         if persist_path:
             self._load_from_disk()
 
-    def add_event(self, Event: Dict[str, Any]):
+    def add_event(self, event: Dict[str, Any]):
         """
         addevent到cache
 
