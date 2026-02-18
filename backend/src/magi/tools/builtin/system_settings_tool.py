@@ -163,20 +163,59 @@ def _get_config_structure() -> Dict[str, Any]:
             "description": "Tool configuration",
             "children": {
                 "weather": {
-                    "description": "Weather tool (QWeather)",
+                    "description": "Weather tool configuration",
                     "fields": {
                         "enabled": "Enable weather tool",
-                        "api_key": "API key (sensitive)",
-                        "default_location": "Default location",
+                        "default_provider": "Default weather provider",
+                    },
+                    "children": {
+                        "providers": {
+                            "description": "Weather providers",
+                            "children": {
+                                "qweather": {
+                                    "description": "QWeather (和风天气) provider",
+                                    "fields": {
+                                        "api_key": "API key (sensitive)",
+                                        "base_url": "API host (optional)",
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
                 "web_search": {
-                    "description": "Web search tool",
+                    "description": "Web search tool configuration",
                     "fields": {
                         "enabled": "Enable web search",
-                        "api_key": "API key (sensitive)",
-                        "engine": "Search engine",
-                        "max_results": "Max results",
+                        "default_provider": "Default search provider",
+                    },
+                    "children": {
+                        "providers": {
+                            "description": "Search providers",
+                            "children": {
+                                "brave": {
+                                    "description": "Brave Search provider",
+                                    "fields": {
+                                        "api_key": "API key (sensitive)",
+                                        "base_url": "API endpoint (optional)",
+                                    },
+                                },
+                                "perplexity": {
+                                    "description": "Perplexity AI provider",
+                                    "fields": {
+                                        "api_key": "API key (sensitive)",
+                                        "base_url": "API endpoint (optional)",
+                                    },
+                                },
+                                "tavily": {
+                                    "description": "Tavily provider",
+                                    "fields": {
+                                        "api_key": "API key (sensitive)",
+                                        "base_url": "API endpoint (optional)",
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
             },
@@ -250,8 +289,12 @@ class SystemSettingsTool(Tool):
                     "output": "Shows available configuration paths",
                 },
                 {
-                    "input": {"action": "set", "path": "tools.weather.api_key", "value": "your-key"},
-                    "output": "Sets weather API key and saves to config file",
+                    "input": {"action": "set", "path": "tools.weather.providers.qweather.api_key", "value": "your-key"},
+                    "output": "Sets QWeather API key and saves to config file",
+                },
+                {
+                    "input": {"action": "set", "path": "tools.web_search.providers.brave.api_key", "value": "your-key"},
+                    "output": "Sets Brave Search API key and saves to config file",
                 },
                 {
                     "input": {"action": "get", "path": "llm.model"},
