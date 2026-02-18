@@ -477,14 +477,18 @@ class ToolRegistry:
         """
         exportalltool为 Claude Tool Use API format
 
+        Only exports tools that are ready (have required configuration).
+
         Returns:
             Claude tools API format的toollist
         """
         tools = []
         for tool_name in self._tools.keys():
             tool = self.get_tool(tool_name)
-            if tool:
+            if tool and tool.is_ready():
                 tools.append(tool.to_claude_format())
+            elif tool and not tool.is_ready():
+                logger.debug(f"Tool {tool_name} not ready (missing configuration), skipping")
         return tools
 
     def import_from_claude_format(

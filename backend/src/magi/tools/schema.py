@@ -281,6 +281,18 @@ class Tool(ABC):
             "input_schema": input_schema,
         }
 
+    def is_ready(self) -> bool:
+        """
+        Check if the tool is ready to use (has required configuration).
+
+        Override this method in subclasses to check for API keys, etc.
+        Tools that return False will not be exposed to the LLM.
+
+        Returns:
+            True if the tool is ready to use, False otherwise
+        """
+        return True  # Default: always ready
+
     @classmethod
     def from_claude_format(cls, tool_def: Dict[str, Any]) -> 'Tool':
         """

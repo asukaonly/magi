@@ -82,6 +82,11 @@ class WeatherTool(Tool):
         api_host = os.environ.get("QWEATHER_API_HOST") or os.environ.get("QWEATHER_API_host", "devapi.qweather.com")
         return api_key, api_host
 
+    def is_ready(self) -> bool:
+        """Check if weather API key is configured."""
+        api_key, _ = self._get_api_credentials()
+        return bool(api_key)
+
     async def execute(
         self,
         parameters: Dict[str, Any],

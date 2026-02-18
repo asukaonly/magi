@@ -64,6 +64,24 @@ class WebSearchTool(Tool):
             tags=["web", "search", "information"],
         )
 
+    def is_ready(self) -> bool:
+        """Check if at least one search provider has API key configured."""
+        # Check config first
+        try:
+            from ...config import get_config
+            config = get_config()
+            if config.tools.web_search.api_key:
+                return True
+        except Exception:
+            pass
+
+        # Check environment variables for any provider
+        return bool(
+            os.environ.get("BRAVE_API_key") or
+            os.environ.get("PERPLexitY_API_key") or
+            os.environ.get("TAVILY_API_key")
+        )
+
     async def execute(
         self,
         parameters: Dict[str, Any],
