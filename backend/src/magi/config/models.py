@@ -1,36 +1,11 @@
 """
 Configuration Models - Pydantic model definitions for application configuration.
 
-This module defines the configuration schema using Pydantic models.
-All configuration access should go through the config module, not direct env reads.
+These models match the structure in config.example.yaml.
 """
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from enum import Enum
-
-
-class MessageBusBackend(str, Enum):
-    """Message bus backend type."""
-    MEMORY = "memory"
-    SQLITE = "sqlite"
-    REDIS = "redis"
-
-
-class DropPolicy(str, Enum):
-    """Queue drop strategy when full."""
-    OLDEST = "oldest"
-    LOWEST_PRIORITY = "lowest_priority"
-    REJECT = "reject"
-
-
-class MessageBusSettings(BaseModel):
-    """Message bus configuration settings."""
-    backend: MessageBusBackend = Field(default=MessageBusBackend.SQLITE)
-    max_queue_size: int = Field(default=1000, ge=1)
-    drop_policy: DropPolicy = Field(default=DropPolicy.LOWEST_PRIORITY)
-    num_workers: int = Field(default=4, ge=1)
-    sqlite_db_path: Optional[str] = Field(default=None)
-    redis_url: Optional[str] = Field(default=None)
 
 
 class LLMProvider(str, Enum):
@@ -41,15 +16,11 @@ class LLMProvider(str, Enum):
     LOCAL = "local"
 
 
-class LLMSettings(BaseModel):
-    """LLM configuration settings."""
-    provider: LLMProvider = Field(default=LLMProvider.OPENAI)
-    model: str = Field(default="gpt-4o-mini")
-    api_key: Optional[str] = Field(default=None)
-    base_url: Optional[str] = Field(default=None)
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=1000, ge=1)
-    timeout: int = Field(default=60, ge=1)
+class MessageBusBackend(str, Enum):
+    """Message bus backend type."""
+    MEMORY = "memory"
+    SQLITE = "sqlite"
+    REDIS = "redis"
 
 
 class MemoryBackend(str, Enum):
@@ -65,25 +36,36 @@ class EmbeddingBackend(str, Enum):
     OPENAI = "openai"
 
 
+# =============================================================================
+# LLM Configuration
+# =============================================================================
+
+class LLMSettings(BaseModel):
+    """LLM configuration."""
+    provider: LLMProvider = Field(default=LLMProvider.OPENAI)
+    model: str = Field(default="gpt-4o-mini")
+    api_key: Optional[str] = Field(default=None)
+    base_url: Optional[str] = Field(default=None)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=1000, ge=1)
+    timeout: int = Field(default=60, ge=1)
+
+
+# =============================================================================
+# Agent Configuration
+# =============================================================================
+
 class EmbeddingSettings(BaseModel):
-    """Embedding vector configuration settings."""
+    """Embedding configuration."""
     backend: EmbeddingBackend = Field(default=EmbeddingBackend.LOCAL)
     local_model: str = Field(default="all-MiniLM-L6-v2")
     local_dimension: int = Field(default=384)
-    openai_model: str = Field(default="text-embedding-3-small")
-    openai_api_key: Optional[str] = Field(default=None)
-    batch_size: int = Field(default=32, ge=1)
-    timeout: int = Field(default=30, ge=1)
 
 
 class MemorySettings(BaseModel):
-    """Memory storage configuration settings."""
-    short_term_backend: MemoryBackend = Field(default=MemoryBackend.MEMORY)
-    long_term_backend: MemoryBackend = Field(default=MemoryBackend.CHROMADB)
+    """Memory configuration."""
     db_path: str = Field(default="~/.magi/data/memories")
-    chromadb_path: str = Field(default="~/.magi/data/chromadb")
     retention_days: int = Field(default=7, ge=1)
-    embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 
     # L1-L5 layers
     enable_l1_raw: bool = Field(default=True)
@@ -92,87 +74,106 @@ class MemorySettings(BaseModel):
     enable_l4_summaries: bool = Field(default=True)
     enable_l5_capabilities: bool = Field(default=True)
     async_embeddings: bool = Field(default=True)
-    embedding_queue_size: int = Field(default=100, ge=1)
     auto_extract_relations: bool = Field(default=True)
     summary_interval_minutes: int = Field(default=60, ge=1)
-    auto_generate_summaries: bool = Field(default=True)
-    capability_min_attempts: int = Field(default=3, ge=1)
-    capability_min_success_rate: float = Field(default=0.7, ge=0.0, le=1.0)
-    capability_blacklist_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
-    capability_blacklist_min_attempts: int = Field(default=5, ge=1)
+
+    embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 
 
 class PersonalitySettings(BaseModel):
-    """Personality configuration settings."""
+    """Personality configuration."""
     name: str = Field(default="default")
     path: str = Field(default="~/.magi/personalities")
     enable_evolution: bool = Field(default=True)
-    db_path: str = Field(default="~/.magi/data/memories/self_memory_v2.db")
 
 
-class PluginSettings(BaseModel):
-    """Plugin configuration settings."""
-    enabled: bool = Field(default=True)
-    priority: int = Field(default=0)
-    config: Optional[Dict[str, Any]] = Field(default=None)
+class MessageBusSettings(BaseModel):
+    """Message bus configuration."""
+    backend: MessageBusBackend = Field(default=MessageBusBackend.SQLITE)
+    max_queue_size: int = Field(default=1000, ge=1)
+    num_workers: int = Field(default=4, ge=1)
+    db_path: str = Field(default="~/.magi/data/events.db")
 
 
 class AgentSettings(BaseModel):
-    """Agent configuration settings."""
+    """Agent configuration."""
     name: str = Field(default="magi-agent")
-    llm: LLMSettings = Field(default_factory=LLMSettings)
-    memory: MemorySettings = Field(default_factory=MemorySettings)
-    message_bus: MessageBusSettings = Field(default_factory=MessageBusSettings)
     num_task_agents: int = Field(default=2, ge=1)
-    plugins: Dict[str, PluginSettings] = Field(default_factory=dict)
     loop_interval: float = Field(default=1.0, ge=0.0)
     enable_monitoring: bool = Field(default=True)
-    personality: PersonalitySettings = Field(default_factory=PersonalitySettings)
 
+    memory: MemorySettings = Field(default_factory=MemorySettings)
+    personality: PersonalitySettings = Field(default_factory=PersonalitySettings)
+    message_bus: MessageBusSettings = Field(default_factory=MessageBusSettings)
+
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
 
 class ServerSettings(BaseModel):
-    """Server configuration settings."""
+    """Server configuration."""
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000, ge=1, le=65535)
     debug: bool = Field(default=False)
     cors_origins: List[str] = Field(default=["*"])
-    websocket_ping_interval: int = Field(default=30)
 
+
+# =============================================================================
+# Feature Flags
+# =============================================================================
 
 class FeatureFlags(BaseModel):
-    """Feature flags for enabling/disabling features."""
+    """Feature flags."""
     enable_three_layer_arch: bool = Field(default=False)
     enable_skills: bool = Field(default=True)
     enable_websocket: bool = Field(default=True)
 
 
+# =============================================================================
+# Tools Configuration
+# =============================================================================
+
 class WeatherToolSettings(BaseModel):
-    """Weather tool configuration."""
+    """Weather tool configuration (QWeather)."""
     enabled: bool = Field(default=True)
-    api_key: Optional[str] = Field(default=None, description="Weather API key (e.g., OpenWeatherMap)")
-    base_url: Optional[str] = Field(default=None, description="Custom API endpoint")
-    default_location: str = Field(default="Beijing", description="Default location for weather queries")
+    api_key: Optional[str] = Field(default=None)
+    base_url: Optional[str] = Field(default=None)
+    default_location: str = Field(default="Beijing")
 
 
 class WebSearchToolSettings(BaseModel):
     """Web search tool configuration."""
     enabled: bool = Field(default=True)
-    api_key: Optional[str] = Field(default=None, description="Search API key")
-    engine: str = Field(default="google", description="Search engine: google, bing, duckduckgo")
+    api_key: Optional[str] = Field(default=None)
+    engine: str = Field(default="google")
     max_results: int = Field(default=5, ge=1, le=20)
 
 
 class ToolsSettings(BaseModel):
-    """Tools configuration container."""
+    """Tools configuration."""
     weather: WeatherToolSettings = Field(default_factory=WeatherToolSettings)
     web_search: WebSearchToolSettings = Field(default_factory=WebSearchToolSettings)
 
-    # Generic tool API keys (for tools that don't have dedicated settings)
-    api_keys: Dict[str, str] = Field(default_factory=dict, description="Generic API keys by tool name")
 
+# =============================================================================
+# Other Settings
+# =============================================================================
+
+class PluginSettings(BaseModel):
+    """Plugin configuration."""
+    enabled: bool = Field(default=True)
+    priority: int = Field(default=0)
+    config: Optional[Dict[str, Any]] = Field(default=None)
+
+
+# =============================================================================
+# Root Configuration
+# =============================================================================
 
 class AppConfig(BaseModel):
     """Root application configuration."""
+    llm: LLMSettings = Field(default_factory=LLMSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     server: ServerSettings = Field(default_factory=ServerSettings)
     features: FeatureFlags = Field(default_factory=FeatureFlags)

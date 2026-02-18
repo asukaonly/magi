@@ -4,21 +4,18 @@ System Settings Tool - Query and update configuration values.
 Actions:
 - list: Show available configuration paths
 - get: Read a configuration value (sensitive fields blocked)
-- set: Update a configuration value (sensitive fields allowed)
-- save-env: Save to .env file for persistence
+- set: Update a configuration value (persisted to ~/.magi/config/agent.yaml)
 
 Security:
 - Sensitive fields (api_key, password, etc.) can be SET but cannot be READ
 - This allows AI to configure API keys without exposing existing values
 """
-import os
-from pathlib import Path
 from typing import Dict, Any, List, Optional
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
-from ...config import get_config, reload_config, AppConfig, ENV_MAPPINGS
+from ...config import get_config, save_config, get_config_file_path, AppConfig, ENV_MAPPINGS
 
 
-# Sensitive field patterns (can be read but not via get, use save-env instead)
+# Sensitive field patterns (can be set but not read)
 SENSITIVE_PATTERNS = [
     "api_key",
     "apikey",
@@ -29,7 +26,7 @@ SENSITIVE_PATTERNS = [
     "private",
 ]
 
-# Fields that are read-only
+# Read-only fields
 READ_ONLY_FIELDS = [
     "config_path",
     "version",
@@ -49,7 +46,7 @@ def _is_read_only_field(field_path: str) -> bool:
 
 
 def _get_nested_value(obj: Any, path: str) -> tuple[bool, Any, str]:
-    """Get a nested value from an object using dot notation."""
+    """Get a nested value using dot notation."""
     parts = path.split(".")
     current = obj
 
@@ -65,7 +62,7 @@ def _get_nested_value(obj: Any, path: str) -> tuple[bool, Any, str]:
 
 
 def _set_nested_value(obj: Any, path: str, value: Any) -> tuple[bool, str]:
-    """Set a nested value on an object using dot notation."""
+    """Set a nested value using dot notation."""
     parts = path.split(".")
     current = obj
 
@@ -115,46 +112,42 @@ def _serialize_value(value: Any, mask_secrets: bool = True) -> Any:
     if hasattr(value, "model_dump"):
         return _serialize_value(value.model_dump(), mask_secrets)
 
-    if hasattr(value, "dict"):
-        return _serialize_value(value.dict(), mask_secrets)
-
     if hasattr(value, "__dict__"):
         return _serialize_value(value.__dict__, mask_secrets)
 
     return str(value)
 
 
-def _get_config_structure(config: AppConfig) -> Dict[str, Any]:
+def _get_config_structure() -> Dict[str, Any]:
     """Get the structure of available config paths."""
     return {
+        "llm": {
+            "description": "LLM configuration",
+            "fields": {
+                "provider": "LLM provider (openai, anthropic, glm)",
+                "model": "Model name",
+                "api_key": "API key (sensitive)",
+                "base_url": "Custom API endpoint",
+                "temperature": "Sampling temperature",
+                "max_tokens": "Maximum tokens",
+                "timeout": "Request timeout",
+            },
+        },
         "agent": {
             "description": "Agent configuration",
             "fields": {
                 "name": "Agent name",
                 "num_task_agents": "Number of task agents",
                 "loop_interval": "Main loop interval",
-                "enable_monitoring": "Enable monitoring",
             },
             "children": {
-                "llm": {
-                    "description": "LLM configuration",
-                    "fields": {
-                        "provider": "LLM provider",
-                        "model": "Model name",
-                        "temperature": "Sampling temperature",
-                        "max_tokens": "Maximum tokens",
-                        "timeout": "Request timeout",
-                    },
-                },
                 "memory": {
                     "description": "Memory configuration",
                     "fields": {
-                        "retention_days": "Data retention days",
+                        "db_path": "Database path",
+                        "retention_days": "Retention days",
                         "enable_l1_raw": "Enable L1 storage",
-                        "enable_l2_relations": "Enable L2 relations",
                         "enable_l3_embeddings": "Enable L3 embeddings",
-                        "enable_l4_summaries": "Enable L4 summaries",
-                        "enable_l5_capabilities": "Enable L5 capabilities",
                     },
                 },
                 "personality": {
@@ -168,27 +161,22 @@ def _get_config_structure(config: AppConfig) -> Dict[str, Any]:
         },
         "tools": {
             "description": "Tool configuration",
-            "fields": {},
             "children": {
                 "weather": {
                     "description": "Weather tool (QWeather)",
                     "fields": {
                         "enabled": "Enable weather tool",
+                        "api_key": "API key (sensitive)",
                         "default_location": "Default location",
-                    },
-                    "env_vars": {
-                        "QWEATHER_API_KEY": "Weather API key",
                     },
                 },
                 "web_search": {
                     "description": "Web search tool",
                     "fields": {
                         "enabled": "Enable web search",
+                        "api_key": "API key (sensitive)",
                         "engine": "Search engine",
                         "max_results": "Max results",
-                    },
-                    "env_vars": {
-                        "SEARCH_API_KEY": "Search API key",
                     },
                 },
             },
@@ -214,78 +202,12 @@ def _get_config_structure(config: AppConfig) -> Dict[str, Any]:
     }
 
 
-def _find_env_file() -> Optional[Path]:
-    """Find .env file location."""
-    # Check common locations
-    candidates = [
-        Path.cwd() / ".env",
-        Path.cwd().parent / ".env",
-        Path(__file__).parent.parent.parent.parent.parent / ".env",  # backend/.env
-    ]
-
-    for p in candidates:
-        if p.exists():
-            return p
-
-    # Default to creating in current directory
-    return Path.cwd() / ".env"
-
-
-def _save_env_var(key: str, value: str) -> tuple[bool, str, Path]:
-    """
-    Save an environment variable to .env file.
-
-    Returns: (success, error_message, env_file_path)
-    """
-    env_file = _find_env_file()
-
-    try:
-        # Read existing content
-        existing_lines = []
-        if env_file.exists():
-            with open(env_file, 'r') as f:
-                existing_lines = f.readlines()
-
-        # Check if key already exists
-        key_prefix = f"{key}="
-        found = False
-        new_lines = []
-
-        for line in existing_lines:
-            if line.strip().startswith(key_prefix):
-                new_lines.append(f"{key}={value}\n")
-                found = True
-            else:
-                new_lines.append(line)
-
-        # Add new key if not found
-        if not found:
-            # Ensure there's a newline before adding
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines.append('\n')
-            new_lines.append(f"{key}={value}\n")
-
-        # Write back
-        with open(env_file, 'w') as f:
-            f.writelines(new_lines)
-
-        # Also set in current environment
-        os.environ[key] = value
-
-        return True, "", env_file
-
-    except Exception as e:
-        return False, str(e), env_file
-
-
 class SystemSettingsTool(Tool):
     """
     System Settings Tool
 
-    Allows managing configuration:
-    - List available paths
-    - Get/set runtime values
-    - Save environment variables (for API keys)
+    Manage configuration stored in ~/.magi/config/agent.yaml
+    - Sensitive fields can be SET but not READ
     """
 
     def _init_schema(self) -> None:
@@ -294,31 +216,31 @@ class SystemSettingsTool(Tool):
             name="system-settings",
             description=(
                 "Manage system configuration. "
-                "Actions: 'list' (show paths), 'get' (read value), 'set' (update value), "
-                "'save-env' (save to .env file). "
-                "Note: Sensitive fields (api_key, etc.) can be SET but cannot be READ for security."
+                "Actions: 'list' (show paths), 'get' (read), 'set' (update and save). "
+                "Config is persisted to ~/.magi/config/agent.yaml. "
+                "Sensitive fields (api_key) can be SET but not READ."
             ),
             category="system",
-            version="1.2.0",
+            version="2.0.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
                     name="action",
                     type=ParameterType.STRING,
-                    description="Action: 'list', 'get', 'set', or 'save-env'",
+                    description="Action: 'list', 'get', or 'set'",
                     required=True,
-                    enum=["list", "get", "set", "save-env"],
+                    enum=["list", "get", "set"],
                 ),
                 ToolParameter(
                     name="path",
                     type=ParameterType.STRING,
-                    description="Config path (e.g., 'tools.weather.api_key') or env var name for 'save-env'",
+                    description="Config path (e.g., 'tools.weather.api_key', 'llm.model')",
                     required=False,
                 ),
                 ToolParameter(
                     name="value",
                     type=ParameterType.STRING,
-                    description="Value to set (for 'set' and 'save-env' actions)",
+                    description="Value to set (for 'set' action)",
                     required=False,
                 ),
             ],
@@ -328,12 +250,12 @@ class SystemSettingsTool(Tool):
                     "output": "Shows available configuration paths",
                 },
                 {
-                    "input": {"action": "set", "path": "tools.weather.api_key", "value": "your-api-key"},
-                    "output": "Sets weather API key (runtime only)",
+                    "input": {"action": "set", "path": "tools.weather.api_key", "value": "your-key"},
+                    "output": "Sets weather API key and saves to config file",
                 },
                 {
-                    "input": {"action": "save-env", "path": "QWEATHER_API_KEY", "value": "your-api-key"},
-                    "output": "Saves API key to .env file (persistent)",
+                    "input": {"action": "get", "path": "llm.model"},
+                    "output": "Returns the current LLM model name",
                 },
             ],
             timeout=10,
@@ -361,32 +283,31 @@ class SystemSettingsTool(Tool):
         if action == "set":
             return self._handle_set(path, value)
 
-        if action == "save-env":
-            return self._handle_save_env(path, value)
-
         return ToolResult(
             success=False,
-            error=f"Unknown action: {action}. Valid: list, get, set, save-env",
+            error=f"Unknown action: {action}. Valid: list, get, set",
             error_code="INVALID_ACTION",
         )
 
     def _handle_list(self) -> ToolResult:
         """Handle list action."""
-        config = get_config()
-        structure = _get_config_structure(config)
+        structure = _get_config_structure()
         available_paths = self._flatten_structure(structure, "")
 
-        # Also list known env vars
-        env_vars = {env_var: desc for _, (env_var, _, _) in ENV_MAPPINGS.items()
-                    for desc in [env_var]}
+        # Get config file path
+        config_path = str(get_config_file_path())
+
+        # List known env vars
+        env_vars = list(set(env_var for _, (env_var, _, _) in ENV_MAPPINGS.items()))
 
         return ToolResult(
             success=True,
             data={
                 "structure": structure,
                 "available_paths": available_paths,
-                "env_vars": list(set(env_vars.keys())),
-                "summary": f"Found {len(available_paths)} config paths. Use 'save-env' to set API keys.",
+                "env_vars": env_vars,
+                "config_file": config_path,
+                "summary": f"Config file: {config_path}. {len(available_paths)} paths available.",
             },
         )
 
@@ -417,11 +338,11 @@ class SystemSettingsTool(Tool):
                 error_code="MISSING_PATH",
             )
 
-        # Sensitive fields cannot be read (but can be set)
+        # Sensitive fields cannot be read
         if _is_sensitive_field(path):
             return ToolResult(
                 success=False,
-                error=f"Access denied: '{path}' is sensitive and cannot be read. You can set it with 'set' or 'save-env' action.",
+                error=f"Access denied: '{path}' is sensitive and cannot be read. You can set it with 'set' action.",
                 error_code="ACCESS_DENIED",
             )
 
@@ -445,7 +366,7 @@ class SystemSettingsTool(Tool):
         )
 
     def _handle_set(self, path: Optional[str], value: Optional[str]) -> ToolResult:
-        """Handle set action - allows setting sensitive fields (like API keys)."""
+        """Handle set action - saves to config file."""
         if not path:
             return ToolResult(
                 success=False,
@@ -460,9 +381,7 @@ class SystemSettingsTool(Tool):
                 error_code="MISSING_VALUE",
             )
 
-        # Note: Sensitive fields CAN be set (but not read)
-        # This allows AI to configure API keys without exposing existing values
-
+        # Read-only check
         if _is_read_only_field(path):
             return ToolResult(
                 success=False,
@@ -470,18 +389,16 @@ class SystemSettingsTool(Tool):
                 error_code="READ_ONLY",
             )
 
+        # Get current config for type conversion
         config = get_config()
         success, current_value, error = _get_nested_value(config, path)
 
-        if not success:
-            return ToolResult(
-                success=False,
-                error=error,
-                error_code="PATH_NOT_FOUND",
-            )
-
+        # Convert value to appropriate type
         try:
-            converted_value = self._convert_value(value, current_value)
+            if success and current_value is not None:
+                converted_value = self._convert_value(value, current_value)
+            else:
+                converted_value = value
         except ValueError as e:
             return ToolResult(
                 success=False,
@@ -489,77 +406,27 @@ class SystemSettingsTool(Tool):
                 error_code="TYPE_ERROR",
             )
 
-        success, error = _set_nested_value(config, path, converted_value)
-
-        if not success:
+        # Save to config file
+        if save_config({path: converted_value}):
             return ToolResult(
-                success=False,
-                error=error,
-                error_code="SET_FAILED",
+                success=True,
+                data={
+                    "path": path,
+                    "new_value": _serialize_value(converted_value, mask_secrets=_is_sensitive_field(path)),
+                    "config_file": str(get_config_file_path()),
+                    "message": f"Saved to {get_config_file_path()}",
+                },
             )
-
-        return ToolResult(
-            success=True,
-            data={
-                "path": path,
-                "old_value": _serialize_value(current_value, mask_secrets=True),
-                "new_value": _serialize_value(converted_value, mask_secrets=True),
-                "note": "Runtime-only change. Use 'save-env' for persistent settings.",
-            },
-        )
-
-    def _handle_save_env(self, key: Optional[str], value: Optional[str]) -> ToolResult:
-        """Handle save-env action - save to .env file."""
-        if not key:
+        else:
             return ToolResult(
                 success=False,
-                error="Environment variable name is required for 'save-env' action",
-                error_code="MISSING_KEY",
-            )
-
-        if value is None:
-            return ToolResult(
-                success=False,
-                error="Value is required for 'save-env' action",
-                error_code="MISSING_VALUE",
-            )
-
-        # Validate key format (uppercase, underscores)
-        if not key.replace("_", "").isalnum() or not key.isupper():
-            # Allow lowercase but warn
-            pass
-
-        # Save to .env file
-        success, error, env_file = _save_env_var(key, value)
-
-        if not success:
-            return ToolResult(
-                success=False,
-                error=f"Failed to save to .env: {error}",
+                error="Failed to save configuration",
                 error_code="SAVE_FAILED",
             )
-
-        # Reload config to pick up the new env var
-        try:
-            reload_config()
-        except Exception as e:
-            pass  # Config reload might fail, but env var is saved
-
-        return ToolResult(
-            success=True,
-            data={
-                "key": key,
-                "env_file": str(env_file),
-                "message": f"Saved {key} to {env_file}. Config reloaded.",
-            },
-        )
 
     def _convert_value(self, value: str, current_value: Any) -> Any:
         """Convert string value to appropriate type."""
         target_type = type(current_value)
-
-        if current_value is None:
-            return value
 
         if target_type == bool:
             if value.lower() in ("true", "1", "yes", "on"):

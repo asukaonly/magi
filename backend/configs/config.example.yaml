@@ -1,0 +1,101 @@
+# Magi Agent Configuration
+#
+# This is the example configuration file.
+# On first run, it will be copied to ~/.magi/config/agent.yaml
+#
+# Environment variables can be used with ${VAR_NAME:default} syntax
+# They will override values in this file
+
+# =============================================================================
+# LLM Configuration
+# =============================================================================
+llm:
+  provider: "${LLM_PROVIDER:openai}"
+  model: "${LLM_MODEL:gpt-4o-mini}"
+  api_key: "${LLM_API_KEY:}"
+  base_url: "${LLM_BASE_URL:}"
+  temperature: 0.7
+  max_tokens: 1000
+  timeout: 60
+
+# =============================================================================
+# Agent Configuration
+# =============================================================================
+agent:
+  name: "magi-agent"
+  num_task_agents: 2
+  loop_interval: 1.0
+  enable_monitoring: true
+
+  # Memory Configuration
+  memory:
+    db_path: "~/.magi/data/memories"
+    retention_days: 7
+
+    # L1-L5 Memory Layers
+    enable_l1_raw: true
+    enable_l2_relations: true
+    enable_l3_embeddings: true
+    enable_l4_summaries: true
+    enable_l5_capabilities: true
+    async_embeddings: true
+    auto_extract_relations: true
+    summary_interval_minutes: 60
+
+    # Embedding settings
+    embedding:
+      backend: "local"
+      local_model: "all-MiniLM-L6-v2"
+      local_dimension: 384
+
+  # Personality Configuration
+  personality:
+    name: "default"
+    path: "~/.magi/personalities"
+    enable_evolution: true
+
+  # Message Bus Configuration
+  message_bus:
+    backend: "sqlite"
+    max_queue_size: 1000
+    num_workers: 4
+    db_path: "~/.magi/data/events.db"
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  cors_origins: ["*"]
+
+# =============================================================================
+# Feature Flags
+# =============================================================================
+features:
+  enable_three_layer_arch: false
+  enable_skills: true
+  enable_websocket: true
+
+# =============================================================================
+# Tools Configuration
+# =============================================================================
+tools:
+  weather:
+    enabled: true
+    api_key: ""  # Set your QWeather API key here
+    base_url: ""
+    default_location: "Beijing"
+
+  web_search:
+    enabled: true
+    api_key: ""  # Set your search API key here
+    engine: "google"
+    max_results: 5
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+debug: false
+log_level: "INFO"

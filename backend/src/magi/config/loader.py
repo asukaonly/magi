@@ -1,51 +1,85 @@
 """
-Configuration Loader - Centralized configuration management.
-
-This module is the single source of truth for all configuration.
-Other modules should NOT read environment variables directly.
+Configuration Loader - Runtime configuration management.
 
 Configuration Sources (priority order):
-1. Environment variables (highest priority)
-2. YAML configuration file
-3. Default values (lowest priority)
+    1. Environment variables (highest priority)
+    2. Runtime config file: ~/.magi/config/agent.yaml
+    3. Default values (lowest priority)
 
-Usage:
-    from magi.config import get_config
+Directory Structure:
+    ~/.magi/
+    ├── config/
+    │   └── agent.yaml      # Runtime configuration
+    ├── data/
+    │   ├── memories/       # Memory storage
+    │   └── events.db       # Event database
+    └── personalities/      # Personality files
 
-    config = get_config()
-    api_key = config.agent.llm.api_key
-    model = config.agent.llm.model
+First Run:
+    If ~/.magi/config/agent.yaml doesn't exist,
+    it will be copied from backend/configs/config.example.yaml
 """
 import os
 import re
+import shutil
 import logging
 import yaml
 from pathlib import Path
-from typing import Optional, Dict, Any, Type, Callable, Tuple
+from typing import Optional, Dict, Any, Callable, Tuple
 
 from .models import (
     AppConfig, AgentSettings, ServerSettings, FeatureFlags, ToolsSettings,
     LLMSettings, LLMProvider, MemorySettings, MessageBusSettings,
-    PersonalitySettings,
+    PersonalitySettings, WeatherToolSettings, WebSearchToolSettings,
 )
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Paths
+# =============================================================================
+
+def get_magi_home() -> Path:
+    """Get Magi home directory (~/.magi)"""
+    return Path.home() / ".magi"
+
+
+def get_config_dir() -> Path:
+    """Get runtime config directory"""
+    return get_magi_home() / "config"
+
+
+def get_config_file() -> Path:
+    """Get runtime config file path"""
+    return get_config_dir() / "agent.yaml"
+
+
+def get_example_config_file() -> Path:
+    """Get example config file path (in package)"""
+    # Path relative to this file: backend/configs/config.example.yaml
+    return Path(__file__).parent.parent.parent.parent / "configs" / "config.example.yaml"
+
+
+def get_data_dir() -> Path:
+    """Get data directory"""
+    return get_magi_home() / "data"
+
+
+# =============================================================================
 # Environment Variable Mappings
 # =============================================================================
-# Maps config path -> (env_var_name, type_converter, default_value)
 
+# Maps config path -> (env_var_name, type_converter, default_value)
 ENV_MAPPINGS: Dict[str, Tuple[str, Callable, Any]] = {
     # LLM Settings
-    "agent.llm.provider": ("LLM_PROVIDER", lambda v: LLMProvider(v.lower()), LLMProvider.OPENAI),
-    "agent.llm.model": ("LLM_MODEL", str, "gpt-4o-mini"),
-    "agent.llm.api_key": ("LLM_API_KEY", str, None),
-    "agent.llm.base_url": ("LLM_BASE_URL", str, None),
-    "agent.llm.temperature": ("LLM_TEMPERATURE", float, 0.7),
-    "agent.llm.max_tokens": ("LLM_MAX_TOKENS", int, 1000),
-    "agent.llm.timeout": ("LLM_TIMEOUT", int, 60),
+    "llm.provider": ("LLM_PROVIDER", lambda v: LLMProvider(v.lower()), LLMProvider.OPENAI),
+    "llm.model": ("LLM_MODEL", str, "gpt-4o-mini"),
+    "llm.api_key": ("LLM_API_KEY", str, None),
+    "llm.base_url": ("LLM_BASE_URL", str, None),
+    "llm.temperature": ("LLM_TEMPERATURE", float, 0.7),
+    "llm.max_tokens": ("LLM_MAX_TOKENS", int, 1000),
+    "llm.timeout": ("LLM_TIMEOUT", int, 60),
 
     # Agent Settings
     "agent.name": ("AGENT_NAME", str, "magi-agent"),
@@ -53,102 +87,137 @@ ENV_MAPPINGS: Dict[str, Tuple[str, Callable, Any]] = {
     "agent.loop_interval": ("LOOP_INTERVAL", float, 1.0),
     "agent.enable_monitoring": ("ENABLE_MONITORING", lambda v: v.lower() == "true", True),
 
-    # Personality Settings
-    "agent.personality.name": ("PERSONALITY_NAME", str, "default"),
-    "agent.personality.enable_evolution": ("ENABLE_EVOLUTION", lambda v: v.lower() == "true", True),
+    # Feature Flags
+    "features.enable_three_layer_arch": ("ENABLE_THREE_LAYER_ARCH", lambda v: v.lower() == "true", False),
+    "features.enable_skills": ("ENABLE_SKILLS", lambda v: v.lower() == "true", True),
+    "features.enable_websocket": ("ENABLE_WEBSOCKET", lambda v: v.lower() == "true", True),
+
+    # Tools - Weather
+    "tools.weather.api_key": ("QWEATHER_API_KEY", str, None),
+    "tools.weather.base_url": ("QWEATHER_API_HOST", str, None),
+    "tools.weather.default_location": ("WEATHER_DEFAULT_LOCATION", str, "Beijing"),
+
+    # Tools - Web Search
+    "tools.web_search.api_key": ("SEARCH_API_KEY", str, None),
+    "tools.web_search.engine": ("SEARCH_ENGINE", str, "google"),
+    "tools.web_search.max_results": ("SEARCH_MAX_RESULTS", int, 5),
 
     # Server Settings
     "server.host": ("SERVER_HOST", str, "0.0.0.0"),
     "server.port": ("SERVER_PORT", int, 8000),
     "server.debug": ("SERVER_DEBUG", lambda v: v.lower() == "true", False),
 
-    # Feature Flags
-    "features.enable_three_layer_arch": ("ENABLE_THREE_LAYER_ARCH", lambda v: v.lower() == "true", False),
-    "features.enable_skills": ("ENABLE_SKILLS", lambda v: v.lower() == "true", True),
-    "features.enable_websocket": ("ENABLE_WEBSOCKET", lambda v: v.lower() == "true", True),
-
-    # Tools - Weather (QWeather)
-    "tools.weather.enabled": ("WEATHER_TOOL_ENABLED", lambda v: v.lower() == "true", True),
-    "tools.weather.api_key": ("QWEATHER_API_KEY", str, None),
-    "tools.weather.base_url": ("QWEATHER_API_HOST", str, None),
-    "tools.weather.default_location": ("WEATHER_DEFAULT_LOCATION", str, "Beijing"),
-
-    # Tools - Web Search
-    "tools.web_search.enabled": ("WEB_SEARCH_ENABLED", lambda v: v.lower() == "true", True),
-    "tools.web_search.api_key": ("SEARCH_API_KEY", str, None),
-    "tools.web_search.engine": ("SEARCH_ENGINE", str, "google"),
-    "tools.web_search.max_results": ("SEARCH_MAX_RESULTS", int, 5),
-
-    # Global Settings
+    # Global
     "debug": ("DEBUG", lambda v: v.lower() == "true", False),
     "log_level": ("LOG_LEVEL", str, "INFO"),
 }
 
-# Default YAML config file search paths
-DEFAULT_CONFIG_PATHS = [
-    "./configs/agent.yaml",
-    "../configs/agent.yaml",
-    "./agent.yaml",
-    "/etc/magi/agent.yaml",
-]
 
+# =============================================================================
+# Config Loader
+# =============================================================================
 
 class ConfigLoader:
     """
-    Centralized configuration loader.
+    Runtime configuration loader.
 
-    Handles all configuration sources and provides a unified interface.
+    - Loads from ~/.magi/config/agent.yaml
+    - Creates default config on first run
+    - Supports environment variable overrides
+    - Can save changes back to config file
     """
 
-    def __init__(self, config_path: Optional[str] = None):
-        """
-        Initialize configuration loader.
-
-        Args:
-            config_path: Optional path to YAML config file.
-                         If None, searches default paths.
-        """
-        self.config_path = config_path or self._find_config_file()
+    def __init__(self):
         self._config: Optional[AppConfig] = None
         self._yaml_data: Dict[str, Any] = {}
-
-    def _find_config_file(self) -> Optional[str]:
-        """Search for configuration file in default locations."""
-        for path in DEFAULT_CONFIG_PATHS:
-            abs_path = os.path.abspath(path)
-            if os.path.exists(abs_path):
-                logger.info(f"Found config file: {abs_path}")
-                return abs_path
-        return None
+        self._config_file: Path = get_config_file()
 
     def load(self) -> AppConfig:
         """
-        Load configuration from all sources.
-
-        Priority: Environment variables > YAML file > Defaults
+        Load configuration from runtime location.
 
         Returns:
-            AppConfig: Merged configuration object
+            AppConfig: Merged configuration
         """
         if self._config is not None:
             return self._config
 
-        # 1. Load YAML file (if exists)
+        # Ensure config directory exists and has default config
+        self._ensure_config_exists()
+
+        # Load YAML file
         self._yaml_data = self._load_yaml()
 
-        # 2. Build config with priority: env > yaml > default
+        # Build config with env var overrides
         self._config = self._build_config()
 
-        logger.info("Configuration loaded")
+        logger.info(f"Configuration loaded from {self._config_file}")
         return self._config
+
+    def _ensure_config_exists(self):
+        """Create config directory and copy example config if needed."""
+        config_dir = get_config_dir()
+        config_file = get_config_file()
+        example_file = get_example_config_file()
+
+        # Create directory if needed
+        if not config_dir.exists():
+            config_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created config directory: {config_dir}")
+
+        # Copy example config if runtime config doesn't exist
+        if not config_file.exists():
+            if example_file.exists():
+                shutil.copy(example_file, config_file)
+                logger.info(f"Copied example config to {config_file}")
+            else:
+                # Create minimal config
+                self._create_default_config_file(config_file)
+                logger.info(f"Created default config at {config_file}")
+
+        # Ensure data directories exist
+        data_dir = get_data_dir()
+        if not data_dir.exists():
+            data_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created data directory: {data_dir}")
+
+    def _create_default_config_file(self, config_file: Path):
+        """Create a minimal default config file."""
+        default_config = {
+            "llm": {
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "",
+                "temperature": 0.7,
+                "max_tokens": 1000,
+                "timeout": 60,
+            },
+            "agent": {
+                "name": "magi-agent",
+                "num_task_agents": 2,
+            },
+            "features": {
+                "enable_three_layer_arch": False,
+                "enable_skills": True,
+            },
+            "tools": {
+                "weather": {"enabled": True, "api_key": ""},
+                "web_search": {"enabled": True, "api_key": ""},
+            },
+            "debug": False,
+            "log_level": "INFO",
+        }
+
+        with open(config_file, 'w') as f:
+            yaml.dump(default_config, f, default_flow_style=False, allow_unicode=True)
 
     def _load_yaml(self) -> Dict[str, Any]:
         """Load and parse YAML configuration file."""
-        if not self.config_path or not os.path.exists(self.config_path):
+        if not self._config_file.exists():
             return {}
 
         try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
+            with open(self._config_file, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f) or {}
 
             # Substitute ${VAR} and ${VAR:default} patterns
@@ -160,7 +229,7 @@ class ConfigLoader:
             return {}
 
     def _substitute_env_vars(self, data: Any) -> Any:
-        """Recursively substitute ${VAR} patterns in YAML data."""
+        """Recursively substitute ${VAR} patterns."""
         if isinstance(data, str):
             if "${" not in data:
                 return data
@@ -183,37 +252,29 @@ class ConfigLoader:
         return data
 
     def _build_config(self) -> AppConfig:
-        """
-        Build final configuration by merging all sources.
-
-        Priority: env var > yaml value > default
-        """
-        # Start with defaults from ENV_MAPPINGS
+        """Build final config by merging YAML + env vars + defaults."""
         config_dict: Dict[str, Any] = {}
 
-        # Apply YAML values first
+        # Apply YAML values
         self._apply_yaml_values(config_dict, self._yaml_data, "")
 
-        # Then apply environment variable overrides
+        # Apply environment variable overrides
         for config_path, (env_var, converter, default) in ENV_MAPPINGS.items():
             env_value = os.getenv(env_var)
 
             if env_value is not None:
-                # Environment variable takes precedence
                 try:
                     value = converter(env_value)
                     self._set_nested(config_dict, config_path, value)
                 except Exception as e:
                     logger.warning(f"Failed to convert {env_var}={env_value}: {e}")
             elif not self._has_nested(config_dict, config_path):
-                # Use default if no value set
                 self._set_nested(config_dict, config_path, default)
 
-        # Build Pydantic model
         return AppConfig(**config_dict)
 
     def _apply_yaml_values(self, result: Dict, yaml_data: Dict, prefix: str):
-        """Flatten YAML data into result dict with dot-notation keys."""
+        """Flatten YAML data into result dict."""
         if not isinstance(yaml_data, dict):
             return
 
@@ -226,7 +287,7 @@ class ConfigLoader:
                 self._set_nested(result, full_path, value)
 
     def _set_nested(self, data: Dict, path: str, value: Any):
-        """Set a nested value using dot-notation path."""
+        """Set nested value using dot-notation path."""
         parts = path.split(".")
         current = data
 
@@ -238,7 +299,7 @@ class ConfigLoader:
         current[parts[-1]] = value
 
     def _has_nested(self, data: Dict, path: str) -> bool:
-        """Check if a nested path exists."""
+        """Check if nested path exists."""
         parts = path.split(".")
         current = data
 
@@ -250,7 +311,7 @@ class ConfigLoader:
         return True
 
     def _get_nested(self, data: Dict, path: str) -> Any:
-        """Get a nested value using dot-notation path."""
+        """Get nested value using dot-notation path."""
         parts = path.split(".")
         current = data
 
@@ -261,22 +322,60 @@ class ConfigLoader:
 
         return current
 
+    def save(self, updates: Dict[str, Any]) -> bool:
+        """
+        Save configuration updates to the runtime config file.
+
+        Args:
+            updates: Dict of path -> value to update
+
+        Returns:
+            True if saved successfully
+        """
+        try:
+            # Reload current YAML data
+            self._yaml_data = self._load_yaml()
+
+            # Apply updates
+            for path, value in updates.items():
+                self._set_nested_yaml(self._yaml_data, path, value)
+
+            # Write back to file
+            with open(self._config_file, 'w', encoding='utf-8') as f:
+                yaml.dump(self._yaml_data, f, default_flow_style=False, allow_unicode=True)
+
+            # Reload config
+            self._config = None
+            self.load()
+
+            logger.info(f"Configuration saved to {self._config_file}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+            return False
+
+    def _set_nested_yaml(self, data: Dict, path: str, value: Any):
+        """Set nested value in YAML data structure."""
+        parts = path.split(".")
+        current = data
+
+        for part in parts[:-1]:
+            if part not in current:
+                current[part] = {}
+            current = current[part]
+
+        current[parts[-1]] = value
+
     def reload(self) -> AppConfig:
-        """Reload configuration from all sources."""
+        """Reload configuration from file."""
         self._config = None
         self._yaml_data = {}
         return self.load()
 
-    def get_raw_env(self, env_var: str) -> Optional[str]:
-        """Get raw environment variable value (for debugging)."""
-        return os.getenv(env_var)
-
-    def list_env_vars(self) -> Dict[str, Optional[str]]:
-        """List all recognized environment variables and their values."""
-        result = {}
-        for config_path, (env_var, _, _) in ENV_MAPPINGS.items():
-            result[env_var] = os.getenv(env_var)
-        return result
+    def get_config_path(self) -> Path:
+        """Get the runtime config file path."""
+        return self._config_file
 
 
 # =============================================================================
@@ -286,15 +385,11 @@ class ConfigLoader:
 _loader: Optional[ConfigLoader] = None
 
 
-def get_config(config_path: Optional[str] = None) -> AppConfig:
+def get_config() -> AppConfig:
     """
     Get application configuration.
 
-    This is the main entry point for all configuration access.
-    Other modules should use this function instead of reading env vars directly.
-
-    Args:
-        config_path: Optional config file path (only used on first call)
+    Loads from ~/.magi/config/agent.yaml with env var overrides.
 
     Returns:
         AppConfig: Application configuration
@@ -302,13 +397,13 @@ def get_config(config_path: Optional[str] = None) -> AppConfig:
     global _loader
 
     if _loader is None:
-        _loader = ConfigLoader(config_path)
+        _loader = ConfigLoader()
 
     return _loader.load()
 
 
 def reload_config() -> AppConfig:
-    """Reload configuration from all sources."""
+    """Reload configuration from file."""
     global _loader
 
     if _loader is not None:
@@ -317,6 +412,30 @@ def reload_config() -> AppConfig:
     return get_config()
 
 
+def save_config(updates: Dict[str, Any]) -> bool:
+    """
+    Save configuration updates to runtime config file.
+
+    Args:
+        updates: Dict of path -> value (e.g., {"tools.weather.api_key": "xxx"})
+
+    Returns:
+        True if saved successfully
+    """
+    global _loader
+
+    if _loader is None:
+        _loader = ConfigLoader()
+        _loader.load()
+
+    return _loader.save(updates)
+
+
 def get_loader() -> Optional[ConfigLoader]:
     """Get the global config loader instance."""
     return _loader
+
+
+def get_config_file_path() -> Path:
+    """Get the runtime config file path."""
+    return get_config_file()

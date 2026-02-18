@@ -1,57 +1,42 @@
 """
-Configuration Module - Single source of truth for all configuration.
+Configuration Module - Runtime configuration management.
 
-This module centralizes all configuration access. Other modules should
-NOT read environment variables directly - use get_config() instead.
+Configuration Location:
+    ~/.magi/config/agent.yaml
+
+First Run:
+    If config file doesn't exist, it's copied from backend/configs/config.example.yaml
 
 Configuration Sources (priority order):
     1. Environment variables (highest priority)
-    2. YAML configuration file
+    2. Runtime config file: ~/.magi/config/agent.yaml
     3. Default values (lowest priority)
 
 Usage:
-    from magi.config import get_config
+    from magi.config import get_config, save_config
 
+    # Read configuration
     config = get_config()
+    api_key = config.tools.weather.api_key
 
-    # Access configuration values
-    api_key = config.agent.llm.api_key
-    model = config.agent.llm.model
-    provider = config.agent.llm.provider
-
-    # Check feature flags
-    if config.features.enable_three_layer_arch:
-        ...
+    # Save configuration (persists to ~/.magi/config/agent.yaml)
+    save_config({"tools.weather.api_key": "your-key"})
 
 Environment Variables:
-    LLM_PROVIDER          - Provider: openai, anthropic, glm
-    LLM_MODEL             - Model name (e.g., gpt-4o-mini)
-    LLM_API_KEY           - API key
-    LLM_BASE_URL          - Custom API endpoint
-    LLM_TEMPERATURE       - Sampling temperature (0.0-2.0)
-    LLM_MAX_TOKENS        - Maximum tokens
-    LLM_TIMEOUT           - Request timeout (seconds)
-
-    AGENT_NAME            - Agent name
-    NUM_TASK_AGENTS       - Number of task agents
-    ENABLE_THREE_LAYER_ARCH - Enable three-layer architecture
-
-    SERVER_HOST           - Server host (default: 0.0.0.0)
-    SERVER_PORT           - Server port (default: 8000)
-
-    WEATHER_API_KEY       - Weather tool API key
-    WEATHER_DEFAULT_LOCATION - Default location for weather
-    SEARCH_API_KEY        - Web search API key
-    SEARCH_ENGINE         - Search engine (google, bing, duckduckgo)
-
-    DEBUG                 - Enable debug mode
-    LOG_LEVEL             - Log level (DEBUG, INFO, WARNING, ERROR)
+    LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
+    QWEATHER_API_KEY, SEARCH_API_KEY
+    DEBUG, LOG_LEVEL
 """
 from .loader import (
     ConfigLoader,
     get_config,
     reload_config,
+    save_config,
     get_loader,
+    get_config_file_path,
+    get_magi_home,
+    get_config_dir,
+    get_data_dir,
     ENV_MAPPINGS,
 )
 
@@ -61,6 +46,7 @@ from .models import (
     AgentSettings,
     ServerSettings,
     FeatureFlags,
+    ToolsSettings,
 
     # LLM configuration
     LLMSettings,
@@ -75,16 +61,14 @@ from .models import (
     # Message bus configuration
     MessageBusSettings,
     MessageBusBackend,
-    DropPolicy,
+
+    # Tool settings
+    WeatherToolSettings,
+    WebSearchToolSettings,
 
     # Other settings
     PersonalitySettings,
     PluginSettings,
-
-    # Tools settings
-    ToolsSettings,
-    WeatherToolSettings,
-    WebSearchToolSettings,
 
     # Backward compatibility
     Config,
@@ -94,12 +78,17 @@ __all__ = [
     # Main API
     "get_config",
     "reload_config",
+    "save_config",
     "get_loader",
+    "get_config_file_path",
+    "get_magi_home",
+    "get_config_dir",
+    "get_data_dir",
 
     # Loader class
     "ConfigLoader",
 
-    # Mappings (for documentation/debugging)
+    # Mappings
     "ENV_MAPPINGS",
 
     # Configuration models
@@ -107,6 +96,7 @@ __all__ = [
     "AgentSettings",
     "ServerSettings",
     "FeatureFlags",
+    "ToolsSettings",
     "LLMSettings",
     "LLMProvider",
     "MemorySettings",
@@ -115,12 +105,10 @@ __all__ = [
     "EmbeddingBackend",
     "MessageBusSettings",
     "MessageBusBackend",
-    "DropPolicy",
-    "PersonalitySettings",
-    "PluginSettings",
-    "ToolsSettings",
     "WeatherToolSettings",
     "WebSearchToolSettings",
+    "PersonalitySettings",
+    "PluginSettings",
 
     # Backward compatibility
     "Config",
