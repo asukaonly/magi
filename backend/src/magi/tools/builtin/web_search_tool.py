@@ -1,18 +1,27 @@
 """
 Web Search Tool - Search web using multiple providers
 """
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
 from ..providers.base import ProviderConfig
 from ..providers.web_search import BraveSearchProvider, PerplexitySearchProvider, TavilySearchProvider
+from ...config import get_config, save_config
+
+
+# Provider display info for messages
+PROVIDER_INFO = {
+    "brave": {"name": "Brave Search", "env_var": "BRAVE_API_KEY"},
+    "perplexity": {"name": "Perplexity AI", "env_var": "PERPLEXITY_API_KEY"},
+    "tavily": {"name": "Tavily", "env_var": "TAVILY_API_KEY"},
+}
 
 
 class WebSearchTool(MultiProviderTool):
     """
     Web Search Tool
 
-    Search the web using multiple providers (Brave, Perplexity, Tavily).
+    Search the web using configured providers.
     """
 
     def _init_schema(self) -> None:
@@ -20,25 +29,32 @@ class WebSearchTool(MultiProviderTool):
         self.schema = ToolSchema(
             name="web-search",
             description=(
-                "Search the web for information. Supports multiple search providers.\n\n"
-                "Configuration:\n"
-                "- This tool requires an API key from one of the supported providers\n"
-                "- Supported providers: brave, perplexity, tavily\n"
-                "- To configure, use system-settings tool:\n"
-                "  - Brave: tools.web_search.providers.brave.api_key (or BRAVE_API_KEY env var)\n"
-                "  - Perplexity: tools.web_search.providers.perplexity.api_key (or PERPLEXITY_API_KEY env var)\n"
-                "  - Tavily: tools.web_search.providers.tavily.api_key (or TAVILY_API_KEY env var)\n"
-                "- Example: system-settings set tools.web_search.providers.brave.api_key \"your-api-key\""
+                "Search the web for information.\n\n"
+                "Actions:\n"
+                "- query (default): Search the web\n"
+                "- config: Manage tool configuration (set/get API keys)\n\n"
+                "Supported providers: brave, perplexity, tavily\n\n"
+                "To configure API key:\n"
+                "  {\"action\": \"config\", \"config_action\": \"set\", \"provider\": \"brave\", \"api_key\": \"your-key\"}"
             ),
             category="web",
-            version="1.0.0",
+            version="1.1.0",
             author="Magi Team",
             parameters=[
                 ToolParameter(
+                    name="action",
+                    type=ParameterType.STRING,
+                    description="Action: 'query' (search) or 'config' (manage settings)",
+                    required=False,
+                    default="query",
+                    enum=["query", "config"],
+                ),
+                # Query parameters
+                ToolParameter(
                     name="query",
                     type=ParameterType.STRING,
-                    description="The search query",
-                    required=True,
+                    description="The search query (for 'query' action)",
+                    required=False,
                 ),
                 ToolParameter(
                     name="provider",
@@ -57,15 +73,29 @@ class WebSearchTool(MultiProviderTool):
                     min_value=1,
                     max_value=50,
                 ),
+                # Config parameters
+                ToolParameter(
+                    name="config_action",
+                    type=ParameterType.STRING,
+                    description="Config action (for 'config' action): 'get' or 'set'",
+                    required=False,
+                    enum=["get", "set"],
+                ),
+                ToolParameter(
+                    name="api_key",
+                    type=ParameterType.STRING,
+                    description="API key to set (for 'config' action with 'set')",
+                    required=False,
+                ),
             ],
             examples=[
                 {
-                    "input": {"query": "latest AI news", "provider": "brave"},
-                    "output": "Returns search results from Brave",
+                    "input": {"query": "latest AI news"},
+                    "output": "Returns search results",
                 },
                 {
-                    "input": {"query": "Python async programming", "provider": "perplexity", "num_results": 5},
-                    "output": "Returns 5 search results from Perplexity",
+                    "input": {"action": "config", "config_action": "set", "provider": "brave", "api_key": "xxx"},
+                    "output": "Sets the Brave Search API key",
                 },
             ],
             timeout=30,
@@ -82,56 +112,143 @@ class WebSearchTool(MultiProviderTool):
         self.register_provider(TavilySearchProvider())
 
     def _get_provider_config(self, provider_name: str) -> ProviderConfig:
-        """Get configuration for a specific provider with backward compatibility."""
-        from ...config import get_config
+        """Get configuration for a specific provider."""
         config = get_config()
         return config.tools.web_search.get_provider_config(provider_name)
 
     def _get_default_provider(self) -> str:
         """Get the default provider name from config."""
-        from ...config import get_config
         config = get_config()
         return config.tools.web_search.default_provider
 
-    def _update_schema_with_available_providers(self) -> None:
-        """Update schema enum with only available providers."""
-        available = self.get_available_providers()
-        if available:
-            # Update the provider parameter enum to only show available providers
-            for param in self.schema.parameters:
-                if param.name == "provider":
-                    param.enum = available
-                    if param.default not in available and available:
-                        param.default = available[0]
-                    break
+    def _get_config_path(self, provider_name: str) -> str:
+        """Get the config path for a provider's API key."""
+        return f"tools.web_search.providers.{provider_name}.api_key"
 
     async def execute(
         self,
         parameters: Dict[str, Any],
         context: ToolExecutionContext
     ) -> ToolResult:
-        """Execute web search"""
-        query = parameters["query"]
+        """Execute web search or config action"""
+        action = parameters.get("action", "query")
+
+        if action == "config":
+            return await self._handle_config(parameters)
+
+        return await self._handle_query(parameters)
+
+    async def _handle_config(self, parameters: Dict[str, Any]) -> ToolResult:
+        """Handle configuration actions."""
+        config_action = parameters.get("config_action")
+
+        if not config_action:
+            return ToolResult(
+                success=False,
+                error="Missing 'config_action'. Use 'get' or 'set'.",
+                error_code="MISSING_CONFIG_ACTION",
+            )
+
+        if config_action == "get":
+            # Return config status for all providers
+            available = self.get_available_providers()
+            all_providers = self.get_all_provider_names()
+
+            providers_status = []
+            for p in all_providers:
+                info = PROVIDER_INFO.get(p, {"name": p, "env_var": ""})
+                providers_status.append({
+                    "provider": p,
+                    "name": info["name"],
+                    "configured": p in available,
+                    "env_var": info["env_var"],
+                })
+
+            return ToolResult(
+                success=True,
+                data={
+                    "providers": providers_status,
+                    "default_provider": self._get_default_provider(),
+                    "message": f"Configured providers: {', '.join(available) if available else 'none'}. "
+                               f"Use config_action 'set' with provider and api_key to configure.",
+                },
+            )
+
+        if config_action == "set":
+            provider_name = parameters.get("provider") or self._get_default_provider()
+            api_key = parameters.get("api_key")
+
+            if not api_key:
+                return ToolResult(
+                    success=False,
+                    error="Missing 'api_key'. Provide the API key to set.",
+                    error_code="MISSING_API_KEY",
+                )
+
+            # Validate provider
+            if provider_name not in self.get_all_provider_names():
+                return ToolResult(
+                    success=False,
+                    error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
+                    error_code="INVALID_PROVIDER",
+                )
+
+            # Save the API key
+            config_path = self._get_config_path(provider_name)
+            if save_config({config_path: api_key}):
+                info = PROVIDER_INFO.get(provider_name, {"name": provider_name})
+                return ToolResult(
+                    success=True,
+                    data={
+                        "provider": provider_name,
+                        "name": info["name"],
+                        "configured": True,
+                        "message": f"API key for '{info['name']}' has been saved successfully.",
+                    },
+                )
+            else:
+                return ToolResult(
+                    success=False,
+                    error="Failed to save configuration",
+                    error_code="SAVE_FAILED",
+                )
+
+        return ToolResult(
+            success=False,
+            error=f"Unknown config_action: {config_action}. Use 'get' or 'set'.",
+            error_code="INVALID_CONFIG_ACTION",
+        )
+
+    async def _handle_query(self, parameters: Dict[str, Any]) -> ToolResult:
+        """Handle web search query."""
+        query = parameters.get("query")
+
+        if not query:
+            return ToolResult(
+                success=False,
+                error="Missing 'query' parameter. Provide a search query.",
+                error_code="MISSING_QUERY",
+            )
 
         # Use specified provider or default from config
-        provider_name = parameters.get("provider")
-        if not provider_name:
-            provider_name = self._get_default_provider()
+        provider_name = parameters.get("provider") or self._get_default_provider()
 
-        # Check if provider is available
+        # Check if any provider is available
         available_providers = self.get_available_providers()
         if not available_providers:
             return ToolResult(
                 success=False,
-                error="No search providers are configured. Please set an API key for at least one provider (BRAVE_API_KEY, PERPLEXITY_API_KEY, or TAVILY_API_KEY).",
+                error="No search providers are configured. Use action 'config' to set an API key.",
                 error_code="NO_PROVIDERS_CONFIGURED",
+                data={
+                    "hint": 'Use: {"action": "config", "config_action": "set", "provider": "brave", "api_key": "your-key"}',
+                    "supported_providers": list(PROVIDER_INFO.keys()),
+                },
             )
 
         # Fall back to first available if requested provider not available
         if provider_name not in available_providers:
-            original_provider = provider_name
             provider_name = available_providers[0]
-            # Could log a warning here about fallback
 
         result = await self.execute_with_provider(
             provider_name,
@@ -142,7 +259,6 @@ class WebSearchTool(MultiProviderTool):
         )
 
         if result.success:
-            # Add query to result data
             result.data["query"] = query
 
         return result
