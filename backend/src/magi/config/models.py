@@ -148,6 +148,10 @@ class WeatherToolSettings(BaseModel):
         default_factory=lambda: {"qweather": ProviderConfig()}
     )
 
+    def get_provider_config(self, provider_name: str) -> ProviderConfig:
+        """Get provider config, returns empty config if not found."""
+        return self.providers.get(provider_name, ProviderConfig())
+
 
 class WebSearchToolSettings(BaseModel):
     """Web search tool configuration."""
@@ -160,6 +164,10 @@ class WebSearchToolSettings(BaseModel):
             "tavily": ProviderConfig(),
         }
     )
+
+    def get_provider_config(self, provider_name: str) -> ProviderConfig:
+        """Get provider config, returns empty config if not found."""
+        return self.providers.get(provider_name, ProviderConfig())
 
 
 class ToolsSettings(BaseModel):

@@ -72,14 +72,10 @@ class WebSearchTool(MultiProviderTool):
         self.register_provider(TavilySearchProvider())
 
     def _get_provider_config(self, provider_name: str) -> ProviderConfig:
-        """Get configuration for a specific provider."""
+        """Get configuration for a specific provider with backward compatibility."""
         from ...config import get_config
         config = get_config()
-        provider_config = config.tools.web_search.providers.get(provider_name, {})
-        return ProviderConfig(
-            api_key=provider_config.api_key if hasattr(provider_config, 'api_key') else provider_config.get("api_key"),
-            base_url=provider_config.base_url if hasattr(provider_config, 'base_url') else provider_config.get("base_url"),
-        )
+        return config.tools.web_search.get_provider_config(provider_name)
 
     def _get_default_provider(self) -> str:
         """Get the default provider name from config."""
