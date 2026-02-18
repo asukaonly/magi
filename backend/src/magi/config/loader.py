@@ -93,14 +93,15 @@ ENV_MAPPINGS: Dict[str, Tuple[str, Callable, Any]] = {
     "features.enable_websocket": ("ENABLE_WEBSOCKET", lambda v: v.lower() == "true", True),
 
     # Tools - Weather
-    "tools.weather.api_key": ("QWEATHER_API_KEY", str, None),
-    "tools.weather.base_url": ("QWEATHER_API_HOST", str, None),
-    "tools.weather.default_location": ("WEATHER_DEFAULT_LOCATION", str, "Beijing"),
+    "tools.weather.default_provider": ("WEATHER_DEFAULT_PROVIDER", str, "qweather"),
+    "tools.weather.providers.qweather.api_key": ("QWEATHER_API_KEY", str, None),
+    "tools.weather.providers.qweather.base_url": ("QWEATHER_API_HOST", str, None),
 
     # Tools - Web Search
-    "tools.web_search.api_key": ("SEARCH_API_KEY", str, None),
-    "tools.web_search.engine": ("SEARCH_ENGINE", str, "google"),
-    "tools.web_search.max_results": ("SEARCH_MAX_RESULTS", int, 5),
+    "tools.web_search.default_provider": ("WEB_SEARCH_DEFAULT_PROVIDER", str, "brave"),
+    "tools.web_search.providers.brave.api_key": ("BRAVE_API_KEY", str, None),
+    "tools.web_search.providers.perplexity.api_key": ("PERPLEXITY_API_KEY", str, None),
+    "tools.web_search.providers.tavily.api_key": ("TAVILY_API_KEY", str, None),
 
     # Server Settings
     "server.host": ("SERVER_HOST", str, "0.0.0.0"),

@@ -4,9 +4,12 @@ toolSchemaandmetadata定义
 定义tool的standardInterfaceandmetadatastructure
 """
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
 from pydantic import BaseModel, Field
 from enum import Enum
+
+if TYPE_CHECKING:
+    from .providers.base import Provider, ProviderConfig
 
 
 class ParameterType(str, Enum):
@@ -339,3 +342,157 @@ class Tool(ABC):
             category="external",  # 从 Claude import的tooldefault为 external
             parameters=parameters,
         )
+
+
+class MultiProviderTool(Tool):
+    """
+    Base class for tools with multiple service providers.
+
+    This class provides a standardized interface for tools that can use
+    multiple backend providers (e.g., different search engines, weather services).
+
+    Subclasses must:
+    1. Implement _register_providers() to add available providers
+    2. Implement _get_provider_config() to return config for each provider
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._providers: Dict[str, "Provider"] = {}
+        self._register_providers()
+
+    @abstractmethod
+    def _register_providers(self) -> None:
+        """
+        Register all available providers.
+
+        Subclasses should call self.register_provider() for each provider.
+        """
+        pass
+
+    @abstractmethod
+    def _get_provider_config(self, provider_name: str) -> "ProviderConfig":
+        """
+        Get configuration for a specific provider.
+
+        Args:
+            provider_name: Name of the provider
+
+        Returns:
+            ProviderConfig with API key and other settings
+        """
+        pass
+
+    @abstractmethod
+    def _get_default_provider(self) -> str:
+        """
+        Get the default provider name.
+
+        Returns:
+            Name of the default provider
+        """
+        pass
+
+    def register_provider(self, provider: "Provider") -> None:
+        """
+        Register a provider.
+
+        Args:
+            provider: Provider instance to register
+        """
+        self._providers[provider.name] = provider
+
+    def get_provider(self, name: str) -> Optional["Provider"]:
+        """
+        Get a provider by name.
+
+        Args:
+            name: Provider identifier
+
+        Returns:
+            Provider instance or None if not found
+        """
+        return self._providers.get(name)
+
+    def get_available_providers(self) -> List[str]:
+        """
+        Get list of provider names that are ready to use.
+
+        Returns:
+            List of provider names that have valid configuration
+        """
+        available = []
+        for name, provider in self._providers.items():
+            config = self._get_provider_config(name)
+            if provider.is_ready(config):
+                available.append(name)
+        return available
+
+    def get_all_provider_names(self) -> List[str]:
+        """
+        Get list of all registered provider names.
+
+        Returns:
+            List of all provider names (regardless of configuration)
+        """
+        return list(self._providers.keys())
+
+    def is_ready(self) -> bool:
+        """
+        Check if the tool is ready to use.
+
+        Tool is ready if at least one provider is configured.
+
+        Returns:
+            True if at least one provider is ready
+        """
+        return len(self.get_available_providers()) > 0
+
+    async def execute_with_provider(
+        self,
+        provider_name: str,
+        params: Dict[str, Any]
+    ) -> ToolResult:
+        """
+        Execute using a specific provider.
+
+        Args:
+            provider_name: Name of the provider to use
+            params: Parameters for the provider
+
+        Returns:
+            ToolResult with success/failure and data
+        """
+        provider = self.get_provider(provider_name)
+
+        if not provider:
+            return ToolResult(
+                success=False,
+                error=f"Unknown provider: {provider_name}",
+                error_code="INVALID_PROVIDER",
+            )
+
+        config = self._get_provider_config(provider_name)
+
+        if not provider.is_ready(config):
+            return ToolResult(
+                success=False,
+                error=f"Provider '{provider_name}' is not configured. Please set the required API key.",
+                error_code="PROVIDER_NOT_CONFIGURED",
+            )
+
+        try:
+            result = await provider.execute(params, config)
+            return ToolResult(success=True, data=result)
+        except ValueError as e:
+            return ToolResult(
+                success=False,
+                error=str(e),
+                error_code="INVALID_CONFIG",
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                error=str(e),
+                error_code="PROVIDER_ERROR",
+            )

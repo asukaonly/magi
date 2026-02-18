@@ -84,15 +84,22 @@ features:
 tools:
   weather:
     enabled: true
-    api_key: ""  # Set your QWeather API key here
-    base_url: ""
-    default_location: ""  # Optional: default location for weather queries
+    default_provider: "qweather"  # Default provider to use
+    providers:
+      qweather:
+        api_key: ""  # Set your QWeather API key here
+        base_url: ""  # Optional: API host (default: devapi.qweather.com)
 
   web_search:
     enabled: true
-    api_key: ""  # Set your search API key here
-    engine: "google"
-    max_results: 5
+    default_provider: "brave"  # Default provider: brave, perplexity, or tavily
+    providers:
+      brave:
+        api_key: ""  # Set your Brave Search API key here
+      perplexity:
+        api_key: ""  # Set your Perplexity API key here
+      tavily:
+        api_key: ""  # Set your Tavily API key here
 
 # =============================================================================
 # Global Settings

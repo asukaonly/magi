@@ -1,12 +1,14 @@
 """
-Weather Tool - query weather using QWeather (和风天气) API
+Weather Tool - Query weather using QWeather (和风天气) API
 """
-import aiohttp
-from typing import Dict, Any, Optional
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from typing import Dict, Any
+
+from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..providers.base import ProviderConfig
+from ..providers.weather import QWeatherProvider
 
 
-class WeatherTool(Tool):
+class WeatherTool(MultiProviderTool):
     """
     Weather Tool
 
@@ -55,26 +57,25 @@ class WeatherTool(Tool):
             tags=["weather", "information", "qweather"],
         )
 
-    def _get_api_credentials(self) -> tuple[Optional[str], str]:
-        """
-        Get API credentials from config.
+    def _register_providers(self) -> None:
+        """Register all available weather providers."""
+        self.register_provider(QWeatherProvider())
 
-        Config module handles priority: env vars > config file > defaults.
-
-        Returns:
-            Tuple of (api_key, api_host)
-        """
+    def _get_provider_config(self, provider_name: str) -> ProviderConfig:
+        """Get configuration for a specific provider."""
         from ...config import get_config
         config = get_config()
-        api_key = config.tools.weather.api_key
-        base_url = config.tools.weather.base_url
-        api_host = base_url or "devapi.qweather.com"
-        return api_key, api_host
+        provider_config = config.tools.weather.providers.get(provider_name, {})
+        return ProviderConfig(
+            api_key=provider_config.api_key if hasattr(provider_config, 'api_key') else provider_config.get("api_key"),
+            base_url=provider_config.base_url if hasattr(provider_config, 'base_url') else provider_config.get("base_url"),
+        )
 
-    def is_ready(self) -> bool:
-        """Check if weather API key is configured."""
-        api_key, _ = self._get_api_credentials()
-        return bool(api_key)
+    def _get_default_provider(self) -> str:
+        """Get the default provider name from config."""
+        from ...config import get_config
+        config = get_config()
+        return config.tools.weather.default_provider
 
     async def execute(
         self,
@@ -85,126 +86,24 @@ class WeatherTool(Tool):
         location = parameters["location"]
         lang = parameters.get("lang", "zh")
 
-        try:
-            # Get API credentials
-            api_key, api_host = self._get_api_credentials()
+        # Weather tool only has one provider, but we use the same pattern
+        provider_name = self._get_default_provider()
 
-            if not api_key:
-                return ToolResult(
-                    success=False,
-                    error="Weather API key not configured. Set QWEATHER_API_KEY environment variable or configure in agent.yaml. Get your key from https://dev.qweather.com/",
-                    error_code="MISSING_API_KEY",
-                )
-
-            # First, try to resolve location to LocationID if it's a city name
-            location_id = await self._resolve_location(location, api_key, api_host)
-
-            # Query weather
-            weather_data = await self._query_weather(location_id, api_key, api_host, lang)
-
-            return ToolResult(
-                success=True,
-                data={
-                    "location": location,
-                    "location_id": location_id,
-                    "weather": weather_data,
-                },
-            )
-
-        except Exception as e:
+        # Check if any provider is available
+        available_providers = self.get_available_providers()
+        if not available_providers:
             return ToolResult(
                 success=False,
-                error=str(e),
-                error_code="WEATHER_QUERY_ERROR",
+                error="Weather API key not configured. Set QWEATHER_API_KEY environment variable or configure in agent.yaml. Get your key from https://dev.qweather.com/",
+                error_code="NO_PROVIDERS_CONFIGURED",
             )
 
-    async def _resolve_location(
-        self,
-        location: str,
-        api_key: str,
-        api_host: str
-    ) -> str:
-        """
-        Resolve location to Locationid.
-        If location looks like coordinates, return as-is.
-        Otherwise, use GeoAPI to find the Locationid.
-        """
-        # Check if location is already coordinates (contains comma and numbers)
-        if "," in location:
-            parts = location.split(",")
-            if len(parts) == 2:
-                try:
-                    float(parts[0].strip())
-                    float(parts[1].strip())
-                    # It's coordinates, return as-is
-                    return location
-                except ValueError:
-                    pass
+        result = await self.execute_with_provider(
+            provider_name,
+            {
+                "location": location,
+                "lang": lang,
+            }
+        )
 
-        # Use GeoAPI to find Locationid
-        url = f"https://{api_host}/v2/city/lookup"
-        headers = {"Authorization": f"Bearer {api_key}"}
-        params = {"location": location, "number": 1}
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"GeoAPI error: {response.status} - {error_text}")
-
-                data = await response.json()
-
-        if data.get("code") != "200":
-            raise Exception(f"Failed to resolve location: {data.get('message', 'Unknotttwn error')}")
-
-        locations = data.get("location", [])
-        if not locations:
-            raise Exception(f"Location not found: {location}")
-
-        return locations[0].get("id", location)
-
-    async def _query_weather(
-        self,
-        location_id: str,
-        api_key: str,
-        api_host: str,
-        lang: str
-    ) -> Dict[str, Any]:
-        """query current weather from QWeather API"""
-        url = f"https://{api_host}/v7/weather/notttw"
-        headers = {"Authorization": f"Bearer {api_key}"}
-        params = {
-            "location": location_id,
-            "lang": lang,
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"Weather API error: {response.status} - {error_text}")
-
-                data = await response.json()
-
-        if data.get("code") != "200":
-            raise Exception(f"Weather API returned error code: {data.get('code')}")
-
-        notttw = data.get("notttw", {})
-
-        return {
-            "observation_time": notttw.get("obsTime"),
-            "temperature": notttw.get("temp"),
-            "feels_like": notttw.get("feelsLike"),
-            "condition": notttw.get("text"),
-            "icon_code": notttw.get("icon"),
-            "wind_direction": notttw.get("windDir"),
-            "wind_scale": notttw.get("windScale"),
-            "wind_speed": notttw.get("windSpeed"),
-            "humidity": notttw.get("humidity"),
-            "precipitation": notttw.get("precip"),
-            "pressure": notttw.get("pressure"),
-            "visibility": notttw.get("vis"),
-            "cloud_cover": notttw.get("cloud"),
-            "dew_point": notttw.get("dew"),
-            "update_time": data.get("updateTime"),
-        }
+        return result

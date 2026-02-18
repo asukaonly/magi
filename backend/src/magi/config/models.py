@@ -134,20 +134,32 @@ class FeatureFlags(BaseModel):
 # Tools Configuration
 # =============================================================================
 
-class WeatherToolSettings(BaseModel):
-    """Weather tool configuration (QWeather)."""
-    enabled: bool = Field(default=True)
+class ProviderConfig(BaseModel):
+    """Generic provider configuration."""
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
-    default_location: Optional[str] = Field(default=None)  # No default - user must specify location
+
+
+class WeatherToolSettings(BaseModel):
+    """Weather tool configuration."""
+    enabled: bool = Field(default=True)
+    default_provider: str = Field(default="qweather")
+    providers: Dict[str, ProviderConfig] = Field(
+        default_factory=lambda: {"qweather": ProviderConfig()}
+    )
 
 
 class WebSearchToolSettings(BaseModel):
     """Web search tool configuration."""
     enabled: bool = Field(default=True)
-    api_key: Optional[str] = Field(default=None)
-    engine: str = Field(default="google")
-    max_results: int = Field(default=5, ge=1, le=20)
+    default_provider: str = Field(default="brave")
+    providers: Dict[str, ProviderConfig] = Field(
+        default_factory=lambda: {
+            "brave": ProviderConfig(),
+            "perplexity": ProviderConfig(),
+            "tavily": ProviderConfig(),
+        }
+    )
 
 
 class ToolsSettings(BaseModel):
