@@ -1,73 +1,100 @@
-# Magi Agent Framework - 示例配置文件
+# Magi Agent Framework - Configuration File
+#
+# Environment Variables (set in .env):
+#   LLM_PROVIDER     - openai | anthropic | glm | local
+#   LLM_MODEL        - Model name (e.g., gpt-4o-mini)
+#   LLM_API_KEY      - API key
+#   LLM_BASE_URL     - Custom API endpoint
+#   LLM_TEMPERATURE  - Sampling temperature (0.0-2.0)
+#   LLM_MAX_TOKENS   - Maximum tokens
+#   LLM_TIMEOUT      - Request timeout (seconds)
+#
+#   WEATHER_API_KEY      - Weather tool API key
+#   WEATHER_DEFAULT_LOCATION - Default location
+#   SEARCH_API_KEY       - Web search API key
+#   SEARCH_ENGINE        - google | bing | duckduckgo
 
-# Agent配置
 agent:
-  name: "my-agent"
+  name: "magi-agent"
 
-  # LLM配置
+  # LLM Configuration
   llm:
-    provider: "openai" # openai | anthropic | local（使用 OpenAI 格式）
-    model: "anthropic/claude-opus-4.6"
-    api_key: "${OPENAI_API_KEY}" # 从环境变量读取
-    # 【可选】自定义API endpoint（代理/中转服务）
-    # 方式1: 使用base_url（推荐）
-    base_url: "${OPENAI_BASE_URL:https://zenmux.ai/api/v1}" # ZENMUX API endpoint
-    # 方式2: 使用api_base（兼容旧配置）
-    # api_base: "${OPENAI_BASE_URL:}"
+    provider: "${LLM_PROVIDER:openai}"
+    model: "${LLM_MODEL:gpt-4o-mini}"
+    api_key: "${LLM_API_KEY}"
+    base_url: "${LLM_BASE_URL:}"
     temperature: 0.7
-    max_tokens: 2000
-    timeout: 60 # 请求超时时间（秒）
+    max_tokens: 1000
+    timeout: 60
 
-  # 记忆存储配置
+  # Memory Configuration
   memory:
-    short_term: "memory" # memory | chromadb | faiss
-    long_term: "chromadb"
-    db_path: "./data/memories"
-    chromadb_path: "./data/chromadb"
+    short_term_backend: "memory"
+    long_term_backend: "chromadb"
+    db_path: "~/.magi/data/memories"
+    chromadb_path: "~/.magi/data/chromadb"
     retention_days: 7
 
-  # 人格配置
+    # L1-L5 Memory Layers
+    enable_l1_raw: true
+    enable_l2_relations: true
+    enable_l3_embeddings: true
+    enable_l4_summaries: true
+    enable_l5_capabilities: true
+
+    # Embedding settings
+    embedding:
+      backend: "local"
+      local_model: "all-MiniLM-L6-v2"
+      local_dimension: 384
+
+  # Personality Configuration
   personality:
-    name: "default"  # 人格名称，对应 personalities/default.md
-    path: "./personalities"  # 人格配置文件目录
-    enable_evolution: true  # 是否启用人格演化（L3/L4/L5层）
-    db_path: "./data/memories/self_memory_v2.db"  # 人格数据库路径
+    name: "default"
+    path: "~/.magi/personalities"
+    enable_evolution: true
+    db_path: "~/.magi/data/memories/self_memory_v2.db"
 
-  # 消息总线配置
+  # Message Bus Configuration
   message_bus:
-    backend: "sqlite" # memory | sqlite | redis
+    backend: "sqlite"
     max_queue_size: 1000
-    drop_policy: "lowest_priority" # oldest | lowest_priority | reject
+    drop_policy: "lowest_priority"
     num_workers: 4
+    sqlite_db_path: "~/.magi/data/magi_events.db"
 
-    # SQLite后端配置
-    sqlite:
-      db_path: "./data/magi_events.db"
-      memory_cache_size: 100
-
-    # Redis后端配置（backend=redis时使用）
-    redis:
-      url: "redis://localhost:6379"
-      stream_maxlen: 10000
-
-  # TaskAgent配置
-  num_task_agents: 3
-
-  # 循环配置
-  loop_interval: 1.0 # 秒
-
-  # 监控配置
+  # Task Agent Configuration
+  num_task_agents: 2
+  loop_interval: 1.0
   enable_monitoring: true
 
-  # 插件配置
-  plugins:
-    file_ops:
-      enabled: true
-      priority: 10
-    web_search:
-      enabled: true
-      priority: 5
+# Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  cors_origins: ["*"]
 
-# 全局配置
+# Feature Flags
+features:
+  enable_three_layer_arch: false
+  enable_skills: true
+  enable_websocket: true
+
+# Tools Configuration
+tools:
+  weather:
+    enabled: true
+    api_key: "${WEATHER_API_KEY:}"
+    base_url: "${WEATHER_BASE_URL:}"
+    default_location: "${WEATHER_DEFAULT_LOCATION:Beijing}"
+
+  web_search:
+    enabled: true
+    api_key: "${SEARCH_API_KEY:}"
+    engine: "${SEARCH_ENGINE:google}"
+    max_results: 5
+
+# Global Configuration
 debug: false
-log_level: "INFO" # DEBUG | INFO | WARNING | ERROR | CRITICAL
+log_level: "INFO"

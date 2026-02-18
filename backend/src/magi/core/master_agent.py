@@ -191,6 +191,11 @@ class MasterAgent(Agent):
         """
         Recognize task from user message
 
+        Enhanced for chat tasks:
+        - Better chat intent recognition
+        - Appropriate timeout for chat
+        - Session management
+
         Args:
             message: User message
             user_id: User id
@@ -201,29 +206,50 @@ class MasterAgent(Agent):
         # Simplified task recognition: based on keywords
         message_lower = message.lower()
 
-        # Determine task type
+        # Determine task type - default to QUERY for chat
         task_type = TaskType.QUERY
         priority = TaskPriority.NORMAL
-        interaction_level = "notttne"  # notttne, low, medium, high
+        interaction_level = "none"  # none, low, medium, high
 
-        # Detect keywords
-        if any(word in message_lower for word in ["calculate", "statistics", "analysis", "compute", "calculate"]):
+        # Detect computation tasks
+        if any(word in message_lower for word in ["calculate", "statistics", "analysis", "compute", "计算", "统计", "分析"]):
             task_type = TaskType.COMPUTATION
-        elif any(word in message_lower for word in ["帮我", "请", "能不能", "can you", "help"]):
+
+        # Detect interactive tasks (need multi-turn interaction)
+        elif any(word in message_lower for word in ["帮我", "请", "能不能", "can you", "help", "帮我", "帮助"]):
             task_type = TaskType.INTERACTIVE
             interaction_level = "medium"
 
-        # Detect priority
-        if any(word in message_lower for word in ["紧急", "urgent", "asap", "马上"]):
-            priority = TaskPriority.URGENT
-        elif any(word in message_lower for word in ["重要", "important", "priority"]):
-            priority = TaskPriority.HIGH
+        # Detect batch tasks
+        elif any(word in message_lower for word in ["批量", "batch", "所有", "all", "every"]):
+            task_type = TaskType.BATCH
 
-        # Calculate timeout
-        timeout = TimeoutCalculator.calculate(
-            task_type=task_type,
-            priority=priority,
-        )
+        # Default: QUERY type for chat messages
+        else:
+            task_type = TaskType.QUERY
+            interaction_level = "low"
+
+        # Detect priority
+        if any(word in message_lower for word in ["紧急", "urgent", "asap", "马上", "立即"]):
+            priority = TaskPriority.URGENT
+        elif any(word in message_lower for word in ["重要", "important", "priority", "优先"]):
+            priority = TaskPriority.HIGH
+        elif any(word in message_lower for word in ["稍后", "later", "不急"]):
+            priority = TaskPriority.LOW
+
+        # Calculate timeout based on task type
+        # Chat tasks need longer timeout for LLM response
+        if task_type == TaskType.QUERY:
+            timeout = 120.0  # 2 minutes for chat
+        elif task_type == TaskType.INTERACTIVE:
+            timeout = 180.0  # 3 minutes for interactive
+        elif task_type == TaskType.COMPUTATION:
+            timeout = 300.0  # 5 minutes for computation
+        else:
+            timeout = TimeoutCalculator.calculate(
+                task_type=task_type,
+                priority=priority,
+            )
 
         # Create task
         task = await self.task_database.create_task(
@@ -235,6 +261,11 @@ class MasterAgent(Agent):
                 "interaction_level": interaction_level,
             },
             timeout=timeout,
+        )
+
+        logger.info(
+            f"Task identified | ID: {task.task_id} | Type: {task_type.value} | "
+            f"Priority: {priority.name} | Timeout: {timeout}s"
         )
 
         return task

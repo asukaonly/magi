@@ -31,6 +31,7 @@ from .builtin.capabilities_tool import CapabilitiesTool
 from .builtin.web_search_tool import WebSearchTool
 from .builtin.skills_creator_tool import SkillsCreatorTool
 from .builtin.weather_tool import WeatherTool
+from .builtin.system_settings_tool import SystemSettingsTool
 
 # import Skills module
 from ..skills.indexer import SkillIndexer
@@ -48,6 +49,7 @@ _builtin_tools = [
     WebSearchTool,
     SkillsCreatorTool,
     WeatherTool,
+    SystemSettingsTool,
 ]
 
 for tool_class in _builtin_tools:
@@ -110,6 +112,7 @@ __all__ = [
     "WebSearchTool",
     "SkillsCreatorTool",
     "WeatherTool",
+    "SystemSettingsTool",
 
     # Skills
     "SkillIndexer",

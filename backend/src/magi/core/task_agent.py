@@ -14,6 +14,9 @@ from ..tools.registry import ToolRegistry, ToolExecutionContext
 
 logger = logging.getLogger(__name__)
 
+# Import ChatWorkerAgent for chat tasks
+from .chat_worker_agent import ChatWorkerAgent
+
 
 class Subtask:
     """Subtask"""
@@ -67,6 +70,10 @@ class TaskAgent(Agent):
         task_database: TaskDatabase,
         llm_adapter: LLMAdapter,
         tool_registry: ToolRegistry,
+        memory=None,
+        other_memory=None,
+        unified_memory=None,
+        memory_integration=None,
     ):
         """
         initialize TaskAgent
@@ -78,6 +85,10 @@ class TaskAgent(Agent):
             task_database: Task database
             llm_adapter: LLM adapter
             tool_registry: Tool registry
+            memory: SelfMemory system (optional)
+            other_memory: OtherMemory system (optional)
+            unified_memory: UnifiedMemoryStore (optional)
+            memory_integration: MemoryIntegrationModule (optional)
         """
         super().__init__(config)
         self.agent_id = agent_id
@@ -88,6 +99,12 @@ class TaskAgent(Agent):
         self._pending_count = 0  # Current pending task count
         self._scan_task: Optional[asyncio.Task] = None
         self._running_workers: Dict[str, WorkerAgent] = {}
+
+        # Memory systems
+        self.memory = memory
+        self.other_memory = other_memory
+        self.unified_memory = unified_memory
+        self.memory_integration = memory_integration
 
     async def _on_start(self):
         """Start TaskAgent"""
@@ -355,6 +372,9 @@ Return only the tool name."""
         """
         Create and run WorkerAgent
 
+        For chat tasks, creates ChatWorkerAgent with memory system support.
+        For other tasks, creates generic WorkerAgent.
+
         Args:
             task: Parent task
             subtasks: List of subtasks
@@ -362,16 +382,39 @@ Return only the tool name."""
         Returns:
             WorkerAgent instance
         """
-        worker = WorkerAgent(
-            task_id=task.task_id,
-            task=task,
-            subtasks=subtasks,
-            message_bus=self.message_bus,
-            llm_adapter=self.llm,
-            tool_registry=self.tool_registry,
-            timeout=task.timeout,
-            max_retries=task.max_retries,
-        )
+        # Check if this is a chat task
+        is_chat_task = task.type in ("query", "interactive")
+
+        if is_chat_task:
+            # Create ChatWorkerAgent for chat tasks
+            worker = ChatWorkerAgent(
+                task_id=task.task_id,
+                task=task,
+                subtasks=subtasks,
+                message_bus=self.message_bus,
+                llm_adapter=self.llm,
+                tool_registry=self.tool_registry,
+                memory=self.memory,
+                other_memory=self.other_memory,
+                unified_memory=self.unified_memory,
+                memory_integration=self.memory_integration,
+                timeout=task.timeout,
+                max_retries=task.max_retries,
+            )
+            logger.info(f"TaskAgent-{self.agent_id} created ChatWorkerAgent for task {task.task_id}")
+        else:
+            # Create generic WorkerAgent for other tasks
+            worker = WorkerAgent(
+                task_id=task.task_id,
+                task=task,
+                subtasks=subtasks,
+                message_bus=self.message_bus,
+                llm_adapter=self.llm,
+                tool_registry=self.tool_registry,
+                timeout=task.timeout,
+                max_retries=task.max_retries,
+            )
+            logger.info(f"TaskAgent-{self.agent_id} created WorkerAgent for task {task.task_id}")
 
         # Start worker in background
         asyncio.create_task(worker.start())

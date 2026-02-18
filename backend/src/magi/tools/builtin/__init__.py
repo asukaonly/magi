@@ -1,7 +1,7 @@
 """
 Built-in Tools Module
 
-contains常用的Built-in tools：Bash、fileoperation、days气query等
+Contains built-in tools for file operations, web search, weather, system management, etc.
 """
 from .bash_tool import BashTool
 from .file_read_tool import FileReadTool
@@ -12,6 +12,7 @@ from .capabilities_tool import CapabilitiesTool
 from .web_search_tool import WebSearchTool
 from .skills_creator_tool import SkillsCreatorTool
 from .weather_tool import WeatherTool
+from .system_settings_tool import SystemSettingsTool
 
 __all__ = [
     "BashTool",
@@ -24,4 +25,5 @@ __all__ = [
     "WebSearchTool",
     "SkillsCreatorTool",
     "WeatherTool",
+    "SystemSettingsTool",
 ]
