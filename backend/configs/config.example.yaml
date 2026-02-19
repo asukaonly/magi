@@ -101,6 +101,17 @@ tools:
       tavily:
         api_key: ""  # Set your Tavily API key here
 
+  web_fetch:
+    enabled: true
+    default_provider: "http"  # Default provider for non-auto mode
+    providers:
+      http:
+        base_url: ""  # Reserved for custom endpoint
+      browser:
+        base_url: ""  # Reserved for remote browser endpoint
+      curl:
+        base_url: ""  # Reserved for extension
+
 # =============================================================================
 # Global Settings
 # =============================================================================

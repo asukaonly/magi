@@ -98,7 +98,8 @@ class SystemSettingsTool(Tool):
                 "Unified settings tool for application and tool configuration. "
                 "Actions: 'list' (discover paths), 'get' (read value), 'set' (update value). "
                 "Use path prefixes: 'app.' for global config and 'tool.<tool_name>.' for tool-scoped config. "
-                "Sensitive fields (api_key/secret/token/password) can be set but not read."
+                "Sensitive fields (api_key/secret/token/password) are returned as masked values on 'get' "
+                "(with configured status) and can be updated via 'set'."
             ),
             category="system",
             version="3.0.0",
@@ -274,17 +275,44 @@ class SystemSettingsTool(Tool):
 
         normalized_path = self._normalize_path(path)
 
-        # Sensitive fields cannot be read
-        if _is_sensitive_field(normalized_path):
-            return ToolResult(
-                success=False,
-                error=f"Access denied: '{normalized_path}' is sensitive and cannot be read. You can set it with 'set' action.",
-                error_code="ACCESS_DENIED",
-            )
-
         ok, scope, tool_name, parsed_or_error = self._parse_scope(normalized_path)
         if not ok:
             return ToolResult(success=False, error=parsed_or_error, error_code="INVALID_PATH")
+
+        # Sensitive fields are readable only as masked status
+        if _is_sensitive_field(normalized_path):
+            config = get_config()
+
+            if scope == "app":
+                success, value, error = _get_nested_value(config, parsed_or_error)
+                if not success:
+                    return ToolResult(
+                        success=False,
+                        error=error,
+                        error_code="PATH_NOT_FOUND",
+                    )
+            else:
+                config_path = f"tools.{tool_name.replace('-', '_')}.{parsed_or_error}"
+                success, value, error = _get_nested_value(config, config_path)
+                if not success:
+                    return ToolResult(
+                        success=False,
+                        error=error,
+                        error_code="PATH_NOT_FOUND",
+                    )
+
+            configured = bool(str(value).strip()) if value is not None else False
+            return ToolResult(
+                success=True,
+                data={
+                    "path": normalized_path,
+                    "value": "***MASKED***" if configured else None,
+                    "configured": configured,
+                    "sensitive": True,
+                    "scope": scope,
+                    "tool": tool_name if scope == "tool" else None,
+                },
+            )
 
         if scope == "app":
             config = get_config()

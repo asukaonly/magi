@@ -2,6 +2,7 @@
 Weather Tool - Query weather using multiple providers
 """
 from typing import Dict, Any, Optional
+from urllib.parse import urlparse
 
 from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolConfigSpec
 from ..providers.base import ProviderConfig
@@ -23,7 +24,7 @@ class WeatherTool(MultiProviderTool):
             name="weather",
             description=(
                 "Query weather information for a specific location. "
-                "Returns current weather including temperature, humidity, wind, and more.\n\n"
+                "Supports current weather and forecast queries.\n\n"
                 "Configure provider settings via system-settings tool "
                 "(for example: tool.weather.providers.qweather.api_key)."
             ),
@@ -45,6 +46,23 @@ class WeatherTool(MultiProviderTool):
                     default="zh",
                     enum=["zh", "en"],
                 ),
+                ToolParameter(
+                    name="mode",
+                    type=ParameterType.STRING,
+                    description="Query mode: 'current' for real-time weather, 'forecast' for multi-day forecast",
+                    required=False,
+                    default="current",
+                    enum=["current", "forecast"],
+                ),
+                ToolParameter(
+                    name="days",
+                    type=ParameterType.INTEGER,
+                    description="Forecast days when mode='forecast' (1-7)",
+                    required=False,
+                    default=3,
+                    min_value=1,
+                    max_value=7,
+                ),
             ],
             examples=[
                 {
@@ -54,6 +72,10 @@ class WeatherTool(MultiProviderTool):
                 {
                     "input": {"location": "Shanghai", "lang": "en"},
                     "output": "Returns weather in Shanghai (English)",
+                },
+                {
+                    "input": {"location": "Hangzhou", "mode": "forecast", "days": 3},
+                    "output": "Returns 3-day weather forecast in Hangzhou",
                 },
             ],
             timeout=15,
@@ -76,6 +98,22 @@ class WeatherTool(MultiProviderTool):
         """Get the default provider name from config."""
         config = get_config()
         return config.tools.weather.default_provider
+
+    def _normalize_api_host(self, raw_value: Any) -> str:
+        """Normalize user-provided endpoint to host-only format."""
+        text = str(raw_value).strip()
+        if not text:
+            return ""
+
+        # Accept full URL and extract host part.
+        if "://" in text:
+            parsed = urlparse(text)
+            text = parsed.netloc or parsed.path
+
+        text = text.strip().strip("/")
+        if "/" in text:
+            text = text.split("/", 1)[0]
+        return text
 
     async def execute(
         self,
@@ -156,8 +194,16 @@ class WeatherTool(MultiProviderTool):
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
                     error_code="INVALID_PROVIDER",
                 )
-            if save_config({f"tools.weather.providers.{provider_name}.base_url": str(value)}):
-                return ToolResult(success=True, data={"provider": provider_name, "base_url": str(value)})
+            normalized_host = self._normalize_api_host(value)
+            if save_config({f"tools.weather.providers.{provider_name}.base_url": normalized_host}):
+                return ToolResult(
+                    success=True,
+                    data={
+                        "provider": provider_name,
+                        "base_url": normalized_host or None,
+                        "normalized": str(value).strip() != normalized_host,
+                    },
+                )
             return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
 
         return ToolResult(
@@ -178,17 +224,65 @@ class WeatherTool(MultiProviderTool):
             )
 
         lang = parameters.get("lang", "zh")
+        mode = parameters.get("mode", "current")
+        days = parameters.get("days", 3)
         provider_name = self._get_default_provider()
+
+        if mode not in {"current", "forecast"}:
+            return ToolResult(
+                success=False,
+                error="Invalid 'mode'. Use 'current' or 'forecast'.",
+                error_code="INVALID_MODE",
+            )
+
+        if mode == "forecast":
+            try:
+                days = int(days)
+            except (TypeError, ValueError):
+                return ToolResult(
+                    success=False,
+                    error="Invalid 'days'. Must be an integer between 1 and 7.",
+                    error_code="INVALID_DAYS",
+                )
+            if days < 1 or days > 7:
+                return ToolResult(
+                    success=False,
+                    error="Invalid 'days'. Must be between 1 and 7.",
+                    error_code="INVALID_DAYS",
+                )
 
         # Check if any provider is available
         available_providers = self.get_available_providers()
         if not available_providers:
             return ToolResult(
                 success=False,
-                error="Weather API key not configured. Use action 'config' to set the API key.",
+                error=(
+                    "Weather API key is not configured. "
+                    "Ask the user to configure key path "
+                    "'tool.weather.providers.qweather.api_key' via system-settings, then retry."
+                ),
                 error_code="NO_PROVIDERS_CONFIGURED",
                 data={
-                    "hint": 'Use: {"action": "config", "config_action": "set", "api_key": "your-key"}',
+                    "next_action": "ask_user_to_configure_api_key",
+                    "llm_guidance": (
+                        "Do not retry weather query until API key is configured. "
+                        "Ask user to provide/confirm API key, then call system-settings with action=set."
+                    ),
+                    "user_message_template": (
+                        "要继续查询天气，请先配置和风天气 API Key。"
+                        "配置后我会立即重试当前天气查询。"
+                    ),
+                    "config_tool": "system-settings",
+                    "config_path": "tool.weather.providers.qweather.api_key",
+                    "config_example": {
+                        "action": "set",
+                        "path": "tool.weather.providers.qweather.api_key",
+                        "value": "<your-qweather-api-key>",
+                    },
+                    "retry_example": {
+                        "location": location,
+                        "lang": lang,
+                    },
                 },
             )
 
@@ -197,6 +291,8 @@ class WeatherTool(MultiProviderTool):
             {
                 "location": location,
                 "lang": lang,
+                "mode": mode,
+                "days": days,
             }
         )
 

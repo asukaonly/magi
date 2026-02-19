@@ -7,6 +7,7 @@ import pytest
 
 from magi.tools.builtin.system_settings_tool import SystemSettingsTool
 from magi.tools.builtin.weather_tool import WeatherTool
+from magi.tools.builtin.web_fetch_tool import WebFetchTool
 from magi.tools.builtin.web_search_tool import WebSearchTool
 from magi.tools.registry import tool_registry
 from magi.tools.schema import ToolExecutionContext, ToolResult
@@ -24,6 +25,7 @@ async def test_list_contains_app_and_tool_paths():
     assert result.success is True
     assert "app.llm.model" in result.data["available_paths"]
     assert "tool.web-search.default_provider" in result.data["available_paths"]
+    assert "tool.web-fetch.default_provider" in result.data["available_paths"]
     assert "tool.weather.providers.{provider}.api_key" in result.data["available_paths"]
 
 
@@ -85,6 +87,35 @@ async def test_set_tool_path_routes_to_tool_update(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_set_web_fetch_tool_path_routes_to_tool_update(monkeypatch):
+    tool = SystemSettingsTool()
+    web_fetch_tool = tool_registry.get_tool("web-fetch")
+    assert web_fetch_tool is not None
+
+    called = {}
+
+    async def fake_update_config(self, path, value, context):
+        called["path"] = path
+        called["value"] = value
+        return ToolResult(success=True, data={"ok": True})
+
+    monkeypatch.setattr(web_fetch_tool, "update_config", MethodType(fake_update_config, web_fetch_tool))
+
+    result = await tool.execute(
+        {
+            "action": "set",
+            "path": "tool.web-fetch.default_provider",
+            "value": "browser",
+        },
+        _context(),
+    )
+
+    assert result.success is True
+    assert called["path"] == "default_provider"
+    assert called["value"] == "browser"
+
+
+@pytest.mark.asyncio
 async def test_get_sensitive_path_denied():
     tool = SystemSettingsTool()
     result = await tool.execute(
@@ -99,6 +130,7 @@ async def test_get_sensitive_path_denied():
 def test_weather_and_web_search_schema_remove_config_action():
     weather_param_names = {item.name for item in WeatherTool().get_schema().parameters}
     web_search_param_names = {item.name for item in WebSearchTool().get_schema().parameters}
+    web_fetch_param_names = {item.name for item in WebFetchTool().get_schema().parameters}
 
     assert "action" not in weather_param_names
     assert "config_action" not in weather_param_names
@@ -107,3 +139,7 @@ def test_weather_and_web_search_schema_remove_config_action():
     assert "action" not in web_search_param_names
     assert "config_action" not in web_search_param_names
     assert "api_key" not in web_search_param_names
+
+    assert "action" not in web_fetch_param_names
+    assert "config_action" not in web_fetch_param_names
+    assert "api_key" not in web_fetch_param_names

@@ -218,10 +218,27 @@ class WebSearchTool(MultiProviderTool):
         if not available_providers:
             return ToolResult(
                 success=False,
-                error="No search providers are configured. Use action 'config' to set an API key.",
+                error=(
+                    "No search providers are configured. "
+                    "Ask the user to configure a provider API key via system-settings, then retry."
+                ),
                 error_code="NO_PROVIDERS_CONFIGURED",
                 data={
-                    "hint": 'Use: {"action": "config", "config_action": "set", "provider": "brave", "api_key": "your-key"}',
+                    "next_action": "ask_user_to_configure_api_key",
+                    "llm_guidance": (
+                        "Do not retry web search until one provider key is configured. "
+                        "Ask user to provide/confirm a key and set it using system-settings action=set."
+                    ),
+                    "user_message_template": (
+                        "要继续联网搜索，请先配置任一搜索提供商的 API Key（如 brave）。"
+                        "配置后我会继续当前搜索。"
+                    ),
+                    "config_tool": "system-settings",
+                    "config_example": {
+                        "action": "set",
+                        "path": "tool.web-search.providers.brave.api_key",
+                        "value": "<your-brave-api-key>",
+                    },
                     "supported_providers": list(PROVIDER_INFO.keys()),
                 },
             )

@@ -5,8 +5,12 @@ Query weather using QWeather (和风天气) API.
 """
 import aiohttp
 from typing import Dict, Any, Optional
+from urllib.parse import urlparse
+import logging
 
 from ..base import Provider, ProviderConfig
+
+logger = logging.getLogger(__name__)
 
 
 class QWeatherProvider(Provider):
@@ -26,6 +30,36 @@ class QWeatherProvider(Provider):
         """Check if QWeather API key is configured."""
         return bool(config.api_key)
 
+    def _normalize_api_host(self, raw_value: Optional[str]) -> str:
+        """Normalize endpoint value to host-only format."""
+        text = (raw_value or "").strip()
+        if not text:
+            return ""
+
+        if "://" in text:
+            parsed = urlparse(text)
+            text = parsed.netloc or parsed.path
+
+        text = text.strip().strip("/")
+        if "/" in text:
+            text = text.split("/", 1)[0]
+        return text
+
+    def _is_jwt_token(self, credential: str) -> bool:
+        """Heuristic check whether credential is a JWT token."""
+        return credential.count(".") == 2
+
+    def _build_auth_headers(self, credential: str) -> tuple[Dict[str, str], str]:
+        """
+        Build auth headers for QWeather.
+
+        - API KEY: use X-QW-Api-Key header
+        - JWT: use Authorization Bearer header
+        """
+        if self._is_jwt_token(credential):
+            return {"Authorization": f"Bearer {credential}"}, "jwt"
+        return {"X-QW-Api-Key": credential}, "api_key"
+
     async def execute(
         self,
         params: Dict[str, Any],
@@ -43,21 +77,62 @@ class QWeatherProvider(Provider):
         """
         location = params["location"]
         lang = params.get("lang", "zh")
+        mode = str(params.get("mode", "current")).strip().lower()
+        if mode not in {"current", "forecast"}:
+            raise ValueError("Invalid mode. Use 'current' or 'forecast'.")
+        days = 3
+        if mode == "forecast":
+            days = int(params.get("days", 3) or 3)
 
         if not config.api_key:
             raise ValueError("QWeather API key not configured")
+        credential = str(config.api_key).strip()
+        if not credential:
+            raise ValueError("QWeather API key not configured")
+        auth_headers, auth_mode = self._build_auth_headers(credential)
 
-        api_host = config.base_url or self.DEFAULT_API_HOST
+        api_host = self._normalize_api_host(config.base_url) or self.DEFAULT_API_HOST
+        logger.info(
+            "[QWeather] execute | location=%s | lang=%s | api_host=%s | auth_mode=%s",
+            location,
+            lang,
+            api_host,
+            auth_mode,
+        )
 
         # First, resolve location to LocationID if it's a city name
-        location_id = await self._resolve_location(location, config.api_key, api_host)
+        location_id = await self._resolve_location(location, credential, api_host)
 
-        # Query weather
-        weather_data = await self._query_weather(location_id, config.api_key, api_host, lang)
+        if mode == "forecast":
+            forecast_data = await self._query_forecast(
+                location_id=location_id,
+                api_key=credential,
+                api_host=api_host,
+                lang=lang,
+                days=days,
+                auth_headers=auth_headers,
+            )
+            return {
+                "location": location,
+                "location_id": location_id,
+                "mode": "forecast",
+                "days": days,
+                "forecast": forecast_data,
+                "provider": self.name,
+            }
 
+        # Default mode: current weather
+        weather_data = await self._query_weather(
+            location_id=location_id,
+            api_key=credential,
+            api_host=api_host,
+            lang=lang,
+            auth_headers=auth_headers,
+        )
         return {
             "location": location,
             "location_id": location_id,
+            "mode": "current",
             "weather": weather_data,
             "provider": self.name,
         }
@@ -86,16 +161,31 @@ class QWeatherProvider(Provider):
                 except ValueError:
                     pass
 
-        # Use GeoAPI to find LocationID
-        url = f"https://{api_host}/v2/city/lookup"
-        headers = {"Authorization": f"Bearer {api_key}"}
+        # Use GeoAPI to find LocationID.
+        # QWeather GeoAPI endpoint requires /geo prefix.
+        url = f"https://{api_host}/geo/v2/city/lookup"
+        headers, _ = self._build_auth_headers(api_key)
         params = {"location": location, "number": 1}
+        logger.info(
+            "[QWeather] Geo lookup request | url=%s | params=%s",
+            url,
+            params,
+        )
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, params=params) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    raise Exception(f"GeoAPI error: {response.status} - {error_text}")
+                    logger.warning(
+                        "[QWeather] Geo lookup failed | status=%s | url=%s | params=%s | body=%s",
+                        response.status,
+                        url,
+                        params,
+                        error_text[:300],
+                    )
+                    raise Exception(
+                        f"GeoAPI error: {response.status} | url={url} | params={params} | body={error_text[:300]}"
+                    )
 
                 data = await response.json()
 
@@ -113,21 +203,36 @@ class QWeatherProvider(Provider):
         location_id: str,
         api_key: str,
         api_host: str,
-        lang: str
+        lang: str,
+        auth_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Query current weather from QWeather API."""
         url = f"https://{api_host}/v7/weather/now"
-        headers = {"Authorization": f"Bearer {api_key}"}
+        headers = auth_headers or self._build_auth_headers(api_key)[0]
         params = {
             "location": location_id,
             "lang": lang,
         }
+        logger.info(
+            "[QWeather] Weather request | url=%s | params=%s",
+            url,
+            params,
+        )
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, params=params) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    raise Exception(f"Weather API error: {response.status} - {error_text}")
+                    logger.warning(
+                        "[QWeather] Weather request failed | status=%s | url=%s | params=%s | body=%s",
+                        response.status,
+                        url,
+                        params,
+                        error_text[:300],
+                    )
+                    raise Exception(
+                        f"Weather API error: {response.status} | url={url} | params={params} | body={error_text[:300]}"
+                    )
 
                 data = await response.json()
 
@@ -153,6 +258,82 @@ class QWeatherProvider(Provider):
             "dew_point": now.get("dew"),
             "update_time": data.get("updateTime"),
         }
+
+    async def _query_forecast(
+        self,
+        location_id: str,
+        api_key: str,
+        api_host: str,
+        lang: str,
+        days: int,
+        auth_headers: Optional[Dict[str, str]] = None,
+    ) -> list[Dict[str, Any]]:
+        """Query daily forecast from QWeather API."""
+        url = f"https://{api_host}/v7/weather/7d"
+        headers = auth_headers or self._build_auth_headers(api_key)[0]
+        params = {
+            "location": location_id,
+            "lang": lang,
+        }
+        logger.info(
+            "[QWeather] Forecast request | url=%s | params=%s | days=%s",
+            url,
+            params,
+            days,
+        )
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, params=params) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.warning(
+                        "[QWeather] Forecast request failed | status=%s | url=%s | params=%s | body=%s",
+                        response.status,
+                        url,
+                        params,
+                        error_text[:300],
+                    )
+                    raise Exception(
+                        f"Forecast API error: {response.status} | url={url} | params={params} | body={error_text[:300]}"
+                    )
+
+                data = await response.json()
+
+        if data.get("code") != "200":
+            raise Exception(f"Forecast API returned error code: {data.get('code')}")
+
+        daily_items = data.get("daily", [])[:days]
+        forecast: list[Dict[str, Any]] = []
+        for item in daily_items:
+            forecast.append(
+                {
+                    "date": item.get("fxDate"),
+                    "sunrise": item.get("sunrise"),
+                    "sunset": item.get("sunset"),
+                    "temp_max": item.get("tempMax"),
+                    "temp_min": item.get("tempMin"),
+                    "condition_day": item.get("textDay"),
+                    "condition_night": item.get("textNight"),
+                    "icon_day": item.get("iconDay"),
+                    "icon_night": item.get("iconNight"),
+                    "wind_dir_day": item.get("windDirDay"),
+                    "wind_scale_day": item.get("windScaleDay"),
+                    "wind_speed_day": item.get("windSpeedDay"),
+                    "wind_dir_night": item.get("windDirNight"),
+                    "wind_scale_night": item.get("windScaleNight"),
+                    "wind_speed_night": item.get("windSpeedNight"),
+                    "humidity": item.get("humidity"),
+                    "precipitation": item.get("precip"),
+                    "pressure": item.get("pressure"),
+                    "visibility": item.get("vis"),
+                    "cloud_cover": item.get("cloud"),
+                    "uv_index": item.get("uvIndex"),
+                    "moon_phase": item.get("moonPhase"),
+                    "moon_phase_icon": item.get("moonPhaseIcon"),
+                }
+            )
+
+        return forecast
 
     def get_config_schema(self) -> Dict[str, Any]:
         """Return QWeather-specific config schema."""

@@ -118,6 +118,7 @@ importANT: Respond ONLY with the JSON object. No explanations, nottt markdown, n
                 model=self.llm.model_name,
                 system_prompt="",  # System instructions are notttw inline in the prompt
                 messages=[{"role": "user", "content": user_prompt}],
+                truncate=False,
                 max_tokens=500,
                 temperature=0.3
             )

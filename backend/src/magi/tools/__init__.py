@@ -30,6 +30,7 @@ from .builtin.file_list_tool import FileListTool
 from .builtin.dynamic_tool import DynamicTool, create_dynamic_tool
 from .builtin.capabilities_tool import CapabilitiesTool
 from .builtin.web_search_tool import WebSearchTool
+from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.skills_creator_tool import SkillsCreatorTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.system_settings_tool import SystemSettingsTool
@@ -48,6 +49,7 @@ _builtin_tools = [
     FileListTool,
     CapabilitiesTool,
     WebSearchTool,
+    WebFetchTool,
     SkillsCreatorTool,
     WeatherTool,
     SystemSettingsTool,
@@ -112,6 +114,7 @@ __all__ = [
     "FileListTool",
     "CapabilitiesTool",
     "WebSearchTool",
+    "WebFetchTool",
     "SkillsCreatorTool",
     "WeatherTool",
     "SystemSettingsTool",

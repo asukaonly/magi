@@ -42,3 +42,4 @@ passlib[bcrypt]>=1.7.4
 # 工具
 httpx>=0.26.0
 aiofiles>=23.2.1
+playwright>=1.53.0

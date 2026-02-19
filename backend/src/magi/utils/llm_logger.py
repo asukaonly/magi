@@ -85,7 +85,7 @@ def truncate_text(text: str, max_length: int = 5000) -> str:
     """
     截断过长的文本
 
-    Setting环境Variable MAGI_full_LOG=1 可以Disable截断，在Logfile中save完整Content
+    Setting环境Variable MAGI_FULL_LOG=1 可以Disable截断，在Logfile中save完整Content
 
     Args:
         text: 原始文本
@@ -95,12 +95,19 @@ def truncate_text(text: str, max_length: int = 5000) -> str:
         截断后的文本
     """
     # checkis notEnable完整Log
-    if os.getenv("MAGI_full_LOG") == "1":
+    if os.getenv("MAGI_FULL_LOG") == "1" or os.getenv("MAGI_full_LOG") == "1":
         return text
 
     if len(text) <= max_length:
         return text
     return text[:max_length] + f"... (truncated, total {len(text)} chars)"
+
+
+def _format_log_text(text: str, max_length: int, truncate: bool) -> str:
+    """Format text for logging with optional truncation."""
+    if not truncate:
+        return text
+    return truncate_text(text, max_length)
 
 
 def log_llm_request(
@@ -109,6 +116,9 @@ def log_llm_request(
     model: str,
     system_prompt: str,
     messages: list,
+    truncate: bool = True,
+    system_prompt_max_length: int = 2000,
+    message_max_length: int = 1000,
     **kwargs
 ):
     """
@@ -125,11 +135,14 @@ def log_llm_request(
     logger.debug("=" * 80)
     logger.debug(f"LLM_REQUEST [{request_id}] | Model: {model}")
     logger.debug("-" * 80)
-    logger.debug(f"System Prompt:\n{truncate_text(system_prompt, 2000)}")
+    logger.debug(f"System Prompt:\n{_format_log_text(system_prompt, system_prompt_max_length, truncate)}")
     logger.debug("-" * 80)
     logger.debug("Messages:")
     for i, msg in enumerate(messages):
-        logger.debug(f"  [{i}] {msg.get('role')}: {truncate_text(msg.get('content', ''), 1000)}")
+        logger.debug(
+            f"  [{i}] {msg.get('role')}: "
+            f"{_format_log_text(msg.get('content', ''), message_max_length, truncate)}"
+        )
     logger.debug("=" * 80)
 
 
@@ -140,6 +153,8 @@ def log_llm_response(
     success: bool = True,
     error: Optional[str] = None,
     duration_ms: Optional[int] = None,
+    truncate: bool = True,
+    response_max_length: int = 3000,
     **metadata
 ):
     """
@@ -163,5 +178,5 @@ def log_llm_response(
         logger.debug(f"error: {error}")
     logger.debug("-" * 80)
     if success and response:
-        logger.debug(f"Response:\n{truncate_text(response, 3000)}")
+        logger.debug(f"Response:\n{_format_log_text(response, response_max_length, truncate)}")
     logger.debug("=" * 80)

@@ -106,7 +106,7 @@ User: "hey"
 JSON: {"intent": "chat", "tools": [], "deep_thinking": false, "reasoning": "Casual greeting."}
 
 User: "what's the weather in tokyo"
-JSON: {"intent": "realtime_query", "tools": ["bash"], "deep_thinking": false, "reasoning": "Real-time weather query. Use bash curl or check for web-related skills."}
+JSON: {"intent": "realtime_query", "tools": ["weather"], "deep_thinking": false, "reasoning": "Real-time weather query. Use the dedicated weather tool."}
 
 User: "read /src/main.py and fix the race condition"
 JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_thinking": true, "reasoning": "Complex bug diagnotttsis required."}
@@ -179,6 +179,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 model=self.llm.model_name,
                 system_prompt=self.system_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
+                truncate=False,
                 max_tokens=300,
                 temperature=0.3,
             )
@@ -194,13 +195,13 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             # Check if response is empty or incomplete
             if not response or not response.strip():
                 logger.warning("[ContextDecider] LLM returned empty response, using rule-based fallback")
-                return self._rule_based_fallback(user_message)
+                return self._rule_based_fallback(user_message, context)
 
             # Check for incomplete JSON response (just "{" or similar)
             stripped = response.strip()
             if stripped in ("{", "}", "{}"):
                 logger.warning(f"[ContextDecider] LLM returned incomplete response: {stripped}, using rule-based fallback")
-                return self._rule_based_fallback(user_message)
+                return self._rule_based_fallback(user_message, context)
 
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(
@@ -285,6 +286,25 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 prompt += f"- Current directory: {context['current_dir']}\n"
             if "home_dir" in context:
                 prompt += f"- Home directory: {context['home_dir']}\n"
+            recent_messages = context.get("recent_messages")
+            if isinstance(recent_messages, list) and recent_messages:
+                prompt += "\n## Recent Conversation\n\n"
+                for item in recent_messages[-6:]:
+                    if not isinstance(item, dict):
+                        continue
+                    role = str(item.get("role", "unknown"))
+                    content = str(item.get("content", ""))
+                    prompt += f"- {role}: {content}\n"
+            recent_tool_errors = context.get("recent_tool_errors")
+            if isinstance(recent_tool_errors, list) and recent_tool_errors:
+                prompt += "\n## Recent Tool Errors\n\n"
+                for item in recent_tool_errors[:3]:
+                    if not isinstance(item, dict):
+                        continue
+                    tool_name = str(item.get("tool_name", "unknown"))
+                    error_code = str(item.get("error_code", "UNKNOWN"))
+                    error_message = str(item.get("error_message", ""))
+                    prompt += f"- {tool_name}: {error_code} | {error_message}\n"
         else:
             prompt += "- No environment info\n"
 
@@ -370,7 +390,11 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             reasoning="Failed to parse LLM response",
         )
 
-    def _rule_based_fallback(self, user_message: str) -> ContextDecision:
+    def _rule_based_fallback(
+        self,
+        user_message: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> ContextDecision:
         """
         Rule-based tool selection as fallback when LLM fails
 
@@ -379,12 +403,55 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         user_lower = user_message.lower()
         tools = []
         intent = "chat"
+        available_tools = self.tool_registry.list_tools()
+
+        retry_keywords = [
+            "再查",
+            "再试",
+            "重试",
+            "再来一次",
+            "再来一遍",
+            "retry",
+            "again",
+        ]
+        if any(kw in user_lower for kw in retry_keywords) and context:
+            recent_tool_errors = context.get("recent_tool_errors")
+            if isinstance(recent_tool_errors, list) and recent_tool_errors:
+                last_tool = str(recent_tool_errors[0].get("tool_name", "")).strip()
+                if last_tool and last_tool in available_tools:
+                    logger.info(f"[ContextDecider] Retry fallback matched last failed tool: {last_tool}")
+                    return ContextDecision(
+                        intent="retry_last_tool",
+                        tools=[last_tool],
+                        deep_thinking=False,
+                        reasoning=f"Retry request detected, reusing last failed tool: {last_tool}",
+                    )
+
+        # Web page fetch and extraction
+        if any(
+            kw in user_lower
+            for kw in [
+                "抓网页",
+                "抓取网页",
+                "提取网页",
+                "网页内容",
+                "fetch网页",
+                "web fetch",
+                "web-fetch",
+                "url内容",
+                "读取网页",
+            ]
+        ) or "http://" in user_lower or "https://" in user_lower:
+            if "web-fetch" in available_tools:
+                tools.append("web-fetch")
+                intent = "web_interaction"
 
         # Real-time queries (weather, news, stocks)
         if any(kw in user_lower for kw in ["days气", "weather", "气温", "temperature", "news", "new闻", "股票", "stock", "汇率", "exchange rate"]):
-            # Check if web-search is available
-            available_tools = self.tool_registry.list_tools()
-            if "web-search" in available_tools:
+            # Prefer dedicated weather tool for weather-related requests.
+            if any(kw in user_lower for kw in ["days气", "weather", "气温", "temperature"]) and "weather" in available_tools:
+                tools.append("weather")
+            elif "web-search" in available_tools:
                 tools.append("web-search")
             else:
                 tools.append("bash")

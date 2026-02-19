@@ -170,10 +170,28 @@ class WebSearchToolSettings(BaseModel):
         return self.providers.get(provider_name, ProviderConfig())
 
 
+class WebFetchToolSettings(BaseModel):
+    """Web fetch tool configuration."""
+    enabled: bool = Field(default=True)
+    default_provider: str = Field(default="http")
+    providers: Dict[str, ProviderConfig] = Field(
+        default_factory=lambda: {
+            "http": ProviderConfig(),
+            "browser": ProviderConfig(),
+            "curl": ProviderConfig(),
+        }
+    )
+
+    def get_provider_config(self, provider_name: str) -> ProviderConfig:
+        """Get provider config, returns empty config if not found."""
+        return self.providers.get(provider_name, ProviderConfig())
+
+
 class ToolsSettings(BaseModel):
     """Tools configuration."""
     weather: WeatherToolSettings = Field(default_factory=WeatherToolSettings)
     web_search: WebSearchToolSettings = Field(default_factory=WebSearchToolSettings)
+    web_fetch: WebFetchToolSettings = Field(default_factory=WebFetchToolSettings)
 
 
 # =============================================================================

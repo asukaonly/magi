@@ -318,6 +318,35 @@ class ChatAgent(CompleteAgent):
             "home_dir": os.path.expanduser("~"),
             "current_dir": os.getcwd(),
         }
+        recent_messages: list[dict[str, str]] = []
+        for msg in history[-6:]:
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role", "unknown"))
+            content = str(msg.get("content", "")).strip()
+            if not content:
+                continue
+            if len(content) > 120:
+                content = content[:120] + "..."
+            recent_messages.append({"role": role, "content": content})
+        if recent_messages:
+            context["recent_messages"] = recent_messages
+
+        recent_tool_errors: list[dict[str, str]] = []
+        for record in reversed(self._tool_interactions.get(history_key, [])):
+            if str(record.get("status", "")) != "error":
+                continue
+            recent_tool_errors.append(
+                {
+                    "tool_name": str(record.get("tool_name", "")),
+                    "error_code": str(record.get("error_code", "")),
+                    "error_message": str(record.get("error_message", "")),
+                }
+            )
+            if len(recent_tool_errors) >= 3:
+                break
+        if recent_tool_errors:
+            context["recent_tool_errors"] = recent_tool_errors
 
         context_decision = await self.context_decider.decide(user_message, context)
         agent_logger.info(
@@ -781,11 +810,12 @@ class ChatAgent(CompleteAgent):
                 return
             conn = sqlite3.connect(str(self._events_db_path))
             cur = conn.cursor()
+
             cur.execute(
                 """
                 SELECT type, data
                 FROM event_store
-                WHERE type IN ('user_input', 'AI_RESPONSE', ?)
+                WHERE type IN ('USER_INPUT', 'AI_RESPONSE', ?)
                 order BY timestamp asC
                 LIMIT 5000
                 """
@@ -810,7 +840,7 @@ class ChatAgent(CompleteAgent):
             session_id = self._resolve_session_id(user_id, payload.get("session_id"))
             key = self._history_key(user_id, session_id)
             history = self._conversation_history.setdefault(key, [])
-            if event_type == "user_input":
+            if event_type == "USER_INPUT":
                 content = payload.get("message", "")
                 if content:
                     history.append({"role": "user", "content": str(content)})
