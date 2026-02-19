@@ -7,6 +7,7 @@
 - Keep each task atomic and independently verifiable
 - Commit immediately after each completed independent task
 - Use Conventional Commits with clear English subject
+- Use English for AI-generated code comments/docstrings, logs, and error messages
 - Add tests or explicit validation evidence for behavior changes
 
 **Don't**
@@ -15,6 +16,7 @@
 - Don't add AI identity signatures (e.g., `Co-authored-by: AI Agent`)
 - Don't diverge from OpenSpec without documenting why and impact
 - Don't skip validation for core logic changes
+- Don't enforce English-only for UI copy unless explicitly required
 
 ---
 
@@ -81,6 +83,7 @@ Rules:
   - Classes: `PascalCase`
   - Functions/variables: `snake_case`
   - Constants: `UPPER_SNAKE_CASE`
+- Comments/docstrings, logs, and error messages added by coding agents must be in English
 - Public methods must have type hints
 - I/O must be async (`async/await`)
 - Use specific exceptions and structured logging (`structlog`)
@@ -92,6 +95,8 @@ Rules:
   - Components/types/interfaces: `PascalCase`
   - Functions/variables: `camelCase`
   - Constants: `UPPER_SNAKE_CASE`
+- Comments, logs, and error messages added by coding agents must be in English
+- UI copy is not required to be English unless explicitly requested
 - Prefer functional components + hooks
 
 ---
@@ -498,6 +503,7 @@ magi/
 - **Variables**: `snake_case` (e.g. `max_retries`)
 - **Constants**: `UPPER_SNAKE_CASE` (e.g. `MAX_QUEUE_SIZE`)
 - **Private/protected members**: `_leading_underscore` (e.g. `_queue`)
+- **Comments/docstrings, logs, and error messages added by coding agents**: English
 
 #### 2. File Organization
 
@@ -570,6 +576,8 @@ Use structured logging (`structlog`).
 - **Functions/variables**: `camelCase`
 - **Types/interfaces**: `PascalCase`
 - **Constants**: `UPPER_SNAKE_CASE`
+- **Comments, logs, and error messages added by coding agents**: English
+- **UI copy**: English is not required unless explicitly requested
 
 #### 2. Component Style
 
