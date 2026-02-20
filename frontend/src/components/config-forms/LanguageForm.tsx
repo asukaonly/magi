@@ -15,9 +15,9 @@ export const LanguageForm: React.FC<LanguageFormProps> = ({ includeMode = true }
       <Form.Item
         label={t('language.label')}
         name={['preferences', 'language']}
-        rules={[{ required: true, message: t('language.required') }]}
       >
         <SelectField
+          allowEmpty={false}
           options={[
             { label: t('language.zhHans'), value: 'zh' },
             { label: t('language.en'), value: 'en' },

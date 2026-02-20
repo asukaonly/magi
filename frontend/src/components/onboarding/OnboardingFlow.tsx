@@ -68,6 +68,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   }, [form]);
 
+  useEffect(() => {
+    const language = form.getFieldValue(['preferences', 'language']);
+    if (!language) {
+      form.setFieldValue(['preferences', 'language'], 'zh');
+    }
+  }, [form]);
+
   const saveProgress = (values: SystemConfig) => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -111,19 +118,35 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   };
 
   const handleNext = async () => {
+    if (current === 0) {
+      const selectedLanguage = form.getFieldValue(['preferences', 'language']) || 'zh';
+      form.setFieldValue(['preferences', 'language'], selectedLanguage);
+
+      setSaving(true);
+      try {
+        localStorage.setItem('magi_language', selectedLanguage);
+        document.documentElement.lang = selectedLanguage === 'en' ? 'en' : 'zh-CN';
+        await i18n.changeLanguage(selectedLanguage === 'en' ? 'en' : 'zh-CN');
+
+        // Keep onboarding responsive: do not block next step on API latency/failure.
+        void persistValues().catch(() => undefined);
+        saveProgress(form.getFieldsValue(true));
+        setCurrent(1);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    if (current === 1 && !mode) {
+      toast.warning(t('messages.chooseModeFirst'));
+      return;
+    }
+
     try {
       setSaving(true);
       await form.validateFields();
       await persistValues();
-
-      // Persist language preference as early as possible for UI locale switching hooks.
-      if (current === 0) {
-        const selectedLanguage = form.getFieldValue(['preferences', 'language']);
-        if (selectedLanguage) {
-          localStorage.setItem('magi_language', selectedLanguage);
-          document.documentElement.lang = selectedLanguage === 'en' ? 'en' : 'zh-CN';
-        }
-      }
 
       if (isLastStep) {
         await handleFinish();

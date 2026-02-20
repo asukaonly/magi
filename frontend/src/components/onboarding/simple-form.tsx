@@ -87,8 +87,9 @@ const FormItem = ({ label, name, valuePropName = 'value', rules, noStyle, childr
           const next = valuePropName === 'checked'
             ? event?.target ? event.target.checked : event
             : event?.target ? event.target.value : event;
+          const nextValues = setIn(values, name, next);
           instance.setFieldValue(name, next);
-          onValuesChange?.({}, instance.getFieldsValue(true));
+          onValuesChange?.({}, nextValues);
         },
       })}
     </div>

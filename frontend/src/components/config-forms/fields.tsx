@@ -11,12 +11,14 @@ export function SelectField({
   options,
   placeholder = '请选择',
   disabled = false,
+  allowEmpty = true,
 }: {
   value?: string;
   onChange?: (value: string) => void;
   options: OptionItem[];
   placeholder?: string;
   disabled?: boolean;
+  allowEmpty?: boolean;
 }): JSX.Element {
   return (
     <select
@@ -28,7 +30,7 @@ export function SelectField({
       onChange={(event) => onChange?.(event.target.value)}
       disabled={disabled}
     >
-      <option value="">{placeholder}</option>
+      {allowEmpty ? <option value="">{placeholder}</option> : null}
       {options.map((item) => (
         <option key={item.value} value={item.value}>
           {item.label}
