@@ -2,7 +2,7 @@
  * useWebSocket Hook
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
-import wsClient, { WebSocketClient } from '../utils/websocket';
+import wsClient from '../utils/websocket';
 
 interface UseWebSocketOptions {
   autoConnect?: boolean;

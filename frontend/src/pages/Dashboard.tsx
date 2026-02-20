@@ -1,32 +1,11 @@
-/**
- * Dashboard页面 - 现代化设计
- * 极简风格：统计卡片、快捷操作、最近活动
- */
-import React, { useState, useEffect } from 'react';
-import {
-  Card,
-  Row,
-  Col,
-  Statistic,
-  Button,
-  Space,
-  Timeline,
-  Typography,
-  Divider,
-} from 'antd';
-import {
-  MessageOutlined,
-  UserOutlined,
-  SettingOutlined,
-  ThunderboltOutlined,
-  ArrowRightOutlined,
-  CheckCircleOutlined,
-} from '@ant-design/icons';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ArrowRight, CheckCircle2, MessageSquare, Settings, Sparkles, UserRound } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
-const { Text } = Typography;
-
-// 模拟统计数据
 const mockStats = {
   totalMessages: 1234,
   todayMessages: 56,
@@ -45,224 +24,109 @@ const recentActivities = [
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [stats, setStats] = useState(mockStats);
-
-  // 快捷操作按钮样式
-  const actionButtonStyle = {
-    height: 48,
-    borderRadius: 8,
-    fontSize: 15,
-    fontWeight: 500,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-  };
-
-  // 统计卡片组件
-  const StatCard: React.FC<{
-    title: string;
-    value: number;
-    suffix?: string;
-    color?: string;
-  }> = ({ title, value, suffix, color = '#0d9488' }) => (
-    <div
-      style={{
-        background: '#ffffff',
-        border: '1px solid #e5e7eb',
-        borderRadius: 8,
-        padding: '20px 24px',
-        height: '100%',
-        transition: 'all 0.2s ease',
-      }}
-      className="stat-card"
-    >
-      <Text style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>{title}</Text>
-      <div style={{ marginTop: 8 }}>
-        <Statistic
-          value={value}
-          suffix={suffix}
-          valueStyle={{
-            fontSize: 28,
-            fontWeight: 600,
-            color: '#111827',
-          }}
-          suffixStyle={{ fontSize: 16, color: color }}
-        />
-      </div>
-    </div>
-  );
+  const stats = useMemo(() => mockStats, []);
 
   return (
-    <div>
-      {/* 欢迎信息 */}
-      <div style={{ marginBottom: 24 }}>
-        <Text style={{ fontSize: 24, fontWeight: 600, color: '#111827' }}>
-          欢迎使用 Magi AI Framework
-        </Text>
-        <div style={{ marginTop: 4 }}>
-          <Text style={{ fontSize: 14, color: '#6b7280' }}>
-            智能代理框架，支持多层记忆和动态人格配置
-          </Text>
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold text-foreground">欢迎使用 Magi AI Framework</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          智能代理框架，支持多层记忆和动态人格配置
+        </p>
       </div>
 
-      {/* 统计卡片 */}
-      <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} lg={6}>
-          <StatCard title="总消息数" value={stats.totalMessages} />
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <StatCard
-            title="今日消息"
-            value={stats.todayMessages}
-            color="#10b981"
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <StatCard
-            title="活跃能力"
-            value={stats.activeCapabilities}
-            color="#6366f1"
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <StatCard
-            title="内存使用"
-            value={stats.memoryUsage}
-            suffix="%"
-            color="#f59e0b"
-          />
-        </Col>
-      </Row>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { title: '总消息数', value: stats.totalMessages, color: 'text-teal-600' },
+          { title: '今日消息', value: stats.todayMessages, color: 'text-emerald-600' },
+          { title: '活跃能力', value: stats.activeCapabilities, color: 'text-indigo-600' },
+          { title: '内存使用', value: `${stats.memoryUsage}%`, color: 'text-amber-600' },
+        ].map((item) => (
+          <Card key={item.title}>
+            <CardContent className="p-5">
+              <p className="text-xs font-medium text-muted-foreground">{item.title}</p>
+              <p className={cn('mt-2 text-3xl font-semibold', item.color)}>{item.value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
-      <Row gutter={24}>
-        {/* 快捷操作 */}
-        <Col xs={24} lg={12}>
-          <Card
-            title="快捷操作"
-            bordered={false}
-            style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
-              borderRadius: 8,
-              height: '100%',
-            }}
-            styles={{ body: { padding: '20px 24px' } }}
-          >
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <Button
-                type="primary"
-                icon={<MessageOutlined />}
-                onClick={() => navigate('/chat')}
-                block
-                size="large"
-                style={{
-                  ...actionButtonStyle,
-                  background: '#0d9488',
-                  borderColor: '#0d9488',
-                }}
-              >
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>快捷操作</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button className="w-full justify-between" onClick={() => navigate('/chat')}>
+              <span className="inline-flex items-center gap-2">
+                <MessageSquare className="h-4 w-4" />
                 开始对话
-                <ArrowRightOutlined style={{ marginLeft: 'auto' }} />
-              </Button>
-              <Button
-                icon={<UserOutlined />}
-                onClick={() => navigate('/personality')}
-                block
-                size="large"
-                style={{
-                  ...actionButtonStyle,
-                  borderColor: '#e5e7eb',
-                  color: '#111827',
-                }}
-              >
+              </span>
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" className="w-full justify-between" onClick={() => navigate('/personality')}>
+              <span className="inline-flex items-center gap-2">
+                <UserRound className="h-4 w-4" />
                 管理人格
-                <ArrowRightOutlined style={{ marginLeft: 'auto', color: '#9ca3af' }} />
-              </Button>
-              <Button
-                icon={<SettingOutlined />}
-                onClick={() => navigate('/settings')}
-                block
-                size="large"
-                style={{
-                  ...actionButtonStyle,
-                  borderColor: '#e5e7eb',
-                  color: '#111827',
-                }}
-              >
+              </span>
+              <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            </Button>
+            <Button variant="outline" className="w-full justify-between" onClick={() => navigate('/settings')}>
+              <span className="inline-flex items-center gap-2">
+                <Settings className="h-4 w-4" />
                 系统设置
-                <ArrowRightOutlined style={{ marginLeft: 'auto', color: '#9ca3af' }} />
-              </Button>
-            </Space>
-          </Card>
-        </Col>
+              </span>
+              <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            </Button>
+          </CardContent>
+        </Card>
 
-        {/* 系统信息 */}
-        <Col xs={24} lg={12}>
-          <Card
-            title="系统信息"
-            bordered={false}
-            style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
-              borderRadius: 8,
-              height: '100%',
-            }}
-            styles={{ body: { padding: '20px 24px' } }}
-          >
-            <Row gutter={[16, 20]}>
-              <Col xs={24} sm={8}>
-                <div>
-                  <Text style={{ fontSize: 12, color: '#6b7280' }}>框架版本</Text>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', marginTop: 4 }}>
-                    Magi v0.1.0
-                  </div>
-                </div>
-              </Col>
-              <Col xs={24} sm={8}>
-                <div>
-                  <Text style={{ fontSize: 12, color: '#6b7280' }}>记忆架构</Text>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', marginTop: 4 }}>
-                    L1-L5 五层
-                  </div>
-                </div>
-              </Col>
-              <Col xs={24} sm={8}>
-                <div>
-                  <Text style={{ fontSize: 12, color: '#6b7280' }}>事件系统</Text>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', marginTop: 4 }}>
-                    MessageBus
-                  </div>
-                </div>
-              </Col>
-            </Row>
-
-            <Divider style={{ margin: '16px 0' }} />
-
-            {/* 最近活动时间线 */}
-            <div>
-              <Text style={{ fontSize: 14, fontWeight: 600, color: '#111827', display: 'block', marginBottom: 12 }}>
-                最近活动
-              </Text>
-              <Timeline
-                items={recentActivities.map((activity, index) => ({
-                  color: index === 0 ? '#0d9488' : '#e5e7eb',
-                  dot: index === 0 ? <CheckCircleOutlined style={{ fontSize: 16, color: '#0d9488' }} /> : undefined,
-                  children: (
-                    <div key={index}>
-                      <div style={{ fontSize: 13, color: '#111827' }}>{activity.text}</div>
-                      <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
-                        {activity.time}
-                      </div>
-                    </div>
-                  ),
-                }))}
-                style={{ marginTop: 8 }}
-              />
+        <Card>
+          <CardHeader>
+            <CardTitle>系统信息</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-md border p-3">
+                <p className="text-xs text-muted-foreground">框架版本</p>
+                <p className="mt-1 text-sm font-semibold">Magi v0.1.0</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-xs text-muted-foreground">记忆架构</p>
+                <p className="mt-1 text-sm font-semibold">L1-L5 五层</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-xs text-muted-foreground">事件系统</p>
+                <p className="mt-1 text-sm font-semibold">MessageBus</p>
+              </div>
             </div>
-          </Card>
-        </Col>
-      </Row>
+
+            <div className="h-px bg-border" />
+
+            <div>
+              <p className="mb-3 text-sm font-medium">最近活动</p>
+              <div className="space-y-3">
+                {recentActivities.map((activity, index) => (
+                  <div key={`${activity.text}-${index}`} className="flex items-start gap-2">
+                    {index === 0 ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 text-teal-600" />
+                    ) : (
+                      <Sparkles className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                    )}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{activity.text}</span>
+                        {index === 0 && <Badge variant="secondary">最新</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{activity.time}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 };

@@ -8,7 +8,16 @@ export { messagesApi } from './modules/messages';
 export type { UserMessageRequest, MessageData, SensorStatus, ConversationHistory, ChatHistoryMessage } from './modules/messages';
 
 export { configApi } from './modules/config';
-export type { SystemConfig } from './modules/config';
+export type {
+  SystemConfig,
+  UserPreferences,
+  LLMConfig,
+  PersonalityConfig as RuntimePersonalityConfig,
+  ToolsConfig,
+  MemoryLayersConfig,
+  OnboardingStep,
+  OnboardingState,
+} from './modules/config';
 
 export { personalityApi, DEFAULT_PERSONALITY_CONFIG } from './modules/personality';
 export type {
@@ -25,3 +34,12 @@ export type {
   PersonalityCompareResponse,
   PersonalityDiff,
 } from './modules/personality';
+
+export { personalitiesApi } from './modules/personalities';
+export type { PersonalityPreset } from './modules/personalities';
+
+export { skillsApi } from './modules/skills';
+export type { SkillItem } from './modules/skills';
+
+export { memoryApi } from './modules/memory';
+export type { ModelDownloadStatus } from './modules/memory';

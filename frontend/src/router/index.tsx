@@ -2,10 +2,11 @@
  * 路由配置
  */
 import React from 'react';
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import MainLayout from '../components/layout/MainLayout';
 import Dashboard from '../pages/Dashboard';
-import { Spin } from 'antd';
+import { configApi } from '../api/modules/config';
+import { LoadingSpinner } from '../components/ui/loading-spinner';
 
 // 懒加载页面
 const SettingsPage = React.lazy(() =>
@@ -15,31 +16,68 @@ const ChatPage = React.lazy(() =>
   import('../pages/Chat').then((m) => ({ default: m.ChatPage }))
 );
 const PersonalityPage = React.lazy(() =>
-  import('../pages/Personality').then((m) => ({ default: m.default }))
+  import('../pages/PersonalityModern').then((m) => ({ default: m.default }))
 );
 const EventsPage = React.lazy(() =>
   import('../pages/Events').then((m) => ({ default: m.default }))
 );
+const OnboardingPage = React.lazy(() =>
+  import('../pages/Onboarding').then((m) => ({ default: m.default }))
+);
 
 // 加载组件
 const LoadingFallback = () => (
-  <div
-    style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      height: '100vh',
-      background: '#f9fafb',
-    }}
-  >
-    <Spin size="large" tip="加载中..." />
+  <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
+    <div className="flex items-center gap-3">
+      <LoadingSpinner className="h-6 w-6" />
+      <span className="text-sm">加载中...</span>
+    </div>
   </div>
 );
 
+const OnboardingGuard: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const [loading, setLoading] = React.useState(true);
+  const [completed, setCompleted] = React.useState(false);
+
+  React.useEffect(() => {
+    const check = async () => {
+      try {
+        const response = await configApi.get();
+        setCompleted(!!response.data?.preferences?.onboarding_completed);
+      } catch {
+        setCompleted(false);
+      } finally {
+        setLoading(false);
+      }
+    };
+    void check();
+  }, []);
+
+  if (loading) {
+    return <LoadingFallback />;
+  }
+  if (!completed) {
+    return <Navigate to="/onboarding" replace />;
+  }
+  return children;
+};
+
 const router = createBrowserRouter([
   {
+    path: '/onboarding',
+    element: (
+      <React.Suspense fallback={<LoadingFallback />}>
+        <OnboardingPage />
+      </React.Suspense>
+    ),
+  },
+  {
     path: '/',
-    element: <MainLayout />,
+    element: (
+      <OnboardingGuard>
+        <MainLayout />
+      </OnboardingGuard>
+    ),
     children: [
       {
         index: true,

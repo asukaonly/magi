@@ -1,20 +1,99 @@
 /**
- * 配置管理API
+ * 配置管理 API + 类型定义
  */
 import { api } from '../client';
 
-// 类型定义
+export type UserMode = 'quick' | 'expert' | null;
+export type LanguageCode = 'zh' | 'en';
+export type LLMProvider = 'openai' | 'anthropic' | 'glm' | 'custom' | 'local';
+export type ApiFormat = 'openai' | 'anthropic' | 'custom';
+
+export interface UserPreferences {
+  onboarding_completed: boolean;
+  user_mode: UserMode;
+  language: LanguageCode;
+}
+
+export interface LLMConfig {
+  provider: LLMProvider;
+  model: string;
+  api_key?: string;
+  base_url?: string;
+  custom_name?: string;
+  api_format?: ApiFormat;
+}
+
+export interface PersonalityConfig {
+  preset?: string;
+  custom_prompt?: string;
+  tone?: 'casual' | 'formal';
+}
+
+export interface WeatherToolConfig {
+  enabled: boolean;
+  provider: 'openweather' | 'qweather';
+  apiKey?: string;
+  apiUrl?: string;
+}
+
+export interface WebSearchToolConfig {
+  enabled: boolean;
+  provider: 'duckduckgo' | 'brave' | 'perplexity' | 'tavily' | 'google';
+  apiKey?: string;
+}
+
+export interface WebFetchToolConfig {
+  enabled: boolean;
+  usePlaywright: boolean;
+}
+
+export interface ToolsConfig {
+  builtIn: {
+    weather: WeatherToolConfig;
+    webSearch: WebSearchToolConfig;
+    webFetch: WebFetchToolConfig;
+  };
+  skills: string[];
+}
+
+export interface MemoryLayersConfig {
+  L1: { enabled: boolean };
+  L2: { enabled: boolean; backend: 'sqlite_networkx' | 'kuzu'; graphRules?: string };
+  L3: {
+    enabled: boolean;
+    deployment: 'local' | 'remote';
+    backend: 'sqlite_vec';
+    model?: string;
+    modelStatus?: 'not_downloaded' | 'downloading' | 'ready';
+  };
+  L4: {
+    enabled: boolean;
+    summaryTypes: ('user_events' | 'ai_tool_execution' | 'external_perception')[];
+  };
+  L5: { enabled: boolean };
+}
+
+export type OnboardingStep =
+  | 'mode-selection'
+  | 'language'
+  | 'llm'
+  | 'personality'
+  | 'memory'
+  | 'tools'
+  | 'complete';
+
+export interface OnboardingState {
+  currentStep: OnboardingStep;
+  mode: UserMode;
+  completedSteps: OnboardingStep[];
+}
+
 export interface SystemConfig {
   agent: {
     name: string;
     description?: string;
   };
-  llm: {
-    provider: 'openai' | 'anthropic' | 'local';
-    model: string;
-    api_key?: string;
-    base_url?: string;
-  };
+  llm: LLMConfig;
   loop: {
     strategy: 'step' | 'wave' | 'continuous';
     interval: number;
@@ -35,22 +114,45 @@ export interface SystemConfig {
     level: 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
     path?: string;
   };
+  preferences: UserPreferences;
+  personality: PersonalityConfig;
+  tools: ToolsConfig;
+  memory_layers: MemoryLayersConfig;
 }
 
-// API方法
+export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
+  agent: { name: 'magi-agent', description: 'Magi AI Agent Framework' },
+  llm: { provider: 'openai', model: 'gpt-4o-mini' },
+  loop: { strategy: 'continuous', interval: 1 },
+  message_bus: { backend: 'sqlite', max_size: 1000 },
+  memory: { backend: 'sqlite', path: '~/.magi/data/memories' },
+  websocket: { enabled: true, port: 8000 },
+  log: { level: 'INFO' },
+  preferences: { onboarding_completed: false, user_mode: null, language: 'zh' },
+  personality: { tone: 'casual' },
+  tools: {
+    builtIn: {
+      weather: { enabled: true, provider: 'qweather' },
+      webSearch: { enabled: true, provider: 'brave' },
+      webFetch: { enabled: true, usePlaywright: false },
+    },
+    skills: [],
+  },
+  memory_layers: {
+    L1: { enabled: true },
+    L2: { enabled: true, backend: 'sqlite_networkx' },
+    L3: { enabled: true, deployment: 'local', backend: 'sqlite_vec', modelStatus: 'not_downloaded' },
+    L4: { enabled: true, summaryTypes: ['user_events'] },
+    L5: { enabled: true },
+  },
+};
+
 export const configApi = {
-  // 获取配置
   get: () => api.get<SystemConfig>('/config'),
-
-  // 更新配置
-  update: (config: Partial<SystemConfig>) =>
-    api.put<SystemConfig>('/config', config),
-
-  // 重置配置为默认值
+  update: (config: Partial<SystemConfig>) => api.put<SystemConfig>('/config', config),
   reset: () => api.post<SystemConfig>('/config/reset', {}),
-
-  // 获取配置模板
   getTemplate: () => api.get<SystemConfig>('/config/template'),
+  test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
 };
 
 export default configApi;

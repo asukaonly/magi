@@ -97,20 +97,27 @@ export const apiClient = createApiClient();
 
 // 通用API方法
 export const api = {
-  get: <T = any>(url: string, params?: any) =>
-    apiClient.get<ApiResponse<T>>(url, { params }).then((res) => res.data),
+  get: <T = any>(url: string, paramsOrConfig?: any) => {
+    const config =
+      paramsOrConfig && typeof paramsOrConfig === 'object' && 'params' in paramsOrConfig
+        ? paramsOrConfig
+        : paramsOrConfig
+          ? { params: paramsOrConfig }
+          : undefined;
+    return apiClient.get<ApiResponse<T>>(url, config).then((res) => res.data);
+  },
 
-  post: <T = any>(url: string, data?: any) =>
-    apiClient.post<ApiResponse<T>>(url, data).then((res) => res.data),
+  post: <T = any>(url: string, data?: any, config?: any) =>
+    apiClient.post<ApiResponse<T>>(url, data, config).then((res) => res.data),
 
-  put: <T = any>(url: string, data?: any) =>
-    apiClient.put<ApiResponse<T>>(url, data).then((res) => res.data),
+  put: <T = any>(url: string, data?: any, config?: any) =>
+    apiClient.put<ApiResponse<T>>(url, data, config).then((res) => res.data),
 
-  delete: <T = any>(url: string) =>
-    apiClient.delete<ApiResponse<T>>(url).then((res) => res.data),
+  delete: <T = any>(url: string, config?: any) =>
+    apiClient.delete<ApiResponse<T>>(url, config).then((res) => res.data),
 
-  patch: <T = any>(url: string, data?: any) =>
-    apiClient.patch<ApiResponse<T>>(url, data).then((res) => res.data),
+  patch: <T = any>(url: string, data?: any, config?: any) =>
+    apiClient.patch<ApiResponse<T>>(url, data, config).then((res) => res.data),
 };
 
 export default apiClient;

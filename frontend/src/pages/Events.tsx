@@ -3,31 +3,21 @@
  */
 import React, { useEffect, useState } from 'react';
 import {
-  Card,
-  Tabs,
-  Table,
-  Tag,
-  Space,
-  Button,
-  Input,
-  Descriptions,
-  Timeline,
-  Statistic,
-  Row,
-  Col,
-  message,
-  Spin,
-} from 'antd';
-import {
-  ReloadOutlined,
-  SearchOutlined,
-  DatabaseOutlined,
-  NodeIndexOutlined,
-  BranchesOutlined,
-  FileTextOutlined,
-  ThunderboltOutlined,
-} from '@ant-design/icons';
-import type { TabsProps } from 'antd';
+  Database,
+  FileText,
+  GitBranch,
+  Network,
+  RefreshCw,
+  Search,
+  Zap,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { apiClient } from '../api/client';
 
 interface Event {
@@ -41,26 +31,10 @@ interface Event {
   metadata: any;
 }
 
-interface Relation {
-  source_event_id: string;
-  target_event_id: string;
-  relation_type: string;
-  confidence: number;
-}
-
-interface Embedding {
+interface SearchResult {
   event_id: string;
   text: string;
   metadata: any;
-}
-
-interface Summary {
-  period_type: string;
-  period_key: string;
-  start_time: number;
-  end_time: number;
-  event_count: number;
-  summary: string;
 }
 
 interface Capability {
@@ -80,16 +54,13 @@ const EventsPage: React.FC = () => {
   const [l1Stats, setL1Stats] = useState({ total: 0 });
 
   // L2 数据
-  const [l2Relations, setL2Relations] = useState<Relation[]>([]);
-  const [l2Events, setL2Events] = useState<any[]>([]);
   const [l2Stats, setL2Stats] = useState({ total_events: 0, total_relations: 0 });
 
   // L3 数据
-  const [l3Embeddings, setL3Embeddings] = useState<Embedding[]>([]);
+  const [l3Results, setL3Results] = useState<SearchResult[]>([]);
   const [l3Stats, setL3Stats] = useState({ total_embeddings: 0, dimension: 0 });
 
   // L4 数据
-  const [l4Summaries, setL4Summaries] = useState<Summary[]>([]);
   const [l4Stats, setL4Stats] = useState({ total_summaries: 0 });
 
   // L5 数据
@@ -110,7 +81,7 @@ const EventsPage: React.FC = () => {
         fetchL5Data(),
       ]);
     } catch (error: any) {
-      message.error('加载数据失败: ' + error.message);
+      toast.error('加载数据失败: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -177,407 +148,205 @@ const EventsPage: React.FC = () => {
     fetchAllData();
   }, []);
 
-  // 事件等级标签颜色
-  const getLevelColor = (level: number) => {
-    const colors = ['#d1d5db', '#10b981', '#f59e0b', '#ef4444', '#dc2626', '#6366f1'];
-    return colors[level] || '#d1d5db';
-  };
-
   const getLevelName = (level: number) => {
     const names = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'EMERGENCY'];
     return names[level] || 'UNKNOWN';
   };
 
-  // L1 表格列
-  const l1Columns = [
-    {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 80,
-      render: (id: string) => id.slice(0, 8) + '...',
-    },
-    {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      width: 180,
-      render: (type: string) => <Tag color="cyan">{type}</Tag>,
-    },
-    {
-      title: '数据',
-      dataIndex: 'data',
-      key: 'data',
-      ellipsis: true,
-      render: (data: any) => {
-        const str = typeof data === 'string' ? data : JSON.stringify(data);
-        return <span style={{ fontSize: 12 }}>{str.slice(0, 50)}...</span>;
-      },
-    },
-    {
-      title: '等级',
-      dataIndex: 'level',
-      key: 'level',
-      width: 80,
-      render: (level: number) => (
-        <Tag color={getLevelColor(level)}>{getLevelName(level)}</Tag>
-      ),
-    },
-    {
-      title: '时间',
-      dataIndex: 'timestamp',
-      key: 'timestamp',
-      width: 160,
-      render: (ts: number) => new Date(ts * 1000).toLocaleString(),
-    },
-    {
-      title: '关联ID',
-      dataIndex: 'correlation_id',
-      key: 'correlation_id',
-      width: 80,
-      render: (id: string) => id?.slice(0, 8) + '...' || '-',
-    },
-  ];
-
-  // L5 表格列
-  const l5Columns = [
-    {
-      title: 'ID',
-      dataIndex: 'capability_id',
-      key: 'capability_id',
-      width: 100,
-      render: (id: string) => id.slice(0, 12) + '...',
-    },
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-    },
-    {
-      title: '成功率',
-      dataIndex: 'success_rate',
-      key: 'success_rate',
-      width: 100,
-      render: (rate: number) => (
-        <Tag color={rate > 0.7 ? 'success' : rate > 0.5 ? 'warning' : 'error'}>
-          {(rate * 100).toFixed(0)}%
-        </Tag>
-      ),
-    },
-    {
-      title: '使用次数',
-      dataIndex: 'usage_count',
-      key: 'usage_count',
-      width: 100,
-    },
-  ];
-
   // 搜索处理
   const handleSearch = async () => {
     if (!searchKeyword.trim()) {
-      message.warning('请输入搜索关键词');
+      toast.warning('请输入搜索关键词');
       return;
     }
 
     setLoading(true);
     try {
-      const response = await apiClient.get('/memory/search', {
-        params: { query: searchKeyword, limit: 20 },
+      const response = await apiClient.post('/memory/search', {
+        query: searchKeyword,
+        limit: 20,
+        search_type: 'hybrid',
       });
       const results = response.data || [];
 
       if (results.length > 0) {
         setActiveTab('l3');
-        setL3Embeddings(results);
-        message.success(`找到 ${results.length} 条相关事件`);
+        setL3Results(results);
+        toast.success(`找到 ${results.length} 条相关事件`);
       } else {
-        message.warning('未找到相关事件');
+        toast.warning('未找到相关事件');
       }
     } catch (error: any) {
-      message.error('搜索失败: ' + error.message);
+      const errorMessage = error?.response?.data?.detail || error?.message || '未知错误';
+      toast.error('搜索失败: ' + errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  // Tab 内容
-  const tabItems: TabsProps['items'] = [
-    {
-      key: 'l1',
-      label: (
-        <span>
-          <DatabaseOutlined />
-          L1 原始事件 ({l1Stats.total})
-        </span>
-      ),
-      children: (
-        <div>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={6}>
-              <Card size="small">
-                <Statistic title="总事件数" value={l1Stats.total} />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card size="small">
-                <Statistic
-                  title="INFO事件"
-                  value={l1Events.filter((e) => e.level === 1).length}
-                  valueStyle={{ color: '#10b981' }}
-                />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card size="small">
-                <Statistic
-                  title="WARNING事件"
-                  value={l1Events.filter((e) => e.level === 2).length}
-                  valueStyle={{ color: '#f59e0b' }}
-                />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card size="small">
-                <Statistic
-                  title="ERROR事件"
-                  value={l1Events.filter((e) => e.level >= 3).length}
-                  valueStyle={{ color: '#ef4444' }}
-                />
-              </Card>
-            </Col>
-          </Row>
-
-          <Table
-            columns={l1Columns}
-            dataSource={l1Events}
-            rowKey="id"
-            size="small"
-            pagination={{ pageSize: 10 }}
-            expandable={{
-              expandedRowRender: (record) => (
-                <Descriptions size="small" column={2} bordered>
-                  <Descriptions.Item label="ID">{record.id}</Descriptions.Item>
-                  <Descriptions.Item label="关联ID">{record.correlation_id}</Descriptions.Item>
-                  <Descriptions.Item label="来源">{record.source}</Descriptions.Item>
-                  <Descriptions.Item label="时间戳">{record.timestamp}</Descriptions.Item>
-                  <Descriptions.Item label="元数据" span={2}>
-                    <pre style={{ margin: 0, fontSize: 12 }}>
-                      {JSON.stringify(record.metadata, null, 2)}
-                    </pre>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="数据" span={2}>
-                    <pre style={{ margin: 0, fontSize: 12, maxHeight: 200, overflow: 'auto' }}>
-                      {JSON.stringify(record.data, null, 2)}
-                    </pre>
-                  </Descriptions.Item>
-                </Descriptions>
-              ),
-            }}
-          />
-        </div>
-      ),
-    },
-    {
-      key: 'l2',
-      label: (
-        <span>
-          <BranchesOutlined />
-          L2 事件关系 ({l2Stats.total_relations})
-        </span>
-      ),
-      children: (
-        <div>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={8}>
-              <Card size="small">
-                <Statistic title="总事件数" value={l2Stats.total_events} />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card size="small">
-                <Statistic title="总关系数" value={l2Stats.total_relations} />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card size="small">
-                <Statistic
-                  title="平均关系数/事件"
-                  value={l2Stats.total_events > 0 ? (l2Stats.total_relations / l2Stats.total_events).toFixed(2) : 0}
-                  decimalSeparator="."
-                />
-              </Card>
-            </Col>
-          </Row>
-
-          <Card title="关系类型说明" size="small">
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <div><Tag color="default">PRECEDE</Tag> - 同一链路上的前后事件</div>
-              <div><Tag color="cyan">TRIGGER</Tag> - 感知触发处理</div>
-              <div><Tag color="orange">CAUSE</Tag> - 因果关系</div>
-              <div><Tag color="purple">FOLLOW</Tag> - 后续事件</div>
-              <div><Tag color="blue">SAME_USER</Tag> - 同一用户事件</div>
-            </Space>
-          </Card>
-        </div>
-      ),
-    },
-    {
-      key: 'l3',
-      label: (
-        <span>
-          <NodeIndexOutlined />
-          L3 语义搜索 ({l3Stats.total_embeddings})
-        </span>
-      ),
-      children: (
-        <div>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={12}>
-              <Card size="small">
-                <Statistic title="嵌入向量数" value={l3Stats.total_embeddings} />
-              </Card>
-            </Col>
-            <Col span={12}>
-              <Card size="small">
-                <Statistic title="向量维度" value={l3Stats.dimension} suffix="维" />
-              </Card>
-            </Col>
-          </Row>
-
-          <Card title="语义搜索" size="small" style={{ marginBottom: 16 }}>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input
-                placeholder="输入搜索关键词，如：用户消息、错误、任务完成..."
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                onPressEnter={handleSearch}
-              />
-              <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>
-                搜索
-              </Button>
-            </Space.Compact>
-          </Card>
-
-          {l3Embeddings.length > 0 && (
-            <Table
-              columns={[
-                { title: '事件ID', dataIndex: 'event_id', key: 'event_id', render: (id: string) => id.slice(0, 12) + '...' },
-                { title: '文本内容', dataIndex: 'text', key: 'text', ellipsis: true },
-                { title: '类型', dataIndex: 'metadata', key: 'type', render: (m: any) => m?.event_type || '-' },
-              ]}
-              dataSource={l3Embeddings}
-              rowKey="event_id"
-              size="small"
-              pagination={false}
-            />
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'l4',
-      label: (
-        <span>
-          <FileTextOutlined />
-          L4 时间摘要 ({l4Stats.total_summaries})
-        </span>
-      ),
-      children: (
-        <div>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={24}>
-              <Card size="small">
-                <Statistic title="摘要总数" value={l4Stats.total_summaries} />
-              </Card>
-            </Col>
-          </Row>
-
-          <Card title="摘要说明" size="small">
-            <p>L4 摘要按照时间粒度自动生成：</p>
-            <Space>
-              <Tag>小时</Tag>
-              <Tag>天</Tag>
-              <Tag>周</Tag>
-              <Tag>月</Tag>
-            </Space>
-            <p style={{ marginTop: 16, color: '#666' }}>
-              摘要会在后台定期生成，也可以手动触发。
-            </p>
-          </Card>
-        </div>
-      ),
-    },
-    {
-      key: 'l5',
-      label: (
-        <span>
-          <ThunderboltOutlined />
-          L5 能力记忆 ({l5Stats.total_capabilities})
-        </span>
-      ),
-      children: (
-        <div>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={8}>
-              <Card size="small">
-                <Statistic title="能力总数" value={l5Stats.total_capabilities} />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card size="small">
-                <Statistic
-                  title="高成功率能力"
-                  value={l5Capabilities.filter((c) => c.success_rate > 0.8).length}
-                  valueStyle={{ color: '#10b981' }}
-                />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card size="small">
-                <Statistic
-                  title="低成功率能力"
-                  value={l5Capabilities.filter((c) => c.success_rate < 0.5).length}
-                  valueStyle={{ color: '#ef4444' }}
-                />
-              </Card>
-            </Col>
-          </Row>
-
-          <Table
-            columns={l5Columns}
-            dataSource={l5Capabilities}
-            rowKey="capability_id"
-            size="small"
-            pagination={{ pageSize: 10 }}
-          />
-        </div>
-      ),
-    },
-  ];
-
   return (
-    <div>
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>记忆查看</h1>
-          <p style={{ margin: '8px 0 0', color: '#666' }}>
-            L1-L5 五层记忆架构数据查看
-          </p>
+          <h1 className="text-2xl font-semibold">记忆查看</h1>
+          <p className="mt-1 text-sm text-muted-foreground">L1-L5 五层记忆架构数据查看</p>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={fetchAllData} loading={loading}>
+        <Button onClick={fetchAllData} disabled={loading}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           刷新
         </Button>
       </div>
 
-      <Spin spinning={loading}>
-        <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
-      </Spin>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid h-auto grid-cols-2 gap-1 md:grid-cols-5">
+          <TabsTrigger value="l1"><Database className="mr-1 h-4 w-4" />L1 ({l1Stats.total})</TabsTrigger>
+          <TabsTrigger value="l2"><GitBranch className="mr-1 h-4 w-4" />L2 ({l2Stats.total_relations})</TabsTrigger>
+          <TabsTrigger value="l3"><Network className="mr-1 h-4 w-4" />L3 ({l3Stats.total_embeddings})</TabsTrigger>
+          <TabsTrigger value="l4"><FileText className="mr-1 h-4 w-4" />L4 ({l4Stats.total_summaries})</TabsTrigger>
+          <TabsTrigger value="l5"><Zap className="mr-1 h-4 w-4" />L5 ({l5Stats.total_capabilities})</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="l1" className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总事件数</p><p className="mt-1 text-2xl font-semibold">{l1Stats.total}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">INFO</p><p className="mt-1 text-2xl font-semibold text-emerald-600">{l1Events.filter((e) => e.level === 1).length}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">WARNING</p><p className="mt-1 text-2xl font-semibold text-amber-600">{l1Events.filter((e) => e.level === 2).length}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">ERROR+</p><p className="mt-1 text-2xl font-semibold text-red-600">{l1Events.filter((e) => e.level >= 3).length}</p></CardContent></Card>
+          </div>
+          <Card>
+            <CardHeader><CardTitle>原始事件（最近 50 条）</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {loading ? <LoadingSpinner /> : l1Events.map((event) => (
+                <details key={event.id} className="rounded-md border p-3">
+                  <summary className="cursor-pointer text-sm">
+                    <span className="mr-2 font-medium">{event.type}</span>
+                    <Badge variant="outline" className="mr-2">{getLevelName(event.level)}</Badge>
+                    <span className="text-xs text-muted-foreground">{new Date(event.timestamp * 1000).toLocaleString()}</span>
+                  </summary>
+                  <div className="mt-2 grid gap-2 text-xs">
+                    <div>ID: {event.id}</div>
+                    <div>关联ID: {event.correlation_id || '-'}</div>
+                    <div>来源: {event.source || '-'}</div>
+                    <pre className="max-h-52 overflow-auto rounded bg-muted p-2">{JSON.stringify(event.data, null, 2)}</pre>
+                  </div>
+                </details>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="l2" className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总事件数</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_events}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总关系数</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_relations}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">平均关系/事件</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_events > 0 ? (l2Stats.total_relations / l2Stats.total_events).toFixed(2) : '0'}</p></CardContent></Card>
+          </div>
+          <Card>
+            <CardHeader><CardTitle>关系类型说明</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div><Badge variant="outline" className="mr-2">PRECEDE</Badge>同一链路上的前后事件</div>
+              <div><Badge variant="outline" className="mr-2">TRIGGER</Badge>感知触发处理</div>
+              <div><Badge variant="outline" className="mr-2">CAUSE</Badge>因果关系</div>
+              <div><Badge variant="outline" className="mr-2">FOLLOW</Badge>后续事件</div>
+              <div><Badge variant="outline" className="mr-2">SAME_USER</Badge>同一用户事件</div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="l3" className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">嵌入向量数</p><p className="mt-1 text-2xl font-semibold">{l3Stats.total_embeddings}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">向量维度</p><p className="mt-1 text-2xl font-semibold">{l3Stats.dimension}</p></CardContent></Card>
+          </div>
+          <Card>
+            <CardHeader><CardTitle>语义搜索</CardTitle></CardHeader>
+            <CardContent>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="输入搜索关键词，如：用户消息、错误、任务完成..."
+                  value={searchKeyword}
+                  onChange={(e) => setSearchKeyword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void handleSearch();
+                    }
+                  }}
+                />
+                <Button onClick={handleSearch} disabled={loading}>
+                  <Search className="mr-1 h-4 w-4" />
+                  搜索
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+          {l3Results.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>搜索结果</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                {l3Results.map((item) => (
+                  <div key={item.event_id} className="rounded-md border p-3 text-sm">
+                    <div className="font-medium">{item.event_id.slice(0, 12)}...</div>
+                    <div className="mt-1 text-muted-foreground">{item.text}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">类型：{item.metadata?.event_type || '-'}</div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="l4" className="space-y-4">
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">摘要总数</p>
+              <p className="mt-1 text-2xl font-semibold">{l4Stats.total_summaries}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>摘要说明</CardTitle></CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <p>L4 摘要按照时间粒度自动生成：</p>
+              <div className="flex gap-2">
+                <Badge variant="outline">小时</Badge>
+                <Badge variant="outline">天</Badge>
+                <Badge variant="outline">周</Badge>
+                <Badge variant="outline">月</Badge>
+              </div>
+              <p className="text-muted-foreground">摘要会在后台定期生成，也可以手动触发。</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="l5" className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">能力总数</p><p className="mt-1 text-2xl font-semibold">{l5Stats.total_capabilities}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">高成功率能力</p><p className="mt-1 text-2xl font-semibold text-emerald-600">{l5Capabilities.filter((c) => c.success_rate > 0.8).length}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">低成功率能力</p><p className="mt-1 text-2xl font-semibold text-red-600">{l5Capabilities.filter((c) => c.success_rate < 0.5).length}</p></CardContent></Card>
+          </div>
+          <Card>
+            <CardHeader><CardTitle>能力列表</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {l5Capabilities.map((capability) => (
+                <div key={capability.capability_id} className="rounded-md border p-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{capability.name}</span>
+                    <Badge
+                      variant={
+                        capability.success_rate > 0.7 ? 'success' : capability.success_rate > 0.5 ? 'warning' : 'destructive'
+                      }
+                    >
+                      {(capability.success_rate * 100).toFixed(0)}%
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-muted-foreground">{capability.description}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">使用次数：{capability.usage_count}</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

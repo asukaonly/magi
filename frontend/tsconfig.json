@@ -27,5 +27,6 @@
     }
   },
   "include": ["src"],
+  "exclude": ["src/pages/Personality.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

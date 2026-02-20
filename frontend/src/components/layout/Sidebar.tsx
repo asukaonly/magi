@@ -1,31 +1,25 @@
-/**
- * Sidebar组件 - 现代化可折叠设计
- * 参考 Linear/Raycast 风格：浅色、细线边框、微妙阴影
- */
-import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Button } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  DashboardOutlined,
-  SettingOutlined,
-  MessageOutlined,
-  UserOutlined,
-  DatabaseOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  ThunderboltFilled,
-} from '@ant-design/icons';
-import { useNavigate, useLocation } from 'react-router-dom';
+  Database,
+  LayoutDashboard,
+  MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  UserRound,
+  Zap,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
-const { Sider } = Layout;
-
-// 创建 sidebar context
 export const SidebarContext = React.createContext<{
   collapsed: boolean;
   toggleCollapse: () => void;
   sidebarWidth: number;
 }>({
   collapsed: false,
-  toggleCollapse: () => {},
+  toggleCollapse: () => undefined,
   sidebarWidth: 240,
 });
 
@@ -35,169 +29,72 @@ const Sidebar: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const sidebarWidth = collapsed ? 64 : 240;
 
-  // 从 localStorage 恢复折叠状态
   useEffect(() => {
     const savedCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
-    if (savedCollapsed !== collapsed) {
-      setCollapsed(savedCollapsed);
-    }
+    setCollapsed(savedCollapsed);
   }, []);
 
   const menuItems = [
-    {
-      key: '/',
-      icon: <DashboardOutlined />,
-      label: '仪表盘',
-    },
-    {
-      key: '/chat',
-      icon: <MessageOutlined />,
-      label: 'AI 对话',
-    },
-    {
-      key: '/personality',
-      icon: <UserOutlined />,
-      label: '人格配置',
-    },
-    {
-      key: '/events',
-      icon: <DatabaseOutlined />,
-      label: '记忆查看',
-    },
-    {
-      key: '/settings',
-      icon: <SettingOutlined />,
-      label: '系统设置',
-    },
+    { key: '/', icon: LayoutDashboard, label: '仪表盘' },
+    { key: '/chat', icon: MessageSquare, label: 'AI 对话' },
+    { key: '/personality', icon: UserRound, label: '人格配置' },
+    { key: '/events', icon: Database, label: '记忆查看' },
+    { key: '/settings', icon: Settings, label: '系统设置' },
   ];
 
-  const handleMenuClick = ({ key }: { key: string }) => {
-    navigate(key);
-  };
-
   const toggleCollapse = () => {
-    const newCollapsed = !collapsed;
-    setCollapsed(newCollapsed);
-    localStorage.setItem('sidebar-collapsed', String(newCollapsed));
-
-    // 触发自定义事件通知其他组件
-    window.dispatchEvent(new CustomEvent('sidebar-toggle', {
-      detail: { collapsed: newCollapsed, width: newCollapsed ? 64 : 240 }
-    }));
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem('sidebar-collapsed', String(next));
+    window.dispatchEvent(new CustomEvent('sidebar-toggle', { detail: { collapsed: next, width: next ? 64 : 240 } }));
   };
 
   return (
     <SidebarContext.Provider value={{ collapsed, toggleCollapse, sidebarWidth }}>
-      <Sider
-        width={240}
-        collapsedWidth={64}
-        collapsed={collapsed}
-        collapsible
-        trigger={null}
-        style={{
-          background: '#ffffff',
-          borderRight: '1px solid #e5e7eb',
-          overflow: 'hidden',
-          height: '100vh',
-          position: 'fixed',
-          left: 0,
-          top: 0,
-          boxShadow: '1px 0 3px rgba(0,0,0,0.05)',
-          zIndex: 10,
-        }}
-        className="sidebar-transition"
+      <aside
+        className={cn(
+          'fixed left-0 top-0 z-20 h-screen border-r bg-card transition-all duration-300',
+          collapsed ? 'w-16' : 'w-60'
+        )}
       >
-        {/* Logo Area */}
-        <div
-          style={{
-            height: 64,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: collapsed ? 'center' : 'flex-start',
-            gap: 8,
-            padding: collapsed ? 0 : '0 20px',
-            borderBottom: '1px solid #e5e7eb',
-            transition: 'all 0.3s ease',
-          }}
-        >
-          {!collapsed ? (
-            <>
-              <ThunderboltFilled style={{ fontSize: 24, color: '#0d9488' }} />
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span
-                  style={{
-                    color: '#111827',
-                    fontSize: 18,
-                    fontWeight: 700,
-                    lineHeight: 1,
-                  }}
-                >
-                  Magi
-                </span>
-                <span
-                  style={{
-                    color: '#9ca3af',
-                    fontSize: 11,
-                    fontWeight: 400,
-                    lineHeight: 1.4,
-                  }}
-                >
-                  AI Framework
-                </span>
-              </div>
-            </>
-          ) : (
-            <ThunderboltFilled style={{ fontSize: 20, color: '#0d9488' }} />
+        <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center px-0' : 'gap-2')}>
+          <Zap className="h-5 w-5 text-primary" />
+          {!collapsed && (
+            <div className="flex flex-col">
+              <span className="text-base font-semibold">Magi</span>
+              <span className="text-[11px] text-muted-foreground">AI Framework</span>
+            </div>
           )}
         </div>
 
-        {/* Menu - 使用 inlineCollapsed 控制折叠 */}
-        <Menu
-          mode="inline"
-          theme="light"
-          selectedKeys={[location.pathname]}
-          items={menuItems}
-          onClick={handleMenuClick}
-          inlineCollapsed={collapsed}
-          inlineIndent={16}
-          style={{
-            borderRight: 0,
-            paddingTop: '12px',
-            background: 'transparent',
-          }}
-        />
+        <nav className="space-y-1 p-3">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+            const active = location.pathname === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => navigate(item.key)}
+                className={cn(
+                  'flex h-10 w-full items-center rounded-md px-3 text-sm transition-colors',
+                  active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  collapsed && 'justify-center px-0'
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {!collapsed && <span className="ml-2">{item.label}</span>}
+              </button>
+            );
+          })}
+        </nav>
 
-        {/* 折叠按钮 */}
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 16,
-            left: 0,
-            right: 0,
-            display: 'flex',
-            justifyContent: collapsed ? 'center' : 'flex-end',
-            paddingRight: collapsed ? 0 : 12,
-            padding: collapsed ? 0 : '0 12px',
-          }}
-        >
-          <Button
-            type="text"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={toggleCollapse}
-            style={{
-              width: collapsed ? 40 : '100%',
-              height: 36,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: collapsed ? 'center' : 'center',
-              color: '#6b7280',
-              border: '1px solid #e5e7eb',
-              borderRadius: 6,
-              transition: 'all 0.2s ease',
-            }}
-          />
+        <div className="absolute bottom-3 left-0 w-full px-3">
+          <Button variant="outline" className={cn('w-full', collapsed && 'px-0')} onClick={toggleCollapse}>
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
         </div>
-      </Sider>
+      </aside>
     </SidebarContext.Provider>
   );
 };

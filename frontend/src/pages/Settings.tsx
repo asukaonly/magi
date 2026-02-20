@@ -1,84 +1,115 @@
-/**
- * Settings页面
- */
 import React, { useEffect, useState } from 'react';
-import {
-  Card,
-  Form,
-  Input,
-  Select,
-  InputNumber,
-  Switch,
-  Button,
-  Space,
-  message,
-  Tabs,
-  Spin,
-  Alert,
-} from 'antd';
-import {
-  SaveOutlined,
-  ReloadOutlined,
-  CheckCircleOutlined,
-} from '@ant-design/icons';
-import { configApi, SystemConfig } from '../api/modules/config';
+import { toast } from 'sonner';
+import { Download, RefreshCw, Save } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig } from '../api/modules/config';
+import { memoryApi } from '../api/modules/memory';
 
-const { Option } = Select;
-const { TextArea } = Input;
+type SelectOption = { label: string; value: string };
+
+const SelectField: React.FC<{
+  label: string;
+  value: string;
+  options: SelectOption[];
+  onChange: (value: string) => void;
+}> = ({ label, value, options, onChange }) => (
+  <label className="space-y-2">
+    <span className="text-sm font-medium">{label}</span>
+    <select
+      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  </label>
+);
+
+const NumberField: React.FC<{
+  label: string;
+  value: number | undefined;
+  min?: number;
+  max?: number;
+  step?: number;
+  onChange: (value: number) => void;
+}> = ({ label, value, min, max, step, onChange }) => (
+  <label className="space-y-2">
+    <span className="text-sm font-medium">{label}</span>
+    <input
+      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={value ?? ''}
+      onChange={(event) => onChange(Number(event.target.value))}
+    />
+  </label>
+);
 
 export const SettingsPage: React.FC = () => {
-  const [form] = Form.useForm();
-  const [config, setConfig] = useState<SystemConfig | null>(null);
+  const [config, setConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('agent');
+  const [activeTab, setActiveTab] = useState('preferences');
+  const [downloadModel, setDownloadModel] = useState('bge-m3');
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadStatus, setDownloadStatus] = useState<'not_downloaded' | 'downloading' | 'ready'>('not_downloaded');
+  const [installedModels, setInstalledModels] = useState<string[]>([]);
 
   useEffect(() => {
-    fetchConfig();
+    void fetchConfig();
+    void fetchInstalledModels();
   }, []);
+
+  const patchConfig = (updater: (draft: SystemConfig) => void) => {
+    setConfig((prev) => {
+      const next = structuredClone(prev);
+      updater(next);
+      return next;
+    });
+  };
 
   const fetchConfig = async () => {
     setLoading(true);
     try {
       const response = await configApi.get();
-      setConfig(response.data);
-      form.setFieldsValue(response.data);
+      setConfig(response.data || DEFAULT_SYSTEM_CONFIG);
     } catch (error: any) {
-      message.error('加载配置失败: ' + (error.message || '未知错误'));
+      toast.error(`加载配置失败: ${error?.message || '未知错误'}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSave = async (tabKey: string) => {
+  const fetchInstalledModels = async () => {
     try {
-      const values = await form.validateFields();
+      const response = await memoryApi.listModels();
+      setInstalledModels(response.data?.models || []);
+    } catch {
+      setInstalledModels([]);
+    }
+  };
+
+  const handleSave = async () => {
+    try {
       setSaving(true);
-
-      // 根据当前标签页构建更新的配置
-      const updateMap: Record<string, (values: any) => Partial<SystemConfig>> = {
-        agent: (v) => ({ agent: v }),
-        llm: (v) => ({ llm: v }),
-        loop: (v) => ({ loop: v }),
-        message_bus: (v) => ({ message_bus: v }),
-        memory: (v) => ({ memory: v }),
-        websocket: (v) => ({ websocket: v }),
-        log: (v) => ({ log: v }),
-      };
-
-      const updateFn = updateMap[tabKey];
-      if (updateFn) {
-        const partialConfig = updateFn(values);
-        await configApi.update(partialConfig);
-        message.success('配置保存成功');
-        await fetchConfig(); // 重新加载配置
-      }
+      await configApi.update(config);
+      toast.success('配置保存成功');
+      await fetchConfig();
     } catch (error: any) {
-      if (error.errorFields) {
-        message.warning('请检查表单输入');
-      } else {
-        message.error('保存配置失败: ' + (error.message || '未知错误'));
-      }
+      toast.error(`保存配置失败: ${error?.message || '未知错误'}`);
     } finally {
       setSaving(false);
     }
@@ -87,367 +118,386 @@ export const SettingsPage: React.FC = () => {
   const handleReset = async () => {
     const confirmed = window.confirm('确定要重置所有配置为默认值吗？');
     if (!confirmed) return;
-
     try {
       setLoading(true);
       await configApi.reset();
-      message.success('配置已重置为默认值');
+      toast.success('配置已重置为默认值');
       await fetchConfig();
     } catch (error: any) {
-      message.error('重置配置失败: ' + (error.message || '未知错误'));
+      toast.error(`重置配置失败: ${error?.message || '未知错误'}`);
     } finally {
       setLoading(false);
     }
   };
 
+  const startDownload = async () => {
+    try {
+      const response = await memoryApi.downloadModel(downloadModel);
+      setDownloadProgress(response.data?.progress || 0);
+      setDownloadStatus(response.data?.status || 'not_downloaded');
+    } catch (error: any) {
+      toast.error(error?.message || '启动下载失败');
+      return;
+    }
+
+    const timer = window.setInterval(async () => {
+      try {
+        const status = await memoryApi.getModelStatus(downloadModel);
+        setDownloadProgress(status.data?.progress || 0);
+        setDownloadStatus(status.data?.status || 'not_downloaded');
+        if (status.data?.status === 'ready') {
+          window.clearInterval(timer);
+          toast.success('模型已就绪');
+          await fetchInstalledModels();
+        }
+      } catch {
+        window.clearInterval(timer);
+      }
+    }, 800);
+  };
+
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: '50px 0' }}>
-        <Spin size="large" tip="加载配置中..." />
+      <div className="flex items-center justify-center py-24">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <LoadingSpinner />
+          <span className="text-sm">加载配置中...</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '24px' }}>
-      <Card
-        title="系统配置"
-        extra={
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={fetchConfig}>
+    <div className="space-y-4 p-6">
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle>系统配置</CardTitle>
+            <CardDescription>所有配置都可在此集中管理</CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={fetchConfig}>
+              <RefreshCw className="mr-2 h-4 w-4" />
               刷新
             </Button>
-            <Button danger onClick={handleReset}>
+            <Button variant="destructive" onClick={handleReset}>
               重置为默认
             </Button>
-          </Space>
-        }
-      >
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          tabPosition="left"
-          items={[
-            {
-              key: 'agent',
-              label: 'Agent配置',
-              children: (
-                <Card title="Agent基础配置" type="inner">
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    initialValues={config?.agent}
-                  >
-                    <Form.Item
-                      label="Agent名称"
-                      name={['agent', 'name']}
-                      rules={[{ required: true, message: '请输入Agent名称' }]}
-                    >
-                      <Input placeholder="my-agent" />
-                    </Form.Item>
+            <Button onClick={handleSave} disabled={saving}>
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? '保存中...' : '保存全部'}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="mb-4 h-auto w-full justify-start overflow-auto">
+              <TabsTrigger value="preferences">偏好</TabsTrigger>
+              <TabsTrigger value="llm">LLM</TabsTrigger>
+              <TabsTrigger value="personality">人格</TabsTrigger>
+              <TabsTrigger value="memory">记忆</TabsTrigger>
+              <TabsTrigger value="tools">工具</TabsTrigger>
+              <TabsTrigger value="system">系统</TabsTrigger>
+            </TabsList>
 
-                    <Form.Item
-                      label="描述"
-                      name={['agent', 'description']}
-                    >
-                      <TextArea rows={3} placeholder="Agent的功能描述" />
-                    </Form.Item>
+            <TabsContent value="preferences" className="grid gap-4 md:grid-cols-2">
+              <SelectField
+                label="界面语言"
+                value={config.preferences.language}
+                options={[
+                  { label: '中文（简体）', value: 'zh' },
+                  { label: 'English', value: 'en' },
+                ]}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.preferences.language = value as SystemConfig['preferences']['language'];
+                })}
+              />
+              <SelectField
+                label="用户模式"
+                value={config.preferences.user_mode || 'quick'}
+                options={[
+                  { label: '快速模式', value: 'quick' },
+                  { label: '专家模式', value: 'expert' },
+                ]}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.preferences.user_mode = value as NonNullable<SystemConfig['preferences']['user_mode']>;
+                })}
+              />
+            </TabsContent>
 
-                    <Form.Item>
-                      <Button
-                        type="primary"
-                        icon={<SaveOutlined />}
-                        onClick={() => handleSave('agent')}
-                        loading={saving}
-                      >
-                        保存Agent配置
-                      </Button>
-                    </Form.Item>
-                  </Form>
-                </Card>
-              ),
-            },
-            {
-              key: 'llm',
-              label: 'LLM配置',
-              children: (
-                <Card title="大语言模型配置" type="inner">
-                  <Alert
-                    message="提示"
-                    description="API密钥将以加密方式存储，请确保输入正确。"
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 16 }}
+            <TabsContent value="llm" className="grid gap-4 md:grid-cols-2">
+              <SelectField
+                label="提供商"
+                value={config.llm.provider}
+                options={[
+                  { label: 'OpenAI', value: 'openai' },
+                  { label: 'Anthropic', value: 'anthropic' },
+                  { label: 'GLM', value: 'glm' },
+                  { label: 'Custom', value: 'custom' },
+                ]}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.llm.provider = value as SystemConfig['llm']['provider'];
+                })}
+              />
+              <label className="space-y-2">
+                <span className="text-sm font-medium">模型名称</span>
+                <Input
+                  value={config.llm.model}
+                  onChange={(event) => patchConfig((draft) => {
+                    draft.llm.model = event.target.value;
+                  })}
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm font-medium">API Key</span>
+                <Input
+                  type="password"
+                  value={config.llm.api_key || ''}
+                  onChange={(event) => patchConfig((draft) => {
+                    draft.llm.api_key = event.target.value;
+                  })}
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm font-medium">Base URL</span>
+                <Input
+                  value={config.llm.base_url || ''}
+                  onChange={(event) => patchConfig((draft) => {
+                    draft.llm.base_url = event.target.value;
+                  })}
+                />
+              </label>
+            </TabsContent>
+
+            <TabsContent value="personality" className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-sm font-medium">预设人格</span>
+                <Input
+                  value={config.personality.preset || ''}
+                  onChange={(event) => patchConfig((draft) => {
+                    draft.personality.preset = event.target.value;
+                  })}
+                />
+              </label>
+              <SelectField
+                label="语调"
+                value={config.personality.tone || 'casual'}
+                options={[
+                  { label: '随意', value: 'casual' },
+                  { label: '正式', value: 'formal' },
+                ]}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.personality.tone = value as NonNullable<SystemConfig['personality']['tone']>;
+                })}
+              />
+              <label className="space-y-2 md:col-span-2">
+                <span className="text-sm font-medium">自定义提示词</span>
+                <Textarea
+                  rows={5}
+                  value={config.personality.custom_prompt || ''}
+                  onChange={(event) => patchConfig((draft) => {
+                    draft.personality.custom_prompt = event.target.value;
+                  })}
+                />
+              </label>
+            </TabsContent>
+
+            <TabsContent value="memory" className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="flex items-center justify-between rounded-md border p-3">
+                  <span className="text-sm font-medium">L1 启用</span>
+                  <Switch
+                    checked={config.memory_layers.L1.enabled}
+                    onCheckedChange={(checked) => patchConfig((draft) => {
+                      draft.memory_layers.L1.enabled = checked;
+                    })}
                   />
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    initialValues={config?.llm}
-                  >
-                    <Form.Item
-                      label="提供商"
-                      name={['llm', 'provider']}
-                      rules={[{ required: true }]}
-                    >
-                      <Select>
-                        <Option value="openai">OpenAI</Option>
-                        <Option value="anthropic">Anthropic</Option>
-                        <Option value="local">本地模型</Option>
-                      </Select>
-                    </Form.Item>
+                </label>
+                <label className="flex items-center justify-between rounded-md border p-3">
+                  <span className="text-sm font-medium">L2 启用</span>
+                  <Switch
+                    checked={config.memory_layers.L2.enabled}
+                    onCheckedChange={(checked) => patchConfig((draft) => {
+                      draft.memory_layers.L2.enabled = checked;
+                    })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md border p-3">
+                  <span className="text-sm font-medium">L3 启用</span>
+                  <Switch
+                    checked={config.memory_layers.L3.enabled}
+                    onCheckedChange={(checked) => patchConfig((draft) => {
+                      draft.memory_layers.L3.enabled = checked;
+                    })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md border p-3">
+                  <span className="text-sm font-medium">L4 启用</span>
+                  <Switch
+                    checked={config.memory_layers.L4.enabled}
+                    onCheckedChange={(checked) => patchConfig((draft) => {
+                      draft.memory_layers.L4.enabled = checked;
+                    })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md border p-3">
+                  <span className="text-sm font-medium">L5 启用</span>
+                  <Switch
+                    checked={config.memory_layers.L5.enabled}
+                    onCheckedChange={(checked) => patchConfig((draft) => {
+                      draft.memory_layers.L5.enabled = checked;
+                    })}
+                  />
+                </label>
+              </div>
 
-                    <Form.Item
-                      label="模型名称"
-                      name={['llm', 'model']}
-                      rules={[{ required: true, message: '请输入模型名称' }]}
-                    >
-                      <Input placeholder="gpt-4" />
-                    </Form.Item>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">L3 模型下载</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SelectField
+                    label="模型"
+                    value={downloadModel}
+                    options={[
+                      { label: 'bge-m3', value: 'bge-m3' },
+                      { label: 'nomic-embed-text', value: 'nomic-embed-text' },
+                      { label: 'text-embedding-3-large', value: 'text-embedding-3-large' },
+                    ]}
+                    onChange={setDownloadModel}
+                  />
+                  <Button variant="outline" onClick={startDownload}>
+                    <Download className="mr-2 h-4 w-4" />
+                    下载模型
+                  </Button>
+                  <div className="space-y-1">
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full bg-primary transition-all" style={{ width: `${downloadProgress}%` }} />
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {downloadStatus} · {downloadProgress}%
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="text-sm text-muted-foreground">已安装模型：</span>
+                    {installedModels.length > 0 ? installedModels.map((model) => (
+                      <Badge key={model} variant="secondary">{model}</Badge>
+                    )) : <Badge variant="outline">暂无</Badge>}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-                    <Form.Item
-                      label="API密钥"
-                      name={['llm', 'api_key']}
-                    >
-                      <Input.Password placeholder="sk-..." />
-                    </Form.Item>
+            <TabsContent value="tools" className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="flex items-center justify-between rounded-md border p-3">
+                  <span className="text-sm font-medium">天气工具</span>
+                  <Switch
+                    checked={config.tools.builtIn.weather.enabled}
+                    onCheckedChange={(checked) => patchConfig((draft) => {
+                      draft.tools.builtIn.weather.enabled = checked;
+                    })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md border p-3">
+                  <span className="text-sm font-medium">网页搜索</span>
+                  <Switch
+                    checked={config.tools.builtIn.webSearch.enabled}
+                    onCheckedChange={(checked) => patchConfig((draft) => {
+                      draft.tools.builtIn.webSearch.enabled = checked;
+                    })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md border p-3">
+                  <span className="text-sm font-medium">网页抓取</span>
+                  <Switch
+                    checked={config.tools.builtIn.webFetch.enabled}
+                    onCheckedChange={(checked) => patchConfig((draft) => {
+                      draft.tools.builtIn.webFetch.enabled = checked;
+                    })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md border p-3">
+                  <span className="text-sm font-medium">Playwright 渲染</span>
+                  <Switch
+                    checked={config.tools.builtIn.webFetch.usePlaywright}
+                    onCheckedChange={(checked) => patchConfig((draft) => {
+                      draft.tools.builtIn.webFetch.usePlaywright = checked;
+                    })}
+                  />
+                </label>
+              </div>
+            </TabsContent>
 
-                    <Form.Item
-                      label="Base URL（可选）"
-                      name={['llm', 'base_url']}
-                    >
-                      <Input placeholder="https://api.openai.com/v1" />
-                    </Form.Item>
-
-                    <Form.Item>
-                      <Button
-                        type="primary"
-                        icon={<SaveOutlined />}
-                        onClick={() => handleSave('llm')}
-                        loading={saving}
-                      >
-                        保存LLM配置
-                      </Button>
-                    </Form.Item>
-                  </Form>
-                </Card>
-              ),
-            },
-            {
-              key: 'loop',
-              label: '循环配置',
-              children: (
-                <Card title="Agent循环策略配置" type="inner">
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    initialValues={config?.loop}
-                  >
-                    <Form.Item
-                      label="循环策略"
-                      name={['loop', 'strategy']}
-                      rules={[{ required: true }]}
-                      tooltip="STEP: 单步执行 | WAVE: 波次执行 | CONTINUOUS: 持续执行"
-                    >
-                      <Select>
-                        <Option value="step">单步 (STEP)</Option>
-                        <Option value="wave">波次 (WAVE)</Option>
-                        <Option value="continuous">持续 (CONTINUOUS)</Option>
-                      </Select>
-                    </Form.Item>
-
-                    <Form.Item
-                      label="循环间隔（秒）"
-                      name={['loop', 'interval']}
-                      rules={[{ required: true }]}
-                    >
-                      <InputNumber min={0.1} max={60} step={0.1} style={{ width: '100%' }} />
-                    </Form.Item>
-
-                    <Form.Item>
-                      <Button
-                        type="primary"
-                        icon={<SaveOutlined />}
-                        onClick={() => handleSave('loop')}
-                        loading={saving}
-                      >
-                        保存循环配置
-                      </Button>
-                    </Form.Item>
-                  </Form>
-                </Card>
-              ),
-            },
-            {
-              key: 'message_bus',
-              label: '消息总线',
-              children: (
-                <Card title="消息总线配置" type="inner">
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    initialValues={config?.message_bus}
-                  >
-                    <Form.Item
-                      label="后端类型"
-                      name={['message_bus', 'backend']}
-                      rules={[{ required: true }]}
-                    >
-                      <Select>
-                        <Option value="memory">内存</Option>
-                        <Option value="sqlite">SQLite</Option>
-                        <Option value="redis">Redis</Option>
-                      </Select>
-                    </Form.Item>
-
-                    <Form.Item
-                      label="队列最大长度"
-                      name={['message_bus', 'max_size']}
-                    >
-                      <InputNumber min={100} max={10000} style={{ width: '100%' }} />
-                    </Form.Item>
-
-                    <Form.Item>
-                      <Button
-                        type="primary"
-                        icon={<SaveOutlined />}
-                        onClick={() => handleSave('message_bus')}
-                        loading={saving}
-                      >
-                        保存消息总线配置
-                      </Button>
-                    </Form.Item>
-                  </Form>
-                </Card>
-              ),
-            },
-            {
-              key: 'memory',
-              label: '记忆存储',
-              children: (
-                <Card title="记忆存储配置" type="inner">
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    initialValues={config?.memory}
-                  >
-                    <Form.Item
-                      label="后端类型"
-                      name={['memory', 'backend']}
-                      rules={[{ required: true }]}
-                    >
-                      <Select>
-                        <Option value="memory">内存</Option>
-                        <Option value="sqlite">SQLite</Option>
-                        <Option value="chromadb">ChromaDB</Option>
-                      </Select>
-                    </Form.Item>
-
-                    <Form.Item
-                      label="存储路径"
-                      name={['memory', 'path']}
-                    >
-                      <Input placeholder="./data/memory" />
-                    </Form.Item>
-
-                    <Form.Item>
-                      <Button
-                        type="primary"
-                        icon={<SaveOutlined />}
-                        onClick={() => handleSave('memory')}
-                        loading={saving}
-                      >
-                        保存记忆存储配置
-                      </Button>
-                    </Form.Item>
-                  </Form>
-                </Card>
-              ),
-            },
-            {
-              key: 'websocket',
-              label: 'WebSocket',
-              children: (
-                <Card title="WebSocket服务配置" type="inner">
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    initialValues={config?.websocket}
-                  >
-                    <Form.Item
-                      label="启用WebSocket"
-                      name={['websocket', 'enabled']}
-                      valuePropName="checked"
-                    >
-                      <Switch />
-                    </Form.Item>
-
-                    <Form.Item
-                      label="端口"
-                      name={['websocket', 'port']}
-                    >
-                      <InputNumber min={1024} max={65535} style={{ width: '100%' }} />
-                    </Form.Item>
-
-                    <Form.Item>
-                      <Button
-                        type="primary"
-                        icon={<SaveOutlined />}
-                        onClick={() => handleSave('websocket')}
-                        loading={saving}
-                      >
-                        保存WebSocket配置
-                      </Button>
-                    </Form.Item>
-                  </Form>
-                </Card>
-              ),
-            },
-            {
-              key: 'log',
-              label: '日志配置',
-              children: (
-                <Card title="日志系统配置" type="inner">
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    initialValues={config?.log}
-                  >
-                    <Form.Item
-                      label="日志级别"
-                      name={['log', 'level']}
-                      rules={[{ required: true }]}
-                    >
-                      <Select>
-                        <Option value="DEBUG">DEBUG</Option>
-                        <Option value="INFO">INFO</Option>
-                        <Option value="WARNING">WARNING</Option>
-                        <Option value="ERROR">ERROR</Option>
-                      </Select>
-                    </Form.Item>
-
-                    <Form.Item
-                      label="日志路径"
-                      name={['log', 'path']}
-                    >
-                      <Input placeholder="./logs/magi.log" />
-                    </Form.Item>
-
-                    <Form.Item>
-                      <Button
-                        type="primary"
-                        icon={<SaveOutlined />}
-                        onClick={() => handleSave('log')}
-                        loading={saving}
-                      >
-                        保存日志配置
-                      </Button>
-                    </Form.Item>
-                  </Form>
-                </Card>
-              ),
-            },
-          ]}
-        />
+            <TabsContent value="system" className="grid gap-4 md:grid-cols-2">
+              <SelectField
+                label="循环策略"
+                value={config.loop.strategy}
+                options={[
+                  { label: 'STEP', value: 'step' },
+                  { label: 'WAVE', value: 'wave' },
+                  { label: 'CONTINUOUS', value: 'continuous' },
+                ]}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.loop.strategy = value as SystemConfig['loop']['strategy'];
+                })}
+              />
+              <NumberField
+                label="循环间隔（秒）"
+                value={config.loop.interval}
+                min={0.1}
+                max={60}
+                step={0.1}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.loop.interval = value;
+                })}
+              />
+              <SelectField
+                label="消息总线后端"
+                value={config.message_bus.backend}
+                options={[
+                  { label: 'memory', value: 'memory' },
+                  { label: 'sqlite', value: 'sqlite' },
+                  { label: 'redis', value: 'redis' },
+                ]}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.message_bus.backend = value as SystemConfig['message_bus']['backend'];
+                })}
+              />
+              <NumberField
+                label="消息总线队列大小"
+                value={config.message_bus.max_size}
+                min={100}
+                max={50000}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.message_bus.max_size = value;
+                })}
+              />
+              <NumberField
+                label="WebSocket 端口"
+                value={config.websocket.port}
+                min={1024}
+                max={65535}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.websocket.port = value;
+                })}
+              />
+              <SelectField
+                label="日志级别"
+                value={config.log.level}
+                options={[
+                  { label: 'DEBUG', value: 'DEBUG' },
+                  { label: 'INFO', value: 'INFO' },
+                  { label: 'WARNING', value: 'WARNING' },
+                  { label: 'ERROR', value: 'ERROR' },
+                ]}
+                onChange={(value) => patchConfig((draft) => {
+                  draft.log.level = value as SystemConfig['log']['level'];
+                })}
+              />
+            </TabsContent>
+          </Tabs>
+        </CardContent>
       </Card>
     </div>
   );

@@ -3,15 +3,17 @@
  * 流程：用户消息 → 感知器队列 → Agent循环 → WebSocket推送回复
  */
 import React, { useState, useRef, useEffect } from 'react';
-import { Card, Input, Button, List, Avatar, Space, Tag, message, Typography, Divider } from 'antd';
-import { SendOutlined, UserOutlined, RobotOutlined, ClearOutlined, PlusOutlined } from '@ant-design/icons';
+import { Bot, Eraser, Plus, Send, UserRound } from 'lucide-react';
+import { toast } from 'sonner';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { messagesApi, ConversationHistory } from '../api';
 import { personalityApi } from '../api/modules/personality';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
-const { TextArea } = Input;
-const { Text, Paragraph } = Typography;
+import { AnimatePresence, motion } from 'framer-motion';
 
 interface ChatMessage {
   id: string;
@@ -182,12 +184,12 @@ export const ChatPage: React.FC = () => {
   // 发送消息
   const handleSendMessage = async () => {
     if (!inputValue.trim()) {
-      message.warning('请输入消息内容');
+      toast.warning('请输入消息内容');
       return;
     }
 
     if (!connected) {
-      message.error('WebSocket未连接，请等待连接建立');
+      toast.error('WebSocket未连接，请等待连接建立');
       return;
     }
 
@@ -213,7 +215,7 @@ export const ChatPage: React.FC = () => {
       console.log('✅ Message sent successfully');
     } catch (error: any) {
       console.error('发送消息失败:', error);
-      message.error(error?.message || '发送消息失败');
+      toast.error(error?.message || '发送消息失败');
 
       // 更新用户消息状态为失败
       setMessages((prev) =>
@@ -229,10 +231,10 @@ export const ChatPage: React.FC = () => {
     try {
       await messagesApi.clearHistory('web_user', sessionId || undefined);
       setMessages([]);
-      message.info('对话已清空');
+      toast.info('对话已清空');
     } catch (error) {
       console.error('清空对话失败:', error);
-      message.error('清空对话失败');
+      toast.error('清空对话失败');
     }
   };
 
@@ -240,16 +242,16 @@ export const ChatPage: React.FC = () => {
     try {
       const result = await messagesApi.createNewSession('web_user');
       if (!result.success || !result.session_id) {
-        message.error('创建新会话失败');
+        toast.error('创建新会话失败');
         return;
       }
       setSessionId(result.session_id);
       localStorage.setItem('chat_session_web_user', result.session_id);
       setMessages([]);
-      message.success('已切换到新会话');
+      toast.success('已切换到新会话');
     } catch (error) {
       console.error('创建新会话失败:', error);
-      message.error('创建新会话失败');
+      toast.error('创建新会话失败');
     }
   };
 
@@ -264,97 +266,83 @@ export const ChatPage: React.FC = () => {
   const getAvatar = (role: string) => {
     switch (role) {
       case 'user':
-        return <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#0d9488' }} />;
+        return (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-white">
+            <UserRound className="h-4 w-4" />
+          </div>
+        );
       case 'assistant':
-        return <Avatar icon={<RobotOutlined />} style={{ backgroundColor: '#6366f1' }} />;
+        return (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500 text-white">
+            <Bot className="h-4 w-4" />
+          </div>
+        );
       case 'system':
-        return <Avatar icon={<RobotOutlined />} style={{ backgroundColor: '#f59e0b' }} />;
+        return (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-white">
+            <Bot className="h-4 w-4" />
+          </div>
+        );
       default:
-        return <Avatar />;
+        return null;
     }
   };
 
   const getStatusTag = (status?: string) => {
     switch (status) {
       case 'sending':
-        return <Tag color="processing">发送中...</Tag>;
+        return <Badge variant="secondary">发送中...</Badge>;
       case 'sent':
-        return <Tag color="success">已发送</Tag>;
+        return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">已发送</Badge>;
       case 'failed':
-        return <Tag color="error">发送失败</Tag>;
+        return <Badge variant="destructive">发送失败</Badge>;
       default:
         return null;
     }
   };
 
   return (
-    <div style={{ padding: '24px', height: 'calc(100vh - 112px)', display: 'flex', flexDirection: 'column' }}>
-      <Card
-        title={`${aiName} 对话`}
-        extra={
-          <Space>
-            <Tag color={connected ? 'success' : 'error'}>
+    <div className="flex h-[calc(100vh-112px)] flex-col p-6">
+      <Card className="flex h-full flex-col">
+        <CardHeader className="flex-row items-center justify-between space-y-0 border-b">
+          <CardTitle>{aiName} 对话</CardTitle>
+          <div className="flex items-center gap-2">
+            <Badge variant={connected ? 'default' : 'destructive'}>
               {connected ? 'WebSocket 已连接' : 'WebSocket 未连接'}
-            </Tag>
-            <Button
-              size="small"
-              icon={<ClearOutlined />}
-              onClick={handleClearMessages}
-            >
+            </Badge>
+            <Button size="sm" variant="outline" onClick={handleClearMessages}>
+              <Eraser className="mr-1 h-4 w-4" />
               清空对话
             </Button>
-            <Button
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={handleNewSession}
-            >
+            <Button size="sm" variant="outline" onClick={handleNewSession}>
+              <Plus className="mr-1 h-4 w-4" />
               新会话
             </Button>
-          </Space>
-        }
-        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-        bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 0 }}
-      >
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-1 flex-col p-0">
         {/* 消息列表 */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '24px',
-            backgroundColor: '#f9fafb',
-          }}
-        >
-          <List
-            dataSource={messages}
-            renderItem={(msg) => (
-              <div
+        <div className="flex-1 overflow-y-auto bg-muted/30 p-6">
+          {messages.map((msg) => (
+              <motion.div
                 key={msg.id}
-                style={{
-                  marginBottom: '24px',
-                  display: 'flex',
-                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                  alignItems: 'flex-start',
-                }}
+                initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className={`mb-6 flex items-start ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div
-                  style={{
-                    maxWidth: '70%',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '12px',
-                    flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
-                  }}
-                >
+                <div className={`flex max-w-[70%] items-start gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                   {getAvatar(msg.role)}
                   <div>
-                    <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Text strong style={{ fontSize: '12px', color: '#999' }}>
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="text-xs font-semibold text-muted-foreground">
                         {msg.role === 'user' ? '你' : msg.role === 'assistant' ? aiName : '系统'}
-                      </Text>
+                      </span>
                       {msg.role !== 'system' && getStatusTag(msg.status)}
-                      <Text type="secondary" style={{ fontSize: '12px' }}>
+                      <span className="text-xs text-muted-foreground">
                         {new Date(msg.timestamp).toLocaleTimeString('zh-CN')}
-                      </Text>
+                      </span>
                     </div>
                     <div
                       style={{
@@ -373,50 +361,39 @@ export const ChatPage: React.FC = () => {
                       }}
                     >
                       {msg.role === 'assistant' ? (
-                        <div
-                          style={{
-                            color: 'inherit',
-                            lineHeight: '1.6',
-                          }}
-                        >
+                        <div style={{ color: 'inherit', lineHeight: '1.6' }}>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
                               p: ({ children }) => <p style={{ margin: '0.5em 0' }}>{children}</p>,
-                              code: ({ node, inline, className, children, ...props }) => {
-                                const match = /language-(\w+)/.exec(className || '');
-                                return !inline ? (
-                                  <code
-                                    className={className}
-                                    style={{
-                                      display: 'block',
-                                      padding: '8px 12px',
-                                      backgroundColor: '#f6f8fa',
-                                      borderRadius: '6px',
-                                      fontSize: '14px',
-                                      overflow: 'auto',
-                                      fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-                                    }}
-                                    {...props}
-                                  >
-                                    {children}
-                                  </code>
-                                ) : (
-                                  <code
-                                    style={{
-                                      padding: '2px 6px',
-                                      backgroundColor: '#f6f8fa',
-                                      borderRadius: '4px',
-                                                                      fontSize: '0.9em',
-                                      fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-                                    }}
-                                    {...props}
-                                  >
-                                    {children}
-                                  </code>
-                                );
-                              },
-                              pre: ({ children }) => <>{children}</>,
+                              code: ({ className, children, ...props }) => (
+                                <code
+                                  className={className}
+                                  style={{
+                                    padding: '2px 6px',
+                                    backgroundColor: '#f6f8fa',
+                                    borderRadius: '4px',
+                                    fontSize: '0.9em',
+                                    fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                                  }}
+                                  {...props}
+                                >
+                                  {children}
+                                </code>
+                              ),
+                              pre: ({ children }) => (
+                                <pre
+                                  style={{
+                                    margin: '0.5em 0',
+                                    padding: '8px 12px',
+                                    backgroundColor: '#f6f8fa',
+                                    borderRadius: '6px',
+                                    overflow: 'auto',
+                                  }}
+                                >
+                                  {children}
+                                </pre>
+                              ),
                               ul: ({ children }) => <ul style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>{children}</ul>,
                               ol: ({ children }) => <ol style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>{children}</ol>,
                               li: ({ children }) => <li style={{ marginBottom: '0.25em' }}>{children}</li>,
@@ -483,52 +460,56 @@ export const ChatPage: React.FC = () => {
                           </ReactMarkdown>
                         </div>
                       ) : (
-                        <Paragraph
-                          style={{
-                            margin: 0,
-                            whiteSpace: 'pre-wrap',
-                            color: msg.role === 'user' ? 'white' : 'inherit',
-                          }}
-                        >
+                        <p style={{ margin: 0, whiteSpace: 'pre-wrap', color: msg.role === 'user' ? 'white' : 'inherit' }}>
                           {msg.content}
-                        </Paragraph>
+                        </p>
                       )}
                     </div>
                   </div>
                 </div>
-              </div>
+              </motion.div>
+          ))}
+          <AnimatePresence>
+            {!connected && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="mb-3 mt-1 text-center text-xs text-amber-700"
+              >
+                正在尝试连接 WebSocket...
+              </motion.div>
             )}
-          />
+          </AnimatePresence>
           <div ref={messagesEndRef} />
         </div>
-
-        <Divider style={{ margin: 0 }} />
+        <div className="h-px bg-border" />
 
         {/* 输入区域 */}
-        <div style={{ padding: '16px', backgroundColor: '#fff' }}>
-          <Space.Compact style={{ width: '100%' }}>
-            <TextArea
+        <div className="bg-background p-4">
+          <div className="flex w-full gap-2">
+            <Textarea
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder="输入你的消息...（按 Enter 发送，Shift + Enter 换行）"
-              autoSize={{ minRows: 2, maxRows: 6 }}
-              onKeyPress={handleKeyPress}
+              rows={2}
+              onKeyDown={handleKeyPress}
               disabled={!connected}
             />
             <Button
-              type="primary"
-              icon={<SendOutlined />}
               onClick={handleSendMessage}
-              size="large"
               disabled={!connected}
+              className="h-auto"
             >
+              <Send className="mr-1 h-4 w-4" />
               发送
             </Button>
-          </Space.Compact>
-          <div style={{ marginTop: '8px', fontSize: '12px', color: '#999' }}>
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">
             💡 提示：按 Enter 发送消息，Shift + Enter 换行
           </div>
         </div>
+        </CardContent>
       </Card>
     </div>
   );

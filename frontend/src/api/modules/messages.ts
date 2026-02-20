@@ -58,7 +58,7 @@ export const messagesApi = {
    */
   getSensorStatus: async (): Promise<SensorStatus> => {
     const response = await api.get<SensorStatus>('/messages/sensor/status');
-    return response;
+    return (response.data || response) as SensorStatus;
   },
 
   /**
@@ -84,7 +84,7 @@ export const messagesApi = {
     const response = await api.get<ConversationHistory>('/messages/history', {
       params: { user_id: userId, session_id: sessionId },
     });
-    return response;
+    return (response.data || response) as ConversationHistory;
   },
 
   /**
@@ -97,20 +97,20 @@ export const messagesApi = {
     const response = await api.post<{ success: boolean; message: string; user_id: string }>('/messages/history/clear', null, {
       params: { user_id: userId, session_id: sessionId },
     });
-    return response;
+    return (response.data || response) as { success: boolean; message: string; user_id: string; session_id?: string };
   },
 
   getCurrentSession: async (userId: string = 'web_user'): Promise<SessionInfo> => {
     const response = await api.get<SessionInfo>('/messages/session/current', {
       params: { user_id: userId },
     });
-    return response;
+    return (response.data || response) as SessionInfo;
   },
 
   createNewSession: async (userId: string = 'web_user'): Promise<{ success: boolean; user_id: string; session_id: string | null }> => {
     const response = await api.post<{ success: boolean; user_id: string; session_id: string | null }>('/messages/session/new', null, {
       params: { user_id: userId },
     });
-    return response;
+    return (response.data || response) as { success: boolean; user_id: string; session_id: string | null };
   },
 };

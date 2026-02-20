@@ -1,14 +1,7 @@
-/**
- * MainLayout组件 - 现代化设计
- * 支持可折叠侧边栏
- */
 import React, { useState, useEffect } from 'react';
-import { Layout } from 'antd';
 import { Outlet } from 'react-router-dom';
 import Header from './Header';
-import Sidebar, { SidebarContext } from './Sidebar';
-
-const { Content } = Layout;
+import Sidebar from './Sidebar';
 
 const MainLayoutContent: React.FC = () => {
   const [sidebarWidth, setSidebarWidth] = useState(240);
@@ -32,36 +25,26 @@ const MainLayoutContent: React.FC = () => {
   }, []);
 
   return (
-    <Layout
-      style={{
-        marginLeft: sidebarWidth,
-        background: '#f9fafb',
-        transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      }}
-      className="sidebar-transition"
+    <div
+      className="min-h-screen bg-background transition-[margin] duration-300"
+      style={{ marginLeft: sidebarWidth }}
     >
       <Header />
-      <Content
-        style={{
-          padding: '24px 32px 32px',
-          marginTop: 64,
-          minHeight: 'calc(100vh - 64px)',
-        }}
-      >
+      <main className="min-h-[calc(100vh-64px)] px-8 pb-8 pt-6" style={{ marginTop: 64 }}>
         <div className="page-enter">
           <Outlet />
         </div>
-      </Content>
-    </Layout>
+      </main>
+    </div>
   );
 };
 
 const MainLayout: React.FC = () => {
   return (
-    <Layout style={{ minHeight: '100vh', background: '#f9fafb' }}>
+    <div className="min-h-screen bg-background">
       <Sidebar />
       <MainLayoutContent />
-    </Layout>
+    </div>
   );
 };
 

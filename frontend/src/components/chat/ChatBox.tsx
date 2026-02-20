@@ -2,12 +2,13 @@
  * 聊天组件
  */
 import React, { useState, useEffect, useRef } from 'react';
-import { Card, Input, Button, List, Tag, Space, message, Typography } from 'antd';
-import { SendOutlined, UserOutlined, RobotOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Bot, Loader2, Send, UserRound } from 'lucide-react';
+import { toast } from 'sonner';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { messagesApi } from '../../api';
-
-const { TextArea } = Input;
-const { Text, Paragraph } = Typography;
 
 interface ChatMessage {
   id: string;
@@ -20,7 +21,7 @@ const ChatBox: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
-  const [connected, setConnected] = useState(false);
+  const connected = false;
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // 自动滚动到底部
@@ -35,7 +36,7 @@ const ChatBox: React.FC = () => {
   // 发送消息
   const handleSendMessage = async () => {
     if (!inputValue.trim()) {
-      message.warning('请输入消息内容');
+      toast.warning('请输入消息内容');
       return;
     }
 
@@ -58,7 +59,7 @@ const ChatBox: React.FC = () => {
       });
 
       if (response.success) {
-        message.success('消息发送成功');
+        toast.success('消息发送成功');
 
         // 模拟AI回复（实际应该从WebSocket接收）
         setTimeout(() => {
@@ -73,7 +74,7 @@ const ChatBox: React.FC = () => {
         }, 1000);
       }
     } catch (error) {
-      message.error('发送消息失败');
+      toast.error('发送消息失败');
       setLoading(false);
     }
   };
@@ -81,37 +82,22 @@ const ChatBox: React.FC = () => {
   // 清空消息
   const handleClearMessages = () => {
     setMessages([]);
-    message.info('已清空聊天记录');
+    toast.info('已清空聊天记录');
   };
 
   return (
-    <Card
-      title="智能对话"
-      extra={
-        <Space>
-          <Tag color={connected ? 'success' : 'default'}>
-            {connected ? '已连接' : '未连接'}
-          </Tag>
-          <Button size="small" onClick={handleClearMessages}>
-            清空
-          </Button>
-        </Space>
-      }
-      style={{ height: '600px', display: 'flex', flexDirection: 'column' }}
-      bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 0 }}
-    >
+    <Card className="flex h-[600px] flex-col">
+      <CardHeader className="flex-row items-center justify-between border-b py-4">
+        <CardTitle className="text-base">智能对话</CardTitle>
+        <div className="flex items-center gap-2">
+          <Badge variant={connected ? 'success' : 'secondary'}>{connected ? '已连接' : '未连接'}</Badge>
+          <Button size="sm" variant="outline" onClick={handleClearMessages}>清空</Button>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col p-0">
       {/* 消息列表 */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '16px',
-          backgroundColor: '#fafafa',
-        }}
-      >
-        <List
-          dataSource={messages}
-          renderItem={(msg) => (
+      <div className="flex-1 overflow-y-auto bg-muted/30 p-4">
+        {messages.map((msg) => (
             <div
               key={msg.id}
               style={{
@@ -129,19 +115,8 @@ const ChatBox: React.FC = () => {
                   flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
                 }}
               >
-                <div
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: msg.role === 'user' ? '#1890ff' : '#52c41a',
-                    color: 'white',
-                  }}
-                >
-                  {msg.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
+                <div className={`flex h-8 w-8 items-center justify-center rounded-full text-white ${msg.role === 'user' ? 'bg-blue-500' : 'bg-emerald-500'}`}>
+                  {msg.role === 'user' ? <UserRound className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
                 <div
                   style={{
@@ -152,53 +127,54 @@ const ChatBox: React.FC = () => {
                     boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
                   }}
                 >
-                  <Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                  <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
                     {msg.content}
-                  </Paragraph>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                  </p>
+                  <span style={{ fontSize: '12px', color: '#6b7280' }}>
                     {new Date(msg.timestamp).toLocaleTimeString()}
-                  </Text>
+                  </span>
                 </div>
               </div>
             </div>
-          )}
-        />
+        ))}
         {loading && (
           <div style={{ textAlign: 'center', padding: '8px' }}>
-            <LoadingOutlined /> AI正在思考...
+            <Loader2 className="mr-1 inline h-4 w-4 animate-spin" /> AI正在思考...
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
       {/* 输入区域 */}
-      <div style={{ padding: '16px', borderTop: '1px solid #f0f0f0' }}>
-        <Space.Compact style={{ width: '100%' }}>
-          <TextArea
+      <div className="border-t bg-background p-4">
+        <div className="flex w-full gap-2">
+          <Textarea
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="输入你的消息..."
-            autoSize={{ minRows: 1, maxRows: 4 }}
-            onPressEnter={(e) => {
+            rows={2}
+            onKeyDown={(e) => {
               if (e.shiftKey) return;
-              e.preventDefault();
-              handleSendMessage();
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void handleSendMessage();
+              }
             }}
             disabled={loading}
           />
           <Button
-            type="primary"
-            icon={<SendOutlined />}
             onClick={handleSendMessage}
-            loading={loading}
+            disabled={loading}
           >
+            <Send className="mr-1 h-4 w-4" />
             发送
           </Button>
-        </Space.Compact>
+        </div>
         <div style={{ marginTop: '8px', fontSize: '12px', color: '#999' }}>
           按 Enter 发送，Shift + Enter 换行
         </div>
       </div>
+      </CardContent>
     </Card>
   );
 };
