@@ -5,6 +5,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Eraser, Plus, Send, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -25,6 +26,7 @@ interface ChatMessage {
 }
 
 export const ChatPage: React.FC = () => {
+  const { t, i18n } = useTranslation('app');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [aiName, setAiName] = useState<string>('AI Agent');
@@ -136,7 +138,7 @@ export const ChatPage: React.FC = () => {
           // 没有历史记录，获取人格问候语和名字
           try {
             const greetingResponse = await personalityApi.getGreeting() as any;
-            const greeting = greetingResponse?.data?.greeting || '👋 欢迎使用 Magi AI Agent Framework！\n\n你可以在这里与 Agent 对话。发送消息后，Agent 会通过感知器接收消息，处理后通过 WebSocket 推送回复。';
+            const greeting = greetingResponse?.data?.greeting || t('chat.greetingFallback');
             const name = greetingResponse?.data?.name || 'AI Agent';
             setAiName(name);
 
@@ -152,7 +154,7 @@ export const ChatPage: React.FC = () => {
             const welcomeMessage: ChatMessage = {
               id: 'welcome',
               role: 'system',
-              content: '👋 欢迎使用 Magi AI Agent Framework！\n\n你可以在这里与 Agent 对话。发送消息后，Agent 会通过感知器接收消息，处理后通过 WebSocket 推送回复。',
+              content: t('chat.greetingFallback'),
               timestamp: Date.now(),
             };
             setMessages([welcomeMessage]);
@@ -171,7 +173,7 @@ export const ChatPage: React.FC = () => {
         const defaultWelcome: ChatMessage = {
           id: 'welcome',
           role: 'system',
-          content: '👋 欢迎使用 Magi AI Agent Framework！',
+          content: t('chat.greetingSimpleFallback'),
           timestamp: Date.now(),
         };
         setMessages([defaultWelcome]);
@@ -179,17 +181,17 @@ export const ChatPage: React.FC = () => {
     };
 
     loadHistory();
-  }, []);
+  }, [t]);
 
   // 发送消息
   const handleSendMessage = async () => {
     if (!inputValue.trim()) {
-      toast.warning('请输入消息内容');
+      toast.warning(t('chat.emptyInput'));
       return;
     }
 
     if (!connected) {
-      toast.error('WebSocket未连接，请等待连接建立');
+      toast.error(t('chat.wsNotConnected'));
       return;
     }
 
@@ -215,7 +217,7 @@ export const ChatPage: React.FC = () => {
       console.log('✅ Message sent successfully');
     } catch (error: any) {
       console.error('发送消息失败:', error);
-      toast.error(error?.message || '发送消息失败');
+      toast.error(error?.message || t('chat.sendFailed'));
 
       // 更新用户消息状态为失败
       setMessages((prev) =>
@@ -231,10 +233,10 @@ export const ChatPage: React.FC = () => {
     try {
       await messagesApi.clearHistory('web_user', sessionId || undefined);
       setMessages([]);
-      toast.info('对话已清空');
+      toast.info(t('chat.cleared'));
     } catch (error) {
       console.error('清空对话失败:', error);
-      toast.error('清空对话失败');
+      toast.error(t('chat.clearFailed'));
     }
   };
 
@@ -242,16 +244,16 @@ export const ChatPage: React.FC = () => {
     try {
       const result = await messagesApi.createNewSession('web_user');
       if (!result.success || !result.session_id) {
-        toast.error('创建新会话失败');
+        toast.error(t('chat.createSessionFailed'));
         return;
       }
       setSessionId(result.session_id);
       localStorage.setItem('chat_session_web_user', result.session_id);
       setMessages([]);
-      toast.success('已切换到新会话');
+      toast.success(t('chat.sessionSwitched'));
     } catch (error) {
       console.error('创建新会话失败:', error);
-      toast.error('创建新会话失败');
+      toast.error(t('chat.createSessionFailed'));
     }
   };
 
@@ -291,11 +293,11 @@ export const ChatPage: React.FC = () => {
   const getStatusTag = (status?: string) => {
     switch (status) {
       case 'sending':
-        return <Badge variant="secondary">发送中...</Badge>;
+        return <Badge variant="secondary">{t('chat.sending')}</Badge>;
       case 'sent':
-        return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">已发送</Badge>;
+        return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">{t('chat.sent')}</Badge>;
       case 'failed':
-        return <Badge variant="destructive">发送失败</Badge>;
+        return <Badge variant="destructive">{t('chat.failed')}</Badge>;
       default:
         return null;
     }
@@ -305,18 +307,18 @@ export const ChatPage: React.FC = () => {
     <div className="flex h-[calc(100vh-112px)] flex-col p-6">
       <Card className="flex h-full flex-col">
         <CardHeader className="flex-row items-center justify-between space-y-0 border-b">
-          <CardTitle>{aiName} 对话</CardTitle>
+          <CardTitle>{t('chat.title', { name: aiName })}</CardTitle>
           <div className="flex items-center gap-2">
             <Badge variant={connected ? 'default' : 'destructive'}>
-              {connected ? 'WebSocket 已连接' : 'WebSocket 未连接'}
+              {connected ? t('chat.connected') : t('chat.disconnected')}
             </Badge>
             <Button size="sm" variant="outline" onClick={handleClearMessages}>
               <Eraser className="mr-1 h-4 w-4" />
-              清空对话
+              {t('chat.clear')}
             </Button>
             <Button size="sm" variant="outline" onClick={handleNewSession}>
               <Plus className="mr-1 h-4 w-4" />
-              新会话
+              {t('chat.newSession')}
             </Button>
           </div>
         </CardHeader>
@@ -337,11 +339,11 @@ export const ChatPage: React.FC = () => {
                   <div>
                     <div className="mb-2 flex items-center gap-2">
                       <span className="text-xs font-semibold text-muted-foreground">
-                        {msg.role === 'user' ? '你' : msg.role === 'assistant' ? aiName : '系统'}
+                        {msg.role === 'user' ? t('chat.you') : msg.role === 'assistant' ? aiName : t('chat.system')}
                       </span>
                       {msg.role !== 'system' && getStatusTag(msg.status)}
                       <span className="text-xs text-muted-foreground">
-                        {new Date(msg.timestamp).toLocaleTimeString('zh-CN')}
+                        {new Date(msg.timestamp).toLocaleTimeString(i18n.language === 'en' ? 'en-US' : 'zh-CN')}
                       </span>
                     </div>
                     <div
@@ -477,7 +479,7 @@ export const ChatPage: React.FC = () => {
                 exit={{ opacity: 0 }}
                 className="mb-3 mt-1 text-center text-xs text-amber-700"
               >
-                正在尝试连接 WebSocket...
+                {t('chat.connectingHint')}
               </motion.div>
             )}
           </AnimatePresence>
@@ -491,7 +493,7 @@ export const ChatPage: React.FC = () => {
             <Textarea
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="输入你的消息...（按 Enter 发送，Shift + Enter 换行）"
+              placeholder={t('chat.inputPlaceholder')}
               rows={2}
               onKeyDown={handleKeyPress}
               disabled={!connected}
@@ -502,11 +504,11 @@ export const ChatPage: React.FC = () => {
               className="h-auto"
             >
               <Send className="mr-1 h-4 w-4" />
-              发送
+              {t('chat.send')}
             </Button>
           </div>
           <div className="mt-2 text-xs text-muted-foreground">
-            💡 提示：按 Enter 发送消息，Shift + Enter 换行
+            {t('chat.tip')}
           </div>
         </div>
         </CardContent>

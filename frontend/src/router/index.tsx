@@ -3,6 +3,7 @@
  */
 import React from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import MainLayout from '../components/layout/MainLayout';
 import Dashboard from '../pages/Dashboard';
 import { configApi } from '../api/modules/config';
@@ -27,13 +28,20 @@ const OnboardingPage = React.lazy(() =>
 
 // 加载组件
 const LoadingFallback = () => (
-  <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
-    <div className="flex items-center gap-3">
-      <LoadingSpinner className="h-6 w-6" />
-      <span className="text-sm">加载中...</span>
-    </div>
-  </div>
+  <LoadingFallbackInner />
 );
+
+const LoadingFallbackInner = () => {
+  const { t } = useTranslation('app');
+  return (
+    <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
+      <div className="flex items-center gap-3">
+        <LoadingSpinner className="h-6 w-6" />
+        <span className="text-sm">{t('common.loading')}</span>
+      </div>
+    </div>
+  );
+};
 
 const OnboardingGuard: React.FC<{ children: React.ReactElement }> = ({ children }) => {
   const [loading, setLoading] = React.useState(true);

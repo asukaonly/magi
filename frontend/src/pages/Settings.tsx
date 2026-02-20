@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Download, RefreshCw, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -59,6 +60,7 @@ const NumberField: React.FC<{
 );
 
 export const SettingsPage: React.FC = () => {
+  const { t } = useTranslation('app');
   const [config, setConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -87,7 +89,7 @@ export const SettingsPage: React.FC = () => {
       const response = await configApi.get();
       setConfig(response.data || DEFAULT_SYSTEM_CONFIG);
     } catch (error: any) {
-      toast.error(`加载配置失败: ${error?.message || '未知错误'}`);
+      toast.error(t('settings.loadFailed', { message: error?.message || 'unknown' }));
     } finally {
       setLoading(false);
     }
@@ -106,25 +108,25 @@ export const SettingsPage: React.FC = () => {
     try {
       setSaving(true);
       await configApi.update(config);
-      toast.success('配置保存成功');
+      toast.success(t('settings.saveSuccess'));
       await fetchConfig();
     } catch (error: any) {
-      toast.error(`保存配置失败: ${error?.message || '未知错误'}`);
+      toast.error(t('settings.saveFailed', { message: error?.message || 'unknown' }));
     } finally {
       setSaving(false);
     }
   };
 
   const handleReset = async () => {
-    const confirmed = window.confirm('确定要重置所有配置为默认值吗？');
+    const confirmed = window.confirm(t('settings.resetConfirm'));
     if (!confirmed) return;
     try {
       setLoading(true);
       await configApi.reset();
-      toast.success('配置已重置为默认值');
+      toast.success(t('settings.resetSuccess'));
       await fetchConfig();
     } catch (error: any) {
-      toast.error(`重置配置失败: ${error?.message || '未知错误'}`);
+      toast.error(t('settings.resetFailed', { message: error?.message || 'unknown' }));
     } finally {
       setLoading(false);
     }
@@ -136,7 +138,7 @@ export const SettingsPage: React.FC = () => {
       setDownloadProgress(response.data?.progress || 0);
       setDownloadStatus(response.data?.status || 'not_downloaded');
     } catch (error: any) {
-      toast.error(error?.message || '启动下载失败');
+      toast.error(error?.message || t('settings.downloadStartFailed'));
       return;
     }
 
@@ -147,7 +149,7 @@ export const SettingsPage: React.FC = () => {
         setDownloadStatus(status.data?.status || 'not_downloaded');
         if (status.data?.status === 'ready') {
           window.clearInterval(timer);
-          toast.success('模型已就绪');
+          toast.success(t('settings.modelReady'));
           await fetchInstalledModels();
         }
       } catch {
@@ -161,7 +163,7 @@ export const SettingsPage: React.FC = () => {
       <div className="flex items-center justify-center py-24">
         <div className="flex items-center gap-2 text-muted-foreground">
           <LoadingSpinner />
-          <span className="text-sm">加载配置中...</span>
+          <span className="text-sm">{t('settings.loadingConfig')}</span>
         </div>
       </div>
     );
@@ -172,52 +174,52 @@ export const SettingsPage: React.FC = () => {
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <div>
-            <CardTitle>系统配置</CardTitle>
-            <CardDescription>所有配置都可在此集中管理</CardDescription>
+            <CardTitle>{t('settings.title')}</CardTitle>
+            <CardDescription>{t('settings.subtitle')}</CardDescription>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={fetchConfig}>
               <RefreshCw className="mr-2 h-4 w-4" />
-              刷新
+              {t('settings.refresh')}
             </Button>
             <Button variant="destructive" onClick={handleReset}>
-              重置为默认
+              {t('settings.reset')}
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               <Save className="mr-2 h-4 w-4" />
-              {saving ? '保存中...' : '保存全部'}
+              {saving ? t('settings.saving') : t('settings.saveAll')}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="mb-4 h-auto w-full justify-start overflow-auto">
-              <TabsTrigger value="preferences">偏好</TabsTrigger>
-              <TabsTrigger value="llm">LLM</TabsTrigger>
-              <TabsTrigger value="personality">人格</TabsTrigger>
-              <TabsTrigger value="memory">记忆</TabsTrigger>
-              <TabsTrigger value="tools">工具</TabsTrigger>
-              <TabsTrigger value="system">系统</TabsTrigger>
+              <TabsTrigger value="preferences">{t('settings.tabs.preferences')}</TabsTrigger>
+              <TabsTrigger value="llm">{t('settings.tabs.llm')}</TabsTrigger>
+              <TabsTrigger value="personality">{t('settings.tabs.personality')}</TabsTrigger>
+              <TabsTrigger value="memory">{t('settings.tabs.memory')}</TabsTrigger>
+              <TabsTrigger value="tools">{t('settings.tabs.tools')}</TabsTrigger>
+              <TabsTrigger value="system">{t('settings.tabs.system')}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="preferences" className="grid gap-4 md:grid-cols-2">
               <SelectField
-                label="界面语言"
+                label={t('settings.fields.language')}
                 value={config.preferences.language}
                 options={[
-                  { label: '中文（简体）', value: 'zh' },
-                  { label: 'English', value: 'en' },
+                  { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
+                  { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
                 ]}
                 onChange={(value) => patchConfig((draft) => {
                   draft.preferences.language = value as SystemConfig['preferences']['language'];
                 })}
               />
               <SelectField
-                label="用户模式"
+                label={t('settings.fields.userMode')}
                 value={config.preferences.user_mode || 'quick'}
                 options={[
-                  { label: '快速模式', value: 'quick' },
-                  { label: '专家模式', value: 'expert' },
+                  { label: t('settings.options.quick'), value: 'quick' },
+                  { label: t('settings.options.expert'), value: 'expert' },
                 ]}
                 onChange={(value) => patchConfig((draft) => {
                   draft.preferences.user_mode = value as NonNullable<SystemConfig['preferences']['user_mode']>;
@@ -227,7 +229,7 @@ export const SettingsPage: React.FC = () => {
 
             <TabsContent value="llm" className="grid gap-4 md:grid-cols-2">
               <SelectField
-                label="提供商"
+                label={t('settings.fields.provider')}
                 value={config.llm.provider}
                 options={[
                   { label: 'OpenAI', value: 'openai' },
@@ -240,7 +242,7 @@ export const SettingsPage: React.FC = () => {
                 })}
               />
               <label className="space-y-2">
-                <span className="text-sm font-medium">模型名称</span>
+                <span className="text-sm font-medium">{t('settings.fields.modelName')}</span>
                 <Input
                   value={config.llm.model}
                   onChange={(event) => patchConfig((draft) => {
@@ -249,7 +251,7 @@ export const SettingsPage: React.FC = () => {
                 />
               </label>
               <label className="space-y-2">
-                <span className="text-sm font-medium">API Key</span>
+                <span className="text-sm font-medium">{t('settings.fields.apiKey')}</span>
                 <Input
                   type="password"
                   value={config.llm.api_key || ''}
@@ -259,7 +261,7 @@ export const SettingsPage: React.FC = () => {
                 />
               </label>
               <label className="space-y-2">
-                <span className="text-sm font-medium">Base URL</span>
+                <span className="text-sm font-medium">{t('settings.fields.baseUrl')}</span>
                 <Input
                   value={config.llm.base_url || ''}
                   onChange={(event) => patchConfig((draft) => {
@@ -271,7 +273,7 @@ export const SettingsPage: React.FC = () => {
 
             <TabsContent value="personality" className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2">
-                <span className="text-sm font-medium">预设人格</span>
+                <span className="text-sm font-medium">{t('settings.fields.presetPersonality')}</span>
                 <Input
                   value={config.personality.preset || ''}
                   onChange={(event) => patchConfig((draft) => {
@@ -280,18 +282,18 @@ export const SettingsPage: React.FC = () => {
                 />
               </label>
               <SelectField
-                label="语调"
+                label={t('settings.fields.tone')}
                 value={config.personality.tone || 'casual'}
                 options={[
-                  { label: '随意', value: 'casual' },
-                  { label: '正式', value: 'formal' },
+                  { label: t('settings.options.casual'), value: 'casual' },
+                  { label: t('settings.options.formal'), value: 'formal' },
                 ]}
                 onChange={(value) => patchConfig((draft) => {
                   draft.personality.tone = value as NonNullable<SystemConfig['personality']['tone']>;
                 })}
               />
               <label className="space-y-2 md:col-span-2">
-                <span className="text-sm font-medium">自定义提示词</span>
+                <span className="text-sm font-medium">{t('settings.fields.customPrompt')}</span>
                 <Textarea
                   rows={5}
                   value={config.personality.custom_prompt || ''}
@@ -305,7 +307,7 @@ export const SettingsPage: React.FC = () => {
             <TabsContent value="memory" className="space-y-4">
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="flex items-center justify-between rounded-md border p-3">
-                  <span className="text-sm font-medium">L1 启用</span>
+                  <span className="text-sm font-medium">{t('settings.fields.l1Enabled')}</span>
                   <Switch
                     checked={config.memory_layers.L1.enabled}
                     onCheckedChange={(checked) => patchConfig((draft) => {
@@ -314,7 +316,7 @@ export const SettingsPage: React.FC = () => {
                   />
                 </label>
                 <label className="flex items-center justify-between rounded-md border p-3">
-                  <span className="text-sm font-medium">L2 启用</span>
+                  <span className="text-sm font-medium">{t('settings.fields.l2Enabled')}</span>
                   <Switch
                     checked={config.memory_layers.L2.enabled}
                     onCheckedChange={(checked) => patchConfig((draft) => {
@@ -323,7 +325,7 @@ export const SettingsPage: React.FC = () => {
                   />
                 </label>
                 <label className="flex items-center justify-between rounded-md border p-3">
-                  <span className="text-sm font-medium">L3 启用</span>
+                  <span className="text-sm font-medium">{t('settings.fields.l3Enabled')}</span>
                   <Switch
                     checked={config.memory_layers.L3.enabled}
                     onCheckedChange={(checked) => patchConfig((draft) => {
@@ -332,7 +334,7 @@ export const SettingsPage: React.FC = () => {
                   />
                 </label>
                 <label className="flex items-center justify-between rounded-md border p-3">
-                  <span className="text-sm font-medium">L4 启用</span>
+                  <span className="text-sm font-medium">{t('settings.fields.l4Enabled')}</span>
                   <Switch
                     checked={config.memory_layers.L4.enabled}
                     onCheckedChange={(checked) => patchConfig((draft) => {
@@ -341,7 +343,7 @@ export const SettingsPage: React.FC = () => {
                   />
                 </label>
                 <label className="flex items-center justify-between rounded-md border p-3">
-                  <span className="text-sm font-medium">L5 启用</span>
+                  <span className="text-sm font-medium">{t('settings.fields.l5Enabled')}</span>
                   <Switch
                     checked={config.memory_layers.L5.enabled}
                     onCheckedChange={(checked) => patchConfig((draft) => {
@@ -353,11 +355,11 @@ export const SettingsPage: React.FC = () => {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">L3 模型下载</CardTitle>
+                  <CardTitle className="text-base">{t('settings.fields.l3ModelDownload')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <SelectField
-                    label="模型"
+                    label={t('settings.fields.model')}
                     value={downloadModel}
                     options={[
                       { label: 'bge-m3', value: 'bge-m3' },
@@ -368,7 +370,7 @@ export const SettingsPage: React.FC = () => {
                   />
                   <Button variant="outline" onClick={startDownload}>
                     <Download className="mr-2 h-4 w-4" />
-                    下载模型
+                    {t('settings.fields.downloadModel')}
                   </Button>
                   <div className="space-y-1">
                     <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -379,10 +381,10 @@ export const SettingsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <span className="text-sm text-muted-foreground">已安装模型：</span>
+                    <span className="text-sm text-muted-foreground">{t('settings.fields.installedModels')}</span>
                     {installedModels.length > 0 ? installedModels.map((model) => (
                       <Badge key={model} variant="secondary">{model}</Badge>
-                    )) : <Badge variant="outline">暂无</Badge>}
+                    )) : <Badge variant="outline">{t('settings.fields.none')}</Badge>}
                   </div>
                 </CardContent>
               </Card>
@@ -391,7 +393,7 @@ export const SettingsPage: React.FC = () => {
             <TabsContent value="tools" className="space-y-4">
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="flex items-center justify-between rounded-md border p-3">
-                  <span className="text-sm font-medium">天气工具</span>
+                  <span className="text-sm font-medium">{t('settings.fields.weatherTool')}</span>
                   <Switch
                     checked={config.tools.builtIn.weather.enabled}
                     onCheckedChange={(checked) => patchConfig((draft) => {
@@ -400,7 +402,7 @@ export const SettingsPage: React.FC = () => {
                   />
                 </label>
                 <label className="flex items-center justify-between rounded-md border p-3">
-                  <span className="text-sm font-medium">网页搜索</span>
+                  <span className="text-sm font-medium">{t('settings.fields.webSearchTool')}</span>
                   <Switch
                     checked={config.tools.builtIn.webSearch.enabled}
                     onCheckedChange={(checked) => patchConfig((draft) => {
@@ -409,7 +411,7 @@ export const SettingsPage: React.FC = () => {
                   />
                 </label>
                 <label className="flex items-center justify-between rounded-md border p-3">
-                  <span className="text-sm font-medium">网页抓取</span>
+                  <span className="text-sm font-medium">{t('settings.fields.webFetchTool')}</span>
                   <Switch
                     checked={config.tools.builtIn.webFetch.enabled}
                     onCheckedChange={(checked) => patchConfig((draft) => {
@@ -418,7 +420,7 @@ export const SettingsPage: React.FC = () => {
                   />
                 </label>
                 <label className="flex items-center justify-between rounded-md border p-3">
-                  <span className="text-sm font-medium">Playwright 渲染</span>
+                  <span className="text-sm font-medium">{t('settings.fields.playwrightRendering')}</span>
                   <Switch
                     checked={config.tools.builtIn.webFetch.usePlaywright}
                     onCheckedChange={(checked) => patchConfig((draft) => {
@@ -431,7 +433,7 @@ export const SettingsPage: React.FC = () => {
 
             <TabsContent value="system" className="grid gap-4 md:grid-cols-2">
               <SelectField
-                label="循环策略"
+                label={t('settings.fields.loopStrategy')}
                 value={config.loop.strategy}
                 options={[
                   { label: 'STEP', value: 'step' },
@@ -443,7 +445,7 @@ export const SettingsPage: React.FC = () => {
                 })}
               />
               <NumberField
-                label="循环间隔（秒）"
+                label={t('settings.fields.loopInterval')}
                 value={config.loop.interval}
                 min={0.1}
                 max={60}
@@ -453,7 +455,7 @@ export const SettingsPage: React.FC = () => {
                 })}
               />
               <SelectField
-                label="消息总线后端"
+                label={t('settings.fields.busBackend')}
                 value={config.message_bus.backend}
                 options={[
                   { label: 'memory', value: 'memory' },
@@ -465,7 +467,7 @@ export const SettingsPage: React.FC = () => {
                 })}
               />
               <NumberField
-                label="消息总线队列大小"
+                label={t('settings.fields.busQueueSize')}
                 value={config.message_bus.max_size}
                 min={100}
                 max={50000}
@@ -474,7 +476,7 @@ export const SettingsPage: React.FC = () => {
                 })}
               />
               <NumberField
-                label="WebSocket 端口"
+                label={t('settings.fields.wsPort')}
                 value={config.websocket.port}
                 min={1024}
                 max={65535}
@@ -483,7 +485,7 @@ export const SettingsPage: React.FC = () => {
                 })}
               />
               <SelectField
-                label="日志级别"
+                label={t('settings.fields.logLevel')}
                 value={config.log.level}
                 options={[
                   { label: 'DEBUG', value: 'DEBUG' },

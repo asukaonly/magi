@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { SimpleForm as Form } from './simple-form';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
@@ -25,16 +26,26 @@ interface OnboardingFlowProps {
 }
 
 export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig }) => {
+  const { t, i18n } = useTranslation('onboarding');
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>(initialConfig.preferences.user_mode);
   const [current, setCurrent] = useState(0);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    const configuredLanguage = initialConfig.preferences.language === 'en' ? 'en' : 'zh-CN';
+    if (i18n.language !== configuredLanguage) {
+      void i18n.changeLanguage(configuredLanguage);
+    }
+  }, [i18n, initialConfig.preferences.language]);
+
   const steps = useMemo(() => {
-    const shared = ['语言', '模式选择', 'LLM', '人格'];
-    return mode === 'expert' ? [...shared, '记忆', '工具', '完成'] : [...shared, '完成'];
-  }, [mode]);
+    const shared = [t('steps.language'), t('steps.mode'), t('steps.llm'), t('steps.personality')];
+    return mode === 'expert'
+      ? [...shared, t('steps.memory'), t('steps.tools'), t('steps.complete')]
+      : [...shared, t('steps.complete')];
+  }, [mode, t]);
 
   const isLastStep = current === steps.length - 1;
 
@@ -69,6 +80,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   };
 
   const onValuesChange = (_: unknown, allValues: SystemConfig) => {
+    const nextLanguage = allValues?.preferences?.language;
+    if (nextLanguage) {
+      const mapped = nextLanguage === 'en' ? 'en' : 'zh-CN';
+      if (i18n.language !== mapped) {
+        void i18n.changeLanguage(mapped);
+      }
+    }
     saveProgress(allValues);
   };
 
@@ -114,7 +132,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       }
     } catch (error: any) {
       if (!error?.errorFields) {
-        toast.error(error?.message || '保存失败');
+        toast.error(error?.message || t('messages.saveFailed'));
       }
     } finally {
       setSaving(false);
@@ -142,7 +160,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
 
     if (!mode) {
-      return <Card>请先选择模式再继续。</Card>;
+      return <Card>{t('messages.chooseModeFirst')}</Card>;
     }
 
     const quickMode = mode === 'quick';
@@ -188,10 +206,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handlePrev} disabled={current === 0}>
-            上一步
+            {t('actions.previous')}
           </Button>
           <Button onClick={handleNext} disabled={saving}>
-            {saving ? '保存中...' : isLastStep ? '完成' : '下一步'}
+            {saving ? t('actions.saving') : isLastStep ? t('actions.finish') : t('actions.next')}
           </Button>
         </div>
       </CardContent>

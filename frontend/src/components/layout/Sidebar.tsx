@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Database,
   LayoutDashboard,
@@ -24,6 +25,7 @@ export const SidebarContext = React.createContext<{
 });
 
 const Sidebar: React.FC = () => {
+  const { t } = useTranslation('app');
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -35,11 +37,11 @@ const Sidebar: React.FC = () => {
   }, []);
 
   const menuItems = [
-    { key: '/', icon: LayoutDashboard, label: '仪表盘' },
-    { key: '/chat', icon: MessageSquare, label: 'AI 对话' },
-    { key: '/personality', icon: UserRound, label: '人格配置' },
-    { key: '/events', icon: Database, label: '记忆查看' },
-    { key: '/settings', icon: Settings, label: '系统设置' },
+    { key: '/', icon: LayoutDashboard, label: t('nav.dashboard') },
+    { key: '/chat', icon: MessageSquare, label: t('nav.chat') },
+    { key: '/personality', icon: UserRound, label: t('nav.personality') },
+    { key: '/events', icon: Database, label: t('nav.events') },
+    { key: '/settings', icon: Settings, label: t('nav.settings') },
   ];
 
   const toggleCollapse = () => {

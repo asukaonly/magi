@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +47,7 @@ interface Capability {
 }
 
 const EventsPage: React.FC = () => {
+  const { t } = useTranslation('app');
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('l1');
 
@@ -81,7 +83,7 @@ const EventsPage: React.FC = () => {
         fetchL5Data(),
       ]);
     } catch (error: any) {
-      toast.error('加载数据失败: ' + error.message);
+      toast.error(t('events.loadFailed', { message: error.message }));
     } finally {
       setLoading(false);
     }
@@ -156,7 +158,7 @@ const EventsPage: React.FC = () => {
   // 搜索处理
   const handleSearch = async () => {
     if (!searchKeyword.trim()) {
-      toast.warning('请输入搜索关键词');
+      toast.warning(t('events.searchKeywordRequired'));
       return;
     }
 
@@ -172,13 +174,13 @@ const EventsPage: React.FC = () => {
       if (results.length > 0) {
         setActiveTab('l3');
         setL3Results(results);
-        toast.success(`找到 ${results.length} 条相关事件`);
+        toast.success(t('events.searchFound', { count: results.length }));
       } else {
-        toast.warning('未找到相关事件');
+        toast.warning(t('events.searchEmpty'));
       }
     } catch (error: any) {
-      const errorMessage = error?.response?.data?.detail || error?.message || '未知错误';
-      toast.error('搜索失败: ' + errorMessage);
+      const errorMessage = error?.response?.data?.detail || error?.message || 'unknown';
+      toast.error(t('events.searchFailed', { message: errorMessage }));
     } finally {
       setLoading(false);
     }
@@ -188,33 +190,33 @@ const EventsPage: React.FC = () => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">记忆查看</h1>
-          <p className="mt-1 text-sm text-muted-foreground">L1-L5 五层记忆架构数据查看</p>
+          <h1 className="text-2xl font-semibold">{t('events.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('events.subtitle')}</p>
         </div>
         <Button onClick={fetchAllData} disabled={loading}>
           <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          刷新
+          {t('events.refresh')}
         </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid h-auto grid-cols-2 gap-1 md:grid-cols-5">
-          <TabsTrigger value="l1"><Database className="mr-1 h-4 w-4" />L1 ({l1Stats.total})</TabsTrigger>
-          <TabsTrigger value="l2"><GitBranch className="mr-1 h-4 w-4" />L2 ({l2Stats.total_relations})</TabsTrigger>
-          <TabsTrigger value="l3"><Network className="mr-1 h-4 w-4" />L3 ({l3Stats.total_embeddings})</TabsTrigger>
-          <TabsTrigger value="l4"><FileText className="mr-1 h-4 w-4" />L4 ({l4Stats.total_summaries})</TabsTrigger>
-          <TabsTrigger value="l5"><Zap className="mr-1 h-4 w-4" />L5 ({l5Stats.total_capabilities})</TabsTrigger>
+          <TabsTrigger value="l1"><Database className="mr-1 h-4 w-4" />{t('events.tabs.l1')} ({l1Stats.total})</TabsTrigger>
+          <TabsTrigger value="l2"><GitBranch className="mr-1 h-4 w-4" />{t('events.tabs.l2')} ({l2Stats.total_relations})</TabsTrigger>
+          <TabsTrigger value="l3"><Network className="mr-1 h-4 w-4" />{t('events.tabs.l3')} ({l3Stats.total_embeddings})</TabsTrigger>
+          <TabsTrigger value="l4"><FileText className="mr-1 h-4 w-4" />{t('events.tabs.l4')} ({l4Stats.total_summaries})</TabsTrigger>
+          <TabsTrigger value="l5"><Zap className="mr-1 h-4 w-4" />{t('events.tabs.l5')} ({l5Stats.total_capabilities})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="l1" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-4">
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总事件数</p><p className="mt-1 text-2xl font-semibold">{l1Stats.total}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l1.totalEvents')}</p><p className="mt-1 text-2xl font-semibold">{l1Stats.total}</p></CardContent></Card>
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">INFO</p><p className="mt-1 text-2xl font-semibold text-emerald-600">{l1Events.filter((e) => e.level === 1).length}</p></CardContent></Card>
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">WARNING</p><p className="mt-1 text-2xl font-semibold text-amber-600">{l1Events.filter((e) => e.level === 2).length}</p></CardContent></Card>
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">ERROR+</p><p className="mt-1 text-2xl font-semibold text-red-600">{l1Events.filter((e) => e.level >= 3).length}</p></CardContent></Card>
           </div>
           <Card>
-            <CardHeader><CardTitle>原始事件（最近 50 条）</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t('events.l1.rawEvents')}</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {loading ? <LoadingSpinner /> : l1Events.map((event) => (
                 <details key={event.id} className="rounded-md border p-3">
@@ -225,8 +227,8 @@ const EventsPage: React.FC = () => {
                   </summary>
                   <div className="mt-2 grid gap-2 text-xs">
                     <div>ID: {event.id}</div>
-                    <div>关联ID: {event.correlation_id || '-'}</div>
-                    <div>来源: {event.source || '-'}</div>
+                    <div>{t('events.l1.correlationId')}: {event.correlation_id || '-'}</div>
+                    <div>{t('events.l1.source')}: {event.source || '-'}</div>
                     <pre className="max-h-52 overflow-auto rounded bg-muted p-2">{JSON.stringify(event.data, null, 2)}</pre>
                   </div>
                 </details>
@@ -237,33 +239,33 @@ const EventsPage: React.FC = () => {
 
         <TabsContent value="l2" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-3">
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总事件数</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_events}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总关系数</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_relations}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">平均关系/事件</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_events > 0 ? (l2Stats.total_relations / l2Stats.total_events).toFixed(2) : '0'}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l2.totalEvents')}</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_events}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l2.totalRelations')}</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_relations}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l2.avgRelationPerEvent')}</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_events > 0 ? (l2Stats.total_relations / l2Stats.total_events).toFixed(2) : '0'}</p></CardContent></Card>
           </div>
           <Card>
-            <CardHeader><CardTitle>关系类型说明</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t('events.l2.relationDoc')}</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div><Badge variant="outline" className="mr-2">PRECEDE</Badge>同一链路上的前后事件</div>
-              <div><Badge variant="outline" className="mr-2">TRIGGER</Badge>感知触发处理</div>
-              <div><Badge variant="outline" className="mr-2">CAUSE</Badge>因果关系</div>
-              <div><Badge variant="outline" className="mr-2">FOLLOW</Badge>后续事件</div>
-              <div><Badge variant="outline" className="mr-2">SAME_USER</Badge>同一用户事件</div>
+              <div><Badge variant="outline" className="mr-2">PRECEDE</Badge>{t('events.l2.precedeDesc')}</div>
+              <div><Badge variant="outline" className="mr-2">TRIGGER</Badge>{t('events.l2.triggerDesc')}</div>
+              <div><Badge variant="outline" className="mr-2">CAUSE</Badge>{t('events.l2.causeDesc')}</div>
+              <div><Badge variant="outline" className="mr-2">FOLLOW</Badge>{t('events.l2.followDesc')}</div>
+              <div><Badge variant="outline" className="mr-2">SAME_USER</Badge>{t('events.l2.sameUserDesc')}</div>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="l3" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2">
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">嵌入向量数</p><p className="mt-1 text-2xl font-semibold">{l3Stats.total_embeddings}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">向量维度</p><p className="mt-1 text-2xl font-semibold">{l3Stats.dimension}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l3.embeddingCount')}</p><p className="mt-1 text-2xl font-semibold">{l3Stats.total_embeddings}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l3.vectorDimension')}</p><p className="mt-1 text-2xl font-semibold">{l3Stats.dimension}</p></CardContent></Card>
           </div>
           <Card>
-            <CardHeader><CardTitle>语义搜索</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t('events.l3.semanticSearch')}</CardTitle></CardHeader>
             <CardContent>
               <div className="flex gap-2">
                 <Input
-                  placeholder="输入搜索关键词，如：用户消息、错误、任务完成..."
+                  placeholder={t('events.l3.searchPlaceholder')}
                   value={searchKeyword}
                   onChange={(e) => setSearchKeyword(e.target.value)}
                   onKeyDown={(e) => {
@@ -275,20 +277,20 @@ const EventsPage: React.FC = () => {
                 />
                 <Button onClick={handleSearch} disabled={loading}>
                   <Search className="mr-1 h-4 w-4" />
-                  搜索
+                  {t('events.l3.search')}
                 </Button>
               </div>
             </CardContent>
           </Card>
           {l3Results.length > 0 && (
             <Card>
-              <CardHeader><CardTitle>搜索结果</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{t('events.l3.results')}</CardTitle></CardHeader>
               <CardContent className="space-y-2">
                 {l3Results.map((item) => (
                   <div key={item.event_id} className="rounded-md border p-3 text-sm">
                     <div className="font-medium">{item.event_id.slice(0, 12)}...</div>
                     <div className="mt-1 text-muted-foreground">{item.text}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">类型：{item.metadata?.event_type || '-'}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{t('events.l3.type')}：{item.metadata?.event_type || '-'}</div>
                   </div>
                 ))}
               </CardContent>
@@ -299,33 +301,33 @@ const EventsPage: React.FC = () => {
         <TabsContent value="l4" className="space-y-4">
           <Card>
             <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">摘要总数</p>
+              <p className="text-xs text-muted-foreground">{t('events.l4.summaryTotal')}</p>
               <p className="mt-1 text-2xl font-semibold">{l4Stats.total_summaries}</p>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>摘要说明</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t('events.l4.summaryDoc')}</CardTitle></CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <p>L4 摘要按照时间粒度自动生成：</p>
+              <p>{t('events.l4.summaryExplain')}</p>
               <div className="flex gap-2">
-                <Badge variant="outline">小时</Badge>
-                <Badge variant="outline">天</Badge>
-                <Badge variant="outline">周</Badge>
-                <Badge variant="outline">月</Badge>
+                <Badge variant="outline">{t('events.l4.hour')}</Badge>
+                <Badge variant="outline">{t('events.l4.day')}</Badge>
+                <Badge variant="outline">{t('events.l4.week')}</Badge>
+                <Badge variant="outline">{t('events.l4.month')}</Badge>
               </div>
-              <p className="text-muted-foreground">摘要会在后台定期生成，也可以手动触发。</p>
+              <p className="text-muted-foreground">{t('events.l4.summaryHint')}</p>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="l5" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-3">
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">能力总数</p><p className="mt-1 text-2xl font-semibold">{l5Stats.total_capabilities}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">高成功率能力</p><p className="mt-1 text-2xl font-semibold text-emerald-600">{l5Capabilities.filter((c) => c.success_rate > 0.8).length}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">低成功率能力</p><p className="mt-1 text-2xl font-semibold text-red-600">{l5Capabilities.filter((c) => c.success_rate < 0.5).length}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l5.capabilityTotal')}</p><p className="mt-1 text-2xl font-semibold">{l5Stats.total_capabilities}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l5.highSuccess')}</p><p className="mt-1 text-2xl font-semibold text-emerald-600">{l5Capabilities.filter((c) => c.success_rate > 0.8).length}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l5.lowSuccess')}</p><p className="mt-1 text-2xl font-semibold text-red-600">{l5Capabilities.filter((c) => c.success_rate < 0.5).length}</p></CardContent></Card>
           </div>
           <Card>
-            <CardHeader><CardTitle>能力列表</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t('events.l5.list')}</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {l5Capabilities.map((capability) => (
                 <div key={capability.capability_id} className="rounded-md border p-3 text-sm">
@@ -340,7 +342,7 @@ const EventsPage: React.FC = () => {
                     </Badge>
                   </div>
                   <p className="mt-1 text-muted-foreground">{capability.description}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">使用次数：{capability.usage_count}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t('events.l5.usageCount')}：{capability.usage_count}</p>
                 </div>
               ))}
             </CardContent>

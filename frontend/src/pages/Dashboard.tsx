@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ArrowRight, CheckCircle2, MessageSquare, Settings, Sparkles, UserRound } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,34 +14,36 @@ const mockStats = {
   memoryUsage: 67,
 };
 
-// 模拟最近活动
-const recentActivities = [
-  { text: '用户发送了消息', time: '2 分钟前', type: 'message' },
-  { text: 'AI 完成了任务', time: '5 分钟前', type: 'success' },
-  { text: '人格配置已更新', time: '1 小时前', type: 'update' },
-  { text: '新能力已习得', time: '2 小时前', type: 'capability' },
-  { text: '系统已启动', time: '今天', type: 'system' },
-];
-
 const Dashboard: React.FC = () => {
+  const { t } = useTranslation('app');
   const navigate = useNavigate();
   const stats = useMemo(() => mockStats, []);
+  const recentActivities = useMemo(
+    () => [
+      { text: t('dashboard.activity.userMessage'), time: t('dashboard.activity.time2min') },
+      { text: t('dashboard.activity.taskDone'), time: t('dashboard.activity.time5min') },
+      { text: t('dashboard.activity.personalityUpdated'), time: t('dashboard.activity.time1hour') },
+      { text: t('dashboard.activity.newCapability'), time: t('dashboard.activity.time2hour') },
+      { text: t('dashboard.activity.systemStarted'), time: t('dashboard.activity.today') },
+    ],
+    [t]
+  );
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">欢迎使用 Magi AI Framework</h1>
+        <h1 className="text-2xl font-semibold text-foreground">{t('dashboard.welcomeTitle')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          智能代理框架，支持多层记忆和动态人格配置
+          {t('dashboard.welcomeSubtitle')}
         </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { title: '总消息数', value: stats.totalMessages, color: 'text-teal-600' },
-          { title: '今日消息', value: stats.todayMessages, color: 'text-emerald-600' },
-          { title: '活跃能力', value: stats.activeCapabilities, color: 'text-indigo-600' },
-          { title: '内存使用', value: `${stats.memoryUsage}%`, color: 'text-amber-600' },
+          { title: t('dashboard.stats.totalMessages'), value: stats.totalMessages, color: 'text-teal-600' },
+          { title: t('dashboard.stats.todayMessages'), value: stats.todayMessages, color: 'text-emerald-600' },
+          { title: t('dashboard.stats.activeCapabilities'), value: stats.activeCapabilities, color: 'text-indigo-600' },
+          { title: t('dashboard.stats.memoryUsage'), value: `${stats.memoryUsage}%`, color: 'text-amber-600' },
         ].map((item) => (
           <Card key={item.title}>
             <CardContent className="p-5">
@@ -54,27 +57,27 @@ const Dashboard: React.FC = () => {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>快捷操作</CardTitle>
+            <CardTitle>{t('dashboard.quickActions.title')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <Button className="w-full justify-between" onClick={() => navigate('/chat')}>
               <span className="inline-flex items-center gap-2">
                 <MessageSquare className="h-4 w-4" />
-                开始对话
+                {t('dashboard.quickActions.startChat')}
               </span>
               <ArrowRight className="h-4 w-4" />
             </Button>
             <Button variant="outline" className="w-full justify-between" onClick={() => navigate('/personality')}>
               <span className="inline-flex items-center gap-2">
                 <UserRound className="h-4 w-4" />
-                管理人格
+                {t('dashboard.quickActions.managePersonality')}
               </span>
               <ArrowRight className="h-4 w-4 text-muted-foreground" />
             </Button>
             <Button variant="outline" className="w-full justify-between" onClick={() => navigate('/settings')}>
               <span className="inline-flex items-center gap-2">
                 <Settings className="h-4 w-4" />
-                系统设置
+                {t('dashboard.quickActions.openSettings')}
               </span>
               <ArrowRight className="h-4 w-4 text-muted-foreground" />
             </Button>
@@ -83,20 +86,20 @@ const Dashboard: React.FC = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>系统信息</CardTitle>
+            <CardTitle>{t('dashboard.systemInfo.title')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-md border p-3">
-                <p className="text-xs text-muted-foreground">框架版本</p>
+                <p className="text-xs text-muted-foreground">{t('dashboard.systemInfo.frameworkVersion')}</p>
                 <p className="mt-1 text-sm font-semibold">Magi v0.1.0</p>
               </div>
               <div className="rounded-md border p-3">
-                <p className="text-xs text-muted-foreground">记忆架构</p>
-                <p className="mt-1 text-sm font-semibold">L1-L5 五层</p>
+                <p className="text-xs text-muted-foreground">{t('dashboard.systemInfo.memoryArchitecture')}</p>
+                <p className="mt-1 text-sm font-semibold">{t('dashboard.systemInfo.memoryArchitectureValue')}</p>
               </div>
               <div className="rounded-md border p-3">
-                <p className="text-xs text-muted-foreground">事件系统</p>
+                <p className="text-xs text-muted-foreground">{t('dashboard.systemInfo.eventSystem')}</p>
                 <p className="mt-1 text-sm font-semibold">MessageBus</p>
               </div>
             </div>
@@ -104,7 +107,7 @@ const Dashboard: React.FC = () => {
             <div className="h-px bg-border" />
 
             <div>
-              <p className="mb-3 text-sm font-medium">最近活动</p>
+              <p className="mb-3 text-sm font-medium">{t('dashboard.systemInfo.recentActivity')}</p>
               <div className="space-y-3">
                 {recentActivities.map((activity, index) => (
                   <div key={`${activity.text}-${index}`} className="flex items-start gap-2">
@@ -116,7 +119,7 @@ const Dashboard: React.FC = () => {
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm">{activity.text}</span>
-                        {index === 0 && <Badge variant="secondary">最新</Badge>}
+                        {index === 0 && <Badge variant="secondary">{t('dashboard.systemInfo.latest')}</Badge>}
                       </div>
                       <p className="text-xs text-muted-foreground">{activity.time}</p>
                     </div>

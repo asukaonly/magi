@@ -1,0 +1,43 @@
+{
+  "page": {
+    "title": "Getting Started",
+    "loadConfigFailed": "Failed to load configuration"
+  },
+  "steps": {
+    "language": "Language",
+    "mode": "Mode",
+    "llm": "LLM",
+    "personality": "Personality",
+    "memory": "Memory",
+    "tools": "Tools",
+    "complete": "Done"
+  },
+  "actions": {
+    "previous": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "saving": "Saving...",
+    "enterApp": "Enter App",
+    "enableL1": "Enable L1"
+  },
+  "messages": {
+    "saveFailed": "Save failed",
+    "chooseModeFirst": "Please select a mode before continuing.",
+    "completedTitle": "Setup Complete",
+    "completedDesc": "You can update these settings anytime later."
+  },
+  "language": {
+    "label": "Interface Language",
+    "required": "Please choose a language",
+    "zhHans": "Chinese (Simplified)",
+    "en": "English"
+  },
+  "mode": {
+    "label": "User Mode",
+    "placeholder": "Please choose a mode",
+    "quick": "Quick Mode",
+    "expert": "Expert Mode",
+    "quickDesc": "Configure language, LLM and personality for a fast start.",
+    "expertDesc": "Configure all settings, including memory layers and tools."
+  }
+}

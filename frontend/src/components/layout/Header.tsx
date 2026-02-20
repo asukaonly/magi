@@ -1,20 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { LogOut, Settings, UserRound } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-const pageTitleMap: Record<string, string> = {
-  '/': '仪表盘',
-  '/chat': 'AI 对话',
-  '/personality': '人格配置',
-  '/events': '记忆查看',
-  '/settings': '系统设置',
-};
-
 const Header: React.FC<{ sidebarWidth?: number }> = ({ sidebarWidth = 240 }) => {
+  const { t } = useTranslation('app');
   const location = useLocation();
   const [currentSidebarWidth, setCurrentSidebarWidth] = useState(sidebarWidth);
+
+  const pageTitleMap: Record<string, string> = {
+    '/': t('nav.dashboard'),
+    '/chat': t('nav.chat'),
+    '/personality': t('nav.personality'),
+    '/events': t('nav.events'),
+    '/settings': t('nav.settings'),
+  };
 
   useEffect(() => {
     const handleSidebarToggle = (event: Event) => {
@@ -25,7 +27,7 @@ const Header: React.FC<{ sidebarWidth?: number }> = ({ sidebarWidth = 240 }) => 
     return () => window.removeEventListener('sidebar-toggle', handleSidebarToggle);
   }, []);
 
-  const pageTitle = pageTitleMap[location.pathname] || 'Magi AI Framework';
+  const pageTitle = pageTitleMap[location.pathname] || t('header.fallbackTitle');
 
   return (
     <header

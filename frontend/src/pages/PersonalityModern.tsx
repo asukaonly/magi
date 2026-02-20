@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Check, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +25,7 @@ const OPINION_STRENGTH_OPTIONS = ['Objective/Neutral', 'Highly Opinionated', 'Co
 const WORK_ETHIC_OPTIONS = ['Perfectionist', 'Lazy Genius', 'By-the-book', 'Chaotic'];
 
 const PersonalityModern: React.FC = () => {
+  const { t } = useTranslation('app');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -32,7 +34,7 @@ const PersonalityModern: React.FC = () => {
   const [selectedName, setSelectedName] = useState('default');
   const [config, setConfig] = useState<PersonalityConfig>(DEFAULT_PERSONALITY_CONFIG);
   const [list, setList] = useState<PersonalityInfo[]>([
-    { name: 'default', displayName: '默认人格', archetype: 'System Default' },
+    { name: 'default', displayName: 'default', archetype: 'System Default' },
   ]);
   const [prompt, setPrompt] = useState('');
   const [targetLanguage, setTargetLanguage] = useState('Auto');
@@ -64,9 +66,9 @@ const PersonalityModern: React.FC = () => {
           items.push({ name, displayName: name });
         }
       }
-      setList(items.length ? items : [{ name: 'default', displayName: '默认人格' }]);
+      setList(items.length ? items : [{ name: 'default', displayName: 'default' }]);
     } catch {
-      setList([{ name: 'default', displayName: '默认人格' }]);
+      setList([{ name: 'default', displayName: 'default' }]);
     }
   }, []);
 
@@ -108,11 +110,11 @@ const PersonalityModern: React.FC = () => {
         cached_phrases: { ...DEFAULT_PERSONALITY_CONFIG.cached_phrases, ...(data.cached_phrases || {}) },
       });
     } catch {
-      toast.error('加载人格失败');
+      toast.error(t('personality.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const init = async () => {
@@ -130,14 +132,14 @@ const PersonalityModern: React.FC = () => {
       const response = await personalityApi.compare(currentName, selectedName);
       const nextDiffs = ((response.data as any)?.diffs || []) as PersonalityDiff[];
       setDiffs(nextDiffs);
-      const ok = window.confirm(`确认切换人格：${currentName} -> ${selectedName} ?`);
+      const ok = window.confirm(t('personality.switchConfirm', { from: currentName, to: selectedName }));
       if (!ok) return;
       await personalityApi.setCurrent(selectedName);
       setCurrentName(selectedName);
       await loadOne(selectedName);
-      toast.success(`已切换到 ${selectedName}`);
+      toast.success(t('personality.switchSuccess', { name: selectedName }));
     } catch {
-      toast.error('切换失败');
+      toast.error(t('personality.switchFailed'));
     } finally {
       setSwitching(false);
     }
@@ -151,11 +153,11 @@ const PersonalityModern: React.FC = () => {
       } else {
         await personalityApi.update(currentName, config);
       }
-      toast.success('已保存');
+      toast.success(t('personality.saveSuccess'));
       await loadList();
       await loadCurrent();
     } catch {
-      toast.error('保存失败');
+      toast.error(t('personality.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -163,7 +165,7 @@ const PersonalityModern: React.FC = () => {
 
   const generate = async () => {
     if (!prompt.trim()) {
-      toast.warning('请输入一句话描述');
+      toast.warning(t('personality.generatePromptRequired'));
       return;
     }
     setGenerating(true);
@@ -191,9 +193,9 @@ const PersonalityModern: React.FC = () => {
         return next;
       });
       setPrompt('');
-      toast.success('已生成草稿');
+      toast.success(t('personality.generateSuccess'));
     } catch {
-      toast.error('生成失败');
+      toast.error(t('personality.generateFailed'));
     } finally {
       setGenerating(false);
     }
@@ -205,11 +207,11 @@ const PersonalityModern: React.FC = () => {
     <div className="mx-auto max-w-6xl space-y-4 p-6">
       <Card>
         <CardHeader>
-          <CardTitle>人格配置（shadcn 原生）</CardTitle>
+          <CardTitle>{t('personality.title')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-muted-foreground">当前生效</span>
+            <span className="text-sm text-muted-foreground">{t('personality.current')}</span>
             <Badge>{currentName}</Badge>
             <select
               className="h-10 min-w-[220px] rounded-md border border-input bg-background px-3 text-sm"
@@ -228,39 +230,39 @@ const PersonalityModern: React.FC = () => {
             {selectedName !== currentName && (
               <Button onClick={switchPersonality} disabled={switching}>
                 <Check className="mr-2 h-4 w-4" />
-                {switching ? '切换中...' : '切换'}
+                {switching ? t('personality.switching') : t('personality.switch')}
               </Button>
             )}
-            <Button variant="outline" onClick={() => void loadOne(selectedName)}><RefreshCw className="mr-2 h-4 w-4" />重载</Button>
+            <Button variant="outline" onClick={() => void loadOne(selectedName)}><RefreshCw className="mr-2 h-4 w-4" />{t('personality.reload')}</Button>
             <Button variant="outline" onClick={() => {
-              const name = window.prompt('新人格名称');
+              const name = window.prompt(t('personality.newNamePrompt'));
               if (!name) return;
               void personalityApi.updateWithAIName({ ...DEFAULT_PERSONALITY_CONFIG, meta: { ...DEFAULT_PERSONALITY_CONFIG.meta, name } }).then(loadList);
-            }}><Plus className="mr-2 h-4 w-4" />新建</Button>
+            }}><Plus className="mr-2 h-4 w-4" />{t('personality.create')}</Button>
             <Button variant="destructive" onClick={() => {
               if (selectedName === 'default') return;
-              if (window.confirm(`删除 ${selectedName} ?`)) void personalityApi.delete(selectedName).then(loadList);
-            }}><Trash2 className="mr-2 h-4 w-4" />删除</Button>
+              if (window.confirm(t('personality.deleteConfirm', { name: selectedName }))) void personalityApi.delete(selectedName).then(loadList);
+            }}><Trash2 className="mr-2 h-4 w-4" />{t('personality.delete')}</Button>
           </div>
 
           <div className="flex gap-2">
-            <Input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="一句话描述人格用于 AI 生成" />
+            <Input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={t('personality.generatePlaceholder')} />
             <select
               className="h-10 rounded-md border border-input bg-background px-3 text-sm"
               value={targetLanguage}
               onChange={(event) => setTargetLanguage(event.target.value)}
             >
-              <option value="Auto">自动检测</option>
-              <option value="Chinese">中文</option>
-              <option value="English">English</option>
-              <option value="Japanese">日本語</option>
+              <option value="Auto">{t('personality.languages.auto')}</option>
+              <option value="Chinese">{t('personality.languages.chinese')}</option>
+              <option value="English">{t('personality.languages.english')}</option>
+              <option value="Japanese">{t('personality.languages.japanese')}</option>
             </select>
-            <Button onClick={generate} disabled={generating}><Sparkles className="mr-2 h-4 w-4" />AI 生成</Button>
+            <Button onClick={generate} disabled={generating}><Sparkles className="mr-2 h-4 w-4" />{t('personality.generate')}</Button>
           </div>
 
           {diffPreview.length > 0 && (
             <div className="rounded-md border p-3">
-              <div className="mb-2 text-sm font-medium">人格差异预览（前 8 项）</div>
+              <div className="mb-2 text-sm font-medium">{t('personality.diffPreview')}</div>
               <div className="space-y-1 text-xs text-muted-foreground">
                 {diffPreview.map((item) => (
                   <div key={item.field}>
@@ -275,32 +277,32 @@ const PersonalityModern: React.FC = () => {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>基本信息</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('personality.sections.basicInfo')}</CardTitle></CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-sm font-medium">名字</span>
+            <span className="text-sm font-medium">{t('personality.fields.name')}</span>
             <Input value={config.meta.name} onChange={(event) => patch((d) => { d.meta.name = event.target.value; })} />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">原型</span>
+            <span className="text-sm font-medium">{t('personality.fields.archetype')}</span>
             <Input value={config.meta.archetype} onChange={(event) => patch((d) => { d.meta.archetype = event.target.value; })} />
           </label>
           <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-medium">背景故事</span>
+            <span className="text-sm font-medium">{t('personality.fields.backstory')}</span>
             <Textarea rows={5} value={config.core_identity.backstory} onChange={(event) => patch((d) => { d.core_identity.backstory = event.target.value; })} />
           </label>
           <div className="flex items-center justify-between rounded-md border p-3 md:col-span-2">
-            <span className="text-sm">启用 Emoji</span>
+            <span className="text-sm">{t('personality.fields.useEmoji')}</span>
             <Switch checked={config.operational_behavior.use_emoji} onCheckedChange={(checked) => patch((d) => { d.operational_behavior.use_emoji = checked; })} />
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>声音风格与心理特征</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('personality.sections.voicePsych')}</CardTitle></CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
           <label className="space-y-2">
-            <span className="text-sm font-medium">语调</span>
+            <span className="text-sm font-medium">{t('personality.fields.tone')}</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={config.core_identity.voice_style.tone}
@@ -310,7 +312,7 @@ const PersonalityModern: React.FC = () => {
             </select>
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">节奏</span>
+            <span className="text-sm font-medium">{t('personality.fields.pacing')}</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={config.core_identity.voice_style.pacing}
@@ -320,7 +322,7 @@ const PersonalityModern: React.FC = () => {
             </select>
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">常用词（逗号分隔）</span>
+            <span className="text-sm font-medium">{t('personality.fields.keywords')}</span>
             <Input
               value={config.core_identity.voice_style.keywords.join(', ')}
               onChange={(event) => patch((d) => {
@@ -332,7 +334,7 @@ const PersonalityModern: React.FC = () => {
             />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">自信水平</span>
+            <span className="text-sm font-medium">{t('personality.fields.confidence')}</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={config.core_identity.psychological_profile.confidence_level}
@@ -342,7 +344,7 @@ const PersonalityModern: React.FC = () => {
             </select>
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">共情水平</span>
+            <span className="text-sm font-medium">{t('personality.fields.empathy')}</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={config.core_identity.psychological_profile.empathy_level}
@@ -352,7 +354,7 @@ const PersonalityModern: React.FC = () => {
             </select>
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">耐心水平</span>
+            <span className="text-sm font-medium">{t('personality.fields.patience')}</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={config.core_identity.psychological_profile.patience_level}
@@ -365,24 +367,24 @@ const PersonalityModern: React.FC = () => {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>社交协议</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('personality.sections.social')}</CardTitle></CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-sm font-medium">用户关系</span>
+            <span className="text-sm font-medium">{t('personality.fields.userRelationship')}</span>
             <Input
               value={config.social_protocols.user_relationship}
               onChange={(event) => patch((d) => { d.social_protocols.user_relationship = event.target.value; })}
             />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">赞美反应</span>
+            <span className="text-sm font-medium">{t('personality.fields.complimentPolicy')}</span>
             <Input
               value={config.social_protocols.compliment_policy}
               onChange={(event) => patch((d) => { d.social_protocols.compliment_policy = event.target.value; })}
             />
           </label>
           <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-medium">批评容忍度</span>
+            <span className="text-sm font-medium">{t('personality.fields.criticismTolerance')}</span>
             <Input
               value={config.social_protocols.criticism_tolerance}
               onChange={(event) => patch((d) => { d.social_protocols.criticism_tolerance = event.target.value; })}
@@ -392,24 +394,24 @@ const PersonalityModern: React.FC = () => {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>行为策略</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('personality.sections.behavior')}</CardTitle></CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-sm font-medium">错误处理风格</span>
+            <span className="text-sm font-medium">{t('personality.fields.errorHandlingStyle')}</span>
             <Input
               value={config.operational_behavior.error_handling_style}
               onChange={(event) => patch((d) => { d.operational_behavior.error_handling_style = event.target.value; })}
             />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">拒绝风格</span>
+            <span className="text-sm font-medium">{t('personality.fields.refusalStyle')}</span>
             <Input
               value={config.operational_behavior.refusal_style}
               onChange={(event) => patch((d) => { d.operational_behavior.refusal_style = event.target.value; })}
             />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">意见强度</span>
+            <span className="text-sm font-medium">{t('personality.fields.opinionStrength')}</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={config.operational_behavior.opinion_strength}
@@ -419,7 +421,7 @@ const PersonalityModern: React.FC = () => {
             </select>
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">职业道德</span>
+            <span className="text-sm font-medium">{t('personality.fields.workEthic')}</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={config.operational_behavior.work_ethic}
@@ -429,33 +431,33 @@ const PersonalityModern: React.FC = () => {
             </select>
           </label>
           <div className="flex items-center justify-between rounded-md border p-3 md:col-span-2">
-            <span className="text-sm">启用 Emoji</span>
+            <span className="text-sm">{t('personality.fields.useEmoji')}</span>
             <Switch checked={config.operational_behavior.use_emoji} onCheckedChange={(checked) => patch((d) => { d.operational_behavior.use_emoji = checked; })} />
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>缓存短语</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('personality.sections.cachedPhrases')}</CardTitle></CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-sm font-medium">初始化问候</span>
+            <span className="text-sm font-medium">{t('personality.fields.onInit')}</span>
             <Input value={config.cached_phrases.on_init} onChange={(event) => patch((d) => { d.cached_phrases.on_init = event.target.value; })} />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">唤醒问候</span>
+            <span className="text-sm font-medium">{t('personality.fields.onWake')}</span>
             <Input value={config.cached_phrases.on_wake} onChange={(event) => patch((d) => { d.cached_phrases.on_wake = event.target.value; })} />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">错误提示</span>
+            <span className="text-sm font-medium">{t('personality.fields.onError')}</span>
             <Input value={config.cached_phrases.on_error_generic} onChange={(event) => patch((d) => { d.cached_phrases.on_error_generic = event.target.value; })} />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">成功提示</span>
+            <span className="text-sm font-medium">{t('personality.fields.onSuccess')}</span>
             <Input value={config.cached_phrases.on_success} onChange={(event) => patch((d) => { d.cached_phrases.on_success = event.target.value; })} />
           </label>
           <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-medium">切换挽留</span>
+            <span className="text-sm font-medium">{t('personality.fields.onSwitchAttempt')}</span>
             <Input value={config.cached_phrases.on_switch_attempt} onChange={(event) => patch((d) => { d.cached_phrases.on_switch_attempt = event.target.value; })} />
           </label>
         </CardContent>
@@ -464,7 +466,7 @@ const PersonalityModern: React.FC = () => {
       <div className="flex justify-center">
         <Button onClick={save} disabled={saving || loading} size="lg">
           <Check className="mr-2 h-4 w-4" />
-          {saving ? '保存中...' : '保存配置'}
+          {saving ? t('personality.saving') : t('personality.save')}
         </Button>
       </div>
     </div>
