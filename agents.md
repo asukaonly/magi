@@ -99,6 +99,15 @@ Rules:
 - UI copy is not required to be English unless explicitly requested
 - Prefer functional components + hooks
 
+### Frontend i18n (Mandatory for UI text)
+
+- New user-facing UI copy must use i18n keys (`t(...)`) instead of hardcoded strings
+- Keep locale resources under `frontend/src/i18n/locales/<lang>/`
+- Use namespace + dotted keys (example: `app.settings.saveSuccess`)
+- Default language is `zh-CN`, with `en` as supported secondary locale
+- On language switch, keep `localStorage.magi_language` and `document.documentElement.lang` in sync
+- For behavior changes involving UI copy, verify key pages show no mixed-language leakage in target locale
+
 ---
 
 ## 5) Testing & Validation
@@ -578,6 +587,14 @@ Use structured logging (`structlog`).
 - **Constants**: `UPPER_SNAKE_CASE`
 - **Comments, logs, and error messages added by coding agents**: English
 - **UI copy**: English is not required unless explicitly requested
+
+#### 3. Internationalization (i18n)
+
+- New UI strings must be added to i18n resource files; avoid hardcoded user-facing text in components/pages.
+- Prefer key naming by domain and feature, e.g. `app.nav.dashboard`, `onboarding.actions.next`.
+- Keep `zh-CN` and `en` keys aligned for new features.
+- Language selection must update both `localStorage.magi_language` and `document.documentElement.lang`.
+- Include a quick verification step for locale switching when touching visible UI text.
 
 #### 2. Component Style
 
