@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Brain, Sparkles, Wand2, Zap } from 'lucide-react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Brain, Eye, EyeOff, Info, Loader2, Sparkles, Wand2, Zap } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
-import { SimpleForm as Form } from '../onboarding/simple-form';
+import { SimpleForm as Form, FormContext } from '../onboarding/simple-form';
 import { SelectField } from './fields';
 import {
   configApi,
@@ -17,66 +17,6 @@ interface LLMFormProps {
   quickMode?: boolean;
 }
 
-const FALLBACK_REGISTRY: LLMProviderRegistry = {
-  providers: [
-    {
-      id: 'openai',
-      display_name: 'OpenAI',
-      description: '通用能力强，生态最完善',
-      icon: 'sparkles',
-      default_model: 'gpt-4o-mini',
-      default_base_url: 'https://api.openai.com/v1',
-      model_options: ['gpt-4o-mini', 'gpt-4.1', 'o3'],
-      fields: {
-        model: { visible: false, required: false },
-        api_key: { visible: true, required: true },
-        base_url: { visible: true, required: false },
-      },
-    },
-    {
-      id: 'anthropic',
-      display_name: 'Anthropic',
-      description: '长文本与复杂推理表现稳定',
-      icon: 'brain',
-      default_model: 'claude-3-5-sonnet',
-      default_base_url: 'https://api.anthropic.com/v1',
-      model_options: ['claude-3-5-sonnet', 'claude-3-7-sonnet', 'claude-opus-4-1'],
-      fields: {
-        model: { visible: false, required: false },
-        api_key: { visible: true, required: true },
-        base_url: { visible: true, required: false },
-      },
-    },
-    {
-      id: 'glm',
-      display_name: 'GLM',
-      description: '本地中文场景体验更友好',
-      icon: 'zap',
-      default_model: 'glm-4.5',
-      default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
-      model_options: ['glm-4.5', 'glm-4.5-air', 'glm-4.5-flash'],
-      fields: {
-        model: { visible: false, required: false },
-        api_key: { visible: true, required: true },
-        base_url: { visible: true, required: false },
-      },
-    },
-  ],
-  custom_provider: {
-    enabled: true,
-    display_name: '自定义 Provider',
-    description: '接入兼容 OpenAI/Anthropic 或自定义格式的服务',
-    icon: 'wand',
-    fields: {
-      custom_name: { visible: true, required: true, placeholder: 'My Provider' },
-      api_format: { visible: true, required: true, options: ['openai', 'anthropic', 'custom'] },
-      model: { visible: true, required: true },
-      api_key: { visible: true, required: true },
-      base_url: { visible: true, required: false },
-    },
-  },
-};
-
 const iconNode = (icon?: string): JSX.Element => {
   switch (icon) {
     case 'brain':
@@ -89,6 +29,17 @@ const iconNode = (icon?: string): JSX.Element => {
     default:
       return <Sparkles className="h-3.5 w-3.5 text-teal-600" />;
   }
+};
+
+// Get i18n text for provider
+const getProviderI18n = (providerId: string) => {
+  const i18nMap: Record<string, { name: string; desc: string }> = {
+    openai: { name: 'llm.providers.openai.name', desc: 'llm.providers.openai.desc' },
+    anthropic: { name: 'llm.providers.anthropic.name', desc: 'llm.providers.anthropic.desc' },
+    glm: { name: 'llm.providers.glm.name', desc: 'llm.providers.glm.desc' },
+    custom: { name: 'llm.providers.custom.name', desc: 'llm.providers.custom.desc' },
+  };
+  return i18nMap[providerId] || { name: providerId, desc: '' };
 };
 
 const selectableStyle = (active: boolean): string =>
@@ -105,30 +56,101 @@ const fieldConfig = (
 
 export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
   const { t } = useTranslation('onboarding');
-  const [registry, setRegistry] = useState<LLMProviderRegistry>(FALLBACK_REGISTRY);
+  const [registry, setRegistry] = useState<LLMProviderRegistry | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const formCtx = useContext(FormContext);
 
   useEffect(() => {
     const loadRegistry = async () => {
       try {
+        setLoading(true);
+        setError(null);
         const response = await configApi.getLLMProviders();
         if (response.data?.providers?.length) {
           setRegistry(response.data);
+        } else {
+          setError(t('llm.loadFailed'));
         }
       } catch {
-        setRegistry(FALLBACK_REGISTRY);
+        setError(t('llm.loadFailed'));
+      } finally {
+        setLoading(false);
       }
     };
     void loadRegistry();
-  }, []);
+  }, [t]);
 
-  const providers = useMemo(() => registry.providers || FALLBACK_REGISTRY.providers, [registry.providers]);
+  const providers = useMemo(() => registry?.providers || [], [registry?.providers]);
   const customProvider = useMemo(
-    () => registry.custom_provider || FALLBACK_REGISTRY.custom_provider,
-    [registry.custom_provider]
+    () => registry?.custom_provider || { enabled: false },
+    [registry?.custom_provider]
   );
+
+  // Apply default model when registry loads
+  useEffect(() => {
+    if (!registry || loading || !formCtx?.instance) return;
+
+    const currentProvider = formCtx.instance.getFieldValue?.(['llm', 'provider']);
+    const currentModel = formCtx.instance.getFieldValue?.(['llm', 'model']);
+
+    // If provider is selected but no model, apply default
+    if (currentProvider && !currentModel) {
+      const selected = providers.find((p) => p.id === currentProvider);
+      if (selected?.default_model) {
+        formCtx.instance.setFieldValue?.(['llm', 'model'], selected.default_model);
+      }
+    }
+    // If no provider selected, select first provider with its defaults
+    else if (!currentProvider && providers.length > 0) {
+      const first = providers[0];
+      formCtx.instance.setFieldValue?.(['llm', 'provider'], first.id);
+      if (first.default_model) {
+        formCtx.instance.setFieldValue?.(['llm', 'model'], first.default_model);
+      }
+      if (first.default_base_url) {
+        formCtx.instance.setFieldValue?.(['llm', 'base_url'], first.default_base_url);
+      }
+    }
+  }, [registry, loading, formCtx?.instance, providers]);
+
+  // Check if LLM config is from environment variables
+  // Masked API key format: "sk-abc****" (first 6 chars + ****)
+  const fromEnv = formCtx?.values?.llm?.from_env ?? false;
+  const currentApiKey = formCtx?.values?.llm?.api_key;
+  const hasEnvApiKey = fromEnv && currentApiKey && currentApiKey.endsWith('****');
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-teal-600" />
+        <span className="ml-2 text-muted-foreground">{t('llm.loading')}</span>
+      </div>
+    );
+  }
+
+  // Error state - backend unavailable
+  if (error || !registry) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+        <AlertCircle className="h-8 w-8 text-destructive" />
+        <p className="text-destructive font-medium">{error || t('llm.loadFailed')}</p>
+        <p className="text-sm text-muted-foreground">{t('llm.loadFailedDesc')}</p>
+      </div>
+    );
+  }
 
   return (
     <>
+      {fromEnv && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-teal-600/30 bg-teal-600/10 px-3 py-2 text-sm text-teal-700">
+          <Info className="h-4 w-4 flex-shrink-0" />
+          <span>{t('llm.fromEnvHint')}</span>
+        </div>
+      )}
+
       <Form.Item label={t('llm.providerLabel')} name={['llm', 'provider']} rules={[{ required: true, message: t('llm.providerRequired') }]}>
         <Form.Item noStyle shouldUpdate>
           {({
@@ -154,23 +176,26 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
             return (
               <div className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-3">
-                  {providers.map((provider) => (
-                    <button
-                      type="button"
-                      key={provider.id}
-                      onClick={() => applyProvider(provider.id)}
-                      className={cn(
-                        selectableStyle(activeProvider === provider.id),
-                        'flex min-h-[78px] flex-col justify-center px-4'
-                      )}
-                    >
-                      <div className="mb-1 flex items-center justify-center gap-2 text-lg font-semibold text-foreground">
-                        {iconNode(provider.icon)}
-                        {provider.display_name}
-                      </div>
-                      <p className="text-center text-xs text-muted-foreground">{provider.description}</p>
-                    </button>
-                  ))}
+                  {providers.map((provider) => {
+                    const i18n = getProviderI18n(provider.id);
+                    return (
+                      <button
+                        type="button"
+                        key={provider.id}
+                        onClick={() => applyProvider(provider.id)}
+                        className={cn(
+                          selectableStyle(activeProvider === provider.id),
+                          'flex min-h-[78px] flex-col justify-center px-4'
+                        )}
+                      >
+                        <div className="mb-1 flex items-center justify-center gap-2 text-lg font-semibold text-foreground">
+                          {iconNode(provider.icon)}
+                          {t(i18n.name)}
+                        </div>
+                        <p className="text-center text-xs text-muted-foreground">{t(i18n.desc)}</p>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {customProvider.enabled && (
@@ -188,7 +213,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
                   >
                     {iconNode(customProvider.icon)}
                     <span className="font-semibold">
-                      {customProvider.display_name || t('llm.customProviderAction')}
+                      {t('llm.providers.custom.name')}
                     </span>
                   </button>
                 )}
@@ -204,7 +229,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
           const activeMeta =
             activeProvider === 'custom'
               ? customProvider
-              : providers.find((provider) => provider.id === activeProvider) || providers[0];
+              : providers.find((provider) => provider.id === activeProvider);
           const modelConfig = fieldConfig(activeMeta, 'model', { visible: true, required: true });
           const apiKeyConfig = fieldConfig(activeMeta, 'api_key', { visible: true, required: true });
           const baseUrlConfig = fieldConfig(activeMeta, 'base_url', { visible: true, required: false });
@@ -212,7 +237,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
           const apiFormatConfig = fieldConfig(activeMeta, 'api_format', { visible: true, required: true });
           const shouldShowModel = modelConfig.visible;
           const shouldShowBaseUrl = baseUrlConfig.visible;
-          const optionalText = '（可选）';
+          const optionalText = t('llm.optional');
 
           return (
             <div className="mt-5 rounded-xl border border-border/80 bg-muted/20 p-4">
@@ -238,11 +263,28 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
 
               {apiKeyConfig.visible && (
                 <Form.Item
-                  label={`API Key${apiKeyConfig.required ? '' : optionalText}`}
+                  label="API Key"
                   name={['llm', 'api_key']}
-                  rules={apiKeyConfig.required ? [{ required: true, message: t('llm.apiKeyRequired') }] : undefined}
+                  rules={!hasEnvApiKey && apiKeyConfig.required ? [{ required: true, message: t('llm.apiKeyRequired') }] : undefined}
                 >
-                  <Input type="password" placeholder="sk-..." />
+                  <div className="relative">
+                    <Input
+                      type={hasEnvApiKey ? 'text' : (showApiKey ? 'text' : 'password')}
+                      placeholder="sk-..."
+                      readOnly={hasEnvApiKey}
+                      className={hasEnvApiKey ? 'pr-10 bg-muted/50' : 'pr-10'}
+                    />
+                    {!hasEnvApiKey && (
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        tabIndex={-1}
+                      >
+                        {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    )}
+                  </div>
                 </Form.Item>
               )}
 

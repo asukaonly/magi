@@ -1,84 +1,148 @@
 import React from 'react';
+import { useForm as useReactHookForm, type UseFormReturn } from 'react-hook-form';
+import { z } from 'zod';
 import { cn } from '@/lib/utils';
 
-const pathOf = (name: any): string[] => (Array.isArray(name) ? name : [name]);
-const getIn = (obj: any, path: any): any => pathOf(path).reduce((acc: any, key: string) => (acc == null ? acc : acc[key]), obj);
-const keyOf = (name: any): string => pathOf(name).join('.');
-const setIn = (obj: any, path: any, value: any): any => {
-  const next = structuredClone(obj || {});
-  const parts = pathOf(path);
-  let current = next;
-  parts.forEach((part: string, index: number) => {
-    if (index === parts.length - 1) {
-      current[part] = value;
+type NamePath = string | number | Array<string | number>;
+type Rule = { required?: boolean; message?: string };
+type RulesStore = Map<string, Rule[]>;
+
+const pathOf = (name: NamePath): Array<string | number> => (Array.isArray(name) ? name : [name]);
+const keyOf = (name: NamePath): string => pathOf(name).join('.');
+
+const getIn = (obj: any, path: NamePath): any =>
+  pathOf(path).reduce((acc: any, key: string | number) => (acc == null ? acc : acc[key]), obj);
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const mergeDeep = (base: Record<string, any>, patch: Record<string, any>): Record<string, any> => {
+  const next: Record<string, any> = { ...base };
+  Object.entries(patch).forEach(([key, value]) => {
+    if (isPlainObject(value) && isPlainObject(base[key])) {
+      next[key] = mergeDeep(base[key] as Record<string, any>, value);
       return;
     }
-    if (!current[part] || typeof current[part] !== 'object') current[part] = {};
-    current = current[part];
+    next[key] = value;
   });
   return next;
 };
 
-const createForm = () => {
-  let getStore = () => ({});
-  let setStore: any = () => undefined;
-  let setErrors: any = () => undefined;
-  const rules = new Map<string, any[]>();
-  return {
-    __bind: (getter: any, setter: any, errorSetter: any) => {
-      getStore = getter;
-      setStore = setter;
-      setErrors = errorSetter;
-    },
-    __registerRule: (name: any, list: any[]) => rules.set(pathOf(name).join('.'), list || []),
-    getFieldValue: (name: any) => getIn(getStore(), name),
-    setFieldValue: (name: any, value: any) => {
-      setStore((prev: any) => setIn(prev, name, value));
-      setErrors((prev: Record<string, string>) => {
-        const next = { ...(prev || {}) };
-        delete next[keyOf(name)];
-        return next;
-      });
-    },
-    setFieldsValue: (value: any) => setStore((prev: any) => ({ ...prev, ...value })),
-    getFieldsValue: () => getStore(),
-    validateFields: async () => {
-      const values = getStore();
-      const errorFields: Array<{ name: string; errors: string[] }> = [];
-      const nextErrors: Record<string, string> = {};
+const isEmptyValue = (value: unknown): boolean =>
+  value === undefined ||
+  value === null ||
+  value === '' ||
+  (Array.isArray(value) && value.length === 0);
+
+const flattenFieldErrors = (error: unknown, parent = ''): Record<string, string> => {
+  if (!isPlainObject(error)) {
+    return {};
+  }
+  const entries = Object.entries(error);
+  return entries.reduce((acc, [key, value]) => {
+    const nextKey = parent ? `${parent}.${key}` : key;
+    if (isPlainObject(value) && 'message' in value && typeof value.message === 'string') {
+      acc[nextKey] = value.message;
+      return acc;
+    }
+    Object.assign(acc, flattenFieldErrors(value, nextKey));
+    return acc;
+  }, {} as Record<string, string>);
+};
+
+const createSchemaFromRules = (rules: RulesStore): z.ZodTypeAny =>
+  z
+    .object({})
+    .passthrough()
+    .superRefine((values, ctx) => {
       for (const [key, list] of rules.entries()) {
-        const val = getIn(values, key.split('.'));
-        list.forEach((rule) => {
-          if (rule?.required && (val === undefined || val === null || val === '')) {
-            const message = rule.message || 'required';
-            errorFields.push({ name: key, errors: [message] });
-            if (!nextErrors[key]) {
-              nextErrors[key] = message;
-            }
-          }
-        });
+        const requiredRule = list?.find((rule) => rule?.required);
+        if (!requiredRule) continue;
+        const value = getIn(values, key.split('.'));
+        if (isEmptyValue(value)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: key.split('.'),
+            message: requiredRule.message || 'required',
+          });
+        }
       }
-      setErrors(nextErrors);
-      if (errorFields.length) throw { errorFields };
-      return values;
+    });
+
+const createForm = () => {
+  let methods: UseFormReturn<any> | null = null;
+  let onValuesChange: any = undefined;
+  const rules: RulesStore = new Map();
+
+  return {
+    __bind: (nextMethods: UseFormReturn<any>, valuesChangeCallback?: any) => {
+      methods = nextMethods;
+      onValuesChange = valuesChangeCallback;
+    },
+    __registerRule: (name: NamePath, list: Rule[]) => {
+      rules.set(keyOf(name), list || []);
+    },
+    getFieldValue: (name: NamePath) => methods?.getValues(keyOf(name) as any),
+    setFieldValue: (name: NamePath, value: any) => {
+      if (!methods) return;
+      methods.setValue(keyOf(name) as any, value, {
+        shouldTouch: true,
+        shouldDirty: true,
+        shouldValidate: false,
+      });
+      methods.clearErrors(keyOf(name) as any);
+      onValuesChange?.({}, methods.getValues());
+    },
+    setFieldsValue: (value: Record<string, any>) => {
+      if (!methods) return;
+      const merged = mergeDeep(methods.getValues() || {}, value || {});
+      methods.reset(merged, { keepErrors: true });
+    },
+    getFieldsValue: () => methods?.getValues() || {},
+    validateFields: async () => {
+      if (!methods) return {};
+      const values = methods.getValues();
+      const parsed = createSchemaFromRules(rules).safeParse(values);
+      methods.clearErrors();
+      if (!parsed.success) {
+        const errorFields: Array<{ name: string; errors: string[] }> = [];
+        parsed.error.issues.forEach((issue) => {
+          const path = issue.path.join('.');
+          errorFields.push({ name: path, errors: [issue.message] });
+          methods?.setError(path as any, { type: 'manual', message: issue.message });
+        });
+        throw { errorFields };
+      }
+      return parsed.data;
     },
   };
 };
 
-const FormContext = React.createContext<any>(null);
+const FormContext = React.createContext<{
+  instance: any;
+  values: any;
+  errors: Record<string, string>;
+  onValuesChange?: any;
+} | null>(null);
 
 const FormBase = ({ form, initialValues, onValuesChange, children }: any) => {
-  const [values, setValues] = React.useState(initialValues || {});
-  const [errors, setErrors] = React.useState<Record<string, string>>({});
   const instance = React.useMemo(() => form || createForm(), [form]);
-  const valuesRef = React.useRef(values);
-  valuesRef.current = values;
-
-  instance.__bind(() => valuesRef.current, setValues, setErrors);
+  const methods = useReactHookForm({
+    defaultValues: initialValues || {},
+    mode: 'onSubmit',
+  });
+  const values = methods.watch();
+  const errors = React.useMemo(() => flattenFieldErrors(methods.formState.errors), [methods.formState.errors]);
 
   React.useEffect(() => {
-    if (initialValues) setValues(initialValues);
-  }, [initialValues]);
+    instance.__bind(methods, onValuesChange);
+  }, [instance, methods, onValuesChange]);
+
+  React.useEffect(() => {
+    if (initialValues) {
+      methods.reset(initialValues);
+    }
+  }, [initialValues, methods]);
 
   return <FormContext.Provider value={{ instance, values, errors, onValuesChange }}>{children}</FormContext.Provider>;
 };
@@ -86,34 +150,99 @@ const FormBase = ({ form, initialValues, onValuesChange, children }: any) => {
 const FormItem = ({ label, name, valuePropName = 'value', rules, noStyle, children }: any) => {
   const ctx = React.useContext(FormContext);
   if (!ctx) return <>{children}</>;
-  const { instance, values, errors, onValuesChange } = ctx;
+  const { instance, values, errors } = ctx;
 
-  if (name) instance.__registerRule(name, rules);
+  React.useEffect(() => {
+    if (name) {
+      instance.__registerRule(name, rules);
+    }
+  }, [instance, name, rules]);
+
   if (typeof children === 'function') {
     return <>{children({ getFieldValue: instance.getFieldValue, setFieldValue: instance.setFieldValue })}</>;
   }
-  if (noStyle || !name) return <>{children}</>;
 
-  const fieldKey = keyOf(name);
-  const errorText = errors?.[fieldKey];
-  const value = getIn(values, name);
+  const fieldKey = name ? keyOf(name) : null;
+  const errorText = fieldKey ? errors?.[fieldKey] : undefined;
+  const value = name ? getIn(values, name) : undefined;
   const normalizedValue = valuePropName === 'value' && value === null ? '' : value;
-  const node = React.Children.only(children);
+
+  const injectValueBinding = (node: React.ReactElement): React.ReactElement =>
+    React.cloneElement(node, {
+      className: cn(node.props?.className, errorText && 'border-destructive focus-visible:ring-destructive'),
+      [valuePropName]: normalizedValue,
+      onChange: (event: any) => {
+        const next =
+          valuePropName === 'checked'
+            ? event?.target
+              ? event.target.checked
+              : event
+            : event?.target
+              ? event.target.value
+              : event;
+        instance.setFieldValue(name, next);
+        node.props?.onChange?.(event);
+      },
+    });
+
+  const processChildren = (childrenNode: React.ReactNode): React.ReactNode => {
+    if (!name) return childrenNode;
+
+    if (React.isValidElement(childrenNode)) {
+      const childType = (childrenNode as React.ReactElement).type;
+
+      if (typeof childType === 'function' || typeof childType === 'object') {
+        const typeName = (childType as any)?.displayName || (childType as any)?.name || '';
+        if (typeName === 'Input' || typeName === 'Select' || typeName === 'Textarea' || typeName.endsWith('Field')) {
+          return injectValueBinding(childrenNode as React.ReactElement);
+        }
+      }
+
+      if (childType === 'input' || childType === 'textarea' || childType === 'select') {
+        return injectValueBinding(childrenNode as React.ReactElement);
+      }
+
+      const props = (childrenNode as React.ReactElement).props;
+      if (props?.children) {
+        return React.cloneElement(childrenNode as React.ReactElement, {
+          children: processChildren(props.children),
+        });
+      }
+    }
+
+    if (Array.isArray(childrenNode)) {
+      let found = false;
+      return React.Children.map(childrenNode, (child) => {
+        if (found || !React.isValidElement(child)) return child;
+        const result = processChildren(child);
+        if (result !== child) found = true;
+        return result;
+      });
+    }
+
+    return childrenNode;
+  };
+
+  if (!name) {
+    if (noStyle || !label) return <>{children}</>;
+    return (
+      <div className="space-y-2">
+        {label ? <label className={cn('text-sm font-medium')}>{label}</label> : null}
+        {children}
+      </div>
+    );
+  }
+
+  const processedChildren = processChildren(children);
+
+  if (noStyle) {
+    return <>{processedChildren}</>;
+  }
+
   return (
     <div className="space-y-2">
       {label ? <label className={cn('text-sm font-medium', errorText && 'text-destructive')}>{label}</label> : null}
-      {React.cloneElement(node as React.ReactElement, {
-        className: cn((node as React.ReactElement<any>).props?.className, errorText && 'border-destructive focus-visible:ring-destructive'),
-        [valuePropName]: normalizedValue,
-        onChange: (event: any) => {
-          const next = valuePropName === 'checked'
-            ? event?.target ? event.target.checked : event
-            : event?.target ? event.target.value : event;
-          const nextValues = setIn(values, name, next);
-          instance.setFieldValue(name, next);
-          onValuesChange?.({}, nextValues);
-        },
-      })}
+      {processedChildren}
       {errorText ? <p className="text-xs text-destructive">{errorText}</p> : null}
     </div>
   );
@@ -128,3 +257,4 @@ const useForm = () => {
 };
 
 export const SimpleForm: any = Object.assign(FormBase, { Item: FormItem, useForm });
+export { FormContext };

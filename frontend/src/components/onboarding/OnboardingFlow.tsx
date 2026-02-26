@@ -3,7 +3,6 @@ import { SimpleForm as Form } from './simple-form';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
 import { configApi } from '../../api/modules/config';
 import type { SystemConfig } from '../../api/modules/config';
@@ -21,11 +20,6 @@ type Mode = 'quick' | 'expert' | null;
 
 const STORAGE_KEY = 'magi_onboarding_state';
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
-const toPreferenceLanguage = (language?: string): 'en' | 'zh' => (language === 'en' ? 'en' : 'zh');
-const browserPreferredLanguage = (): 'en' | 'zh' => {
-  const language = typeof navigator !== 'undefined' ? navigator.language.toLowerCase() : 'en';
-  return language.startsWith('zh') ? 'zh' : 'en';
-};
 
 interface OnboardingFlowProps {
   initialConfig: SystemConfig;
@@ -43,19 +37,17 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
 
   useEffect(() => {
-    const savedLanguage = localStorage.getItem('magi_language') || undefined;
-    const baseLanguage = savedLanguage || browserPreferredLanguage();
-    const configuredLanguage = toI18nLanguage(baseLanguage);
-    const formLanguage = toPreferenceLanguage(baseLanguage);
+    // Set initial i18n language based on form value (already set in OnboardingPage)
+    const formLanguage = initialConfig.preferences?.language || 'zh';
+    const configuredLanguage = toI18nLanguage(formLanguage);
 
     document.documentElement.lang = configuredLanguage;
     setRenderLanguage(configuredLanguage);
-    form.setFieldValue(['preferences', 'language'], formLanguage);
 
     if ((i18n.resolvedLanguage || i18n.language) !== configuredLanguage) {
       void i18n.changeLanguage(configuredLanguage);
     }
-  }, [form, i18n, initialConfig.preferences.language]);
+  }, [i18n, initialConfig.preferences?.language]);
 
   const steps = useMemo(() => {
     const shared = [t('steps.language'), t('steps.mode'), t('steps.llm'), t('steps.personality')];
@@ -78,7 +70,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         setCurrent(parsed.current);
       }
       if (parsed.values) {
-        form.setFieldsValue(parsed.values);
+        // Restore cached values, but prefer localStorage language setting
+        const savedLanguage = localStorage.getItem('magi_language');
+        const mergedValues = {
+          ...parsed.values,
+          preferences: {
+            ...parsed.values?.preferences,
+            language: savedLanguage || parsed.values?.preferences?.language,
+          },
+        };
+        form.setFieldsValue(mergedValues);
       }
     } catch {
       // Ignore invalid cached state.
@@ -110,7 +111,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       localStorage.setItem('magi_language', nextLanguage);
       document.documentElement.lang = mapped;
       if (debugI18n) {
-        // Optional debug for local reproduction: set localStorage.magi_i18n_debug=1
         console.info('[onboarding:i18n] onValuesChange', {
           raw: nextLanguage,
           mapped,
@@ -134,7 +134,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       i18n.off('languageChanged', handleLanguageChanged);
     };
   }, [debugI18n, i18n]);
-
   useEffect(() => {
     const handleLanguageChanged = (lng: string) => {
       setRenderLanguage(lng);
@@ -179,8 +178,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       return;
     }
 
-    if (current === 1 && !mode) {
-      toast.warning(t('messages.chooseModeFirst'));
+    if (current === 1) {
+      if (!mode) {
+        toast.warning(t('messages.chooseModeFirst'));
+        return;
+      }
+      setSaving(true);
+      try {
+        saveProgress(form.getFieldsValue(true));
+        setCurrent(2);
+      } finally {
+        setSaving(false);
+      }
       return;
     }
 
@@ -225,7 +234,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
 
     if (!mode) {
-      return <Card>{t('messages.chooseModeFirst')}</Card>;
+      return <div className="text-muted-foreground">{t('messages.chooseModeFirst')}</div>;
     }
 
     const quickMode = mode === 'quick';
@@ -247,51 +256,48 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   };
 
   return (
-    <Card className="overflow-hidden border-border/70 bg-gradient-to-b from-background to-muted/20">
-      <CardContent className="space-y-5 p-4 md:p-6">
-        <div className="relative overflow-hidden rounded-xl border border-border/70 bg-background/80 p-4">
-          <div className="pointer-events-none absolute -top-8 -right-6 h-24 w-24 rounded-full bg-teal-500/10 blur-2xl" />
-          <div className="pointer-events-none absolute -bottom-8 -left-6 h-20 w-20 rounded-full bg-cyan-500/10 blur-2xl" />
-          <div className="relative flex flex-wrap items-center justify-between gap-2">
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">{t('hero.title')}</p>
-              <p className="text-xs text-muted-foreground">{t('hero.subtitle')}</p>
+    <div className="rounded-xl border border-border/70 bg-background shadow-sm">
+      <div className="flex min-h-[520px]">
+        {/* Left sidebar - Step indicator */}
+        <div className="w-44 shrink-0 border-r border-border/70 bg-muted/20 px-5 py-6">
+          <StepIndicator steps={steps} current={current} />
+        </div>
+
+        {/* Right content area */}
+        <div className="flex flex-1 flex-col">
+          <Form
+            form={form}
+            layout="vertical"
+            initialValues={initialConfig}
+            onValuesChange={onValuesChange}
+          >
+            <div className="flex-1 p-6">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`${renderLanguage}-${mode ?? 'none'}-${current}`}
+                  initial={{ opacity: 0, x: 24 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -24 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                >
+                  {renderStepContent()}
+                </motion.div>
+              </AnimatePresence>
             </div>
-            <div className="rounded-full border border-teal-600/30 bg-teal-600/10 px-3 py-1 text-xs text-teal-700">
-              {mode === 'expert' ? t('hero.expertMode') : mode === 'quick' ? t('hero.quickMode') : t('hero.selectMode')}
-            </div>
+          </Form>
+
+          {/* Footer buttons */}
+          <div className="flex items-center justify-between gap-3 border-t border-border/70 px-6 py-4">
+            <Button variant="outline" onClick={handlePrev} disabled={current === 0}>
+              {t('actions.previous')}
+            </Button>
+            <Button onClick={handleNext} disabled={saving}>
+              {saving ? t('actions.saving') : isLastStep ? t('actions.finish') : t('actions.next')}
+            </Button>
           </div>
         </div>
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={initialConfig}
-          onValuesChange={onValuesChange}
-        >
-          <StepIndicator steps={steps} current={current} />
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={`${renderLanguage}-${mode ?? 'none'}-${current}`}
-              initial={{ opacity: 0, x: 24 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -24 }}
-              transition={{ duration: 0.22, ease: 'easeOut' }}
-            >
-              {renderStepContent()}
-            </motion.div>
-          </AnimatePresence>
-        </Form>
-
-        <div className="flex items-center gap-2 border-t border-border/70 pt-4">
-          <Button variant="outline" onClick={handlePrev} disabled={current === 0}>
-            {t('actions.previous')}
-          </Button>
-          <Button onClick={handleNext} disabled={saving}>
-            {saving ? t('actions.saving') : isLastStep ? t('actions.finish') : t('actions.next')}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 };
 

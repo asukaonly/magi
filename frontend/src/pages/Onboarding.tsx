@@ -2,8 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig } from '../api/modules/config';
+import { configApi, DEFAULT_SYSTEM_CONFIG, type LanguageCode, SystemConfig } from '../api/modules/config';
 import OnboardingFlow from '../components/onboarding/OnboardingFlow';
+
+const STORAGE_KEY = 'magi_onboarding_state';
+const LANGUAGE_KEY = 'magi_language';
+
+// Detect browser language preference
+const browserPreferredLanguage = (): 'en' | 'zh' => {
+  const language = typeof navigator !== 'undefined' ? navigator.language.toLowerCase() : 'en';
+  return language.startsWith('zh') ? 'zh' : 'en';
+};
 
 const OnboardingPage: React.FC = () => {
   const [config, setConfig] = useState<SystemConfig | null>(null);
@@ -13,10 +22,27 @@ const OnboardingPage: React.FC = () => {
     const load = async () => {
       try {
         const response = await configApi.getOnboardingTemplate();
-        const template = response.data?.config || DEFAULT_SYSTEM_CONFIG;
-        if (template.llm?.api_key === '***') {
-          template.llm.api_key = '';
+        let template = response.data?.config || DEFAULT_SYSTEM_CONFIG;
+
+        // If LLM config is from env, clear cache to ensure fresh state
+        if (template.llm?.from_env) {
+          localStorage.removeItem(STORAGE_KEY);
         }
+
+        // Merge saved language preference
+        const savedLanguage = localStorage.getItem(LANGUAGE_KEY);
+        const language: LanguageCode = savedLanguage === 'en' || savedLanguage === 'zh'
+          ? savedLanguage
+          : browserPreferredLanguage();
+
+        template = {
+          ...template,
+          preferences: {
+            ...template.preferences,
+            language,
+          },
+        };
+
         setConfig(template);
       } catch (error: any) {
         toast.error(error?.message || t('page.loadConfigFailed'));
@@ -24,7 +50,7 @@ const OnboardingPage: React.FC = () => {
       }
     };
     void load();
-  }, []);
+  }, [t]);
 
   if (!config) {
     return (
@@ -35,16 +61,10 @@ const OnboardingPage: React.FC = () => {
   }
 
   return (
-    <div className="relative mx-auto max-w-4xl px-4 py-8">
-      <div className="pointer-events-none absolute top-0 right-4 h-28 w-28 rounded-full bg-teal-500/10 blur-3xl" />
-      <div className="pointer-events-none absolute top-24 left-0 h-24 w-24 rounded-full bg-cyan-500/10 blur-3xl" />
-      <div className="relative mb-4 flex items-end justify-between gap-3">
-        <h2 className="text-2xl font-semibold">{t('page.title')}</h2>
-        <span className="rounded-full border border-border bg-background/80 px-3 py-1 text-xs text-muted-foreground">
-          {t('page.badge')}
-        </span>
+    <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 p-6">
+      <div className="mx-auto max-w-4xl">
+        <OnboardingFlow initialConfig={config} />
       </div>
-      <OnboardingFlow initialConfig={config} />
     </div>
   );
 };
