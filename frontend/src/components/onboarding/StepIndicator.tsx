@@ -8,52 +8,52 @@ interface StepIndicatorProps {
 }
 
 export const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, current }) => {
-  const progress = steps.length > 1 ? (current / (steps.length - 1)) * 100 : 100;
-
   return (
-    <div className="mb-6 rounded-xl border border-border/80 bg-muted/20 p-3">
-      <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-muted/70">
-        <div
-          className="h-full rounded-full bg-teal-600 transition-all duration-300"
-          style={{ width: `${Math.max(0, Math.min(progress, 100))}%` }}
-        />
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {steps.map((title, index) => {
-          const done = index < current;
-          const active = index === current;
-          return (
-            <div
-              key={`${title}-${index}`}
-              className={cn(
-                'inline-flex min-w-fit items-center gap-2 rounded-full border px-3 py-1.5',
-                done && 'border-teal-600/20 bg-teal-600/10',
-                active && 'border-teal-600/40 bg-teal-600/10',
-                !done && !active && 'border-border/80 bg-background'
-              )}
-            >
+    <div className="flex flex-col gap-1">
+      {steps.map((title, index) => {
+        const done = index < current;
+        const active = index === current;
+        const isLast = index === steps.length - 1;
+
+        return (
+          <div key={`${title}-${index}`} className="flex items-stretch">
+            {/* Left: number circle + connector line */}
+            <div className="flex flex-col items-center">
               <div
                 className={cn(
-                  'flex h-5 w-5 items-center justify-center rounded-full border text-[11px]',
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-sm font-medium transition-colors',
                   done && 'border-teal-600 bg-teal-600 text-white',
-                  active && 'border-teal-600 text-teal-700',
-                  !done && !active && 'border-muted-foreground/40 text-muted-foreground'
+                  active && 'border-teal-600 bg-background text-teal-600',
+                  !done && !active && 'border-border bg-background text-muted-foreground'
                 )}
               >
-                {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
+                {done ? <Check className="h-4 w-4" /> : index + 1}
               </div>
+              {/* Connector line */}
+              {!isLast && (
+                <div
+                  className={cn(
+                    'my-1 w-0.5 flex-1 min-h-4',
+                    done ? 'bg-teal-600' : 'bg-border'
+                  )}
+                />
+              )}
+            </div>
+
+            {/* Right: step title */}
+            <div className="ml-3 pb-4">
               <span
                 className={cn(
-                  'text-xs whitespace-nowrap',
-                  active ? 'font-medium text-foreground' : 'text-muted-foreground'
+                  'text-sm leading-8',
+                  active ? 'font-medium text-foreground' : done ? 'text-muted-foreground' : 'text-muted-foreground/60'
                 )}
               >
                 {title}
               </span>
             </div>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })}
     </div>
   );
 };

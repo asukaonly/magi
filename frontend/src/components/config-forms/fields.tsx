@@ -1,4 +1,6 @@
 import { cn } from '@/lib/utils';
+import { Check, ChevronDown } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
 
 interface OptionItem {
   label: string;
@@ -22,26 +24,72 @@ export function SelectField({
   allowEmpty?: boolean;
   className?: string;
 }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selectedOption = options.find((opt) => opt.value === value);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelect = (optValue: string) => {
+    onChange?.(optValue);
+    setOpen(false);
+  };
+
   return (
-    <select
-      className={cn(
-        'h-10 w-full rounded-md border border-input bg-background px-3 text-sm',
-        disabled && 'cursor-not-allowed opacity-50',
-        className
+    <div ref={ref} className={cn('relative', className)}>
+      <button
+        type="button"
+        onClick={() => !disabled && setOpen(!open)}
+        disabled={disabled}
+        className={cn(
+          'flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/60',
+          disabled && 'cursor-not-allowed opacity-50',
+          !selectedOption && 'text-muted-foreground'
+        )}
+      >
+        <span>{selectedOption?.label || placeholder}</span>
+        <ChevronDown className="h-4 w-4 opacity-50" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border border-border bg-background shadow-md">
+          {allowEmpty && (
+            <button
+              type="button"
+              onClick={() => handleSelect('')}
+              className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/50"
+            >
+              <span className="text-muted-foreground">{placeholder}</span>
+              {!value && <Check className="h-4 w-4 text-teal-600" />}
+            </button>
+          )}
+          {options.map((opt) => (
+            <button
+              type="button"
+              key={opt.value}
+              onClick={() => handleSelect(opt.value)}
+              className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/50"
+            >
+              <span>{opt.label}</span>
+              {value === opt.value && <Check className="h-4 w-4 text-teal-600" />}
+            </button>
+          ))}
+        </div>
       )}
-      value={value ?? ''}
-      onChange={(event) => onChange?.(event.target.value)}
-      disabled={disabled}
-    >
-      {allowEmpty ? <option value="">{placeholder}</option> : null}
-      {options.map((item) => (
-        <option key={item.value} value={item.value}>
-          {item.label}
-        </option>
-      ))}
-    </select>
+    </div>
   );
 }
+
+SelectField.displayName = 'Select';
 
 export function SwitchField({
   checked,

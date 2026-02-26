@@ -30,6 +30,7 @@
   },
   "language": {
     "label": "Interface Language",
+    "description": "Choose your preferred interface language",
     "required": "Please choose a language",
     "zhHans": "Chinese (Simplified)",
     "en": "English"
@@ -52,10 +53,26 @@
   "llm": {
     "providerLabel": "Model Provider",
     "providerRequired": "Please select a model provider",
-    "providerDesc": {
-      "openai": "Best ecosystem with strong general capability",
-      "anthropic": "Stable for long context and reasoning-heavy tasks",
-      "glm": "Friendly experience for Chinese-first scenarios"
+    "loading": "Loading...",
+    "loadFailed": "Failed to load configuration",
+    "loadFailedDesc": "Unable to fetch model provider config. Please check if the backend service is running.",
+    "providers": {
+      "openai": {
+        "name": "OpenAI",
+        "desc": "Best ecosystem with strong general capability"
+      },
+      "anthropic": {
+        "name": "Anthropic",
+        "desc": "Stable for long context and reasoning-heavy tasks"
+      },
+      "glm": {
+        "name": "GLM",
+        "desc": "Friendly experience for Chinese-first scenarios"
+      },
+      "custom": {
+        "name": "Custom Provider",
+        "desc": "Connect OpenAI/Anthropic compatible or custom format services"
+      }
     },
     "customProviderAction": "Add Custom Provider",
     "modelLabel": "Model Name",
@@ -69,6 +86,8 @@
     "baseUrlRequired": "Please enter Base URL",
     "showAdvanced": "Show optional settings",
     "hideAdvanced": "Hide optional settings",
+    "fromEnvHint": "Configuration loaded from environment variables",
+    "optional": "(Optional)",
     "apiFormatOptions": {
       "openai": "OpenAI Compatible",
       "anthropic": "Anthropic Compatible",

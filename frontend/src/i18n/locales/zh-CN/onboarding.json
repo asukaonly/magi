@@ -30,6 +30,7 @@
   },
   "language": {
     "label": "界面语言",
+    "description": "选择你偏好的界面语言",
     "required": "请选择语言",
     "zhHans": "中文（简体）",
     "en": "English"
@@ -52,10 +53,26 @@
   "llm": {
     "providerLabel": "模型提供商",
     "providerRequired": "请选择模型提供商",
-    "providerDesc": {
-      "openai": "通用能力强，生态最完善",
-      "anthropic": "长文本与复杂推理表现稳定",
-      "glm": "本地中文场景体验更友好"
+    "loading": "加载中...",
+    "loadFailed": "加载配置失败",
+    "loadFailedDesc": "无法获取模型提供商配置，请检查后端服务是否正常运行",
+    "providers": {
+      "openai": {
+        "name": "OpenAI",
+        "desc": "通用能力强，生态最完善"
+      },
+      "anthropic": {
+        "name": "Anthropic",
+        "desc": "长文本与复杂推理表现稳定"
+      },
+      "glm": {
+        "name": "GLM",
+        "desc": "本地中文场景体验更友好"
+      },
+      "custom": {
+        "name": "自定义 Provider",
+        "desc": "接入兼容 OpenAI/Anthropic 或自定义格式的服务"
+      }
     },
     "customProviderAction": "添加自定义 Provider",
     "modelLabel": "模型名称",
@@ -69,6 +86,8 @@
     "baseUrlRequired": "请输入 Base URL",
     "showAdvanced": "显示可选配置",
     "hideAdvanced": "收起可选配置",
+    "fromEnvHint": "已读取环境变量配置",
+    "optional": "（可选）",
     "apiFormatOptions": {
       "openai": "OpenAI 兼容",
       "anthropic": "Anthropic 兼容",

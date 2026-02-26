@@ -1,17 +1,16 @@
 providers:
   - id: openai
-    display_name: OpenAI
-    description: 通用能力强，生态最完善
     icon: sparkles
-    default_model: gpt-4o-mini
+    default_model: gpt-5.2
     default_base_url: https://api.openai.com/v1
     model_options:
-      - gpt-4o-mini
-      - gpt-4.1
+      - gpt-5
+      - gpt-5.2
       - o3
+      - o4-mini
     fields:
       model:
-        visible: false
+        visible: true
         required: false
       api_key:
         visible: true
@@ -20,18 +19,16 @@ providers:
         visible: true
         required: false
   - id: anthropic
-    display_name: Anthropic
-    description: 长文本与复杂推理表现稳定
     icon: brain
-    default_model: claude-3-5-sonnet
+    default_model: claude-opus-4-6
     default_base_url: https://api.anthropic.com/v1
     model_options:
-      - claude-3-5-sonnet
-      - claude-3-7-sonnet
-      - claude-opus-4-1
+      - claude-sonnet-4-6
+      - claude-opus-4-6
+      - claude-haiku-4-5
     fields:
       model:
-        visible: false
+        visible: true
         required: false
       api_key:
         visible: true
@@ -40,18 +37,18 @@ providers:
         visible: true
         required: false
   - id: glm
-    display_name: GLM
-    description: 本地中文场景体验更友好
     icon: zap
-    default_model: glm-4.5
+    default_model: glm-4.7
     default_base_url: https://open.bigmodel.cn/api/paas/v4
     model_options:
-      - glm-4.5
-      - glm-4.5-air
-      - glm-4.5-flash
+      - glm-5
+      - glm-4.7
+      - glm-4.7-flash
+      - glm-4.7-flashx
+      - glm-4.6
     fields:
       model:
-        visible: false
+        visible: true
         required: false
       api_key:
         visible: true
@@ -61,8 +58,6 @@ providers:
         required: false
 custom_provider:
   enabled: true
-  display_name: 自定义 Provider
-  description: 接入兼容 OpenAI/Anthropic 或自定义格式的服务
   icon: wand
   fields:
     custom_name:

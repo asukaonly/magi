@@ -28,6 +28,7 @@ class LLMConfigModel(BaseModel):
     base_url: Optional[str] = Field(default=None)
     custom_name: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default=None)
+    from_env: bool = Field(default=False)
 
 
 class LoopConfigModel(BaseModel):
@@ -160,8 +161,6 @@ class LLMProviderFieldModel(BaseModel):
 
 class LLMProviderMetaModel(BaseModel):
     id: str
-    display_name: str
-    description: str = Field(default="")
     icon: Optional[str] = Field(default=None)
     default_model: Optional[str] = Field(default=None)
     default_base_url: Optional[str] = Field(default=None)
@@ -171,8 +170,6 @@ class LLMProviderMetaModel(BaseModel):
 
 class LLMCustomProviderMetaModel(BaseModel):
     enabled: bool = Field(default=True)
-    display_name: str = Field(default="Custom Provider")
-    description: str = Field(default="")
     icon: Optional[str] = Field(default=None)
     fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
 
@@ -443,17 +440,49 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     return updates
 
 
+def _mask_api_key(api_key: str) -> str:
+    """Mask API key, showing only first few characters."""
+    if not api_key:
+        return ""
+    # Show first 6 characters (e.g., "sk-abc") followed by "****"
+    visible_chars = 6
+    if len(api_key) <= visible_chars:
+        return api_key[:3] + "***" if len(api_key) > 3 else "***"
+    return api_key[:visible_chars] + "****"
+
+
 def _build_onboarding_template() -> SystemConfigModel:
     template = SystemConfigModel()
     registry = _load_llm_provider_registry()
-    if registry.providers:
+
+    # Check for environment variable configuration
+    env_provider = os.getenv("LLM_PROVIDER")
+    env_model = os.getenv("LLM_MODEL")
+    env_api_key = os.getenv("LLM_API_KEY")
+    env_base_url = os.getenv("LLM_BASE_URL")
+
+    from_env = bool(env_provider or env_model or env_api_key or env_base_url)
+
+    if from_env:
+        # Use environment variables
+        if env_provider:
+            template.llm.provider = env_provider.lower()
+        if env_model:
+            template.llm.model = env_model
+        if env_api_key:
+            template.llm.api_key = _mask_api_key(env_api_key)
+        if env_base_url:
+            template.llm.base_url = env_base_url
+        template.llm.from_env = True
+    elif registry.providers:
         primary = registry.providers[0]
         template.llm.provider = primary.id
         if primary.default_model:
             template.llm.model = primary.default_model
         if primary.default_base_url:
             template.llm.base_url = primary.default_base_url
-    template.llm.api_key = None
+        template.llm.from_env = False
+
     template.preferences.onboarding_completed = False
     template.preferences.user_mode = None
     return template

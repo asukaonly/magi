@@ -21,6 +21,7 @@ export interface LLMConfig {
   base_url?: string;
   custom_name?: string;
   api_format?: ApiFormat;
+  from_env?: boolean;
 }
 
 export interface LLMProviderFieldConfig {
@@ -32,8 +33,6 @@ export interface LLMProviderFieldConfig {
 
 export interface LLMProviderMeta {
   id: string;
-  display_name: string;
-  description: string;
   icon?: string;
   default_model?: string;
   default_base_url?: string;
@@ -43,8 +42,6 @@ export interface LLMProviderMeta {
 
 export interface LLMCustomProviderMeta {
   enabled: boolean;
-  display_name: string;
-  description: string;
   icon?: string;
   fields?: Record<string, LLMProviderFieldConfig>;
 }
