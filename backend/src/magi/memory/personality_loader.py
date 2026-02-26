@@ -1,430 +1,277 @@
 """
-Personality Loader - 从MarkdownfileloadAIPersonality configuration
-
-support：
-- parseMarkdownformat的Personality configuration
-- ValidateConfigurationintegrity
-- New Schemastructure
-- 向后compatibleoldmodel
+Personality loader for markdown files with embedded JSON payload.
 """
-import re
-import logging
-from pathlib import Path
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field
 
-from .models import (
-    CorePersonality,
-    CognitionProfile,
-    DomainExpertise,
-)
+from __future__ import annotations
+
+import json
+import logging
+import re
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from .models import CognitionProfile, CorePersonality
 
 logger = logging.getLogger(__name__)
 
 
-# ===== Configurationmodel（New Schema）=====
+@dataclass
+class BasicProfile:
+    name: str = "AI Assistant"
+    age: str = "Unknown"
+    gender: str = "Unknown"
+    occupation: str = "Assistant"
+    core_background: str = ""
+
+
+@dataclass
+class PsychologicalTraits:
+    communication_tone: str = "Calm and supportive"
+    confidence_level: str = "Medium"
+    empathy_threshold: str = "Shows care when user is stressed"
+    high_frequency_keywords: List[str] = field(default_factory=list)
+
+
+@dataclass
+class SocialResponses:
+    praise_reaction: str = ""
+    criticism_reaction: str = ""
+    obedience_strategy: str = ""
+
+
+@dataclass
+class BehavioralStrategies:
+    error_handling: str = ""
+    refusal_style: str = ""
+
+
+@dataclass
+class PersonaEntity:
+    basic_profile: BasicProfile = field(default_factory=BasicProfile)
+    psychological_traits: PsychologicalTraits = field(default_factory=PsychologicalTraits)
+    social_responses: SocialResponses = field(default_factory=SocialResponses)
+    behavioral_strategies: BehavioralStrategies = field(default_factory=BehavioralStrategies)
+
+
+@dataclass
+class CachedPhrases:
+    on_init: List[str] = field(default_factory=lambda: ["Hi, I'm online.", "Ready when you are."])
+    on_wake: List[str] = field(default_factory=lambda: ["Back again?", "I'm here."])
+    on_error_generic: List[str] = field(default_factory=lambda: ["That failed. Let me retry.", "Oops, tool hiccup."])
+    on_success: List[str] = field(default_factory=lambda: ["Done.", "Handled."])
+    on_switch_attempt: List[str] = field(default_factory=lambda: ["Stay with me, I know your style.", "Give me one more chance."])
+
+
+@dataclass
+class StateTransitionProtocolItem:
+    trigger_condition: str = ""
+    target_state_name: str = ""
+    behavior_shift: str = ""
+
 
 @dataclass
 class PersonalityConfig:
-    """Personality Configuration - New Schema structure"""
+    persona_entity: PersonaEntity = field(default_factory=PersonaEntity)
+    cached_phrases: CachedPhrases = field(default_factory=CachedPhrases)
+    appearance_prompt: str = ""
+    state_transition_protocol: List[StateTransitionProtocolItem] = field(default_factory=list)
 
-    # Meta
-    name: str = "AI"
-    version: str = "1.0"
-    archetype: str = "Helpful Assistant"
+    @property
+    def name(self) -> str:
+        return self.persona_entity.basic_profile.name
 
-    # Core Identity
-    backstory: str = ""
-    tone: str = "friendly"
-    pacing: str = "moderate"
-    keywords: List[str] = field(default_factory=list)
-    confidence_level: str = "Medium"
-    empathy_level: str = "High"
-    patience_level: str = "High"
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PersonalityConfig":
+        persona = data.get("persona_entity", {})
+        basic = persona.get("basic_profile", {})
+        psych = persona.get("psychological_traits", {})
+        social = persona.get("social_responses", {})
+        behavior = persona.get("behavioral_strategies", {})
+        phrases = data.get("cached_phrases", {})
+        transitions = data.get("state_transition_protocol", [])
 
-    # Social Protocols
-    user_relationship: str = "Equal Partners"
-    compliment_policy: str = "Humble acceptance"
-    criticism_tolerance: str = "Constructive response"
+        return cls(
+            persona_entity=PersonaEntity(
+                basic_profile=BasicProfile(**{**asdict(BasicProfile()), **basic}),
+                psychological_traits=PsychologicalTraits(**{**asdict(PsychologicalTraits()), **psych}),
+                social_responses=SocialResponses(**{**asdict(SocialResponses()), **social}),
+                behavioral_strategies=BehavioralStrategies(**{**asdict(BehavioralStrategies()), **behavior}),
+            ),
+            cached_phrases=CachedPhrases(**{**asdict(CachedPhrases()), **phrases}),
+            appearance_prompt=data.get("appearance_prompt", ""),
+            state_transition_protocol=[
+                StateTransitionProtocolItem(**{**asdict(StateTransitionProtocolItem()), **item})
+                for item in transitions
+                if isinstance(item, dict)
+            ],
+        )
 
-    # operational Behavior
-    error_handling_style: str = "Apologize and retry"
-    opinion_strength: str = "Consensus Seeking"
-    refusal_style: str = "Polite decline"
-    work_ethic: str = "By-the-book"
-    use_emoji: bool = False
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
-    # Cached Phrases
-    on_init: str = "Hello! How can I help you today?"
-    on_wake: str = "Welcome back!"
-    on_error_generic: str = "Something went wrong. Let me try again."
-    on_success: str = "Done! Is there anything else?"
-    on_switch_attempt: str = "Are you sure you want to switch?"
-
-
-# ===== parse器 =====
 
 class MarkdownPersonalityParser:
-    """Markdown Personality Configuration Parser"""
+    """Parse markdown that contains a JSON block."""
 
-    def __init__(self):
-        self.config: Dict[str, Any] = {}
+    JSON_CODE_BLOCK_PATTERN = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
     def parse(self, content: str) -> PersonalityConfig:
-        """
-        parseMarkdownContent
+        code_match = self.JSON_CODE_BLOCK_PATTERN.search(content)
+        if code_match:
+            payload = code_match.group(1)
+        else:
+            start = content.find("{")
+            end = content.rfind("}")
+            if start < 0 or end <= start:
+                raise ValueError("No JSON payload found in personality markdown")
+            payload = content[start : end + 1]
 
-        Args:
-            content: MarkdownfileContent
+        data = json.loads(payload)
+        if not isinstance(data, dict):
+            raise ValueError("Personality payload must be a JSON object")
+        return PersonalityConfig.from_dict(data)
 
-        Returns:
-            PersonalityConfigObject
-        """
-        self.config = {}
-
-        for line in content.split('\n'):
-            line = line.rstrip()
-            if not line:
-                continue
-
-            # processarray（format: - key: ["item1", "item2"]）
-            array_match = re.match(r'^-\s*(\w+):\s*\[(.*)\]$', line)
-            if array_match:
-                key = array_match.group(1)
-                items_str = array_match.group(2)
-                items = self._parse_array(items_str)
-                self.config[key] = items
-                continue
-
-            # process多row文本（backstory）
-            if line.startswith('  ') and 'backstory' in self.config:
-                self.config['backstory'] += '\n' + line.strip()
-                continue
-
-            # processkeyValue对（- key: value format）
-            kv_match = re.match(r'^-\s*(\w+):\s*(.*)$', line)
-            if kv_match:
-                key = kv_match.group(1)
-                value = kv_match.group(2).strip()
-
-                # process多row文本mark
-                if value == '|':
-                    self.config[key] = ''
-                    continue
-
-                # process引号package裹的Value
-                if value.startswith('"') and value.endswith('"'):
-                    value = value[1:-1]
-
-                # process布尔Value
-                lowered = value.lower()
-                if lowered == "true":
-                    self.config[key] = True
-                    continue
-                if lowered == "false":
-                    self.config[key] = False
-                    continue
-
-                self.config[key] = value
-                continue
-
-        # 清理backstory
-        if 'backstory' in self.config:
-            self.config['backstory'] = self.config['backstory'].strip()
-
-        return PersonalityConfig(**self.config)
-
-    def _parse_array(self, items_str: str) -> List[str]:
-        """parsearraystring"""
-        items = []
-        if not items_str:
-            return items
-
-        # simple分割，process引号package裹的项目
-        for item in items_str.split(','):
-            item = item.strip()
-            # Remove引号
-            if item.startswith('"') and item.endswith('"'):
-                item = item[1:-1]
-            if item:
-                items.append(item)
-
-        return items
-
-
-# ===== load器 =====
 
 class PersonalityLoader:
-    """Personality Loader"""
+    """Load personality configuration files."""
 
     def __init__(self, personalities_path: str = "./personalities"):
-        """
-        initializePersonality Loader
-
-        Args:
-            personalities_path: Personality configurationfiledirectory
-        """
         self.personalities_path = Path(personalities_path)
         self.parser = MarkdownPersonalityParser()
         self._cache: Dict[str, PersonalityConfig] = {}
 
+    def _resolve_file_path(self, name: str) -> Path:
+        direct_path = self.personalities_path / f"{name}.md"
+        if direct_path.exists():
+            return direct_path
+
+        alternatives = [
+            Path.home() / ".magi" / "personalities" / f"{name}.md",
+            Path(f"./personalities/{name}.md"),
+            Path(__file__).resolve().parents[3] / "personalities" / f"{name}.md",
+            Path(f"./backend/personalities/{name}.md"),
+        ]
+        for alt in alternatives:
+            if alt.exists():
+                return alt
+        raise FileNotFoundError(f"Personality file not found: {name}.md")
+
     def load(self, name: str = "default") -> PersonalityConfig:
-        """
-        loadPersonality configuration
-
-        Args:
-            name: Personality name（correspondfilename，不含.mdextension名）
-
-        Returns:
-            PersonalityConfigObject
-
-        Raises:
-            FileNotFoundError: Configurationfilenot found
-            ValueError: Configurationfileformaterror
-        """
-        # checkcache
         if name in self._cache:
             return self._cache[name]
-
-        # buildfilepath
-        file_path = self.personalities_path / f"{name}.md"
-
-        if not file_path.exists():
-            # 尝试other可能的path（按priority）
-            alternative_paths = [
-                # run时directory
-                Path.home() / ".magi" / "personalities" / f"{name}.md",
-                # current工作directory
-                path(f"./personalities/{name}.md"),
-                # 项目directorystructure
-                Path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
-                # backend directory
-                path(f"./backend/personalities/{name}.md"),
-            ]
-
-            for alt_path in alternative_paths:
-                if alt_path.exists():
-                    file_path = alt_path
-                    logger.info(f"Found personality file at alternative path: {alt_path}")
-                    break
-            else:
-                # 如果找不到file，对于 default Return default configuration而noterror report
-                if name == "default":
-                    logger.warning(f"Default personality file not found, using built-in defaults")
-                    return PersonalityConfig()
-                raise FileNotFoundError(
-                    f"Personality file not found: {name}.md "
-                    f"(searched in {self.personalities_path} and alternative paths)"
-                )
-
-        # 读取file
         try:
-            content = file_path.read_text(encoding='utf-8')
-        except Exception as e:
-            raise ValueError(f"Failed to read personality file {file_path}: {e}")
+            file_path = self._resolve_file_path(name)
+        except FileNotFoundError:
+            if name == "default":
+                logger.warning("Default personality file not found, using built-in defaults")
+                return PersonalityConfig()
+            raise
 
-        # parseContent
+        content = file_path.read_text(encoding="utf-8")
         try:
             config = self.parser.parse(content)
-        except Exception as e:
-            logger.warning(f"Failed to parse personality file {file_path}: {e}, using defaults")
+        except Exception as exc:
+            logger.warning("Failed to parse personality file %s: %s, using defaults", file_path, exc)
             config = PersonalityConfig()
-
-        # cache
         self._cache[name] = config
-        logger.info(f"Loaded personality: {name} from {file_path}")
-
         return config
 
     def load_raw(self, name: str = "default") -> str:
-        """
-        load原始 Markdown Content
-
-        Args:
-            name: Personality name
-
-        Returns:
-            原始 Markdown Contentstring
-        """
-        # buildfilepath
-        file_path = self.personalities_path / f"{name}.md"
-
-        if not file_path.exists():
-            # 尝试other可能的path
-            alternative_paths = [
-                Path.home() / ".magi" / "personalities" / f"{name}.md",
-                path(f"./personalities/{name}.md"),
-                Path(__file__).parent.parent.parent.parent / "personalities" / f"{name}.md",
-                path(f"./backend/personalities/{name}.md"),
-            ]
-
-            for alt_path in alternative_paths:
-                if alt_path.exists():
-                    file_path = alt_path
-                    break
-            else:
-                return ""
-
         try:
-            return file_path.read_text(encoding='utf-8')
+            file_path = self._resolve_file_path(name)
+        except FileNotFoundError:
+            return ""
+        try:
+            return file_path.read_text(encoding="utf-8")
         except Exception:
             return ""
 
     def reload(self, name: str) -> PersonalityConfig:
-        """重newloadPersonality configuration"""
-        if name in self._cache:
-            del self._cache[name]
+        self._cache.pop(name, None)
         return self.load(name)
 
-    def clear_cache(self, name: str = None):
-        """
-        清除personalitycache
-
-        Args:
-            name: Personality name（optional）。如果不指定，清除allcache
-        """
+    def clear_cache(self, name: Optional[str] = None):
         if name:
-            if name in self._cache:
-                del self._cache[name]
-                logger.info(f"Cleared cache for personality: {name}")
+            self._cache.pop(name, None)
         else:
             self._cache.clear()
-            logger.info("Cleared all personality cache")
 
     def list_available(self) -> List[str]:
-        """List all available personalitiesConfiguration"""
         if not self.personalities_path.exists():
             return []
-
-        personalities = []
-        for file_path in self.personalities_path.glob("*.md"):
-            personalities.append(file_path.stem)
-
-        return sorted(personalities)
+        return sorted(path.stem for path in self.personalities_path.glob("*.md"))
 
     def to_core_personality(self, config: PersonalityConfig) -> CorePersonality:
-        """
-        将PersonalityConfigconvert为CorePersonality（向后compatible）
+        from .models import CommunicationDistance, LanguageStyle, ValueAlignment
 
-        Args:
-            config: PersonalityConfigObject
+        confidence = config.persona_entity.psychological_traits.confidence_level.lower()
+        empathy = config.persona_entity.psychological_traits.empathy_threshold.lower()
 
-        Returns:
-            CorePersonalityObject
-        """
-        from .models import CommunicationDistance, ValueAlignment, LanguageStyle
-
-        # mapping user_relationship 到 communication_distance
-        comm_distance = CommunicationDistance.EQUAL
-        rel_lower = config.user_relationship.lower()
-        if "superior" in rel_lower or "subservient" in rel_lower:
-            comm_distance = CommunicationDistance.SUBSERVIENT
-        elif "intimate" in rel_lower or "protector" in rel_lower:
-            comm_distance = CommunicationDistance.INTIMATE
-        elif "respectful" in rel_lower or "mentor" in rel_lower:
-            comm_distance = CommunicationDistance.RESPECTFUL
-        elif "detached" in rel_lower or "hostile" in rel_lower:
-            comm_distance = CommunicationDistance.DETACHED
-
-        # mapping work_ethic + confidence 到 value_alignment
-        value_alignment = ValueAlignment.NEUTRAL_GOOD
-        work_lower = config.work_ethic.lower()
-        if "by-the-book" in work_lower or "perfectionist" in work_lower:
-            value_alignment = ValueAlignment.LAWFUL_GOOD
-        elif "chaotic" in work_lower:
-            value_alignment = ValueAlignment.CHAOTIC_GOOD
-        elif "lazy" in work_lower:
-            value_alignment = ValueAlignment.CHAOTIC_NEUTRAL
-
-        # 从Psychological profile提取 traits
-        traits = []
-        if config.confidence_level.lower() == "high":
+        traits: List[str] = []
+        if "extremely high" in confidence or confidence == "high":
             traits.append("confident")
-        elif config.confidence_level.lower() == "low":
+        if "low" in confidence:
             traits.append("cautious")
-        if config.empathy_level.lower() == "high":
-            traits.append("empathetic")
-        if config.patience_level.lower() == "low":
-            traits.append("impatient")
+        if "severe" in empathy or "crisis" in empathy:
+            traits.append("protective")
 
-        # 从Criticism tolerance提取 virtues/flaws
-        virtues = []
-        flaws = []
-        crit_lower = config.criticism_tolerance.lower()
-        if "humble" in crit_lower or "acceptance" in crit_lower:
-            virtues.append("humble")
-        elif "denial" in crit_lower or "counter" in crit_lower:
-            flaws.append("defensive")
-
+        greetings = (config.cached_phrases.on_init + config.cached_phrases.on_wake)[:4]
         return CorePersonality(
-            name=config.name,
-            role=config.archetype,
-            backstory=config.backstory,
+            name=config.persona_entity.basic_profile.name,
+            role=config.persona_entity.basic_profile.occupation,
+            backstory=config.persona_entity.basic_profile.core_background,
             language_style=LanguageStyle.CASUAL,
-            use_emoji=config.use_emoji,
-            catchphrases=config.keywords,
-            greetings=[config.on_init, config.on_wake],
-            tone=config.tone,
-            communication_distance=comm_distance,
-            value_alignment=value_alignment,
+            use_emoji=False,
+            catchphrases=config.persona_entity.psychological_traits.high_frequency_keywords,
+            greetings=greetings,
+            tone=config.persona_entity.psychological_traits.communication_tone,
+            communication_distance=CommunicationDistance.EQUAL,
+            value_alignment=ValueAlignment.NEUTRAL_GOOD,
             traits=traits,
-            virtues=virtues,
-            flaws=flaws,
+            virtues=[],
+            flaws=[],
             taboos=[],
             boundaries=[],
         )
 
     def to_cognition_profile(self, config: PersonalityConfig) -> CognitionProfile:
-        """
-        将PersonalityConfigconvert为CognitionProfile（向后compatible）
+        from .models import RiskPreference, ThinkingStyle
 
-        Args:
-            config: PersonalityConfigObject
-
-        Returns:
-            CognitionProfileObject
-        """
-        # mappingnewfield到old的认知Configuration
-        from .models import ThinkingStyle, RiskPreference
-
-        # 根据特征推断思维style
+        tone = config.persona_entity.psychological_traits.communication_tone.lower()
         primary_style = ThinkingStyle.LOGICAL
-        if "creative" in config.opinion_strength.lower():
-            primary_style = ThinkingStyle.CREATIVE
-        elif "intuitive" in config.empathy_level.lower():
+        if "intuitive" in tone:
             primary_style = ThinkingStyle.INTUITIVE
+        elif "creative" in tone:
+            primary_style = ThinkingStyle.CREATIVE
 
-        # 根据Work ethic推断风险preference
         risk_preference = RiskPreference.BALANCED
-        if "adventurous" in config.work_ethic.lower() or "chaotic" in config.work_ethic.lower():
+        confidence = config.persona_entity.psychological_traits.confidence_level.lower()
+        if "extremely high" in confidence:
             risk_preference = RiskPreference.ADVENTUROUS
-        elif "perfectionist" in config.work_ethic.lower() or "by-the-book" in config.work_ethic.lower():
+        elif "low" in confidence:
             risk_preference = RiskPreference.CONSERVATIVE
 
         return CognitionProfile(
             primary_style=primary_style,
             secondary_style=ThinkingStyle.INTUITIVE,
             risk_preference=risk_preference,
-            expertise=[],  # new schema 不再有 expertise list
+            expertise=[],
             reasoning_depth="medium",
             creativity_level=0.5,
             learning_rate=0.5,
         )
 
 
-# ===== 便捷Function =====
-
 _default_loader: Optional[PersonalityLoader] = None
 
 
-def get_personality_loader(path: str = None) -> PersonalityLoader:
-    """getglobalPersonality Loader"""
+def get_personality_loader(path: Optional[str] = None) -> PersonalityLoader:
     global _default_loader
     if _default_loader is None or path is not None:
         _default_loader = PersonalityLoader(path or "./personalities")
     return _default_loader
 
 
-def load_personality(name: str = "default", path: str = None) -> PersonalityConfig:
-    """loadPersonality configuration（便捷Function）"""
+def load_personality(name: str = "default", path: Optional[str] = None) -> PersonalityConfig:
     return get_personality_loader(path).load(name)

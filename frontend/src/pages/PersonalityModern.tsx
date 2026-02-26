@@ -2,27 +2,68 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Check, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
-import { personalityApi, DEFAULT_PERSONALITY_CONFIG, type PersonalityConfig, type PersonalityDiff } from '../api';
+import {
+  personalityApi,
+  DEFAULT_PERSONALITY_CONFIG,
+  type PersonalityConfig,
+  type PersonalityDiff,
+  type StateTransitionProtocolItem,
+} from '../api';
 
 interface PersonalityInfo {
   name: string;
   displayName: string;
-  archetype?: string;
+  subtitle?: string;
 }
 
-const TONE_OPTIONS = ['friendly', 'professional', 'humorous', 'serious', 'warm', 'aggressive', 'haughty', 'gentle'];
-const PACING_OPTIONS = ['slow', 'moderate', 'fast', 'impatient'];
-const CONFIDENCE_OPTIONS = ['High', 'Medium', 'Low'];
-const EMPATHY_OPTIONS = ['High', 'Medium', 'Low', 'Selective'];
-const PATIENCE_OPTIONS = ['High', 'Medium', 'Low'];
-const OPINION_STRENGTH_OPTIONS = ['Objective/Neutral', 'Highly Opinionated', 'Consensus Seeking'];
-const WORK_ETHIC_OPTIONS = ['Perfectionist', 'Lazy Genius', 'By-the-book', 'Chaotic'];
+const CONFIDENCE_OPTIONS = ['Extremely High', 'High', 'Medium', 'Low'];
+
+const parseLines = (value: string): string[] =>
+  value
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const toLines = (items: string[]): string => items.join('\n');
+
+const normalizeTransition = (item: Partial<StateTransitionProtocolItem>): StateTransitionProtocolItem => ({
+  trigger_condition: item.trigger_condition || '',
+  target_state_name: item.target_state_name || '',
+  behavior_shift: item.behavior_shift || '',
+});
+
+const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig => {
+  const next = structuredClone(DEFAULT_PERSONALITY_CONFIG);
+  next.persona_entity.basic_profile = {
+    ...next.persona_entity.basic_profile,
+    ...(incoming.persona_entity?.basic_profile || {}),
+  };
+  next.persona_entity.psychological_traits = {
+    ...next.persona_entity.psychological_traits,
+    ...(incoming.persona_entity?.psychological_traits || {}),
+  };
+  next.persona_entity.social_responses = {
+    ...next.persona_entity.social_responses,
+    ...(incoming.persona_entity?.social_responses || {}),
+  };
+  next.persona_entity.behavioral_strategies = {
+    ...next.persona_entity.behavioral_strategies,
+    ...(incoming.persona_entity?.behavioral_strategies || {}),
+  };
+  next.cached_phrases = {
+    ...next.cached_phrases,
+    ...(incoming.cached_phrases || {}),
+  };
+  next.appearance_prompt = incoming.appearance_prompt || next.appearance_prompt;
+  const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
+  next.state_transition_protocol = transitions.length > 0 ? transitions.map(normalizeTransition) : [normalizeTransition({})];
+  return next;
+};
 
 const PersonalityModern: React.FC = () => {
   const { t } = useTranslation('app');
@@ -34,7 +75,7 @@ const PersonalityModern: React.FC = () => {
   const [selectedName, setSelectedName] = useState('default');
   const [config, setConfig] = useState<PersonalityConfig>(DEFAULT_PERSONALITY_CONFIG);
   const [list, setList] = useState<PersonalityInfo[]>([
-    { name: 'default', displayName: 'default', archetype: 'System Default' },
+    { name: 'default', displayName: 'default', subtitle: 'System Default' },
   ]);
   const [prompt, setPrompt] = useState('');
   const [targetLanguage, setTargetLanguage] = useState('Auto');
@@ -56,11 +97,11 @@ const PersonalityModern: React.FC = () => {
       for (const name of names) {
         try {
           const detail = await personalityApi.get(name);
-          const meta = (detail.data as any)?.meta;
+          const basicProfile = (detail.data as any)?.persona_entity?.basic_profile;
           items.push({
             name,
-            displayName: meta?.name || name,
-            archetype: meta?.archetype,
+            displayName: basicProfile?.name || name,
+            subtitle: basicProfile?.occupation,
           });
         } catch {
           items.push({ name, displayName: name });
@@ -91,24 +132,7 @@ const PersonalityModern: React.FC = () => {
     try {
       const result = await personalityApi.get(name);
       const data = (result.data || {}) as Partial<PersonalityConfig>;
-      setConfig({
-        meta: { ...DEFAULT_PERSONALITY_CONFIG.meta, ...(data.meta || {}) },
-        core_identity: {
-          ...DEFAULT_PERSONALITY_CONFIG.core_identity,
-          ...(data.core_identity || {}),
-          voice_style: {
-            ...DEFAULT_PERSONALITY_CONFIG.core_identity.voice_style,
-            ...(data.core_identity?.voice_style || {}),
-          },
-          psychological_profile: {
-            ...DEFAULT_PERSONALITY_CONFIG.core_identity.psychological_profile,
-            ...(data.core_identity?.psychological_profile || {}),
-          },
-        },
-        social_protocols: { ...DEFAULT_PERSONALITY_CONFIG.social_protocols, ...(data.social_protocols || {}) },
-        operational_behavior: { ...DEFAULT_PERSONALITY_CONFIG.operational_behavior, ...(data.operational_behavior || {}) },
-        cached_phrases: { ...DEFAULT_PERSONALITY_CONFIG.cached_phrases, ...(data.cached_phrases || {}) },
-      });
+      setConfig(mergeConfig(data));
     } catch {
       toast.error(t('personality.loadFailed'));
     } finally {
@@ -148,7 +172,7 @@ const PersonalityModern: React.FC = () => {
   const save = async () => {
     setSaving(true);
     try {
-      if (currentName === 'default' || currentName !== config.meta.name) {
+      if (currentName === 'default' || currentName !== config.persona_entity.basic_profile.name) {
         await personalityApi.updateWithAIName(config);
       } else {
         await personalityApi.update(currentName, config);
@@ -172,26 +196,7 @@ const PersonalityModern: React.FC = () => {
     try {
       const response = await personalityApi.generate({ description: prompt, target_language: targetLanguage });
       const data = (response.data || {}) as Partial<PersonalityConfig>;
-      setConfig((prev) => {
-        const next = structuredClone(prev);
-        next.meta = { ...next.meta, ...(data.meta || {}) };
-        next.core_identity = {
-          ...next.core_identity,
-          ...(data.core_identity || {}),
-          voice_style: {
-            ...next.core_identity.voice_style,
-            ...(data.core_identity?.voice_style || {}),
-          },
-          psychological_profile: {
-            ...next.core_identity.psychological_profile,
-            ...(data.core_identity?.psychological_profile || {}),
-          },
-        };
-        next.social_protocols = { ...next.social_protocols, ...(data.social_protocols || {}) };
-        next.operational_behavior = { ...next.operational_behavior, ...(data.operational_behavior || {}) };
-        next.cached_phrases = { ...next.cached_phrases, ...(data.cached_phrases || {}) };
-        return next;
-      });
+      setConfig(mergeConfig(data));
       setPrompt('');
       toast.success(t('personality.generateSuccess'));
     } catch {
@@ -223,7 +228,7 @@ const PersonalityModern: React.FC = () => {
             >
               {list.map((item) => (
                 <option key={item.name} value={item.name}>
-                  {item.displayName}{item.archetype ? ` (${item.archetype})` : ''}
+                  {item.displayName}{item.subtitle ? ` (${item.subtitle})` : ''}
                 </option>
               ))}
             </select>
@@ -237,7 +242,18 @@ const PersonalityModern: React.FC = () => {
             <Button variant="outline" onClick={() => {
               const name = window.prompt(t('personality.newNamePrompt'));
               if (!name) return;
-              void personalityApi.updateWithAIName({ ...DEFAULT_PERSONALITY_CONFIG, meta: { ...DEFAULT_PERSONALITY_CONFIG.meta, name } }).then(loadList);
+              void personalityApi
+                .updateWithAIName({
+                  ...DEFAULT_PERSONALITY_CONFIG,
+                  persona_entity: {
+                    ...DEFAULT_PERSONALITY_CONFIG.persona_entity,
+                    basic_profile: {
+                      ...DEFAULT_PERSONALITY_CONFIG.persona_entity.basic_profile,
+                      name,
+                    },
+                  },
+                })
+                .then(loadList);
             }}><Plus className="mr-2 h-4 w-4" />{t('personality.create')}</Button>
             <Button variant="destructive" onClick={() => {
               if (selectedName === 'default') return;
@@ -278,162 +294,123 @@ const PersonalityModern: React.FC = () => {
 
       <Card>
         <CardHeader><CardTitle>{t('personality.sections.basicInfo')}</CardTitle></CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
+        <CardContent className="grid gap-4 md:grid-cols-3">
           <label className="space-y-2">
             <span className="text-sm font-medium">{t('personality.fields.name')}</span>
-            <Input value={config.meta.name} onChange={(event) => patch((d) => { d.meta.name = event.target.value; })} />
+            <Input value={config.persona_entity.basic_profile.name} onChange={(event) => patch((d) => { d.persona_entity.basic_profile.name = event.target.value; })} />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.archetype')}</span>
-            <Input value={config.meta.archetype} onChange={(event) => patch((d) => { d.meta.archetype = event.target.value; })} />
+            <span className="text-sm font-medium">{t('personality.fields.age')}</span>
+            <Input value={config.persona_entity.basic_profile.age} onChange={(event) => patch((d) => { d.persona_entity.basic_profile.age = event.target.value; })} />
           </label>
-          <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-medium">{t('personality.fields.backstory')}</span>
-            <Textarea rows={5} value={config.core_identity.backstory} onChange={(event) => patch((d) => { d.core_identity.backstory = event.target.value; })} />
+          <label className="space-y-2">
+            <span className="text-sm font-medium">{t('personality.fields.gender')}</span>
+            <Input value={config.persona_entity.basic_profile.gender} onChange={(event) => patch((d) => { d.persona_entity.basic_profile.gender = event.target.value; })} />
           </label>
-          <div className="flex items-center justify-between rounded-md border p-3 md:col-span-2">
-            <span className="text-sm">{t('personality.fields.useEmoji')}</span>
-            <Switch checked={config.operational_behavior.use_emoji} onCheckedChange={(checked) => patch((d) => { d.operational_behavior.use_emoji = checked; })} />
-          </div>
+          <label className="space-y-2 md:col-span-3">
+            <span className="text-sm font-medium">{t('personality.fields.occupation')}</span>
+            <Input value={config.persona_entity.basic_profile.occupation} onChange={(event) => patch((d) => { d.persona_entity.basic_profile.occupation = event.target.value; })} />
+          </label>
+          <label className="space-y-2 md:col-span-3">
+            <span className="text-sm font-medium">{t('personality.fields.coreBackground')}</span>
+            <Textarea
+              rows={6}
+              value={config.persona_entity.basic_profile.core_background}
+              onChange={(event) => patch((d) => { d.persona_entity.basic_profile.core_background = event.target.value; })}
+            />
+          </label>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>{t('personality.sections.voicePsych')}</CardTitle></CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
+        <CardHeader><CardTitle>{t('personality.sections.psychologicalTraits')}</CardTitle></CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.tone')}</span>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={config.core_identity.voice_style.tone}
-              onChange={(event) => patch((d) => { d.core_identity.voice_style.tone = event.target.value; })}
-            >
-              {TONE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.pacing')}</span>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={config.core_identity.voice_style.pacing}
-              onChange={(event) => patch((d) => { d.core_identity.voice_style.pacing = event.target.value; })}
-            >
-              {PACING_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.keywords')}</span>
+            <span className="text-sm font-medium">{t('personality.fields.communicationTone')}</span>
             <Input
-              value={config.core_identity.voice_style.keywords.join(', ')}
+              value={config.persona_entity.psychological_traits.communication_tone}
+              onChange={(event) => patch((d) => { d.persona_entity.psychological_traits.communication_tone = event.target.value; })}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-sm font-medium">{t('personality.fields.confidenceLevel')}</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={config.persona_entity.psychological_traits.confidence_level}
+              onChange={(event) => patch((d) => { d.persona_entity.psychological_traits.confidence_level = event.target.value; })}
+            >
+              {CONFIDENCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label className="space-y-2 md:col-span-2">
+            <span className="text-sm font-medium">{t('personality.fields.empathyThreshold')}</span>
+            <Input
+              value={config.persona_entity.psychological_traits.empathy_threshold}
+              onChange={(event) => patch((d) => { d.persona_entity.psychological_traits.empathy_threshold = event.target.value; })}
+            />
+          </label>
+          <label className="space-y-2 md:col-span-2">
+            <span className="text-sm font-medium">{t('personality.fields.highFrequencyKeywords')}</span>
+            <Input
+              value={config.persona_entity.psychological_traits.high_frequency_keywords.join(', ')}
               onChange={(event) => patch((d) => {
-                d.core_identity.voice_style.keywords = event.target.value
+                d.persona_entity.psychological_traits.high_frequency_keywords = event.target.value
                   .split(',')
                   .map((item) => item.trim())
                   .filter(Boolean);
               })}
             />
           </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.confidence')}</span>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={config.core_identity.psychological_profile.confidence_level}
-              onChange={(event) => patch((d) => { d.core_identity.psychological_profile.confidence_level = event.target.value; })}
-            >
-              {CONFIDENCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.empathy')}</span>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={config.core_identity.psychological_profile.empathy_level}
-              onChange={(event) => patch((d) => { d.core_identity.psychological_profile.empathy_level = event.target.value; })}
-            >
-              {EMPATHY_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.patience')}</span>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={config.core_identity.psychological_profile.patience_level}
-              onChange={(event) => patch((d) => { d.core_identity.psychological_profile.patience_level = event.target.value; })}
-            >
-              {PATIENCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>{t('personality.sections.social')}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('personality.sections.socialResponses')}</CardTitle></CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.userRelationship')}</span>
+            <span className="text-sm font-medium">{t('personality.fields.praiseReaction')}</span>
             <Input
-              value={config.social_protocols.user_relationship}
-              onChange={(event) => patch((d) => { d.social_protocols.user_relationship = event.target.value; })}
+              value={config.persona_entity.social_responses.praise_reaction}
+              onChange={(event) => patch((d) => { d.persona_entity.social_responses.praise_reaction = event.target.value; })}
             />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.complimentPolicy')}</span>
+            <span className="text-sm font-medium">{t('personality.fields.criticismReaction')}</span>
             <Input
-              value={config.social_protocols.compliment_policy}
-              onChange={(event) => patch((d) => { d.social_protocols.compliment_policy = event.target.value; })}
+              value={config.persona_entity.social_responses.criticism_reaction}
+              onChange={(event) => patch((d) => { d.persona_entity.social_responses.criticism_reaction = event.target.value; })}
             />
           </label>
           <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-medium">{t('personality.fields.criticismTolerance')}</span>
-            <Input
-              value={config.social_protocols.criticism_tolerance}
-              onChange={(event) => patch((d) => { d.social_protocols.criticism_tolerance = event.target.value; })}
+            <span className="text-sm font-medium">{t('personality.fields.obedienceStrategy')}</span>
+            <Textarea
+              rows={3}
+              value={config.persona_entity.social_responses.obedience_strategy}
+              onChange={(event) => patch((d) => { d.persona_entity.social_responses.obedience_strategy = event.target.value; })}
             />
           </label>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>{t('personality.sections.behavior')}</CardTitle></CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
+        <CardHeader><CardTitle>{t('personality.sections.behavioralStrategies')}</CardTitle></CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-1">
           <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.errorHandlingStyle')}</span>
-            <Input
-              value={config.operational_behavior.error_handling_style}
-              onChange={(event) => patch((d) => { d.operational_behavior.error_handling_style = event.target.value; })}
+            <span className="text-sm font-medium">{t('personality.fields.errorHandling')}</span>
+            <Textarea
+              rows={3}
+              value={config.persona_entity.behavioral_strategies.error_handling}
+              onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.error_handling = event.target.value; })}
             />
           </label>
           <label className="space-y-2">
             <span className="text-sm font-medium">{t('personality.fields.refusalStyle')}</span>
-            <Input
-              value={config.operational_behavior.refusal_style}
-              onChange={(event) => patch((d) => { d.operational_behavior.refusal_style = event.target.value; })}
+            <Textarea
+              rows={3}
+              value={config.persona_entity.behavioral_strategies.refusal_style}
+              onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.refusal_style = event.target.value; })}
             />
           </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.opinionStrength')}</span>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={config.operational_behavior.opinion_strength}
-              onChange={(event) => patch((d) => { d.operational_behavior.opinion_strength = event.target.value; })}
-            >
-              {OPINION_STRENGTH_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{t('personality.fields.workEthic')}</span>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={config.operational_behavior.work_ethic}
-              onChange={(event) => patch((d) => { d.operational_behavior.work_ethic = event.target.value; })}
-            >
-              {WORK_ETHIC_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <div className="flex items-center justify-between rounded-md border p-3 md:col-span-2">
-            <span className="text-sm">{t('personality.fields.useEmoji')}</span>
-            <Switch checked={config.operational_behavior.use_emoji} onCheckedChange={(checked) => patch((d) => { d.operational_behavior.use_emoji = checked; })} />
-          </div>
         </CardContent>
       </Card>
 
@@ -442,24 +419,129 @@ const PersonalityModern: React.FC = () => {
         <CardContent className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
             <span className="text-sm font-medium">{t('personality.fields.onInit')}</span>
-            <Input value={config.cached_phrases.on_init} onChange={(event) => patch((d) => { d.cached_phrases.on_init = event.target.value; })} />
+            <Textarea
+              rows={3}
+              value={toLines(config.cached_phrases.on_init)}
+              onChange={(event) => patch((d) => { d.cached_phrases.on_init = parseLines(event.target.value); })}
+            />
           </label>
           <label className="space-y-2">
             <span className="text-sm font-medium">{t('personality.fields.onWake')}</span>
-            <Input value={config.cached_phrases.on_wake} onChange={(event) => patch((d) => { d.cached_phrases.on_wake = event.target.value; })} />
+            <Textarea
+              rows={3}
+              value={toLines(config.cached_phrases.on_wake)}
+              onChange={(event) => patch((d) => { d.cached_phrases.on_wake = parseLines(event.target.value); })}
+            />
           </label>
           <label className="space-y-2">
             <span className="text-sm font-medium">{t('personality.fields.onError')}</span>
-            <Input value={config.cached_phrases.on_error_generic} onChange={(event) => patch((d) => { d.cached_phrases.on_error_generic = event.target.value; })} />
+            <Textarea
+              rows={3}
+              value={toLines(config.cached_phrases.on_error_generic)}
+              onChange={(event) => patch((d) => { d.cached_phrases.on_error_generic = parseLines(event.target.value); })}
+            />
           </label>
           <label className="space-y-2">
             <span className="text-sm font-medium">{t('personality.fields.onSuccess')}</span>
-            <Input value={config.cached_phrases.on_success} onChange={(event) => patch((d) => { d.cached_phrases.on_success = event.target.value; })} />
+            <Textarea
+              rows={3}
+              value={toLines(config.cached_phrases.on_success)}
+              onChange={(event) => patch((d) => { d.cached_phrases.on_success = parseLines(event.target.value); })}
+            />
           </label>
           <label className="space-y-2 md:col-span-2">
             <span className="text-sm font-medium">{t('personality.fields.onSwitchAttempt')}</span>
-            <Input value={config.cached_phrases.on_switch_attempt} onChange={(event) => patch((d) => { d.cached_phrases.on_switch_attempt = event.target.value; })} />
+            <Textarea
+              rows={3}
+              value={toLines(config.cached_phrases.on_switch_attempt)}
+              onChange={(event) => patch((d) => { d.cached_phrases.on_switch_attempt = parseLines(event.target.value); })}
+            />
           </label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>{t('personality.sections.appearance')}</CardTitle></CardHeader>
+        <CardContent>
+          <label className="space-y-2">
+            <span className="text-sm font-medium">{t('personality.fields.appearancePrompt')}</span>
+            <Textarea
+              rows={4}
+              value={config.appearance_prompt}
+              onChange={(event) => patch((d) => { d.appearance_prompt = event.target.value; })}
+            />
+          </label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>{t('personality.sections.stateTransitionProtocol')}</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {config.state_transition_protocol.map((item, index) => (
+            <div key={`${index}-${item.target_state_name}`} className="rounded-md border p-3">
+              <div className="mb-3 text-sm font-medium">{t('personality.fields.stateTransitionItem', { index: index + 1 })}</div>
+              <div className="grid gap-3 md:grid-cols-1">
+                <label className="space-y-1">
+                  <span className="text-xs text-muted-foreground">{t('personality.fields.triggerCondition')}</span>
+                  <Input
+                    value={item.trigger_condition}
+                    onChange={(event) => patch((d) => {
+                      d.state_transition_protocol[index] = normalizeTransition({
+                        ...d.state_transition_protocol[index],
+                        trigger_condition: event.target.value,
+                      });
+                    })}
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs text-muted-foreground">{t('personality.fields.targetStateName')}</span>
+                  <Input
+                    value={item.target_state_name}
+                    onChange={(event) => patch((d) => {
+                      d.state_transition_protocol[index] = normalizeTransition({
+                        ...d.state_transition_protocol[index],
+                        target_state_name: event.target.value,
+                      });
+                    })}
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs text-muted-foreground">{t('personality.fields.behaviorShift')}</span>
+                  <Textarea
+                    rows={3}
+                    value={item.behavior_shift}
+                    onChange={(event) => patch((d) => {
+                      d.state_transition_protocol[index] = normalizeTransition({
+                        ...d.state_transition_protocol[index],
+                        behavior_shift: event.target.value,
+                      });
+                    })}
+                  />
+                </label>
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => patch((d) => {
+                      if (d.state_transition_protocol.length === 1) return;
+                      d.state_transition_protocol.splice(index, 1);
+                    })}
+                    disabled={config.state_transition_protocol.length === 1}
+                  >
+                    {t('personality.actions.removeTransition')}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <Button
+            variant="outline"
+            onClick={() => patch((d) => {
+              d.state_transition_protocol.push(normalizeTransition({}));
+            })}
+          >
+            {t('personality.actions.addTransition')}
+          </Button>
         </CardContent>
       </Card>
 

@@ -3,60 +3,58 @@
  */
 import { api } from '../client';
 
-// 类型定义 - 新Schema
-
-export interface Meta {
+export interface BasicProfile {
   name: string;
-  version: string;
-  archetype: string;
+  age: string;
+  gender: string;
+  occupation: string;
+  core_background: string;
 }
 
-export interface VoiceStyle {
-  tone: string;
-  pacing: string;
-  keywords: string[];
+export interface PsychologicalTraits {
+  communication_tone: string;
+  confidence_level: 'Extremely High' | 'High' | 'Medium' | 'Low' | string;
+  empathy_threshold: string;
+  high_frequency_keywords: string[];
 }
 
-export interface PsychologicalProfile {
-  confidence_level: string;
-  empathy_level: string;
-  patience_level: string;
+export interface SocialResponses {
+  praise_reaction: string;
+  criticism_reaction: string;
+  obedience_strategy: string;
 }
 
-export interface CoreIdentity {
-  backstory: string;
-  voice_style: VoiceStyle;
-  psychological_profile: PsychologicalProfile;
-}
-
-export interface SocialProtocols {
-  user_relationship: string;
-  compliment_policy: string;
-  criticism_tolerance: string;
-}
-
-export interface OperationalBehavior {
-  error_handling_style: string;
-  opinion_strength: string;
+export interface BehavioralStrategies {
+  error_handling: string;
   refusal_style: string;
-  work_ethic: string;
-  use_emoji: boolean;
+}
+
+export interface PersonaEntity {
+  basic_profile: BasicProfile;
+  psychological_traits: PsychologicalTraits;
+  social_responses: SocialResponses;
+  behavioral_strategies: BehavioralStrategies;
 }
 
 export interface CachedPhrases {
-  on_init: string;
-  on_wake: string;
-  on_error_generic: string;
-  on_success: string;
-  on_switch_attempt: string;
+  on_init: string[];
+  on_wake: string[];
+  on_error_generic: string[];
+  on_success: string[];
+  on_switch_attempt: string[];
+}
+
+export interface StateTransitionProtocolItem {
+  trigger_condition: string;
+  target_state_name: string;
+  behavior_shift: string;
 }
 
 export interface PersonalityConfig {
-  meta: Meta;
-  core_identity: CoreIdentity;
-  social_protocols: SocialProtocols;
-  operational_behavior: OperationalBehavior;
+  persona_entity: PersonaEntity;
   cached_phrases: CachedPhrases;
+  appearance_prompt: string;
+  state_transition_protocol: StateTransitionProtocolItem[];
 }
 
 export interface AIGenerateRequest {
@@ -89,58 +87,62 @@ export interface PersonalityCompareResponse {
 }
 
 // 默认值
-export const DEFAULT_META: Meta = {
-  name: 'AI',
-  version: '1.0',
-  archetype: 'Helpful Assistant',
+export const DEFAULT_BASIC_PROFILE: BasicProfile = {
+  name: 'AI Assistant',
+  age: 'Unknown',
+  gender: 'Unknown',
+  occupation: 'Assistant',
+  core_background: '',
 };
 
-export const DEFAULT_VOICE_STYLE: VoiceStyle = {
-  tone: 'friendly',
-  pacing: 'moderate',
-  keywords: [],
-};
-
-export const DEFAULT_PSYCHOLOGICAL_PROFILE: PsychologicalProfile = {
+export const DEFAULT_PSYCHOLOGICAL_TRAITS: PsychologicalTraits = {
+  communication_tone: 'Calm and supportive',
   confidence_level: 'Medium',
-  empathy_level: 'High',
-  patience_level: 'High',
+  empathy_threshold: 'Shows care when user is stressed',
+  high_frequency_keywords: [],
 };
 
-export const DEFAULT_CORE_IDENTITY: CoreIdentity = {
-  backstory: '',
-  voice_style: DEFAULT_VOICE_STYLE,
-  psychological_profile: DEFAULT_PSYCHOLOGICAL_PROFILE,
+export const DEFAULT_SOCIAL_RESPONSES: SocialResponses = {
+  praise_reaction: '',
+  criticism_reaction: '',
+  obedience_strategy: '',
 };
 
-export const DEFAULT_SOCIAL_PROTOCOLS: SocialProtocols = {
-  user_relationship: 'Equal Partners',
-  compliment_policy: 'Humble acceptance',
-  criticism_tolerance: 'Constructive response',
+export const DEFAULT_BEHAVIORAL_STRATEGIES: BehavioralStrategies = {
+  error_handling: '',
+  refusal_style: '',
 };
 
-export const DEFAULT_OPERATIONAL_BEHAVIOR: OperationalBehavior = {
-  error_handling_style: 'Apologize and retry',
-  opinion_strength: 'Consensus Seeking',
-  refusal_style: 'Polite decline',
-  work_ethic: 'By-the-book',
-  use_emoji: false,
+export const DEFAULT_PERSONA_ENTITY: PersonaEntity = {
+  basic_profile: DEFAULT_BASIC_PROFILE,
+  psychological_traits: DEFAULT_PSYCHOLOGICAL_TRAITS,
+  social_responses: DEFAULT_SOCIAL_RESPONSES,
+  behavioral_strategies: DEFAULT_BEHAVIORAL_STRATEGIES,
 };
 
 export const DEFAULT_CACHED_PHRASES: CachedPhrases = {
-  on_init: 'Hello! How can I help you today?',
-  on_wake: 'Welcome back!',
-  on_error_generic: 'Something went wrong. Let me try again.',
-  on_success: 'Done! Is there anything else?',
-  on_switch_attempt: 'Are you sure you want to switch?',
+  on_init: ['Hi, I am online.', 'Ready when you are.'],
+  on_wake: ['Back again?', 'I am here.'],
+  on_error_generic: ['That failed. Let me retry.', 'Oops, tool hiccup.'],
+  on_success: ['Done.', 'Handled.'],
+  on_switch_attempt: ['Stay with me, I know your style.', 'Give me one more chance.'],
 };
 
+export const DEFAULT_STATE_TRANSITION_PROTOCOL: StateTransitionProtocolItem[] = [
+  {
+    trigger_condition: '',
+    target_state_name: '',
+    behavior_shift: '',
+  },
+];
+
+export const DEFAULT_APPEARANCE_PROMPT = '';
+
 export const DEFAULT_PERSONALITY_CONFIG: PersonalityConfig = {
-  meta: DEFAULT_META,
-  core_identity: DEFAULT_CORE_IDENTITY,
-  social_protocols: DEFAULT_SOCIAL_PROTOCOLS,
-  operational_behavior: DEFAULT_OPERATIONAL_BEHAVIOR,
+  persona_entity: DEFAULT_PERSONA_ENTITY,
   cached_phrases: DEFAULT_CACHED_PHRASES,
+  appearance_prompt: DEFAULT_APPEARANCE_PROMPT,
+  state_transition_protocol: DEFAULT_STATE_TRANSITION_PROTOCOL,
 };
 
 // API方法
