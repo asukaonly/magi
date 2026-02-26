@@ -1,28 +1,28 @@
 # Magi Agent Handbook
 
+## Scope
+
+This document defines mandatory implementation and delivery rules for coding agents working in this repository.
+
+---
+
 ## Quick Rules (Do / Don't)
 
 **Do**
-- Align major changes with OpenSpec before implementation
-- Keep each task atomic and independently verifiable
-- Commit immediately after each completed independent task
-- Use Conventional Commits with clear English subject
-- Use English for AI-generated code comments/docstrings, logs, and error messages
-- Add tests or explicit validation evidence for behavior changes
+- Align major changes with OpenSpec before implementation.
+- Keep each task atomic and independently verifiable.
+- Commit immediately after each completed independent task.
+- Use Conventional Commits with clear English subjects.
+- Use English for AI-generated comments/docstrings, logs, and error messages.
+- Add tests or explicit validation evidence for behavior changes.
 
 **Don't**
-- Don't batch unrelated tasks in one commit
-- Don't include `cursor` / `claude` / `chatgpt` / `copilot` in commit text
-- Don't add AI identity signatures (e.g., `Co-authored-by: AI Agent`)
-- Don't diverge from OpenSpec without documenting why and impact
-- Don't skip validation for core logic changes
-- Don't enforce English-only for UI copy unless explicitly required
-
----
-
-## Scope
-
-This document defines mandatory implementation and delivery rules for coding agents working in this repository.
+- Don't batch unrelated tasks in one commit.
+- Don't include `cursor` / `claude` / `chatgpt` / `copilot` in commit text.
+- Don't add AI identity signatures (for example, `Co-authored-by: AI Agent`).
+- Don't diverge from OpenSpec without documenting why and impact.
+- Don't skip validation for core logic changes.
+- Don't enforce English-only for UI copy unless explicitly required.
 
 ---
 
@@ -34,616 +34,182 @@ Before changing architecture, core flows, or module boundaries, align with OpenS
 - `openspec/changes/ai-agent-framework/specs/**/spec.md`
 - `openspec/changes/ai-agent-framework/tasks.md`
 
-If implementation must deviate from OpenSpec, explain in the commit body:
-
+If implementation must deviate from OpenSpec, explain in commit body:
 1. Why deviation is necessary
 2. Scope and impact
 3. Follow-up plan
 
 ---
 
-## 2) Architecture Context (Quick)
+## 2) Current Architecture (Quick)
 
 Magi is a local-first AI agent framework with:
-
 - Sense-Plan-Act-Reflect loop
 - Three-layer agents: `MasterAgent -> TaskAgent -> WorkerAgent`
-- Tool registry + plugin/skills extension
+- Tool registry + builtin/provider tools + skills integration
 - Multi-layer memory system (L1-L5)
 
 Main code locations:
-
-- Backend: `backend/src/magi/`
-- Frontend: `frontend/src/`
-
----
-
-## 3) Task Execution Rules (Mandatory)
-
-A task is the smallest independently verifiable and reversible change unit.
-
-A task is considered complete only when all are done:
-
-1. Implementation is finished
-2. Validation is done (tests or clear minimal verification)
-3. Related docs/comments are updated if needed
-
-Rules:
-
-- Do not mix unrelated tasks in one commit
-- Keep changes atomic and traceable
+- Backend core: `backend/src/magi/`
+- API layer: `backend/src/magi/api/`
+- Frontend app: `frontend/src/`
 
 ---
 
-## 4) Coding Standards
-
-### Python
-
-- Naming:
-  - Classes: `PascalCase`
-  - Functions/variables: `snake_case`
-  - Constants: `UPPER_SNAKE_CASE`
-- Comments/docstrings, logs, and error messages added by coding agents must be in English
-- Public methods must have type hints
-- I/O must be async (`async/await`)
-- Use specific exceptions and structured logging (`structlog`)
-- Prefer Google-style docstrings for non-trivial public APIs
-
-### TypeScript (Frontend)
-
-- Naming:
-  - Components/types/interfaces: `PascalCase`
-  - Functions/variables: `camelCase`
-  - Constants: `UPPER_SNAKE_CASE`
-- Comments, logs, and error messages added by coding agents must be in English
-- UI copy is not required to be English unless explicitly requested
-- Prefer functional components + hooks
-
-### Frontend i18n (Mandatory for UI text)
-
-- New user-facing UI copy must use i18n keys (`t(...)`) instead of hardcoded strings
-- Keep locale resources under `frontend/src/i18n/locales/<lang>/`
-- Use namespace + dotted keys (example: `app.settings.saveSuccess`)
-- Default language is `zh-CN`, with `en` as supported secondary locale
-- On language switch, keep `localStorage.magi_language` and `document.documentElement.lang` in sync
-- For behavior changes involving UI copy, verify key pages show no mixed-language leakage in target locale
-
----
-
-## 5) Testing & Validation
-
-Minimum expectation per task:
-
-- Add/update tests for changed behavior, or
-- Provide explicit validation steps when automated tests are not available
-
-Naming convention:
-
-- Test file: `test_<module_name>.py`
-- Test class: `Test<ClassName>`
-- Test method: `test_<scenario>`
-
----
-
-## 6) Git Commit Policy (Mandatory)
-
-### Commit Frequency
-
-- **Every completed independent task must be committed immediately**
-- Do not wait to batch multiple unrelated tasks
-
-### Commit Format
-
-Use Conventional Commits:
-
-```text
-<type>: <subject>
-
-<body>
-
-<footer>
-```
-
-Recommended types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `revert`
-
-### Commit Quality Rules
-
-- `subject` should be concise, in English (recommended <= 50 chars)
-- Body should describe why, scope, and impact for non-trivial changes
-- Keep each commit atomic
-
-### Prohibited Content In Commit Message
-
-Commit `subject/body/footer` must **not** contain agent identity, model identity, or tool branding:
-
-- `cursor`
-- `claude`
-- `chatgpt`
-- `copilot`
-- `ai-generated`
-- `generated by ai`
-- any model or assistant branding
-
-Also prohibited:
-
-- `Co-authored-by: Cursor`
-- `Co-authored-by: Claude`
-- `Co-authored-by: AI Agent`
-
----
-
-## 7) Development Workflow
-
-1. (Optional) Create OpenSpec change
-2. Implement code changes
-3. Validate with tests or explicit verification
-4. Commit immediately for the completed task
-5. Push when requested
-
-Example:
-
-```bash
-git add .
-git commit -m "fix: handle timeout in worker execution"
-git push
-```
-
----
-
-## 8) Branching
-
-- `main`: stable branch
-- `feature/*`: new features
-- `fix/*`: bug fixes
-- `refactor/*`: refactors
-
----
-
-## 9) Review Checklist
-
-- [ ] OpenSpec alignment verified (or deviation documented)
-- [ ] Code follows naming/type/async conventions
-- [ ] Validation completed (tests or explicit checks)
-- [ ] Task is atomic and independently reversible
-- [ ] Commit message follows policy
-- [ ] Commit message contains no agent/model identity markers
-
----
-
-## 10) References
-
-- [PEP 8](https://pep8.org/)
-- [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)
-- [Python Typing](https://docs.python.org/3/library/typing.html)
-- [Python AsyncIO](https://docs.python.org/3/library/asyncio.html)
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [Pydantic](https://docs.pydantic.dev/)
-- [Structlog](https://www.structlog.org/)
-- [React TypeScript Cheatsheet](https://react-typescript-cheatsheet.netlify.app/)
-- [Vite Guide](https://vitejs.dev/guide/)
-
----
-
-**Last Updated**: 2026-02-18  
-**Maintainer**: Magi Development Team
-# Magi Agent Handbook
-
-## Scope
-
-This document defines mandatory implementation and delivery rules for coding agents working in this repository.
-
----
-
-## 1) Source Of Truth
-
-Before changing architecture, core flows, or module boundaries, align with OpenSpec:
-
-- `openspec/changes/ai-agent-framework/design.md`
-- `openspec/changes/ai-agent-framework/specs/**/spec.md`
-- `openspec/changes/ai-agent-framework/tasks.md`
-
-If implementation must deviate from OpenSpec, explain in the commit body:
-
-1. Why deviation is necessary
-2. Scope and impact
-3. Follow-up plan
-
----
-
-## 2) Architecture Context (Quick)
-
-Magi is a local-first AI agent framework with:
-
-- Sense-Plan-Act-Reflect loop
-- Three-layer agents: `MasterAgent -> TaskAgent -> WorkerAgent`
-- Tool registry + plugin/skills extension
-- Multi-layer memory system (L1-L5)
-
-Main code locations:
-
-- Backend: `backend/src/magi/`
-- Frontend: `frontend/src/`
-
----
-
-## 3) Task Execution Rules (Mandatory)
-
-A task is the smallest independently verifiable and reversible change unit.
-
-A task is considered complete only when all are done:
-
-1. Implementation is finished
-2. Validation is done (tests or clear minimal verification)
-3. Related docs/comments are updated if needed
-
-Rules:
-
-- Do not mix unrelated tasks in one commit
-- Keep changes atomic and traceable
-
----
-
-## 4) Coding Standards
-
-### Python
-
-- Naming:
-  - Classes: `PascalCase`
-  - Functions/variables: `snake_case`
-  - Constants: `UPPER_SNAKE_CASE`
-- Public methods must have type hints
-- I/O must be async (`async/await`)
-- Use specific exceptions and structured logging (`structlog`)
-- Prefer Google-style docstrings for non-trivial public APIs
-
-### TypeScript (Frontend)
-
-- Naming:
-  - Components/types/interfaces: `PascalCase`
-  - Functions/variables: `camelCase`
-  - Constants: `UPPER_SNAKE_CASE`
-- Prefer functional components + hooks
-
----
-
-## 5) Testing & Validation
-
-Minimum expectation per task:
-
-- Add/update tests for changed behavior, or
-- Provide explicit validation steps when automated tests are not available
-
-Naming convention:
-
-- Test file: `test_<module_name>.py`
-- Test class: `Test<ClassName>`
-- Test method: `test_<scenario>`
-
----
-
-## 6) Git Commit Policy (Mandatory)
-
-### Commit Frequency
-
-- **Every completed independent task must be committed immediately**
-- Do not wait to batch multiple unrelated tasks
-
-### Commit Format
-
-Use Conventional Commits:
-
-```text
-<type>: <subject>
-
-<body>
-
-<footer>
-```
-
-Recommended types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `revert`
-
-### Commit Quality Rules
-
-- `subject` should be concise, in English (recommended <= 50 chars)
-- Body should describe why, scope, and impact for non-trivial changes
-- Keep each commit atomic
-
-### Prohibited Content In Commit Message
-
-Commit `subject/body/footer` must **not** contain agent/model/tool identity:
-
-- `cursor`
-- `claude`
-- `chatgpt`
-- `copilot`
-- `ai-generated`
-- `generated by ai`
-- any model or assistant branding
-
-Also prohibited:
-
-- `Co-authored-by: Cursor`
-- `Co-authored-by: Claude`
-- `Co-authored-by: AI Agent`
-
----
-
-## 7) Development Workflow
-
-1. (Optional) Create OpenSpec change
-2. Implement code changes
-3. Validate with tests or explicit verification
-4. Commit immediately for the completed task
-5. Push when requested
-
-Example:
-
-```bash
-git add .
-git commit -m "fix: handle timeout in worker execution"
-git push
-```
-
----
-
-## 8) Branching
-
-- `main`: stable branch
-- `feature/*`: new features
-- `fix/*`: bug fixes
-- `refactor/*`: refactors
-
----
-
-## 9) Review Checklist
-
-- [ ] OpenSpec alignment verified (or deviation documented)
-- [ ] Code follows naming/type/async conventions
-- [ ] Validation completed (tests or explicit checks)
-- [ ] Task is atomic and independently reversible
-- [ ] Commit message follows policy
-- [ ] Commit message contains no agent/model identity markers
-
----
-
-## 10) References
-
-- [PEP 8](https://pep8.org/)
-- [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)
-- [Python Typing](https://docs.python.org/3/library/typing.html)
-- [Python AsyncIO](https://docs.python.org/3/library/asyncio.html)
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [Pydantic](https://docs.pydantic.dev/)
-- [Structlog](https://www.structlog.org/)
-- [React TypeScript Cheatsheet](https://react-typescript-cheatsheet.netlify.app/)
-- [Vite Guide](https://vitejs.dev/guide/)
-
----
-
-**Last Updated**: 2026-02-18  
-**Maintainer**: Magi Development Team
-# Magi AI Agent Framework - Development Guidelines
-
-## Project Overview
-
-Magi is a locally deployable AI Agent framework with self-awareness, self-processing, and continuous agent loop capabilities.
-
-### Core Features
-
-- **Self-Awareness Module**: Perceives external inputs (user messages, sensor data, system events)
-- **Self-Processing Module**: Processes perceptions, accumulates capabilities, and learns from failures
-- **Agent Loop**: Four-phase loop: Sense-Plan-Act-Reflect
-- **Three-Layer Agent Architecture**: MasterAgent -> TaskAgent -> WorkerAgent
-- **Plugin System**: Extensible plugin/skills mechanism
-- **Tool Registry**: Unified tool management and execution
-- **Memory Store**: Five-layer architecture (L1-L5)
-
-## Repository Structure
+## 3) Repository Structure (Current)
 
 ```text
 magi/
-├── backend/                          # Python backend
-│   ├── configs/                      # Configuration files
-│   │   └── agent.yaml                # Example agent config
-│   ├── data/                         # Runtime data directory
-│   │   ├── chromadb/                 # Vector database
-│   │   ├── events/                   # Event storage
-│   │   └── memories/                 # Memory storage
-│   ├── examples/                     # Example scripts
-│   │   ├── test_basic.py
-│   │   ├── test_memory.py
-│   │   ├── test_complete_framework.py
-│   │   ├── test_worker_agent.py
-│   │   └── demo.py
+├── backend/
+│   ├── src/magi/
+│   │   ├── api/                # FastAPI app + routers
+│   │   ├── core/               # Agent core lifecycle + loop
+│   │   ├── llm/                # LLM adapters and provider bridge
+│   │   ├── tools/              # Tool registry and builtin/providers
+│   │   ├── memory/             # Memory layers and helpers
+│   │   ├── skills/             # Skill loading/index/execution
+│   │   ├── events/             # Event backends
+│   │   ├── awareness/          # Perception and sensors
+│   │   ├── processing/         # Processing modules
+│   │   ├── plugins/            # Plugin manager and base interfaces
+│   │   ├── config/             # Config models/loader/introspection
+│   │   └── websocket/          # WebSocket events/server
+│   ├── tests/                  # Backend tests
+│   ├── configs/                # Runtime/provider configs
+│   ├── pyproject.toml
+│   └── requirements.txt
+├── frontend/
 │   ├── src/
-│   │   ├── magi/
-│   │   │   ├── awareness/            # Self-awareness
-│   │   │   ├── processing/           # Self-processing
-│   │   │   ├── core/                 # Agent core
-│   │   │   ├── events/               # Event system
-│   │   │   ├── llm/                  # LLM adapters
-│   │   │   ├── memory/               # Memory system
-│   │   │   ├── plugins/              # Plugin system
-│   │   │   ├── tools/                # Tool system
-│   │   │   ├── config/               # Configuration management
-│   │   │   └── __init__.py
-│   │   ├── tests/                    # Tests
-│   │   │   ├── unit/
-│   │   │   ├── integration/
-│   │   │   └── fixtures/
-│   │   └── api/                      # API layer
-│   ├── pyproject.toml                # Python project config
-│   ├── requirements.txt              # Python dependencies
-│   └── README.md
-│
-├── frontend/                         # TypeScript frontend
-│   ├── public/
-│   ├── src/
-│   │   ├── api/
-│   │   ├── components/
-│   │   ├── hooks/
-│   │   ├── pages/
-│   │   ├── stores/
-│   │   ├── types/
-│   │   └── utils/
+│   │   ├── api/                # Axios client + API modules
+│   │   ├── components/         # UI and feature components
+│   │   ├── components/ui/      # shadcn/radix-style primitives
+│   │   ├── components/onboarding/
+│   │   ├── components/config-forms/
+│   │   ├── i18n/               # i18next setup + locale resources
+│   │   ├── pages/              # Route pages
+│   │   ├── router/             # Route config
+│   │   ├── stores/             # Zustand stores
+│   │   ├── hooks/              # Custom hooks
+│   │   ├── __tests__/          # Frontend tests
+│   │   └── main.tsx
 │   ├── package.json
-│   ├── vite.config.ts
-│   └── tsconfig.json
-│
-├── openspec/                         # OpenSpec
-│   ├── changes/
-│   │   ├── ai-agent-framework/
-│   │   └── archive/
-│   └── specs/
-│
-├── .gitignore
-├── agents.md                         # This document
-└── README.md
+│   └── vite.config.ts
+├── openspec/
+├── configs/
+├── README.md
+└── agents.md
 ```
 
-## Code Standards
+---
 
-### Python Standards
+## 4) Tech Stack (Current)
 
-#### 1. Naming
+### Backend
+- Python 3.10+
+- FastAPI + Pydantic v2
+- Structlog
+- aiosqlite / redis / chromadb / networkx
+- OpenAI + Anthropic SDKs
+- Socket.IO + aiohttp
 
-- **Class names**: `PascalCase` (e.g. `PerceptionManager`)
-- **Functions/methods**: `snake_case` (e.g. `get_agent_profile`)
-- **Variables**: `snake_case` (e.g. `max_retries`)
-- **Constants**: `UPPER_SNAKE_CASE` (e.g. `MAX_QUEUE_SIZE`)
-- **Private/protected members**: `_leading_underscore` (e.g. `_queue`)
-- **Comments/docstrings, logs, and error messages added by coding agents**: English
+### Frontend
+- React 18 + TypeScript + Vite
+- TailwindCSS
+- Radix UI primitives + shadcn-style components
+- React Router 6
+- Zustand
+- TanStack Query
+- React Hook Form + Zod
+- i18next + react-i18next
+- Vitest + Testing Library
+- Framer Motion (where needed for interaction/transition)
 
-#### 2. File Organization
+---
 
-Each module should include:
-1. Module docstring
-2. Imports (stdlib -> third-party -> local)
-3. Classes/functions in logical order
-4. Public exports via `__init__.py`
+## 5) Coding Standards
 
-```python
-"""
-Module docstring.
-"""
-import asyncio
-from typing import Dict, Any
+### Python
+- Naming:
+  - Classes: `PascalCase`
+  - Functions/variables: `snake_case`
+  - Constants: `UPPER_SNAKE_CASE`
+- Public methods must include type hints.
+- I/O should be async (`async/await`).
+- Use specific exceptions and structured logging (`structlog`).
+- Prefer Google-style docstrings for non-trivial public APIs.
+- AI-generated comments/docstrings/log/error text must be English.
 
-from .base import BaseClass
+### TypeScript / React
+- Naming:
+  - Components/types/interfaces: `PascalCase`
+  - Functions/variables: `camelCase`
+  - Constants: `UPPER_SNAKE_CASE`
+- Prefer functional components + hooks.
+- Keep component logic clear and composable.
+- AI-generated comments/log/error text must be English.
+- UI copy language is product-driven and may be non-English.
 
+### Frontend i18n (Mandatory for UI text)
+- New user-facing copy must use i18n keys (`t(...)`), not hardcoded strings.
+- Keep locale files under `frontend/src/i18n/locales/<lang>/`.
+- Keep `zh-CN` and `en` keys aligned.
+- On language change, keep both in sync:
+  - `localStorage.magi_language`
+  - `document.documentElement.lang`
+- Verify no mixed-language leakage on key pages after related changes.
 
-class MyClass(BaseClass):
-    """Class docstring."""
+---
 
-    def __init__(self, config: Dict[str, Any]):
-        """Initializer."""
-        self.config = config
+## 6) Task Execution Rules (Mandatory)
 
-    async def process(self) -> Any:
-        """Main process."""
-        pass
+A task is the smallest independently verifiable and reversible change unit.
+
+A task is complete only when all are done:
+1. Implementation finished
+2. Validation completed (tests or explicit verification)
+3. Related docs/comments updated when needed
+
+Rules:
+- Do not mix unrelated tasks in one commit.
+- Keep changes atomic and traceable.
+
+---
+
+## 7) Testing & Validation
+
+Minimum expectation per task:
+- Add/update tests for changed behavior, or
+- Provide explicit verification steps when automated tests are unavailable.
+
+Useful commands:
+
+```bash
+# frontend
+cd frontend
+npm run type-check
+npm run test
+npm run lint
+
+# backend
+cd backend
+pytest
 ```
 
-#### 3. Type Hints
+Backend test naming convention:
+- File: `test_<module_name>.py`
+- Class: `Test<ClassName>`
+- Method: `test_<scenario>`
 
-- All public methods must include type hints
-- Use `typing` types
-- Use aliases for complex types when needed
+---
 
-#### 4. Async Programming
+## 8) Git Commit Policy (Mandatory)
 
-- All I/O operations must use async/await
-- Use `asyncio.sleep()` instead of `time.sleep()`
-- Use async database libraries (e.g. `aiosqlite`)
-- Handle timeout and exceptions explicitly
+### Commit Frequency
+- Every completed independent task must be committed immediately.
+- Do not batch unrelated tasks.
 
-#### 5. Docstrings
-
-Use Google-style docstrings.
-
-#### 6. Error Handling
-
-- Use specific exception types
-- Provide meaningful error messages
-- Log errors with useful context
-
-#### 7. Logging
-
-Use structured logging (`structlog`).
-
-#### 8. Testing
-
-- **Unit test files**: `test_<module_name>.py`
-- **Test class names**: `Test<ClassName>`
-- **Test method names**: `test_<scenario>`
-
-### TypeScript Standards (Frontend)
-
-#### 1. Naming
-
-- **Components**: `PascalCase`
-- **Functions/variables**: `camelCase`
-- **Types/interfaces**: `PascalCase`
-- **Constants**: `UPPER_SNAKE_CASE`
-- **Comments, logs, and error messages added by coding agents**: English
-- **UI copy**: English is not required unless explicitly requested
-
-#### 3. Internationalization (i18n)
-
-- New UI strings must be added to i18n resource files; avoid hardcoded user-facing text in components/pages.
-- Prefer key naming by domain and feature, e.g. `app.nav.dashboard`, `onboarding.actions.next`.
-- Keep `zh-CN` and `en` keys aligned for new features.
-- Language selection must update both `localStorage.magi_language` and `document.documentElement.lang`.
-- Include a quick verification step for locale switching when touching visible UI text.
-
-#### 2. Component Style
-
-Use functional components + hooks.
-
-## Agent Execution Rules
-
-This section defines mandatory behavior for coding agents operating in this repository.
-
-### 1. OpenSpec Alignment
-
-- Any change related to architecture, module boundaries, or core flows (Sense-Plan-Act-Reflect, Tool Registry, Memory, Plugin, Message Bus) must be aligned with OpenSpec first:
-  - `openspec/changes/ai-agent-framework/design.md`
-  - `openspec/changes/ai-agent-framework/specs/**/spec.md`
-  - `openspec/changes/ai-agent-framework/tasks.md`
-- If implementation must deviate from OpenSpec, the commit body must explain:
-  - Why the deviation is necessary
-  - Scope of impact
-  - Follow-up actions (if any)
-
-### 2. Task Completion Criteria
-
-- A "task" is the smallest independently verifiable and reversible change unit.
-- Before marking a task done, the agent must complete:
-  1. Implementation
-  2. Necessary tests or minimum validation
-  3. Related docs/comments update (when applicable)
-- **Every completed independent task must be committed immediately.**
-- Do not batch unrelated tasks in one commit.
-
-### 3. Commit Discipline (Mandatory)
-
-- Commit messages must describe code changes and rationale only.
-- Commit message **must not include** agent identity, model identity, or tool branding.
-- Prohibited terms in `subject/body/footer` include (not limited to):
-  - `cursor`
-  - `claude`
-  - `chatgpt`
-  - `copilot`
-  - `ai-generated`
-  - `generated by ai`
-- Do not add signatures like:
-  - `Co-authored-by: Cursor`
-  - `Co-authored-by: Claude`
-  - `Co-authored-by: AI Agent`
-
-## Git Commit Convention
-
-### Commit Message Format
+### Commit Format
+Use Conventional Commits:
 
 ```text
 <type>: <subject>
@@ -653,126 +219,77 @@ This section defines mandatory behavior for coding agents operating in this repo
 <footer>
 ```
 
-Use Conventional Commits style. Keep `subject` in English and concise.
+Recommended types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `revert`
 
-### Commit Types
+### Commit Quality Rules
+- Subject must be concise, in English (recommended <= 50 chars).
+- For non-trivial changes, body should explain why/scope/impact.
+- Keep each commit atomic.
 
-| Type | Description | Example |
-|------|-------------|---------|
-| `feat` | New feature | `feat: add lightweight WorkerAgent execution` |
-| `fix` | Bug fix | `fix: add missing timestamp to Perception` |
-| `docs` | Documentation changes | `docs: update API usage notes` |
-| `style` | Formatting/style only | `style: normalize import order` |
-| `refactor` | Refactor without behavior change | `refactor: optimize event bus pipeline` |
-| `perf` | Performance improvement | `perf: reduce database round trips` |
-| `test` | Tests | `test: add WorkerAgent unit tests` |
-| `chore` | Tooling/build/deps | `chore: update dependencies` |
-| `revert` | Revert commit | `revert: revert feat xxx` |
+### Prohibited Content
+Commit subject/body/footer must not contain agent/model/tool branding:
+- `cursor`, `claude`, `chatgpt`, `copilot`
+- `ai-generated`, `generated by ai`
+- Any model/assistant branding
 
-### Best Practices
-
-1. Use English `subject` (`type: subject`)
-2. Keep commits atomic
-3. Commit immediately after each completed independent task
-4. Keep subject concise (recommended <= 50 chars)
-5. Explain why/impact in body for non-trivial changes
-6. Never include agent/model identity in commit metadata
-
-## Development Workflow
-
-### Feature Development Flow
-
-1. **Create OpenSpec change** (optional)
-   ```bash
-   /opsx:new feature-name
-   ```
-2. **Implement**
-   - Create/modify code files
-   - Follow coding standards
-   - Add type hints and docstrings
-3. **Test**
-   - Add/update test files
-   - Cover core scenarios
-   - Ensure tests pass (or provide clear validation evidence)
-4. **Run validation**
-   ```bash
-   cd backend
-   python examples/test_<feature>.py
-   ```
-5. **Commit (required)**
-   ```bash
-   git add .
-   git commit -m "feat: add xxx"
-   git push
-   ```
-   - Commit immediately after each completed independent task
-   - Never include agent/model identity in commit message
-
-### Branch Strategy
-
-- `main`: stable branch
-- `feature/*`: feature development
-- `fix/*`: bug fixes
-- `refactor/*`: refactoring
-
-### Code Review Checklist
-
-- [ ] Follows coding standards
-- [ ] Includes type hints where needed
-- [ ] Includes docstrings where needed
-- [ ] Includes unit/integration tests for core paths
-- [ ] Tests/validation completed
-- [ ] Related docs updated
-
-## References
-
-### Python
-
-- [PEP 8 - Style Guide](https://pep8.org/)
-- [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)
-- [Type Hints](https://docs.python.org/3/library/typing.html)
-- [AsyncIO](https://docs.python.org/3/library/asyncio.html)
-
-### Framework
-
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [Pydantic](https://docs.pydantic.dev/)
-- [Structlog](https://www.structlog.org/)
-- [SQLAlchemy](https://docs.sqlalchemy.org/)
-
-### Frontend
-
-- [React TypeScript Cheatsheet](https://react-typescript-cheatsheet.netlify.app/)
-- [Vite Guide](https://vitejs.dev/guide/)
-- [Ant Design](https://ant.design/)
-
-## Architecture Principles
-
-### Design Principles
-
-1. Single Responsibility
-2. Open/Closed Principle
-3. Dependency Inversion
-4. Interface Segregation
-5. Least Knowledge
-
-### Performance Principles
-
-- Async-first for all I/O
-- Use connection pools for databases
-- Apply appropriate caching
-- Prefer batch operations when possible
-- Add indexes for frequent query fields
-
-### Security Principles
-
-- Validate inputs (Pydantic)
-- Use parameterized queries to avoid SQL injection
-- Store secrets in environment variables
-- Enforce plugin/tool permission boundaries
-- Avoid exposing sensitive details in error responses
+Also prohibited:
+- `Co-authored-by: Cursor`
+- `Co-authored-by: Claude`
+- `Co-authored-by: AI Agent`
 
 ---
 
-**Last Updated**: 2026-02-18  
+## 9) Development Workflow
+
+1. (Optional) Create OpenSpec change
+2. Implement code changes
+3. Validate (tests or explicit verification)
+4. Commit immediately for the completed task
+5. Push only when requested
+
+Example:
+
+```bash
+git add .
+git commit -m "fix: handle timeout in worker execution"
+git push
+```
+
+---
+
+## 10) Branching
+
+- `main`: stable branch
+- `feature/*`: new features
+- `fix/*`: bug fixes
+- `refactor/*`: refactors
+
+---
+
+## 11) Review Checklist
+
+- [ ] OpenSpec alignment verified (or deviation documented)
+- [ ] Code follows naming/type/async conventions
+- [ ] Validation completed (tests or explicit checks)
+- [ ] Task is atomic and independently reversible
+- [ ] Commit message follows policy
+- [ ] Commit message contains no agent/model identity markers
+
+---
+
+## 12) References
+
+- [PEP 8](https://pep8.org/)
+- [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)
+- [Python Typing](https://docs.python.org/3/library/typing.html)
+- [Python AsyncIO](https://docs.python.org/3/library/asyncio.html)
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [Pydantic](https://docs.pydantic.dev/)
+- [Structlog](https://www.structlog.org/)
+- [React TypeScript Cheatsheet](https://react-typescript-cheatsheet.netlify.app/)
+- [Vite Guide](https://vitejs.dev/guide/)
+
+---
+
+**Last Updated**: 2026-02-26  
 **Maintainer**: Magi Development Team
