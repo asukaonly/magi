@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import random
 import re
 from typing import Any, Dict, List, Optional
@@ -16,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ...llm import create_llm_adapter
 from ...memory.personality_loader import PersonalityLoader
 from ...utils.runtime import get_runtime_paths
 
@@ -201,21 +201,11 @@ def _build_diffs(from_data: Dict[str, Any], to_data: Dict[str, Any]) -> List[Per
 
 async def ai_generate_personality(description: str, target_language: str = "Auto") -> PersonalityConfigModel:
     """Generate personality configuration from description using LLM."""
-    from ...llm.openai import OpenAIAdapter
-
-    provider = (os.getenv("LLM_PROVIDER") or os.getenv("LLM_PROVidER") or "openai").lower()
-    api_key = os.getenv("LLM_API_KEY")
-    model = os.getenv("LLM_MODEL") or os.getenv("LLM_MOdel") or "gpt-4"
-    base_url = os.getenv("LLM_BASE_URL") or os.getenv("LLM_BasE_url")
-
-    if not api_key:
-        raise ValueError("LLM_API_KEY not configured")
-
-    llm_adapter = OpenAIAdapter(
-        api_key=api_key,
-        model=model,
-        provider=provider,
-        base_url=base_url,
+    llm_adapter = create_llm_adapter()
+    logger.info(
+        "[AI Generate Personality] Using unified LLM adapter provider=%s model=%s",
+        getattr(llm_adapter, "provider_name", "unknown"),
+        getattr(llm_adapter, "model_name", "unknown"),
     )
 
     system_prompt = """# Role Objective
@@ -296,6 +286,7 @@ Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural an
 # User Input:
 {description}"""
 
+    response_text = ""
     try:
         response = await llm_adapter.generate(
             prompt=user_prompt,
@@ -303,8 +294,15 @@ Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural an
             temperature=0.7,
             system_prompt=system_prompt,
             json_mode=True,
+            disable_thinking=True,
         )
         response_text = response.strip()
+        logger.info(
+            "[AI Generate Personality] LLM raw response preview: %s",
+            response_text[:300],
+        )
+        if not response_text:
+            raise ValueError("AI returned empty response")
         if response_text.startswith("```"):
             lines = response_text.split("\n")
             response_text = "\n".join(lines[1:-1])
@@ -321,7 +319,17 @@ Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural an
 
         return PersonalityConfigModel(**data)
     except json.JSONDecodeError as exc:
+        logger.error(
+            "[AI Generate Personality] JSON decode failed. Response preview: %s",
+            response_text[:500],
+        )
         raise ValueError(f"AI returned invalid JSON format: {exc}") from exc
+    except Exception:
+        logger.error(
+            "[AI Generate Personality] Generation failed. Response preview: %s",
+            response_text[:500],
+        )
+        raise
 
 
 # ============ Current Personality Management ============

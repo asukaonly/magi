@@ -8,7 +8,7 @@ Supported modes:
 - Legacy mode: ChatAgent (fallback)
 """
 import logging
-from ..config import get_config, AppConfig, LLMProvider
+from ..config import get_config, AppConfig
 from ..core.agent import AgentConfig
 from ..core.master_agent import MasterAgent
 from ..core.task_agent import TaskAgent
@@ -20,6 +20,7 @@ from ..memory.self_memory import SelfMemory
 from ..memory.other_memory import OtherMemory
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationModule, MemoryIntegrationConfig
+from ..llm import create_llm_adapter
 from ..tools.registry import tool_registry
 from ..utils.runtime import get_runtime_paths, init_runtime_data
 
@@ -74,34 +75,13 @@ def _create_llm_adapter(config: AppConfig):
     Returns:
         LLMAdapter instance
     """
-    llm_config = config.llm
-    provider = llm_config.provider.value  # Get string value from enum
-    api_key = llm_config.api_key
-    base_url = llm_config.base_url
-    model = llm_config.model
-
-    if not api_key:
-        raise ValueError("LLM_API_KEY must be set")
-
-    logger.info(f"Creating LLM adapter | Provider: {provider} | Model: {model} | Base URL: {base_url or 'default'}")
-
-    if provider == "anthropic":
-        from ..llm.anthropic import AnthropicAdapter
-        return AnthropicAdapter(
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-        )
-    elif provider in ("openai", "glm"):
-        from ..llm.openai import OpenAIAdapter
-        return OpenAIAdapter(
-            api_key=api_key,
-            model=model,
-            provider=provider,
-            base_url=base_url,
-        )
-    else:
-        raise ValueError(f"Unsupported LLM provider: {provider}. Supported: 'openai', 'anthropic', 'glm'")
+    llm_adapter = create_llm_adapter(config)
+    logger.info(
+        "Creating LLM adapter | Provider: %s | Model: %s",
+        getattr(llm_adapter, "provider_name", "unknown"),
+        getattr(llm_adapter, "model_name", "unknown"),
+    )
+    return llm_adapter
 
 
 async def initialize_chat_agent():

@@ -7,6 +7,7 @@ from .base import LLMAdapter
 from .openai import OpenAIAdapter
 from .anthropic import AnthropicAdapter
 from .provider_bridge import LLMProviderBridge, ProviderResponse, ProviderToolCall
+from .factory import create_llm_adapter
 
 __all__ = [
     "LLMAdapter",
@@ -15,4 +16,5 @@ __all__ = [
     "LLMProviderBridge",
     "ProviderResponse",
     "ProviderToolCall",
+    "create_llm_adapter",
 ]

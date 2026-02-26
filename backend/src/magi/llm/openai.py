@@ -86,14 +86,8 @@ class OpenAIAdapter(LLMAdapter):
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
-        # Handle thinking mode for GLM
-        # - disable_thinking=True (default for most calls): Disable thinking mode
-        # - disable_thinking=False or thinking_mode="enabled": Enable thinking mode
-        thinking_disabled = kwargs.pop("disable_thinking", True)  # Default to disabled
-        thinking_mode = kwargs.pop("thinking_mode", None)
-
-        # Determine if thinking should be disabled
-        should_disable_thinking = thinking_disabled or thinking_mode == "disabled"
+        # Handle thinking mode for GLM with a single boolean switch.
+        should_disable_thinking = kwargs.pop("disable_thinking", True)
 
         # Build extra_body for GLM thinking parameter
         extra_body = kwargs.pop("extra_body", {}) or {}
