@@ -12,6 +12,7 @@ export function SelectField({
   placeholder = '请选择',
   disabled = false,
   allowEmpty = true,
+  className,
 }: {
   value?: string;
   onChange?: (value: string) => void;
@@ -19,12 +20,14 @@ export function SelectField({
   placeholder?: string;
   disabled?: boolean;
   allowEmpty?: boolean;
+  className?: string;
 }): JSX.Element {
   return (
     <select
       className={cn(
         'h-10 w-full rounded-md border border-input bg-background px-3 text-sm',
-        disabled && 'cursor-not-allowed opacity-50'
+        disabled && 'cursor-not-allowed opacity-50',
+        className
       )}
       value={value ?? ''}
       onChange={(event) => onChange?.(event.target.value)}

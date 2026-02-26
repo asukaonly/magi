@@ -23,6 +23,42 @@ export interface LLMConfig {
   api_format?: ApiFormat;
 }
 
+export interface LLMProviderFieldConfig {
+  visible: boolean;
+  required: boolean;
+  placeholder?: string;
+  options?: string[];
+}
+
+export interface LLMProviderMeta {
+  id: string;
+  display_name: string;
+  description: string;
+  icon?: string;
+  default_model?: string;
+  default_base_url?: string;
+  model_options?: string[];
+  fields?: Record<string, LLMProviderFieldConfig>;
+}
+
+export interface LLMCustomProviderMeta {
+  enabled: boolean;
+  display_name: string;
+  description: string;
+  icon?: string;
+  fields?: Record<string, LLMProviderFieldConfig>;
+}
+
+export interface LLMProviderRegistry {
+  providers: LLMProviderMeta[];
+  custom_provider: LLMCustomProviderMeta;
+}
+
+export interface OnboardingTemplateData {
+  config: SystemConfig;
+  llm_providers: LLMProviderRegistry;
+}
+
 export interface PersonalityConfig {
   preset?: string;
   custom_prompt?: string;
@@ -153,6 +189,9 @@ export const configApi = {
   reset: () => api.post<SystemConfig>('/config/reset', {}),
   getTemplate: () => api.get<SystemConfig>('/config/template'),
   test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
+  getLLMProviders: () => api.get<LLMProviderRegistry>('/config/llm-providers'),
+  getOnboardingTemplate: () => api.get<OnboardingTemplateData>('/config/onboarding-template'),
+  completeOnboarding: (config: SystemConfig) => api.post<SystemConfig>('/config/onboarding-complete', config),
 };
 
 export default configApi;

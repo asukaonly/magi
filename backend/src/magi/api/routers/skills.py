@@ -11,6 +11,9 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import logging
+import yaml
+
+from ...config.loader import get_config_file_path
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,7 @@ class SkillMetadataResponse(BaseModel):
     agent: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     directory: str  # Skill directorypath
+    enabled: bool = False
 
 
 class SkillDetailResponse(BaseModel):
@@ -68,6 +72,22 @@ class SkillExecuteResponse(BaseModel):
 _skill_indexer = None
 _skill_loader = None
 _skill_executor = None
+
+
+def _get_enabled_skill_names() -> set[str]:
+    config_path = get_config_file_path()
+    if not config_path.exists():
+        return set()
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        tools = raw.get("tools", {}) if isinstance(raw.get("tools"), dict) else {}
+        skills = tools.get("skills", [])
+        if isinstance(skills, list):
+            return set(str(s) for s in skills)
+    except Exception:
+        logger.exception("Failed to read enabled skills from config file")
+    return set()
 
 
 def init_skills_module(llm_adapter=None):
@@ -114,6 +134,7 @@ async def list_skills():
         )
 
     skills = _skill_indexer.scan_all()
+    enabled_skills = _get_enabled_skill_names()
 
     return [
         SkillMetadataResponse(
@@ -126,6 +147,7 @@ async def list_skills():
             agent=skill.agent,
             tags=skill.tags,
             directory=str(skill.directory),
+            enabled=name in enabled_skills,
         )
         for name, skill in skills.items()
     ]
@@ -146,6 +168,7 @@ async def refresh_skills():
         )
 
     skills = _skill_indexer.refresh()
+    enabled_skills = _get_enabled_skill_names()
 
     # 同时update tool_registry
     from ...tools.registry import tool_registry
@@ -162,6 +185,7 @@ async def refresh_skills():
             agent=skill.agent,
             tags=skill.tags,
             directory=str(skill.directory),
+            enabled=name in enabled_skills,
         )
         for name, skill in skills.items()
     ]

@@ -1,7 +1,8 @@
 {
   "page": {
     "title": "Getting Started",
-    "loadConfigFailed": "Failed to load configuration"
+    "loadConfigFailed": "Failed to load configuration",
+    "badge": "Takes about 2 minutes"
   },
   "steps": {
     "language": "Language",
@@ -22,6 +23,7 @@
   },
   "messages": {
     "saveFailed": "Save failed",
+    "requiredFieldMissing": "Please complete required fields before continuing.",
     "chooseModeFirst": "Please select a mode before continuing.",
     "completedTitle": "Setup Complete",
     "completedDesc": "You can update these settings anytime later."
@@ -39,5 +41,64 @@
     "expert": "Expert Mode",
     "quickDesc": "Configure language, LLM and personality for a fast start.",
     "expertDesc": "Configure all settings, including memory layers and tools."
+  },
+  "hero": {
+    "title": "Shape your AI assistant from the start",
+    "subtitle": "Complete core setup through a more visual flow",
+    "quickMode": "Mode: Quick",
+    "expertMode": "Mode: Expert",
+    "selectMode": "Select a mode first"
+  },
+  "llm": {
+    "providerLabel": "Model Provider",
+    "providerRequired": "Please select a model provider",
+    "providerDesc": {
+      "openai": "Best ecosystem with strong general capability",
+      "anthropic": "Stable for long context and reasoning-heavy tasks",
+      "glm": "Friendly experience for Chinese-first scenarios"
+    },
+    "customProviderAction": "Add Custom Provider",
+    "modelLabel": "Model Name",
+    "modelRequired": "Please enter a model name",
+    "customNameLabel": "Custom Provider Name",
+    "customNameRequired": "Please enter a custom provider name",
+    "customNamePlaceholder": "For example: My Provider",
+    "apiFormatLabel": "API Format",
+    "apiFormatRequired": "Please choose an API format",
+    "apiKeyRequired": "Please enter API Key",
+    "baseUrlRequired": "Please enter Base URL",
+    "showAdvanced": "Show optional settings",
+    "hideAdvanced": "Hide optional settings",
+    "apiFormatOptions": {
+      "openai": "OpenAI Compatible",
+      "anthropic": "Anthropic Compatible",
+      "custom": "Custom"
+    }
+  },
+  "personality": {
+    "presetLabel": "Personality Cards",
+    "blankCardTitle": "Create Blank Personality",
+    "blankCardTag": "blank",
+    "blankCardDesc": "Start from a blank template and customize your own personality.",
+    "oneLinerLabel": "Create a custom personality in one sentence",
+    "oneLinerPlaceholder": "e.g. A calm technical partner who responds briefly but with clear judgment",
+    "generating": "Generating...",
+    "generateAction": "Generate",
+    "expandTitle": "Expand personality details",
+    "customNameLabel": "Personality Name",
+    "customNamePlaceholder": "e.g. Rational Engineering Advisor",
+    "summaryLabel": "Profile Summary",
+    "summaryPlaceholder": "Describe background, speaking style, and focus",
+    "toneLabel": "Tone",
+    "toneOptions": {
+      "casual": "Casual",
+      "formal": "Formal"
+    },
+    "customPromptLabel": "Custom Prompt",
+    "customPromptPlaceholder": "Add detailed prompt instructions",
+    "detailTip": "Current tone: {{tone}}. Adjust details, then merge them into the prompt.",
+    "promptNamePrefix": "Personality Name: ",
+    "applyDetailsAction": "Merge details into prompt",
+    "saveCustomAction": "Save as custom personality"
   }
 }

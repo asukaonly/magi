@@ -1,7 +1,8 @@
 {
   "page": {
     "title": "首次使用引导",
-    "loadConfigFailed": "加载配置失败"
+    "loadConfigFailed": "加载配置失败",
+    "badge": "约 2 分钟完成配置"
   },
   "steps": {
     "language": "语言",
@@ -22,6 +23,7 @@
   },
   "messages": {
     "saveFailed": "保存失败",
+    "requiredFieldMissing": "请先补全必填项再继续。",
     "chooseModeFirst": "请先选择模式再继续。",
     "completedTitle": "配置已完成",
     "completedDesc": "你可以随时在设置页面继续修改。"
@@ -39,5 +41,64 @@
     "expert": "专家模式",
     "quickDesc": "仅配置语言、LLM、人格，适合快速开始。",
     "expertDesc": "配置完整参数（记忆层、工具管理等）。"
+  },
+  "hero": {
+    "title": "为你的 AI 助手打造专属起点",
+    "subtitle": "用更直观的步骤完成核心能力配置",
+    "quickMode": "当前：快速模式",
+    "expertMode": "当前：专家模式",
+    "selectMode": "先选择模式"
+  },
+  "llm": {
+    "providerLabel": "模型提供商",
+    "providerRequired": "请选择模型提供商",
+    "providerDesc": {
+      "openai": "通用能力强，生态最完善",
+      "anthropic": "长文本与复杂推理表现稳定",
+      "glm": "本地中文场景体验更友好"
+    },
+    "customProviderAction": "添加自定义 Provider",
+    "modelLabel": "模型名称",
+    "modelRequired": "请输入模型名称",
+    "customNameLabel": "自定义 Provider 名称",
+    "customNameRequired": "请输入自定义 Provider 名称",
+    "customNamePlaceholder": "例如：My Provider",
+    "apiFormatLabel": "API 格式",
+    "apiFormatRequired": "请选择 API 格式",
+    "apiKeyRequired": "请输入 API Key",
+    "baseUrlRequired": "请输入 Base URL",
+    "showAdvanced": "显示可选配置",
+    "hideAdvanced": "收起可选配置",
+    "apiFormatOptions": {
+      "openai": "OpenAI 兼容",
+      "anthropic": "Anthropic 兼容",
+      "custom": "自定义"
+    }
+  },
+  "personality": {
+    "presetLabel": "人格卡片",
+    "blankCardTitle": "创建空白人格",
+    "blankCardTag": "blank",
+    "blankCardDesc": "从空白模板开始，自定义你的专属人格设定。",
+    "oneLinerLabel": "一句话创建自定义人格",
+    "oneLinerPlaceholder": "例如：像冷静可靠的技术合伙人，回答简洁但有判断",
+    "generating": "生成中...",
+    "generateAction": "智能生成",
+    "expandTitle": "展开人格详情编辑",
+    "customNameLabel": "人格名称",
+    "customNamePlaceholder": "例如：理性工程顾问",
+    "summaryLabel": "设定摘要",
+    "summaryPlaceholder": "写下人格背景、交流偏好和关注重点",
+    "toneLabel": "语调",
+    "toneOptions": {
+      "casual": "随意",
+      "formal": "正式"
+    },
+    "customPromptLabel": "自定义提示词",
+    "customPromptPlaceholder": "补充你的提示词细节",
+    "detailTip": "当前语调：{{tone}}。你可以先调整详情，再应用到提示词。",
+    "promptNamePrefix": "人格名称：",
+    "applyDetailsAction": "将详情合并到提示词",
+    "saveCustomAction": "保存为自定义人格"
   }
 }

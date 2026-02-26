@@ -1,66 +1,137 @@
-"""
-系统ConfigurationAPIroute
+"""System configuration API router."""
+from __future__ import annotations
 
-提供系统Configuration的读取andupdatefunction
-"""
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import logging
+import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
-import logging
-import os
+
+from ...config.loader import get_config, get_config_file_path, save_config
 
 logger = logging.getLogger(__name__)
-
 config_router = APIRouter()
 
-# ============ data Models ============
 
 class AgentConfigModel(BaseModel):
-    """AgentConfiguration"""
-    name: str = Field(default="magi-agent", description="AgentName")
-    description: Optional[str] = Field(None, description="AgentDescription")
+    name: str = Field(default="magi-agent")
+    description: Optional[str] = Field(default="Magi AI Agent Framework")
 
 
 class LLMConfigModel(BaseModel):
-    """LLMConfiguration"""
-    provider: str = Field(default="openai", description="LLM提供商: openai, anthropic, glm, local")
-    model: str = Field(default="gpt-4", description="modelName")
-    api_key: Optional[str] = Field(None, description="APIkey")
-    base_url: Optional[str] = Field(None, description="API endpoint url")
+    provider: str = Field(default="openai")
+    model: str = Field(default="gpt-4o-mini")
+    api_key: Optional[str] = Field(default=None)
+    base_url: Optional[str] = Field(default=None)
+    custom_name: Optional[str] = Field(default=None)
+    api_format: Optional[str] = Field(default=None)
 
 
 class LoopConfigModel(BaseModel):
-    """循环Configuration"""
-    strategy: str = Field(default="continuous", description="Loop strategy: step, wave, continuous")
-    interval: float = Field(default=1.0, description="循环interval（seconds）")
+    strategy: str = Field(default="continuous")
+    interval: float = Field(default=1.0)
 
 
 class MessageBusConfigModel(BaseModel):
-    """message busConfiguration"""
-    backend: str = Field(default="memory", description="后端type: memory, sqlite, redis")
-    max_size: Optional[int] = Field(None, description="maximumqueuesize")
+    backend: str = Field(default="sqlite")
+    max_size: Optional[int] = Field(default=1000)
 
 
 class MemoryConfigModel(BaseModel):
-    """Memory StorageConfiguration"""
-    backend: str = Field(default="memory", description="后端type: memory, sqlite, chromadb")
-    path: Optional[str] = Field(None, description="storagepath")
+    backend: str = Field(default="sqlite")
+    path: Optional[str] = Field(default="~/.magi/data/memories")
 
 
 class WebSocketConfigModel(BaseModel):
-    """WebSocketConfiguration"""
-    enabled: bool = Field(default=True, description="is notEnableWebSocket")
-    port: Optional[int] = Field(None, description="WebSocketport")
+    enabled: bool = Field(default=True)
+    port: Optional[int] = Field(default=8000)
 
 
 class LogConfigModel(BaseModel):
-    """LogConfiguration"""
-    level: str = Field(default="INFO", description="Loglevel: debug, INFO, warnING, error")
-    path: Optional[str] = Field(None, description="Logfilepath")
+    level: str = Field(default="INFO")
+    path: Optional[str] = Field(default=None)
+
+
+class UserPreferencesModel(BaseModel):
+    onboarding_completed: bool = Field(default=False)
+    user_mode: Optional[str] = Field(default=None)
+    language: str = Field(default="zh")
+
+
+class PersonalityConfigModel(BaseModel):
+    preset: Optional[str] = Field(default=None)
+    custom_prompt: Optional[str] = Field(default=None)
+    tone: Optional[str] = Field(default="casual")
+
+
+class WeatherToolConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    provider: str = Field(default="qweather")
+    apiKey: Optional[str] = Field(default=None)
+    apiUrl: Optional[str] = Field(default=None)
+
+
+class WebSearchToolConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    provider: str = Field(default="brave")
+    apiKey: Optional[str] = Field(default=None)
+
+
+class WebFetchToolConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    usePlaywright: bool = Field(default=False)
+
+
+class BuiltInToolsConfigModel(BaseModel):
+    weather: WeatherToolConfigModel = Field(default_factory=WeatherToolConfigModel)
+    webSearch: WebSearchToolConfigModel = Field(default_factory=WebSearchToolConfigModel)
+    webFetch: WebFetchToolConfigModel = Field(default_factory=WebFetchToolConfigModel)
+
+
+class ToolsConfigModel(BaseModel):
+    builtIn: BuiltInToolsConfigModel = Field(default_factory=BuiltInToolsConfigModel)
+    skills: List[str] = Field(default_factory=list)
+
+
+class L1ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+
+
+class L2ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    backend: str = Field(default="sqlite_networkx")
+    graphRules: Optional[str] = Field(default=None)
+
+
+class L3ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    deployment: str = Field(default="local")
+    backend: str = Field(default="sqlite_vec")
+    model: Optional[str] = Field(default=None)
+    modelStatus: Optional[str] = Field(default="not_downloaded")
+
+
+class L4ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    summaryTypes: List[str] = Field(default_factory=lambda: ["user_events"])
+
+
+class L5ConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+
+
+class MemoryLayersConfigModel(BaseModel):
+    L1: L1ConfigModel = Field(default_factory=L1ConfigModel)
+    L2: L2ConfigModel = Field(default_factory=L2ConfigModel)
+    L3: L3ConfigModel = Field(default_factory=L3ConfigModel)
+    L4: L4ConfigModel = Field(default_factory=L4ConfigModel)
+    L5: L5ConfigModel = Field(default_factory=L5ConfigModel)
 
 
 class SystemConfigModel(BaseModel):
-    """系统Configuration"""
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
     loop: LoopConfigModel = Field(default_factory=LoopConfigModel)
@@ -68,211 +139,404 @@ class SystemConfigModel(BaseModel):
     memory: MemoryConfigModel = Field(default_factory=MemoryConfigModel)
     websocket: WebSocketConfigModel = Field(default_factory=WebSocketConfigModel)
     log: LogConfigModel = Field(default_factory=LogConfigModel)
+    preferences: UserPreferencesModel = Field(default_factory=UserPreferencesModel)
+    personality: PersonalityConfigModel = Field(default_factory=PersonalityConfigModel)
+    tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
+    memory_layers: MemoryLayersConfigModel = Field(default_factory=MemoryLayersConfigModel)
 
 
 class ConfigResponse(BaseModel):
-    """Configurationresponse"""
     success: bool
     message: str
     data: Optional[SystemConfigModel] = None
 
 
-# ============ defaultConfiguration ============
-
-DEFAULT_CONFIG = SystemConfigModel(
-    agent=AgentConfigModel(
-        name="magi-agent",
-        description="Magi AI Agent Framework",
-    ),
-    llm=LLMConfigModel(
-        provider="openai",
-        model="gpt-4",
-        api_key=None,  # 从环境Variable读取
-        base_url=None,
-    ),
-    loop=LoopConfigModel(
-        strategy="continuous",
-        interval=1.0,
-    ),
-    message_bus=MessageBusConfigModel(
-        backend="memory",
-        max_size=1000,
-    ),
-    memory=MemoryConfigModel(
-        backend="memory",
-        path=None,
-    ),
-    websocket=WebSocketConfigModel(
-        enabled=True,
-        port=8000,
-    ),
-    log=LogConfigModel(
-        level="INFO",
-        path=None,
-    ),
-)
+class LLMProviderFieldModel(BaseModel):
+    visible: bool = Field(default=True)
+    required: bool = Field(default=False)
+    placeholder: Optional[str] = Field(default=None)
+    options: Optional[List[str]] = Field(default=None)
 
 
-# ============ Configurationstorage（内存中） ============
+class LLMProviderMetaModel(BaseModel):
+    id: str
+    display_name: str
+    description: str = Field(default="")
+    icon: Optional[str] = Field(default=None)
+    default_model: Optional[str] = Field(default=None)
+    default_base_url: Optional[str] = Field(default=None)
+    model_options: List[str] = Field(default_factory=list)
+    fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
 
-_config: SystemConfigModel = DEFAULT_CONFIG
+
+class LLMCustomProviderMetaModel(BaseModel):
+    enabled: bool = Field(default=True)
+    display_name: str = Field(default="Custom Provider")
+    description: str = Field(default="")
+    icon: Optional[str] = Field(default=None)
+    fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
 
 
-# ============ API Endpoints ============
+class LLMProviderRegistryModel(BaseModel):
+    providers: List[LLMProviderMetaModel] = Field(default_factory=list)
+    custom_provider: LLMCustomProviderMetaModel = Field(default_factory=LLMCustomProviderMetaModel)
+
+
+class LLMProviderRegistryResponse(BaseModel):
+    success: bool
+    message: str
+    data: Optional[LLMProviderRegistryModel] = None
+
+
+class OnboardingTemplateDataModel(BaseModel):
+    config: SystemConfigModel
+    llm_providers: LLMProviderRegistryModel
+
+
+class OnboardingTemplateResponse(BaseModel):
+    success: bool
+    message: str
+    data: Optional[OnboardingTemplateDataModel] = None
+
+
+def _read_raw_yaml() -> Dict[str, Any]:
+    config_path: Path = get_config_file_path()
+    if not config_path.exists():
+        return {}
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        logger.exception("Failed to read raw config file")
+        return {}
+
+
+def _llm_provider_registry_path() -> Path:
+    return Path(__file__).resolve().parents[4] / "configs" / "llm_providers.yaml"
+
+
+def _default_llm_provider_registry() -> LLMProviderRegistryModel:
+    return LLMProviderRegistryModel(
+        providers=[
+            LLMProviderMetaModel(
+                id="openai",
+                display_name="OpenAI",
+                description="General purpose, strongest ecosystem",
+                icon="sparkles",
+                default_model="gpt-4o-mini",
+                default_base_url="https://api.openai.com/v1",
+                model_options=["gpt-4o-mini", "gpt-4.1", "o3"],
+                fields={
+                    "model": LLMProviderFieldModel(visible=False, required=False),
+                    "api_key": LLMProviderFieldModel(visible=True, required=True),
+                    "base_url": LLMProviderFieldModel(visible=True, required=False),
+                },
+            ),
+            LLMProviderMetaModel(
+                id="anthropic",
+                display_name="Anthropic",
+                description="Stable for long context and reasoning-heavy tasks",
+                icon="brain",
+                default_model="claude-3-5-sonnet",
+                default_base_url="https://api.anthropic.com/v1",
+                model_options=["claude-3-5-sonnet", "claude-3-7-sonnet", "claude-opus-4-1"],
+                fields={
+                    "model": LLMProviderFieldModel(visible=False, required=False),
+                    "api_key": LLMProviderFieldModel(visible=True, required=True),
+                    "base_url": LLMProviderFieldModel(visible=True, required=False),
+                },
+            ),
+            LLMProviderMetaModel(
+                id="glm",
+                display_name="GLM",
+                description="Friendly experience for Chinese-first scenarios",
+                icon="zap",
+                default_model="glm-4.5",
+                default_base_url="https://open.bigmodel.cn/api/paas/v4",
+                model_options=["glm-4.5", "glm-4.5-air", "glm-4.5-flash"],
+                fields={
+                    "model": LLMProviderFieldModel(visible=False, required=False),
+                    "api_key": LLMProviderFieldModel(visible=True, required=True),
+                    "base_url": LLMProviderFieldModel(visible=True, required=False),
+                },
+            ),
+        ],
+        custom_provider=LLMCustomProviderMetaModel(
+            enabled=True,
+            display_name="Custom Provider",
+            description="Connect OpenAI-compatible or custom format endpoints",
+            icon="wand",
+            fields={
+                "custom_name": LLMProviderFieldModel(visible=True, required=True, placeholder="My Provider"),
+                "api_format": LLMProviderFieldModel(
+                    visible=True, required=True, options=["openai", "anthropic", "custom"]
+                ),
+                "model": LLMProviderFieldModel(visible=True, required=True),
+                "api_key": LLMProviderFieldModel(visible=True, required=True),
+                "base_url": LLMProviderFieldModel(visible=True, required=False),
+            },
+        ),
+    )
+
+
+def _load_llm_provider_registry() -> LLMProviderRegistryModel:
+    path = _llm_provider_registry_path()
+    if not path.exists():
+        return _default_llm_provider_registry()
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return LLMProviderRegistryModel(**data)
+    except Exception:
+        logger.exception("Failed to load LLM provider registry")
+        return _default_llm_provider_registry()
+
+
+def _build_memory_layers(raw: Dict[str, Any], runtime_config: Any) -> MemoryLayersConfigModel:
+    saved_layers = raw.get("memory_layers")
+    if isinstance(saved_layers, dict):
+        return MemoryLayersConfigModel(**saved_layers)
+
+    memory_cfg = runtime_config.agent.memory
+    return MemoryLayersConfigModel(
+        L1=L1ConfigModel(enabled=memory_cfg.enable_l1_raw),
+        L2=L2ConfigModel(enabled=memory_cfg.enable_l2_relations),
+        L3=L3ConfigModel(
+            enabled=memory_cfg.enable_l3_embeddings,
+            model=memory_cfg.embedding.local_model,
+            modelStatus="ready",
+        ),
+        L4=L4ConfigModel(enabled=memory_cfg.enable_l4_summaries),
+        L5=L5ConfigModel(enabled=memory_cfg.enable_l5_capabilities),
+    )
+
+
+def _build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
+    tools_raw = raw.get("tools", {}) if isinstance(raw.get("tools"), dict) else {}
+    built_in = tools_raw.get("builtIn", {}) if isinstance(tools_raw.get("builtIn"), dict) else {}
+
+    weather_runtime = runtime_config.tools.weather
+    web_search_runtime = runtime_config.tools.web_search
+    web_fetch_runtime = runtime_config.tools.web_fetch
+
+    weather_provider = built_in.get("weather", {}).get("provider", weather_runtime.default_provider)
+    weather_provider_cfg = weather_runtime.providers.get(weather_provider)
+
+    web_search_provider = built_in.get("webSearch", {}).get("provider", web_search_runtime.default_provider)
+    web_search_provider_cfg = web_search_runtime.providers.get(web_search_provider)
+
+    use_playwright = built_in.get("webFetch", {}).get(
+        "usePlaywright", web_fetch_runtime.default_provider == "browser"
+    )
+
+    return ToolsConfigModel(
+        builtIn=BuiltInToolsConfigModel(
+            weather=WeatherToolConfigModel(
+                enabled=weather_runtime.enabled,
+                provider=weather_provider,
+                apiKey=(weather_provider_cfg.api_key if weather_provider_cfg else None),
+                apiUrl=(weather_provider_cfg.base_url if weather_provider_cfg else None),
+            ),
+            webSearch=WebSearchToolConfigModel(
+                enabled=web_search_runtime.enabled,
+                provider=web_search_provider,
+                apiKey=(web_search_provider_cfg.api_key if web_search_provider_cfg else None),
+            ),
+            webFetch=WebFetchToolConfigModel(
+                enabled=web_fetch_runtime.enabled,
+                usePlaywright=bool(use_playwright),
+            ),
+        ),
+        skills=tools_raw.get("skills", []),
+    )
+
+
+def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
+    runtime_config = get_config()
+    raw = _read_raw_yaml()
+
+    api_key = runtime_config.llm.api_key
+    llm_api_key = "***" if (mask_api_key and api_key) else api_key
+
+    preferences_data = raw.get("preferences", {})
+    personality_data = raw.get("personality", {})
+
+    return SystemConfigModel(
+        agent=AgentConfigModel(
+            name=runtime_config.agent.name,
+            description=raw.get("agent", {}).get("description", "Magi AI Agent Framework"),
+        ),
+        llm=LLMConfigModel(
+            provider=str(runtime_config.llm.provider.value),
+            model=runtime_config.llm.model,
+            api_key=llm_api_key,
+            base_url=runtime_config.llm.base_url,
+            custom_name=raw.get("llm", {}).get("custom_name"),
+            api_format=raw.get("llm", {}).get("api_format"),
+        ),
+        loop=LoopConfigModel(
+            strategy=raw.get("loop", {}).get("strategy", "continuous"),
+            interval=float(raw.get("loop", {}).get("interval", runtime_config.agent.loop_interval)),
+        ),
+        message_bus=MessageBusConfigModel(
+            backend=runtime_config.agent.message_bus.backend.value,
+            max_size=runtime_config.agent.message_bus.max_queue_size,
+        ),
+        memory=MemoryConfigModel(
+            backend=raw.get("memory", {}).get("backend", "sqlite"),
+            path=runtime_config.agent.memory.db_path,
+        ),
+        websocket=WebSocketConfigModel(
+            enabled=runtime_config.features.enable_websocket,
+            port=runtime_config.server.port,
+        ),
+        log=LogConfigModel(
+            level=runtime_config.log_level,
+            path=raw.get("log", {}).get("path"),
+        ),
+        preferences=UserPreferencesModel(**preferences_data),
+        personality=PersonalityConfigModel(**personality_data),
+        tools=_build_tools(raw, runtime_config),
+        memory_layers=_build_memory_layers(raw, runtime_config),
+    )
+
+
+def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    updates: Dict[str, Any] = {
+        "agent.name": config.agent.name,
+        "agent.description": config.agent.description,
+        "llm.provider": config.llm.provider,
+        "llm.model": config.llm.model,
+        "llm.base_url": config.llm.base_url,
+        "llm.custom_name": config.llm.custom_name,
+        "llm.api_format": config.llm.api_format,
+        "loop.strategy": config.loop.strategy,
+        "loop.interval": config.loop.interval,
+        "agent.loop_interval": config.loop.interval,
+        "agent.message_bus.backend": config.message_bus.backend,
+        "agent.message_bus.max_queue_size": config.message_bus.max_size,
+        "memory.backend": config.memory.backend,
+        "agent.memory.db_path": config.memory.path,
+        "features.enable_websocket": config.websocket.enabled,
+        "server.port": config.websocket.port,
+        "log_level": config.log.level,
+        "log.path": config.log.path,
+        "preferences": config.preferences.model_dump(),
+        "personality": config.personality.model_dump(),
+        "memory_layers": config.memory_layers.model_dump(),
+        "tools.builtIn": config.tools.builtIn.model_dump(),
+        "tools.skills": config.tools.skills,
+        "tools.weather.enabled": config.tools.builtIn.weather.enabled,
+        "tools.weather.default_provider": config.tools.builtIn.weather.provider,
+        f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key": config.tools.builtIn.weather.apiKey,
+        f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url": config.tools.builtIn.weather.apiUrl,
+        "tools.web_search.enabled": config.tools.builtIn.webSearch.enabled,
+        "tools.web_search.default_provider": config.tools.builtIn.webSearch.provider,
+        f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.api_key": config.tools.builtIn.webSearch.apiKey,
+        "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
+        "tools.web_fetch.default_provider": "browser" if config.tools.builtIn.webFetch.usePlaywright else "http",
+    }
+    if config.llm.api_key and config.llm.api_key != "***":
+        updates["llm.api_key"] = config.llm.api_key
+        os.environ["LLM_API_KEY"] = config.llm.api_key
+    return updates
+
+
+def _build_onboarding_template() -> SystemConfigModel:
+    template = SystemConfigModel()
+    registry = _load_llm_provider_registry()
+    if registry.providers:
+        primary = registry.providers[0]
+        template.llm.provider = primary.id
+        if primary.default_model:
+            template.llm.model = primary.default_model
+        if primary.default_base_url:
+            template.llm.base_url = primary.default_base_url
+    template.llm.api_key = None
+    template.preferences.onboarding_completed = False
+    template.preferences.user_mode = None
+    return template
+
 
 @config_router.get("/", response_model=ConfigResponse)
-async def get_config():
-    """
-    get系统Configuration
-
-    Returns:
-        current系统Configuration
-    """
-    # 从环境Variable读取LLMConfiguration
-    llm_config = LLMConfigModel(
-        provider=os.getenv("LLM_PROVIDER") or os.getenv("LLM_PROVidER") or "openai",
-        model=os.getenv("LLM_MODEL") or os.getenv("LLM_MOdel") or "gpt-4",
-        api_key="***" if os.getenv("LLM_API_KEY") else None,  # 隐藏key
-        base_url=os.getenv("LLM_BASE_URL") or os.getenv("LLM_BasE_url"),
-    )
-
-    config = SystemConfigModel(
-        agent=_config.agent,
-        llm=llm_config,
-        loop=_config.loop,
-        message_bus=_config.message_bus,
-        memory=_config.memory,
-        websocket=_config.websocket,
-        log=_config.log,
-    )
-
-    return ConfigResponse(
-        success=True,
-        message="getConfigurationsuccess",
-        data=config,
-    )
+async def get_config_endpoint():
+    return ConfigResponse(success=True, message="Configuration loaded", data=_build_system_config())
 
 
 @config_router.put("/", response_model=ConfigResponse)
 async def update_config(config: SystemConfigModel):
-    """
-    update系统Configuration
-
-    Args:
-        config: new的Configuration
-
-    Returns:
-        Updated configuration
-    """
-    global _config
-
     try:
-        # updateConfiguration（不contains敏感info）
-        _config = config
-
-        # 如果提供了APIkey，Setting环境Variable
-        if config.llm.api_key and config.llm.api_key != "***":
-            os.environ["LLM_API_KEY"] = config.llm.api_key
-            logger.info("LLM API Key 已update")
-
-        if config.llm.base_url:
-            os.environ["LLM_BASE_URL"] = config.llm.base_url
-            os.environ["LLM_BasE_url"] = config.llm.base_url
-            logger.info(f"LLM Base url 已update: {config.llm.base_url}")
-
-        if config.llm.model:
-            os.environ["LLM_MODEL"] = config.llm.model
-            os.environ["LLM_MOdel"] = config.llm.model
-            logger.info(f"LLM Model 已update: {config.llm.model}")
-
-        if config.llm.provider:
-            os.environ["LLM_PROVIDER"] = config.llm.provider
-            os.environ["LLM_PROVidER"] = config.llm.provider
-            logger.info(f"LLM Provider 已update: {config.llm.provider}")
-
-        logger.info("系统Configuration已update")
-
-        return ConfigResponse(
-            success=True,
-            message="Configurationupdatesuccess",
-            data=_config,
-        )
-    except Exception as e:
-        logger.error(f"updateConfigurationfailure: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        updates = _build_update_paths(config)
+        if not save_config(updates):
+            raise HTTPException(status_code=500, detail="Failed to save config")
+        return ConfigResponse(success=True, message="Configuration updated", data=_build_system_config())
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to update config")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @config_router.post("/reset", response_model=ConfigResponse)
 async def reset_config():
-    """
-    resetConfiguration为defaultValue
-
-    Returns:
-        defaultConfiguration
-    """
-    global _config
-    _config = DEFAULT_CONFIG
-
-    logger.info("Configuration已reset为defaultValue")
-
-    return ConfigResponse(
-        success=True,
-        message="Configuration已reset",
-        data=_config,
-    )
+    try:
+        config_path = get_config_file_path()
+        if config_path.exists():
+            config_path.unlink()
+        # Trigger default config regeneration.
+        _ = get_config()
+        return ConfigResponse(success=True, message="Configuration reset", data=_build_system_config())
+    except Exception as exc:
+        logger.exception("Failed to reset config")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @config_router.get("/template", response_model=ConfigResponse)
 async def get_config_template():
-    """
-    getConfiguration模板
-
-    Returns:
-        Configuration模板
-    """
-    return ConfigResponse(
-        success=True,
-        message="getConfiguration模板success",
-        data=DEFAULT_CONFIG,
-    )
+    return ConfigResponse(success=True, message="Configuration template", data=SystemConfigModel())
 
 
 @config_router.post("/test", response_model=ConfigResponse)
 async def test_config(config: SystemConfigModel):
-    """
-    TestConfigurationis notvalid
+    if not config.llm.provider:
+        return ConfigResponse(success=False, message="LLM provider is required", data=None)
+    if not config.llm.model:
+        return ConfigResponse(success=False, message="LLM model is required", data=None)
+    return ConfigResponse(success=True, message="Configuration valid", data=config)
 
-    Args:
-        config: 要Test的Configuration
 
-    Returns:
-        TestResult
-    """
+@config_router.get("/llm-providers", response_model=LLMProviderRegistryResponse)
+async def get_llm_provider_registry():
+    return LLMProviderRegistryResponse(
+        success=True,
+        message="LLM provider registry loaded",
+        data=_load_llm_provider_registry(),
+    )
+
+
+@config_router.get("/onboarding-template", response_model=OnboardingTemplateResponse)
+async def get_onboarding_template():
+    return OnboardingTemplateResponse(
+        success=True,
+        message="Onboarding template loaded",
+        data=OnboardingTemplateDataModel(
+            config=_build_onboarding_template(),
+            llm_providers=_load_llm_provider_registry(),
+        ),
+    )
+
+
+@config_router.post("/onboarding-complete", response_model=ConfigResponse)
+async def complete_onboarding(config: SystemConfigModel):
     try:
-        # Validate必填field
-        if not config.llm.provider:
-            raise ValueError("LLM provider is required")
-
-        if not config.llm.model:
-            raise ValueError("LLM model is required")
-
-        # 这里可以addmore的Validate逻辑
-        # 例如TestLLMconnection等
-
-        return ConfigResponse(
-            success=True,
-            message="ConfigurationValidate通过",
-            data=config,
-        )
-    except ValueError as e:
-        return ConfigResponse(
-            success=False,
-            message=f"ConfigurationValidatefailure: {str(e)}",
-            data=None,
-        )
-    except Exception as e:
-        return ConfigResponse(
-            success=False,
-            message=f"ConfigurationTestfailure: {str(e)}",
-            data=None,
-        )
+        config.preferences.onboarding_completed = True
+        updates = _build_update_paths(config)
+        if not save_config(updates):
+            raise HTTPException(status_code=500, detail="Failed to save onboarding configuration")
+        return ConfigResponse(success=True, message="Onboarding configuration saved", data=_build_system_config())
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to complete onboarding")
+        raise HTTPException(status_code=500, detail=str(exc))

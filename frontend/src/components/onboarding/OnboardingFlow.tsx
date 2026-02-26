@@ -20,6 +20,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 type Mode = 'quick' | 'expert' | null;
 
 const STORAGE_KEY = 'magi_onboarding_state';
+const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
+const toPreferenceLanguage = (language?: string): 'en' | 'zh' => (language === 'en' ? 'en' : 'zh');
+const browserPreferredLanguage = (): 'en' | 'zh' => {
+  const language = typeof navigator !== 'undefined' ? navigator.language.toLowerCase() : 'en';
+  return language.startsWith('zh') ? 'zh' : 'en';
+};
 
 interface OnboardingFlowProps {
   initialConfig: SystemConfig;
@@ -32,20 +38,31 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [mode, setMode] = useState<Mode>(initialConfig.preferences.user_mode);
   const [current, setCurrent] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [renderLanguage, setRenderLanguage] = useState(i18n.resolvedLanguage || i18n.language);
+  const activeLanguage = i18n.resolvedLanguage || i18n.language;
+  const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
 
   useEffect(() => {
-    const configuredLanguage = initialConfig.preferences.language === 'en' ? 'en' : 'zh-CN';
-    if (i18n.language !== configuredLanguage) {
+    const savedLanguage = localStorage.getItem('magi_language') || undefined;
+    const baseLanguage = savedLanguage || browserPreferredLanguage();
+    const configuredLanguage = toI18nLanguage(baseLanguage);
+    const formLanguage = toPreferenceLanguage(baseLanguage);
+
+    document.documentElement.lang = configuredLanguage;
+    setRenderLanguage(configuredLanguage);
+    form.setFieldValue(['preferences', 'language'], formLanguage);
+
+    if ((i18n.resolvedLanguage || i18n.language) !== configuredLanguage) {
       void i18n.changeLanguage(configuredLanguage);
     }
-  }, [i18n, initialConfig.preferences.language]);
+  }, [form, i18n, initialConfig.preferences.language]);
 
   const steps = useMemo(() => {
     const shared = [t('steps.language'), t('steps.mode'), t('steps.llm'), t('steps.personality')];
     return mode === 'expert'
       ? [...shared, t('steps.memory'), t('steps.tools'), t('steps.complete')]
       : [...shared, t('steps.complete')];
-  }, [mode, t]);
+  }, [mode, t, activeLanguage]);
 
   const isLastStep = current === steps.length - 1;
 
@@ -89,7 +106,17 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const onValuesChange = (_: unknown, allValues: SystemConfig) => {
     const nextLanguage = allValues?.preferences?.language;
     if (nextLanguage) {
-      const mapped = nextLanguage === 'en' ? 'en' : 'zh-CN';
+      const mapped = toI18nLanguage(nextLanguage);
+      localStorage.setItem('magi_language', nextLanguage);
+      document.documentElement.lang = mapped;
+      if (debugI18n) {
+        // Optional debug for local reproduction: set localStorage.magi_i18n_debug=1
+        console.info('[onboarding:i18n] onValuesChange', {
+          raw: nextLanguage,
+          mapped,
+          current: i18n.language,
+        });
+      }
       if (i18n.language !== mapped) {
         void i18n.changeLanguage(mapped);
       }
@@ -97,15 +124,31 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     saveProgress(allValues);
   };
 
-  const persistValues = async () => {
-    const values = form.getFieldsValue(true);
-    await configApi.update(values);
-  };
+  useEffect(() => {
+    if (!debugI18n) return;
+    const handleLanguageChanged = (lng: string) => {
+      console.info('[onboarding:i18n] languageChanged', { lng });
+    };
+    i18n.on('languageChanged', handleLanguageChanged);
+    return () => {
+      i18n.off('languageChanged', handleLanguageChanged);
+    };
+  }, [debugI18n, i18n]);
+
+  useEffect(() => {
+    const handleLanguageChanged = (lng: string) => {
+      setRenderLanguage(lng);
+    };
+    i18n.on('languageChanged', handleLanguageChanged);
+    return () => {
+      i18n.off('languageChanged', handleLanguageChanged);
+    };
+  }, [i18n]);
 
   const handleFinish = async () => {
     const values = form.getFieldsValue(true);
     values.preferences.onboarding_completed = true;
-    await configApi.update(values);
+    await configApi.completeOnboarding(values);
     localStorage.removeItem(STORAGE_KEY);
     if (values.preferences.language) {
       localStorage.setItem('magi_language', values.preferences.language);
@@ -125,11 +168,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       setSaving(true);
       try {
         localStorage.setItem('magi_language', selectedLanguage);
-        document.documentElement.lang = selectedLanguage === 'en' ? 'en' : 'zh-CN';
-        await i18n.changeLanguage(selectedLanguage === 'en' ? 'en' : 'zh-CN');
+        document.documentElement.lang = toI18nLanguage(selectedLanguage);
+        void i18n.changeLanguage(toI18nLanguage(selectedLanguage));
 
-        // Keep onboarding responsive: do not block next step on API latency/failure.
-        void persistValues().catch(() => undefined);
         saveProgress(form.getFieldsValue(true));
         setCurrent(1);
       } finally {
@@ -146,7 +187,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     try {
       setSaving(true);
       await form.validateFields();
-      await persistValues();
 
       if (isLastStep) {
         await handleFinish();
@@ -154,7 +194,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         setCurrent((prev) => prev + 1);
       }
     } catch (error: any) {
-      if (!error?.errorFields) {
+      if (error?.errorFields?.length) {
+        // Inline field errors are already displayed by SimpleForm.
+      } else {
         toast.error(error?.message || t('messages.saveFailed'));
       }
     } finally {
@@ -205,8 +247,21 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   };
 
   return (
-    <Card>
-      <CardContent className="space-y-4 p-4 md:p-6">
+    <Card className="overflow-hidden border-border/70 bg-gradient-to-b from-background to-muted/20">
+      <CardContent className="space-y-5 p-4 md:p-6">
+        <div className="relative overflow-hidden rounded-xl border border-border/70 bg-background/80 p-4">
+          <div className="pointer-events-none absolute -top-8 -right-6 h-24 w-24 rounded-full bg-teal-500/10 blur-2xl" />
+          <div className="pointer-events-none absolute -bottom-8 -left-6 h-20 w-20 rounded-full bg-cyan-500/10 blur-2xl" />
+          <div className="relative flex flex-wrap items-center justify-between gap-2">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">{t('hero.title')}</p>
+              <p className="text-xs text-muted-foreground">{t('hero.subtitle')}</p>
+            </div>
+            <div className="rounded-full border border-teal-600/30 bg-teal-600/10 px-3 py-1 text-xs text-teal-700">
+              {mode === 'expert' ? t('hero.expertMode') : mode === 'quick' ? t('hero.quickMode') : t('hero.selectMode')}
+            </div>
+          </div>
+        </div>
         <Form
           form={form}
           layout="vertical"
@@ -216,7 +271,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           <StepIndicator steps={steps} current={current} />
           <AnimatePresence mode="wait">
             <motion.div
-              key={`${mode ?? 'none'}-${current}`}
+              key={`${renderLanguage}-${mode ?? 'none'}-${current}`}
               initial={{ opacity: 0, x: 24 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -24 }}
@@ -227,7 +282,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           </AnimatePresence>
         </Form>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 border-t border-border/70 pt-4">
           <Button variant="outline" onClick={handlePrev} disabled={current === 0}>
             {t('actions.previous')}
           </Button>

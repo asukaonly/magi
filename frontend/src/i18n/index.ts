@@ -6,7 +6,11 @@ import zhApp from './locales/zh-CN/app.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
 
 const savedLanguage = localStorage.getItem('magi_language');
-const defaultLanguage = savedLanguage === 'en' ? 'en' : 'zh-CN';
+const browserLanguage = typeof navigator !== 'undefined' ? navigator.language.toLowerCase() : 'en';
+const browserDefaultLanguage = browserLanguage.startsWith('zh') ? 'zh-CN' : 'en';
+const defaultLanguage = savedLanguage === 'en' || savedLanguage === 'zh'
+  ? (savedLanguage === 'en' ? 'en' : 'zh-CN')
+  : browserDefaultLanguage;
 
 void i18n.use(initReactI18next).init({
   resources: {

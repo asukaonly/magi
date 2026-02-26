@@ -227,6 +227,7 @@ def _register_routes(app: FastAPI):
         user_messages_router,
         config_router,
         personality_router,
+        personalities_router,
         others_router,
         skills_router,
     )
@@ -285,6 +286,12 @@ def _register_routes(app: FastAPI):
         personality_router,
         prefix="/api/personality",
         tags=["Personality"],
+    )
+
+    app.include_router(
+        personalities_router,
+        prefix="/api/personalities",
+        tags=["Personalities"],
     )
 
     # register他人memoryroute

@@ -13,10 +13,15 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
+import asyncio
+from pathlib import Path
+import time
 
 logger = logging.getLogger(__name__)
 
 memory_router = APIRouter()
+
+_model_download_jobs: Dict[str, Dict[str, Any]] = {}
 
 
 # ============ data Models ============
@@ -93,6 +98,22 @@ class MemoryStatisticsResponse(BaseModel):
     integration_stats: Optional[Dict[str, Any]] = None
 
 
+class ModelDownloadRequest(BaseModel):
+    model: str = Field(..., description="Embedding model name")
+
+
+class ModelDownloadStatusResponse(BaseModel):
+    model: str
+    status: str
+    progress: int
+    message: Optional[str] = None
+    updated_at: float
+
+
+class InstalledModelsResponse(BaseModel):
+    models: List[str]
+
+
 # ============ Helper Functions ============
 
 def get_unified_memory():
@@ -111,6 +132,30 @@ def get_memory_integration():
         return get_memory_integration()
     except RuntimeError:
         return None
+
+
+def _get_models_dir() -> Path:
+    models_dir = Path.home() / ".magi" / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    return models_dir
+
+
+def _model_ready_file(model_name: str) -> Path:
+    normalized = model_name.replace("/", "__")
+    return _get_models_dir() / f"{normalized}.ready"
+
+
+async def _simulate_model_download(model_name: str):
+    steps = [10, 25, 45, 65, 80, 100]
+    for progress in steps:
+        await asyncio.sleep(0.4)
+        _model_download_jobs[model_name] = {
+            "status": "downloading" if progress < 100 else "ready",
+            "progress": progress,
+            "updated_at": time.time(),
+            "message": "Downloading embedding model" if progress < 100 else "Model ready",
+        }
+    _model_ready_file(model_name).write_text(str(time.time()), encoding="utf-8")
 
 
 # ============ L1-L5 API 端点 ============
@@ -548,6 +593,69 @@ async def delete_capability(capability_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Capability {capability_id} not found",
         )
+
+
+# ============ Embedding model management ============
+
+@memory_router.post("/models/download", response_model=ModelDownloadStatusResponse)
+async def download_embedding_model(request: ModelDownloadRequest):
+    model = request.model.strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="Model is required")
+
+    if _model_ready_file(model).exists():
+        status_obj = {
+            "status": "ready",
+            "progress": 100,
+            "updated_at": time.time(),
+            "message": "Model already installed",
+        }
+        _model_download_jobs[model] = status_obj
+        return ModelDownloadStatusResponse(model=model, **status_obj)
+
+    existing = _model_download_jobs.get(model)
+    if existing and existing.get("status") == "downloading":
+        return ModelDownloadStatusResponse(model=model, **existing)
+
+    _model_download_jobs[model] = {
+        "status": "downloading",
+        "progress": 0,
+        "updated_at": time.time(),
+        "message": "Download started",
+    }
+    asyncio.create_task(_simulate_model_download(model))
+    return ModelDownloadStatusResponse(model=model, **_model_download_jobs[model])
+
+
+@memory_router.get("/models/download/{model_name}/status", response_model=ModelDownloadStatusResponse)
+async def get_embedding_model_status(model_name: str):
+    if _model_ready_file(model_name).exists():
+        status_obj = {
+            "status": "ready",
+            "progress": 100,
+            "updated_at": time.time(),
+            "message": "Model installed",
+        }
+        _model_download_jobs[model_name] = status_obj
+        return ModelDownloadStatusResponse(model=model_name, **status_obj)
+
+    status_obj = _model_download_jobs.get(model_name)
+    if status_obj:
+        return ModelDownloadStatusResponse(model=model_name, **status_obj)
+
+    return ModelDownloadStatusResponse(
+        model=model_name,
+        status="not_downloaded",
+        progress=0,
+        updated_at=time.time(),
+        message="Model not downloaded",
+    )
+
+
+@memory_router.get("/models", response_model=InstalledModelsResponse)
+async def list_installed_embedding_models():
+    models = [p.stem.replace("__", "/") for p in _get_models_dir().glob("*.ready")]
+    return InstalledModelsResponse(models=sorted(models))
 
 
 # ============ compatibleold版 API 端点 ============
