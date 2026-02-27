@@ -54,7 +54,7 @@ export function SelectField({
         disabled={disabled}
         className={cn(
           'flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/60',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600/60',
           disabled && 'cursor-not-allowed opacity-50',
           !selectedOption && 'text-muted-foreground'
         )}
@@ -72,7 +72,7 @@ export function SelectField({
               className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/50"
             >
               <span className="text-muted-foreground">{placeholder}</span>
-              {!value && <Check className="h-4 w-4 text-teal-600" />}
+              {!value && <Check className="h-4 w-4 text-violet-600" />}
             </button>
           )}
           {options.map((opt) => (
@@ -83,7 +83,7 @@ export function SelectField({
               className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/50"
             >
               <span>{opt.label}</span>
-              {value === opt.value && <Check className="h-4 w-4 text-teal-600" />}
+              {value === opt.value && <Check className="h-4 w-4 text-violet-600" />}
             </button>
           ))}
         </div>

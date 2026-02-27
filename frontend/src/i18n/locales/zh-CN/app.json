@@ -73,7 +73,8 @@
     "sessionSwitched": "已切换到新会话",
     "loadHistoryFailed": "加载历史失败",
     "greetingFallback": "👋 欢迎使用 Magi AI Agent Framework！\n\n你可以在这里与 Agent 对话。发送消息后，Agent 会通过感知器接收消息，处理后通过 WebSocket 推送回复。",
-    "greetingSimpleFallback": "👋 欢迎使用 Magi AI Agent Framework！"
+    "greetingSimpleFallback": "👋 欢迎使用 Magi AI Agent Framework！",
+    "reconnectFailed": "WebSocket 重连失败，请刷新页面"
   },
   "settings": {
     "loadFailed": "加载配置失败: {{message}}",
@@ -128,7 +129,30 @@
       "busBackend": "消息总线后端",
       "busQueueSize": "消息总线队列大小",
       "wsPort": "WebSocket 端口",
-      "logLevel": "日志级别"
+      "logLevel": "日志级别",
+      "clearMemory": "清除所有记忆",
+      "clearMemoryDesc": "清除 L1-L5 所有层级的记忆数据。此操作不可恢复，请谨慎操作。",
+      "currentPersonality": "当前人格"
+    },
+    "actions": {
+      "configure": "配置",
+      "clearMemory": "清除记忆"
+    },
+    "memoryCleared": "已清除 {{count}} 条记忆数据",
+    "memoryClearFailed": "清除记忆失败",
+    "clearConfirm": {
+      "title": "确认清除所有记忆？",
+      "warning": "此操作将永久清除以下所有数据：",
+      "l1": "L1 原始事件：所有历史对话和事件记录",
+      "l2": "L2 关系图谱：事件之间的关联关系",
+      "l3": "L3 语义嵌入：用于语义搜索的向量数据",
+      "l4": "L4 时间摘要：按时间段生成的总结",
+      "l5": "L5 能力记录：AI 已习得的能力和成功率",
+      "chatContext": "对话上下文：当前会话中的所有对话缓存",
+      "irreversible": "此操作不可恢复！AI 将失去所有记忆，需要重新学习。",
+      "cancel": "取消",
+      "confirm": "确认清除",
+      "clearing": "清除中..."
     },
     "options": {
       "quick": "快速模式",

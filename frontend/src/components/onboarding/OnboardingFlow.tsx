@@ -222,14 +222,17 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
     if (current === 1) {
       return (
-        <ModeSelection
-          value={mode}
-          onChange={(nextMode) => {
-            setMode(nextMode);
-            form.setFieldValue(['preferences', 'user_mode'], nextMode);
-            saveProgress(form.getFieldsValue(true));
-          }}
-        />
+        <div className="flex min-h-[420px] items-center justify-center">
+          <ModeSelection
+            value={mode}
+            onChange={(nextMode) => {
+              setMode(nextMode);
+              form.setFieldValue(['preferences', 'user_mode'], nextMode);
+              saveProgress(form.getFieldsValue(true));
+              setCurrent(2);
+            }}
+          />
+        </div>
       );
     }
 
@@ -256,10 +259,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   };
 
   return (
-    <div className="rounded-xl border border-border/70 bg-background shadow-sm">
-      <div className="flex min-h-[520px]">
+    <div className="w-full rounded-xl border border-violet-500/25 bg-background shadow-[0_20px_60px_-30px_rgba(124,58,237,0.45)]">
+      <div className="flex min-h-[clamp(560px,78vh,760px)]">
         {/* Left sidebar - Step indicator */}
-        <div className="w-44 shrink-0 border-r border-border/70 bg-muted/20 px-5 py-6">
+        <div className="w-44 shrink-0 border-r border-violet-500/15 bg-violet-500/5 px-5 py-6">
           <StepIndicator steps={steps} current={current} />
         </div>
 
@@ -271,7 +274,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
             initialValues={initialConfig}
             onValuesChange={onValuesChange}
           >
-            <div className="flex-1 p-6">
+            <div className="flex-1 overflow-y-auto p-6">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={`${renderLanguage}-${mode ?? 'none'}-${current}`}

@@ -10,8 +10,8 @@ interface LanguageFormProps {
 const selectableStyle = (active: boolean): string =>
   cn(
     'rounded-xl border bg-background p-4 text-left transition cursor-pointer',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/60',
-    active ? 'border-teal-600 bg-teal-600/5 shadow-sm' : 'border-border hover:border-teal-600/40'
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600/60',
+    active ? 'border-violet-600 bg-violet-600/5 shadow-sm' : 'border-border hover:border-violet-500/40'
   );
 
 const languages = [
@@ -51,7 +51,7 @@ export const LanguageForm: React.FC<LanguageFormProps> = ({ includeMode = true }
                   <div className="flex items-center gap-3">
                     <div className={cn(
                       'flex h-10 w-10 items-center justify-center rounded-lg text-lg font-medium',
-                      currentLanguage === lang.value ? 'bg-teal-600/10 text-teal-600' : 'bg-muted text-muted-foreground'
+                      currentLanguage === lang.value ? 'bg-violet-600/10 text-violet-600' : 'bg-muted text-muted-foreground'
                     )}>
                       {lang.value === 'zh' ? '中' : 'En'}
                     </div>

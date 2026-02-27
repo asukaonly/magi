@@ -658,6 +658,130 @@ async def list_installed_embedding_models():
     return InstalledModelsResponse(models=sorted(models))
 
 
+# ============ Memory Clear API ============
+
+@memory_router.delete("/clear")
+async def clear_all_memories():
+    """
+    清除所有记忆数据（L1-L5）和对话上下文
+
+    警告：此操作不可恢复，将清除：
+    - L1: 所有原始事件
+    - L2: 所有事件关系
+    - L3: 所有语义嵌入
+    - L4: 所有摘要
+    - L5: 所有能力记录
+    - ChatAgent 对话历史缓存
+
+    Returns:
+        清除结果
+    """
+    import aiosqlite
+
+    unified_memory = get_unified_memory()
+
+    results = {
+        "l1_raw": {"cleared": False, "count": 0},
+        "l2_relations": {"cleared": False, "count": 0},
+        "l3_embeddings": {"cleared": False, "count": 0},
+        "l4_summaries": {"cleared": False, "count": 0},
+        "l5_capabilities": {"cleared": False, "count": 0},
+        "chat_context": {"cleared": False, "count": 0},
+    }
+
+    errors = []
+
+    # L1: 清除原始事件
+    try:
+        if unified_memory and unified_memory.l1_raw:
+            async with aiosqlite.connect(unified_memory.l1_raw._expanded_db_path) as db:
+                cursor = await db.execute("SELECT COUNT(*) FROM event_store")
+                count = (await cursor.fetchone())[0]
+                await db.execute("DELETE FROM event_store")
+                await db.commit()
+                results["l1_raw"] = {"cleared": True, "count": count}
+    except Exception as e:
+        errors.append(f"L1: {str(e)}")
+
+    # L2: 清除事件关系
+    try:
+        if unified_memory and unified_memory.l2_relations:
+            count = len(unified_memory.l2_relations._events)
+            unified_memory.l2_relations._events.clear()
+            unified_memory.l2_relations._relations.clear()
+            unified_memory.l2_relations._save()
+            results["l2_relations"] = {"cleared": True, "count": count}
+    except Exception as e:
+        errors.append(f"L2: {str(e)}")
+
+    # L3: 清除语义嵌入
+    try:
+        if unified_memory and unified_memory.l3_embeddings:
+            stats = unified_memory.l3_embeddings.get_statistics()
+            count = stats.get("total_embeddings", 0)
+            unified_memory.l3_embeddings._embeddings.clear()
+            unified_memory.l3_embeddings._event_texts.clear()
+            unified_memory.l3_embeddings._save()
+            results["l3_embeddings"] = {"cleared": True, "count": count}
+    except Exception as e:
+        errors.append(f"L3: {str(e)}")
+
+    # L4: 清除摘要
+    try:
+        if unified_memory and unified_memory.l4_summaries:
+            stats = unified_memory.l4_summaries.get_statistics()
+            count = stats.get("total_summaries", 0)
+            unified_memory.l4_summaries._summaries.clear()
+            unified_memory.l4_summaries._event_buffers.clear()
+            unified_memory.l4_summaries._save()
+            results["l4_summaries"] = {"cleared": True, "count": count}
+    except Exception as e:
+        errors.append(f"L4: {str(e)}")
+
+    # L5: 清除能力记录
+    try:
+        if unified_memory and unified_memory.l5_capabilities:
+            stats = unified_memory.l5_capabilities.get_statistics()
+            count = stats.get("total_capabilities", 0)
+            unified_memory.l5_capabilities._capabilities.clear()
+            unified_memory.l5_capabilities._task_history.clear()
+            unified_memory.l5_capabilities._save()
+            results["l5_capabilities"] = {"cleared": True, "count": count}
+    except Exception as e:
+        errors.append(f"L5: {str(e)}")
+
+    # 清除 ChatAgent 对话历史缓存
+    try:
+        from ...agent import get_chat_agent
+        chat_agent = get_chat_agent()
+        if chat_agent:
+            # 清除所有用户的对话历史
+            history_count = sum(len(h) for h in chat_agent._conversation_history.values())
+            chat_agent._conversation_history.clear()
+            chat_agent._tool_interactions.clear()
+            results["chat_context"] = {"cleared": True, "count": history_count}
+            logger.info(f"Cleared chat context: {history_count} messages")
+    except RuntimeError:
+        # Agent 未初始化，跳过
+        results["chat_context"] = {"cleared": True, "count": 0, "note": "Agent not initialized"}
+    except Exception as e:
+        errors.append(f"ChatContext: {str(e)}")
+
+    if errors:
+        logger.warning(f"Memory clear completed with errors: {errors}")
+        return {
+            "success": True,
+            "results": results,
+            "warnings": errors,
+        }
+
+    logger.info("All memories and chat context cleared successfully")
+    return {
+        "success": True,
+        "results": results,
+    }
+
+
 # ============ compatibleold版 API 端点 ============
 
 # 内存storage（开发用）

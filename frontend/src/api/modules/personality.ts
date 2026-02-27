@@ -7,6 +7,8 @@ export interface BasicProfile {
   name: string;
   age: string;
   gender: string;
+  description: string;
+  avatar: string;
   occupation: string;
   core_background: string;
 }
@@ -92,6 +94,8 @@ export const DEFAULT_BASIC_PROFILE: BasicProfile = {
   name: 'AI Assistant',
   age: 'Unknown',
   gender: 'Unknown',
+  description: '',
+  avatar: '',
   occupation: 'Assistant',
   core_background: '',
 };

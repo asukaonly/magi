@@ -120,6 +120,59 @@
     "detailTip": "当前语调：{{tone}}。你可以先调整详情，再应用到提示词。",
     "promptNamePrefix": "人格名称：",
     "applyDetailsAction": "将详情合并到提示词",
-    "saveCustomAction": "保存为自定义人格"
+    "saveCustomAction": "保存为自定义人格",
+    "sections": {
+      "basicProfile": "基础档案",
+      "psychologicalTraits": "心理特质",
+      "socialResponses": "社交反应",
+      "behavioralStrategies": "行为策略",
+      "cachedPhrases": "缓存短语",
+      "appearance": "外观提示词",
+      "stateTransitionProtocol": "状态切换协议"
+    },
+    "fields": {
+      "name": "名称",
+      "age": "年龄",
+      "gender": "性别",
+      "description": "描述（卡片展示）",
+      "avatar": "头像",
+      "occupation": "职业",
+      "coreBackground": "核心背景",
+      "communicationTone": "沟通语气",
+      "confidenceLevel": "自信等级",
+      "empathyThreshold": "共情阈值",
+      "highFrequencyKeywords": "高频关键词",
+      "praiseReaction": "赞美反应",
+      "criticismReaction": "批评反应",
+      "obedienceStrategy": "执行策略",
+      "errorHandling": "错误处理",
+      "refusalStyle": "拒绝风格",
+      "onInit": "初始化短语",
+      "onWake": "唤醒短语",
+      "onError": "错误短语",
+      "onSuccess": "成功短语",
+      "onSwitchAttempt": "切换尝试短语",
+      "appearancePrompt": "外观描述",
+      "triggerCondition": "触发条件",
+      "targetStateName": "目标状态",
+      "behaviorShift": "行为变化"
+    },
+    "actions": {
+      "addTransition": "添加状态切换规则",
+      "backToCards": "返回卡片选择",
+      "editDetails": "编辑细节",
+      "hideDetails": "收起细节",
+      "addItem": "添加条目",
+      "removeItem": "删除条目",
+      "uploadAvatar": "上传头像",
+      "uploadingAvatar": "上传中..."
+    },
+    "arrayHint": "短语现在按列表编辑，可逐条新增或删除",
+    "noAvatar": "未设置头像",
+    "groups": {
+      "magi": "MAGI 人格",
+      "general": "通用人格",
+      "custom": "自定义人格"
+    }
   }
 }

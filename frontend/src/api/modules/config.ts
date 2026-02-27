@@ -2,6 +2,8 @@
  * 配置管理 API + 类型定义
  */
 import { api } from '../client';
+import type { PersonalityConfig } from './personality';
+import { DEFAULT_PERSONALITY_CONFIG } from './personality';
 
 export type UserMode = 'quick' | 'expert' | null;
 export type LanguageCode = 'zh' | 'en';
@@ -56,11 +58,8 @@ export interface OnboardingTemplateData {
   llm_providers: LLMProviderRegistry;
 }
 
-export interface PersonalityConfig {
-  preset?: string;
-  custom_prompt?: string;
-  tone?: 'casual' | 'formal';
-}
+// Re-export PersonalityConfig from personality module
+export type { PersonalityConfig };
 
 export interface WeatherToolConfig {
   enabled: boolean;
@@ -162,7 +161,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   websocket: { enabled: true, port: 8000 },
   log: { level: 'INFO' },
   preferences: { onboarding_completed: false, user_mode: null, language: 'zh' },
-  personality: { tone: 'casual' },
+  personality: DEFAULT_PERSONALITY_CONFIG,
   tools: {
     builtIn: {
       weather: { enabled: true, provider: 'qweather' },

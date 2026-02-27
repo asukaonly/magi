@@ -120,6 +120,59 @@
     "detailTip": "Current tone: {{tone}}. Adjust details, then merge them into the prompt.",
     "promptNamePrefix": "Personality Name: ",
     "applyDetailsAction": "Merge details into prompt",
-    "saveCustomAction": "Save as custom personality"
+    "saveCustomAction": "Save as custom personality",
+    "sections": {
+      "basicProfile": "Basic Profile",
+      "psychologicalTraits": "Psychological Traits",
+      "socialResponses": "Social Responses",
+      "behavioralStrategies": "Behavioral Strategies",
+      "cachedPhrases": "Cached Phrases",
+      "appearance": "Appearance Prompt",
+      "stateTransitionProtocol": "State Transition Protocol"
+    },
+    "fields": {
+      "name": "Name",
+      "age": "Age",
+      "gender": "Gender",
+      "description": "Description (for card)",
+      "avatar": "Avatar",
+      "occupation": "Occupation",
+      "coreBackground": "Core Background",
+      "communicationTone": "Communication Tone",
+      "confidenceLevel": "Confidence Level",
+      "empathyThreshold": "Empathy Threshold",
+      "highFrequencyKeywords": "High Frequency Keywords",
+      "praiseReaction": "Praise Reaction",
+      "criticismReaction": "Criticism Reaction",
+      "obedienceStrategy": "Obedience Strategy",
+      "errorHandling": "Error Handling",
+      "refusalStyle": "Refusal Style",
+      "onInit": "On Init",
+      "onWake": "On Wake",
+      "onError": "On Error",
+      "onSuccess": "On Success",
+      "onSwitchAttempt": "On Switch Attempt",
+      "appearancePrompt": "Appearance Prompt",
+      "triggerCondition": "Trigger Condition",
+      "targetStateName": "Target State",
+      "behaviorShift": "Behavior Shift"
+    },
+    "actions": {
+      "addTransition": "Add Transition Rule",
+      "backToCards": "Back to cards",
+      "editDetails": "Edit details",
+      "hideDetails": "Hide details",
+      "addItem": "Add item",
+      "removeItem": "Remove item",
+      "uploadAvatar": "Upload avatar",
+      "uploadingAvatar": "Uploading..."
+    },
+    "arrayHint": "Edit cached phrases as a list and add/remove items as needed",
+    "noAvatar": "No avatar selected",
+    "groups": {
+      "magi": "MAGI Personalities",
+      "general": "General Personalities",
+      "custom": "Custom Personality"
+    }
   }
 }

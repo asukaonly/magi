@@ -10,6 +10,7 @@ import json
 import logging
 import random
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -20,7 +21,7 @@ from ...memory.personality_loader import PersonalityLoader
 from ...utils.runtime import get_runtime_paths
 
 logger = logging.getLogger(__name__)
-personality_router = APIRouter()
+personality_config_router = APIRouter()
 
 
 # ============ Data Models ============
@@ -29,6 +30,8 @@ class BasicProfileModel(BaseModel):
     name: str = Field(default="AI Assistant")
     age: str = Field(default="Unknown")
     gender: str = Field(default="Unknown")
+    description: str = Field(default="")
+    avatar: str = Field(default="")
     occupation: str = Field(default="Assistant")
     core_background: str = Field(default="")
 
@@ -117,6 +120,8 @@ FIELD_LABELS: Dict[str, str] = {
     "persona_entity.basic_profile.name": "Name",
     "persona_entity.basic_profile.age": "Age",
     "persona_entity.basic_profile.gender": "Gender",
+    "persona_entity.basic_profile.description": "Description",
+    "persona_entity.basic_profile.avatar": "Avatar",
     "persona_entity.basic_profile.occupation": "Occupation",
     "persona_entity.basic_profile.core_background": "Core Background",
     "persona_entity.psychological_traits.communication_tone": "Communication Tone",
@@ -372,7 +377,7 @@ def set_current_personality(name: str) -> bool:
 
 # ============ API Endpoints ============
 
-@personality_router.get("/current", response_model=PersonalityResponse)
+@personality_config_router.get("/current", response_model=PersonalityResponse)
 async def api_get_current_personality():
     try:
         return PersonalityResponse(
@@ -384,7 +389,7 @@ async def api_get_current_personality():
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_router.put("/current", response_model=PersonalityResponse)
+@personality_config_router.put("/current", response_model=PersonalityResponse)
 async def api_set_current_personality(request: Dict[str, str]):
     try:
         name = request.get("name")
@@ -419,7 +424,7 @@ async def api_set_current_personality(request: Dict[str, str]):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_router.get("/greeting", response_model=PersonalityResponse)
+@personality_config_router.get("/greeting", response_model=PersonalityResponse)
 async def api_get_greeting():
     try:
         current_name = get_current_personality()
@@ -429,7 +434,11 @@ async def api_get_greeting():
         return PersonalityResponse(
             success=True,
             message="Successfully retrieved greeting",
-            data={"greeting": greeting, "name": config.name},
+            data={
+                "greeting": greeting,
+                "name": config.name,
+                "avatar": config.avatar or "",
+            },
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -451,7 +460,7 @@ def _load_builtin_personality(name: str, lang: str = "zh") -> Optional[Dict[str,
         return None
 
 
-@personality_router.get("/{name}", response_model=PersonalityResponse)
+@personality_config_router.get("/{name}", response_model=PersonalityResponse)
 async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
     try:
         # If lang parameter is provided, try loading from built-in presets first
@@ -483,7 +492,7 @@ async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_router.put("/{name}", response_model=PersonalityResponse)
+@personality_config_router.put("/{name}", response_model=PersonalityResponse)
 async def update_personality(name: str, config: PersonalityConfigModel, use_ai_name: bool = False):
     runtime_paths = get_runtime_paths()
     target_name = sanitize_filename(config.persona_entity.basic_profile.name)
@@ -519,7 +528,7 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_router.post("/generate", response_model=PersonalityResponse)
+@personality_config_router.post("/generate", response_model=PersonalityResponse)
 async def generate_personality(request: AIGenerateRequest):
     try:
         config = await ai_generate_personality(request.description, request.target_language)
@@ -545,7 +554,7 @@ def _get_builtin_personalities_dir(lang: str = "zh") -> Optional[Path]:
     return None
 
 
-@personality_router.get("/", response_model=PersonalityResponse)
+@personality_config_router.get("/", response_model=PersonalityResponse)
 async def list_personalities(lang: str = ""):
     try:
         personalities: List[str] = []
@@ -576,7 +585,7 @@ async def list_personalities(lang: str = ""):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_router.delete("/{name}", response_model=PersonalityResponse)
+@personality_config_router.delete("/{name}", response_model=PersonalityResponse)
 async def delete_personality(name: str):
     try:
         if name == DEFAULT_PERSONALITY:
@@ -597,7 +606,7 @@ async def delete_personality(name: str):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_router.get("/compare/{from_name}/{to_name}", response_model=PersonalityCompareResponse)
+@personality_config_router.get("/compare/{from_name}/{to_name}", response_model=PersonalityCompareResponse)
 async def compare_personalities(from_name: str, to_name: str):
     try:
         loader = get_personality_loader()
@@ -620,3 +629,4 @@ async def compare_personalities(from_name: str, to_name: str):
         raise HTTPException(status_code=404, detail=f"Personality not found: {exc}") from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+

@@ -22,6 +22,7 @@ class BasicProfile:
     gender: str = "Unknown"
     occupation: str = "Assistant"
     core_background: str = ""
+    avatar: str = ""
 
 
 @dataclass
@@ -80,6 +81,10 @@ class PersonalityConfig:
     @property
     def name(self) -> str:
         return self.persona_entity.basic_profile.name
+
+    @property
+    def avatar(self) -> str:
+        return self.persona_entity.basic_profile.avatar
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PersonalityConfig":

@@ -146,7 +146,7 @@ async def _initialize_three_layer_architecture(config: AppConfig):
         logger.info("TaskDatabase created")
 
         # Get current personality name
-        from ..api.routers.personality import get_current_personality
+        from ..api.routers.personality_config import get_current_personality
         current_personality = get_current_personality()
         logger.info(f"Current personality: {current_personality}")
 
@@ -302,7 +302,7 @@ async def _initialize_chat_agent_legacy(config: AppConfig):
         )
 
         # Get current personality name
-        from ..api.routers.personality import get_current_personality
+        from ..api.routers.personality_config import get_current_personality
         current_personality = get_current_personality()
         logger.info(f"Current personality: {current_personality}")
 

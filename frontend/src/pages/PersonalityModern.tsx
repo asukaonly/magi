@@ -210,8 +210,9 @@ const PersonalityModern: React.FC = () => {
   const diffPreview = useMemo(() => diffs.slice(0, 8), [diffs]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 p-6">
-      <Card>
+    <div className="flex min-h-screen justify-center p-6">
+      <div className="w-full max-w-5xl space-y-4">
+        <Card>
         <CardHeader>
           <CardTitle>{t('personality.title')}</CardTitle>
         </CardHeader>
@@ -551,6 +552,7 @@ const PersonalityModern: React.FC = () => {
           <Check className="mr-2 h-4 w-4" />
           {saving ? t('personality.saving') : t('personality.save')}
         </Button>
+      </div>
       </div>
     </div>
   );

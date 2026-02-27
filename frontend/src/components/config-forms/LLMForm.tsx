@@ -20,14 +20,14 @@ interface LLMFormProps {
 const iconNode = (icon?: string): JSX.Element => {
   switch (icon) {
     case 'brain':
-      return <Brain className="h-3.5 w-3.5 text-teal-600" />;
+      return <Brain className="h-3.5 w-3.5 text-violet-600" />;
     case 'zap':
-      return <Zap className="h-3.5 w-3.5 text-teal-600" />;
+      return <Zap className="h-3.5 w-3.5 text-violet-600" />;
     case 'wand':
-      return <Wand2 className="h-3.5 w-3.5 text-teal-600" />;
+      return <Wand2 className="h-3.5 w-3.5 text-violet-600" />;
     case 'sparkles':
     default:
-      return <Sparkles className="h-3.5 w-3.5 text-teal-600" />;
+      return <Sparkles className="h-3.5 w-3.5 text-violet-600" />;
   }
 };
 
@@ -44,8 +44,8 @@ const getProviderI18n = (providerId: string) => {
 
 const selectableStyle = (active: boolean): string =>
   cn(
-    'rounded-xl border bg-background p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/60',
-    active ? 'border-teal-600 bg-teal-600/5 shadow-sm' : 'border-border hover:border-teal-600/40'
+    'rounded-xl border bg-background p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600/60',
+    active ? 'border-violet-600 bg-violet-600/5 shadow-sm' : 'border-border hover:border-violet-500/40'
   );
 
 const fieldConfig = (
@@ -139,7 +139,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-teal-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-violet-600" />
         <span className="ml-2 text-muted-foreground">{t('llm.loading')}</span>
       </div>
     );
@@ -159,7 +159,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
   return (
     <>
       {fromEnv && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-teal-600/30 bg-teal-600/10 px-3 py-2 text-sm text-teal-700">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-violet-600/30 bg-violet-600/10 px-3 py-2 text-sm text-violet-700">
           <Info className="h-4 w-4 flex-shrink-0" />
           <span>{t('llm.fromEnvHint')}</span>
         </div>
@@ -221,8 +221,8 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
                     className={cn(
                       'mt-2 inline-flex items-center gap-2 rounded-lg border border-dashed px-4 py-2.5 text-base',
                       activeProvider === 'custom'
-                        ? 'border-teal-500 bg-teal-50 text-teal-800'
-                        : 'border-muted-foreground/45 bg-muted/20 text-foreground/90 hover:border-teal-500/60 hover:bg-teal-50/40'
+                        ? 'border-violet-500 bg-violet-50 text-violet-800'
+                        : 'border-muted-foreground/45 bg-muted/20 text-foreground/90 hover:border-violet-500/60 hover:bg-violet-50/40'
                     )}
                   >
                     {iconNode(customProvider.icon)}

@@ -6,10 +6,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Eraser, Plus, Send, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { messagesApi, ConversationHistory } from '../api';
 import { personalityApi } from '../api/modules/personality';
 import ReactMarkdown from 'react-markdown';
@@ -30,11 +29,21 @@ export const ChatPage: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [aiName, setAiName] = useState<string>('AI Agent');
-  const [_ws, setWs] = useState<WebSocket | null>(null);
+  const [aiAvatar, setAiAvatar] = useState<string>('');
   const [connected, setConnected] = useState(false);
-  const [_sid, setSid] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectCountRef = useRef(0);
+
+  // WebSocket 重连配置
+  const WS_CONFIG = {
+    baseUrl: 'ws://localhost:8000/ws',
+    maxReconnectAttempts: 10,
+    baseDelay: 1000, // 1秒
+    maxDelay: 30000, // 30秒
+  };
 
   // 自动滚动到底部
   const scrollToBottom = () => {
@@ -45,18 +54,30 @@ export const ChatPage: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  // WebSocket连接
-  useEffect(() => {
+  // 计算重连延迟（指数退避）
+  const getReconnectDelay = () => {
+    const delay = Math.min(
+      WS_CONFIG.baseDelay * Math.pow(2, reconnectCountRef.current),
+      WS_CONFIG.maxDelay
+    );
+    return delay + Math.random() * 1000; // 添加随机抖动
+  };
+
+  // 创建 WebSocket 连接
+  const connectWebSocket = () => {
     const userId = 'web_user';
     const room = `user_${userId}`;
 
-    // 连接到WebSocket服务器
-    const wsUrl = 'ws://localhost:8000/ws';
-    const websocket = new WebSocket(wsUrl);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    const websocket = new WebSocket(WS_CONFIG.baseUrl);
 
     websocket.onopen = () => {
       console.log('WebSocket connected');
       setConnected(true);
+      reconnectCountRef.current = 0; // 重置重连计数
 
       // 订阅用户专属房间
       websocket.send(JSON.stringify({
@@ -73,7 +94,6 @@ export const ChatPage: React.FC = () => {
         // 处理订阅确认
         if (data.type === 'subscribed') {
           console.log('Subscribed to room:', data.channel);
-          setSid(data.sid);
         }
         // 处理Agent回复
         else if (data.event === 'agent_response') {
@@ -84,10 +104,9 @@ export const ChatPage: React.FC = () => {
             id: `ws-${Date.now()}`,
             role: 'assistant',
             content: response.response,
-            timestamp: response.timestamp * 1000, // 转换为毫秒
+            timestamp: response.timestamp * 1000,
           };
 
-          // 直接添加消息，无需 loading 状态
           setMessages((prev) => [...prev, assistantMessage]);
         }
       } catch (error) {
@@ -95,21 +114,44 @@ export const ChatPage: React.FC = () => {
       }
     };
 
-    websocket.onclose = () => {
-      console.log('WebSocket disconnected');
+    websocket.onclose = (event) => {
+      console.log('WebSocket disconnected:', event.code, event.reason);
       setConnected(false);
+
+      // 非正常关闭时尝试重连
+      if (event.code !== 1000 && reconnectCountRef.current < WS_CONFIG.maxReconnectAttempts) {
+        const delay = getReconnectDelay();
+        console.log(`Reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectCountRef.current + 1}/${WS_CONFIG.maxReconnectAttempts})`);
+
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectCountRef.current++;
+          connectWebSocket();
+        }, delay);
+      } else if (reconnectCountRef.current >= WS_CONFIG.maxReconnectAttempts) {
+        console.error('Max reconnect attempts reached');
+        toast.error(t('chat.reconnectFailed'));
+      }
     };
 
     websocket.onerror = (error) => {
       console.error('WebSocket error:', error);
-      setConnected(false);
     };
 
-    setWs(websocket);
+    wsRef.current = websocket;
+  };
+
+  // WebSocket连接
+  useEffect(() => {
+    connectWebSocket();
 
     // 清理函数
     return () => {
-      websocket.close();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close(1000, 'Component unmounting');
+      }
     };
   }, []);
 
@@ -135,12 +177,14 @@ export const ChatPage: React.FC = () => {
           }));
           setMessages(chatMessages);
         } else {
-          // 没有历史记录，获取人格问候语和名字
+          // 没有历史记录，获取人格问候语、名字和头像
           try {
             const greetingResponse = await personalityApi.getGreeting() as any;
             const greeting = greetingResponse?.data?.greeting || t('chat.greetingFallback');
             const name = greetingResponse?.data?.name || 'AI Agent';
+            const avatar = greetingResponse?.data?.avatar || '';
             setAiName(name);
+            setAiAvatar(avatar);
 
             const welcomeMessage: ChatMessage = {
               id: 'welcome',
@@ -269,20 +313,22 @@ export const ChatPage: React.FC = () => {
     switch (role) {
       case 'user':
         return (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-white">
-            <UserRound className="h-4 w-4" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-600 text-white">
+            <UserRound className="h-5 w-5" />
           </div>
         );
       case 'assistant':
+        // 如果有头像（emoji），直接显示；否则显示名字首字母或默认图标
+        const initial = aiName?.charAt(0)?.toUpperCase() || 'A';
         return (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500 text-white">
-            <Bot className="h-4 w-4" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-lg text-white">
+            {aiAvatar || initial}
           </div>
         );
       case 'system':
         return (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-white">
-            <Bot className="h-4 w-4" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white">
+            <Bot className="h-5 w-5" />
           </div>
         );
       default:
@@ -304,27 +350,30 @@ export const ChatPage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-[calc(100vh-112px)] flex-col p-6">
-      <Card className="flex h-full flex-col">
-        <CardHeader className="flex-row items-center justify-between space-y-0 border-b">
-          <CardTitle>{t('chat.title', { name: aiName })}</CardTitle>
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      {/* 顶部区域：保留分区感，不使用明显边框 */}
+      <div className="shrink-0 px-6 pb-3 pt-4">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Badge variant={connected ? 'default' : 'destructive'}>
+            {getAvatar('assistant')}
+            <span className="text-sm font-medium">{aiName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge className="shadow-sm" variant={connected ? 'default' : 'destructive'}>
               {connected ? t('chat.connected') : t('chat.disconnected')}
             </Badge>
-            <Button size="sm" variant="outline" onClick={handleClearMessages}>
-              <Eraser className="mr-1 h-4 w-4" />
-              {t('chat.clear')}
+            <Button size="sm" variant="ghost" onClick={handleClearMessages} className="rounded-full">
+              <Eraser className="h-4 w-4" />
             </Button>
-            <Button size="sm" variant="outline" onClick={handleNewSession}>
-              <Plus className="mr-1 h-4 w-4" />
-              {t('chat.newSession')}
+            <Button size="sm" variant="ghost" onClick={handleNewSession} className="rounded-full">
+              <Plus className="h-4 w-4" />
             </Button>
           </div>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-col p-0">
-        {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto bg-muted/30 p-6">
+        </div>
+      </div>
+
+      {/* 消息区：唯一可滚动区域 */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-2">
           {messages.map((msg) => (
               <motion.div
                 key={msg.id}
@@ -485,35 +534,33 @@ export const ChatPage: React.FC = () => {
           </AnimatePresence>
           <div ref={messagesEndRef} />
         </div>
-        <div className="h-px bg-border" />
 
-        {/* 输入区域 */}
-        <div className="bg-background p-4">
-          <div className="flex w-full gap-2">
-            <Textarea
+        {/* 底部输入区域：固定在页面底部，铺满宽度 */}
+        <div className="shrink-0 bg-background/95 px-6 pb-4 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex w-full items-end gap-3">
+            <AutoResizeTextarea
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={t('chat.inputPlaceholder')}
-              rows={2}
               onKeyDown={handleKeyPress}
               disabled={!connected}
+              minHeight={96}
+              className="max-h-64 resize-none rounded-xl border-0 bg-muted/40 px-4 py-3 text-sm shadow-none focus-visible:ring-1"
             />
             <Button
               onClick={handleSendMessage}
               disabled={!connected}
-              className="h-auto"
+              className="h-11 rounded-xl px-5"
             >
               <Send className="mr-1 h-4 w-4" />
               {t('chat.send')}
             </Button>
           </div>
-          <div className="mt-2 text-xs text-muted-foreground">
+          <div className="mt-2 text-center text-xs text-muted-foreground">
             {t('chat.tip')}
           </div>
         </div>
-        </CardContent>
-      </Card>
-    </div>
+      </div>
   );
 };
 

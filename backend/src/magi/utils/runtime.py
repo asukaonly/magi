@@ -174,39 +174,43 @@ class Runtimepaths:
 
     def initialize_default_personality(self):
         """
-        initialize default personality configuration
+        Initialize personality configuration.
 
-        Ensure default personality JSON exists and current pointer file is valid.
+        Only creates default.json as fallback when:
+        - current file doesn't exist, or
+        - current points to a non-existent personality
         """
-        # Ensure default.json exists
-        default_file = self.personality_file("default")
-        if not default_file.exists():
-            default_file.write_text(
-                json.dumps(self._default_personality_payload(), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            logger.info(f"Created default personality JSON: {default_file}")
-        else:
-            logger.info(f"Default personality exists: {default_file}")
-
-        # Ensure current file exists
         current_file = self.personalities_dir / "current"
-        if not current_file.exists():
-            # Try to select a personality from existing .json files as default
-            json_files = list(self.personalities_dir.glob("*.json"))
-            valid_personalities = [f.stem for f in json_files if f.stem != "default"]
+        needs_fallback = False
 
-            if valid_personalities:
-                # Use first personality as default
-                current_file.write_text(valid_personalities[0])
-                logger.info(f"Created current file with personality: {valid_personalities[0]}")
-            else:
-                # If nottt custom personality, use default
-                current_file.write_text("default")
-                logger.info("Created current file with default personality")
-        else:
+        if current_file.exists():
             current_name = current_file.read_text().strip()
-            logger.info(f"Current personality: {current_name}")
+            personality_file = self.personality_file(current_name)
+
+            if personality_file.exists():
+                logger.info(f"Current personality: {current_name}")
+            else:
+                # Current points to non-existent personality
+                logger.warning(f"Current personality '{current_name}' not found, creating fallback")
+                needs_fallback = True
+        else:
+            # No current file
+            logger.info("No current personality file found")
+            needs_fallback = True
+
+        if needs_fallback:
+            # Create default.json as fallback
+            default_file = self.personality_file("default")
+            if not default_file.exists():
+                default_file.write_text(
+                    json.dumps(self._default_personality_payload(), ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                logger.info(f"Created default personality JSON: {default_file}")
+
+            # Point current to default
+            current_file.write_text("default")
+            logger.info("Set current personality to default")
 
     @property
     def current_personality_file(self) -> Path:

@@ -61,8 +61,8 @@ const OnboardingPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 p-6">
-      <div className="mx-auto max-w-4xl">
+    <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(120%_120%_at_50%_0%,#3b1a63_0%,#24163f_45%,#141827_100%)] px-4 py-6 md:px-6 md:py-8">
+      <div className="w-full max-w-6xl">
         <OnboardingFlow initialConfig={config} />
       </div>
     </div>

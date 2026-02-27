@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Download, RefreshCw, Save } from 'lucide-react';
+import { Download, RefreshCw, Save, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -69,6 +68,8 @@ export const SettingsPage: React.FC = () => {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<'not_downloaded' | 'downloading' | 'ready'>('not_downloaded');
   const [installedModels, setInstalledModels] = useState<string[]>([]);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     void fetchConfig();
@@ -156,6 +157,29 @@ export const SettingsPage: React.FC = () => {
         window.clearInterval(timer);
       }
     }, 800);
+  };
+
+  const handleClearMemory = async () => {
+    setClearing(true);
+    try {
+      const response = await memoryApi.clearAll();
+      if (response.data?.success) {
+        const results = response.data.results;
+        const totalCleared = Object.values(results).reduce(
+          (sum: number, r: any) => sum + (r.cleared ? r.count : 0),
+          0
+        );
+        toast.success(t('settings.memoryCleared', { count: totalCleared }));
+        if (response.data.warnings && response.data.warnings.length > 0) {
+          response.data.warnings.forEach((w) => console.warn(w));
+        }
+      }
+    } catch (error: any) {
+      toast.error(error?.message || t('settings.memoryClearFailed'));
+    } finally {
+      setClearing(false);
+      setShowClearConfirm(false);
+    }
   };
 
   if (loading) {
@@ -271,40 +295,92 @@ export const SettingsPage: React.FC = () => {
               </label>
             </TabsContent>
 
-            <TabsContent value="personality" className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-sm font-medium">{t('settings.fields.presetPersonality')}</span>
-                <Input
-                  value={config.personality.preset || ''}
-                  onChange={(event) => patchConfig((draft) => {
-                    draft.personality.preset = event.target.value;
-                  })}
-                />
-              </label>
-              <SelectField
-                label={t('settings.fields.tone')}
-                value={config.personality.tone || 'casual'}
-                options={[
-                  { label: t('settings.options.casual'), value: 'casual' },
-                  { label: t('settings.options.formal'), value: 'formal' },
-                ]}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.personality.tone = value as NonNullable<SystemConfig['personality']['tone']>;
-                })}
-              />
-              <label className="space-y-2 md:col-span-2">
-                <span className="text-sm font-medium">{t('settings.fields.customPrompt')}</span>
-                <Textarea
-                  rows={5}
-                  value={config.personality.custom_prompt || ''}
-                  onChange={(event) => patchConfig((draft) => {
-                    draft.personality.custom_prompt = event.target.value;
-                  })}
-                />
-              </label>
+            <TabsContent value="personality" className="space-y-4">
+              <div className="rounded-md border p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium">{t('settings.fields.currentPersonality')}</h3>
+                    <p className="text-sm text-muted-foreground">{config.personality?.persona_entity?.basic_profile?.name || 'Default'}</p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => window.location.href = '/personality'}>
+                    {t('settings.actions.configure')}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {config.personality?.persona_entity?.basic_profile?.occupation || ''}
+                </p>
+              </div>
             </TabsContent>
 
             <TabsContent value="memory" className="space-y-4">
+              {/* 清除记忆卡片 */}
+              <Card className="border-destructive/50">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base text-destructive">
+                    <Trash2 className="h-4 w-4" />
+                    {t('settings.fields.clearMemory')}
+                  </CardTitle>
+                  <CardDescription>
+                    {t('settings.fields.clearMemoryDesc')}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button
+                    variant="destructive"
+                    onClick={() => setShowClearConfirm(true)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {t('settings.actions.clearMemory')}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* 确认对话框 */}
+              {showClearConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                  <Card className="mx-4 max-w-md">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-destructive">
+                        <AlertTriangle className="h-5 w-5" />
+                        {t('settings.clearConfirm.title')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm">
+                        <p className="font-medium text-destructive">{t('settings.clearConfirm.warning')}</p>
+                        <ul className="mt-2 list-inside list-disc space-y-1 text-destructive/80">
+                          <li>{t('settings.clearConfirm.l1')}</li>
+                          <li>{t('settings.clearConfirm.l2')}</li>
+                          <li>{t('settings.clearConfirm.l3')}</li>
+                          <li>{t('settings.clearConfirm.l4')}</li>
+                          <li>{t('settings.clearConfirm.l5')}</li>
+                          <li>{t('settings.clearConfirm.chatContext')}</li>
+                        </ul>
+                        <p className="mt-3 font-semibold text-destructive">
+                          {t('settings.clearConfirm.irreversible')}
+                        </p>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => setShowClearConfirm(false)}
+                          disabled={clearing}
+                        >
+                          {t('settings.clearConfirm.cancel')}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          onClick={handleClearMemory}
+                          disabled={clearing}
+                        >
+                          {clearing ? t('settings.clearConfirm.clearing') : t('settings.clearConfirm.confirm')}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="flex items-center justify-between rounded-md border p-3">
                   <span className="text-sm font-medium">{t('settings.fields.l1Enabled')}</span>

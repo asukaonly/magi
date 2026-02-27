@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -62,10 +63,8 @@ class UserPreferencesModel(BaseModel):
     language: str = Field(default="zh")
 
 
-class PersonalityConfigModel(BaseModel):
-    preset: Optional[str] = Field(default=None)
-    custom_prompt: Optional[str] = Field(default=None)
-    tone: Optional[str] = Field(default="casual")
+# Import full PersonalityConfigModel from personality config module
+from .personality_config import PersonalityConfigModel as FullPersonalityConfigModel
 
 
 class WeatherToolConfigModel(BaseModel):
@@ -141,7 +140,7 @@ class SystemConfigModel(BaseModel):
     websocket: WebSocketConfigModel = Field(default_factory=WebSocketConfigModel)
     log: LogConfigModel = Field(default_factory=LogConfigModel)
     preferences: UserPreferencesModel = Field(default_factory=UserPreferencesModel)
-    personality: PersonalityConfigModel = Field(default_factory=PersonalityConfigModel)
+    personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
     tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
     memory_layers: MemoryLayersConfigModel = Field(default_factory=MemoryLayersConfigModel)
 
@@ -393,7 +392,7 @@ def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
             path=raw.get("log", {}).get("path"),
         ),
         preferences=UserPreferencesModel(**preferences_data),
-        personality=PersonalityConfigModel(**personality_data),
+        personality=FullPersonalityConfigModel(**personality_data),
         tools=_build_tools(raw, runtime_config),
         memory_layers=_build_memory_layers(raw, runtime_config),
     )
@@ -426,17 +425,21 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "tools.skills": config.tools.skills,
         "tools.weather.enabled": config.tools.builtIn.weather.enabled,
         "tools.weather.default_provider": config.tools.builtIn.weather.provider,
-        f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key": config.tools.builtIn.weather.apiKey,
-        f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url": config.tools.builtIn.weather.apiUrl,
         "tools.web_search.enabled": config.tools.builtIn.webSearch.enabled,
         "tools.web_search.default_provider": config.tools.builtIn.webSearch.provider,
-        f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.api_key": config.tools.builtIn.webSearch.apiKey,
         "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
         "tools.web_fetch.default_provider": "browser" if config.tools.builtIn.webFetch.usePlaywright else "http",
     }
-    if config.llm.api_key and config.llm.api_key != "***":
+    # Only update API keys if they are not masked values
+    if config.llm.api_key and not _is_masked_api_key(config.llm.api_key):
         updates["llm.api_key"] = config.llm.api_key
         os.environ["LLM_API_KEY"] = config.llm.api_key
+    if config.tools.builtIn.weather.apiKey and not _is_masked_api_key(config.tools.builtIn.weather.apiKey):
+        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = config.tools.builtIn.weather.apiKey
+    if config.tools.builtIn.weather.apiUrl:
+        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url"] = config.tools.builtIn.weather.apiUrl
+    if config.tools.builtIn.webSearch.apiKey and not _is_masked_api_key(config.tools.builtIn.webSearch.apiKey):
+        updates[f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.api_key"] = config.tools.builtIn.webSearch.apiKey
     return updates
 
 
@@ -449,6 +452,20 @@ def _mask_api_key(api_key: str) -> str:
     if len(api_key) <= visible_chars:
         return api_key[:3] + "***" if len(api_key) > 3 else "***"
     return api_key[:visible_chars] + "****"
+
+
+def _is_masked_api_key(api_key: Optional[str]) -> bool:
+    """Check if API key is a masked/placeholder value."""
+    if not api_key:
+        return True
+    # Check for common masked patterns
+    masked_patterns = ["***", "****", "*****"]
+    if api_key in masked_patterns:
+        return True
+    # Check for partial mask pattern like "sk-abc****"
+    if api_key.endswith("****") or api_key.endswith("***"):
+        return True
+    return False
 
 
 def _build_onboarding_template() -> SystemConfigModel:
@@ -556,6 +573,82 @@ async def get_onboarding_template():
     )
 
 
+def _copy_personality_preset_to_user(preset_id: str, lang: str = "zh") -> bool:
+    """Copy a personality preset to user storage and set as current."""
+    import json
+    from ...utils.runtime import get_runtime_paths
+
+    try:
+        # Load preset from built-in directory
+        builtin_dir = Path(__file__).resolve().parents[3] / "personalities" / lang
+        preset_file = builtin_dir / f"{preset_id}.json"
+
+        if not preset_file.exists():
+            # Try fallback to zh if lang is not found
+            if lang != "zh":
+                builtin_dir = Path(__file__).resolve().parents[3] / "personalities" / "zh"
+                preset_file = builtin_dir / f"{preset_id}.json"
+
+            if not preset_file.exists():
+                logger.warning("Personality preset not found: %s", preset_id)
+                return False
+
+        # Read preset config
+        content = preset_file.read_text(encoding="utf-8")
+        preset_config = json.loads(content)
+
+        # Save to user storage
+        runtime_paths = get_runtime_paths()
+        runtime_paths.personalities_dir.mkdir(parents=True, exist_ok=True)
+        user_file = runtime_paths.personality_file(preset_id)
+        user_file.write_text(json.dumps(preset_config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Set as current personality
+        current_file = runtime_paths.personalities_dir / "current"
+        current_file.write_text(preset_id)
+
+        logger.info("Copied personality preset '%s' to user storage and set as current", preset_id)
+        return True
+    except Exception as exc:
+        logger.error("Failed to copy personality preset: %s", exc)
+        return False
+
+
+def _save_personality_to_user(personality: FullPersonalityConfigModel) -> bool:
+    """Save personality config to user storage and set as current."""
+    import json
+    from ...utils.runtime import get_runtime_paths
+
+    try:
+        # Get personality name from basic_profile
+        name = personality.persona_entity.basic_profile.name
+        if not name:
+            name = "user_personality"
+
+        # Sanitize name for filename
+        safe_name = re.sub(r'[<>:"/\\|?*]', "_", name).replace(" ", "_")
+        safe_name = (safe_name[:50] or "user_personality").strip("_") or "user_personality"
+
+        # Save to user storage
+        runtime_paths = get_runtime_paths()
+        runtime_paths.personalities_dir.mkdir(parents=True, exist_ok=True)
+        user_file = runtime_paths.personality_file(safe_name)
+        user_file.write_text(
+            json.dumps(personality.model_dump(), ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+
+        # Set as current personality
+        current_file = runtime_paths.personalities_dir / "current"
+        current_file.write_text(safe_name)
+
+        logger.info("Saved personality '%s' to user storage and set as current", safe_name)
+        return True
+    except Exception as exc:
+        logger.error("Failed to save personality to user: %s", exc)
+        return False
+
+
 @config_router.post("/onboarding-complete", response_model=ConfigResponse)
 async def complete_onboarding(config: SystemConfigModel):
     try:
@@ -563,6 +656,11 @@ async def complete_onboarding(config: SystemConfigModel):
         updates = _build_update_paths(config)
         if not save_config(updates):
             raise HTTPException(status_code=500, detail="Failed to save onboarding configuration")
+
+        # Save the full personality config to user storage and set as current
+        if config.personality:
+            _save_personality_to_user(config.personality)
+
         return ConfigResponse(success=True, message="Onboarding configuration saved", data=_build_system_config())
     except HTTPException:
         raise

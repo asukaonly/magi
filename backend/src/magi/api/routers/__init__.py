@@ -10,8 +10,8 @@ from .memory import memory_router
 from .metrics import metrics_router
 from .messages import user_messages_router
 from .config import config_router
-from .personality import personality_router
-from .personalities import personalities_router
+from .personality_config import personality_config_router
+from .personality_presets import personality_presets_router
 from .others import others_router
 from .skills import skills_router
 
@@ -23,8 +23,8 @@ __all__ = [
     "metrics_router",
     "user_messages_router",
     "config_router",
-    "personality_router",
-    "personalities_router",
+    "personality_config_router",
+    "personality_presets_router",
     "others_router",
     "skills_router",
 ]

@@ -8,6 +8,23 @@ export interface ModelDownloadStatus {
   updated_at: number;
 }
 
+export interface ClearMemoryResult {
+  cleared: boolean;
+  count: number;
+}
+
+export interface ClearMemoryResponse {
+  success: boolean;
+  results: {
+    l1_raw: ClearMemoryResult;
+    l2_relations: ClearMemoryResult;
+    l3_embeddings: ClearMemoryResult;
+    l4_summaries: ClearMemoryResult;
+    l5_capabilities: ClearMemoryResult;
+  };
+  warnings?: string[];
+}
+
 export const memoryApi = {
   downloadModel: (model: string) =>
     api.post<ModelDownloadStatus>('/memory/models/download', { model }),
@@ -15,6 +32,8 @@ export const memoryApi = {
     api.get<ModelDownloadStatus>(`/memory/models/download/${encodeURIComponent(model)}/status`),
   listModels: () =>
     api.get<{ models: string[] }>('/memory/models'),
+  clearAll: () =>
+    api.delete<ClearMemoryResponse>('/memory/clear'),
 };
 
 export default memoryApi;

@@ -73,7 +73,8 @@
     "sessionSwitched": "Switched to a new session",
     "loadHistoryFailed": "Failed to load history",
     "greetingFallback": "👋 Welcome to Magi AI Agent Framework!\n\nYou can chat with the agent here. After sending a message, the agent will process it and stream replies through WebSocket.",
-    "greetingSimpleFallback": "👋 Welcome to Magi AI Agent Framework!"
+    "greetingSimpleFallback": "👋 Welcome to Magi AI Agent Framework!",
+    "reconnectFailed": "WebSocket reconnection failed, please refresh the page"
   },
   "settings": {
     "loadFailed": "Failed to load config: {{message}}",
@@ -128,7 +129,30 @@
       "busBackend": "Message Bus Backend",
       "busQueueSize": "Bus Queue Size",
       "wsPort": "WebSocket Port",
-      "logLevel": "Log Level"
+      "logLevel": "Log Level",
+      "clearMemory": "Clear All Memory",
+      "clearMemoryDesc": "Clear all memory data from L1-L5 layers. This action is irreversible, use with caution.",
+      "currentPersonality": "Current Personality"
+    },
+    "actions": {
+      "configure": "Configure",
+      "clearMemory": "Clear Memory"
+    },
+    "memoryCleared": "Cleared {{count}} memory records",
+    "memoryClearFailed": "Failed to clear memory",
+    "clearConfirm": {
+      "title": "Confirm Clear All Memory?",
+      "warning": "This will permanently delete all data from:",
+      "l1": "L1 Raw Events: All conversation history and event records",
+      "l2": "L2 Relations: Event relationship graph",
+      "l3": "L3 Embeddings: Vector data for semantic search",
+      "l4": "L4 Summaries: Time-based summaries",
+      "l5": "L5 Capabilities: Learned capabilities and success rates",
+      "chatContext": "Chat Context: All conversation cache in current session",
+      "irreversible": "This action is IRREVERSIBLE! AI will lose all memory and need to relearn.",
+      "cancel": "Cancel",
+      "confirm": "Confirm Clear",
+      "clearing": "Clearing..."
     },
     "options": {
       "quick": "Quick Mode",
