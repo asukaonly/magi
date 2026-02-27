@@ -64,6 +64,7 @@ class CachedPhrases:
 
 @dataclass
 class StateTransitionProtocolItem:
+    trigger_type: str = ""
     trigger_condition: str = ""
     target_state_name: str = ""
     behavior_shift: str = ""

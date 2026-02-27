@@ -45,6 +45,7 @@ export interface CachedPhrases {
 }
 
 export interface StateTransitionProtocolItem {
+  trigger_type: string;
   trigger_condition: string;
   target_state_name: string;
   behavior_shift: string;
@@ -130,6 +131,7 @@ export const DEFAULT_CACHED_PHRASES: CachedPhrases = {
 
 export const DEFAULT_STATE_TRANSITION_PROTOCOL: StateTransitionProtocolItem[] = [
   {
+    trigger_type: '',
     trigger_condition: '',
     target_state_name: '',
     behavior_shift: '',

@@ -90,7 +90,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                             </div>
                             <div>
                               <p className="text-sm font-semibold">{item.name}</p>
-                              <p className="text-xs text-muted-foreground">{item.id}</p>
+                              <p className="text-xs text-muted-foreground">{item.occupation || item.id}</p>
                             </div>
                           </div>
                           <p className="line-clamp-2 text-xs text-muted-foreground">{item.description}</p>

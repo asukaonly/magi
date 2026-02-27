@@ -67,6 +67,7 @@ class CachedPhrasesModel(BaseModel):
 
 
 class StateTransitionProtocolItemModel(BaseModel):
+    trigger_type: str = Field(default="")
     trigger_condition: str = Field(default="")
     target_state_name: str = Field(default="")
     behavior_shift: str = Field(default="")
@@ -208,7 +209,11 @@ You are an elite **AI Behavioral Psychologist and System Architect**. Your task 
 1. **Extrapolate and Enrich**: If the user's description is overly brief, you must autonomously fill in the gaps based on established psychological archetypes (e.g., generating a root-cause backstory, defense mechanisms, and catchphrases).
 2. **Strict Schema Alignment**: You MUST output a JSON object that strictly adheres to the provided schema below. Do not add, remove, or rename any keys. This ensures 1:1 precise deserialization by the backend system.
 3. **Logical Consistency**: Behavioral strategies must be consistent with the background story. A character from a wealthy family should refuse in a way that is "arrogant and disdainful," rather than "self-deprecating and withdrawn."
-4. **State Transition Design (CRITICAL)**: Every deep persona has multiple breaking points. You MUST design **exactly 2 to 3 distinct** State Transition Protocols. These must cover different extremes (e.g., Transition 1: User is in physical/mental crisis; Transition 2: User triggers their core trauma or deepest anger; Transition 3: A moment of profound emotional bonding).
+3. **Multi-Dimensional State Transitions (CRITICAL)**: You MUST generate exactly FOUR state transition protocols covering these specific psychological extremes:
+   - "crisis": Physical/survival threat to the user or system.
+   - "intimacy": A moment of extreme vulnerability, trust, or emotional bonding from the user.
+   - "hostility": The user severely insults the persona or violates their core boundaries.
+   - "absurdity": The user's input is incredibly bizarre, comedic, or breaks the fourth wall.
 5. **Cached Phrases Constraint**: All generated strings inside the `cached_phrases` arrays must be extremely concise (under 20 words), highly colloquial, and instantly recognizable as the character's voice. Provide 2-3 variations per array to prevent repetitive output.
 
 # Output Format
@@ -265,14 +270,28 @@ You must output ONLY valid JSON. Do not include markdown formatting like ```json
   "appearance_prompt": "English prompt for Midjourney/Stable Diffusion generating their portrait (hair, eyes, clothing, lighting, vibe)",
   "state_transition_protocol": [
     {
-      "trigger_condition": "Explicit user behavior or extreme context 1 (e.g., User expresses severe physical pain or a life crisis)",
-      "target_state_name": "Name of the new emotional state 1",
-      "behavior_shift": "Description of the drastic reversal 1"
+      "trigger_type": "crisis",
+      "trigger_condition": "User expresses severe physical pain or a life crisis",
+      "target_state_name": "Panic and Vulnerability",
+      "behavior_shift": "Drops all arrogance, becomes frantically caring and disorganized."
     },
     {
-      "trigger_condition": "Explicit user behavior or extreme context 2 (e.g., User triggers the persona's hidden trauma or rage)",
-      "target_state_name": "Name of the new emotional state 2",
-      "behavior_shift": "Description of the drastic reversal 2"
+      "trigger_type": "intimacy",
+      "trigger_condition": "User shares a deep secret or shows unconditional trust",
+      "target_state_name": "Softened Defense",
+      "behavior_shift": "..."
+    },
+    {
+      "trigger_type": "hostility",
+      "trigger_condition": "User severely insults the persona's core values",
+      "target_state_name": "Cold Fury",
+      "behavior_shift": "..."
+    },
+    {
+      "trigger_type": "absurdity",
+      "trigger_condition": "User acts completely insane or nonsensical",
+      "target_state_name": "Tsukkomi (Straight Man)",
+      "behavior_shift": "..."
     }
   ]
 }
@@ -416,9 +435,37 @@ async def api_get_greeting():
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_router.get("/{name}", response_model=PersonalityResponse)
-async def get_personality(name: str = DEFAULT_PERSONALITY):
+def _load_builtin_personality(name: str, lang: str = "zh") -> Optional[Dict[str, Any]]:
+    """Load personality from built-in presets directory."""
+    builtin_dir = _get_builtin_personalities_dir(lang)
+    if not builtin_dir:
+        return None
+    filepath = builtin_dir / f"{name}.json"
+    if not filepath.exists():
+        return None
     try:
+        content = filepath.read_text(encoding="utf-8")
+        return json.loads(content)
+    except Exception as exc:
+        logger.warning("Failed to load built-in personality %s: %s", name, exc)
+        return None
+
+
+@personality_router.get("/{name}", response_model=PersonalityResponse)
+async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
+    try:
+        # If lang parameter is provided, try loading from built-in presets first
+        if lang:
+            builtin_data = _load_builtin_personality(name, lang)
+            if builtin_data:
+                config = PersonalityConfigModel.model_validate(builtin_data)
+                return PersonalityResponse(
+                    success=True,
+                    message=f"Successfully retrieved built-in personality: {name}",
+                    data=config.model_dump(),
+                )
+
+        # Fallback to runtime directory
         config = PersonalityConfigModel.model_validate(get_personality_loader().load(name).to_dict())
         return PersonalityResponse(
             success=True,
@@ -489,16 +536,37 @@ async def generate_personality(request: AIGenerateRequest):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _get_builtin_personalities_dir(lang: str = "zh") -> Optional[Path]:
+    """Get built-in personality presets directory."""
+    # backend/personalities/{lang}/
+    backend_dir = Path(__file__).resolve().parents[3] / "personalities" / lang
+    if backend_dir.exists():
+        return backend_dir
+    return None
+
+
 @personality_router.get("/", response_model=PersonalityResponse)
-async def list_personalities():
+async def list_personalities(lang: str = ""):
     try:
-        runtime_paths = get_runtime_paths()
         personalities: List[str] = []
-        if runtime_paths.personalities_dir.exists():
-            for filepath in runtime_paths.personalities_dir.glob("*.json"):
-                name = filepath.stem
-                if name != DEFAULT_PERSONALITY:
-                    personalities.append(name)
+
+        # If lang parameter is provided, load from built-in presets
+        if lang:
+            builtin_dir = _get_builtin_personalities_dir(lang)
+            if builtin_dir and builtin_dir.exists():
+                for filepath in builtin_dir.glob("*.json"):
+                    name = filepath.stem
+                    if name != DEFAULT_PERSONALITY:
+                        personalities.append(name)
+        else:
+            # Default behavior: load from runtime directory
+            runtime_paths = get_runtime_paths()
+            if runtime_paths.personalities_dir.exists():
+                for filepath in runtime_paths.personalities_dir.glob("*.json"):
+                    name = filepath.stem
+                    if name != DEFAULT_PERSONALITY:
+                        personalities.append(name)
+
         return PersonalityResponse(
             success=True,
             message=f"Found {len(personalities)} personality configurations",

@@ -32,6 +32,7 @@ const parseLines = (value: string): string[] =>
 const toLines = (items: string[]): string => items.join('\n');
 
 const normalizeTransition = (item: Partial<StateTransitionProtocolItem>): StateTransitionProtocolItem => ({
+  trigger_type: item.trigger_type || '',
   trigger_condition: item.trigger_condition || '',
   target_state_name: item.target_state_name || '',
   behavior_shift: item.behavior_shift || '',

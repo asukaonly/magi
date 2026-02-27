@@ -3,14 +3,9 @@ import { api } from '../client';
 export interface PersonalityPreset {
   id: string;
   name: string;
+  occupation: string;
   description: string;
   prompt: string;
-}
-
-export interface PersonalitiesResponse {
-  success: boolean;
-  message: string;
-  data: PersonalityPreset[];
 }
 
 export const personalitiesApi = {
