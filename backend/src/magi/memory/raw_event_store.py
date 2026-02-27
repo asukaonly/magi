@@ -1,6 +1,6 @@
 """
 Memory Storage - L1Raw event Storage（RawEventStore）
-完整的非structure化eventinfo
+Internal note.
 """
 import aiosqlite
 import json
@@ -8,7 +8,6 @@ import logging
 import uuid
 from typing import Optional
 from pathlib import Path
-import time
 from ..events.events import Event
 
 logger = logging.getLogger(__name__)
@@ -16,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 class RawEventStore:
     """
-    L1Raw event Storage - 完整eventinfo
+    Internal note.
 
-    特点：
-    - 保留event完整data（timestamp、type、data、metadata）
-    - 永不清除（作为event溯源的base）
-    - support媒体file（graph片、音频path）
+    Internal note.
+    Internal note.
+    Internal note.
+    Internal note.
     """
 
     def __init__(
@@ -34,7 +33,7 @@ class RawEventStore:
 
         Args:
             db_path: databasefilepath
-            media_dir: 媒体filedirectory
+            Internal note.
         """
         self.db_path = db_path
         self.media_dir = media_dir
@@ -68,7 +67,7 @@ class RawEventStore:
                 columns = await cursor.fetchall()
                 column_names = [col[1] for col in columns]
 
-                # 如果缺少 type column或other必要column，重建table
+                # Internal note.
                 required_columns = {'id', 'type', 'data', 'timestamp', 'source', 'level', 'correlation_id', 'metadata', 'created_at'}
                 if not required_columns.issubset(set(column_names)):
                     logger.warning(f"event store table schema incompatible, recreating... Existing columns: {column_names}")
@@ -115,12 +114,12 @@ class RawEventStore:
         """
         import time
 
-        # process媒体file（如果有的话）
+        # Internal note.
         media_path = None
         if hasattr(event, 'media') and event.media:
             media_path = await self._save_media(event.media)
 
-        # storage到SQLite
+        # Internal note.
         event_id = str(uuid.uuid4())
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute("""
@@ -152,7 +151,7 @@ class RawEventStore:
             event_id: eventid
 
         Returns:
-            eventObject或None
+            Internal note.
         """
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
@@ -172,7 +171,7 @@ class RawEventStore:
         limit: int = 100,
     ) -> list[Event]:
         """
-        按typegetevent
+        Internal note.
 
         Args:
             event_type: eventtype
@@ -199,11 +198,11 @@ class RawEventStore:
         limit: int = 100,
     ) -> list[Event]:
         """
-        按时间rangegetevent
+        Internal note.
 
         Args:
-            start_time: Start时间
-            end_time: End时间
+            Internal note.
+            Internal note.
             limit: maximumReturnquantity
 
         Returns:
@@ -222,13 +221,13 @@ class RawEventStore:
 
     async def _save_media(self, media) -> str:
         """
-        save媒体file（按日期组织）
+        Internal note.
 
         Args:
-            media: 媒体Object
+            Internal note.
 
         Returns:
-            媒体filepath
+            Internal note.
         """
         from datetime import datetime
 
@@ -237,7 +236,7 @@ class RawEventStore:
         filename = f"{uuid.uuid4()}.{media.extension}"
         path = f"{self._expanded_media_dir}/{date_str}/{filename}"
 
-        # 确保directoryexists
+        # Internal note.
         Path(path).parent.mkdir(parents=True, exist_ok=True)
 
         # savefile

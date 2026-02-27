@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Brain, Eye, EyeOff, Info, Loader2, Sparkles, Wand2, Zap } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -88,32 +88,46 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
     [registry?.custom_provider]
   );
 
-  // Apply default model when registry loads
+  // Track if we've set the initial model
+  const initializedRef = useRef(false);
+
+  // Set default model and fix case mismatch when registry loads
   useEffect(() => {
     if (!registry || loading || !formCtx?.instance) return;
+    if (initializedRef.current) return;
 
-    const currentProvider = formCtx.instance.getFieldValue?.(['llm', 'provider']);
-    const currentModel = formCtx.instance.getFieldValue?.(['llm', 'model']);
+    // Small delay to ensure form values are ready
+    const timer = setTimeout(() => {
+      if (initializedRef.current) return;
 
-    // If provider is selected but no model, apply default
-    if (currentProvider && !currentModel) {
-      const selected = providers.find((p) => p.id === currentProvider);
-      if (selected?.default_model) {
-        formCtx.instance.setFieldValue?.(['llm', 'model'], selected.default_model);
+      const currentProvider = formCtx.values?.llm?.provider;
+      const currentModel = formCtx.values?.llm?.model;
+
+      if (currentProvider) {
+        const selected = providers.find((p) => p.id === currentProvider);
+        if (selected?.model_options?.length) {
+          if (!currentModel) {
+            // No model set, use default
+            if (selected.default_model) {
+              formCtx.instance.setFieldValue?.(['llm', 'model'], selected.default_model);
+            }
+          } else {
+            // Fix case mismatch: find matching option (case-insensitive) and use the correct value
+            const matchedOption = selected.model_options.find(
+              (opt) => opt.toLowerCase() === currentModel.toLowerCase()
+            );
+            if (matchedOption && matchedOption !== currentModel) {
+              formCtx.instance.setFieldValue?.(['llm', 'model'], matchedOption);
+            }
+          }
+        }
       }
-    }
-    // If no provider selected, select first provider with its defaults
-    else if (!currentProvider && providers.length > 0) {
-      const first = providers[0];
-      formCtx.instance.setFieldValue?.(['llm', 'provider'], first.id);
-      if (first.default_model) {
-        formCtx.instance.setFieldValue?.(['llm', 'model'], first.default_model);
-      }
-      if (first.default_base_url) {
-        formCtx.instance.setFieldValue?.(['llm', 'base_url'], first.default_base_url);
-      }
-    }
-  }, [registry, loading, formCtx?.instance, providers]);
+
+      initializedRef.current = true;
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [registry, loading, formCtx?.instance, formCtx?.values?.llm, providers]);
 
   // Check if LLM config is from environment variables
   // Masked API key format: "sk-abc****" (first 6 chars + ****)
@@ -224,8 +238,9 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
       </Form.Item>
 
       <Form.Item noStyle shouldUpdate>
-        {({ getFieldValue }: { getFieldValue: (name: any) => any }) => {
+        {({ getFieldValue, setFieldValue }: { getFieldValue: (name: any) => any; setFieldValue: (name: any, value: any) => void }) => {
           const activeProvider = getFieldValue(['llm', 'provider']);
+          const currentModel = getFieldValue(['llm', 'model']);
           const activeMeta =
             activeProvider === 'custom'
               ? customProvider
@@ -243,13 +258,32 @@ export const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false }) => {
             <div className="mt-5 rounded-xl border border-border/80 bg-muted/20 p-4">
               {shouldShowModel && (
                 <Form.Item
-                  label={`${t('llm.modelLabel')}${modelConfig.required ? '' : optionalText}`}
+                  label={t('llm.modelLabel')}
                   name={['llm', 'model']}
-                  rules={modelConfig.required ? [{ required: true, message: t('llm.modelRequired') }] : undefined}
+                  rules={
+                    modelConfig.required
+                      ? [
+                          { required: true, message: t('llm.modelRequired') },
+                          {
+                            validator: (_: any, value: string) => {
+                              if (activeProvider === 'custom') return Promise.resolve();
+                              const modelOptions = (activeMeta as LLMProviderMeta)?.model_options || [];
+                              if (value && modelOptions.length && !modelOptions.includes(value)) {
+                                return Promise.reject(new Error(t('llm.modelInvalid')));
+                              }
+                              return Promise.resolve();
+                            },
+                          },
+                        ]
+                      : undefined
+                  }
                 >
                   {(activeProvider !== 'custom' && (activeMeta as LLMProviderMeta)?.model_options?.length) ? (
                     <SelectField
+                      value={currentModel}
+                      onChange={(val) => setFieldValue(['llm', 'model'], val)}
                       allowEmpty={false}
+                      placeholder={t('llm.modelPlaceholder')}
                       options={((activeMeta as LLMProviderMeta).model_options || []).map((item) => ({
                         label: item,
                         value: item,

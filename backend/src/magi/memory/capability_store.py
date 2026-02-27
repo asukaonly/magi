@@ -1,6 +1,6 @@
 """
 Memory Storage - L5capabilitymemory（Capability Store）
-自process层的experience沉淀
+Internal note.
 """
 import aiosqlite
 import json
@@ -34,13 +34,13 @@ class CapabilityMemory:
 
 class CapabilityStore:
     """
-    L5capabilitymemory - 自process层experience沉淀
+    Internal note.
 
-    特点：
-    - SQLitestoragestructure化data
-    - ChromaDBstoragevector（语义检索）
-    - supportcapability查找and复用
-    - 持续learning（dynamicupdatesuccess率）
+    Internal note.
+    Internal note.
+    Internal note.
+    Internal note.
+    Internal note.
     """
 
     def __init__(
@@ -91,7 +91,7 @@ class CapabilityStore:
 
     async def save(self, capability: CapabilityMemory):
         """
-        沉淀capability
+        Internal note.
 
         Args:
             capability: capabilitymemory
@@ -118,16 +118,16 @@ class CapabilityStore:
 
     async def find(self, perception_pattern: dict) -> Optional[CapabilityMemory]:
         """
-        查找已有capability（语义匹配）
+        Internal note.
 
         Args:
             perception_pattern: Perceptionpattern
 
         Returns:
-            匹配的capability或None
+            Internal note.
         """
-        # 简化version：直接query最高success率的capability
-        # 实际Implementation应该使用ChromaDB进rowvector检索
+        # Internal note.
+        # Internal note.
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("""
                 SELECT * FROM capabilities
@@ -156,7 +156,7 @@ class CapabilityStore:
         success: bool,
     ):
         """
-        updatesuccess率（持续learning）
+        Internal note.
 
         Args:
             capability_id: capabilityid
@@ -176,7 +176,7 @@ class CapabilityStore:
             current_rate = row[0]
             usage_count = row[1] + 1
 
-            # 指数move平均
+            # Internal note.
             alpha = 0.3
             new_rate = (1 - alpha) * current_rate + alpha * (1.0 if success else 0.0)
 

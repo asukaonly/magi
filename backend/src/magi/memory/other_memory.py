@@ -1,11 +1,11 @@
 """
-他人Memory System - 使用 Markdown filestorage
+Internal note.
 
-AI 对他人的memory，package括：
-- user画像（兴趣、habit、character等）
+Internal note.
+Internal note.
 - relationshipdepth
-- 交互historysummary
-- 重要eventrecord
+Internal note.
+Internal note.
 """
 import logging
 import time
@@ -16,7 +16,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
-# ===== 他人memorydata Models =====
+# Internal note.
 
 class OtherProfile:
     """他人画像"""
@@ -81,7 +81,7 @@ class OtherProfile:
         return cls(**data)
 
 
-# ===== Markdown format化 =====
+# Internal note.
 
 class OtherProfileFormatter:
     """他人画像 Markdown format化器"""
@@ -150,7 +150,7 @@ class OtherProfileFormatter:
             for key, value in profile.preferences.items():
                 lines.append(f"- **{key}**: {value}")
 
-        # 重要event
+        # Internal note.
         if profile.important_events:
             lines.extend([
                 "",
@@ -187,13 +187,12 @@ class OtherProfileFormatter:
             "important_events": [],
         }
 
-        # parse基本info
+        # Internal note.
         name_match = re.search(r'^# (.+)$', content, re.MULTILINE)
         if name_match:
             data["name"] = name_match.group(1).strip()
 
         # parsemetadata
-        user_id_match = re.search(r'userid: `\w+`', content)
         nickname_match = re.search(r'昵称: ([^\n]+)', content)
         relationship_match = re.search(r'relationshipdepth: `([\d.]+)`', content)
         trust_match = re.search(r'trust度: `([\d.]+)`', content)
@@ -270,21 +269,21 @@ class OtherProfileFormatter:
         return OtherProfile.from_dict(data)
 
 
-# ===== 他人Memory Storage =====
+# Internal note.
 
 class OtherMemory:
     """
-    他人Memory System
+    Internal note.
 
-    使用 Markdown filestorage他人画像
+    Internal note.
     """
 
     def __init__(self, others_dir: str = None):
         """
-        initialize他人Memory System
+        Internal note.
 
         Args:
-            others_dir: 他人memoryfiledirectory（default使用run时directory）
+            Internal note.
         """
         if others_dir is None:
             from ..utils.runtime import get_runtime_paths
@@ -293,31 +292,31 @@ class OtherMemory:
         else:
             self.others_dir = Path(others_dir)
 
-        # 确保directoryexists
+        # Internal note.
         self.others_dir.mkdir(parents=True, exist_ok=True)
 
-        # cache已load的画像
+        # Internal note.
         self._cache: Dict[str, OtherProfile] = {}
 
         self.formatter = OtherProfileFormatter()
 
     def _get_profile_path(self, user_id: str) -> Path:
         """getuser画像filepath"""
-        # 将userid转成safe的filename
+        # Internal note.
         safe_name = user_id.replace("/", "_").replace("\\", "_").replace(":", "_")
         return self.others_dir / f"{safe_name}.md"
 
     def get_profile(self, user_id: str) -> Optional[OtherProfile]:
         """
-        getuser画像
+        Internal note.
 
         Args:
             user_id: userid
 
         Returns:
-            user画像或None
+            Internal note.
         """
-        # 先checkcache
+        # Internal note.
         if user_id in self._cache:
             return self._cache[user_id]
 
@@ -337,10 +336,10 @@ class OtherMemory:
 
     def save_profile(self, profile: OtherProfile) -> bool:
         """
-        saveuser画像
+        Internal note.
 
         Args:
-            profile: user画像
+            Internal note.
 
         Returns:
             is notsavesuccess
@@ -364,31 +363,31 @@ class OtherMemory:
         notes: str = "",
     ) -> OtherProfile:
         """
-        update交互record
+        Internal note.
 
         Args:
             user_id: userid
-            interaction_type: 交互type
+            Internal note.
             outcome: Result（positive/negative/neutral）
             notes: note
 
         Returns:
-            update后的画像
+            Internal note.
         """
         profile = self.get_profile(user_id)
 
         if profile is None:
-            # createnew画像
+            # Internal note.
             profile = OtherProfile(
                 user_id=user_id,
                 name=user_id,
             )
 
-        # update交互info
+        # Internal note.
         profile.total_interactions += 1
         profile.last_interacted = time.time()
 
-        # updaterelationshipdepth（simple增长算法）
+        # Internal note.
         if outcome == "positive":
             profile.relationship_depth = min(1.0, profile.relationship_depth + 0.05)
             profile.trust_level = min(1.0, profile.trust_level + 0.03)
@@ -396,14 +395,14 @@ class OtherMemory:
             profile.relationship_depth = max(0.0, profile.relationship_depth - 0.02)
             profile.trust_level = max(0.0, profile.trust_level - 0.01)
 
-        # 如果有note，add到重要event
+        # Internal note.
         if notes:
             profile.important_events.append({
                 "timestamp": time.time(),
                 "type": interaction_type,
                 "description": notes,
             })
-            # 只保留最近50条
+            # Internal note.
             if len(profile.important_events) > 50:
                 profile.important_events = profile.important_events[-50:]
 
@@ -417,15 +416,15 @@ class OtherMemory:
         extracted_info: Dict[str, Any] = None,
     ) -> OtherProfile:
         """
-        从dialogue中提取infoupdate画像
+        Internal note.
 
         Args:
             user_id: userid
             conversation_summary: dialoguesummary
-            extracted_info: 提取的info（由LLManalysis得出）
+            Internal note.
 
         Returns:
-            update后的画像
+            Internal note.
         """
         profile = self.get_profile(user_id)
 
@@ -435,7 +434,7 @@ class OtherMemory:
                 name=extracted_info.get("name", user_id) if extracted_info else user_id,
             )
 
-        # update画像info
+        # Internal note.
         if extracted_info:
             if extracted_info.get("interests"):
                 new_interests = [i for i in extracted_info["interests"] if i not in profile.interests]
@@ -462,7 +461,7 @@ class OtherMemory:
             if extracted_info.get("preferences"):
                 profile.preferences.update(extracted_info["preferences"])
 
-        # update交互info
+        # Internal note.
         profile.total_interactions += 1
         profile.last_interacted = time.time()
 
@@ -471,27 +470,27 @@ class OtherMemory:
 
     def list_profiles(self) -> List[OtherProfile]:
         """
-        column出all画像
+        Internal note.
 
         Returns:
-            画像list
+            Internal note.
         """
         profiles = []
         for md_file in self.others_dir.glob("*.md"):
             user_id = md_file.stem
-            # 还原原始userid（反转replace）
-            # note：这里可能无法完全还原，如果有特殊字符conflict的话
+            # Internal note.
+            # Internal note.
             profile = self.get_profile(user_id)
             if profile:
                 profiles.append(profile)
 
-        # 按最近互动时间sort
+        # Internal note.
         profiles.sort(key=lambda p: p.last_interacted, reverse=True)
         return profiles
 
     def delete_profile(self, user_id: str) -> bool:
         """
-        deleteuser画像
+        Internal note.
 
         Args:
             user_id: userid

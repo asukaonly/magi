@@ -6,10 +6,8 @@ Supports relationship extraction, graph traversal, and relationship queries
 """
 import logging
 import time
-from typing import Dict, Any, List, Optional, Set, Tuple
-from datetime import datetime
+from typing import Dict, Any, List, Set, Tuple
 from collections import defaultdict
-import json
 
 logger = logging.getLogger(__name__)
 

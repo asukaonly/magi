@@ -1,13 +1,13 @@
 """
-L4: summary层 (Summary Layer)
+Internal note.
 
-generationandstorage多时间粒度的eventsummary
-supporthours、days、weeks、monthslevel的summary
+Internal note.
+Internal note.
 """
 import logging
 import time
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 import json
 
@@ -63,7 +63,7 @@ class SummaryStore:
     """
     summarystorage
 
-    generationand管理多时间粒度的eventsummary
+    Internal note.
     """
 
     def __init__(self, persist_path: str = None):
@@ -71,7 +71,7 @@ class SummaryStore:
         initializesummarystorage
 
         Args:
-            persist_path: 持久化filepath
+            Internal note.
         """
         self.persist_path = persist_path
 
@@ -81,20 +81,20 @@ class SummaryStore:
         # eventcache：{period_type: {period_key: [events]}}
         self._event_cache: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
 
-        # load持久化data
+        # Internal note.
         if persist_path:
             self._load_from_disk()
 
     def add_event(self, event: Dict[str, Any]):
         """
-        addevent到cache
+        Internal note.
 
         Args:
             event: eventdata
         """
         event_timestamp = event.get("timestamp", time.time())
 
-        # cache到各级时间窗口
+        # Internal note.
         for period_type in ["hour", "day", "week", "month"]:
             period_key = self._get_period_key(event_timestamp, period_type)
             self._event_cache[period_type][period_key].append(event)
@@ -111,12 +111,12 @@ class SummaryStore:
         force: bool = False,
     ) -> Optional[EventSummary]:
         """
-        generation指scheduled间窗口的summary
+        Internal note.
 
         Args:
-            period_type: 时间粒度（hour/day/week/month）
-            period_key: 时间窗口identifier（Nonetable示current窗口）
-            force: is not强制重newgeneration
+            Internal note.
+            Internal note.
+            Internal note.
 
         Returns:
             eventsummary
@@ -124,11 +124,11 @@ class SummaryStore:
         if not period_key:
             period_key = self._get_period_key(time.time(), period_type)
 
-        # checkis not已exists
+        # Internal note.
         if not force and period_key in self._summaries[period_type]:
             return self._summaries[period_type][period_key]
 
-        # get该时间窗口的event
+        # Internal note.
         events = self._event_cache[period_type].get(period_key, [])
         if not events:
             return None
@@ -139,7 +139,7 @@ class SummaryStore:
         # storagesummary
         self._summaries[period_type][period_key] = summary
 
-        # 持久化
+        # Internal note.
         if self.persist_path:
             self._save_to_disk()
 
@@ -154,12 +154,12 @@ class SummaryStore:
         period_key: str,
     ) -> EventSummary:
         """
-        从eventlistgenerationsummary
+        Internal note.
 
         Args:
             events: eventlist
-            period_type: 时间粒度
-            period_key: 时间窗口identifier
+            Internal note.
+            Internal note.
 
         Returns:
             eventsummary
@@ -176,7 +176,7 @@ class SummaryStore:
             event_type = event.get("type", "unknotttwn")
             event_types[event_type] += 1
 
-            # record关keyevent
+            # Internal note.
             if event.get("level") in ["EMERGENCY", "HIGH"] or event_type == "errorOccurred":
                 key_events.append({
                     "timestamp": event.get("timestamp", 0),
@@ -187,12 +187,12 @@ class SummaryStore:
             if event_type == "errorOccurred":
                 error_count += 1
 
-        # calculate时间range
+        # Internal note.
         timestamps = [e.get("timestamp", 0) for e in events]
         start_time = min(timestamps) if timestamps else time.time()
         end_time = max(timestamps) if timestamps else time.time()
 
-        # generation文本summary
+        # Internal note.
         summary_text = self._generate_text_summary(events, period_type, period_key, event_types)
 
         # calculatemetric
@@ -222,16 +222,16 @@ class SummaryStore:
         event_types: Dict[str, int],
     ) -> str:
         """
-        generation文本summary
+        Internal note.
 
         Args:
             events: eventlist
-            period_type: 时间粒度
-            period_key: 时间窗口identifier
+            Internal note.
+            Internal note.
             event_types: eventtypestatistics
 
         Returns:
-            文本summary
+            Internal note.
         """
         lines = []
 
@@ -239,17 +239,17 @@ class SummaryStore:
         period_name = self._format_period_name(period_type, period_key)
         lines.append(f"# {period_name} summary")
 
-        # 基本statistics
+        # Internal note.
         lines.append(f"- 总event数: {len(events)}")
         lines.append(f"- 时间range: {self._format_timestamp(events[0].get('timestamp', 0))} - {self._format_timestamp(events[-1].get('timestamp', 0))}")
 
-        # eventtype分布
+        # Internal note.
         if event_types:
             lines.append("- eventtype分布:")
             for event_type, count in sorted(event_types.items(), key=lambda x: x[1], reverse=True):
                 lines.append(f"  - {event_type}: {count}")
 
-        # 关keyevent
+        # Internal note.
         key_events = [e for e in events if e.get("level") in ["EMERGENCY", "HIGH"]]
         if key_events:
             lines.append("- 关keyevent:")
@@ -273,8 +273,8 @@ class SummaryStore:
         getsummary
 
         Args:
-            period_type: 时间粒度
-            period_key: 时间窗口identifier（Nonetable示current）
+            Internal note.
+            Internal note.
 
         Returns:
             eventsummary
@@ -290,14 +290,14 @@ class SummaryStore:
         limit: int = 10,
     ) -> List[EventSummary]:
         """
-        get多个summary
+        Internal note.
 
         Args:
-            period_type: 时间粒度
+            Internal note.
             limit: quantitylimitation
 
         Returns:
-            summarylist（按时间倒序）
+            Internal note.
         """
         summaries = list(self._summaries[period_type].values())
         summaries.sort(key=lambda s: s.end_time, reverse=True)
@@ -312,7 +312,7 @@ class SummaryStore:
         elif period_type == "day":
             return dt.strftime("%Y-%m-%d")
         elif period_type == "week":
-            # ISO weeks数
+            # Internal note.
             year, week, _ = dt.isocalendar()
             return f"{year}-W{week:02d}"
         elif period_type == "month":
@@ -385,10 +385,10 @@ class SummaryStore:
 
     def clear_old_summaries(self, older_than_months: int = 12):
         """
-        清理old的summarydata
+        Internal note.
 
         Args:
-            older_than_months: 清理多少个months前的data
+            Internal note.
         """
         cutoff_time = time.time() - (older_than_months * 30 * 86400)
 
@@ -418,9 +418,9 @@ class SummaryStore:
 
 class AutoSummarizer:
     """
-    自动summarygeneration器
+    Internal note.
 
-    定期generationeventsummary
+    Internal note.
     """
 
     def __init__(self, summary_store: SummaryStore):
@@ -444,7 +444,7 @@ class AutoSummarizer:
         for period_type in ["hour", "day", "week"]:
             period_key = self.summary_store._get_period_key(notttw, period_type)
 
-            # 如果该窗口的summarynot found，generation它
+            # Internal note.
             if period_key not in self.summary_store._summaries[period_type]:
                 self.summary_store.generate_summary(period_type, period_key)
 

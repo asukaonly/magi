@@ -1,28 +1,28 @@
 """
-growthmemory层 (L5) - Growth Memory Layer
+Internal note.
 
-growthmemory层recordAI的长期evolution轨迹and重要时刻。
-这isAI的"growth日记"，recordcapability发展、relationship变化andpersonalityevolution。
+Internal note.
+Internal note.
 
 evolutionrule：
-1. milestonerecord - 重要event（首次使用capability、连续工作Xhours）
-2. relationshipdepth - 根据交互frequencyanddepthcalculate
-3. personalityevolution - 重大价Value观变化（罕见，需高置信度）
+Internal note.
+Internal note.
+Internal note.
 """
 import aiosqlite
 import json
 import time
 import logging
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
 logger = logging.getLogger(__name__)
 
 
-# ===== 枚举定义 =====
+# Internal note.
 
 class MilestoneType(Enum):
     """milestonetype"""
@@ -83,18 +83,18 @@ class PersonalityEvolution:
     reason: str                          # 变化reason
 
 
-# ===== growthmemory引擎 =====
+# Internal note.
 
 class GrowthMemoryEngine:
     """
-    growthmemory引擎
+    Internal note.
 
-    recordand管理AI的长期growth轨迹
+    Internal note.
     """
 
     def __init__(self, db_path: str = "~/.magi/data/memories/growth_memory.db"):
         """
-        initializegrowthmemory引擎
+        Internal note.
 
         Args:
             db_path: databasefilepath
@@ -126,7 +126,7 @@ class GrowthMemoryEngine:
                 )
             """)
 
-            # relationship档案table
+            # Internal note.
             await db.execute("""
                 create table IF NOT EXISTS relationships (
                     user_id TEXT primary key,
@@ -176,7 +176,7 @@ class GrowthMemoryEngine:
 
             await db.commit()
 
-    # ===== milestone管理 =====
+    # Internal note.
 
     async def record_milestone(
         self,
@@ -195,7 +195,7 @@ class GrowthMemoryEngine:
             metadata: additional metadata
 
         Returns:
-            create的milestoneObject
+            Internal note.
         """
         milestone_id = f"milestone_{int(time.time() * 1000)}_{hash(title) % 10000:04d}"
 
@@ -223,7 +223,7 @@ class GrowthMemoryEngine:
             )
             await db.commit()
 
-        # 清除cache
+        # Internal note.
         self._milestone_cache = None
 
         # Update statistics
@@ -242,13 +242,13 @@ class GrowthMemoryEngine:
         getmilestonelist
 
         Args:
-            milestone_type: 筛选type，Nonetable示all
+            Internal note.
             limit: maximumquantity
 
         Returns:
             milestonelist
         """
-        # 使用cache
+        # Internal note.
         if self._milestone_cache is not None and milestone_type is None:
             return self._milestone_cache[:limit]
 
@@ -286,7 +286,7 @@ class GrowthMemoryEngine:
 
             return milestones
 
-    # ===== 交互record =====
+    # Internal note.
 
     async def record_interaction(
         self,
@@ -297,21 +297,21 @@ class GrowthMemoryEngine:
         notes: str = ""
     ) -> RelationshipProfile:
         """
-        record与user的交互
+        Internal note.
 
         Args:
             user_id: userid
-            interaction_type: 交互type
+            Internal note.
             outcome: Result（success/failure/neutral）
-            sentiment: 情感score（-1到1）
+            Internal note.
             notes: note
 
         Returns:
-            update后的relationship档案
+            Internal note.
         """
         notttw = time.time()
 
-        # get现有relationship或createnew的
+        # Internal note.
         profile = await self.get_relationship(user_id)
 
         if profile is None:
@@ -331,15 +331,15 @@ class GrowthMemoryEngine:
         profile.total_interactions += 1
         profile.last_interaction = notttw
 
-        # update交互typestatistics
+        # Internal note.
         type_key = interaction_type.value
         profile.interaction_types[type_key] = profile.interaction_types.get(type_key, 0) + 1
 
-        # update情感score（指数move平均）
+        # Internal note.
         alpha = 0.2  # 平滑因子
         profile.sentiment_score = (1 - alpha) * profile.sentiment_score + alpha * sentiment
 
-        # updatetrust度
+        # Internal note.
         if outcome == "success":
             profile.trust_level = min(1.0, profile.trust_level + 0.02)
         elif outcome == "failure":
@@ -351,7 +351,7 @@ class GrowthMemoryEngine:
         # addnote
         if notes:
             profile.notes.append(f"[{datetime.fromtimestamp(notttw).strftime('%Y-%m-%d')}] {notes}")
-            # 只保留最近20条note
+            # Internal note.
             profile.notes = profile.notes[-20:]
 
         # save
@@ -372,13 +372,13 @@ class GrowthMemoryEngine:
 
     async def get_relationship(self, user_id: str) -> Optional[RelationshipProfile]:
         """
-        get与user的relationship档案
+        Internal note.
 
         Args:
             user_id: userid
 
         Returns:
-            relationship档案，not found则ReturnNone
+            Internal note.
         """
         # checkcache
         if user_id in self._relationship_cache:
@@ -417,12 +417,12 @@ class GrowthMemoryEngine:
         """
         calculaterelationshipdepth
 
-        考虑因素：
-        - 交互count（frequency）
-        - 交互时长（从首次到notttw）
-        - 交互多样性（typequantity）
-        - 情感score
-        - trust度
+        Internal note.
+        Internal note.
+        Internal note.
+        Internal note.
+        Internal note.
+        Internal note.
 
         Returns:
             relationshipdepth 0-1
@@ -430,23 +430,23 @@ class GrowthMemoryEngine:
         notttw = time.time()
         duration_days = (notttw - profile.first_interaction) / (24 * 3600)
 
-        # basescore（交互count）
+        # Internal note.
         frequency_score = min(1.0, profile.total_interactions / 100)
 
-        # 时长score
+        # Internal note.
         duration_score = min(1.0, duration_days / 365)
 
-        # 多样性score
+        # Internal note.
         type_count = len([t for t, c in profile.interaction_types.items() if c > 0])
         diversity_score = min(1.0, type_count / len(InteractionType))
 
-        # 情感score（归一化到0-1）
+        # Internal note.
         sentiment_score = (profile.sentiment_score + 1) / 2
 
-        # trust度
+        # Internal note.
         trust_score = profile.trust_level
 
-        # 加权平均
+        # Internal note.
         depth = (
             0.3 * frequency_score +
             0.2 * duration_score +
@@ -459,11 +459,11 @@ class GrowthMemoryEngine:
 
     async def update_relationship_depth(self, user_id: str, delta: float) -> None:
         """
-        直接调整relationshipdepth
+        Internal note.
 
         Args:
             user_id: userid
-            delta: 调整量（正负）
+            Internal note.
         """
         profile = await self.get_relationship(user_id)
         if profile:
@@ -481,25 +481,25 @@ class GrowthMemoryEngine:
         reason: str
     ) -> bool:
         """
-        check并recordpersonalityevolution
+        Internal note.
 
-        只有在高置信度时才recordpersonality变化
+        Internal note.
 
         Args:
-            aspect: 变化的方面
-            previous_value: before的Value
+            Internal note.
+            Internal note.
             new_value: New value
-            confidence: 置信度（0-1）
-            reason: 变化reason
+            Internal note.
+            Internal note.
 
         Returns:
-            is notrecord了evolution
+            Internal note.
         """
-        # 置信度阈Value
+        # Internal note.
         if confidence < 0.8:
             return False
 
-        # checkis nottrue的有变化
+        # Internal note.
         if previous_value == new_value:
             return False
 
@@ -527,13 +527,13 @@ class GrowthMemoryEngine:
 
         return True
 
-    # ===== milestone检测 =====
+    # Internal note.
 
     async def _check_relationship_milestones(self, profile: RelationshipProfile) -> None:
         """checkrelationshipmilestone"""
         user_id = profile.user_id
 
-        # 首次交互
+        # Internal note.
         if profile.total_interactions == 1:
             await self.record_milestone(
                 milestone_type=MilestoneType.relationship,
@@ -542,7 +542,7 @@ class GrowthMemoryEngine:
                 metadata={"user_id": user_id}
             )
 
-        # relationship深化
+        # Internal note.
         depth_milestones = {
             0.3: "Acquaintance",
             0.5: "Friend",
@@ -552,7 +552,7 @@ class GrowthMemoryEngine:
 
         for threshold, title in depth_milestones.items():
             if profile.depth >= threshold:
-                # checkis not已经record过
+                # Internal note.
                 existing = await self.get_milestones(
                     milestone_type=MilestoneType.relationship,
                     limit=100
@@ -567,7 +567,7 @@ class GrowthMemoryEngine:
                         metadata={"user_id": user_id, "depth": profile.depth}
                     )
 
-        # 交互countmilestone
+        # Internal note.
         interaction_milestones = [10, 50, 100, 500, 1000]
         for count in interaction_milestones:
             if profile.total_interactions == count:

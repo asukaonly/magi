@@ -1,9 +1,9 @@
 """
-Runtime data directory management
+Runtime data directory management.
 
-Put all runtime-generated data in ~/.magi directory, separate from code
+Put all runtime-generated data in ~/.magi directory, separate from code.
 """
-import os
+import json
 from pathlib import Path
 from typing import Optional
 import logging
@@ -119,7 +119,46 @@ class Runtimepaths:
         Returns:
             Full path to personality configuration file
         """
-        return self.personalities_dir / f"{name}.md"
+        return self.personalities_dir / f"{name}.json"
+
+    @staticmethod
+    def _default_personality_payload() -> dict:
+        """Default personality payload for runtime bootstrap."""
+        return {
+            "persona_entity": {
+                "basic_profile": {
+                    "name": "AI Assistant",
+                    "age": "Unknown",
+                    "gender": "Unknown",
+                    "occupation": "Assistant",
+                    "core_background": "",
+                },
+                "psychological_traits": {
+                    "communication_tone": "Calm and supportive",
+                    "confidence_level": "Medium",
+                    "empathy_threshold": "Shows care when user is stressed",
+                    "high_frequency_keywords": [],
+                },
+                "social_responses": {
+                    "praise_reaction": "",
+                    "criticism_reaction": "",
+                    "obedience_strategy": "",
+                },
+                "behavioral_strategies": {
+                    "error_handling": "",
+                    "refusal_style": "",
+                },
+            },
+            "cached_phrases": {
+                "on_init": ["Hi, I'm online.", "Ready when you are."],
+                "on_wake": ["Back again?", "I'm here."],
+                "on_error_generic": ["That failed. Let me retry.", "Oops, tool hiccup."],
+                "on_success": ["Done.", "Handled."],
+                "on_switch_attempt": ["Stay with me, I know your style.", "Give me one more chance."],
+            },
+            "appearance_prompt": "",
+            "state_transition_protocol": [],
+        }
 
     def get_personality_path(self, name: str = "default") -> str:
         """
@@ -137,37 +176,25 @@ class Runtimepaths:
         """
         initialize default personality configuration
 
-        If there's nottt default.md in runtime directory, copy one from code directory
-        Also ensure current file exists (records currently used personality)
+        Ensure default personality JSON exists and current pointer file is valid.
         """
-        # Copy default.md template (if it doesn't exist)
+        # Ensure default.json exists
         default_file = self.personality_file("default")
-
         if not default_file.exists():
-            # Try to copy from code directory
-            possible_sources = [
-                path("./personalities/default.md"),
-                path("./backend/personalities/default.md"),
-                Path(__file__).parent.parent.parent.parent / "personalities" / "default.md",
-            ]
-
-            for source in possible_sources:
-                if source.exists():
-                    import shutil
-                    shutil.copy(source, default_file)
-                    logger.info(f"Copied default personality from {source} to {default_file}")
-                    break
-            else:
-                logger.warning(f"Could not find default personality to copy to {default_file}")
+            default_file.write_text(
+                json.dumps(self._default_personality_payload(), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            logger.info(f"Created default personality JSON: {default_file}")
         else:
             logger.info(f"Default personality exists: {default_file}")
 
         # Ensure current file exists
         current_file = self.personalities_dir / "current"
         if not current_file.exists():
-            # Try to select a personality from existing .md files as default
-            md_files = list(self.personalities_dir.glob("*.md"))
-            valid_personalities = [f.stem for f in md_files if f.stem != "default"]
+            # Try to select a personality from existing .json files as default
+            json_files = list(self.personalities_dir.glob("*.json"))
+            valid_personalities = [f.stem for f in json_files if f.stem != "default"]
 
             if valid_personalities:
                 # Use first personality as default

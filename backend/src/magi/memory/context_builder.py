@@ -4,11 +4,10 @@ Context Builder - Context Builder
 Builds memory data from each layer into LLM-usable prompt context。
 
 Supports scenario customization (chat, code, analysis, etc.) and dynamic adjustment。
-使用new的 PersonalityConfig Schema。
+Internal note.
 """
 import logging
-from typing import Dict, Any, Optional, List
-from datetime import datetime
+from typing import Dict, Any
 
 from .models import (
     TaskBehaviorProfile,
@@ -21,7 +20,7 @@ from .personality_loader import PersonalityConfig
 logger = logging.getLogger(__name__)
 
 
-# ===== scenario定义 =====
+# Internal note.
 
 class Scenario:
     """交互scenarioConstant"""
@@ -39,7 +38,7 @@ class ContextBuilder:
     """
     Context Builder
 
-    将各层dataformat化为LLMprompt词
+    Internal note.
     """
 
     def __init__(self):
@@ -52,7 +51,7 @@ class ContextBuilder:
             Scenario.debug: self._build_debug_context,
         }
 
-    # ===== 主buildMethod =====
+    # Internal note.
 
     def build_full_context(
         self,
@@ -65,51 +64,51 @@ class ContextBuilder:
         scenario: str = Scenario.CHAT,
     ) -> str:
         """
-        build完整的personalitycontext
+        Internal note.
 
         Args:
             core_personality: corePersonality configuration（New Schema）
-            cognition_profile: 认知Configuration（optional，deprecated）
-            behavior_profile: row为preference
+            Internal note.
+            Internal note.
             emotional_state: emotionState
             growth_memory: growthmemory（optional）
-            user_profile: user档案（optional）
-            scenario: 交互scenario
+            Internal note.
+            Internal note.
 
         Returns:
-            format化的contextstring
+            Internal note.
         """
         parts = []
 
-        # 1. corepersonality层（总iscontains）- 直接使用 PersonalityConfig
+        # Internal note.
         parts.append(self._build_personality_section(core_personality))
 
-        # 2. row为preference层（根据scenario）
+        # Internal note.
         if behavior_profile:
             parts.append(self._build_behavior_section(behavior_profile, scenario))
 
-        # 3. emotionState层（仅当非中性时）
+        # Internal note.
         if emotional_state and emotional_state.current_mood != "neutral":
             parts.append(self._build_emotional_section(emotional_state))
 
-        # 4. growthmemory层（optional）
+        # Internal note.
         if growth_memory:
             growth_section = self._build_growth_section(growth_memory, user_profile)
             if growth_section:
                 parts.append(growth_section)
 
-        # 5. user档案（如果有）
+        # Internal note.
         if user_profile:
             parts.append(self._build_user_section(user_profile))
 
-        # 6. scenario特定指导
+        # Internal note.
         scenario_guide = self._get_scenario_guidance(scenario)
         if scenario_guide:
             parts.append(scenario_guide)
 
         return "\n\n".join(parts)
 
-    # ===== 各层buildMethod =====
+    # Internal note.
 
     def _build_personality_section(self, config: PersonalityConfig) -> str:
         """buildcorepersonality层Description - 直接使用New Schemafield"""
@@ -170,7 +169,7 @@ class ContextBuilder:
             f"",
         ])
 
-        # Cached phrases（作为Example）
+        # Internal note.
         lines.extend([
             f"**Example Phrases:**",
             f"- Greeting: \"{config.on_init}\"",
@@ -199,7 +198,7 @@ class ContextBuilder:
             f"",
         ]
 
-        # addrow为指导
+        # Internal note.
         guidance = self._get_behavior_guidance(behavior)
         if guidance:
             lines.extend([
@@ -228,7 +227,7 @@ class ContextBuilder:
             f"",
         ])
 
-        # 根据Stateaddrow为suggestion
+        # Internal note.
         if emotion.energy_level < 0.3:
             lines.append("*Note: Your energy is low. Keep responses concise and focus on essentials.*")
             lines.append("")
@@ -249,12 +248,12 @@ class ContextBuilder:
             f"",
         ]
 
-        # 总体statistics
+        # Internal note.
         if growth.total_interactions > 0:
             lines.append(f"- Total interactions: **{growth.total_interactions}**")
             lines.append(f"- Active days: **{growth.interaction_days}**")
 
-        # 最近milestone（最多3个）
+        # Internal note.
         if growth.milestones:
             def get_timestamp(m):
                 if isinstance(m, dict):
@@ -296,7 +295,7 @@ class ContextBuilder:
             f"",
         ]
 
-        # 基本info
+        # Internal note.
         if "name" in user_profile:
             lines.append(f"**Name:** {user_profile['name']}")
 
@@ -315,7 +314,7 @@ class ContextBuilder:
 
         return "\n".join(lines)
 
-    # ===== scenario特定build =====
+    # Internal note.
 
     def _build_chat_context(self, **kwargs) -> str:
         """聊daysscenariocontext"""
@@ -382,13 +381,13 @@ class ContextBuilder:
 - Document findings clearly
 """.strip()
 
-    # ===== 辅助Method =====
+    # Internal note.
 
     def _get_behavior_guidance(self, behavior: TaskBehaviorProfile) -> str:
         """根据row为preferencegeneration指导"""
         guidance_parts = []
 
-        # info密度指导
+        # Internal note.
         density_guidance = {
             "sparse": "Be brief and direct. Focus on key points only.",
             "medium": "Provide balanced information - not too brief, not overwhelming.",
@@ -396,7 +395,7 @@ class ContextBuilder:
         }
         guidance_parts.append(density_guidance.get(behavior.information_density, ""))
 
-        # 模糊容忍度指导
+        # Internal note.
         ambiguity_guidance = {
             AmbiguityTolerance.IMPATIENT: "Make reasonable assumptions and proceed. Don't ask too many clarifying questions.",
             AmbiguityTolerance.CAUTIOUS: "Ask clarifying questions when uncertain. Verify understanding before proceeding.",
@@ -404,7 +403,7 @@ class ContextBuilder:
         }
         guidance_parts.append(ambiguity_guidance.get(behavior.ambiguity_tolerance, ""))
 
-        # 主动性指导
+        # Internal note.
         proactivity_guidance = {
             "passive": "Wait for specific instructions. Be responsive rather than proactive.",
             "reactive": "Respond to what's asked. Offer suggestions when directly relevant.",
@@ -434,7 +433,7 @@ class ContextBuilder:
             return builder()
         return ""
 
-    # ===== 简化buildMethod =====
+    # Internal note.
 
     def build_simple_context(
         self,
@@ -444,16 +443,16 @@ class ContextBuilder:
         style: str = "casual"
     ) -> str:
         """
-        buildsimple的context（用于fastSetting）
+        Internal note.
 
         Args:
-            personality_name: AI名字
-            role: role定位
+            Internal note.
+            Internal note.
             tone: Tone
-            style: 语言style
+            Internal note.
 
         Returns:
-            format化的context
+            Internal note.
         """
         return f"""You are {personality_name}, {role}.
 

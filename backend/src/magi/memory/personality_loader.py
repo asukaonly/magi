@@ -1,12 +1,11 @@
 """
-Personality loader for markdown files with embedded JSON payload.
+Personality loader for JSON payload files.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -111,51 +110,28 @@ class PersonalityConfig:
         return asdict(self)
 
 
-class MarkdownPersonalityParser:
-    """Parse markdown that contains a JSON block."""
-
-    JSON_CODE_BLOCK_PATTERN = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
-
-    def parse(self, content: str) -> PersonalityConfig:
-        code_match = self.JSON_CODE_BLOCK_PATTERN.search(content)
-        if code_match:
-            payload = code_match.group(1)
-        else:
-            start = content.find("{")
-            end = content.rfind("}")
-            if start < 0 or end <= start:
-                raise ValueError("No JSON payload found in personality markdown")
-            payload = content[start : end + 1]
-
-        data = json.loads(payload)
-        if not isinstance(data, dict):
-            raise ValueError("Personality payload must be a JSON object")
-        return PersonalityConfig.from_dict(data)
-
-
 class PersonalityLoader:
     """Load personality configuration files."""
 
     def __init__(self, personalities_path: str = "./personalities"):
         self.personalities_path = Path(personalities_path)
-        self.parser = MarkdownPersonalityParser()
         self._cache: Dict[str, PersonalityConfig] = {}
 
     def _resolve_file_path(self, name: str) -> Path:
-        direct_path = self.personalities_path / f"{name}.md"
+        direct_path = self.personalities_path / f"{name}.json"
         if direct_path.exists():
             return direct_path
 
         alternatives = [
-            Path.home() / ".magi" / "personalities" / f"{name}.md",
-            Path(f"./personalities/{name}.md"),
-            Path(__file__).resolve().parents[3] / "personalities" / f"{name}.md",
-            Path(f"./backend/personalities/{name}.md"),
+            Path.home() / ".magi" / "personalities" / f"{name}.json",
+            Path(f"./personalities/{name}.json"),
+            Path(__file__).resolve().parents[3] / "personalities" / f"{name}.json",
+            Path(f"./backend/personalities/{name}.json"),
         ]
         for alt in alternatives:
             if alt.exists():
                 return alt
-        raise FileNotFoundError(f"Personality file not found: {name}.md")
+        raise FileNotFoundError(f"Personality file not found: {name}.json")
 
     def load(self, name: str = "default") -> PersonalityConfig:
         if name in self._cache:
@@ -170,7 +146,10 @@ class PersonalityLoader:
 
         content = file_path.read_text(encoding="utf-8")
         try:
-            config = self.parser.parse(content)
+            data = json.loads(content)
+            if not isinstance(data, dict):
+                raise ValueError("Personality payload must be a JSON object")
+            config = PersonalityConfig.from_dict(data)
         except Exception as exc:
             logger.warning("Failed to parse personality file %s: %s, using defaults", file_path, exc)
             config = PersonalityConfig()
@@ -200,7 +179,7 @@ class PersonalityLoader:
     def list_available(self) -> List[str]:
         if not self.personalities_path.exists():
             return []
-        return sorted(path.stem for path in self.personalities_path.glob("*.md"))
+        return sorted(path.stem for path in self.personalities_path.glob("*.json"))
 
     def to_core_personality(self, config: PersonalityConfig) -> CorePersonality:
         from .models import CommunicationDistance, LanguageStyle, ValueAlignment

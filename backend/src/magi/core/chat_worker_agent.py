@@ -515,6 +515,7 @@ class ChatWorkerAgent(Agent):
                     scenario=scenario,
                     task_category=task_category,
                     user_id=user_id,
+                    tool_memory_context=tool_memory_context,
                 )
                 if personality_context:
                     agent_logger.debug(f"Personality context loaded | Length: {len(personality_context)}")

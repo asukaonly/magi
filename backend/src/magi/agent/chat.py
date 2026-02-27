@@ -532,6 +532,7 @@ class ChatAgent(CompleteAgent):
                     scenario=scenario,
                     task_category=task_category,
                     user_id=user_id,
+                    tool_memory_context=tool_memory_context,
                 )
                 agent_logger.info(f"🎭 Personality context loaded | Length: {len(personality_context)} chars")
                 if personality_context:

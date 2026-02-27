@@ -26,7 +26,10 @@ export function SelectField({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const selectedOption = options.find((opt) => opt.value === value);
+  // Case-insensitive matching for selected option
+  const selectedOption = options.find(
+    (opt) => opt.value.toLowerCase() === (value || '').toLowerCase()
+  );
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

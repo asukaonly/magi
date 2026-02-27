@@ -1,22 +1,22 @@
 """
-emotionState层 (L4) - Emotional State Layer
+Internal note.
 
-emotionState层recordAI的currentemotionState，这些State会根据交互Result自然变化。
-emotionState影响AI的responsestyleand语气。
+Internal note.
+Internal note.
 
 evolutionrule：
-1. emotion波动 - 根据交互Result自然变化
-2. energy衰减 - 随时间缓慢下降，休息/restore后上升
-3. stress累积 - 连续complex任务增加stress，complete任务后下降
-4. 社交State - 根据user互动frequencyandtype调整
+Internal note.
+Internal note.
+Internal note.
+Internal note.
 """
 import aiosqlite
 import json
 import time
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Optional, List
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from enum import Enum
 
 from .models import EmotionalState
@@ -24,7 +24,7 @@ from .models import EmotionalState
 logger = logging.getLogger(__name__)
 
 
-# ===== 枚举定义 =====
+# Internal note.
 
 class MoodType(Enum):
     """emotiontype"""
@@ -64,17 +64,17 @@ class EngagementLevel(Enum):
 @dataclass
 class EmotionalConfig:
     """emotionevolutionConfigurationParameter"""
-    # energy衰减率（每minutes）
+    # Internal note.
     energy_decay_rate: float = 0.01
-    # stress增长率（每单位complex度）
+    # Internal note.
     stress_growth_rate: float = 0.1
-    # stressrestore率（每minutes）
+    # Internal note.
     stress_recovery_rate: float = 0.05
-    # emotion波动幅度
+    # Internal note.
     mood_fluctuation: float = 0.1
-    # 社交State衰减率（每minutes）
+    # Internal note.
     social_decay_rate: float = 0.02
-    # restore阈Value（stress超过此Value进入疲劳State）
+    # Internal note.
     recovery_threshold: float = 0.8
     # restorespeed
     recovery_speed: float = 0.2
@@ -95,13 +95,13 @@ class Emotionalevent:
     cause: str                      # reasonDescription
 
 
-# ===== emotionevolution引擎 =====
+# Internal note.
 
 class EmotionalStateEngine:
     """
-    emotionStateevolution引擎
+    Internal note.
 
-    根据交互and时间流逝，dynamicupdateAI的emotionState
+    Internal note.
     """
 
     def __init__(
@@ -110,7 +110,7 @@ class EmotionalStateEngine:
         config: EmotionalConfig = None
     ):
         """
-        initializeemotionState引擎
+        Internal note.
 
         Args:
             db_path: databasefilepath
@@ -200,7 +200,7 @@ class EmotionalStateEngine:
             )
             await db.commit()
 
-    # ===== 交互update =====
+    # Internal note.
 
     async def update_after_interaction(
         self,
@@ -210,16 +210,16 @@ class EmotionalStateEngine:
         description: str = ""
     ) -> EmotionalState:
         """
-        交互后updateemotionState
+        Internal note.
 
         Args:
-            outcome: 交互Result
-            user_engagement: user参与度
-            complexity: 任务complex度（0-1）
-            description: Description（用于Log）
+            Internal note.
+            Internal note.
+            Internal note.
+            Internal note.
 
         Returns:
-            update后的emotionState
+            Internal note.
         """
         state = await self.get_current_state()
 
@@ -228,16 +228,16 @@ class EmotionalStateEngine:
         old_energy = state.energy_level
         old_stress = state.stress_level
 
-        # 根据Result调整emotion
+        # Internal note.
         mood_change = self._calculate_mood_change(outcome, user_engagement, complexity)
 
-        # 调整energy（successrestoreenergy，failure消耗more）
+        # Internal note.
         energy_change = self._calculate_energy_change(outcome, complexity)
 
-        # 调整stress（complex任务增加stress，success降低stress）
+        # Internal note.
         stress_change = self._calculate_stress_change(outcome, complexity)
 
-        # 应用变化
+        # Internal note.
         state.current_mood = self._apply_mood_change(state.current_mood, mood_change)
         state.mood_intensity = max(0.0, min(1.0, state.mood_intensity + abs(mood_change) * 0.3))
         state.energy_level = max(0.0, min(1.0, state.energy_level + energy_change))
@@ -247,7 +247,7 @@ class EmotionalStateEngine:
         # updatenoteState
         state.focus_state = self._determine_focus_state(state)
 
-        # update社交State
+        # Internal note.
         state.social_state = self._determine_social_state(user_engagement, state.social_state)
 
         # recordevent
@@ -280,26 +280,24 @@ class EmotionalStateEngine:
         duration: float
     ) -> EmotionalState:
         """
-        任务complete后updateemotionState
+        Internal note.
 
         Args:
             success: is notsuccess
-            complexity: 任务complex度（0-1）
-            duration: 任务duration（seconds）
+            Internal note.
+            Internal note.
 
         Returns:
-            update后的emotionState
+            Internal note.
         """
         state = await self.get_current_state()
 
-        # success提升emotionandenergy，failure增加stress
+        # Internal note.
         if success:
-            outcome = InteractionOutcome.SUCCESS
             mood_boost = 0.2 * complexity
             energy_boost = 0.1 * complexity
             stress_reduction = -0.15 * complexity
         else:
-            outcome = InteractionOutcome.failURE
             mood_boost = -0.1 * complexity
             energy_boost = -0.05 * complexity
             stress_reduction = 0.2 * complexity
@@ -309,7 +307,7 @@ class EmotionalStateEngine:
         state.stress_level = max(0.0, min(1.0, state.stress_level + stress_reduction))
         state.updated_at = time.time()
 
-        # 长时间任务后可能感到疲劳
+        # Internal note.
         if duration > 3600:  # 超过1hours
             state.energy_level = max(0.0, state.energy_level - 0.1)
             if state.current_mood == MoodType.NEUTRAL.value:
@@ -325,40 +323,40 @@ class EmotionalStateEngine:
 
         return state
 
-    # ===== 时间evolution =====
+    # Internal note.
 
     async def decay_over_time(self, elapsed_minutes: float) -> EmotionalState:
         """
-        时间流逝后的State衰减
+        Internal note.
 
         Args:
-            elapsed_minutes: 经过的minutes数
+            Internal note.
 
         Returns:
-            update后的emotionState
+            Internal note.
         """
         if elapsed_minutes <= 0:
             return await self.get_current_state()
 
         state = await self.get_current_state()
 
-        # energy自然衰减
+        # Internal note.
         energy_decay = elapsed_minutes * self.config.energy_decay_rate
         state.energy_level = max(0.0, state.energy_level - energy_decay)
 
-        # stress自然restore
+        # Internal note.
         stress_recovery = elapsed_minutes * self.config.stress_recovery_rate
         state.stress_level = max(0.0, state.stress_level - stress_recovery)
 
-        # 社交State衰减
+        # Internal note.
         if state.social_state == "engaged":
             decay_amount = elapsed_minutes * self.config.social_decay_rate
             if decay_amount > 0.5:
                 state.social_state = "neutral"
 
-        # emotionregression中性
+        # Internal note.
         if state.current_mood != MoodType.NEUTRAL.value:
-            # emotion强度逐渐降低
+            # Internal note.
             state.mood_intensity = max(0.0, state.mood_intensity - 0.1 * elapsed_minutes / 60)
             if state.mood_intensity <= 0.1:
                 state.current_mood = MoodType.NEUTRAL.value
@@ -375,17 +373,17 @@ class EmotionalStateEngine:
 
         return state
 
-    # ===== restore机制 =====
+    # Internal note.
 
     async def recover(self, recovery_type: str = "rest") -> EmotionalState:
         """
-        restore机制（休息/睡眠后）
+        Internal note.
 
         Args:
             recovery_type: restoretype（rest/sleep/deep_sleep）
 
         Returns:
-            update后的emotionState
+            Internal note.
         """
         state = await self.get_current_state()
 
@@ -400,7 +398,7 @@ class EmotionalStateEngine:
         state.energy_level = min(1.0, state.energy_level + recovery["energy"])
         state.stress_level = max(0.0, state.stress_level + recovery["stress"])
 
-        # restore后通常emotion变好
+        # Internal note.
         if state.current_mood in [MoodType.TIRED.value, MoodType.STRESSED.value]:
             state.current_mood = MoodType.NEUTRAL.value
 
@@ -433,7 +431,7 @@ class EmotionalStateEngine:
         complexity: float
     ) -> float:
         """calculateemotion变化量"""
-        # baseemotion变化
+        # Internal note.
         base_changes = {
             InteractionOutcome.SUCCESS: 0.15,
             InteractionOutcome.PARTIAL_SUCCESS: 0.05,
@@ -445,7 +443,7 @@ class EmotionalStateEngine:
 
         base_change = base_changes.get(outcome, 0)
 
-        # 参与度调整
+        # Internal note.
         engagement_multiplier = {
             EngagementLevel.notttne: 0.5,
             EngagementLevel.LOW: 0.8,
@@ -456,18 +454,18 @@ class EmotionalStateEngine:
 
         multiplier = engagement_multiplier.get(engagement, 1.0)
 
-        # complex度调整
+        # Internal note.
         complexity_factor = 0.5 + complexity * 0.5
 
         return base_change * multiplier * complexity_factor
 
     def _calculate_energy_change(self, outcome: InteractionOutcome, complexity: float) -> float:
         """calculateenergy变化量"""
-        # failure消耗moreenergy
+        # Internal note.
         if outcome in [InteractionOutcome.failURE, InteractionOutcome.error]:
             return -0.1 * complexity
 
-        # successrestore少量energy
+        # Internal note.
         if outcome == InteractionOutcome.SUCCESS:
             return 0.05 * complexity
 
@@ -475,11 +473,11 @@ class EmotionalStateEngine:
 
     def _calculate_stress_change(self, outcome: InteractionOutcome, complexity: float) -> float:
         """calculatestress变化量"""
-        # success降低stress
+        # Internal note.
         if outcome == InteractionOutcome.SUCCESS:
             return -0.1 * complexity
 
-        # failure增加stress
+        # Internal note.
         if outcome in [InteractionOutcome.failURE, InteractionOutcome.error]:
             return 0.15 * complexity
 
@@ -489,7 +487,7 @@ class EmotionalStateEngine:
         """应用emotion变化，Returnnewemotion"""
         moods = list(MoodType)
 
-        # 如果currentemotionis中性，直接根据变化确定newemotion
+        # Internal note.
         if current_mood == MoodType.NEUTRAL.value:
             if change > 0.2:
                 return MoodType.EXCITED.value
@@ -501,17 +499,17 @@ class EmotionalStateEngine:
                 return MoodType.TIRED.value
             return MoodType.NEUTRAL.value
 
-        # 根据变化量andcurrentemotion决定newemotion
+        # Internal note.
         try:
             current_idx = moods.index(MoodType(current_mood))
         except ValueError:
             current_idx = 0
 
         if change > 0.15:
-            # 正向变化，向兴奋方向move
+            # Internal note.
             new_idx = min(len(moods) - 1, current_idx + 1)
         elif change < -0.1:
-            # 负向变化，向疲劳方向move
+            # Internal note.
             new_idx = max(0, current_idx - 1)
         else:
             new_idx = current_idx

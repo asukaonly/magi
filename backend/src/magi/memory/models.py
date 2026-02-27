@@ -1,15 +1,15 @@
 """
 Memory Systemdata Models
 
-定义all层级的datastructure，避免循环import
+Internal note.
 """
 import time
-from typing import Dict, Any, Optional, List
+from typing import Dict, List
 from enum import Enum
 from dataclasses import dataclass, field
 
 
-# ===== 枚举定义 =====
+# Internal note.
 
 class LanguageStyle(Enum):
     """语言style"""

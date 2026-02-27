@@ -1,7 +1,7 @@
 """
 Memory Integration Module - Memory Integration Module
 
-将 LoopEngine event自动分发到 L1-L5 五层memoryarchitecture：
+Internal note.
 - L1: RawEventStore - Raw event Storage
 - L2: EventRelationStore - event Relation Graph
 - L3: eventEmbeddingStore - Semantic Embeddings
@@ -9,7 +9,7 @@ Memory Integration Module - Memory Integration Module
 - L5: CapabilityMemory - Capability Extraction
 
 Design Principles：
-1. Minimal intrusion - 不修改 LoopEngine core逻辑
+Internal note.
 2. Async priority - Memory operations run in background, do not block main chain
 3. Configurable - Each layer can be independently enabled/Disable
 4. Graceful degradation - Failure in one layer does not affect other layers or main chain
@@ -20,8 +20,6 @@ import time
 import uuid
 from typing import Dict, Any, Optional, List, Set
 from dataclasses import dataclass, field
-from datetime import datetime
-from collections import deque
 
 # UnifiedMemoryStore is defined in __init__.py
 from . import UnifiedMemoryStore
@@ -35,7 +33,7 @@ logger = logging.getLogger(__name__)
 class MemoryIntegrationConfig:
     """memory集成Configuration"""
 
-    # L1-L5 层级Enableswitch
+    # Internal note.
     enable_l1_raw: bool = True
     enable_l2_relations: bool = True
     enable_l3_embeddings: bool = True
@@ -46,7 +44,7 @@ class MemoryIntegrationConfig:
     async_embeddings: bool = True
     embedding_queue_size: int = 100
 
-    # L2 relationship提取Configuration
+    # Internal note.
     auto_extract_relations: bool = True
 
     # L4 summarygenerationConfiguration
@@ -60,7 +58,7 @@ class MemoryIntegrationConfig:
     capability_blacklist_min_attempts: int = 5
 
     # ========== L1 eventfilterConfiguration ==========
-    # 要record的eventtype（白名单）
+    # Internal note.
     l1_event_whitelist: Set[str] = field(default_factory=lambda: {
         EventTypes.USER_MESSAGE,      # userInput → convert为 user_input
         EventTypes.ACTION_EXECUTED,   # actionExecute → convert为 AI_RESPONSE 或 TOOL_INVOKED
@@ -69,7 +67,7 @@ class MemoryIntegrationConfig:
         EventTypes.ERROR_OCCURRED,    # 只record level=error 的critical error
     })
 
-    # 要filter的eventtype（黑名单）- LoopEngine internalevent
+    # Internal note.
     l1_event_blacklist: Set[str] = field(default_factory=lambda: {
         EventTypes.PERCEPTION_RECEIVED,
         EventTypes.PERCEPTION_PROCESSED,
@@ -92,13 +90,13 @@ class MemoryIntegrationConfig:
         EventTypes.TASK_STARTED,
     })
 
-    # 只recordcritical error（level >= error）
+    # Internal note.
     l1_error_min_level: int = 3  # EventLevel.ERROR = 3
 
     # is notEnableeventtypeconvert（user_MESSAGE → user_input）
     l1_enable_event_transform: bool = True
 
-    # subscribe的eventtype（保持原subscribeway）
+    # Internal note.
     subscribed_events: Set[str] = field(default_factory=lambda: {
         EventTypes.USER_MESSAGE,
         EventTypes.PERCEPTION_RECEIVED,
@@ -112,9 +110,9 @@ class MemoryIntegrationConfig:
 
 class MemoryIntegrationModule:
     """
-    Memory System集成module
+    Internal note.
 
-    作为eventsubscribe者，receive LoopEngine release的event并分发到各memory层。
+    Internal note.
     """
 
     def __init__(
@@ -129,13 +127,13 @@ class MemoryIntegrationModule:
         Args:
             unified_memory: Unified Memory StorageInstance
             message_bus: message bus
-            config: 集成Configuration
+            Internal note.
         """
         self.unified_memory = unified_memory
         self.message_bus = message_bus
         self.config = config or MemoryIntegrationConfig()
 
-        # State管理
+        # Internal note.
         self._running = False
         self._subscription_ids: List[str] = []
 
@@ -144,7 +142,7 @@ class MemoryIntegrationModule:
         self._embedding_task: asyncio.Task = None
         self._embedding_event_ids: Set[str] = set()  # 用于去重
 
-        # L4 定期summarygeneration
+        # Internal note.
         self._summary_task: asyncio.Task = None
 
         # statisticsinfo
@@ -160,7 +158,7 @@ class MemoryIntegrationModule:
             "l5_capabilities_extracted": 0,
         }
 
-        # relatedevent追踪（用于 L2 relationship提取）
+        # Internal note.
         self._correlation_tracker: Dict[str, List[str]] = {}
 
         logger.info("MemoryIntegrationModule initialized")
@@ -184,7 +182,7 @@ class MemoryIntegrationModule:
             )
             logger.info("L3 embedding processor started")
 
-        # 启动 L4 定期summarygeneration
+        # Internal note.
         if self.config.enable_l4_summaries and self.config.auto_generate_summaries:
             self._summary_task = asyncio.create_task(
                 self._summary_generator()
@@ -207,7 +205,7 @@ class MemoryIntegrationModule:
         # cancelsubscribe
         await self._unsubscribe_from_events()
 
-        # stop L3 embeddingprocess器
+        # Internal note.
         if self._embedding_task:
             self._embedding_task.cancel()
             try:
@@ -216,7 +214,7 @@ class MemoryIntegrationModule:
                 pass
             logger.info("L3 embedding processor stopped")
 
-        # stop L4 summarygeneration器
+        # Internal note.
         if self._summary_task:
             self._summary_task.cancel()
             try:
@@ -225,7 +223,7 @@ class MemoryIntegrationModule:
                 pass
             logger.info("L4 summary generator stopped")
 
-        # 持久化data
+        # Internal note.
         await self._persist_all()
 
         logger.info("MemoryIntegrationModule stopped")
@@ -258,28 +256,28 @@ class MemoryIntegrationModule:
 
     def _should_store_l1_event(self, event: Event) -> bool:
         """
-        判断eventis not应该storage到 L1
+        Internal note.
 
-        filter逻辑：
-        1. 黑名单优先 - 直接filter LoopEngine internalevent
-        2. errorevent - 只recordcritical error（level >= error）
-        3. 白名单 - 只record有价Value的业务event
+        Internal note.
+        Internal note.
+        Internal note.
+        Internal note.
         """
         event_type = event.type
 
-        # 黑名单优先：internalevent不record
+        # Internal note.
         if event_type in self.config.l1_event_blacklist:
             logger.debug(f"L1 filtered (blacklist): {event_type}")
             return False
 
-        # errorevent：只recordcritical error
+        # Internal note.
         if event_type == EventTypes.ERROR_OCCURRED:
             level_value = event.level.value if hasattr(event.level, 'value') else event.level
             if level_value < self.config.l1_error_min_level:
                 logger.debug(f"L1 filtered (error level {level_value} < {self.config.l1_error_min_level}): {event_type}")
                 return False
 
-        # 白名单check：只record有价Value的event
+        # Internal note.
         if self.config.l1_event_whitelist:
             if event_type not in self.config.l1_event_whitelist:
                 logger.debug(f"L1 filtered (not in whitelist): {event_type}")
@@ -289,7 +287,7 @@ class MemoryIntegrationModule:
 
     def _transform_to_business_event(self, event: Event) -> Event:
         """
-        将internaleventconvert为业务event
+        Internal note.
 
         convertrule：
         - user_MESSAGE → user_input
@@ -314,13 +312,13 @@ class MemoryIntegrationModule:
                 metadata=event.metadata,
             )
 
-        # ACTION_executeD → AI_RESPONSE 或 TOOL_INVOKED
+        # Internal note.
         elif event_type == EventTypes.ACTION_EXECUTED:
             data = event.data if isinstance(event.data, dict) else {}
             action_type = data.get("action_type", "")
 
             if action_type == "ChatResponseAction":
-                # convert为 AI_RESPONSE
+                # Internal note.
                 return Event(
                     type=BusinessEventTypes.AI_RESPONSE,
                     data={
@@ -337,7 +335,7 @@ class MemoryIntegrationModule:
                     metadata=event.metadata,
                 )
             else:
-                # otheractionconvert为 TOOL_INVOKED
+                # Internal note.
                 return Event(
                     type=BusinessEventTypes.TOOL_INVOKED,
                     data={
@@ -374,14 +372,14 @@ class MemoryIntegrationModule:
                     metadata=event.metadata,
                 )
 
-        # otherevent不convert
+        # Internal note.
         return event
 
     async def _handle_event(self, event: Event):
         """
-        processreceive到的event
+        Internal note.
 
-        这ismain的callbackFunction，由message bus的 worker 在event发生时调用。
+        Internal note.
 
         Args:
             event: eventObject（event type）
@@ -390,28 +388,28 @@ class MemoryIntegrationModule:
             self._stats["events_received"] += 1
             logger.info(f"📥 event received | type: {event.type} | source: {event.source} | Correlation: {event.correlation_id[:8] if event.correlation_id else 'None'}...")
 
-            # 使用 correlation_id 作为event id
+            # Internal note.
             event_id = event.correlation_id or str(uuid.uuid4())
 
-            # 追踪 correlation_id 用于relationship提取
+            # Internal note.
             correlation_id = event.correlation_id
             if correlation_id:
                 if correlation_id not in self._correlation_tracker:
                     self._correlation_tracker[correlation_id] = []
                 self._correlation_tracker[correlation_id].append(event_id)
 
-            # L1: storage原始event（带filterandconvert）
+            # Internal note.
             if self.config.enable_l1_raw:
-                # checkis not应该storage到 L1
+                # Internal note.
                 if self._should_store_l1_event(event):
-                    # convert为业务event
+                    # Internal note.
                     business_event = self._transform_to_business_event(event)
                     await self._store_l1_event(business_event)
                 else:
                     self._stats["l1_filtered"] += 1
                     logger.debug(f"L1 skipped: {event.type}")
 
-            # L2: 提取eventrelationship（synchronotttus）
+            # Internal note.
             if self.config.enable_l2_relations and self.config.auto_extract_relations:
                 await self._extract_l2_relations(event, event_id)
 
@@ -422,7 +420,7 @@ class MemoryIntegrationModule:
                 else:
                     await self._generate_l3_embedding(event, event_id)
 
-            # L4: add到summarycache
+            # Internal note.
             if self.config.enable_l4_summaries:
                 self._cache_l4_event(event)
 
@@ -452,7 +450,7 @@ class MemoryIntegrationModule:
         except Exception as e:
             logger.error(f"L1 storage failed for event type {event.type}: {e}", exc_info=True)
 
-    # ==================== L2: eventrelationship提取 ====================
+    # Internal note.
 
     async def _extract_l2_relations(self, event: Event, event_id: str):
         """提取eventrelationship到 L2 层"""
@@ -460,7 +458,7 @@ class MemoryIntegrationModule:
             event_type = event.type
             correlation_id = event.correlation_id
 
-            # convert event 为dictionaryformatstorage
+            # Internal note.
             event_dict = {
                 "id": event_id,
                 "type": event_type,
@@ -470,13 +468,13 @@ class MemoryIntegrationModule:
                 "correlation_id": correlation_id,
             }
 
-            # addevent到index
+            # Internal note.
             self.unified_memory.l2_relations.add_event(event_id, event_dict)
 
-            # 提取基于rule的relationship
+            # Internal note.
             relations_extracted = 0
 
-            # 1. 同 correlation_id 的前后event建立 PRECEDE relationship
+            # Internal note.
             if correlation_id and correlation_id in self._correlation_tracker:
                 related_events = self._correlation_tracker[correlation_id]
                 for related_id in related_events:
@@ -490,9 +488,9 @@ class MemoryIntegrationModule:
                         )
                         relations_extracted += 1
 
-            # 2. 根据eventtype提取特定relationship
+            # Internal note.
             if event_type == EventTypes.PERCEPTION_PROCESSED:
-                # 查找同 correlation_id 的 PERCEPTION_receiveD
+                # Internal note.
                 if correlation_id in self._correlation_tracker:
                     for related_id in self._correlation_tracker[correlation_id]:
                         related_event = self.unified_memory.l2_relations._events.get(related_id, {})
@@ -506,7 +504,7 @@ class MemoryIntegrationModule:
                             relations_extracted += 1
 
             elif event_type == EventTypes.EXPERIENCE_STORED:
-                # 建立与前置event的 FOLLOW relationship
+                # Internal note.
                 if correlation_id in self._correlation_tracker:
                     for related_id in self._correlation_tracker[correlation_id]:
                         if related_id != event_id:
@@ -518,10 +516,10 @@ class MemoryIntegrationModule:
                             )
                             relations_extracted += 1
 
-            # 3. 提取同user/同contextrelationship
+            # Internal note.
             user_id = self._extract_user_id_from_event(event)
             if user_id:
-                # 查找同user的otherevent
+                # Internal note.
                 for other_id, other_event in self.unified_memory.l2_relations._events.items():
                     if other_id != event_id:
                         other_user = other_event.get("data", {}).get("user_id", "")
@@ -538,7 +536,7 @@ class MemoryIntegrationModule:
             if relations_extracted > 0:
                 self._stats["l2_relations_extracted"] += relations_extracted
 
-            # 持久化relationshipgraph（每次有newrelationship时）
+            # Internal note.
             if relations_extracted > 0:
                 self.unified_memory.l2_relations._save_to_disk()
 
@@ -547,10 +545,10 @@ class MemoryIntegrationModule:
 
     def _extract_user_id_from_event(self, event: Event) -> Optional[str]:
         """从event中提取user id"""
-        # 从 data field中查找 user_id
+        # Internal note.
         if isinstance(event.data, dict):
             return event.data.get("user_id")
-        # 从 metadata 中查找
+        # Internal note.
         if isinstance(event.metadata, dict):
             return event.metadata.get("user_id")
         return None
@@ -572,7 +570,7 @@ class MemoryIntegrationModule:
     async def _generate_l3_embedding(self, event: Event, event_id: str):
         """直接generation L3 embedding（synchronotttus）"""
         try:
-            # 提取文本
+            # Internal note.
             text = self._extract_text_from_event(event)
             if not text:
                 return
@@ -584,7 +582,7 @@ class MemoryIntegrationModule:
             )
             self._stats["l3_embeddings_generated"] += 1
 
-            # 持久化embedding
+            # Internal note.
             self.unified_memory.l3_embeddings._save_to_disk()
 
         except Exception as e:
@@ -592,25 +590,25 @@ class MemoryIntegrationModule:
 
     async def _embedding_processor(self):
         """
-        L3 asynchronotttusembeddingprocess器（后台任务）
+        Internal note.
 
-        从queue中getevent并generationembeddingvector
+        Internal note.
         """
         logger.info("L3 embedding processor running")
 
         while self._running:
             try:
-                # 使用timeout避免block
+                # Internal note.
                 event = await asyncio.wait_for(
                     self._embedding_queue.get(),
                     timeout=1.0
                 )
 
-                # 使用 correlation_id 作为 event_id
+                # Internal note.
                 event_id = event.correlation_id or str(uuid.uuid4())
                 await self._generate_l3_embedding(event, event_id)
 
-                # 从去重set中Remove
+                # Internal note.
                 if event_id in self._embedding_event_ids:
                     self._embedding_event_ids.remove(event_id)
 
@@ -646,7 +644,7 @@ class MemoryIntegrationModule:
     def _cache_l4_event(self, event: Event):
         """将eventadd到 L4 summarycache"""
         try:
-            # convert为dictionaryformat
+            # Internal note.
             event_dict = {
                 "id": event.correlation_id or str(uuid.uuid4()),
                 "type": event.type,
@@ -663,24 +661,24 @@ class MemoryIntegrationModule:
 
     async def _summary_generator(self):
         """
-        L4 定期summarygeneration器（后台任务）
+        Internal note.
 
-        每隔 summary_interval_minutes run一次
+        Internal note.
         """
         logger.info("L4 summary generator running")
 
         while self._running:
             try:
-                # 等待指定interval
+                # Internal note.
                 await asyncio.sleep(self.config.summary_interval_minutes * 60)
 
-                # generation各级summary
+                # Internal note.
                 for period_type in ["hour", "day"]:
                     period_key = self.unified_memory.l4_summaries._get_period_key(
                         time.time(), period_type
                     )
 
-                    # checkis not需要generation
+                    # Internal note.
                     if period_key not in self.unified_memory.l4_summaries._summaries[period_type]:
                         summary = self.unified_memory.l4_summaries.generate_summary(
                             period_type, period_key
@@ -703,7 +701,7 @@ class MemoryIntegrationModule:
         try:
             event_type = event.type
 
-            # 只process特定eventtype
+            # Internal note.
             if event_type == EventTypes.TASK_COMPLETED:
                 self._record_task_capability(event)
             elif event_type == EventTypes.ACTION_EXECUTED:
@@ -729,7 +727,7 @@ class MemoryIntegrationModule:
         data = event.data if isinstance(event.data, dict) else {}
         action_type = data.get("action_type", "")
 
-        # 将actionExecuterecord为任务尝试
+        # Internal note.
         if action_type:
             self.unified_memory.l5_capabilities.record_attempt(
                 task_id=f"action_{action_type}",
@@ -743,7 +741,7 @@ class MemoryIntegrationModule:
                 error=data.get("error"),
             )
 
-    # ==================== 持久化andstatistics ====================
+    # Internal note.
 
     async def _persist_all(self):
         """持久化all层级的data"""

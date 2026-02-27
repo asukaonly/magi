@@ -1,7 +1,9 @@
-"""Tests for personality schema and parser."""
+"""Tests for personality schema and JSON loader."""
+
+import json
 
 from magi.api.routers.personality import PersonalityConfigModel, _build_diffs
-from magi.memory.personality_loader import MarkdownPersonalityParser
+from magi.memory.personality_loader import PersonalityLoader
 
 
 def test_personality_model_accepts_new_schema():
@@ -52,58 +54,56 @@ def test_personality_model_accepts_new_schema():
     assert model.state_transition_protocol[0].target_state_name == "Panic and Vulnerability"
 
 
-def test_markdown_parser_parses_embedded_json():
-    parser = MarkdownPersonalityParser()
-    markdown = """# Personality
+def test_json_loader_reads_personality_file(tmp_path):
+    payload = {
+        "persona_entity": {
+            "basic_profile": {
+                "name": "Kai",
+                "age": "Unknown",
+                "gender": "Unknown",
+                "occupation": "Operator",
+                "core_background": "A long background.",
+            },
+            "psychological_traits": {
+                "communication_tone": "Calm",
+                "confidence_level": "Medium",
+                "empathy_threshold": "Crisis only",
+                "high_frequency_keywords": ["steady"],
+            },
+            "social_responses": {
+                "praise_reaction": "Silent nod",
+                "criticism_reaction": "Cold rebuttal",
+                "obedience_strategy": "Comply with conditions",
+            },
+            "behavioral_strategies": {
+                "error_handling": "Fix first, explain later",
+                "refusal_style": "Firm and concise",
+            },
+        },
+        "cached_phrases": {
+            "on_init": ["Ready."],
+            "on_wake": ["Back?"],
+            "on_error_generic": ["Retrying."],
+            "on_success": ["Done."],
+            "on_switch_attempt": ["Stay."],
+        },
+        "appearance_prompt": "portrait prompt",
+        "state_transition_protocol": [
+            {
+                "trigger_condition": "User in danger",
+                "target_state_name": "Emergency",
+                "behavior_shift": "Immediate care mode",
+            }
+        ],
+    }
+    (tmp_path / "kai.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
-```json
-{
-  "persona_entity": {
-    "basic_profile": {
-      "name": "Kai",
-      "age": "Unknown",
-      "gender": "Unknown",
-      "occupation": "Operator",
-      "core_background": "A long background."
-    },
-    "psychological_traits": {
-      "communication_tone": "Calm",
-      "confidence_level": "Medium",
-      "empathy_threshold": "Crisis only",
-      "high_frequency_keywords": ["steady"]
-    },
-    "social_responses": {
-      "praise_reaction": "Silent nod",
-      "criticism_reaction": "Cold rebuttal",
-      "obedience_strategy": "Comply with conditions"
-    },
-    "behavioral_strategies": {
-      "error_handling": "Fix first, explain later",
-      "refusal_style": "Firm and concise"
-    }
-  },
-  "cached_phrases": {
-    "on_init": ["Ready."],
-    "on_wake": ["Back?"],
-    "on_error_generic": ["Retrying."],
-    "on_success": ["Done."],
-    "on_switch_attempt": ["Stay."]
-  },
-  "appearance_prompt": "portrait prompt",
-  "state_transition_protocol": [
-    {
-      "trigger_condition": "User in danger",
-      "target_state_name": "Emergency",
-      "behavior_shift": "Immediate care mode"
-    }
-  ]
-}
-```
-"""
-    config = parser.parse(markdown)
+    loader = PersonalityLoader(str(tmp_path))
+    config = loader.load("kai")
     assert config.name == "Kai"
     assert config.cached_phrases.on_success == ["Done."]
     assert config.state_transition_protocol[0].target_state_name == "Emergency"
+    assert loader.list_available() == ["kai"]
 
 
 def test_build_diffs_detects_new_schema_changes():

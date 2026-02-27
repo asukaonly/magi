@@ -1,12 +1,12 @@
 """
 Memory Storagemodule
 
-五层memoryarchitecture：
-- L1: RawEventStore - Raw event Storage（完整eventinfo）
+Internal note.
+Internal note.
 - L2: EventRelationStore - eventrelationshipstorage（graphstructure）
 - L3: eventEmbeddingStore - Semantic Embeddingsstorage（vectorsearch）
-- L4: SummaryStore - Time Summariesstorage（多粒度）
-- L5: CapabilityMemory - capabilityMemory Storage（可复用capability）
+Internal note.
+Internal note.
 """
 import logging
 from pathlib import Path
@@ -34,7 +34,7 @@ class UnifiedMemoryStore:
     """
     Unified Memory Storage
 
-    整合五层memoryarchitecture，提供统一的访问Interface
+    Internal note.
     """
 
     def __init__(
@@ -51,13 +51,13 @@ class UnifiedMemoryStore:
         initializeUnified Memory Storage
 
         Args:
-            db_path: databasepath（L1层）
-            persist_dir: 持久化directory（L2-L5层）
-            enable_embeddings: is notEnableSemantic Embeddings（L3层）
-            enable_summaries: is notEnablesummary（L4层）
-            enable_capabilities: is notEnablecapabilitymemory（L5层）
-            embedding_config: embeddingvectorConfiguration（backend, model等）
-            llm_adapter: LLMAdapter（用于远程embedding）
+            Internal note.
+            Internal note.
+            Internal note.
+            Internal note.
+            Internal note.
+            Internal note.
+            Internal note.
         """
         from ..utils.runtime import get_runtime_paths
 
@@ -84,7 +84,7 @@ class UnifiedMemoryStore:
             persist_path=str(persist_path / "relations.pkl")
         )
 
-        # L3: Semantic Embeddingsstorage（根据Configuration选择后端）
+        # Internal note.
         self.l3_embeddings = None
         self.l3_hybrid_search = None
         if enable_embeddings:
@@ -137,11 +137,11 @@ class UnifiedMemoryStore:
         generate_embeddings: bool = True,
     ) -> str:
         """
-        addevent到allrelated层级
+        Internal note.
 
         Args:
             event: eventdata
-            extract_relations: is not提取relationship
+            Internal note.
             generate_embeddings: is notgenerationembedding
 
         Returns:
@@ -153,7 +153,7 @@ class UnifiedMemoryStore:
             event_id = str(uuid.uuid4())
             event["id"] = event_id
 
-        # L1: storage原始event（使用eventObject）
+        # Internal note.
         from ..events.events import Event
         await self.l1_raw.store(Event(
             type=event.get("type", "unknown"),
@@ -163,7 +163,7 @@ class UnifiedMemoryStore:
             metadata=event.get("metadata", {}),
         ))
 
-        # L2: addevent到relationshipindex
+        # Internal note.
         if extract_relations and event_id:
             self.l2_relations.add_event(event_id, event)
 
@@ -177,11 +177,11 @@ class UnifiedMemoryStore:
                     metadata={"event_type": event.get("type", "unknown")},
                 )
 
-        # L4: add到summarycache
+        # Internal note.
         if self.l4_summaries:
             self.l4_summaries.add_event(event)
 
-        # L5: record任务尝试（如果is任务relatedevent）
+        # Internal note.
         if self.l5_capabilities and event.get("type") == "TaskCompleted":
             self._record_task_attempt(event)
 
@@ -226,10 +226,10 @@ class UnifiedMemoryStore:
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """
-        统一searchInterface
+        Internal note.
 
         Args:
-            query: query文本
+            Internal note.
             search_type: searchtype（hybrid, semantic, keyword, relation）
             limit: Returnquantitylimitation
 
@@ -243,7 +243,7 @@ class UnifiedMemoryStore:
         elif search_type == "keyword" and self.l3_hybrid_search:
             return self.l3_hybrid_search._keyword_search(query, top_k=limit)
         elif search_type == "relation":
-            # 按关key词查找relatedevent
+            # Internal note.
             results = []
             for event_id, event_data in self.l2_relations._events.items():
                 if query.lower() in str(event_data).lower():
@@ -258,7 +258,7 @@ class UnifiedMemoryStore:
         max_depth: int = 2,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
-        getrelatedevent（L2层）
+        Internal note.
 
         Args:
             event_id: eventid
@@ -278,11 +278,11 @@ class UnifiedMemoryStore:
         period_key: str = None,
     ) -> Optional[EventSummary]:
         """
-        getTime Summaries（L4层）
+        Internal note.
 
         Args:
-            period_type: 时间粒度（hour/day/week/month）
-            period_key: 时间窗口identifier
+            Internal note.
+            Internal note.
 
         Returns:
             eventsummary
@@ -298,12 +298,12 @@ class UnifiedMemoryStore:
         force: bool = False,
     ) -> Optional[EventSummary]:
         """
-        generationTime Summaries（L4层）
+        Internal note.
 
         Args:
-            period_type: 时间粒度
-            period_key: 时间窗口identifier
-            force: is not强制重newgeneration
+            Internal note.
+            Internal note.
+            Internal note.
 
         Returns:
             eventsummary
@@ -318,14 +318,14 @@ class UnifiedMemoryStore:
         threshold: float = 0.5,
     ) -> Optional[Capability]:
         """
-        查找匹配的capability（L5层）
+        Internal note.
 
         Args:
             context: contextinfo
-            threshold: 匹配阈Value
+            Internal note.
 
         Returns:
-            匹配的capability
+            Internal note.
         """
         if not self.l5_capabilities:
             return None
@@ -356,19 +356,19 @@ class UnifiedMemoryStore:
         older_than_days: int = 30,
     ):
         """
-        清理olddata
+        Internal note.
 
         Args:
-            older_than_days: 清理多少days前的data
+            Internal note.
         """
-        # L2: 清理oldrelationship
+        # Internal note.
         self.l2_relations.clear_old_relations(older_than_days)
 
-        # L3: 清理oldembedding
+        # Internal note.
         if self.l3_embeddings:
             self.l3_embeddings.clear_old_embeddings(older_than_days)
 
-        # L4: 清理oldsummary
+        # Internal note.
         if self.l4_summaries:
             self.l4_summaries.clear_old_summaries(older_than_days // 30)
 
@@ -380,14 +380,14 @@ __all__ = [
     "SelfMemory",
     "OtherMemory",
 
-    # L1层
+    # Internal note.
     "RawEventStore",
 
-    # L2层
+    # Internal note.
     "EventRelationStore",
     "EventRelation",
 
-    # L3层
+    # Internal note.
     "eventEmbeddingStore",
     "EventEmbedding",
     "HybrideventSearch",
@@ -396,15 +396,15 @@ __all__ = [
     "RemoteEmbeddingBackend",
     "create_embedding_store",
 
-    # L4层
+    # Internal note.
     "SummaryStore",
     "EventSummary",
     "AutoSummarizer",
 
-    # L5层
+    # Internal note.
     "CapabilityMemory",
     "Capability",
 
-    # 统一Interface
+    # Internal note.
     "UnifiedMemoryStore",
 ]
