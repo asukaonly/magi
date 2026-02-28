@@ -224,8 +224,29 @@ class ChatTaskAgent(TaskAgent):
         )
         latest_fact = context.get("latest_fact")
         if isinstance(latest_fact, FactRecord):
+            now = time.time()
+            message_started_at = float(latest_fact.timestamp or now)
+            response_time = max(0.0, now - message_started_at)
+            action_payload = dict(latest_fact.payload) if isinstance(latest_fact.payload, dict) else {}
+            action_payload.update(
+                {
+                    "action_type": "ChatResponseAction",
+                    "response": response_text,
+                    "execution_time": response_time,
+                    "user_id": user_id,
+                    "session_id": session_id,
+                }
+            )
             await self._action_executor.emit_action_event(
-                fact=latest_fact,
+                fact=FactRecord(
+                    agent_id=latest_fact.agent_id,
+                    event_type=latest_fact.event_type,
+                    payload=action_payload,
+                    agent_type=latest_fact.agent_type,
+                    agent_instance_id=latest_fact.agent_instance_id,
+                    timestamp=latest_fact.timestamp,
+                    correlation_id=latest_fact.correlation_id,
+                ),
                 success=True,
                 error=None,
             )

@@ -55,6 +55,7 @@ class ActionExecutor:
             execution_time = payload.get("execution_time")
             if execution_time is None:
                 execution_time = payload.get("execution_time_ms", 0.0)
+            response = payload.get("response")
 
             await self._message_bus.publish(
                 Event(
@@ -65,6 +66,7 @@ class ActionExecutor:
                         "action_type": str(action_type),
                         "params": params if isinstance(params, dict) else {},
                         "execution_time": float(execution_time or 0.0),
+                        "response": response if isinstance(response, str) else "",
                         "user_id": payload.get("user_id"),
                         "session_id": payload.get("session_id"),
                         "success": success,
