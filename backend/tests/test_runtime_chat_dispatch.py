@@ -16,14 +16,13 @@ except ModuleNotFoundError:  # pragma: no cover
 from magi.core.runtime import (
     ActionExecutor,
     AgentRuntime,
-    DailyReportTaskAgent,
-    MemoryDigestTaskAgent,
     RouterAgent,
     SensorHub,
     TaskAgent,
     TaskAgentManager,
     TaskAgentType,
 )
+from magi.agent.task_agents import DailyReportTaskAgent, MemoryDigestTaskAgent
 from magi.core.runtime.contracts import FactRecord
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend

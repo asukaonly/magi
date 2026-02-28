@@ -11,23 +11,22 @@ import time
 import uuid
 from typing import Any, Optional
 
-from ....core.logger import get_logger
-from ....llm.provider_bridge import LLMProviderBridge
-from ....memory.behavior_evolution import SatisfactionLevel
-from ....memory.context_builder import Scenario
-from ....memory.emotional_state import EngagementLevel, InteractionOutcome
-from ....memory.growth_memory import InteractionType
-from ....processing.actions import ChatResponseAction
-from ....skills.executor import SkillExecutor
-from ....skills.indexer import SkillIndexer
-from ....skills.loader import SkillLoader
-from ....tools.context_decider import ContextDecider
-from ....tools.function_calling import FunctionCallingExecutor
-from ....tools.registry import tool_registry
-from ....utils.runtime import get_runtime_paths
-from ..contracts import FactRecord
-from ..task_agent import TaskAgent
-from ..types import TaskAgentType
+from ...core.logger import get_logger
+from ...llm.provider_bridge import LLMProviderBridge
+from ...memory.behavior_evolution import SatisfactionLevel
+from ...memory.context_builder import Scenario
+from ...memory.emotional_state import EngagementLevel, InteractionOutcome
+from ...memory.growth_memory import InteractionType
+from ...skills.executor import SkillExecutor
+from ...skills.indexer import SkillIndexer
+from ...skills.loader import SkillLoader
+from ...tools.context_decider import ContextDecider
+from ...tools.function_calling import FunctionCallingExecutor
+from ...tools.registry import tool_registry
+from ...utils.runtime import get_runtime_paths
+from ...core.runtime.contracts import FactRecord
+from ...core.runtime.task_agent import TaskAgent
+from ...core.runtime.types import TaskAgentType
 
 logger = get_logger(__name__)
 TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"

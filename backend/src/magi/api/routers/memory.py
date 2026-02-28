@@ -673,7 +673,7 @@ async def clear_all_memories():
     - L3: 所有语义嵌入
     - L4: 所有摘要
     - L5: 所有能力记录
-    - ChatAgent 对话历史缓存
+    - Chat 会话映射与历史查询上下文
 
     Returns:
         清除结果

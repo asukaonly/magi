@@ -114,7 +114,7 @@ def create_app() -> FastAPI:
     # register生命periodevent
     @app.on_event("startup")
     async def startup_event():
-        """应用启动时initializeChatAgent"""
+        """应用启动时初始化 AgentRuntime"""
         await initialize_chat_agent()
         from .routers.messages import get_message_bus
 
@@ -137,7 +137,7 @@ def create_app() -> FastAPI:
 
     @app.on_event("shutdown")
     async def shutdown_event():
-        """应用关闭时stopChatAgent"""
+        """应用关闭时停止 AgentRuntime"""
         from .routers.messages import get_message_bus
 
         message_bus = get_message_bus()
