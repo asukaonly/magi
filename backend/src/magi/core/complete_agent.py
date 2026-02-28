@@ -3,8 +3,6 @@ Agent - Complete Agent implementation
 """
 from typing import List, Optional, Any
 from .agent import Agent, AgentConfig
-from .master_agent import MasterAgent
-from .task_agent import TaskAgent, WorkerAgent
 from .loop import LoopEngine
 from ..tools.registry import ToolRegistry
 from ..awareness.manager import PerceptionManager
