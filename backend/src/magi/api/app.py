@@ -13,9 +13,11 @@ from pathlib import Path
 
 from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, add_cors_middleware
 from .responses import SuccessResponse
+from .services import get_chat_read_service
 from .websocket import manager, broadcast_agent_update, broadcast_task_update, broadcast_metrics_update, broadcast_log
 from ..agent import initialize_chat_agent, shutdown_chat_agent
 from ..core.logger import configure_logging, get_logger, Loggers
+from ..events.events import Event, EventTypes
 
 logger = get_logger(__name__, category="API")
 
@@ -114,10 +116,37 @@ def create_app() -> FastAPI:
     async def startup_event():
         """应用启动时initializeChatAgent"""
         await initialize_chat_agent()
+        from .routers.messages import get_message_bus
+
+        message_bus = get_message_bus()
+        if message_bus:
+            async def _on_ai_response(event: Event):
+                data = event.data if isinstance(event.data, dict) else {}
+                user_id = str(data.get("user_id", "")).strip()
+                if not user_id:
+                    return
+                await manager.broadcast("agent_response", data, room=f"user_{user_id}")
+
+            sub_id = await message_bus.subscribe(
+                EventTypes.AI_RESPONSE,
+                _on_ai_response,
+                propagation_mode="broadcast",
+            )
+            app.state.ai_response_subscription_id = sub_id
+            logger.info(f"Subscribed AI_RESPONSE for websocket bridge | subscription_id={sub_id}")
 
     @app.on_event("shutdown")
     async def shutdown_event():
         """应用关闭时stopChatAgent"""
+        from .routers.messages import get_message_bus
+
+        message_bus = get_message_bus()
+        sub_id = getattr(app.state, "ai_response_subscription_id", None)
+        if message_bus and sub_id:
+            try:
+                await message_bus.unsubscribe(sub_id)
+            except Exception as exc:
+                logger.warning(f"Failed to unsubscribe AI_RESPONSE bridge: {exc}")
         await shutdown_chat_agent()
 
     # add健康check端点
@@ -247,7 +276,7 @@ def create_app() -> FastAPI:
                 elif data.get("type") == "send_message":
                     # 通过 WebSocket 发送用户消息
                     try:
-                        from ..agent import get_chat_agent
+                        from ..agent import get_agent_runtime
                         from ..events.events import Event, EventTypes
                         import time
 
@@ -262,8 +291,16 @@ def create_app() -> FastAPI:
                             })
                             continue
 
-                        chat_agent = get_chat_agent()
-                        resolved_session = session_id or chat_agent.get_current_session_id(user_id)
+                        try:
+                            get_agent_runtime()
+                        except RuntimeError:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "AgentRuntime not initialized. Please set LLM_API_KEY.",
+                            })
+                            continue
+                        read_service = get_chat_read_service()
+                        resolved_session = session_id or read_service.get_current_session_id(user_id)
 
                         # 构建消息数据
                         message_data = {
@@ -303,11 +340,9 @@ def create_app() -> FastAPI:
                 elif data.get("type") == "get_current_session":
                     # 获取当前会话 ID
                     try:
-                        from ..agent import get_chat_agent
-
                         user_id = data.get("user_id", "web_user")
-                        chat_agent = get_chat_agent()
-                        session_id = chat_agent.get_current_session_id(user_id)
+                        read_service = get_chat_read_service()
+                        session_id = read_service.get_current_session_id(user_id)
 
                         await websocket.send_json({
                             "type": "current_session",
@@ -335,14 +370,12 @@ def create_app() -> FastAPI:
                 elif data.get("type") == "get_history":
                     # 获取历史记录
                     try:
-                        from ..agent import get_chat_agent
-
                         user_id = data.get("user_id", "web_user")
                         session_id = data.get("session_id")
 
-                        chat_agent = get_chat_agent()
-                        resolved_session = session_id or chat_agent.get_current_session_id(user_id)
-                        history = chat_agent.get_conversation_history(user_id, resolved_session)
+                        read_service = get_chat_read_service()
+                        resolved_session = session_id or read_service.get_current_session_id(user_id)
+                        history = read_service.get_conversation_history(user_id, resolved_session)
 
                         # 转换为前端期望的格式
                         import time
@@ -351,7 +384,7 @@ def create_app() -> FastAPI:
                             messages.append({
                                 "role": msg["role"],
                                 "content": msg["content"],
-                                "timestamp": int(time.time()),
+                                "timestamp": int(msg.get("timestamp", time.time())),
                             })
 
                         await websocket.send_json({

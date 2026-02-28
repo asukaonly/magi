@@ -12,10 +12,10 @@ import asyncio
 
 from ..websocket import manager as ws_manager
 from ...awareness.sensors import UserMessageSensor
+from ..services import get_chat_read_service
 from ...utils.agent_logger import get_agent_logger
 from ...events.events import Event, EventTypes, EventLevel
 from ...core.logger import get_logger
-from ...core.runtime import TaskAgentType
 
 logger = get_logger(__name__)
 agent_logger = get_agent_logger('api')
@@ -79,13 +79,6 @@ _conversation_history = {}  # {user_id: [messages]}
 # ============ API Endpoints ============
 
 
-async def _get_chat_task_agent(user_id: str):
-    from ...agent import get_agent_runtime
-
-    runtime = get_agent_runtime()
-    manager = runtime.get_task_agent_manager()
-    return await manager.ensure_agent(TaskAgentType.CHAT, user_id)
-
 @user_messages_router.post("/send", response_model=MessageResponse)
 async def send_user_message(request: UserMessageRequest):
     """
@@ -127,8 +120,8 @@ async def send_user_message(request: UserMessageRequest):
         message_bus = get_message_bus()
 
         # parsesessionid（未指scheduled使用currentsession）
-        chat_task_agent = await _get_chat_task_agent(request.user_id)
-        session_id = request.session_id or chat_task_agent.get_current_session_id(request.user_id)
+        read_service = get_chat_read_service()
+        session_id = request.session_id or read_service.get_current_session_id(request.user_id)
 
         # buildmessagedata
         message_data = {
@@ -206,9 +199,9 @@ async def get_conversation_history(
         dialoguehistory
     """
     try:
-        agent = await _get_chat_task_agent(user_id)
-        resolved_session_id = agent.get_current_session_id(user_id) if not session_id else session_id
-        history = agent.get_conversation_history(user_id, resolved_session_id)
+        read_service = get_chat_read_service()
+        resolved_session_id = session_id or read_service.get_current_session_id(user_id)
+        history = read_service.get_conversation_history(user_id, resolved_session_id)
 
         # convert为前端expectation的format
         messages = []
@@ -216,7 +209,7 @@ async def get_conversation_history(
             messages.append({
                 "role": msg["role"],
                 "content": msg["content"],
-                "timestamp": int(time.time()),  # 使用current时间，因为history中没有savetimestamp
+                "timestamp": int(msg.get("timestamp", time.time())),
             })
 
         return {
@@ -250,9 +243,9 @@ async def clear_conversation_history(
         operationResult
     """
     try:
-        agent = await _get_chat_task_agent(user_id)
-        resolved_session_id = agent.get_current_session_id(user_id) if not session_id else session_id
-        agent.clear_conversation_history(user_id, resolved_session_id)
+        read_service = get_chat_read_service()
+        resolved_session_id = session_id or read_service.get_current_session_id(user_id)
+        read_service.clear_conversation_history(user_id, resolved_session_id)
 
         return {
             "success": True,
@@ -274,8 +267,8 @@ async def clear_conversation_history(
 async def get_current_session(user_id: str = "web_user"):
     """getcurrentsessionid"""
     try:
-        agent = await _get_chat_task_agent(user_id)
-        session_id = agent.get_current_session_id(user_id)
+        read_service = get_chat_read_service()
+        session_id = read_service.get_current_session_id(user_id)
         return {"user_id": user_id, "session_id": session_id}
     except RuntimeError:
         return {"user_id": user_id, "session_id": None}
@@ -285,8 +278,8 @@ async def get_current_session(user_id: str = "web_user"):
 async def create_new_session(user_id: str = "web_user"):
     """createnewsession并切换为currentsession"""
     try:
-        agent = await _get_chat_task_agent(user_id)
-        session_id = agent.create_new_session(user_id)
+        read_service = get_chat_read_service()
+        session_id = read_service.create_new_session(user_id)
         return {"success": True, "user_id": user_id, "session_id": session_id}
     except RuntimeError:
         return {"success": False, "user_id": user_id, "session_id": None}

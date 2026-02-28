@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...llm import create_llm_adapter
+from ...core.runtime import TaskAgentType
 from ...memory.personality_loader import PersonalityLoader
 from ...utils.runtime import get_runtime_paths
 from ...core.logger import get_logger
@@ -415,11 +416,14 @@ async def api_set_current_personality(request: Dict[str, str]):
             raise HTTPException(status_code=500, detail="Setting failed")
 
         try:
-            from ...agent import get_chat_agent
+            from ...agent import get_agent_runtime
 
-            chat_agent = get_chat_agent()
-            if chat_agent.memory:
-                await chat_agent.memory.reload_personality(name)
+            runtime = get_agent_runtime()
+            manager = runtime.get_task_agent_manager()
+            chat_agent = await manager.ensure_agent(TaskAgentType.CHAT, "default")
+            memory = getattr(chat_agent, "memory", None)
+            if memory:
+                await memory.reload_personality(name)
         except Exception as exc:
             logger.warning("Failed to reload agent personality: %s", exc)
 

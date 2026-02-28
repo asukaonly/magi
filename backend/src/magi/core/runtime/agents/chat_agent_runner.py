@@ -218,7 +218,7 @@ class ChatTaskAgent(TaskAgent):
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": response_text})
         await self._record_memory_updates(user_id=user_id, user_message=user_message)
-        await self._action_executor.emit_chat_response(
+        await self._action_executor.emit_chat_response_event(
             user_id=user_id,
             session_id=session_id,
             response=response_text,

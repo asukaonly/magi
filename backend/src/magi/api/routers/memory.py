@@ -16,6 +16,7 @@ import asyncio
 from pathlib import Path
 import time
 
+from ..services import get_chat_read_service
 from ...core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -751,20 +752,12 @@ async def clear_all_memories():
     except Exception as e:
         errors.append(f"L5: {str(e)}")
 
-    # 清除 ChatAgent 对话历史缓存
+    # 清除用户态会话映射（运行态上下文不在 API 层直接清除）
     try:
-        from ...agent import get_chat_agent
-        chat_agent = get_chat_agent()
-        if chat_agent:
-            # 清除所有用户的对话历史
-            history_count = sum(len(h) for h in chat_agent._conversation_history.values())
-            chat_agent._conversation_history.clear()
-            chat_agent._tool_interactions.clear()
-            results["chat_context"] = {"cleared": True, "count": history_count}
-            logger.info(f"Cleared chat context: {history_count} messages")
-    except RuntimeError:
-        # Agent 未初始化，跳过
-        results["chat_context"] = {"cleared": True, "count": 0, "note": "Agent not initialized"}
+        read_service = get_chat_read_service()
+        session_count = read_service.clear_all_sessions()
+        results["chat_context"] = {"cleared": True, "count": session_count}
+        logger.info(f"Cleared chat session mappings: {session_count}")
     except Exception as e:
         errors.append(f"ChatContext: {str(e)}")
 
