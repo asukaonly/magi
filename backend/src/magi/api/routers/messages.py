@@ -7,7 +7,6 @@ messageAPIroute
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-import logging
 import time
 import asyncio
 
@@ -15,8 +14,9 @@ from ..websocket import manager as ws_manager
 from ...awareness.sensors import UserMessageSensor
 from ...utils.agent_logger import get_agent_logger
 from ...events.events import Event, EventTypes, EventLevel
+from ...core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 agent_logger = get_agent_logger('api')
 
 user_messages_router = APIRouter()
@@ -129,7 +129,7 @@ async def send_user_message(request: UserMessageRequest):
             "timestamp": time.time(),
         }
 
-        # 如果message bus可用，通过message busPublish event
+        # 如果 message bus 可用，通过 message bus 发布事件
         if message_bus:
             event = Event(
                 type=EventTypes.USER_MESSAGE,
@@ -139,12 +139,14 @@ async def send_user_message(request: UserMessageRequest):
             )
             published = await message_bus.publish(event)
             if not published:
-                logger.error("Message bus publish failed, falling back to sensor queue")
-                sensor = get_user_message_sensor()
-                await sensor.send_message(message_data)
-                logger.info(
-                    f"Message from {request.user_id} queued to sensor (publish fallback) | "
-                    f"Queue size: {sensor.get_queue().qsize()}"
+                logger.error("Message bus publish failed")
+                return MessageResponse(
+                    success=False,
+                    message="Message bus publish failed",
+                    data={
+                        "user_id": request.user_id,
+                        "session_id": session_id,
+                    },
                 )
 
             queue_size = "unknown"
@@ -154,10 +156,12 @@ async def send_user_message(request: UserMessageRequest):
 
             logger.info(f"Message from {request.user_id} published to message bus | Queue size: {queue_size}")
         else:
-            # Fallback: 直接使用传感器queue（向后compatible）
-            sensor = get_user_message_sensor()
-            await sensor.send_message(message_data)
-            logger.info(f"Message from {request.user_id} queued to sensor (fallback) | Queue size: {sensor.get_queue().qsize()}")
+            logger.error("Message bus not initialized")
+            return MessageResponse(
+                success=False,
+                message="Message bus not initialized",
+                data={"user_id": request.user_id, "session_id": session_id},
+            )
 
         agent_logger.info(f"📥 Message received | User: {request.user_id} | Content: '{request.message[:50]}{'...' if len(request.message) > 50 else ''}' | Length: {len(request.message)}")
 
