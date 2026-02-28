@@ -52,3 +52,6 @@ class AgentRuntime:
             "router": self._router_agent.get_stats(),
             "agents": self._task_agent_manager.get_stats(),
         }
+
+    def get_task_agent_manager(self) -> TaskAgentManager:
+        return self._task_agent_manager

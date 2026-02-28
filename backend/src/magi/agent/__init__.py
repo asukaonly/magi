@@ -11,13 +11,13 @@ from ..core.runtime import (
     AgentRuntime,
     ChatTaskAgent,
     DailyReportTaskAgent,
+    DefaultTaskAgent,
     MemoryDigestTaskAgent,
     RouterAgent,
     SensorHub,
     TaskAgentManager,
 )
 from ..events.sqlite_backend import SQLiteMessageBackend
-from ..agent.chat import ChatAgent
 from ..memory.self_memory import SelfMemory
 from ..memory.other_memory import OtherMemory
 from ..memory import UnifiedMemoryStore
@@ -28,16 +28,16 @@ from ..core.logger import get_logger
 
 logger = get_logger(__name__)
 
-_chat_agent: ChatAgent | None = None
+_chat_agent = None
 _memory_integration: MemoryIntegrationModule | None = None
 _message_bus: SQLiteMessageBackend | None = None
 _agent_runtime: AgentRuntime | None = None
 
 
-def get_chat_agent() -> ChatAgent:
-    """Get active chat agent compatibility object."""
+def get_chat_agent():
+    """Legacy API. Chat runtime now uses ChatTaskAgent as main path."""
     if _chat_agent is None:
-        raise RuntimeError("Chat agent not initialized. Call initialize_chat_agent() first.")
+        raise RuntimeError("Legacy ChatAgent not initialized in current runtime mode.")
     return _chat_agent
 
 
@@ -151,23 +151,21 @@ async def initialize_chat_agent():
         await _memory_integration.start()
         logger.info("MemoryIntegrationModule started")
 
-        _chat_agent = ChatAgent(
-            config=AgentConfig(name=config.agent.name, llm_config={}),
-            message_bus=_message_bus,
-            llm_adapter=llm_adapter,
-            memory=memory,
-            other_memory=other_memory,
-            unified_memory=unified_memory,
-            memory_integration=_memory_integration,
-        )
-
         # Runtime modules
         sensor_hub = SensorHub(message_bus=_message_bus)
-        action_executor = ActionExecutor(chat_agent=_chat_agent, message_bus=_message_bus)
+        action_executor = ActionExecutor(message_bus=_message_bus)
         task_agent_manager = TaskAgentManager(
-            create_chat_agent=lambda agent_id: ChatTaskAgent(agent_id),
+            create_chat_agent=lambda agent_id: ChatTaskAgent(
+                agent_id=agent_id,
+                llm_adapter=llm_adapter,
+                memory=memory,
+                other_memory=other_memory,
+                unified_memory=unified_memory,
+                memory_integration=_memory_integration,
+            ),
             create_memory_digest_agent=lambda agent_id: MemoryDigestTaskAgent(agent_id),
             create_daily_report_agent=lambda agent_id: DailyReportTaskAgent(agent_id),
+            create_default_agent=lambda agent_type, agent_id: DefaultTaskAgent(agent_type, agent_id),
         )
         router_agent = RouterAgent(
             sensor_hub=sensor_hub,

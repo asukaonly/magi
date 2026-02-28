@@ -16,33 +16,45 @@ except ModuleNotFoundError:  # pragma: no cover
 from magi.core.runtime import (
     ActionExecutor,
     AgentRuntime,
-    ChatTaskAgent,
     DailyReportTaskAgent,
     MemoryDigestTaskAgent,
     RouterAgent,
     SensorHub,
+    TaskAgent,
     TaskAgentManager,
+    TaskAgentType,
 )
+from magi.core.runtime.contracts import FactRecord
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
 
 
-class _FakeChatAgent:
+class _FakeChatTaskAgent(TaskAgent):
     def __init__(self):
+        super().__init__(agent_type=TaskAgentType.CHAT, agent_id="default")
         self.called = 0
         self.last_user_id = None
         self.last_session_id = None
 
-    async def execute_action(self, action):
+    async def build_context(self, merged_facts: list[FactRecord]) -> dict:
+        context = await super().build_context(merged_facts)
+        latest = context["latest_fact"]
+        payload = latest.payload if isinstance(latest, FactRecord) else {}
+        self.last_user_id = payload.get("user_id")
+        self.last_session_id = payload.get("session_id")
+        return context
+
+    async def call_llm(self, context: dict, llm_params: dict) -> dict:
+        _ = (context, llm_params)
         self.called += 1
-        self.last_user_id = action.user_id
-        self.last_session_id = action.session_id
-        return {
-            "success": True,
-            "response": "ok",
-            "user_id": action.user_id,
-            "session_id": action.session_id,
-        }
+        return {"response": "ok"}
+
+    async def parse_result(self, context: dict, raw_result):
+        if self._action_executor is None:
+            return
+        latest = context.get("latest_fact")
+        if isinstance(latest, FactRecord):
+            await self._action_executor.emit_action_event(latest, success=True)
 
 
 @pytest.mark.asyncio
@@ -50,11 +62,11 @@ async def test_runtime_chat_dispatch_from_message_bus():
     message_bus = MemoryMessageBackend()
     await message_bus.start()
 
-    fake_chat = _FakeChatAgent()
+    fake_chat = _FakeChatTaskAgent()
     sensor_hub = SensorHub(message_bus=message_bus)
-    action_executor = ActionExecutor(chat_agent=fake_chat, message_bus=message_bus)
+    action_executor = ActionExecutor(message_bus=message_bus)
     manager = TaskAgentManager(
-        create_chat_agent=lambda agent_id: ChatTaskAgent(agent_id),
+        create_chat_agent=lambda agent_id: fake_chat if agent_id == "u-chat" else _FakeChatTaskAgent(),
         create_memory_digest_agent=lambda agent_id: MemoryDigestTaskAgent(agent_id),
         create_daily_report_agent=lambda agent_id: DailyReportTaskAgent(agent_id),
     )

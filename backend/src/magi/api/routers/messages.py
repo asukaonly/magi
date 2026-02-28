@@ -15,6 +15,7 @@ from ...awareness.sensors import UserMessageSensor
 from ...utils.agent_logger import get_agent_logger
 from ...events.events import Event, EventTypes, EventLevel
 from ...core.logger import get_logger
+from ...core.runtime import TaskAgentType
 
 logger = get_logger(__name__)
 agent_logger = get_agent_logger('api')
@@ -77,6 +78,14 @@ _conversation_history = {}  # {user_id: [messages]}
 
 # ============ API Endpoints ============
 
+
+async def _get_chat_task_agent(user_id: str):
+    from ...agent import get_agent_runtime
+
+    runtime = get_agent_runtime()
+    manager = runtime.get_task_agent_manager()
+    return await manager.ensure_agent(TaskAgentType.CHAT, user_id)
+
 @user_messages_router.post("/send", response_model=MessageResponse)
 async def send_user_message(request: UserMessageRequest):
     """
@@ -91,13 +100,13 @@ async def send_user_message(request: UserMessageRequest):
         确认response
     """
     try:
-        # check ChatAgent is not已initialize
-        from ...agent import get_chat_agent
+        # check runtime is initialized
+        from ...agent import get_agent_runtime
         try:
-            chat_agent = get_chat_agent()
+            get_agent_runtime()
         except RuntimeError:
             # Agent 未initialize（可能is没有Setting API Key）
-            agent_logger.warning(f"⚠️ ChatAgent not initialized when user {request.user_id} sent message")
+            agent_logger.warning(f"⚠️ AgentRuntime not initialized when user {request.user_id} sent message")
 
             # senderror message到 WebSocket
             await ws_manager.broadcast_to_user(request.user_id, {
@@ -108,17 +117,18 @@ async def send_user_message(request: UserMessageRequest):
 
             return MessageResponse(
                 success=False,
-                message="ChatAgent not initialized. Please set LLM_API_KEY environment variable.",
+                message="AgentRuntime not initialized. Please set LLM_API_KEY environment variable.",
                 data={
                     "user_id": request.user_id,
-                    "error": "ChatAgent not initialized",
+                    "error": "AgentRuntime not initialized",
                 }
             )
 
         message_bus = get_message_bus()
 
         # parsesessionid（未指scheduled使用currentsession）
-        session_id = request.session_id or chat_agent.get_current_session_id(request.user_id)
+        chat_task_agent = await _get_chat_task_agent(request.user_id)
+        session_id = request.session_id or chat_task_agent.get_current_session_id(request.user_id)
 
         # buildmessagedata
         message_data = {
@@ -196,9 +206,7 @@ async def get_conversation_history(
         dialoguehistory
     """
     try:
-        from ...agent import get_chat_agent
-
-        agent = get_chat_agent()
+        agent = await _get_chat_task_agent(user_id)
         resolved_session_id = agent.get_current_session_id(user_id) if not session_id else session_id
         history = agent.get_conversation_history(user_id, resolved_session_id)
 
@@ -242,9 +250,7 @@ async def clear_conversation_history(
         operationResult
     """
     try:
-        from ...agent import get_chat_agent
-
-        agent = get_chat_agent()
+        agent = await _get_chat_task_agent(user_id)
         resolved_session_id = agent.get_current_session_id(user_id) if not session_id else session_id
         agent.clear_conversation_history(user_id, resolved_session_id)
 
@@ -268,8 +274,7 @@ async def clear_conversation_history(
 async def get_current_session(user_id: str = "web_user"):
     """getcurrentsessionid"""
     try:
-        from ...agent import get_chat_agent
-        agent = get_chat_agent()
+        agent = await _get_chat_task_agent(user_id)
         session_id = agent.get_current_session_id(user_id)
         return {"user_id": user_id, "session_id": session_id}
     except RuntimeError:
@@ -280,8 +285,7 @@ async def get_current_session(user_id: str = "web_user"):
 async def create_new_session(user_id: str = "web_user"):
     """createnewsession并切换为currentsession"""
     try:
-        from ...agent import get_chat_agent
-        agent = get_chat_agent()
+        agent = await _get_chat_task_agent(user_id)
         session_id = agent.create_new_session(user_id)
         return {"success": True, "user_id": user_id, "session_id": session_id}
     except RuntimeError:

@@ -5,13 +5,13 @@ from __future__ import annotations
 
 from ....core.logger import get_logger
 from ..contracts import FactRecord
-from .base_runner import BaseRuntimeAgentRunner
+from ..task_agent import TaskAgent
 from ..types import TaskAgentType
 
 logger = get_logger(__name__)
 
 
-class MemoryDigestTaskAgent(BaseRuntimeAgentRunner):
+class MemoryDigestTaskAgent(TaskAgent):
     """Stub task-agent: receives facts for future memory-digest workflows."""
 
     def __init__(self, agent_id: str) -> None:

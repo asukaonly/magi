@@ -15,10 +15,10 @@ from .agent_runtime import AgentRuntime
 from .task_agent import TaskAgent
 from .task_agent_manager import TaskAgentManager
 from .agents import (
-    BaseRuntimeAgentRunner,
     ChatTaskAgent,
     MemoryDigestTaskAgent,
     DailyReportTaskAgent,
+    DefaultTaskAgent,
 )
 
 __all__ = [
@@ -35,8 +35,8 @@ __all__ = [
     "AgentRuntime",
     "TaskAgent",
     "TaskAgentManager",
-    "BaseRuntimeAgentRunner",
     "ChatTaskAgent",
     "MemoryDigestTaskAgent",
     "DailyReportTaskAgent",
+    "DefaultTaskAgent",
 ]

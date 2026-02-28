@@ -13,7 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
     pytest = _PytestFallback()
 
-from magi.core.runtime import TaskAgent, TaskAgentManager, TaskAgentType
+from magi.core.runtime import DefaultTaskAgent, TaskAgent, TaskAgentManager, TaskAgentType
 from magi.core.runtime.contracts import FactRecord
 
 
@@ -54,4 +54,28 @@ async def test_task_agent_manager_hybrid_creation_and_dispatch():
     assert dynamic is not None
     assert dynamic.get_stats()["processed"] >= 1
 
+    await manager.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_task_agent_manager_supports_default_agent_type():
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _CollectTaskAgent(TaskAgentType.CHAT, agent_id),
+        create_memory_digest_agent=lambda agent_id: _CollectTaskAgent(TaskAgentType.MEMORY_DIGEST, agent_id),
+        create_daily_report_agent=lambda agent_id: _CollectTaskAgent(TaskAgentType.DAILY_REPORT, agent_id),
+        create_default_agent=lambda agent_type, agent_id: DefaultTaskAgent(agent_type, agent_id),
+    )
+    await manager.start_all(action_executor=None)
+
+    fact = FactRecord(
+        agent_id="analytics:tenant-a",
+        agent_type="analytics",
+        agent_instance_id="tenant-a",
+        event_type="ANALYTICS_EVENT",
+        payload={"target_task_agent_type": "analytics", "target_task_agent_id": "tenant-a"},
+    )
+    await manager.add_fact_to_agent("analytics", "tenant-a", fact)
+    await asyncio.sleep(0.1)
+
+    assert manager.get_agent("analytics", "tenant-a") is not None
     await manager.stop_all()

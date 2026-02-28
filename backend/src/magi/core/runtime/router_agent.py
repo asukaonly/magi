@@ -10,6 +10,7 @@ from ...core.logger import get_logger
 from .contracts import FactRecord
 from .sensor_hub import SensorHub
 from .task_agent_manager import TaskAgentManager
+from .types import build_task_agent_key, get_task_agent_type_value
 
 logger = get_logger(__name__)
 
@@ -65,8 +66,8 @@ class RouterAgent:
                 targets = self._task_agent_manager.resolve_targets(sensor_event)
                 for target_type, target_id in targets:
                     fact = FactRecord(
-                        agent_id=f"{target_type.value}:{target_id}",
-                        agent_type=target_type.value,
+                        agent_id=build_task_agent_key(target_type, target_id),
+                        agent_type=get_task_agent_type_value(target_type),
                         agent_instance_id=target_id,
                         event_type=sensor_event.event_type,
                         payload=sensor_event.payload,
