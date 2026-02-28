@@ -15,17 +15,13 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from magi.core.runtime import (
     ActionExecutor,
-    AgentRegistry,
-    ChatAgentRunner,
-    DailyReportAgentRunner,
-    FactStore,
-    MemoryDigestAgentRunner,
+    AgentRuntime,
+    ChatTaskAgent,
+    DailyReportTaskAgent,
+    MemoryDigestTaskAgent,
     RouterAgent,
-    RuntimeOrchestrator,
     SensorHub,
-    CHAT_AGENT_ID,
-    DAILY_REPORT_AGENT_ID,
-    MEMORY_DIGEST_AGENT_ID,
+    TaskAgentManager,
 )
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
@@ -56,18 +52,17 @@ async def test_runtime_chat_dispatch_from_message_bus():
 
     fake_chat = _FakeChatAgent()
     sensor_hub = SensorHub(message_bus=message_bus)
-    fact_store = FactStore()
     action_executor = ActionExecutor(chat_agent=fake_chat, message_bus=message_bus)
-    registry = AgentRegistry()
-    registry.register_runner(ChatAgentRunner(CHAT_AGENT_ID))
-    registry.register_runner(MemoryDigestAgentRunner(MEMORY_DIGEST_AGENT_ID))
-    registry.register_runner(DailyReportAgentRunner(DAILY_REPORT_AGENT_ID))
-    router_agent = RouterAgent(sensor_hub=sensor_hub, agent_registry=registry, fact_store=fact_store)
-    orchestrator = RuntimeOrchestrator(
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: ChatTaskAgent(agent_id),
+        create_memory_digest_agent=lambda agent_id: MemoryDigestTaskAgent(agent_id),
+        create_daily_report_agent=lambda agent_id: DailyReportTaskAgent(agent_id),
+    )
+    router_agent = RouterAgent(sensor_hub=sensor_hub, task_agent_manager=manager)
+    orchestrator = AgentRuntime(
         sensor_hub=sensor_hub,
         router_agent=router_agent,
-        agent_registry=registry,
-        fact_store=fact_store,
+        task_agent_manager=manager,
         action_executor=action_executor,
     )
 
@@ -82,11 +77,11 @@ async def test_runtime_chat_dispatch_from_message_bus():
     )
 
     await asyncio.sleep(0.4)
+    stats = orchestrator.get_stats()
     await orchestrator.stop()
     await message_bus.stop()
 
     assert fake_chat.called >= 1
     assert fake_chat.last_user_id == "u-chat"
     assert fake_chat.last_session_id == "s-chat"
-    stats = orchestrator.get_stats()
-    assert stats["facts"].get(CHAT_AGENT_ID, 0) >= 1
+    assert any(key.startswith("chat:") for key in stats["agents"]["instances"].keys())

@@ -27,5 +27,7 @@ class FactRecord:
     agent_id: str
     event_type: str
     payload: Dict[str, Any]
+    agent_type: Optional[str] = None
+    agent_instance_id: Optional[str] = None
     timestamp: float = field(default_factory=time.time)
     correlation_id: Optional[str] = None

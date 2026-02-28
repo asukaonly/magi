@@ -8,17 +8,13 @@ from ..core.agent import AgentConfig
 from ..core.task_database import TaskDatabase
 from ..core.runtime import (
     ActionExecutor,
-    AgentRegistry,
-    ChatAgentRunner,
-    DailyReportAgentRunner,
-    FactStore,
-    MemoryDigestAgentRunner,
+    AgentRuntime,
+    ChatTaskAgent,
+    DailyReportTaskAgent,
+    MemoryDigestTaskAgent,
     RouterAgent,
-    RuntimeOrchestrator,
     SensorHub,
-    CHAT_AGENT_ID,
-    MEMORY_DIGEST_AGENT_ID,
-    DAILY_REPORT_AGENT_ID,
+    TaskAgentManager,
 )
 from ..events.sqlite_backend import SQLiteMessageBackend
 from ..agent.chat import ChatAgent
@@ -35,7 +31,7 @@ logger = get_logger(__name__)
 _chat_agent: ChatAgent | None = None
 _memory_integration: MemoryIntegrationModule | None = None
 _message_bus: SQLiteMessageBackend | None = None
-_runtime_orchestrator: RuntimeOrchestrator | None = None
+_agent_runtime: AgentRuntime | None = None
 
 
 def get_chat_agent() -> ChatAgent:
@@ -62,16 +58,11 @@ def get_unified_memory() -> UnifiedMemoryStore:
     return get_memory_integration().unified_memory
 
 
-def get_runtime_orchestrator() -> RuntimeOrchestrator:
-    """Get runtime orchestrator."""
-    if _runtime_orchestrator is None:
-        raise RuntimeError("RuntimeOrchestrator not initialized. Call initialize_chat_agent() first.")
-    return _runtime_orchestrator
-
-
-def get_five_layer_coordinator():
-    """Backward-compatible alias for runtime orchestrator getter."""
-    return get_runtime_orchestrator()
+def get_agent_runtime() -> AgentRuntime:
+    """Get agent runtime."""
+    if _agent_runtime is None:
+        raise RuntimeError("AgentRuntime not initialized. Call initialize_chat_agent() first.")
+    return _agent_runtime
 
 
 def _create_llm_adapter(config: AppConfig):
@@ -85,11 +76,11 @@ def _create_llm_adapter(config: AppConfig):
 
 
 async def initialize_chat_agent():
-    """Initialize runtime orchestrator on application startup."""
-    global _chat_agent, _memory_integration, _message_bus, _runtime_orchestrator
+    """Initialize agent runtime on application startup."""
+    global _chat_agent, _memory_integration, _message_bus, _agent_runtime
 
-    if _runtime_orchestrator is not None:
-        logger.warning("Runtime orchestrator already initialized")
+    if _agent_runtime is not None:
+        logger.warning("Agent runtime already initialized")
         return
 
     config = get_config()
@@ -105,7 +96,7 @@ async def initialize_chat_agent():
         init_runtime_data()
         runtime_paths = get_runtime_paths()
         logger.info(f"Runtime directory: {runtime_paths.base_dir}")
-        logger.info("Initializing Runtime Orchestrator...")
+        logger.info("Initializing Agent Runtime...")
 
         llm_adapter = _create_llm_adapter(config)
         _message_bus = SQLiteMessageBackend(db_path=str(runtime_paths.events_db_path))
@@ -172,30 +163,28 @@ async def initialize_chat_agent():
 
         # Runtime modules
         sensor_hub = SensorHub(message_bus=_message_bus)
-        fact_store = FactStore()
         action_executor = ActionExecutor(chat_agent=_chat_agent, message_bus=_message_bus)
-        agent_registry = AgentRegistry()
-        agent_registry.register_runner(ChatAgentRunner(CHAT_AGENT_ID))
-        agent_registry.register_runner(MemoryDigestAgentRunner(MEMORY_DIGEST_AGENT_ID))
-        agent_registry.register_runner(DailyReportAgentRunner(DAILY_REPORT_AGENT_ID))
+        task_agent_manager = TaskAgentManager(
+            create_chat_agent=lambda agent_id: ChatTaskAgent(agent_id),
+            create_memory_digest_agent=lambda agent_id: MemoryDigestTaskAgent(agent_id),
+            create_daily_report_agent=lambda agent_id: DailyReportTaskAgent(agent_id),
+        )
         router_agent = RouterAgent(
             sensor_hub=sensor_hub,
-            agent_registry=agent_registry,
-            fact_store=fact_store,
+            task_agent_manager=task_agent_manager,
             batch_size=max(8, config.agent.num_task_agents * 4),
             poll_timeout_seconds=0.2,
         )
-        _runtime_orchestrator = RuntimeOrchestrator(
+        _agent_runtime = AgentRuntime(
             sensor_hub=sensor_hub,
             router_agent=router_agent,
-            agent_registry=agent_registry,
-            fact_store=fact_store,
+            task_agent_manager=task_agent_manager,
             action_executor=action_executor,
         )
 
         # Keep task database initialized for compatibility/observability.
         await task_database._init_db()
-        await _runtime_orchestrator.start()
+        await _agent_runtime.start()
 
         from ..api.routers.messages import set_message_bus
 
@@ -207,21 +196,21 @@ async def initialize_chat_agent():
             init_skills_module(llm_adapter)
             logger.info("Skills module initialized")
 
-        logger.info("Runtime orchestrator initialized successfully")
+        logger.info("Agent runtime initialized successfully")
 
     except Exception as exc:
-        logger.error(f"Failed to initialize runtime orchestrator: {exc}", exc_info=True)
+        logger.error(f"Failed to initialize agent runtime: {exc}", exc_info=True)
         raise
 
 
 async def shutdown_chat_agent():
-    """Shutdown runtime orchestrator."""
-    global _chat_agent, _memory_integration, _message_bus, _runtime_orchestrator
+    """Shutdown agent runtime."""
+    global _chat_agent, _memory_integration, _message_bus, _agent_runtime
 
     try:
-        if _runtime_orchestrator is not None:
-            await _runtime_orchestrator.stop()
-            _runtime_orchestrator = None
+        if _agent_runtime is not None:
+            await _agent_runtime.stop()
+            _agent_runtime = None
 
         if _memory_integration is not None:
             await _memory_integration.stop()
@@ -232,6 +221,6 @@ async def shutdown_chat_agent():
             _message_bus = None
 
         _chat_agent = None
-        logger.info("Runtime orchestrator stopped")
+        logger.info("Agent runtime stopped")
     except Exception as exc:
-        logger.error(f"Failed to stop runtime orchestrator: {exc}", exc_info=True)
+        logger.error(f"Failed to stop agent runtime: {exc}", exc_info=True)

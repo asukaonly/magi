@@ -11,7 +11,7 @@ from .task_database import (
     TaskStatus,
     TaskPriority,
 )
-from .runtime import RuntimeOrchestrator
+from .runtime import AgentRuntime
 
 __all__ = [
     # Agentbase
@@ -30,5 +30,5 @@ __all__ = [
     "TaskPriority",
 
     # runtime
-    "RuntimeOrchestrator",
+    "AgentRuntime",
 ]

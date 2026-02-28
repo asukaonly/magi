@@ -14,19 +14,20 @@ except ModuleNotFoundError:  # pragma: no cover
     pytest = _PytestFallback()
 
 from magi.core.runtime import (
-    AgentRegistry,
-    FactStore,
     RouterAgent,
     SensorHub,
-    CHAT_AGENT_ID,
-    MEMORY_DIGEST_AGENT_ID,
+    TaskAgent,
+    TaskAgentManager,
+    TaskAgentType,
 )
-from magi.core.runtime.agents.base_runner import BaseRuntimeAgentRunner
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
 
 
-class _NoopRunner(BaseRuntimeAgentRunner):
+class _NoopTaskAgent(TaskAgent):
+    def __init__(self, agent_type: TaskAgentType, agent_id: str):
+        super().__init__(agent_type=agent_type, agent_id=agent_id)
+
     async def handle_fact(self, fact):
         return None
 
@@ -37,14 +38,15 @@ async def test_router_agent_loop_dispatches_batch_to_targets():
     await message_bus.start()
 
     sensor_hub = SensorHub(message_bus=message_bus)
-    fact_store = FactStore()
-    registry = AgentRegistry()
-    registry.register_runner(_NoopRunner(CHAT_AGENT_ID))
-    registry.register_runner(_NoopRunner(MEMORY_DIGEST_AGENT_ID))
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.CHAT, agent_id),
+        create_memory_digest_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.MEMORY_DIGEST, agent_id),
+        create_daily_report_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.DAILY_REPORT, agent_id),
+    )
+    await manager.start_all(action_executor=None)
     router_agent = RouterAgent(
         sensor_hub=sensor_hub,
-        agent_registry=registry,
-        fact_store=fact_store,
+        task_agent_manager=manager,
         batch_size=8,
         poll_timeout_seconds=0.1,
     )
@@ -61,11 +63,13 @@ async def test_router_agent_loop_dispatches_batch_to_targets():
         )
     )
 
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(0.5)
+    router_stats = router_agent.get_stats()
+    assert manager.get_agent(TaskAgentType.CHAT, "u1") is not None
+    assert manager.get_agent(TaskAgentType.MEMORY_DIGEST, "default") is not None
     await router_agent.stop()
+    await manager.stop_all()
     await sensor_hub.stop()
     await message_bus.stop()
 
-    counts = fact_store.get_counts()
-    assert counts.get(CHAT_AGENT_ID, 0) >= 1
-    assert counts.get(MEMORY_DIGEST_AGENT_ID, 0) >= 1
+    assert router_stats["facts_written"] >= 2

@@ -9,8 +9,7 @@ from typing import Optional
 from ...core.logger import get_logger
 from .contracts import FactRecord
 from .sensor_hub import SensorHub
-from .agent_registry import AgentRegistry
-from .fact_store import FactStore
+from .task_agent_manager import TaskAgentManager
 
 logger = get_logger(__name__)
 
@@ -21,14 +20,12 @@ class RouterAgent:
     def __init__(
         self,
         sensor_hub: SensorHub,
-        agent_registry: AgentRegistry,
-        fact_store: FactStore,
+        task_agent_manager: TaskAgentManager,
         batch_size: int = 16,
         poll_timeout_seconds: float = 0.2,
     ) -> None:
         self._sensor_hub = sensor_hub
-        self._agent_registry = agent_registry
-        self._fact_store = fact_store
+        self._task_agent_manager = task_agent_manager
         self._batch_size = batch_size
         self._poll_timeout_seconds = poll_timeout_seconds
         self._running = False
@@ -65,16 +62,18 @@ class RouterAgent:
             self._stats["events"] += len(batch)
 
             for sensor_event in batch:
-                targets = self._agent_registry.resolve_targets(sensor_event)
-                for target_id in targets:
+                targets = self._task_agent_manager.resolve_targets(sensor_event)
+                for target_type, target_id in targets:
                     fact = FactRecord(
-                        agent_id=target_id,
+                        agent_id=f"{target_type.value}:{target_id}",
+                        agent_type=target_type.value,
+                        agent_instance_id=target_id,
                         event_type=sensor_event.event_type,
                         payload=sensor_event.payload,
                         timestamp=sensor_event.timestamp,
                         correlation_id=sensor_event.correlation_id,
                     )
-                    await self._fact_store.append_fact(fact)
+                    await self._task_agent_manager.add_fact_to_agent(target_type, target_id, fact)
                     self._stats["facts_written"] += 1
 
     def get_stats(self) -> dict:
