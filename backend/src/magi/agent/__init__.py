@@ -1,18 +1,24 @@
 """
-Agent bootstrap for the five-layer runtime.
+Agent bootstrap for runtime orchestrator.
 """
 from __future__ import annotations
 
 from ..config import get_config, AppConfig
 from ..core.agent import AgentConfig
 from ..core.task_database import TaskDatabase
-from ..core.layers import (
-    ActionLayer,
-    FiveLayerCoordinator,
-    RouterLayer,
-    SensorLayer,
-    TaskLayer,
-    WorkerLayer,
+from ..core.runtime import (
+    ActionExecutor,
+    AgentRegistry,
+    ChatAgentRunner,
+    DailyReportAgentRunner,
+    FactStore,
+    MemoryDigestAgentRunner,
+    RouterAgent,
+    RuntimeOrchestrator,
+    SensorHub,
+    CHAT_AGENT_ID,
+    MEMORY_DIGEST_AGENT_ID,
+    DAILY_REPORT_AGENT_ID,
 )
 from ..events.sqlite_backend import SQLiteMessageBackend
 from ..agent.chat import ChatAgent
@@ -29,7 +35,7 @@ logger = get_logger(__name__)
 _chat_agent: ChatAgent | None = None
 _memory_integration: MemoryIntegrationModule | None = None
 _message_bus: SQLiteMessageBackend | None = None
-_coordinator: FiveLayerCoordinator | None = None
+_runtime_orchestrator: RuntimeOrchestrator | None = None
 
 
 def get_chat_agent() -> ChatAgent:
@@ -56,11 +62,16 @@ def get_unified_memory() -> UnifiedMemoryStore:
     return get_memory_integration().unified_memory
 
 
-def get_five_layer_coordinator() -> FiveLayerCoordinator:
-    """Get five-layer coordinator."""
-    if _coordinator is None:
-        raise RuntimeError("FiveLayerCoordinator not initialized. Call initialize_chat_agent() first.")
-    return _coordinator
+def get_runtime_orchestrator() -> RuntimeOrchestrator:
+    """Get runtime orchestrator."""
+    if _runtime_orchestrator is None:
+        raise RuntimeError("RuntimeOrchestrator not initialized. Call initialize_chat_agent() first.")
+    return _runtime_orchestrator
+
+
+def get_five_layer_coordinator():
+    """Backward-compatible alias for runtime orchestrator getter."""
+    return get_runtime_orchestrator()
 
 
 def _create_llm_adapter(config: AppConfig):
@@ -74,11 +85,11 @@ def _create_llm_adapter(config: AppConfig):
 
 
 async def initialize_chat_agent():
-    """Initialize five-layer runtime on application startup."""
-    global _chat_agent, _memory_integration, _message_bus, _coordinator
+    """Initialize runtime orchestrator on application startup."""
+    global _chat_agent, _memory_integration, _message_bus, _runtime_orchestrator
 
-    if _coordinator is not None:
-        logger.warning("Five-layer runtime already initialized")
+    if _runtime_orchestrator is not None:
+        logger.warning("Runtime orchestrator already initialized")
         return
 
     config = get_config()
@@ -94,7 +105,7 @@ async def initialize_chat_agent():
         init_runtime_data()
         runtime_paths = get_runtime_paths()
         logger.info(f"Runtime directory: {runtime_paths.base_dir}")
-        logger.info("Initializing Five-Layer Runtime...")
+        logger.info("Initializing Runtime Orchestrator...")
 
         llm_adapter = _create_llm_adapter(config)
         _message_bus = SQLiteMessageBackend(db_path=str(runtime_paths.events_db_path))
@@ -159,28 +170,32 @@ async def initialize_chat_agent():
             memory_integration=_memory_integration,
         )
 
-        coordinator_ref: dict[str, FiveLayerCoordinator | None] = {"instance": None}
-
-        async def _on_sensor_context(layer_context):
-            coordinator = coordinator_ref["instance"]
-            if coordinator is not None:
-                await coordinator.on_sensor_context(layer_context)
-
-        sensor_layer = SensorLayer(message_bus=_message_bus, on_context=_on_sensor_context)
-        router_layer = RouterLayer()
-        task_layer = TaskLayer(task_database=task_database)
-        action_layer = ActionLayer(chat_agent=_chat_agent, message_bus=_message_bus)
-        worker_layer = WorkerLayer(action_layer=action_layer)
-
-        _coordinator = FiveLayerCoordinator(
-            sensor_layer=sensor_layer,
-            router_layer=router_layer,
-            task_layer=task_layer,
-            worker_layer=worker_layer,
+        # Runtime modules
+        sensor_hub = SensorHub(message_bus=_message_bus)
+        fact_store = FactStore()
+        action_executor = ActionExecutor(chat_agent=_chat_agent, message_bus=_message_bus)
+        agent_registry = AgentRegistry()
+        agent_registry.register_runner(ChatAgentRunner(CHAT_AGENT_ID))
+        agent_registry.register_runner(MemoryDigestAgentRunner(MEMORY_DIGEST_AGENT_ID))
+        agent_registry.register_runner(DailyReportAgentRunner(DAILY_REPORT_AGENT_ID))
+        router_agent = RouterAgent(
+            sensor_hub=sensor_hub,
+            agent_registry=agent_registry,
+            fact_store=fact_store,
+            batch_size=max(8, config.agent.num_task_agents * 4),
+            poll_timeout_seconds=0.2,
         )
-        coordinator_ref["instance"] = _coordinator
+        _runtime_orchestrator = RuntimeOrchestrator(
+            sensor_hub=sensor_hub,
+            router_agent=router_agent,
+            agent_registry=agent_registry,
+            fact_store=fact_store,
+            action_executor=action_executor,
+        )
 
-        await _coordinator.start()
+        # Keep task database initialized for compatibility/observability.
+        await task_database._init_db()
+        await _runtime_orchestrator.start()
 
         from ..api.routers.messages import set_message_bus
 
@@ -192,21 +207,21 @@ async def initialize_chat_agent():
             init_skills_module(llm_adapter)
             logger.info("Skills module initialized")
 
-        logger.info("Five-layer runtime initialized successfully")
+        logger.info("Runtime orchestrator initialized successfully")
 
     except Exception as exc:
-        logger.error(f"Failed to initialize five-layer runtime: {exc}", exc_info=True)
+        logger.error(f"Failed to initialize runtime orchestrator: {exc}", exc_info=True)
         raise
 
 
 async def shutdown_chat_agent():
-    """Shutdown five-layer runtime."""
-    global _chat_agent, _memory_integration, _message_bus, _coordinator
+    """Shutdown runtime orchestrator."""
+    global _chat_agent, _memory_integration, _message_bus, _runtime_orchestrator
 
     try:
-        if _coordinator is not None:
-            await _coordinator.stop()
-            _coordinator = None
+        if _runtime_orchestrator is not None:
+            await _runtime_orchestrator.stop()
+            _runtime_orchestrator = None
 
         if _memory_integration is not None:
             await _memory_integration.stop()
@@ -217,6 +232,6 @@ async def shutdown_chat_agent():
             _message_bus = None
 
         _chat_agent = None
-        logger.info("Five-layer runtime stopped")
+        logger.info("Runtime orchestrator stopped")
     except Exception as exc:
-        logger.error(f"Failed to stop five-layer runtime: {exc}", exc_info=True)
+        logger.error(f"Failed to stop runtime orchestrator: {exc}", exc_info=True)

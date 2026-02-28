@@ -1,4 +1,4 @@
-"""Five-layer architecture modules."""
+"""Deprecated compatibility exports for core.layers module."""
 
 from .contracts import LayerContext, LayerResult, RouteDecision, TaskEnvelope
 from .types import LayerTaskType, StubCapability
@@ -8,6 +8,7 @@ from .task_layer import TaskLayer
 from .action_layer import ActionLayer
 from .worker_layer import WorkerLayer
 from .coordinator import FiveLayerCoordinator
+from ..runtime import RuntimeOrchestrator
 
 __all__ = [
     "LayerContext",
@@ -22,4 +23,5 @@ __all__ = [
     "ActionLayer",
     "WorkerLayer",
     "FiveLayerCoordinator",
+    "RuntimeOrchestrator",
 ]
