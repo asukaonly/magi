@@ -6,7 +6,7 @@ createandConfigurationFastAPI应用Instance
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
-import logging
+from fastapi.staticfiles import StaticFiles
 import json
 import os
 from pathlib import Path
@@ -15,9 +15,9 @@ from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, 
 from .responses import SuccessResponse
 from .websocket import manager, broadcast_agent_update, broadcast_task_update, broadcast_metrics_update, broadcast_log
 from ..agent import initialize_chat_agent, shutdown_chat_agent
-from ..core.logger import configure_logging
+from ..core.logger import configure_logging, get_logger, Loggers
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, category="API")
 
 # load .env file
 try:
@@ -201,12 +201,198 @@ def create_app() -> FastAPI:
                     await websocket.send_json({"type": "pong"})
                     logger.debug(f"Ping from {sid}")
 
+                elif data.get("type") == "get_personality":
+                    # 获取人格信息（名字、头像、问候语）
+                    try:
+                        from .routers.personality_config import get_current_personality
+                        from ..memory.personality_loader import PersonalityLoader
+                        from ..utils.runtime import get_runtime_paths
+                        import random
+
+                        current_name = get_current_personality()
+                        runtime_paths = get_runtime_paths()
+                        loader = PersonalityLoader(str(runtime_paths.personalities_dir))
+                        config = loader.load(current_name)
+                        greetings = config.cached_phrases.on_wake or config.cached_phrases.on_init
+                        greeting = random.choice(greetings) if greetings else f"Hello, I am {config.name}."
+
+                        # 处理 avatar URL
+                        # 如果是文件名，转换成相对路径；emoji 或完整 URL 原样返回
+                        avatar = config.avatar or ""
+                        if avatar and not avatar.startswith(("http://", "https://", "/", "data:")):
+                            # 检查是否是 emoji（Unicode 字符）
+                            if len(avatar) <= 4 and any(ord(c) > 127 for c in avatar):
+                                # 可能是 emoji，原样返回
+                                pass
+                            else:
+                                # 是文件名，转换成相对路径，前端会拼接完整 URL
+                                avatar = f"/static/avatars/{avatar}"
+
+                        await websocket.send_json({
+                            "type": "personality_info",
+                            "data": {
+                                "name": config.name,
+                                "avatar": avatar,
+                                "greeting": greeting,
+                            },
+                        })
+                        logger.info(f"Sent personality info to {sid}: {config.name}")
+                    except Exception as e:
+                        logger.error(f"Failed to get personality info: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Failed to get personality info: {str(e)}",
+                        })
+
+                elif data.get("type") == "send_message":
+                    # 通过 WebSocket 发送用户消息
+                    try:
+                        from ..agent import get_chat_agent
+                        from ..events.events import Event, EventTypes
+                        import time
+
+                        user_id = data.get("user_id", "web_user")
+                        session_id = data.get("session_id")
+                        message = data.get("message", "")
+
+                        if not message:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "Message is required",
+                            })
+                            continue
+
+                        chat_agent = get_chat_agent()
+                        resolved_session = session_id or chat_agent.get_current_session_id(user_id)
+
+                        # 构建消息数据
+                        message_data = {
+                            "message": message,
+                            "user_id": user_id,
+                            "session_id": resolved_session,
+                            "timestamp": time.time(),
+                        }
+
+                        # 发送到消息总线
+                        from .routers.messages import get_message_bus
+                        message_bus = get_message_bus()
+                        if message_bus:
+                            event = Event(
+                                type=EventTypes.USER_MESSAGE,
+                                data=message_data,
+                                source="websocket",
+                            )
+                            await message_bus.publish(event)
+                            logger.info(f"Message queued via WS | User: {user_id} | Session: {resolved_session}")
+
+                        await websocket.send_json({
+                            "type": "message_sent",
+                            "data": {
+                                "user_id": user_id,
+                                "session_id": resolved_session,
+                                "timestamp": time.time(),
+                            },
+                        })
+                    except Exception as e:
+                        logger.error(f"Failed to send message via WS: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Failed to send message: {str(e)}",
+                        })
+
+                elif data.get("type") == "get_current_session":
+                    # 获取当前会话 ID
+                    try:
+                        from ..agent import get_chat_agent
+
+                        user_id = data.get("user_id", "web_user")
+                        chat_agent = get_chat_agent()
+                        session_id = chat_agent.get_current_session_id(user_id)
+
+                        await websocket.send_json({
+                            "type": "current_session",
+                            "data": {
+                                "user_id": user_id,
+                                "session_id": session_id,
+                            },
+                        })
+                    except RuntimeError:
+                        # Agent 未初始化
+                        await websocket.send_json({
+                            "type": "current_session",
+                            "data": {
+                                "user_id": data.get("user_id", "web_user"),
+                                "session_id": None,
+                            },
+                        })
+                    except Exception as e:
+                        logger.error(f"Failed to get current session: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Failed to get current session: {str(e)}",
+                        })
+
+                elif data.get("type") == "get_history":
+                    # 获取历史记录
+                    try:
+                        from ..agent import get_chat_agent
+
+                        user_id = data.get("user_id", "web_user")
+                        session_id = data.get("session_id")
+
+                        chat_agent = get_chat_agent()
+                        resolved_session = session_id or chat_agent.get_current_session_id(user_id)
+                        history = chat_agent.get_conversation_history(user_id, resolved_session)
+
+                        # 转换为前端期望的格式
+                        import time
+                        messages = []
+                        for msg in history:
+                            messages.append({
+                                "role": msg["role"],
+                                "content": msg["content"],
+                                "timestamp": int(time.time()),
+                            })
+
+                        await websocket.send_json({
+                            "type": "history",
+                            "data": {
+                                "user_id": user_id,
+                                "session_id": resolved_session,
+                                "messages": messages,
+                                "count": len(messages),
+                            },
+                        })
+                    except RuntimeError:
+                        # Agent 未初始化
+                        await websocket.send_json({
+                            "type": "history",
+                            "data": {
+                                "user_id": data.get("user_id", "web_user"),
+                                "session_id": data.get("session_id"),
+                                "messages": [],
+                                "count": 0,
+                            },
+                        })
+                    except Exception as e:
+                        logger.error(f"Failed to get history: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Failed to get history: {str(e)}",
+                        })
+
         except WebSocketDisconnect:
             logger.info(f"WebSocket {sid} disconnected (WebSocketDisconnect)")
             manager.disconnect(sid)
         except Exception as e:
             logger.error(f"WebSocket error for {sid}: {e}")
             manager.disconnect(sid)
+
+    # 挂载静态文件目录（头像）
+    avatar_dir = Path(__file__).resolve().parents[3] / "personalities" / "avatar"
+    if avatar_dir.exists():
+        app.mount("/static/avatars", StaticFiles(directory=str(avatar_dir)), name="avatars")
+        logger.info(f"Avatar static files mounted: {avatar_dir}")
 
     return app
 
@@ -285,13 +471,13 @@ def _register_routes(app: FastAPI):
     app.include_router(
         personality_config_router,
         prefix="/api/personality",
-        tags=["Personality"],
+        tags=["Personality Config"],
     )
 
     app.include_router(
         personality_presets_router,
         prefix="/api/personalities",
-        tags=["Personalities"],
+        tags=["Personality Presets"],
     )
 
     # register他人memoryroute

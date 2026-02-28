@@ -103,7 +103,12 @@ def _resolve_avatar_file(filename: str) -> Optional[Path]:
     return None
 
 
-@personality_presets_router.get("/", response_model=PersonalitiesResponse)
+@personality_presets_router.get(
+    "/",
+    response_model=PersonalitiesResponse,
+    summary="List personality presets",
+    description="Return preset personalities under the selected language directory, sorted by preset order.",
+)
 async def list_personality_presets(lang: Optional[str] = Query(default="zh")):
     lang_dir = _resolve_language_dir(lang)
     presets: List[PersonalityPresetItem] = []
@@ -114,7 +119,12 @@ async def list_personality_presets(lang: Optional[str] = Query(default="zh")):
     return PersonalitiesResponse(data=presets)
 
 
-@personality_presets_router.get("/{preset_id}", response_model=PersonalityPresetDetailResponse)
+@personality_presets_router.get(
+    "/{preset_id}",
+    response_model=PersonalityPresetDetailResponse,
+    summary="Get personality preset detail",
+    description="Return full JSON configuration for a specific built-in preset.",
+)
 async def get_personality_preset(
     preset_id: str,
     lang: Optional[str] = Query(default="zh"),
@@ -132,7 +142,11 @@ async def get_personality_preset(
         raise HTTPException(status_code=500, detail=f"Failed to parse personality preset '{preset_id}'")
 
 
-@personality_presets_router.get("/avatar/{filename}")
+@personality_presets_router.get(
+    "/avatar/{filename}",
+    summary="Get preset avatar file",
+    description="Resolve and serve a personality avatar image from user or built-in avatar directories.",
+)
 async def get_personality_avatar(filename: str):
     avatar_file = _resolve_avatar_file(filename)
     if not avatar_file:
@@ -141,7 +155,11 @@ async def get_personality_avatar(filename: str):
     return FileResponse(avatar_file, media_type=media_type, filename=avatar_file.name)
 
 
-@personality_presets_router.post("/avatar/upload")
+@personality_presets_router.post(
+    "/avatar/upload",
+    summary="Upload custom avatar",
+    description="Upload a custom avatar image into the user personality avatar directory.",
+)
 async def upload_personality_avatar(file: UploadFile = File(...)):
     allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp"}
     suffix = Path(file.filename or "").suffix.lower()

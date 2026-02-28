@@ -23,6 +23,7 @@ This document defines mandatory implementation and delivery rules for coding age
 - Don't diverge from OpenSpec without documenting why and impact.
 - Don't skip validation for core logic changes.
 - Don't enforce English-only for UI copy unless explicitly required.
+- Never add any compatibility code paths; this project is in active development mode.
 
 ---
 

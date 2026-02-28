@@ -7,7 +7,6 @@ Provides personality read/update and AI generation features.
 from __future__ import annotations
 
 import json
-import logging
 import random
 import re
 from pathlib import Path
@@ -19,8 +18,9 @@ from pydantic import BaseModel, Field
 from ...llm import create_llm_adapter
 from ...memory.personality_loader import PersonalityLoader
 from ...utils.runtime import get_runtime_paths
+from ...core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 personality_config_router = APIRouter()
 
 
@@ -377,7 +377,12 @@ def set_current_personality(name: str) -> bool:
 
 # ============ API Endpoints ============
 
-@personality_config_router.get("/current", response_model=PersonalityResponse)
+@personality_config_router.get(
+    "/current",
+    response_model=PersonalityResponse,
+    summary="Get current personality",
+    description="Return the current active personality name used by the runtime.",
+)
 async def api_get_current_personality():
     try:
         return PersonalityResponse(
@@ -389,7 +394,12 @@ async def api_get_current_personality():
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_config_router.put("/current", response_model=PersonalityResponse)
+@personality_config_router.put(
+    "/current",
+    response_model=PersonalityResponse,
+    summary="Set current personality",
+    description="Switch the current active personality and reload agent memory if available.",
+)
 async def api_set_current_personality(request: Dict[str, str]):
     try:
         name = request.get("name")
@@ -424,7 +434,12 @@ async def api_set_current_personality(request: Dict[str, str]):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_config_router.get("/greeting", response_model=PersonalityResponse)
+@personality_config_router.get(
+    "/greeting",
+    response_model=PersonalityResponse,
+    summary="Get personality greeting",
+    description="Return a random greeting phrase from the current personality.",
+)
 async def api_get_greeting():
     try:
         current_name = get_current_personality()
@@ -460,7 +475,12 @@ def _load_builtin_personality(name: str, lang: str = "zh") -> Optional[Dict[str,
         return None
 
 
-@personality_config_router.get("/{name}", response_model=PersonalityResponse)
+@personality_config_router.get(
+    "/{name}",
+    response_model=PersonalityResponse,
+    summary="Get personality config",
+    description="Load one personality configuration by name from built-in presets or runtime storage.",
+)
 async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
     try:
         # If lang parameter is provided, try loading from built-in presets first
@@ -492,7 +512,12 @@ async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_config_router.put("/{name}", response_model=PersonalityResponse)
+@personality_config_router.put(
+    "/{name}",
+    response_model=PersonalityResponse,
+    summary="Save personality config",
+    description="Create or update a personality configuration and handle optional rename logic.",
+)
 async def update_personality(name: str, config: PersonalityConfigModel, use_ai_name: bool = False):
     runtime_paths = get_runtime_paths()
     target_name = sanitize_filename(config.persona_entity.basic_profile.name)
@@ -528,7 +553,12 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_config_router.post("/generate", response_model=PersonalityResponse)
+@personality_config_router.post(
+    "/generate",
+    response_model=PersonalityResponse,
+    summary="Generate personality with AI",
+    description="Generate a structured personality configuration from free-text description via LLM.",
+)
 async def generate_personality(request: AIGenerateRequest):
     try:
         config = await ai_generate_personality(request.description, request.target_language)
@@ -554,7 +584,12 @@ def _get_builtin_personalities_dir(lang: str = "zh") -> Optional[Path]:
     return None
 
 
-@personality_config_router.get("/", response_model=PersonalityResponse)
+@personality_config_router.get(
+    "/",
+    response_model=PersonalityResponse,
+    summary="List personalities",
+    description="List available personality names from runtime storage or built-in presets by language.",
+)
 async def list_personalities(lang: str = ""):
     try:
         personalities: List[str] = []
@@ -585,7 +620,12 @@ async def list_personalities(lang: str = ""):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_config_router.delete("/{name}", response_model=PersonalityResponse)
+@personality_config_router.delete(
+    "/{name}",
+    response_model=PersonalityResponse,
+    summary="Delete personality",
+    description="Delete one personality configuration from runtime storage.",
+)
 async def delete_personality(name: str):
     try:
         if name == DEFAULT_PERSONALITY:
@@ -606,7 +646,12 @@ async def delete_personality(name: str):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_config_router.get("/compare/{from_name}/{to_name}", response_model=PersonalityCompareResponse)
+@personality_config_router.get(
+    "/compare/{from_name}/{to_name}",
+    response_model=PersonalityCompareResponse,
+    summary="Compare personalities",
+    description="Compare two personality configurations and return field-level differences.",
+)
 async def compare_personalities(from_name: str, to_name: str):
     try:
         loader = get_personality_loader()

@@ -5,7 +5,6 @@ processes user messages, generates responses via LLM, pushes via WebSocket
 Follows proper Agent architecture: Sense-Plan-Act-Reflect
 """
 import time
-import logging
 import re
 import json
 import uuid
@@ -31,8 +30,9 @@ from ..memory.growth_memory import InteractionType
 from ..memory.context_builder import Scenario
 from ..memory.models import TaskBehaviorProfile
 from ..utils.runtime import get_runtime_paths
+from ..core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 agent_logger = get_agent_logger('chat')
 llm_logger = get_llm_logger('chat')
 TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"

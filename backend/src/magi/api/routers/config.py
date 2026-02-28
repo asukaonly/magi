@@ -6,14 +6,14 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import logging
 import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...config.loader import get_config, get_config_file_path, save_config
+from ...core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 config_router = APIRouter()
 
 

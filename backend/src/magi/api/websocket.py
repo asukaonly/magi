@@ -7,9 +7,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from typing import Dict, Set
 import json
-import logging
 
-logger = logging.getLogger(__name__)
+from ..core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # connection管理器（support房间）
@@ -31,7 +32,7 @@ class ConnectionManager:
         await websocket.accept()
         self.active_connections[sid] = websocket
         self.connection_rooms[sid] = set()
-        logger.info(f"WebSocket connected: {sid}. Total: {len(self.active_connections)}")
+        logger.info("WebSocket connected", sid=sid, total=len(self.active_connections))
 
     def disconnect(self, sid: str):
         """disconnectWebSocketconnection"""
@@ -43,7 +44,7 @@ class ConnectionManager:
 
             del self.active_connections[sid]
             del self.connection_rooms[sid]
-            logger.info(f"WebSocket disconnected: {sid}. Total: {len(self.active_connections)}")
+            logger.info("WebSocket disconnected", sid=sid, total=len(self.active_connections))
 
     async def send_to_connection(self, sid: str, message: dict):
         """sendmessage到指定connection"""
@@ -51,7 +52,7 @@ class ConnectionManager:
             try:
                 await self.active_connections[sid].send_json(message)
             except Exception as e:
-                logger.error(f"Failed to send to {sid}: {e}")
+                logger.error("Failed to send", sid=sid, error=str(e))
                 self.disconnect(sid)
 
     async def broadcast(self, event: str, data: dict, room: str = None):
@@ -88,7 +89,7 @@ class ConnectionManager:
 
         self.rooms[room].add(sid)
         self.connection_rooms[sid].add(room)
-        logger.info(f"Connection {sid} joined room {room}")
+        logger.info("Client joined room", sid=sid, room=room)
 
     def leave_room(self, sid: str, room: str):
         """离开房间"""
@@ -100,7 +101,7 @@ class ConnectionManager:
         if sid in self.connection_rooms:
             self.connection_rooms[sid].discard(room)
 
-        logger.info(f"Connection {sid} left room {room}")
+        logger.info("Client left room", sid=sid, room=room)
 
     def get_client_count(self) -> int:
         """getconnection的clientquantity"""

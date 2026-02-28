@@ -12,12 +12,13 @@ from fastapi import APIRouter, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-import logging
 import asyncio
 from pathlib import Path
 import time
 
-logger = logging.getLogger(__name__)
+from ...core.logger import get_logger
+
+logger = get_logger(__name__)
 
 memory_router = APIRouter()
 

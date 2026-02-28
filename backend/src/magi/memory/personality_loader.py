@@ -20,9 +20,10 @@ class BasicProfile:
     name: str = "AI Assistant"
     age: str = "Unknown"
     gender: str = "Unknown"
+    description: str = ""
+    avatar: str = ""
     occupation: str = "Assistant"
     core_background: str = ""
-    avatar: str = ""
 
 
 @dataclass

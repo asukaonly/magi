@@ -4,10 +4,11 @@ Runtime data directory management.
 Put all runtime-generated data in ~/.magi directory, separate from code.
 """
 import json
+import logging
 from pathlib import Path
 from typing import Optional
-import logging
 
+# Use standard logging to avoid circular imports
 logger = logging.getLogger(__name__)
 
 
