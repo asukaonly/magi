@@ -296,4 +296,46 @@ class WeatherTool(MultiProviderTool):
             }
         )
 
+        if not result.success and provider_name == "qweather":
+            lower_error = (result.error or "").lower()
+            base_url_error_markers = (
+                "invalid-host",
+                "invalid_host",
+                "invaild-host",
+                "unauthorized api host",
+                "invalid or unauthorized api host",
+                "requires a configured base url",
+            )
+            if any(marker in lower_error for marker in base_url_error_markers):
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "QWeather base URL is not configured correctly. "
+                        "Use system-settings to set "
+                        "'tool.weather.providers.qweather.base_url', then retry."
+                    ),
+                    error_code="QWEATHER_BASE_URL_REQUIRED",
+                    data={
+                        "next_action": "configure_qweather_base_url",
+                        "llm_guidance": (
+                            "Call system-settings with action=set to configure "
+                            "'tool.weather.providers.qweather.base_url', then retry weather query."
+                        ),
+                        "config_tool": "system-settings",
+                        "config_path": "tool.weather.providers.qweather.base_url",
+                        "config_example": {
+                            "action": "set",
+                            "path": "tool.weather.providers.qweather.base_url",
+                            "value": "<base-url-from-qweather-console>",
+                        },
+                        "reference_url": "https://console.qweather.com/setting",
+                        "retry_example": {
+                            "location": location,
+                            "lang": lang,
+                            "mode": mode,
+                            "days": days,
+                        },
+                    },
+                )
+
         return result
