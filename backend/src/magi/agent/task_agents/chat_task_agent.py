@@ -304,17 +304,22 @@ class ChatTaskAgent(TaskAgent):
             disable_thinking=disable_thinking,
         )
 
-    def _record_tool_interaction(self, payload: dict[str, Any]) -> None:
+    async def _record_tool_interaction(self, payload: dict[str, Any]) -> None:
         user_id = str(payload.get("user_id") or self.agent_id)
         session_id = self._resolve_session_id(user_id, payload.get("session_id"))
         history_key = self._history_key(user_id, session_id)
         records = self._tool_interactions.setdefault(history_key, [])
+        tool_name = str(payload.get("tool_name") or "unknown")
+        arguments = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {}
+        execution_time = float(payload.get("execution_time") or 0.0)
+        success = bool(payload.get("success"))
+        error_text = str(payload.get("error") or "") or None
         records.append(
             {
                 "timestamp": time.time(),
                 "intent": payload.get("intent") or "unknown",
-                "tool_name": str(payload.get("tool_name") or "unknown"),
-                "status": "success" if payload.get("success") else "error",
+                "tool_name": tool_name,
+                "status": "success" if success else "error",
                 "error_code": str(payload.get("error_code") or ""),
                 "error_message": str(payload.get("error") or ""),
                 "result_summary": str(payload.get("data") or ""),
@@ -322,6 +327,28 @@ class ChatTaskAgent(TaskAgent):
         )
         if len(records) > 100:
             self._tool_interactions[history_key] = records[-100:]
+
+        if self._action_executor is None:
+            return
+
+        await self._action_executor.emit_action_event(
+            fact=FactRecord(
+                agent_id=self.agent_id,
+                event_type=TOOL_INTERACTION_EVENT_TYPE,
+                payload={
+                    "action_type": tool_name,
+                    "tool_name": tool_name,
+                    "params": arguments,
+                    "arguments": arguments,
+                    "execution_time": execution_time,
+                    "user_id": user_id,
+                    "session_id": session_id,
+                },
+                correlation_id=str(payload.get("tool_call_id") or str(uuid.uuid4())),
+            ),
+            success=success,
+            error=error_text,
+        )
 
     def _history_key(self, user_id: str, session_id: str) -> str:
         return f"{user_id}::{session_id}"

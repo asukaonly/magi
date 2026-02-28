@@ -37,12 +37,36 @@ class ActionExecutor:
 
     async def emit_action_event(self, fact: FactRecord, success: bool, error: str | None = None) -> None:
         try:
+            payload = fact.payload if isinstance(fact.payload, dict) else {}
+            action_type = payload.get("action_type")
+            if not action_type:
+                action_type = payload.get("tool_name")
+            if not action_type and fact.event_type == EventTypes.USER_MESSAGE:
+                action_type = "ChatResponseAction"
+            if not action_type:
+                action_type = str(fact.event_type or "UnknownAction")
+
+            params = payload.get("params")
+            if params is None:
+                params = payload.get("arguments")
+            if params is None:
+                params = {}
+
+            execution_time = payload.get("execution_time")
+            if execution_time is None:
+                execution_time = payload.get("execution_time_ms", 0.0)
+
             await self._message_bus.publish(
                 Event(
                     type=EventTypes.ACTION_EXECUTED,
                     data={
                         "agent_id": fact.agent_id,
                         "event_type": fact.event_type,
+                        "action_type": str(action_type),
+                        "params": params if isinstance(params, dict) else {},
+                        "execution_time": float(execution_time or 0.0),
+                        "user_id": payload.get("user_id"),
+                        "session_id": payload.get("session_id"),
                         "success": success,
                         "error": error,
                     },
