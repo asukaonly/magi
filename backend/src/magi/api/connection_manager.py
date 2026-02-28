@@ -115,6 +115,17 @@ class ConnectionManager:
         """Get all rooms that a connection has joined."""
         return self.connection_rooms.get(sid, set())
 
+    async def broadcast_to_user(self, user_id: str, message: dict):
+        """
+        Broadcast a message to all connections in a user's room.
+
+        Args:
+            user_id: User ID to broadcast to
+            message: Message dict to send
+        """
+        room = f"user_{user_id}"
+        await self.broadcast("user_message", message, room=room)
+
 
 # Global connection manager
 manager = ConnectionManager()

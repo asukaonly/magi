@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from ..config import get_config, AppConfig
+from ..core.container import get_container
+from dependency_injector import providers
 from ..core.task_database import TaskDatabase
 from ..core.runtime import (
     ActionExecutor,
@@ -62,6 +64,17 @@ def get_master_agent():
 
 def get_memory_integration() -> MemoryIntegrationModule:
     """Get memory integration module."""
+    # Try container first
+    try:
+        container = get_container()
+        instance = container.memory_integration()
+        if instance is not None and not isinstance(instance, object) or (
+            isinstance(instance, object) and type(instance).__name__ != "object"
+        ):
+            return instance
+    except Exception:
+        pass
+    # Fallback to global
     if _memory_integration is None:
         raise RuntimeError("MemoryIntegrationModule not initialized. Call initialize_chat_agent() first.")
     return _memory_integration
@@ -74,6 +87,17 @@ def get_unified_memory() -> UnifiedMemoryStore:
 
 def get_agent_runtime() -> AgentRuntime:
     """Get agent runtime."""
+    # Try container first
+    try:
+        container = get_container()
+        instance = container.agent_runtime()
+        if instance is not None and not isinstance(instance, object) or (
+            isinstance(instance, object) and type(instance).__name__ != "object"
+        ):
+            return instance
+    except Exception:
+        pass
+    # Fallback to global
     if _agent_runtime is None:
         raise RuntimeError("AgentRuntime not initialized. Call initialize_chat_agent() first.")
     return _agent_runtime
@@ -198,6 +222,14 @@ async def initialize_chat_agent():
 
         await task_database._init_db()
         await _agent_runtime.start()
+
+        # Register services in the DI container
+        container = get_container()
+        container.message_bus.override(providers.Object(_message_bus))
+        container.agent_runtime.override(providers.Object(_agent_runtime))
+        container.memory_integration.override(providers.Object(_memory_integration))
+        container.unified_memory.override(providers.Object(unified_memory))
+        logger.info("DI container providers registered")
 
         if _bindings.set_message_bus is not None:
             _bindings.set_message_bus(_message_bus)

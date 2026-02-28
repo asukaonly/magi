@@ -32,6 +32,9 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "python-multipart>=0.0.6",
 
+    # 依赖注入
+    "dependency-injector>=4.41.0",
+
     # 异步支持
     "asyncio>=3.4.3",
 

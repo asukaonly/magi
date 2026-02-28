@@ -4,18 +4,21 @@ messageAPIroute
 提供User messagesend、dialoguehistory等function
 使用正确的Agentarchitecture：message → MessageBus → Perception器subscribe → PerceptionManager → LoopEngine → Agentprocess → WebSocketpush
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
 import asyncio
 
-from ..websocket import manager as ws_manager
+from dependency_injector.wiring import inject, Provide
+
+from ..connection_manager import manager as ws_manager
 from ...awareness.sensors import UserMessageSensor
 from ..services import get_chat_read_service
 from ...utils.agent_logger import get_agent_logger
 from ...events.events import Event, EventTypes, EventLevel
 from ...core.logger import get_logger
+from ...core.container import Container
 
 logger = get_logger(__name__)
 agent_logger = get_agent_logger('api')
@@ -51,7 +54,18 @@ def set_message_bus(message_bus):
 
 
 def get_message_bus():
-    """getmessage busInstance"""
+    """getmessage busInstance - checks DI container first, falls back to global."""
+    # Try container first
+    try:
+        from ...core.container import get_container
+        container = get_container()
+        instance = container.message_bus()
+        # Check if it's a real instance (not the placeholder object)
+        if instance is not None and type(instance).__name__ != "object":
+            return instance
+    except Exception:
+        pass
+    # Fallback to global
     return _message_bus
 
 
@@ -64,6 +78,16 @@ _user_message_sensor: Optional[UserMessageSensor] = None
 def get_user_message_sensor() -> UserMessageSensor:
     """get或createUser message传感器Instance"""
     global _user_message_sensor
+    # Try container first
+    try:
+        from ...core.container import get_container
+        container = get_container()
+        instance = container.user_message_sensor()
+        if instance is not None and type(instance).__name__ != "object":
+            return instance
+    except Exception:
+        pass
+    # Fallback to creating one
     if _user_message_sensor is None:
         _user_message_sensor = UserMessageSensor()
         logger.info("UserMessageSensor created")
@@ -80,7 +104,11 @@ _conversation_history = {}  # {user_id: [messages]}
 
 
 @user_messages_router.post("/send", response_model=MessageResponse)
-async def send_user_message(request: UserMessageRequest):
+@inject
+async def send_user_message(
+    request: UserMessageRequest,
+    message_bus = Depends(Provide[Container.message_bus]),
+):
     """
     sendUser message到message bus
 
@@ -88,6 +116,7 @@ async def send_user_message(request: UserMessageRequest):
 
     Args:
         request: User messagerequest
+        message_bus: Injected message bus (via DI container)
 
     Returns:
         确认response
@@ -117,7 +146,9 @@ async def send_user_message(request: UserMessageRequest):
                 }
             )
 
-        message_bus = get_message_bus()
+        # Fallback to global if injection didn't provide a valid instance
+        if message_bus is None or type(message_bus).__name__ == "object":
+            message_bus = get_message_bus()
 
         # parsesessionid（未指scheduled使用currentsession）
         read_service = get_chat_read_service()

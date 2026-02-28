@@ -5,7 +5,8 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from .api.app import create_app as create_api_app
-from .api.websocket import manager
+from .api.connection_manager import manager
+from .core.container import wire_container
 from .core.logger import get_logger
 from .events.events import Event, EventTypes
 from .runtime import (
@@ -37,6 +38,10 @@ def create_backend_app() -> FastAPI:
 
     This is the outermost entrypoint for backend startup.
     """
+    # Wire DI container to modules
+    wire_container()
+    logger.info("DI container wired")
+
     app = create_api_app()
     configure_runtime_bindings(_build_runtime_bindings())
 

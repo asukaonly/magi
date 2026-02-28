@@ -7,7 +7,7 @@ import json
 import sqlite3
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from ...core.logger import get_logger
 from ...utils.runtime import get_runtime_paths
@@ -138,11 +138,22 @@ class ChatReadService:
             logger.warning(f"Failed to save session mapping: {exc}")
 
 
-_chat_read_service: ChatReadService | None = None
+_chat_read_service: Optional[ChatReadService] = None
 
 
 def get_chat_read_service() -> ChatReadService:
+    """Get ChatReadService instance - checks DI container first, falls back to global."""
     global _chat_read_service
+    # Try container first
+    try:
+        from ...core.container import get_container
+        container = get_container()
+        instance = container.chat_read_service()
+        if instance is not None and type(instance).__name__ != "function":
+            return instance
+    except Exception:
+        pass
+    # Fallback to global
     if _chat_read_service is None:
         _chat_read_service = ChatReadService()
     return _chat_read_service
