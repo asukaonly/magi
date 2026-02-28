@@ -7,6 +7,7 @@ import aiohttp
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 import logging
+import json
 
 from ..base import Provider, ProviderConfig
 
@@ -59,6 +60,55 @@ class QWeatherProvider(Provider):
         if self._is_jwt_token(credential):
             return {"Authorization": f"Bearer {credential}"}, "jwt"
         return {"X-QW-Api-Key": credential}, "api_key"
+
+    def _format_api_error(
+        self,
+        api_name: str,
+        status: int,
+        url: str,
+        params: Dict[str, Any],
+        error_text: str,
+    ) -> str:
+        """
+        Format provider error message with user-facing hint when host is invalid.
+
+        QWeather may return host-related errors in different formats. When detected,
+        return a clear remediation message instead of a raw API payload dump.
+        """
+        raw_text = (error_text or "").strip()
+        lowered_fragments = [raw_text.lower()]
+
+        try:
+            payload = json.loads(raw_text)
+        except Exception:
+            payload = None
+
+        if isinstance(payload, dict):
+            error_obj = payload.get("error")
+            if isinstance(error_obj, dict):
+                for key in ("type", "title", "detail"):
+                    value = error_obj.get(key)
+                    if isinstance(value, str):
+                        lowered_fragments.append(value.lower())
+
+        combined = " ".join(lowered_fragments)
+        host_error_markers = (
+            "invalid-host",
+            "invalid_host",
+            "invaild-host",
+            "unauthorized api host",
+            "invalid or unauthorized api host",
+        )
+        if any(marker in combined for marker in host_error_markers):
+            return (
+                "QWeather requires a configured base URL. "
+                "Please get it from https://console.qweather.com/setting."
+            )
+
+        return (
+            f"{api_name} API error: {status} | url={url} | params={params} | "
+            f"body={raw_text[:300]}"
+        )
 
     async def execute(
         self,
@@ -184,7 +234,13 @@ class QWeatherProvider(Provider):
                         error_text[:300],
                     )
                     raise Exception(
-                        f"GeoAPI error: {response.status} | url={url} | params={params} | body={error_text[:300]}"
+                        self._format_api_error(
+                            api_name="GeoAPI",
+                            status=response.status,
+                            url=url,
+                            params=params,
+                            error_text=error_text,
+                        )
                     )
 
                 data = await response.json()
@@ -231,7 +287,13 @@ class QWeatherProvider(Provider):
                         error_text[:300],
                     )
                     raise Exception(
-                        f"Weather API error: {response.status} | url={url} | params={params} | body={error_text[:300]}"
+                        self._format_api_error(
+                            api_name="Weather",
+                            status=response.status,
+                            url=url,
+                            params=params,
+                            error_text=error_text,
+                        )
                     )
 
                 data = await response.json()
@@ -294,7 +356,13 @@ class QWeatherProvider(Provider):
                         error_text[:300],
                     )
                     raise Exception(
-                        f"Forecast API error: {response.status} | url={url} | params={params} | body={error_text[:300]}"
+                        self._format_api_error(
+                            api_name="Forecast",
+                            status=response.status,
+                            url=url,
+                            params=params,
+                            error_text=error_text,
+                        )
                     )
 
                 data = await response.json()
