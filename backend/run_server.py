@@ -15,10 +15,10 @@ load_dotenv()
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 import uvicorn
-from magi.api.app import create_app
+from magi.backend_app import create_backend_app
 
 # 创建FastAPI应用
-app = create_app()
+app = create_backend_app()
 
 if __name__ == "__main__":
     print("=" * 60)
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     print("=" * 60)
 
     uvicorn.run(
-        "magi.api.app:create_app",  # 使用导入字符串以支持reload
+        "magi.backend_app:create_backend_app",  # 使用导入字符串以支持reload
         host="0.0.0.0",
         port=8000,
         reload=True,  # 开发模式，自动重载

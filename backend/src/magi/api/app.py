@@ -15,9 +15,7 @@ from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, 
 from .responses import SuccessResponse
 from .services import get_chat_read_service
 from .websocket import manager, broadcast_agent_update, broadcast_task_update, broadcast_metrics_update, broadcast_log
-from ..agent import initialize_chat_agent, shutdown_chat_agent
 from ..core.logger import configure_logging, get_logger, Loggers
-from ..events.events import Event, EventTypes
 
 logger = get_logger(__name__, category="API")
 
@@ -43,34 +41,38 @@ except ImportError:
     logger.warning("python-dotenv not installed, .env file will not be loaded automatically")
 
 
-def custom_openapi():
-    """customOpenAPI schema"""
-    if not app.openapi_schema:
-        openapi_schema = get_openapi(
-            title="Magi AI Agent Framework API",
-            version="1.0.0",
-            description="""
-            ## Magi AI Agent Framework API
+def _build_custom_openapi(app: FastAPI):
+    """Build app-scoped OpenAPI generator."""
 
-            Agent系统的RESTful API，提供Agent管理、任务管理、tool管理等function。
+    def custom_openapi():
+        if not app.openapi_schema:
+            openapi_schema = get_openapi(
+                title="Magi AI Agent Framework API",
+                version="1.0.0",
+                description="""
+                ## Magi AI Agent Framework API
 
-            ### functionfeature
-            - Agent管理（create、query、启动、stop）
-            - 任务管理（create、query、重试）
-            - tool管理（list、详情、Test）
-            - memory管理（search、详情、delete）
-            - metricmonitor（performance、State）
+                Agent系统的RESTful API，提供Agent管理、任务管理、tool管理等function。
 
-            ### authentication
-            生产环境需要JWT tokenauthentication（开发环境已Disable）
-            """,
-            routes=app.routes,
-        )
-        openapi_schema["info"]["x-logo"] = {
-            "url": "https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png"
-        }
-        app.openapi_schema = openapi_schema
-    return app.openapi_schema
+                ### functionfeature
+                - Agent管理（create、query、启动、stop）
+                - 任务管理（create、query、重试）
+                - tool管理（list、详情、Test）
+                - memory管理（search、详情、delete）
+                - metricmonitor（performance、State）
+
+                ### authentication
+                生产环境需要JWT tokenauthentication（开发环境已Disable）
+                """,
+                routes=app.routes,
+            )
+            openapi_schema["info"]["x-logo"] = {
+                "url": "https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png"
+            }
+            app.openapi_schema = openapi_schema
+        return app.openapi_schema
+
+    return custom_openapi
 
 
 def create_app() -> FastAPI:
@@ -100,7 +102,7 @@ def create_app() -> FastAPI:
     )
 
     # SettingcustomOpenAPI
-    app.openapi = custom_openapi
+    app.openapi = _build_custom_openapi(app)
 
     # addmiddle件
     add_cors_middleware(app)
@@ -110,44 +112,6 @@ def create_app() -> FastAPI:
 
     # registerroute
     _register_routes(app)
-
-    # register生命periodevent
-    @app.on_event("startup")
-    async def startup_event():
-        """应用启动时初始化 AgentRuntime"""
-        await initialize_chat_agent()
-        from .routers.messages import get_message_bus
-
-        message_bus = get_message_bus()
-        if message_bus:
-            async def _on_ai_response(event: Event):
-                data = event.data if isinstance(event.data, dict) else {}
-                user_id = str(data.get("user_id", "")).strip()
-                if not user_id:
-                    return
-                await manager.broadcast("agent_response", data, room=f"user_{user_id}")
-
-            sub_id = await message_bus.subscribe(
-                EventTypes.AI_RESPONSE,
-                _on_ai_response,
-                propagation_mode="broadcast",
-            )
-            app.state.ai_response_subscription_id = sub_id
-            logger.info(f"Subscribed AI_RESPONSE for websocket bridge | subscription_id={sub_id}")
-
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        """应用关闭时停止 AgentRuntime"""
-        from .routers.messages import get_message_bus
-
-        message_bus = get_message_bus()
-        sub_id = getattr(app.state, "ai_response_subscription_id", None)
-        if message_bus and sub_id:
-            try:
-                await message_bus.unsubscribe(sub_id)
-            except Exception as exc:
-                logger.warning(f"Failed to unsubscribe AI_RESPONSE bridge: {exc}")
-        await shutdown_chat_agent()
 
     # add健康check端点
     @app.get("/api/health", tags=["Health"])
@@ -525,7 +489,3 @@ def _register_routes(app: FastAPI):
         skills_router,
         tags=["Skills"],
     )
-
-
-# createglobal应用Instance
-app = create_app()

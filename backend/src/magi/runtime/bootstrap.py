@@ -3,6 +3,9 @@ Agent runtime bootstrap and lifecycle wiring.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
+
 from ..config import get_config, AppConfig
 from ..core.task_database import TaskDatabase
 from ..core.runtime import (
@@ -12,7 +15,7 @@ from ..core.runtime import (
     SensorHub,
     TaskAgentManager,
 )
-from .task_agents import (
+from ..agent.task_agents import (
     ChatTaskAgent,
     DailyReportTaskAgent,
     DefaultTaskAgent,
@@ -32,6 +35,24 @@ logger = get_logger(__name__)
 _memory_integration: MemoryIntegrationModule | None = None
 _message_bus: SQLiteMessageBackend | None = None
 _agent_runtime: AgentRuntime | None = None
+
+
+@dataclass
+class RuntimeBindings:
+    """External callbacks used to bridge runtime with upper layers."""
+
+    get_current_personality: Optional[Callable[[], str]] = None
+    set_message_bus: Optional[Callable[[Any], None]] = None
+    init_skills_module: Optional[Callable[[Any], None]] = None
+
+
+_bindings = RuntimeBindings()
+
+
+def configure_runtime_bindings(bindings: RuntimeBindings | None = None) -> None:
+    """Configure runtime bridge callbacks from outer app entrypoint."""
+    global _bindings
+    _bindings = bindings or RuntimeBindings()
 
 
 def get_master_agent():
@@ -98,9 +119,12 @@ async def initialize_chat_agent():
 
         task_database = TaskDatabase(db_path=str(runtime_paths.data_dir / "tasks.db"))
 
-        from ..api.routers.personality_config import get_current_personality
-
-        current_personality = get_current_personality()
+        current_personality = "default"
+        if _bindings.get_current_personality is not None:
+            try:
+                current_personality = _bindings.get_current_personality() or "default"
+            except Exception as exc:
+                logger.warning(f"Failed to get current personality from bindings: {exc}")
         logger.info(f"Current personality: {current_personality}")
 
         memory = SelfMemory(
@@ -175,14 +199,11 @@ async def initialize_chat_agent():
         await task_database._init_db()
         await _agent_runtime.start()
 
-        from ..api.routers.messages import set_message_bus
+        if _bindings.set_message_bus is not None:
+            _bindings.set_message_bus(_message_bus)
 
-        set_message_bus(_message_bus)
-
-        if config.features.enable_skills:
-            from ..api.routers.skills import init_skills_module
-
-            init_skills_module(llm_adapter)
+        if config.features.enable_skills and _bindings.init_skills_module is not None:
+            _bindings.init_skills_module(llm_adapter)
             logger.info("Skills module initialized")
 
         logger.info("Agent runtime initialized successfully")
