@@ -16,12 +16,11 @@ from ..core.runtime import (
     RouterAgent,
     SensorHub,
     TaskAgentManager,
+    TaskAgentType,
 )
 from ..agent.task_agents import (
     ChatTaskAgent,
-    DailyReportTaskAgent,
     DefaultTaskAgent,
-    MemoryDigestTaskAgent,
 )
 from ..events.sqlite_backend import SQLiteMessageBackend
 from ..memory.self_memory import SelfMemory
@@ -203,8 +202,14 @@ async def initialize_chat_agent():
                 unified_memory=unified_memory,
                 memory_integration=_memory_integration,
             ),
-            create_memory_digest_agent=lambda agent_id: MemoryDigestTaskAgent(agent_id),
-            create_daily_report_agent=lambda agent_id: DailyReportTaskAgent(agent_id),
+            create_memory_digest_agent=lambda agent_id: DefaultTaskAgent(
+                TaskAgentType.MEMORY_DIGEST,
+                agent_id,
+            ),
+            create_daily_report_agent=lambda agent_id: DefaultTaskAgent(
+                TaskAgentType.DAILY_REPORT,
+                agent_id,
+            ),
             create_default_agent=lambda agent_type, agent_id: DefaultTaskAgent(agent_type, agent_id),
         )
         router_agent = RouterAgent(
