@@ -1,5 +1,5 @@
 /**
- * 聊天组件
+ * Chat component
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { Bot, Loader2, Send, UserRound } from 'lucide-react';
@@ -24,7 +24,7 @@ const ChatBox: React.FC = () => {
   const connected = false;
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 自动滚动到底部
+  // Auto scroll to bottom
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -33,7 +33,7 @@ const ChatBox: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  // 发送消息
+  // Send message
   const handleSendMessage = async () => {
     if (!inputValue.trim()) {
       toast.warning('请输入消息内容');
@@ -52,7 +52,7 @@ const ChatBox: React.FC = () => {
     setLoading(true);
 
     try {
-      // 发送到后端
+      // Send to backend
       const response = await messagesApi.sendMessage({
         message: inputValue,
         user_id: 'web_user',
@@ -61,7 +61,7 @@ const ChatBox: React.FC = () => {
       if (response.success) {
         toast.success('消息发送成功');
 
-        // 模拟AI回复（实际应该从WebSocket接收）
+        // Simulate AI response (should receive from WebSocket in production)
         setTimeout(() => {
           const assistantMessage: ChatMessage = {
             id: (Date.now() + 1).toString(),
@@ -79,7 +79,7 @@ const ChatBox: React.FC = () => {
     }
   };
 
-  // 清空消息
+  // Clear messages
   const handleClearMessages = () => {
     setMessages([]);
     toast.info('已清空聊天记录');
@@ -95,7 +95,7 @@ const ChatBox: React.FC = () => {
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col p-0">
-      {/* 消息列表 */}
+      {/* Message list */}
       <div className="flex-1 overflow-y-auto bg-muted/30 p-4">
         {messages.map((msg) => (
             <div
@@ -145,7 +145,7 @@ const ChatBox: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 输入区域 */}
+      {/* Input area */}
       <div className="border-t bg-background p-4">
         <div className="flex w-full gap-2">
           <Textarea
@@ -155,7 +155,8 @@ const ChatBox: React.FC = () => {
             rows={2}
             onKeyDown={(e) => {
               if (e.shiftKey) return;
-              if (e.key === 'Enter') {
+              // Ignore Enter key during IME composition
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 void handleSendMessage();
               }

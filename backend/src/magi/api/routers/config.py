@@ -348,6 +348,30 @@ def _build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
     )
 
 
+def _load_full_personality() -> FullPersonalityConfigModel:
+    """Load full personality config from personality file, not from agent.yaml."""
+    from ...memory.personality_loader import PersonalityLoader
+    from ...utils.runtime import get_runtime_paths
+
+    try:
+        runtime_paths = get_runtime_paths()
+        loader = PersonalityLoader(str(runtime_paths.personalities_dir))
+
+        # Get current personality name from 'current' file or use default
+        current_file = runtime_paths.personalities_dir / "current"
+        if current_file.exists():
+            personality_name = current_file.read_text().strip()
+        else:
+            personality_name = "default"
+
+        # Load full personality from file
+        personality_obj = loader.load(personality_name)
+        return FullPersonalityConfigModel(**personality_obj.to_dict())
+    except Exception as exc:
+        logger.warning("Failed to load personality from file, using default: %s", exc)
+        return FullPersonalityConfigModel()
+
+
 def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
     runtime_config = get_config()
     raw = _read_raw_yaml()
@@ -356,7 +380,6 @@ def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
     llm_api_key = "***" if (mask_api_key and api_key) else api_key
 
     preferences_data = raw.get("preferences", {})
-    personality_data = raw.get("personality", {})
 
     return SystemConfigModel(
         agent=AgentConfigModel(
@@ -392,7 +415,7 @@ def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
             path=raw.get("log", {}).get("path"),
         ),
         preferences=UserPreferencesModel(**preferences_data),
-        personality=FullPersonalityConfigModel(**personality_data),
+        personality=_load_full_personality(),
         tools=_build_tools(raw, runtime_config),
         memory_layers=_build_memory_layers(raw, runtime_config),
     )
@@ -419,7 +442,9 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "log_level": config.log.level,
         "log.path": config.log.path,
         "preferences": config.preferences.model_dump(),
-        "personality": config.personality.model_dump(),
+        "agent.personality.name": config.personality.persona_entity.basic_profile.name if config.personality.persona_entity.basic_profile.name else "default",
+        "agent.personality.path": "~/.magi/personalities",
+        "agent.personality.enable_evolution": True,
         "memory_layers": config.memory_layers.model_dump(),
         "tools.builtIn": config.tools.builtIn.model_dump(),
         "tools.skills": config.tools.skills,
