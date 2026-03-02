@@ -8,6 +8,10 @@ from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolRe
 from ..providers.base import ProviderConfig
 from ..providers.weather import QWeatherProvider
 from ...config import get_config, save_config
+from ...core.logger import get_logger
+
+
+logger = get_logger(__name__, category="TOOLS")
 
 
 class WeatherTool(MultiProviderTool):
@@ -162,33 +166,64 @@ class WeatherTool(MultiProviderTool):
 
     async def update_config(self, path: str, value: Any, context: ToolExecutionContext) -> ToolResult:
         """Update tool-scoped config values via tool-owned validation logic."""
+        logger.info(
+            "weather config update requested",
+            path=path,
+            value_provided=value is not None,
+            value_length=len(str(value)) if value is not None else 0,
+        )
+
         if path == "default_provider":
             provider_name = str(value)
             if provider_name not in self.get_all_provider_names():
+                logger.warning(
+                    "weather config update rejected (invalid provider)",
+                    path=path,
+                    provider=provider_name,
+                )
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
                     error_code="INVALID_PROVIDER",
                 )
             if save_config({"tools.weather.default_provider": provider_name}):
+                logger.info("weather config saved", path=path, provider=provider_name)
                 return ToolResult(success=True, data={"path": path, "value": provider_name})
+            logger.error("weather config save failed", path=path, provider=provider_name)
             return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
 
         if path.startswith("providers.") and path.endswith(".api_key"):
             provider_name = path.split(".")[1]
             if provider_name not in self.get_all_provider_names():
+                logger.warning(
+                    "weather config update rejected (invalid provider)",
+                    path=path,
+                    provider=provider_name,
+                )
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
                     error_code="INVALID_PROVIDER",
                 )
             if save_config({f"tools.weather.providers.{provider_name}.api_key": str(value)}):
+                logger.info(
+                    "weather config saved",
+                    path=path,
+                    provider=provider_name,
+                    configured=bool(str(value).strip()),
+                )
                 return ToolResult(success=True, data={"provider": provider_name, "configured": True})
+            logger.error("weather config save failed", path=path, provider=provider_name)
             return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
 
         if path.startswith("providers.") and path.endswith(".base_url"):
             provider_name = path.split(".")[1]
             if provider_name not in self.get_all_provider_names():
+                logger.warning(
+                    "weather config update rejected (invalid provider)",
+                    path=path,
+                    provider=provider_name,
+                )
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
@@ -196,6 +231,16 @@ class WeatherTool(MultiProviderTool):
                 )
             normalized_host = self._normalize_api_host(value)
             if save_config({f"tools.weather.providers.{provider_name}.base_url": normalized_host}):
+                stored_host = (
+                    get_config().tools.weather.get_provider_config(provider_name).base_url
+                )
+                logger.info(
+                    "weather config saved",
+                    path=path,
+                    provider=provider_name,
+                    normalized_host=normalized_host or None,
+                    stored_host=stored_host,
+                )
                 return ToolResult(
                     success=True,
                     data={
@@ -204,8 +249,15 @@ class WeatherTool(MultiProviderTool):
                         "normalized": str(value).strip() != normalized_host,
                     },
                 )
+            logger.error(
+                "weather config save failed",
+                path=path,
+                provider=provider_name,
+                normalized_host=normalized_host or None,
+            )
             return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
 
+        logger.warning("weather config update rejected (unsupported path)", path=path)
         return ToolResult(
             success=False,
             error=f"Unsupported config path for weather: {path}",

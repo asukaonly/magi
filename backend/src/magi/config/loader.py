@@ -334,6 +334,9 @@ class ConfigLoader:
             True if saved successfully
         """
         try:
+            update_keys = sorted(updates.keys())
+            logger.info("Configuration save requested", update_paths=update_keys)
+
             # Reload current YAML data
             self._yaml_data = self._load_yaml()
 
@@ -349,11 +352,19 @@ class ConfigLoader:
             self._config = None
             self.load()
 
-            logger.info(f"Configuration saved to {self._config_file}")
+            logger.info(
+                "Configuration saved",
+                config_file=str(self._config_file),
+                update_paths=update_keys,
+            )
             return True
 
         except Exception as e:
-            logger.error(f"Failed to save config: {e}")
+            logger.error(
+                "Failed to save config",
+                error=str(e),
+                update_paths=sorted(updates.keys()),
+            )
             return False
 
     def _set_nested_yaml(self, data: Dict, path: str, value: Any):

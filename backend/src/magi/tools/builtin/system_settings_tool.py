@@ -5,6 +5,10 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
 from ...config import get_config, save_config, get_config_file_path, ENV_MAPPINGS, list_app_config_specs
+from ...core.logger import get_logger
+
+
+logger = get_logger(__name__, category="TOOLS")
 
 
 # Sensitive field patterns (can be set but not read)
@@ -378,9 +382,18 @@ class SystemSettingsTool(Tool):
             )
 
         normalized_path = self._normalize_path(path)
+        logger.info(
+            "system-settings set requested",
+            raw_path=path,
+            normalized_path=normalized_path,
+            value_provided=value is not None,
+            value_length=len(str(value)) if value is not None else 0,
+            sensitive_path=_is_sensitive_field(normalized_path),
+        )
 
         # Read-only check
         if _is_read_only_field(normalized_path):
+            logger.warning("system-settings set rejected (read-only)", path=normalized_path)
             return ToolResult(
                 success=False,
                 error=f"Field '{normalized_path}' is read-only",
@@ -389,6 +402,11 @@ class SystemSettingsTool(Tool):
 
         ok, scope, tool_name, parsed_or_error = self._parse_scope(normalized_path)
         if not ok:
+            logger.warning(
+                "system-settings set rejected (invalid path)",
+                path=normalized_path,
+                error=parsed_or_error,
+            )
             return ToolResult(success=False, error=parsed_or_error, error_code="INVALID_PATH")
 
         if scope == "app":
@@ -410,6 +428,12 @@ class SystemSettingsTool(Tool):
                 )
 
             if save_config({parsed_or_error: converted_value}):
+                logger.info(
+                    "system-settings set saved (app scope)",
+                    path=normalized_path,
+                    config_path=parsed_or_error,
+                    value_type=type(converted_value).__name__,
+                )
                 return ToolResult(
                     success=True,
                     data={
@@ -421,6 +445,11 @@ class SystemSettingsTool(Tool):
                     },
                 )
 
+            logger.error(
+                "system-settings set failed (app scope)",
+                path=normalized_path,
+                config_path=parsed_or_error,
+            )
             return ToolResult(
                 success=False,
                 error="Failed to save configuration",
@@ -430,6 +459,7 @@ class SystemSettingsTool(Tool):
         from ..registry import tool_registry
         tool = tool_registry.get_tool(tool_name)
         if not tool:
+            logger.warning("system-settings set rejected (tool not found)", path=normalized_path, tool=tool_name)
             return ToolResult(
                 success=False,
                 error=f"Tool '{tool_name}' not found",
@@ -438,12 +468,26 @@ class SystemSettingsTool(Tool):
 
         update_result = await tool.update_config(parsed_or_error, value, context)
         if not update_result.success:
+            logger.error(
+                "system-settings set failed (tool scope)",
+                path=normalized_path,
+                tool=tool_name,
+                error_code=update_result.error_code,
+                error=update_result.error,
+            )
             return ToolResult(
                 success=False,
                 error=update_result.error,
                 error_code=update_result.error_code or "UPDATE_FAILED",
                 data=update_result.data,
             )
+
+        logger.info(
+            "system-settings set saved (tool scope)",
+            path=normalized_path,
+            tool=tool_name,
+            result_keys=list(update_result.data.keys()) if isinstance(update_result.data, dict) else [],
+        )
 
         return ToolResult(
             success=True,
