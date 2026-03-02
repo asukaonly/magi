@@ -4,7 +4,7 @@ Weather Tool - Query weather using multiple providers
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 
-from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolConfigSpec
+from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolConfigSpec, ToolErrorCode
 from ..providers.base import ProviderConfig
 from ..providers.weather import QWeatherProvider
 from ...config import get_config, save_config
@@ -161,7 +161,7 @@ class WeatherTool(MultiProviderTool):
         return ToolResult(
             success=False,
             error=f"Unsupported config path for weather: {path}",
-            error_code="UNSUPPORTED_PATH",
+            error_code=ToolErrorCode.UNSUPPORTED_PATH.value,
         )
 
     async def update_config(self, path: str, value: Any, context: ToolExecutionContext) -> ToolResult:
@@ -184,13 +184,13 @@ class WeatherTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             if save_config({"tools.weather.default_provider": provider_name}):
                 logger.info("weather config saved", path=path, provider=provider_name)
                 return ToolResult(success=True, data={"path": path, "value": provider_name})
             logger.error("weather config save failed", path=path, provider=provider_name)
-            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+            return ToolResult(success=False, error="Failed to save configuration", error_code=ToolErrorCode.SAVE_FAILED.value)
 
         if path.startswith("providers.") and path.endswith(".api_key"):
             provider_name = path.split(".")[1]
@@ -203,7 +203,7 @@ class WeatherTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             if save_config({f"tools.weather.providers.{provider_name}.api_key": str(value)}):
                 logger.info(
@@ -214,7 +214,7 @@ class WeatherTool(MultiProviderTool):
                 )
                 return ToolResult(success=True, data={"provider": provider_name, "configured": True})
             logger.error("weather config save failed", path=path, provider=provider_name)
-            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+            return ToolResult(success=False, error="Failed to save configuration", error_code=ToolErrorCode.SAVE_FAILED.value)
 
         if path.startswith("providers.") and path.endswith(".base_url"):
             provider_name = path.split(".")[1]
@@ -227,7 +227,7 @@ class WeatherTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             normalized_host = self._normalize_api_host(value)
             if save_config({f"tools.weather.providers.{provider_name}.base_url": normalized_host}):
@@ -255,13 +255,13 @@ class WeatherTool(MultiProviderTool):
                 provider=provider_name,
                 normalized_host=normalized_host or None,
             )
-            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+            return ToolResult(success=False, error="Failed to save configuration", error_code=ToolErrorCode.SAVE_FAILED.value)
 
         logger.warning("weather config update rejected (unsupported path)", path=path)
         return ToolResult(
             success=False,
             error=f"Unsupported config path for weather: {path}",
-            error_code="UNSUPPORTED_PATH",
+            error_code=ToolErrorCode.UNSUPPORTED_PATH.value,
         )
 
     async def _handle_query(self, parameters: Dict[str, Any]) -> ToolResult:
@@ -272,7 +272,7 @@ class WeatherTool(MultiProviderTool):
             return ToolResult(
                 success=False,
                 error="Missing 'location' parameter. Provide a city name or coordinates.",
-                error_code="MISSING_LOCATION",
+                error_code=ToolErrorCode.MISSING_LOCATION.value,
             )
 
         lang = parameters.get("lang", "zh")
@@ -284,7 +284,7 @@ class WeatherTool(MultiProviderTool):
             return ToolResult(
                 success=False,
                 error="Invalid 'mode'. Use 'current' or 'forecast'.",
-                error_code="INVALID_MODE",
+                error_code=ToolErrorCode.INVALID_MODE.value,
             )
 
         if mode == "forecast":
@@ -294,13 +294,13 @@ class WeatherTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error="Invalid 'days'. Must be an integer between 1 and 7.",
-                    error_code="INVALID_DAYS",
+                    error_code=ToolErrorCode.INVALID_DAYS.value,
                 )
             if days < 1 or days > 7:
                 return ToolResult(
                     success=False,
                     error="Invalid 'days'. Must be between 1 and 7.",
-                    error_code="INVALID_DAYS",
+                    error_code=ToolErrorCode.INVALID_DAYS.value,
                 )
 
         # Check if any provider is available
@@ -313,7 +313,7 @@ class WeatherTool(MultiProviderTool):
                     "Ask the user to configure key path "
                     "'tool.weather.providers.qweather.api_key' via system-settings, then retry."
                 ),
-                error_code="NO_PROVIDERS_CONFIGURED",
+                error_code=ToolErrorCode.NO_PROVIDERS_CONFIGURED.value,
                 data={
                     "next_action": "ask_user_to_configure_api_key",
                     "llm_guidance": (
@@ -366,7 +366,7 @@ class WeatherTool(MultiProviderTool):
                         "Use system-settings to set "
                         "'tool.weather.providers.qweather.base_url', then retry."
                     ),
-                    error_code="QWEATHER_BASE_URL_REQUIRED",
+                    error_code=ToolErrorCode.QWEATHER_BASE_URL_REQUIRED.value,
                     data={
                         "next_action": "configure_qweather_base_url",
                         "llm_guidance": (

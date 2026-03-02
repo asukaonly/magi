@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Any, Type, TYPE_CHECKING
 from collections import defaultdict
 import logging
 
-from .schema import Tool, ToolSchema, ToolExecutionContext, ToolResult
+from .schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolErrorCode
 
 # Avoid circular import
 if TYPE_CHECKING:
@@ -322,7 +322,7 @@ class ToolRegistry:
             return ToolResult(
                 success=False,
                 error=f"Tool {tool_name} not found",
-                error_code="TOOL_NOT_FOUND"
+                error_code=ToolErrorCode.TOOL_NOT_FOUND.value
             )
 
         schema = tool.get_schema()
@@ -334,7 +334,7 @@ class ToolRegistry:
             return ToolResult(
                 success=False,
                 error=f"Tool {tool_name} requires 'dangerous_tools' permission",
-                error_code="permission_DENIED"
+                error_code=ToolErrorCode.PERMISSION_DENIED.value
             )
 
         # checkauthentication要求
@@ -343,7 +343,7 @@ class ToolRegistry:
             return ToolResult(
                 success=False,
                 error=f"Tool {tool_name} requires authentication",
-                error_code="AUTH_REQUIRED"
+                error_code=ToolErrorCode.AUTH_REQUIRED.value
             )
 
         # checkrolepermission
@@ -354,7 +354,7 @@ class ToolRegistry:
                 return ToolResult(
                     success=False,
                     error=f"Tool {tool_name} requires one of roles: {schema.allowed_roles}",
-                    error_code="role_NOT_allowED"
+                    error_code=ToolErrorCode.ROLE_NOT_ALLOWED.value
                 )
 
         # ValidateParameter
@@ -363,7 +363,7 @@ class ToolRegistry:
             return ToolResult(
                 success=False,
                 error=error_msg,
-                error_code="INVALid_parameterS"
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value
             )
 
         # Executetool
@@ -392,7 +392,7 @@ class ToolRegistry:
             return ToolResult(
                 success=False,
                 error=f"Tool execution timeout after {schema.timeout}s",
-                error_code="timeout",
+                error_code=ToolErrorCode.TIMEOUT.value,
                 execution_time=execution_time
             )
 
@@ -405,7 +405,7 @@ class ToolRegistry:
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="EXECUTION_error",
+                error_code=ToolErrorCode.EXECUTION_ERROR.value,
                 execution_time=execution_time
             )
 

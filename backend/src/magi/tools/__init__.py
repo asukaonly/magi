@@ -13,9 +13,9 @@ from .schema import (
     ToolResult,
     ToolConfigSpec,
     ParameterType,
+    ToolErrorCode,
 )
 from .registry import ToolRegistry, tool_registry
-from .selector import ToolSelector
 from .context_decider import ContextDecider, ContextDecision
 from .function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
 from .recommender import ToolRecommender, ScenarioType
@@ -71,19 +71,17 @@ __all__ = [
     "ToolResult",
     "ToolConfigSpec",
     "ParameterType",
+    "ToolErrorCode",
 
     # Registry
     "ToolRegistry",
     "tool_registry",
 
-    # tool选择器
-    "ToolSelector",
-
-    # contextDecision器
+    # Context Decider (replaces old ToolSelector)
     "ContextDecider",
     "ContextDecision",
 
-    # Function调用Execute器
+    # Function Calling Executor
     "FunctionCallingExecutor",
     "ToolCall",
     "ToolCallResult",

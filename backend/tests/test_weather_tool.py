@@ -6,7 +6,7 @@ from types import MethodType
 import pytest
 
 from magi.tools.builtin.weather_tool import WeatherTool
-from magi.tools.schema import ToolExecutionContext, ToolResult
+from magi.tools.schema import ToolExecutionContext, ToolResult, ToolErrorCode
 
 
 def _context() -> ToolExecutionContext:
@@ -30,7 +30,7 @@ async def test_qweather_invalid_host_returns_system_settings_guidance():
     result = await tool.execute({"location": "Hangzhou"}, _context())
 
     assert result.success is False
-    assert result.error_code == "QWEATHER_BASE_URL_REQUIRED"
+    assert result.error_code == ToolErrorCode.QWEATHER_BASE_URL_REQUIRED.value
     assert result.data["config_tool"] == "system-settings"
     assert result.data["config_path"] == "tool.weather.providers.qweather.base_url"
     assert result.data["reference_url"] == "https://console.qweather.com/setting"
@@ -53,5 +53,5 @@ async def test_qweather_other_provider_error_passthrough():
     result = await tool.execute({"location": "Hangzhou"}, _context())
 
     assert result.success is False
-    assert result.error_code == "PROVIDER_ERROR"
+    assert result.error_code == ToolErrorCode.PROVIDER_ERROR.value
     assert result.error == "GeoAPI API error: 500 | body=internal error"

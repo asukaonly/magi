@@ -3,7 +3,7 @@ File read tool
 """
 import os
 from typing import Dict, Any
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
 
 
 class FileReadTool(Tool):
@@ -85,7 +85,7 @@ class FileReadTool(Tool):
                 return ToolResult(
                     success=False,
                     error=f"File not found: {file_path}",
-                    error_code="FILE_NOT_FOUND"
+                    error_code=ToolErrorCode.FILE_NOT_FOUND.value
                 )
 
             # Check if it is a file
@@ -93,7 +93,7 @@ class FileReadTool(Tool):
                 return ToolResult(
                     success=False,
                     error=f"path is not a file: {file_path}",
-                    error_code="NOT_A_FILE"
+                    error_code=ToolErrorCode.NOT_A_FILE.value
                 )
 
             # Check file size
@@ -102,7 +102,7 @@ class FileReadTool(Tool):
                 return ToolResult(
                     success=False,
                     error=f"Offset {offset} is beyond file size {file_size}",
-                    error_code="OFFset_OUT_OF_range"
+                    error_code=ToolErrorCode.OFFSET_OUT_OF_RANGE.value
                 )
 
             # Read file
@@ -134,17 +134,17 @@ class FileReadTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Permission denied reading file: {file_path}",
-                error_code="permission_DENIED"
+                error_code=ToolErrorCode.PERMISSION_DENIED.value
             )
         except UnicodeDecodeerror as e:
             return ToolResult(
                 success=False,
                 error=f"Failed to decode file with encoding {encoding}: {str(e)}",
-                error_code="decode_error"
+                error_code=ToolErrorCode.DECODE_ERROR.value
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="read_error"
+                error_code=ToolErrorCode.READ_ERROR.value
             )

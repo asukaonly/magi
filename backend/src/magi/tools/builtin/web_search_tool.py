@@ -3,7 +3,7 @@ Web Search Tool - Search web using multiple providers
 """
 from typing import Dict, Any, List
 
-from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolConfigSpec
+from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolConfigSpec, ToolErrorCode
 from ..providers.base import ProviderConfig
 from ..providers.web_search import BraveSearchProvider, PerplexitySearchProvider, TavilySearchProvider
 from ...config import get_config, save_config
@@ -137,14 +137,14 @@ class WebSearchTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             return ToolResult(success=True, data=config.get_provider_config(provider_name).base_url)
 
         return ToolResult(
             success=False,
             error=f"Unsupported config path for web-search: {path}",
-            error_code="UNSUPPORTED_PATH",
+            error_code=ToolErrorCode.UNSUPPORTED_PATH.value,
         )
 
     async def update_config(self, path: str, value: Any, context: ToolExecutionContext) -> ToolResult:
@@ -155,11 +155,11 @@ class WebSearchTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             if save_config({"tools.web_search.default_provider": provider_name}):
                 return ToolResult(success=True, data={"path": path, "value": provider_name})
-            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+            return ToolResult(success=False, error="Failed to save configuration", error_code=ToolErrorCode.SAVE_FAILED.value)
 
         if path.startswith("providers.") and path.endswith(".api_key"):
             provider_name = path.split(".")[1]
@@ -167,7 +167,7 @@ class WebSearchTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             if save_config({f"tools.web_search.providers.{provider_name}.api_key": str(value)}):
                 info = PROVIDER_INFO.get(provider_name, {"name": provider_name})
@@ -179,7 +179,7 @@ class WebSearchTool(MultiProviderTool):
                         "configured": True,
                     },
                 )
-            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+            return ToolResult(success=False, error="Failed to save configuration", error_code=ToolErrorCode.SAVE_FAILED.value)
 
         if path.startswith("providers.") and path.endswith(".base_url"):
             provider_name = path.split(".")[1]
@@ -187,16 +187,16 @@ class WebSearchTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             if save_config({f"tools.web_search.providers.{provider_name}.base_url": str(value)}):
                 return ToolResult(success=True, data={"provider": provider_name, "base_url": str(value)})
-            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+            return ToolResult(success=False, error="Failed to save configuration", error_code=ToolErrorCode.SAVE_FAILED.value)
 
         return ToolResult(
             success=False,
             error=f"Unsupported config path for web-search: {path}",
-            error_code="UNSUPPORTED_PATH",
+            error_code=ToolErrorCode.UNSUPPORTED_PATH.value,
         )
 
     async def _handle_query(self, parameters: Dict[str, Any]) -> ToolResult:
@@ -207,7 +207,7 @@ class WebSearchTool(MultiProviderTool):
             return ToolResult(
                 success=False,
                 error="Missing 'query' parameter. Provide a search query.",
-                error_code="MISSING_QUERY",
+                error_code=ToolErrorCode.MISSING_QUERY.value,
             )
 
         # Use specified provider or default from config
@@ -222,7 +222,7 @@ class WebSearchTool(MultiProviderTool):
                     "No search providers are configured. "
                     "Ask the user to configure a provider API key via system-settings, then retry."
                 ),
-                error_code="NO_PROVIDERS_CONFIGURED",
+                error_code=ToolErrorCode.NO_PROVIDERS_CONFIGURED.value,
                 data={
                     "next_action": "ask_user_to_configure_api_key",
                     "llm_guidance": (

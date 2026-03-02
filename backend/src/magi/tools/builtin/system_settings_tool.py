@@ -3,7 +3,7 @@ System Settings Tool - Unified app/tool configuration entrypoint.
 """
 from typing import Dict, Any, List, Optional, Tuple
 
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
 from ...config import get_config, save_config, get_config_file_path, ENV_MAPPINGS, list_app_config_specs
 from ...core.logger import get_logger
 
@@ -175,7 +175,7 @@ class SystemSettingsTool(Tool):
         return ToolResult(
             success=False,
             error=f"Unknown action: {action}. Valid: list, get, set",
-            error_code="INVALID_ACTION",
+            error_code=ToolErrorCode.INVALID_ACTION.value,
         )
 
     def _normalize_path(self, path: str) -> str:
@@ -274,14 +274,14 @@ class SystemSettingsTool(Tool):
             return ToolResult(
                 success=False,
                 error="Path is required for 'get' action",
-                error_code="MISSING_PATH",
+                error_code=ToolErrorCode.MISSING_PATH.value,
             )
 
         normalized_path = self._normalize_path(path)
 
         ok, scope, tool_name, parsed_or_error = self._parse_scope(normalized_path)
         if not ok:
-            return ToolResult(success=False, error=parsed_or_error, error_code="INVALID_PATH")
+            return ToolResult(success=False, error=parsed_or_error, error_code=ToolErrorCode.INVALID_PATH.value)
 
         # Sensitive fields are readable only as masked status
         if _is_sensitive_field(normalized_path):
@@ -293,7 +293,7 @@ class SystemSettingsTool(Tool):
                     return ToolResult(
                         success=False,
                         error=error,
-                        error_code="PATH_NOT_FOUND",
+                        error_code=ToolErrorCode.PATH_NOT_FOUND.value,
                     )
             else:
                 config_path = f"tools.{tool_name.replace('-', '_')}.{parsed_or_error}"
@@ -302,7 +302,7 @@ class SystemSettingsTool(Tool):
                     return ToolResult(
                         success=False,
                         error=error,
-                        error_code="PATH_NOT_FOUND",
+                        error_code=ToolErrorCode.PATH_NOT_FOUND.value,
                     )
 
             configured = bool(str(value).strip()) if value is not None else False
@@ -325,7 +325,7 @@ class SystemSettingsTool(Tool):
                 return ToolResult(
                     success=False,
                     error=error,
-                    error_code="PATH_NOT_FOUND",
+                    error_code=ToolErrorCode.PATH_NOT_FOUND.value,
                 )
             return ToolResult(
                 success=True,
@@ -343,7 +343,7 @@ class SystemSettingsTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Tool '{tool_name}' not found",
-                error_code="TOOL_NOT_FOUND",
+                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
             )
 
         tool_result = await tool.get_config_value(parsed_or_error, context)
@@ -371,14 +371,14 @@ class SystemSettingsTool(Tool):
             return ToolResult(
                 success=False,
                 error="Path is required for 'set' action",
-                error_code="MISSING_PATH",
+                error_code=ToolErrorCode.MISSING_PATH.value,
             )
 
         if value is None:
             return ToolResult(
                 success=False,
                 error="Value is required for 'set' action",
-                error_code="MISSING_VALUE",
+                error_code=ToolErrorCode.MISSING_VALUE.value,
             )
 
         normalized_path = self._normalize_path(path)
@@ -397,7 +397,7 @@ class SystemSettingsTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Field '{normalized_path}' is read-only",
-                error_code="READ_ONLY",
+                error_code=ToolErrorCode.READ_ONLY.value,
             )
 
         ok, scope, tool_name, parsed_or_error = self._parse_scope(normalized_path)
@@ -407,7 +407,7 @@ class SystemSettingsTool(Tool):
                 path=normalized_path,
                 error=parsed_or_error,
             )
-            return ToolResult(success=False, error=parsed_or_error, error_code="INVALID_PATH")
+            return ToolResult(success=False, error=parsed_or_error, error_code=ToolErrorCode.INVALID_PATH.value)
 
         if scope == "app":
             # Get current config for type conversion
@@ -424,7 +424,7 @@ class SystemSettingsTool(Tool):
                 return ToolResult(
                     success=False,
                     error=f"Type conversion failed: {str(e)}",
-                    error_code="TYPE_ERROR",
+                    error_code=ToolErrorCode.TYPE_ERROR.value,
                 )
 
             if save_config({parsed_or_error: converted_value}):
@@ -453,7 +453,7 @@ class SystemSettingsTool(Tool):
             return ToolResult(
                 success=False,
                 error="Failed to save configuration",
-                error_code="SAVE_FAILED",
+                error_code=ToolErrorCode.SAVE_FAILED.value,
             )
 
         from ..registry import tool_registry
@@ -463,7 +463,7 @@ class SystemSettingsTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Tool '{tool_name}' not found",
-                error_code="TOOL_NOT_FOUND",
+                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
             )
 
         update_result = await tool.update_config(parsed_or_error, value, context)
