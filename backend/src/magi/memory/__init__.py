@@ -236,15 +236,16 @@ class UnifiedMemoryStore:
 
     async def run_maintenance(self, retention_days: int = 30) -> Dict[str, int]:
         """Executes retention/cleanup jobs for all layers."""
-        l1_removed = 0
-        # L1 archive is currently represented as export + delete policy done by external scheduler.
-        # The store keeps full history by default unless explicitly cleaned.
-
-        layer_cleanup = await self.cleanup_old_data(older_than_days=retention_days)
+        archive_result = await self.l1_raw.archive_old_events(older_than_days=90, delete_after_archive=False)
+        l2_removed = self.l2_relations.clear_old_relations(older_than_days=retention_days)
+        l3_removed = self.l3_embeddings.clear_old_embeddings(older_than_days=30) if self.l3_embeddings else 0
+        l4_removed = self.l4_summaries.clear_old_summaries(older_than_months=12) if self.l4_summaries else 0
 
         return {
-            "l1_removed": l1_removed,
-            **layer_cleanup,
+            "l1_archived": int(archive_result.get("archived_count", 0)),
+            "l2_removed": l2_removed,
+            "l3_removed": l3_removed,
+            "l4_removed": l4_removed,
         }
 
     def _extract_text_from_event(self, event: Dict[str, Any]) -> str:

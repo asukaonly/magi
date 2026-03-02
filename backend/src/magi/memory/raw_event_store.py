@@ -253,6 +253,60 @@ class RawEventStore:
             await db.commit()
         return count
 
+    async def archive_old_events(
+        self,
+        older_than_days: int = 90,
+        delete_after_archive: bool = True,
+    ) -> Dict[str, Any]:
+        """Archives old events into a JSON file and optionally removes them from L1."""
+        cutoff = time.time() - (older_than_days * 86400)
+
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, type, data, timestamp, source, level, correlation_id, metadata, created_at
+                FROM event_store
+                WHERE timestamp < ?
+                ORDER BY timestamp ASC
+                """,
+                (cutoff,),
+            )
+            rows = await cursor.fetchall()
+
+            events = [
+                {
+                    "id": row[0],
+                    "type": row[1],
+                    "data": json.loads(row[2]) if row[2] else {},
+                    "timestamp": float(row[3]),
+                    "source": row[4],
+                    "level": int(row[5]),
+                    "correlation_id": row[6],
+                    "metadata": json.loads(row[7]) if row[7] else {},
+                    "created_at": float(row[8]),
+                }
+                for row in rows
+            ]
+
+            archive_path: Optional[str] = None
+            if events:
+                archive_dir = Path(self._expanded_db_path).parent / "archive"
+                archive_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_path = archive_dir / f"events_archive_{timestamp}.json"
+                output_path.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
+                archive_path = str(output_path)
+
+                if delete_after_archive:
+                    await db.execute("DELETE FROM event_store WHERE timestamp < ?", (cutoff,))
+                    await db.commit()
+
+        return {
+            "archived_count": len(events),
+            "archive_path": archive_path,
+            "deleted_from_l1": bool(delete_after_archive and events),
+        }
+
     async def _save_media(self, media: Any) -> str:
         extension = getattr(media, "extension", "bin")
         payload = getattr(media, "data", b"")
