@@ -17,6 +17,7 @@ from ...memory.behavior_evolution import SatisfactionLevel
 from ...memory.context_builder import Scenario
 from ...memory.emotional_state import EngagementLevel, InteractionOutcome
 from ...memory.growth_memory import InteractionType
+from ...memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
 from ...skills.executor import SkillExecutor
 from ...skills.indexer import SkillIndexer
 from ...skills.loader import SkillLoader
@@ -78,6 +79,8 @@ class ChatTaskAgent(TaskAgent):
         self.unified_memory = unified_memory
         self.memory_integration = memory_integration
         self.context_decider = ContextDecider(tool_registry=tool_registry, llm_adapter=llm_adapter)
+        self.prompt_context_assembler = PromptContextAssembler(tool_registry=tool_registry)
+        self.prompt_context_renderer = PromptContextRenderer()
         self.function_calling_executor = FunctionCallingExecutor(
             llm_adapter=llm_adapter,
             tool_registry=tool_registry,
@@ -166,21 +169,51 @@ class ChatTaskAgent(TaskAgent):
         session_id = context["session_id"]
         user_message = context["user_message"]
         history = context["history"]
-        system_prompt = await self._build_system_prompt(
-            scenario=Scenario.CHAT,
-            user_id=user_id,
-            task_category=str(intent_result.get("intent", "chat")),
+        prompt_context = await self.build_prompt_context(
+            context=context,
+            intent_result=intent_result,
+            tool_result=tool_result,
         )
+        system_prompt = self.prompt_context_renderer.render_system_prompt(prompt_context)
         return {
             "user_id": user_id,
             "session_id": session_id,
             "user_message": user_message,
             "history": history,
             "system_prompt": system_prompt,
+            "prompt_context": prompt_context,
             "tools": tool_result.get("tools", []),
             "deep_thinking": bool(tool_result.get("deep_thinking", False)),
             "intent": str(tool_result.get("intent", "chat")),
         }
+
+    async def build_prompt_context(
+        self,
+        context: dict[str, Any],
+        intent_result: dict[str, Any],
+        tool_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        user_id = str(context.get("user_id", self.agent_id))
+        task_category = str(intent_result.get("intent", "chat"))
+        retrieved_memory_payload = {
+            "short_term_workbench": [],
+            "reflection_memory_l5": [],
+            "preference_memory": {},
+        }
+
+        prompt_context = await self.prompt_context_assembler.assemble(
+            agent_id=self.agent_id,
+            agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
+            scenario=Scenario.CHAT,
+            task_category=task_category,
+            user_id=user_id,
+            self_memory=self.memory,
+            other_memory=self.other_memory,
+            tool_result=tool_result,
+            retrieved_memory_payload=retrieved_memory_payload,
+            state_transition_override=None,
+        )
+        return prompt_context
 
     async def call_llm(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
         history = llm_params["history"]
@@ -293,22 +326,19 @@ class ChatTaskAgent(TaskAgent):
         user_id: str | None = None,
         task_category: str = "chat",
     ) -> str:
-        if self.memory is not None:
-            try:
-                personality_context = await self.memory.build_context(
-                    scenario=scenario,
-                    task_category=task_category,
-                    user_id=user_id,
-                    tool_memory_context="",
-                )
-                if personality_context:
-                    return personality_context
-            except Exception as exc:
-                logger.warning(f"Failed to build personality context: {exc}")
-        return (
-            "You are a friendly AI assistant."
-            "Your task is to help users answer questions, provide advice, and execute tasks."
+        prompt_context = await self.prompt_context_assembler.assemble(
+            agent_id=self.agent_id,
+            agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
+            scenario=scenario,
+            task_category=task_category,
+            user_id=str(user_id or self.agent_id),
+            self_memory=self.memory,
+            other_memory=self.other_memory,
+            tool_result={"tools": []},
+            retrieved_memory_payload={},
+            state_transition_override=None,
         )
+        return self.prompt_context_renderer.render_system_prompt(prompt_context)
 
     async def _call_llm(
         self,
