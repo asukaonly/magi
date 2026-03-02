@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { SelectField as BaseSelectField } from '@/components/config-forms/fields';
 import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig } from '../api/modules/config';
 import { memoryApi } from '../api/modules/memory';
 import { cn } from '@/lib/utils';
@@ -42,7 +43,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'system', icon: Cpu },
 ];
 
-const SelectField: React.FC<{
+// Wrapper for SelectField with label
+const LabeledSelectField: React.FC<{
   label: string;
   value: string;
   options: SelectOption[];
@@ -50,17 +52,12 @@ const SelectField: React.FC<{
 }> = ({ label, value, options, onChange }) => (
   <label className="space-y-2">
     <span className="text-sm font-medium">{label}</span>
-    <select
-      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+    <BaseSelectField
       value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+      onChange={onChange}
+      options={options}
+      allowEmpty={false}
+    />
   </label>
 );
 
@@ -75,7 +72,7 @@ const NumberField: React.FC<{
   <label className="space-y-2">
     <span className="text-sm font-medium">{label}</span>
     <input
-      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
       type="number"
       min={min}
       max={max}
@@ -232,7 +229,7 @@ export const SettingsPage: React.FC = () => {
               <p className="text-sm text-muted-foreground">{t('settings.preferencesDesc')}</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <SelectField
+              <LabeledSelectField
                 label={t('settings.fields.language')}
                 value={config.preferences.language}
                 options={[
@@ -243,7 +240,7 @@ export const SettingsPage: React.FC = () => {
                   draft.preferences.language = value as SystemConfig['preferences']['language'];
                 })}
               />
-              <SelectField
+              <LabeledSelectField
                 label={t('settings.fields.userMode')}
                 value={config.preferences.user_mode || 'quick'}
                 options={[
@@ -266,7 +263,7 @@ export const SettingsPage: React.FC = () => {
               <p className="text-sm text-muted-foreground">{t('settings.llmDesc')}</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <SelectField
+              <LabeledSelectField
                 label={t('settings.fields.provider')}
                 value={config.llm.provider}
                 options={[
@@ -392,7 +389,7 @@ export const SettingsPage: React.FC = () => {
                 <CardTitle className="text-base">{t('settings.fields.l3ModelDownload')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <SelectField
+                <LabeledSelectField
                   label={t('settings.fields.model')}
                   value={downloadModel}
                   options={[
@@ -481,7 +478,7 @@ export const SettingsPage: React.FC = () => {
               <p className="text-sm text-muted-foreground">{t('settings.systemDesc')}</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <SelectField
+              <LabeledSelectField
                 label={t('settings.fields.loopStrategy')}
                 value={config.loop.strategy}
                 options={[
@@ -503,7 +500,7 @@ export const SettingsPage: React.FC = () => {
                   draft.loop.interval = value;
                 })}
               />
-              <SelectField
+              <LabeledSelectField
                 label={t('settings.fields.busBackend')}
                 value={config.message_bus.backend}
                 options={[
@@ -533,7 +530,7 @@ export const SettingsPage: React.FC = () => {
                   draft.websocket.port = value;
                 })}
               />
-              <SelectField
+              <LabeledSelectField
                 label={t('settings.fields.logLevel')}
                 value={config.log.level}
                 options={[
