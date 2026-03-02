@@ -335,7 +335,7 @@ class ConfigLoader:
         """
         try:
             update_keys = sorted(updates.keys())
-            logger.info("Configuration save requested", update_paths=update_keys)
+            logger.info("Configuration save requested | update_paths=%s", update_keys)
 
             # Reload current YAML data
             self._yaml_data = self._load_yaml()
@@ -353,17 +353,17 @@ class ConfigLoader:
             self.load()
 
             logger.info(
-                "Configuration saved",
-                config_file=str(self._config_file),
-                update_paths=update_keys,
+                "Configuration saved | config_file=%s | update_paths=%s",
+                str(self._config_file),
+                update_keys,
             )
             return True
 
         except Exception as e:
             logger.error(
-                "Failed to save config",
-                error=str(e),
-                update_paths=sorted(updates.keys()),
+                "Failed to save config | update_paths=%s | error=%s",
+                sorted(updates.keys()),
+                str(e),
             )
             return False
 
