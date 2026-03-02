@@ -23,3 +23,12 @@ class MemoryDigestTaskAgent(TaskAgent):
             fact.event_type,
             fact.correlation_id,
         )
+
+    async def build_prompt_context(
+        self,
+        context: dict,
+        intent_result: dict,
+        tool_result: dict,
+    ) -> dict | None:
+        _ = (context, intent_result, tool_result)
+        return None
