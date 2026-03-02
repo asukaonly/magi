@@ -6,8 +6,9 @@ set -u
 PROJECT_ROOT="/Users/asuka/code/magi"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 PID_FILE="$BACKEND_DIR/.backend_uvicorn.pid"
-APP_CMD_PATTERN="uvicorn magi.backend_app:create_backend_app --host 0.0.0.0 --port 8000 --factory --app-dir src"
+APP_CMD_PATTERN="uvicorn magi.backend_app:create_backend_app"
 FULL_CMD="python -m uvicorn magi.backend_app:create_backend_app --host 0.0.0.0 --port 8000 --factory --app-dir src --reload --env-file .env"
+PORT=8000
 
 is_target_process() {
     local pid="$1"
@@ -52,6 +53,28 @@ stop_backend() {
             kill -TERM "$fp" 2>/dev/null || true
         done <<< "$fallback_pids"
         sleep 1
+    fi
+
+    # 兜底：清理仍占用后端端口的监听进程（例如 uvicorn reload 子进程）
+    local port_pids
+    port_pids="$(lsof -tiTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true)"
+    if [[ -n "$port_pids" ]]; then
+        echo "Stopping processes on port ${PORT}: $port_pids"
+        while IFS= read -r pp; do
+            [[ -z "$pp" ]] && continue
+            kill -TERM "$pp" 2>/dev/null || true
+        done <<< "$port_pids"
+        sleep 1
+
+        local remain_port_pids
+        remain_port_pids="$(lsof -tiTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true)"
+        if [[ -n "$remain_port_pids" ]]; then
+            echo "Force killing remaining port ${PORT} processes: $remain_port_pids"
+            while IFS= read -r rpp; do
+                [[ -z "$rpp" ]] && continue
+                kill -KILL "$rpp" 2>/dev/null || true
+            done <<< "$remain_port_pids"
+        fi
     fi
 }
 
