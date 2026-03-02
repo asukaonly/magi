@@ -123,6 +123,16 @@ class TaskAgent:
             "tool_result": tool_result,
         }
 
+    async def build_prompt_context(
+        self,
+        context: dict[str, Any],
+        intent_result: dict[str, Any],
+        tool_result: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        """Build modular prompt context for reusable prompt assembly."""
+        _ = (context, intent_result, tool_result)
+        return None
+
     async def call_llm(self, context: dict[str, Any], llm_params: dict[str, Any]) -> Any:
         """Model/tool execution step."""
         return llm_params

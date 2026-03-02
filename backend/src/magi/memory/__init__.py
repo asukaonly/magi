@@ -1,134 +1,121 @@
-"""
-Memory Storagemodule
+"""Unified memory system entrypoints (L1-L5)."""
 
-Internal note.
-Internal note.
-- L2: EventRelationStore - eventrelationshipstorage（graphstructure）
-- L3: eventEmbeddingStore - Semantic Embeddingsstorage（vectorsearch）
-Internal note.
-Internal note.
-"""
+from __future__ import annotations
+
+import asyncio
 import logging
+import time
+import uuid
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from .self_memory import SelfMemory
-from .other_memory import OtherMemory
-from .raw_event_store import RawEventStore
-from .l2_event_relations import EventRelationStore, EventRelation
+from typing import Any, Dict, List, Optional
+
+from .l2_event_relations import EventRelation, EventRelationStore
 from .l3_semantic_embeddings import (
-    eventEmbeddingStore,
+    EmbeddingBackend,
     EventEmbedding,
     HybrideventSearch,
-    EmbeddingBackend,
     LocalEmbeddingBackend,
     RemoteEmbeddingBackend,
     create_embedding_store,
+    eventEmbeddingStore,
 )
-from .l4_summaries import SummaryStore, EventSummary, AutoSummarizer
-from .l5_capabilities import CapabilityMemory, Capability
+from .l4_summaries import AutoSummarizer, EventSummary, SummaryStore
+from .l5_capabilities import Capability, CapabilityMemory
+from .other_memory import OtherMemory
+from .prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
+from .prompt_context_schema import (
+    IdentityConstraintContext,
+    ProfileMemoryContext,
+    PromptAssemblyContext,
+    RetrievalMemoryContext,
+    RuntimeSystemContext,
+    SelfMemoryContext,
+    ToolCatalogContext,
+)
+from .raw_event_store import RawEventStore
+from .self_memory import SelfMemory
+from .adaptive_profile_updater import AdaptiveProfileUpdater
 
 logger = logging.getLogger(__name__)
 
 
 class UnifiedMemoryStore:
-    """
-    Unified Memory Storage
-
-    Internal note.
-    """
+    """Coordinates the L1-L5 memory layers with consistent interfaces."""
 
     def __init__(
         self,
-        db_path: str = None,
-        persist_dir: str = None,
+        db_path: Optional[str] = None,
+        persist_dir: Optional[str] = None,
         enable_embeddings: bool = True,
         enable_summaries: bool = True,
         enable_capabilities: bool = True,
-        embedding_config: Dict[str, Any] = None,
-        llm_adapter=None,
+        embedding_config: Optional[Dict[str, Any]] = None,
+        llm_adapter: Any = None,
     ):
-        """
-        initializeUnified Memory Storage
-
-        Args:
-            Internal note.
-            Internal note.
-            Internal note.
-            Internal note.
-            Internal note.
-            Internal note.
-            Internal note.
-        """
         from ..utils.runtime import get_runtime_paths
 
         runtime_paths = get_runtime_paths()
+        events_db = str((Path(db_path).expanduser() if db_path else runtime_paths.events_db_path))
+        memories_dir = Path(persist_dir).expanduser() if persist_dir else runtime_paths.memories_dir
+        memories_dir.mkdir(parents=True, exist_ok=True)
 
-        # Settingdefaultpath
-        if not db_path:
-            db_path = str(runtime_paths.events_db_path)
-        if not persist_dir:
-            persist_dir = str(runtime_paths.memories_dir)
-
-        persist_path = Path(persist_dir)
-
-        # parseembeddingConfiguration
         emb_config = embedding_config or {}
-        self._embedding_backend_type = emb_config.get("backend", "local")
-        self._llm_adapter = llm_adapter
 
-        # L1: Raw event Storage
-        self.l1_raw = RawEventStore(db_path=db_path)
+        self.l1_raw = RawEventStore(db_path=events_db, media_dir=str(runtime_paths.data_dir / "events"))
+        self.l2_relations = EventRelationStore(persist_path=str(memories_dir / "relations.pkl"))
 
-        # L2: eventrelationshipstorage
-        self.l2_relations = EventRelationStore(
-            persist_path=str(persist_path / "relations.pkl")
-        )
-
-        # Internal note.
-        self.l3_embeddings = None
-        self.l3_hybrid_search = None
+        self.l3_embeddings: Optional[eventEmbeddingStore] = None
+        self.l3_hybrid_search: Optional[HybrideventSearch] = None
         if enable_embeddings:
             self.l3_embeddings = create_embedding_store(
-                backend=self._embedding_backend_type,
+                backend=str(emb_config.get("backend", "sqlite_vec")),
                 llm_adapter=llm_adapter,
-                local_model=emb_config.get("local_model", "all-MiniLM-L6-v2"),
-                local_dimension=emb_config.get("local_dimension", 384),
-                remote_model=emb_config.get("openai_model", "text-embedding-3-small"),
-                remote_dimension=emb_config.get("remote_dimension", 1536),
-                persist_path=str(persist_path / "embeddings.json"),
+                local_model=str(emb_config.get("local_model", "all-MiniLM-L6-v2")),
+                local_dimension=int(emb_config.get("local_dimension", 384)),
+                remote_model=str(emb_config.get("openai_model", "text-embedding-3-small")),
+                remote_dimension=int(emb_config.get("remote_dimension", 1536)),
+                persist_path=str(memories_dir / "embeddings.db"),
             )
             self.l3_hybrid_search = HybrideventSearch(self.l3_embeddings)
 
-        # L4: summarystorage
-        self.l4_summaries = None
-        self.l4_auto_summarizer = None
+        self.l4_summaries: Optional[SummaryStore] = None
+        self.l4_auto_summarizer: Optional[AutoSummarizer] = None
         if enable_summaries:
-            self.l4_summaries = SummaryStore(
-                persist_path=str(persist_path / "summaries.json")
-            )
+            self.l4_summaries = SummaryStore(persist_path=str(memories_dir / "summaries.db"))
             self.l4_auto_summarizer = AutoSummarizer(self.l4_summaries)
 
-        # L5: capabilitymemory
-        self.l5_capabilities = None
+        self.l5_capabilities: Optional[CapabilityMemory] = None
         if enable_capabilities:
-            self.l5_capabilities = CapabilityMemory(
-                persist_path=str(persist_path / "capabilities.json")
-            )
+            self.l5_capabilities = CapabilityMemory(persist_path=str(memories_dir / "capabilities.db"))
 
         self._initialized = False
+        self._write_lock = asyncio.Lock()
 
-    async def initialize(self):
-        """initializeallstorage层"""
+    async def initialize(self) -> None:
         if self._initialized:
             return
 
         await self.l1_raw.init()
-
         if self.l3_embeddings:
             await self.l3_embeddings.initialize()
+        if self.l4_summaries:
+            await self.l4_summaries.initialize()
 
         self._initialized = True
         logger.info("Unified memory store initialized")
+
+    async def store_event(
+        self,
+        event: Dict[str, Any],
+        extract_relations: bool = True,
+        generate_embeddings: bool = True,
+    ) -> str:
+        """Stores an event into L1 and propagates it to enabled layers."""
+        return await self.add_event(
+            event=event,
+            extract_relations=extract_relations,
+            generate_embeddings=generate_embeddings,
+        )
 
     async def add_event(
         self,
@@ -136,157 +123,84 @@ class UnifiedMemoryStore:
         extract_relations: bool = True,
         generate_embeddings: bool = True,
     ) -> str:
-        """
-        Internal note.
+        event_id = str(event.get("id") or event.get("event_id") or uuid.uuid4())
+        timestamp = float(event.get("timestamp", time.time()))
+        payload = {
+            "id": event_id,
+            "type": str(event.get("type", "unknown")),
+            "data": event.get("data", {}),
+            "timestamp": timestamp,
+            "source": str(event.get("source", "memory")),
+            "level": int(event.get("level", 1)),
+            "correlation_id": event.get("correlation_id") or event_id,
+            "metadata": dict(event.get("metadata", {})),
+        }
 
-        Args:
-            event: eventdata
-            Internal note.
-            generate_embeddings: is notgenerationembedding
+        from ..events.events import Event, EventLevel
 
-        Returns:
-            eventid
-        """
-        event_id = event.get("id", event.get("event_id"))
-        if not event_id:
-            import uuid
-            event_id = str(uuid.uuid4())
-            event["id"] = event_id
-
-        # Internal note.
-        from ..events.events import Event
-        await self.l1_raw.store(Event(
-            type=event.get("type", "unknown"),
-            data=event.get("data", {}),
-            timestamp=event.get("timestamp", 0),
-            source=event.get("source", ""),
-            metadata=event.get("metadata", {}),
-        ))
-
-        # Internal note.
-        if extract_relations and event_id:
-            self.l2_relations.add_event(event_id, event)
-
-        # L3: generationSemantic Embeddings
-        if generate_embeddings and self.l3_embeddings:
-            text = self._extract_text_from_event(event)
-            if text:
-                await self.l3_embeddings.add_event(
-                    event_id=event_id,
-                    text=text,
-                    metadata={"event_type": event.get("type", "unknown")},
+        async with self._write_lock:
+            l1_event_id: Optional[str] = None
+            try:
+                l1_event_id = await self.l1_raw.store(
+                    Event(
+                        type=payload["type"],
+                        data=payload["data"],
+                        timestamp=payload["timestamp"],
+                        source=payload["source"],
+                        level=EventLevel(payload["level"]),
+                        correlation_id=payload["correlation_id"],
+                        metadata=payload["metadata"],
+                    )
                 )
 
-        # Internal note.
-        if self.l4_summaries:
-            self.l4_summaries.add_event(event)
+                if extract_relations:
+                    self.l2_relations.add_event(event_id, payload)
 
-        # Internal note.
-        if self.l5_capabilities and event.get("type") == "TaskCompleted":
-            self._record_task_attempt(event)
+                if generate_embeddings and self.l3_embeddings:
+                    text = self._extract_text_from_event(payload)
+                    if text:
+                        await self.l3_embeddings.add_event(
+                            event_id=event_id,
+                            text=text,
+                            metadata={"event_type": payload["type"]},
+                        )
+
+                if self.l4_summaries:
+                    self.l4_summaries.add_event(payload)
+
+                if self.l5_capabilities and payload["type"] == "TaskCompleted":
+                    self._record_task_attempt(payload)
+
+                if self.l2_relations.persist_path:
+                    self.l2_relations._save_to_disk()
+
+            except Exception:
+                if l1_event_id:
+                    await self.l1_raw.delete_event(l1_event_id)
+                raise
 
         return event_id
 
-    def _extract_text_from_event(self, event: Dict[str, Any]) -> str:
-        """从event中提取文本用于embedding"""
-        parts = []
-
-        # addeventtype
-        event_type = event.get("type", "")
-        if event_type:
-            parts.append(event_type)
-
-        # adddataContent
-        data = event.get("data", {})
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if isinstance(value, str):
-                    parts.append(value)
-                elif isinstance(value, (int, float, bool)):
-                    parts.append(f"{key}:{value}")
-
-        return " ".join(parts) if parts else ""
-
-    def _record_task_attempt(self, event: Dict[str, Any]):
-        """record任务尝试到capabilitymemory"""
-        data = event.get("data", {})
-        self.l5_capabilities.record_attempt(
-            task_id=data.get("task_id", "unknown"),
-            context=event.get("metadata", {}),
-            action=data.get("action", {}),
-            success=data.get("success", True),
-            duration=data.get("duration", 0.0),
-            error=data.get("error"),
-        )
-
-    async def search(
-        self,
-        query: str,
-        search_type: str = "hybrid",
-        limit: int = 10,
-    ) -> List[Dict[str, Any]]:
-        """
-        Internal note.
-
-        Args:
-            Internal note.
-            search_type: searchtype（hybrid, semantic, keyword, relation）
-            limit: Returnquantitylimitation
-
-        Returns:
-            searchResult
-        """
+    async def search(self, query: str, search_type: str = "hybrid", limit: int = 10) -> List[Dict[str, Any]]:
         if search_type == "hybrid" and self.l3_hybrid_search:
             return await self.l3_hybrid_search.search(query, top_k=limit)
-        elif search_type == "semantic" and self.l3_embeddings:
+        if search_type == "semantic" and self.l3_embeddings:
             return await self.l3_embeddings.similarity_search(query, top_k=limit)
-        elif search_type == "keyword" and self.l3_hybrid_search:
-            return self.l3_hybrid_search._keyword_search(query, top_k=limit)
-        elif search_type == "relation":
-            # Internal note.
-            results = []
-            for event_id, event_data in self.l2_relations._events.items():
-                if query.lower() in str(event_data).lower():
-                    results.append({"event_id": event_id, "data": event_data})
+        if search_type == "keyword" and self.l3_hybrid_search:
+            return await self.l3_hybrid_search._keyword_search(query, top_k=limit)
+        if search_type == "relation":
+            results: List[Dict[str, Any]] = []
+            query_text = query.lower().strip()
+            for event_id, payload in self.l2_relations._events.items():
+                if query_text in str(payload).lower():
+                    results.append({"event_id": event_id, "data": payload})
             return results[:limit]
-        else:
-            return []
+        return []
 
-    def get_related_events(
-        self,
-        event_id: str,
-        max_depth: int = 2,
-    ) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Internal note.
+    def get_related_events(self, event_id: str, max_depth: int = 2) -> Dict[int, List[Dict[str, Any]]]:
+        return self.l2_relations.get_related_events(event_id=event_id, max_depth=max_depth)
 
-        Args:
-            event_id: eventid
-            max_depth: maximumdepth
-
-        Returns:
-            relatedeventdictionary
-        """
-        return self.l2_relations.get_related_events(
-            event_id=event_id,
-            max_depth=max_depth,
-        )
-
-    def get_summary(
-        self,
-        period_type: str = "day",
-        period_key: str = None,
-    ) -> Optional[EventSummary]:
-        """
-        Internal note.
-
-        Args:
-            Internal note.
-            Internal note.
-
-        Returns:
-            eventsummary
-        """
+    def get_summary(self, period_type: str = "day", period_key: Optional[str] = None) -> Optional[EventSummary]:
         if not self.l4_summaries:
             return None
         return self.l4_summaries.get_summary(period_type, period_key)
@@ -294,100 +208,94 @@ class UnifiedMemoryStore:
     def generate_summary(
         self,
         period_type: str = "day",
-        period_key: str = None,
+        period_key: Optional[str] = None,
         force: bool = False,
     ) -> Optional[EventSummary]:
-        """
-        Internal note.
-
-        Args:
-            Internal note.
-            Internal note.
-            Internal note.
-
-        Returns:
-            eventsummary
-        """
         if not self.l4_summaries:
             return None
         return self.l4_summaries.generate_summary(period_type, period_key, force)
 
-    def find_capability(
-        self,
-        context: Dict[str, Any],
-        threshold: float = 0.5,
-    ) -> Optional[Capability]:
-        """
-        Internal note.
-
-        Args:
-            context: contextinfo
-            Internal note.
-
-        Returns:
-            Internal note.
-        """
+    def find_capability(self, context: Dict[str, Any], threshold: float = 0.5) -> Optional[Capability]:
         if not self.l5_capabilities:
             return None
         return self.l5_capabilities.find_capability(context, threshold)
 
     def get_statistics(self) -> Dict[str, Any]:
-        """getall层级的statisticsinfo"""
-        stats = {
-            "l1_raw": {
-                "db_path": self.l1_raw.db_path,
-            },
+        stats: Dict[str, Any] = {
+            "l1_raw": {"db_path": self.l1_raw.db_path},
             "l2_relations": self.l2_relations.get_statistics(),
         }
-
         if self.l3_embeddings:
             stats["l3_embeddings"] = self.l3_embeddings.get_statistics()
-
         if self.l4_summaries:
             stats["l4_summaries"] = self.l4_summaries.get_statistics()
-
         if self.l5_capabilities:
             stats["l5_capabilities"] = self.l5_capabilities.get_statistics()
-
         return stats
 
-    async def cleanup_old_data(
-        self,
-        older_than_days: int = 30,
-    ):
-        """
-        Internal note.
+    async def cleanup_old_data(self, older_than_days: int = 30) -> Dict[str, int]:
+        removed_l2 = self.l2_relations.clear_old_relations(older_than_days)
+        removed_l3 = self.l3_embeddings.clear_old_embeddings(older_than_days) if self.l3_embeddings else 0
+        removed_l4 = self.l4_summaries.clear_old_summaries(max(1, older_than_days // 30)) if self.l4_summaries else 0
 
-        Args:
-            Internal note.
-        """
-        # Internal note.
-        self.l2_relations.clear_old_relations(older_than_days)
+        return {
+            "l2_removed": removed_l2,
+            "l3_removed": removed_l3,
+            "l4_removed": removed_l4,
+        }
 
-        # Internal note.
-        if self.l3_embeddings:
-            self.l3_embeddings.clear_old_embeddings(older_than_days)
+    async def run_maintenance(self, retention_days: int = 30) -> Dict[str, int]:
+        """Executes retention/cleanup jobs for all layers."""
+        archive_result = await self.l1_raw.archive_old_events(older_than_days=90, delete_after_archive=False)
+        l2_removed = self.l2_relations.clear_old_relations(older_than_days=retention_days)
+        l3_removed = self.l3_embeddings.clear_old_embeddings(older_than_days=30) if self.l3_embeddings else 0
+        l4_removed = self.l4_summaries.clear_old_summaries(older_than_months=12) if self.l4_summaries else 0
 
-        # Internal note.
-        if self.l4_summaries:
-            self.l4_summaries.clear_old_summaries(older_than_days // 30)
+        return {
+            "l1_archived": int(archive_result.get("archived_count", 0)),
+            "l2_removed": l2_removed,
+            "l3_removed": l3_removed,
+            "l4_removed": l4_removed,
+        }
 
-        logger.info(f"Cleaned up data older than {older_than_days} days")
+    def _extract_text_from_event(self, event: Dict[str, Any]) -> str:
+        parts: List[str] = []
+        if event.get("type"):
+            parts.append(str(event["type"]))
+
+        data = event.get("data")
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, str):
+                    parts.append(value)
+                elif isinstance(value, (int, float, bool)):
+                    parts.append(f"{key}:{value}")
+        elif data is not None:
+            parts.append(str(data))
+
+        return " ".join(parts).strip()
+
+    def _record_task_attempt(self, event: Dict[str, Any]) -> None:
+        if not self.l5_capabilities:
+            return
+
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        self.l5_capabilities.record_attempt(
+            task_id=str(data.get("task_id", "unknown")),
+            context=event.get("metadata", {}),
+            action=data.get("action", {}),
+            success=bool(data.get("success", True)),
+            duration=float(data.get("duration", 0.0)),
+            error=data.get("error"),
+        )
 
 
 __all__ = [
-    # personalitymemory
     "SelfMemory",
     "OtherMemory",
-
-    # Internal note.
     "RawEventStore",
-
-    # Internal note.
     "EventRelationStore",
     "EventRelation",
-
-    # Internal note.
     "eventEmbeddingStore",
     "EventEmbedding",
     "HybrideventSearch",
@@ -395,16 +303,20 @@ __all__ = [
     "LocalEmbeddingBackend",
     "RemoteEmbeddingBackend",
     "create_embedding_store",
-
-    # Internal note.
     "SummaryStore",
     "EventSummary",
     "AutoSummarizer",
-
-    # Internal note.
     "CapabilityMemory",
     "Capability",
-
-    # Internal note.
+    "AdaptiveProfileUpdater",
+    "IdentityConstraintContext",
+    "RetrievalMemoryContext",
+    "SelfMemoryContext",
+    "ProfileMemoryContext",
+    "RuntimeSystemContext",
+    "ToolCatalogContext",
+    "PromptAssemblyContext",
+    "PromptContextAssembler",
+    "PromptContextRenderer",
     "UnifiedMemoryStore",
 ]

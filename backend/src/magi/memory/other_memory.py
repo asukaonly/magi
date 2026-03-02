@@ -12,6 +12,7 @@ import time
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
+from .adaptive_profile_updater import AdaptiveProfileUpdater
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +415,8 @@ class OtherMemory:
         user_id: str,
         conversation_summary: str,
         extracted_info: Dict[str, Any] = None,
+        significant_change: bool = False,
+        force: bool = False,
     ) -> OtherProfile:
         """
         Internal note.
@@ -434,7 +437,26 @@ class OtherMemory:
                 name=extracted_info.get("name", user_id) if extracted_info else user_id,
             )
 
-        # Internal note.
+        # Track interaction before adaptive update decision.
+        profile.total_interactions += 1
+        profile.last_interacted = time.time()
+
+        updater_state = {}
+        if isinstance(profile.preferences, dict):
+            updater_state = profile.preferences.get("_adaptive_updater", {}) or {}
+        updater = AdaptiveProfileUpdater.from_dict(updater_state)
+        updater.record_interaction()
+
+        should_update = force or updater.should_update(
+            total_interactions=profile.total_interactions,
+            significant_change=significant_change,
+        )
+
+        if not should_update:
+            profile.preferences["_adaptive_updater"] = updater.to_dict()
+            self.save_profile(profile)
+            return profile
+
         if extracted_info:
             if extracted_info.get("interests"):
                 new_interests = [i for i in extracted_info["interests"] if i not in profile.interests]
@@ -460,10 +482,8 @@ class OtherMemory:
             # updatepreference
             if extracted_info.get("preferences"):
                 profile.preferences.update(extracted_info["preferences"])
-
-        # Internal note.
-        profile.total_interactions += 1
-        profile.last_interacted = time.time()
+        updater.record_update()
+        profile.preferences["_adaptive_updater"] = updater.to_dict()
 
         self.save_profile(profile)
         return profile
