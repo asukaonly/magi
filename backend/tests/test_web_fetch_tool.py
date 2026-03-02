@@ -6,7 +6,7 @@ from types import MethodType
 import pytest
 
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
-from magi.tools.schema import ToolExecutionContext, ToolResult
+from magi.tools.schema import ToolExecutionContext, ToolResult, ToolErrorCode
 
 
 def _context() -> ToolExecutionContext:
@@ -19,7 +19,7 @@ async def test_invalid_url_returns_error():
     result = await tool.execute({"url": "example.com"}, _context())
 
     assert result.success is False
-    assert result.error_code == "INVALID_URL"
+    assert result.error_code == ToolErrorCode.INVALID_URL.value
 
 
 @pytest.mark.asyncio

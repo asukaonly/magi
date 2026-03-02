@@ -2,7 +2,7 @@
 Dynamic Tool - Supports dynamically creating tools from external formats (like Claude Tool Use)
 """
 from typing import Any, Dict, Optional
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolErrorCode
 
 
 class DynamicTool(Tool):
@@ -53,13 +53,13 @@ class DynamicTool(Tool):
                 return ToolResult(
                     success=False,
                     error=str(e),
-                    error_code="EXECUTION_error"
+                    error_code=ToolErrorCode.EXECUTION_ERROR.value
                 )
 
         return ToolResult(
             success=False,
             error="Dynamic tool executor not implemented",
-            error_code="NOT_IMPLEMENTED"
+            error_code=ToolErrorCode.NOT_IMPLEMENTED.value
         )
 
 

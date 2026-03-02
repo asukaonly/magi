@@ -3,7 +3,7 @@ File list tool
 """
 import os
 from typing import Dict, Any, List
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
 
 
 class FileListTool(Tool):
@@ -82,7 +82,7 @@ class FileListTool(Tool):
                 return ToolResult(
                     success=False,
                     error=f"path not found: {dir_path}",
-                    error_code="path_NOT_FOUND"
+                    error_code=ToolErrorCode.PATH_NOT_FOUND.value
                 )
 
             # Check if it is a directory
@@ -90,7 +90,7 @@ class FileListTool(Tool):
                 return ToolResult(
                     success=False,
                     error=f"path is not a directory: {dir_path}",
-                    error_code="NOT_A_dirECTORY"
+                    error_code=ToolErrorCode.NOT_A_DIRECTORY.value
                 )
 
             import fnmatch
@@ -163,11 +163,11 @@ class FileListTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Permission denied accessing directory: {dir_path}",
-                error_code="permission_DENIED"
+                error_code=ToolErrorCode.PERMISSION_DENIED.value
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="list_error"
+                error_code=ToolErrorCode.LIST_ERROR.value
             )

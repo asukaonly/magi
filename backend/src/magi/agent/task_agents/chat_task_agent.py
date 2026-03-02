@@ -78,16 +78,19 @@ class ChatTaskAgent(TaskAgent):
         self.unified_memory = unified_memory
         self.memory_integration = memory_integration
         self.context_decider = ContextDecider(tool_registry=tool_registry, llm_adapter=llm_adapter)
-        self.function_calling_executor = FunctionCallingExecutor(
-            llm_adapter=llm_adapter,
-            tool_registry=tool_registry,
-            skill_executor=None,
-            tool_result_callback=self._record_tool_interaction,
-        )
+
+        # Initialize skill system first (dependency for FunctionCallingExecutor)
         self._skill_indexer = SkillIndexer()
         self._skill_loader = SkillLoader(self._skill_indexer)
         self._skill_executor = SkillExecutor(self._skill_loader, llm_adapter)
-        self.function_calling_executor.skill_executor = self._skill_executor
+
+        # Now create FunctionCallingExecutor with all dependencies properly injected
+        self.function_calling_executor = FunctionCallingExecutor(
+            llm_adapter=llm_adapter,
+            tool_registry=tool_registry,
+            skill_executor=self._skill_executor,
+            tool_result_callback=self._record_tool_interaction,
+        )
 
         self._conversation_history: dict[str, list[dict]] = {}
         self._tool_interactions: dict[str, list[dict]] = {}

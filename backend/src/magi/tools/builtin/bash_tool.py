@@ -4,7 +4,7 @@ Bash command execution tool
 import asyncio
 import subprocess
 from typing import Dict, Any
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
 
 
 class BashTool(Tool):
@@ -103,7 +103,7 @@ class BashTool(Tool):
                     success=return_code == 0,
                     data=result_data,
                     error=result_data["stderr"] if return_code != 0 else None,
-                    error_code="COMMAND_failED" if return_code != 0 else None,
+                    error_code=ToolErrorCode.COMMAND_FAILED.value if return_code != 0 else None,
                 )
 
             except asyncio.TimeoutError:
@@ -114,18 +114,18 @@ class BashTool(Tool):
                 return ToolResult(
                     success=False,
                     error=f"Command execution timeout after {timeout}s",
-                    error_code="timeout"
+                    error_code=ToolErrorCode.TIMEOUT.value
                 )
 
         except FileNotFoundError:
             return ToolResult(
                 success=False,
                 error=f"Working directory not found: {cwd}",
-                error_code="dir_NOT_FOUND"
+                error_code=ToolErrorCode.DIRECTORY_NOT_FOUND.value
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="EXECUTION_error"
+                error_code=ToolErrorCode.EXECUTION_ERROR.value
             )

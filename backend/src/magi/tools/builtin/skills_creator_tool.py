@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, Any, List
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
 
 
 class SkillsCreatorTool(Tool):
@@ -108,7 +108,7 @@ class SkillsCreatorTool(Tool):
             return ToolResult(
                 success=False,
                 error="Skill name must be lowercase alphanumeric with hyphens only (e.g., 'my-skill')",
-                error_code="INVALid_name",
+                error_code=ToolErrorCode.INVALID_NAME.value,
             )
 
         # Get skills directory
@@ -122,7 +122,7 @@ class SkillsCreatorTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Failed to create skill directory: {e}",
-                error_code="dir_create_error",
+                error_code=ToolErrorCode.DIR_CREATE_ERROR.value,
             )
 
         # Build frontmatter
@@ -156,7 +156,7 @@ class SkillsCreatorTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Failed to write skill file: {e}",
-                error_code="write_error",
+                error_code=ToolErrorCode.WRITE_ERROR.value,
             )
 
         return ToolResult(

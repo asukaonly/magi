@@ -10,7 +10,7 @@ from magi.tools.builtin.weather_tool import WeatherTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
 from magi.tools.builtin.web_search_tool import WebSearchTool
 from magi.tools.registry import tool_registry
-from magi.tools.schema import ToolExecutionContext, ToolResult
+from magi.tools.schema import ToolExecutionContext, ToolResult, ToolErrorCode
 
 
 def _context() -> ToolExecutionContext:
@@ -116,15 +116,19 @@ async def test_set_web_fetch_tool_path_routes_to_tool_update(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_sensitive_path_denied():
+async def test_get_sensitive_path_masked():
+    """Sensitive paths return success with masked value instead of error."""
     tool = SystemSettingsTool()
     result = await tool.execute(
         {"action": "get", "path": "tool.web-search.providers.brave.api_key"},
         _context(),
     )
 
-    assert result.success is False
-    assert result.error_code == "ACCESS_DENIED"
+    # Sensitive fields now return success with masked value
+    assert result.success is True
+    assert result.data["sensitive"] is True
+    # Value is either None (not configured) or masked
+    assert "value" in result.data
 
 
 def test_weather_and_web_search_schema_remove_config_action():

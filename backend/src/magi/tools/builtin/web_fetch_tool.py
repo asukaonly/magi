@@ -16,6 +16,7 @@ from ..schema import (
     ToolParameter,
     ToolResult,
     ToolSchema,
+    ToolErrorCode,
 )
 from ...config import get_config, save_config
 
@@ -148,14 +149,14 @@ class WebFetchTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             return ToolResult(success=True, data=config.get_provider_config(provider_name).base_url)
 
         return ToolResult(
             success=False,
             error=f"Unsupported config path for web-fetch: {path}",
-            error_code="UNSUPPORTED_PATH",
+            error_code=ToolErrorCode.UNSUPPORTED_PATH.value,
         )
 
     async def update_config(self, path: str, value: Any, context: ToolExecutionContext) -> ToolResult:
@@ -165,11 +166,11 @@ class WebFetchTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             if save_config({"tools.web_fetch.default_provider": provider_name}):
                 return ToolResult(success=True, data={"path": path, "value": provider_name})
-            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+            return ToolResult(success=False, error="Failed to save configuration", error_code=ToolErrorCode.SAVE_FAILED.value)
 
         if path.startswith("providers.") and path.endswith(".base_url"):
             provider_name = path.split(".")[1]
@@ -177,16 +178,16 @@ class WebFetchTool(MultiProviderTool):
                 return ToolResult(
                     success=False,
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
-                    error_code="INVALID_PROVIDER",
+                    error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             if save_config({f"tools.web_fetch.providers.{provider_name}.base_url": str(value)}):
                 return ToolResult(success=True, data={"provider": provider_name, "base_url": str(value)})
-            return ToolResult(success=False, error="Failed to save configuration", error_code="SAVE_FAILED")
+            return ToolResult(success=False, error="Failed to save configuration", error_code=ToolErrorCode.SAVE_FAILED.value)
 
         return ToolResult(
             success=False,
             error=f"Unsupported config path for web-fetch: {path}",
-            error_code="UNSUPPORTED_PATH",
+            error_code=ToolErrorCode.UNSUPPORTED_PATH.value,
         )
 
     async def _handle_fetch(self, parameters: Dict[str, Any]) -> ToolResult:
@@ -195,7 +196,7 @@ class WebFetchTool(MultiProviderTool):
             return ToolResult(
                 success=False,
                 error="Invalid 'url'. URL must start with http:// or https:// and include host.",
-                error_code="INVALID_URL",
+                error_code=ToolErrorCode.INVALID_URL.value,
             )
 
         mode = str(parameters.get("mode", "auto")).strip().lower()
@@ -272,14 +273,14 @@ class WebFetchTool(MultiProviderTool):
                     f"All web-fetch providers failed. "
                     f"http={http_result.error}; browser={browser_result.error}; curl={curl_result.error}"
                 ),
-                error_code="ALL_PROVIDERS_FAILED",
+                error_code=ToolErrorCode.ALL_PROVIDERS_FAILED.value,
                 data={"attempts": attempts},
             )
 
         return ToolResult(
             success=False,
             error="Failed to fetch web page content",
-            error_code="FETCH_FAILED",
+            error_code=ToolErrorCode.FETCH_FAILED.value,
             data={"attempts": attempts},
         )
 

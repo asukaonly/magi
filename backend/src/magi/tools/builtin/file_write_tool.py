@@ -3,7 +3,7 @@ File write tool
 """
 import os
 from typing import Dict, Any
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType
+from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
 
 
 class FileWriteTool(Tool):
@@ -126,17 +126,17 @@ class FileWriteTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Permission denied writing to file: {file_path}",
-                error_code="permission_DENIED"
+                error_code=ToolErrorCode.PERMISSION_DENIED.value
             )
         except IsAdirectoryerror:
             return ToolResult(
                 success=False,
                 error=f"path is a directory, not a file: {file_path}",
-                error_code="IS_dirECTORY"
+                error_code=ToolErrorCode.IS_DIRECTORY.value
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 error=str(e),
-                error_code="write_error"
+                error_code=ToolErrorCode.WRITE_ERROR.value
             )
