@@ -22,6 +22,16 @@ from .l3_semantic_embeddings import (
 from .l4_summaries import AutoSummarizer, EventSummary, SummaryStore
 from .l5_capabilities import Capability, CapabilityMemory
 from .other_memory import OtherMemory
+from .prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
+from .prompt_context_schema import (
+    IdentityConstraintContext,
+    ProfileMemoryContext,
+    PromptAssemblyContext,
+    RetrievalMemoryContext,
+    RuntimeSystemContext,
+    SelfMemoryContext,
+    ToolCatalogContext,
+)
 from .raw_event_store import RawEventStore
 from .self_memory import SelfMemory
 from .adaptive_profile_updater import AdaptiveProfileUpdater
@@ -299,5 +309,14 @@ __all__ = [
     "CapabilityMemory",
     "Capability",
     "AdaptiveProfileUpdater",
+    "IdentityConstraintContext",
+    "RetrievalMemoryContext",
+    "SelfMemoryContext",
+    "ProfileMemoryContext",
+    "RuntimeSystemContext",
+    "ToolCatalogContext",
+    "PromptAssemblyContext",
+    "PromptContextAssembler",
+    "PromptContextRenderer",
     "UnifiedMemoryStore",
 ]

@@ -1,0 +1,76 @@
+"""Schemas for modular LLM prompt context assembly."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+
+@dataclass
+class IdentityConstraintContext:
+    """Module 1: System identity and behavior constraints."""
+
+    system_definition: str
+    core_truths_and_boundaries: str
+
+
+@dataclass
+class RetrievalMemoryContext:
+    """Retrieved memory payload for Module 2."""
+
+    short_term_workbench: List[Dict[str, Any]] = field(default_factory=list)
+    reflection_memory_l5: List[Dict[str, Any]] = field(default_factory=list)
+    preference_memory: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SelfMemoryContext:
+    """Module 2: Agent self-memory from agent perspective."""
+
+    persona_entity: Dict[str, Any] = field(default_factory=dict)
+    dynamic_state: Dict[str, Any] = field(default_factory=dict)
+    retrieval_memory: RetrievalMemoryContext = field(default_factory=RetrievalMemoryContext)
+    state_transition_override: Optional[str] = None
+
+
+@dataclass
+class ProfileMemoryContext:
+    """Module 3: User profile memory."""
+
+    user_id: str = ""
+    user_name: str = "unknown"
+    user_preferences: Dict[str, Any] = field(default_factory=dict)
+    recent_emotion: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RuntimeSystemContext:
+    """Module 4: Runtime system metadata."""
+
+    current_time_iso: str
+    timezone: str
+    os_name: str
+    os_version: str
+    cwd: str
+    agent_id: str
+    agent_type: str
+
+
+@dataclass
+class ToolCatalogContext:
+    """Module 5: Selected tool catalog from tool decision."""
+
+    selected_tools: List[str] = field(default_factory=list)
+    tool_descriptions: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class PromptAssemblyContext:
+    """Top-level context object for prompt rendering."""
+
+    identity_constraints: IdentityConstraintContext
+    self_memory: SelfMemoryContext
+    profile_memory: ProfileMemoryContext
+    runtime_system: RuntimeSystemContext
+    tool_catalog: ToolCatalogContext
+    metadata: Dict[str, Any] = field(default_factory=dict)
