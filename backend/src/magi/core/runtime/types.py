@@ -5,16 +5,12 @@ Runtime constants and agent identifiers.
 from enum import Enum
 
 CHAT_AGENT_ID = "chat_agent"
-MEMORY_DIGEST_AGENT_ID = "memory_digest_agent"
-DAILY_REPORT_AGENT_ID = "daily_report_agent"
 
 
 class TaskAgentType(str, Enum):
     """Supported task-agent categories."""
 
     CHAT = "chat"
-    MEMORY_DIGEST = "memory_digest"
-    DAILY_REPORT = "daily_report"
 
 
 def get_task_agent_type_value(agent_type: TaskAgentType | str) -> str:

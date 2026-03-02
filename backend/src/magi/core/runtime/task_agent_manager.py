@@ -3,7 +3,6 @@ TaskAgentManager for hybrid lifecycle multi-instance runtime.
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Callable, Optional
 
 from ...events.events import EventTypes
@@ -21,20 +20,15 @@ class TaskAgentManager:
     def __init__(
         self,
         create_chat_agent: Callable[[str], TaskAgent],
-        create_memory_digest_agent: Callable[[str], TaskAgent],
-        create_daily_report_agent: Callable[[str], TaskAgent],
         create_default_agent: Optional[Callable[[str, str], TaskAgent]] = None,
     ) -> None:
         self._create_chat_agent = create_chat_agent
-        self._create_memory_digest_agent = create_memory_digest_agent
-        self._create_daily_report_agent = create_daily_report_agent
         self._create_default_agent = create_default_agent
         self._agents: dict[str, TaskAgent] = {}
         self._running = False
         self._action_executor = None
         self._core_instances = (
             (TaskAgentType.CHAT, "default"),
-            (TaskAgentType.MEMORY_DIGEST, "default"),
         )
 
     async def start_all(self, action_executor) -> None:
@@ -79,19 +73,9 @@ class TaskAgentManager:
 
         if sensor_event.event_type == EventTypes.USER_MESSAGE:
             chat_id = str(payload.get("target_task_agent_id") or payload.get("user_id") or "default")
-            return [
-                (TaskAgentType.CHAT, chat_id),
-                (TaskAgentType.MEMORY_DIGEST, "default"),
-            ]
+            return [(TaskAgentType.CHAT, chat_id)]
 
-        if sensor_event.event_type == "CRON_EVENT":
-            report_id = str(payload.get("target_task_agent_id") or datetime.utcnow().strftime("%Y%m%d"))
-            return [
-                (TaskAgentType.DAILY_REPORT, report_id),
-                (TaskAgentType.MEMORY_DIGEST, "default"),
-            ]
-
-        return [(TaskAgentType.MEMORY_DIGEST, "default")]
+        return [(TaskAgentType.CHAT, "default")]
 
     def get_agent(self, agent_type: TaskAgentType | str, agent_id: str) -> Optional[TaskAgent]:
         return self._agents.get(build_task_agent_key(agent_type, agent_id))
@@ -109,10 +93,6 @@ class TaskAgentManager:
         normalized_type = self._coerce_agent_type(get_task_agent_type_value(agent_type))
         if normalized_type == TaskAgentType.CHAT:
             return self._create_chat_agent(agent_id)
-        if normalized_type == TaskAgentType.MEMORY_DIGEST:
-            return self._create_memory_digest_agent(agent_id)
-        if normalized_type == TaskAgentType.DAILY_REPORT:
-            return self._create_daily_report_agent(agent_id)
         if self._create_default_agent is None:
             raise ValueError(f"Unsupported task agent type: {agent_type}")
         return self._create_default_agent(get_task_agent_type_value(agent_type), agent_id)

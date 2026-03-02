@@ -8,7 +8,6 @@ BACKEND_DIR="$PROJECT_ROOT/backend"
 PID_FILE="$BACKEND_DIR/.backend_uvicorn.pid"
 APP_CMD_PATTERN="uvicorn magi.backend_app:create_backend_app --host 0.0.0.0 --port 8000 --factory --app-dir src"
 FULL_CMD="python -m uvicorn magi.backend_app:create_backend_app --host 0.0.0.0 --port 8000 --factory --app-dir src --reload --env-file .env"
-LEGACY_APP_CMD_PATTERN="uvicorn src.magi.api.app:app --host 0.0.0.0 --port 8000"
 
 is_target_process() {
     local pid="$1"
@@ -17,7 +16,7 @@ is_target_process() {
     fi
     local cmd
     cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-    [[ "$cmd" == *"$APP_CMD_PATTERN"* || "$cmd" == *"$LEGACY_APP_CMD_PATTERN"* ]]
+    [[ "$cmd" == *"$APP_CMD_PATTERN"* ]]
 }
 
 stop_backend() {
@@ -45,12 +44,7 @@ stop_backend() {
 
     # 兜底：只清理命令签名匹配的进程，不按端口误杀
     local fallback_pids
-    fallback_pids="$(
-        {
-            pgrep -f "$APP_CMD_PATTERN" 2>/dev/null || true
-            pgrep -f "$LEGACY_APP_CMD_PATTERN" 2>/dev/null || true
-        } | sort -u
-    )"
+    fallback_pids="$(pgrep -f "$APP_CMD_PATTERN" 2>/dev/null || true)"
     if [[ -n "$fallback_pids" ]]; then
         echo "Stopping matched backend processes: $fallback_pids"
         while IFS= read -r fp; do

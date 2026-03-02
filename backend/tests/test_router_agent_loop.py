@@ -40,8 +40,6 @@ async def test_router_agent_loop_dispatches_batch_to_targets():
     sensor_hub = SensorHub(message_bus=message_bus)
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.CHAT, agent_id),
-        create_memory_digest_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.MEMORY_DIGEST, agent_id),
-        create_daily_report_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.DAILY_REPORT, agent_id),
     )
     await manager.start_all(action_executor=None)
     router_agent = RouterAgent(
@@ -66,10 +64,9 @@ async def test_router_agent_loop_dispatches_batch_to_targets():
     await asyncio.sleep(0.5)
     router_stats = router_agent.get_stats()
     assert manager.get_agent(TaskAgentType.CHAT, "u1") is not None
-    assert manager.get_agent(TaskAgentType.MEMORY_DIGEST, "default") is not None
     await router_agent.stop()
     await manager.stop_all()
     await sensor_hub.stop()
     await message_bus.stop()
 
-    assert router_stats["facts_written"] >= 2
+    assert router_stats["facts_written"] >= 1

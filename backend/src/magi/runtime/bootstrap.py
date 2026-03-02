@@ -16,7 +16,6 @@ from ..core.runtime import (
     RouterAgent,
     SensorHub,
     TaskAgentManager,
-    TaskAgentType,
 )
 from ..agent.task_agents import (
     ChatTaskAgent,
@@ -201,14 +200,6 @@ async def initialize_chat_agent():
                 other_memory=other_memory,
                 unified_memory=unified_memory,
                 memory_integration=_memory_integration,
-            ),
-            create_memory_digest_agent=lambda agent_id: DefaultTaskAgent(
-                TaskAgentType.MEMORY_DIGEST,
-                agent_id,
-            ),
-            create_daily_report_agent=lambda agent_id: DefaultTaskAgent(
-                TaskAgentType.DAILY_REPORT,
-                agent_id,
             ),
             create_default_agent=lambda agent_type, agent_id: DefaultTaskAgent(agent_type, agent_id),
         )

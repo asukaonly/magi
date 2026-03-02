@@ -22,7 +22,6 @@ from magi.core.runtime import (
     TaskAgentManager,
     TaskAgentType,
 )
-from magi.agent.task_agents import DailyReportTaskAgent, MemoryDigestTaskAgent
 from magi.core.runtime.contracts import FactRecord
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
@@ -66,8 +65,6 @@ async def test_runtime_chat_dispatch_from_message_bus():
     action_executor = ActionExecutor(message_bus=message_bus)
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: fake_chat if agent_id == "u-chat" else _FakeChatTaskAgent(),
-        create_memory_digest_agent=lambda agent_id: MemoryDigestTaskAgent(agent_id),
-        create_daily_report_agent=lambda agent_id: DailyReportTaskAgent(agent_id),
     )
     router_agent = RouterAgent(sensor_hub=sensor_hub, task_agent_manager=manager)
     orchestrator = AgentRuntime(
