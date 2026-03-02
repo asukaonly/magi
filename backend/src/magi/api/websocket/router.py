@@ -37,38 +37,46 @@ async def websocket_endpoint(websocket: WebSocket, manager: ConnectionManager) -
 
     try:
         while True:
-            # Receive client message
-            try:
-                data = await websocket.receive_json()
-                logger.debug("Received WebSocket message", sid=sid, data=data)
-            except Exception as e:
-                logger.warning("Failed to receive JSON", sid=sid, error=str(e))
-                # Try to receive text and parse
-                try:
-                    text_data = await websocket.receive_text()
-                    logger.debug("Received text", sid=sid, text=text_data)
-                    try:
-                        data = json.loads(text_data)
-                    except json.JSONDecodeError:
-                        logger.error("Invalid JSON format", sid=sid)
+            # Receive raw message and handle by type
+            message = await websocket.receive()
+
+            if message["type"] == "websocket.disconnect":
+                logger.info("WebSocket disconnect message received", sid=sid)
+                break
+
+            if message["type"] == "websocket.receive":
+                # Get text data
+                text_data = message.get("text")
+                if text_data is None:
+                    # Might be bytes, try to decode
+                    bytes_data = message.get("bytes")
+                    if bytes_data:
+                        text_data = bytes_data.decode("utf-8")
+                    else:
+                        logger.warning("Received empty message", sid=sid)
                         continue
-                except Exception as text_error:
-                    logger.error("Failed to receive text", sid=sid, error=str(text_error))
+
+                # Parse JSON
+                try:
+                    data = json.loads(text_data)
+                    logger.debug("Received WebSocket message", sid=sid, data=data)
+                except json.JSONDecodeError:
+                    logger.error("Invalid JSON format", sid=sid, text=text_data[:100])
                     continue
 
-            # Create context and dispatch to handler
-            ctx = WebSocketContext(sid=sid, websocket=websocket, manager=manager)
-            response = await handler_registry.dispatch(ctx, data)
+                # Create context and dispatch to handler
+                ctx = WebSocketContext(sid=sid, websocket=websocket, manager=manager)
+                response = await handler_registry.dispatch(ctx, data)
 
-            # Send response if provided
-            if response is not None:
-                await websocket.send_json(response)
+                # Send response if provided
+                if response is not None:
+                    await websocket.send_json(response)
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected (WebSocketDisconnect)", sid=sid)
-        manager.disconnect(sid)
     except Exception as e:
         logger.error("WebSocket error", sid=sid, error=str(e), exc_info=True)
+    finally:
         manager.disconnect(sid)
 
 
