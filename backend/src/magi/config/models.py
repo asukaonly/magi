@@ -32,7 +32,7 @@ class MemoryBackend(str, Enum):
 
 class EmbeddingBackend(str, Enum):
     """Embedding vector backend type."""
-    LOCAL = "local"
+    SQLITE_VEC = "sqlite_vec"
     OPENAI = "openai"
 
 
@@ -57,7 +57,7 @@ class LLMSettings(BaseModel):
 
 class EmbeddingSettings(BaseModel):
     """Embedding configuration."""
-    backend: EmbeddingBackend = Field(default=EmbeddingBackend.LOCAL)
+    backend: EmbeddingBackend = Field(default=EmbeddingBackend.SQLITE_VEC)
     local_model: str = Field(default="all-MiniLM-L6-v2")
     local_dimension: int = Field(default=384)
 

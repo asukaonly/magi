@@ -52,7 +52,7 @@ dependencies = [
     "redis>=5.0.1",
 
     # 向量数据库
-    "chromadb>=0.4.22",
+    "sqlite-vec>=0.1.6",
 
     # 图数据库
     "networkx>=3.2.1",

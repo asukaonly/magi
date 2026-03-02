@@ -1,100 +1,71 @@
-"""
-L3: event Semantics Layer
+"""L3 semantic embedding storage built on SQLite (sqlite-vec compatible)."""
 
-Store and retrieve event semantics using vector embeddings
-Supports semantic similarity search
+from __future__ import annotations
 
-Backend support:
-- Local: sentence-transformers
-- Remote: OpenAI/Anthropic Embedding API
-"""
-import logging
-import time
 import hashlib
-from typing import Dict, Any, List, Optional
+import json
+import logging
+import math
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import aiosqlite
 
 logger = logging.getLogger(__name__)
 
 
-class EventEmbedding:
-    """event vector embedding"""
-
-    def __init__(
-        self,
-        event_id: str,
-        embedding: List[float],
-        text: str = "",
-        metadata: Dict[str, Any] = None,
-    ):
-        self.event_id = event_id
-        self.embedding = embedding
-        self.text = text
-        self.metadata = metadata or {}
-        self.created_at = time.time()
-
-
 class EmbeddingBackend:
-    """Embedding backend base class"""
+    """Embedding generator interface."""
 
-    async def initialize(self):
-        """initialize backend"""
-        pass
+    async def initialize(self) -> None:
+        return None
 
     async def generate(self, text: str) -> List[float]:
-        """Generate vector"""
-        raise NotImplementederror
+        raise NotImplementedError
 
     @property
     def dimension(self) -> int:
-        """Vector dimension"""
-        raise NotImplementederror
+        raise NotImplementedError
 
 
 class LocalEmbeddingBackend(EmbeddingBackend):
-    """Local sentence-transformers backend"""
+    """Generates embeddings locally via sentence-transformers or hash fallback."""
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", dimension: int = 384):
         self.model_name = model_name
         self._dimension = dimension
         self._model = None
-        self._model_loaded = False
 
-    def _load_model(self):
-        """Load embedding model"""
-        if self._model_loaded:
+    async def initialize(self) -> None:
+        if self._model is not None:
             return
-
+        if self.model_name.lower() in {"hash", "dummy"}:
+            self._model = False
+            return
         try:
             from sentence_transformers import SentenceTransformer
-            logger.info(f"Loading local embedding model: {self.model_name}")
+
             self._model = SentenceTransformer(self.model_name)
-            self._dimension = self._model.get_sentence_embedding_dimension()
-            self._model_loaded = True
-            logger.info(f"Local embedding model loaded, dimension: {self._dimension}")
-        except ImportError:
-            logger.warning("sentence-transformers not installed, using dummy embeddings")
-            self._model = None
-            self._model_loaded = True
-        except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}")
-            self._model = None
-            self._model_loaded = True
+            self._dimension = int(self._model.get_sentence_embedding_dimension())
+            logger.info("Loaded local embedding model '%s' (%d dims)", self.model_name, self._dimension)
+        except Exception as exc:
+            logger.warning("Using hash embeddings because local model load failed: %s", exc)
+            self._model = False
 
     async def generate(self, text: str) -> List[float]:
-        """Generate vector"""
-        if not self._model_loaded:
-            self._load_model()
+        if self._model is None:
+            await self.initialize()
 
-        if self._model:
-            embedding = self._model.encode(text, convert_to_numpy=True).tolist()
-            return embedding
-        else:
-            # Generate simple hash vector as fallback
-            text_hash = hashlib.md5(text.encode()).digest()
-            # Extend to target dimension
-            while len(text_hash) < self._dimension // 8:
-                text_hash += hashlib.sha1(text.encode()).digest()
-            return [float(b) / 255.0 for b in text_hash[:self._dimension]]
+        payload = text.strip()
+        if not payload:
+            return [0.0] * self._dimension
+
+        if self._model and self._model is not False:
+            vector = self._model.encode(payload, convert_to_numpy=True).tolist()
+            return [float(x) for x in vector]
+
+        return _hash_embedding(payload, self._dimension)
 
     @property
     def dimension(self) -> int:
@@ -102,333 +73,214 @@ class LocalEmbeddingBackend(EmbeddingBackend):
 
 
 class RemoteEmbeddingBackend(EmbeddingBackend):
-    """Remote LLM API backend"""
+    """Generates embeddings through an LLM adapter."""
 
-    def __init__(
-        self,
-        llm_adapter,
-        model: str = "text-embedding-3-small",
-        dimension: int = 1536,
-    ):
-        """
-        initialize remote embedding backend
-
-        Args:
-            llm_adapter: LLM adapter instance
-            model: Model name
-            dimension: Vector dimension
-        """
+    def __init__(self, llm_adapter: Any, model: str = "text-embedding-3-small", dimension: int = 1536):
         self.llm_adapter = llm_adapter
         self.model = model
         self._dimension = dimension
 
-    async def initialize(self):
-        """initialize backend"""
-        # Set model if llm_adapter has embedding-related settings
-        if hasattr(self.llm_adapter, 'set_embedding_model'):
+    async def initialize(self) -> None:
+        if hasattr(self.llm_adapter, "set_embedding_model"):
             self.llm_adapter.set_embedding_model(self.model)
-        # Update actual dimension
-        if hasattr(self.llm_adapter, 'embedding_dimension'):
-            self._dimension = self.llm_adapter.embedding_dimension
+        if hasattr(self.llm_adapter, "embedding_dimension"):
+            self._dimension = int(getattr(self.llm_adapter, "embedding_dimension"))
 
     async def generate(self, text: str) -> List[float]:
-        """Generate vector"""
-        if not text or not text.strip():
+        payload = text.strip()
+        if not payload:
             return [0.0] * self._dimension
 
-        if not self.llm_adapter.supports_embeddings:
-            logger.warning("LLM adapter does not support embeddings, using dummy")
-            return self._dummy_embedding(text)
+        if not getattr(self.llm_adapter, "supports_embeddings", False):
+            return _hash_embedding(payload, self._dimension)
 
-        embedding = await self.llm_adapter.get_embedding(text, self.model)
-        if embedding is None:
-            return self._dummy_embedding(text)
-        return embedding
+        try:
+            vector = await self.llm_adapter.get_embedding(payload, self.model)
+        except Exception as exc:
+            logger.warning("Remote embedding generation failed, using hash fallback: %s", exc)
+            vector = None
 
-    def _dummy_embedding(self, text: str) -> List[float]:
-        """Generate simple hash vector as fallback"""
-        text_hash = hashlib.md5(text.encode()).digest()
-        while len(text_hash) < self._dimension // 8:
-            text_hash += hashlib.sha1(text.encode()).digest()
-        return [float(b) / 255.0 for b in text_hash[:self._dimension]]
+        if not vector:
+            return _hash_embedding(payload, self._dimension)
+        return [float(x) for x in vector]
 
     @property
     def dimension(self) -> int:
         return self._dimension
 
 
+class EventEmbedding:
+    """Compatibility data holder for embedding payloads."""
+
+    def __init__(self, event_id: str, embedding: List[float], text: str, metadata: Dict[str, Any], created_at: float):
+        self.event_id = event_id
+        self.embedding = embedding
+        self.text = text
+        self.metadata = metadata
+        self.created_at = created_at
+
+
 class eventEmbeddingStore:
-    """
-    event vector embedding store
+    """SQLite embedding store (sqlite-vec default backend)."""
 
-    Supports vector generation, storage and similarity search
-    """
-
-    def __init__(
-        self,
-        backend: EmbeddingBackend = None,
-        persist_path: str = None,
-    ):
-        """
-        initialize vector store
-
-        Args:
-            backend: Embedding backend (uses default local backend if not specified)
-            persist_path: persistence file path
-        """
+    def __init__(self, backend: Optional[EmbeddingBackend] = None, persist_path: Optional[str] = None):
         self.backend = backend or LocalEmbeddingBackend()
-        self.persist_path = persist_path
+        self.persist_path = str(Path(persist_path or "~/.magi/data/memories/embeddings.db").expanduser())
+        self._sqlite_vec_enabled = False
 
-        # Vector store: {event_id: EventEmbedding}
-        self._embeddings: Dict[str, EventEmbedding] = {}
-
-        # Text index (for regenerating embeddings)
-        self._text_index: Dict[str, str] = {}  # {event_id: text}
-
-        # Load persisted data
-        if persist_path:
-            self._load_from_disk()
-
-    async def initialize(self):
-        """initialize store"""
+    async def initialize(self) -> None:
+        Path(self.persist_path).parent.mkdir(parents=True, exist_ok=True)
         await self.backend.initialize()
-        logger.info(f"Embedding store initialized, dimension: {self.backend.dimension}")
+        await self._init_db()
 
-    async def _generate_embedding(self, text: str) -> List[float]:
-        """
-        Generate vector embedding for text
+    async def _init_db(self) -> None:
+        async with aiosqlite.connect(self.persist_path) as db:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_embeddings (
+                    event_id TEXT PRIMARY KEY,
+                    text TEXT NOT NULL,
+                    embedding TEXT NOT NULL,
+                    metadata TEXT,
+                    dimension INTEGER NOT NULL,
+                    created_at REAL NOT NULL
+                )
+                """
+            )
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_event_embeddings_created_at ON event_embeddings(created_at)")
+            await db.commit()
 
-        Args:
-            text: Input text
+        # Attempt loading sqlite-vec extension for environments that provide it.
+        self._sqlite_vec_enabled = await self._try_enable_sqlite_vec()
 
-        Returns:
-            Vector embedding
-        """
-        return await self.backend.generate(text)
+    async def _try_enable_sqlite_vec(self) -> bool:
+        extension_candidates = ["sqlite_vec", "vec0"]
+        try:
+            async with aiosqlite.connect(self.persist_path) as db:
+                await db.enable_load_extension(True)
+                for candidate in extension_candidates:
+                    try:
+                        await db.load_extension(candidate)
+                        logger.info("Loaded sqlite-vec extension: %s", candidate)
+                        return True
+                    except Exception:
+                        continue
+        except Exception:
+            return False
+        return False
 
-    async def add_event(
-        self,
-        event_id: str,
-        text: str,
-        metadata: Dict[str, Any] = None,
-    ) -> List[float]:
-        """
-        Add event and generate embedding
+    async def add_event(self, event_id: str, text: str, metadata: Optional[Dict[str, Any]] = None) -> List[float]:
+        embedding = await self.backend.generate(text)
+        created_at = time.time()
 
-        Args:
-            event_id: event id
-            text: event text content
-            metadata: metadata
-
-        Returns:
-            Generated vector embedding
-        """
-        embedding = await self._generate_embedding(text)
-
-        self._embeddings[event_id] = EventEmbedding(
-            event_id=event_id,
-            embedding=embedding,
-            text=text[:500],  # Save first 500 characters for regeneration
-            metadata=metadata or {},
-        )
-        self._text_index[event_id] = text
-
-        logger.debug(f"Embedding generated for event {event_id}")
+        async with aiosqlite.connect(self.persist_path) as db:
+            await db.execute(
+                """
+                INSERT INTO event_embeddings(event_id, text, embedding, metadata, dimension, created_at)
+                VALUES(?, ?, ?, ?, ?, ?)
+                ON CONFLICT(event_id) DO UPDATE SET
+                    text = excluded.text,
+                    embedding = excluded.embedding,
+                    metadata = excluded.metadata,
+                    dimension = excluded.dimension,
+                    created_at = excluded.created_at
+                """,
+                (
+                    event_id,
+                    text,
+                    json.dumps(embedding),
+                    json.dumps(metadata or {}),
+                    len(embedding),
+                    created_at,
+                ),
+            )
+            await db.commit()
 
         return embedding
 
-    async def similarity_search(
-        self,
-        query_text: str,
-        top_k: int = 10,
-        threshold: float = 0.0,
-    ) -> List[Dict[str, Any]]:
-        """
-        Semantic similarity search
+    async def remove_event(self, event_id: str) -> None:
+        async with aiosqlite.connect(self.persist_path) as db:
+            await db.execute("DELETE FROM event_embeddings WHERE event_id = ?", (event_id,))
+            await db.commit()
 
-        Args:
-            query_text: query text
-            top_k: Return top K results
-            threshold: Similarity threshold
+    async def similarity_search(self, query_text: str, top_k: int = 10, threshold: float = 0.0) -> List[Dict[str, Any]]:
+        query_embedding = await self.backend.generate(query_text)
+        rows = await self._load_all_rows()
 
-        Returns:
-            List of similar events
-        """
-        if not self._embeddings:
-            return []
-
-        # Generate query vector
-        query_embedding = await self._generate_embedding(query_text)
-
-        # Calculate cosine similarity
-        results = []
-        for event_id, emb in self._embeddings.items():
-            similarity = self._cosine_similarity(query_embedding, emb.embedding)
-
-            if similarity >= threshold:
-                results.append({
-                    "event_id": event_id,
+        results: List[Dict[str, Any]] = []
+        for row in rows:
+            event_embedding = json.loads(row[2])
+            similarity = _cosine_similarity(query_embedding, event_embedding)
+            if similarity < threshold:
+                continue
+            results.append(
+                {
+                    "event_id": row[0],
                     "similarity": similarity,
-                    "text": emb.text,
-                    "metadata": emb.metadata,
-                })
+                    "text": row[1],
+                    "metadata": json.loads(row[3]) if row[3] else {},
+                }
+            )
 
-        # Sort by similarity
-        results.sort(key=lambda x: x["similarity"], reverse=True)
-
+        results.sort(key=lambda item: item["similarity"], reverse=True)
         return results[:top_k]
 
-    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
-        """
-        Calculate cosine similarity
+    async def _load_all_rows(self) -> List[tuple]:
+        async with aiosqlite.connect(self.persist_path) as db:
+            cursor = await db.execute(
+                "SELECT event_id, text, embedding, metadata, created_at FROM event_embeddings"
+            )
+            return await cursor.fetchall()
 
-        Args:
-            vec1: Vector 1
-            vec2: Vector 2
+    async def get_embedding(self, event_id: str) -> Optional[List[float]]:
+        async with aiosqlite.connect(self.persist_path) as db:
+            cursor = await db.execute(
+                "SELECT embedding FROM event_embeddings WHERE event_id = ?",
+                (event_id,),
+            )
+            row = await cursor.fetchone()
+        return json.loads(row[0]) if row else None
 
-        Returns:
-            Similarity (0-1)
-        """
-        dot_product = sum(a * b for a, b in zip(vec1, vec2))
-        magnitude1 = sum(a * a for a in vec1) ** 0.5
-        magnitude2 = sum(b * b for b in vec2) ** 0.5
-
-        if magnitude1 * magnitude2 == 0:
-            return 0.0
-
-        return dot_product / (magnitude1 * magnitude2)
-
-    def get_embedding(self, event_id: str) -> Optional[List[float]]:
-        """
-        Get event embedding
-
-        Args:
-            event_id: event id
-
-        Returns:
-            Vector embedding
-        """
-        emb = self._embeddings.get(event_id)
-        return emb.embedding if emb else None
-
-    async def batch_add_events(
-        self,
-        events: List[Dict[str, Any]],
-        text_field: str = "content",
-    ):
-        """
-        Batch add events
-
-        Args:
-            events: List of events
-            text_field: Text field name
-        """
+    async def batch_add_events(self, events: List[Dict[str, Any]], text_field: str = "content") -> None:
         for event in events:
-            event_id = event.get("id", event.get("event_id", ""))
-            text = event.get(text_field, "") or str(event.get("data", {}))
+            event_id = str(event.get("id") or event.get("event_id") or "")
+            if not event_id:
+                continue
+            text = str(event.get(text_field) or event.get("data") or "").strip()
+            if not text:
+                continue
+            await self.add_event(
+                event_id=event_id,
+                text=text,
+                metadata={"event_type": str(event.get("type", "unknown"))},
+            )
 
-            if event_id and text:
-                await self.add_event(
-                    event_id=event_id,
-                    text=text,
-                    metadata={"event_type": event.get("type", "unknotttwn")},
-                )
+    def clear_old_embeddings(self, older_than_days: int = 30) -> int:
+        cutoff = time.time() - (older_than_days * 86400)
+        return _sync_delete_where(self.persist_path, "event_embeddings", cutoff)
 
-        logger.info(f"Added {len(events)} events to embedding store")
-
-    def clear_old_embeddings(self, older_than_days: int = 30):
-        """
-        Clear old embedding data
-
-        Args:
-            older_than_days: Number of days ago to clear data
-        """
-        cutoff_time = time.time() - (older_than_days * 86400)
-        ids_to_remove = []
-
-        for event_id, emb in self._embeddings.items():
-            if emb.created_at < cutoff_time:
-                ids_to_remove.append(event_id)
-
-        for event_id in ids_to_remove:
-            del self._embeddings[event_id]
-            if event_id in self._text_index:
-                del self._text_index[event_id]
-
-        logger.info(f"Cleared {len(ids_to_remove)} old embeddings")
+    def clear(self) -> int:
+        return _sync_clear_table(self.persist_path, "event_embeddings")
 
     def get_statistics(self) -> Dict[str, Any]:
-        """Get statistics"""
+        total = _sync_count(self.persist_path, "event_embeddings")
         return {
-            "total_embeddings": len(self._embeddings),
+            "total_embeddings": total,
             "dimension": self.backend.dimension,
-            "backend": self.backend.__class__.__name__,
+            "backend": "sqlite_vec",
+            "sqlite_vec_enabled": self._sqlite_vec_enabled,
+            "db_path": self.persist_path,
         }
 
-    def _save_to_disk(self):
-        """persist to disk"""
-        if not self.persist_path:
-            return
+    # compatibility methods used by legacy callers
+    def _save_to_disk(self) -> None:
+        return None
 
-        try:
-            import json
-            data = {
-                "embeddings": {
-                    event_id: {
-                        "embedding": emb.embedding,
-                        "text": emb.text,
-                        "metadata": emb.metadata,
-                        "created_at": emb.created_at,
-                    }
-                    for event_id, emb in self._embeddings.items()
-                },
-                "dimension": self.backend.dimension,
-            }
-
-            with open(self.persist_path, "w") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
-            logger.debug(f"Embeddings saved to {self.persist_path}")
-        except Exception as e:
-            logger.error(f"Failed to save embeddings: {e}")
-
-    def _load_from_disk(self):
-        """Load from disk"""
-        if not self.persist_path:
-            return
-
-        try:
-            import json
-            from pathlib import Path
-
-            path = Path(self.persist_path)
-            if not path.exists():
-                return
-
-            with open(self.persist_path, "r") as f:
-                data = json.load(f)
-
-            for event_id, emb_data in data.get("embeddings", {}).items():
-                self._embeddings[event_id] = EventEmbedding(
-                    event_id=event_id,
-                    embedding=emb_data["embedding"],
-                    text=emb_data.get("text", ""),
-                    metadata=emb_data.get("metadata", {}),
-                )
-                self._embeddings[event_id].created_at = emb_data.get("created_at", time.time())
-                self._text_index[event_id] = emb_data.get("text", "")
-
-            logger.info(f"Embeddings loaded from {self.persist_path}")
-        except Exception as e:
-            logger.warning(f"Failed to load embeddings: {e}")
+    _save = _save_to_disk
 
 
 class HybrideventSearch:
-    """
-    Hybrid event search
-
-    Combines keyword search and semantic search
-    """
+    """Combines semantic score and keyword score."""
 
     def __init__(self, embedding_store: eventEmbeddingStore):
         self.embedding_store = embedding_store
@@ -440,154 +292,170 @@ class HybrideventSearch:
         semantic_weight: float = 0.7,
         keyword_weight: float = 0.3,
     ) -> List[Dict[str, Any]]:
-        """
-        Hybrid search
+        semantic_results = await self.embedding_store.similarity_search(query_text=query, top_k=top_k * 3, threshold=0.0)
+        keyword_results = await self._keyword_search(query, top_k=top_k * 3)
+        merged = self._merge_results(semantic_results, keyword_results, semantic_weight, keyword_weight)
+        return merged[:top_k]
 
-        Args:
-            query: query text
-            top_k: Return top K results
-            semantic_weight: Semantic search weight
-            keyword_weight: Keyword search weight
+    async def _keyword_search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+        query_text = query.strip().lower()
+        if not query_text:
+            return []
 
-        Returns:
-            Search results
-        """
-        # Semantic search
-        semantic_results = await self.embedding_store.similarity_search(
-            query_text=query,
-            top_k=top_k * 2,
-            threshold=0.3,
-        )
-
-        # Keyword search
-        keyword_results = self._keyword_search(query, top_k=top_k * 2)
-
-        # Merge results
-        combined = self._combine_results(
-            semantic_results,
-            keyword_results,
-            semantic_weight,
-            keyword_weight,
-        )
-
-        return combined[:top_k]
-
-    def _keyword_search(
-        self,
-        query: str,
-        top_k: int = 10,
-    ) -> List[Dict[str, Any]]:
-        """Keyword search"""
-        query_lower = query.lower()
-        results = []
-
-        for event_id, emb in self.embedding_store._embeddings.items():
-            text_lower = emb.text.lower()
-
-            # Simple keyword matching
-            if query_lower in text_lower:
-                # Calculate match score
-                score = len(query_lower) / len(text_lower)
-                results.append({
+        rows = await self.embedding_store._load_all_rows()
+        matches: List[Dict[str, Any]] = []
+        for event_id, text, _embedding, metadata, _created_at in rows:
+            text_value = (text or "").lower()
+            if query_text not in text_value:
+                continue
+            score = len(query_text) / max(len(text_value), 1)
+            matches.append(
+                {
                     "event_id": event_id,
                     "similarity": score,
-                    "text": emb.text,
-                    "metadata": emb.metadata,
-                })
-
-        results.sort(key=lambda x: x["similarity"], reverse=True)
-        return results[:top_k]
-
-    def _combine_results(
-        self,
-        semantic_results: List[Dict],
-        keyword_results: List[Dict],
-        semantic_weight: float,
-        keyword_weight: float,
-    ) -> List[Dict]:
-        """Combine search results"""
-        combined = {}
-
-        # Add semantic search results
-        for result in semantic_results:
-            event_id = result["event_id"]
-            combined[event_id] = {
-                "event_id": event_id,
-                "semantic_score": result["similarity"],
-                "keyword_score": 0.0,
-                "text": result["text"],
-                "metadata": result["metadata"],
-            }
-
-        # Add keyword search results
-        for result in keyword_results:
-            event_id = result["event_id"]
-            if event_id in combined:
-                combined[event_id]["keyword_score"] = result["similarity"]
-            else:
-                combined[event_id] = {
-                    "event_id": event_id,
-                    "semantic_score": 0.0,
-                    "keyword_score": result["similarity"],
-                    "text": result["text"],
-                    "metadata": result["metadata"],
+                    "text": text,
+                    "metadata": json.loads(metadata) if metadata else {},
                 }
-
-        # Calculate combined score
-        for result in combined.values():
-            result["combined_score"] = (
-                result["semantic_score"] * semantic_weight +
-                result["keyword_score"] * keyword_weight
             )
 
-        # Sort
-        results = list(combined.values())
-        results.sort(key=lambda x: x["combined_score"], reverse=True)
+        matches.sort(key=lambda item: item["similarity"], reverse=True)
+        return matches[:top_k]
 
+    def _merge_results(
+        self,
+        semantic_results: List[Dict[str, Any]],
+        keyword_results: List[Dict[str, Any]],
+        semantic_weight: float,
+        keyword_weight: float,
+    ) -> List[Dict[str, Any]]:
+        merged: Dict[str, Dict[str, Any]] = {}
+
+        for item in semantic_results:
+            merged[item["event_id"]] = {
+                "event_id": item["event_id"],
+                "text": item.get("text", ""),
+                "metadata": item.get("metadata", {}),
+                "semantic_score": float(item.get("similarity", 0.0)),
+                "keyword_score": 0.0,
+            }
+
+        for item in keyword_results:
+            event_id = item["event_id"]
+            if event_id not in merged:
+                merged[event_id] = {
+                    "event_id": event_id,
+                    "text": item.get("text", ""),
+                    "metadata": item.get("metadata", {}),
+                    "semantic_score": 0.0,
+                    "keyword_score": 0.0,
+                }
+            merged[event_id]["keyword_score"] = float(item.get("similarity", 0.0))
+
+        results = []
+        for item in merged.values():
+            combined = item["semantic_score"] * semantic_weight + item["keyword_score"] * keyword_weight
+            results.append(
+                {
+                    "event_id": item["event_id"],
+                    "text": item["text"],
+                    "metadata": item["metadata"],
+                    "semantic_score": item["semantic_score"],
+                    "keyword_score": item["keyword_score"],
+                    "combined_score": combined,
+                    "similarity": combined,
+                }
+            )
+
+        results.sort(key=lambda row: row["combined_score"], reverse=True)
         return results
 
 
 def create_embedding_store(
-    backend: str = "local",
-    llm_adapter=None,
+    backend: str = "sqlite_vec",
+    llm_adapter: Any = None,
     local_model: str = "all-MiniLM-L6-v2",
     local_dimension: int = 384,
     remote_model: str = "text-embedding-3-small",
     remote_dimension: int = 1536,
-    persist_path: str = None,
+    persist_path: Optional[str] = None,
 ) -> eventEmbeddingStore:
-    """
-    Factory function to create embedding store
-
-    Args:
-        backend: Backend type (local, openai, anthropic)
-        llm_adapter: LLM adapter (required for remote backend)
-        local_model: Local model name
-        local_dimension: Local vector dimension
-        remote_model: Remote model name
-        remote_dimension: Remote vector dimension
-        persist_path: persistence path
-
-    Returns:
-        eventEmbeddingStore instance
-    """
-    if backend == "local":
-        embedding_backend = LocalEmbeddingBackend(local_model, local_dimension)
-    elif backend in ("openai", "anthropic"):
-        if not llm_adapter:
-            logger.warning(f"LLM adapter not provided for {backend}, falling back to local")
-            embedding_backend = LocalEmbeddingBackend(local_model, local_dimension)
-        else:
-            embedding_backend = RemoteEmbeddingBackend(
-                llm_adapter=llm_adapter,
-                model=remote_model,
-                dimension=remote_dimension,
-            )
+    """Factory for sqlite-backed embedding stores."""
+    backend = (backend or "sqlite_vec").lower()
+    if backend in {"openai", "anthropic"} and llm_adapter is not None:
+        embedding_backend: EmbeddingBackend = RemoteEmbeddingBackend(
+            llm_adapter=llm_adapter,
+            model=remote_model,
+            dimension=remote_dimension,
+        )
     else:
-        logger.warning(f"Unknotttwn backend {backend}, using local")
-        embedding_backend = LocalEmbeddingBackend(local_model, local_dimension)
+        embedding_backend = LocalEmbeddingBackend(model_name=local_model, dimension=local_dimension)
 
-    return eventEmbeddingStore(
-        backend=embedding_backend,
-        persist_path=persist_path,
-    )
+    return eventEmbeddingStore(backend=embedding_backend, persist_path=persist_path)
+
+
+def _hash_embedding(text: str, dimension: int) -> List[float]:
+    seed = hashlib.sha256(text.encode("utf-8")).digest()
+    buf = bytearray(seed)
+    while len(buf) < dimension:
+        buf.extend(hashlib.sha256(bytes(buf[-32:])).digest())
+    return [float(value) / 255.0 for value in buf[:dimension]]
+
+
+def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    if not vec1 or not vec2:
+        return 0.0
+    limit = min(len(vec1), len(vec2))
+    if limit == 0:
+        return 0.0
+
+    dot = 0.0
+    norm1 = 0.0
+    norm2 = 0.0
+    for i in range(limit):
+        a = float(vec1[i])
+        b = float(vec2[i])
+        dot += a * b
+        norm1 += a * a
+        norm2 += b * b
+
+    denom = math.sqrt(norm1) * math.sqrt(norm2)
+    if denom <= 0:
+        return 0.0
+    return dot / denom
+
+
+def _sync_count(db_path: str, table: str) -> int:
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(f"SELECT COUNT(*) FROM {table}")
+    total = int(cur.fetchone()[0])
+    conn.close()
+    return total
+
+
+def _sync_clear_table(db_path: str, table: str) -> int:
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(f"SELECT COUNT(*) FROM {table}")
+    total = int(cur.fetchone()[0])
+    cur.execute(f"DELETE FROM {table}")
+    conn.commit()
+    conn.close()
+    return total
+
+
+def _sync_delete_where(db_path: str, table: str, created_at_cutoff: float) -> int:
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(f"SELECT COUNT(*) FROM {table} WHERE created_at < ?", (created_at_cutoff,))
+    total = int(cur.fetchone()[0])
+    cur.execute(f"DELETE FROM {table} WHERE created_at < ?", (created_at_cutoff,))
+    conn.commit()
+    conn.close()
+    return total

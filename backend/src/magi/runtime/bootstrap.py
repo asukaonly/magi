@@ -165,7 +165,7 @@ async def initialize_chat_agent():
             enable_summaries=True,
             enable_capabilities=True,
             embedding_config={
-                "backend": "local",
+                "backend": config.agent.memory.embedding.backend.value,
                 "local_model": config.agent.memory.embedding.local_model,
                 "local_dimension": config.agent.memory.embedding.local_dimension,
             },

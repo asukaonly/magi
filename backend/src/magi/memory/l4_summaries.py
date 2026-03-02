@@ -1,44 +1,33 @@
-"""
-Internal note.
+"""L4 summary storage for multi-time-granularity memory digests."""
 
-Internal note.
-Internal note.
-"""
+from __future__ import annotations
+
+import json
 import logging
 import time
-from typing import Dict, Any, List, Optional
-from datetime import datetime
 from collections import defaultdict
-import json
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, DefaultDict, Dict, List, Optional
+
+import aiosqlite
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
 class EventSummary:
-    """eventsummary"""
-
-    def __init__(
-        self,
-        period_type: str,  # hour, day, week, month
-        period_key: str,     # 时间窗口identifier，如 "2024-01-01-12"
-        start_time: float,
-        end_time: float,
-        event_count: int,
-        summary: str,
-        event_types: Dict[str, int],
-        metrics: Dict[str, Any],
-        key_events: List[Dict[str, Any]],
-    ):
-        self.period_type = period_type
-        self.period_key = period_key
-        self.start_time = start_time
-        self.end_time = end_time
-        self.event_count = event_count
-        self.summary = summary
-        self.event_types = event_types
-        self.metrics = metrics
-        self.key_events = key_events
-        self.created_at = time.time()
+    period_type: str
+    period_key: str
+    start_time: float
+    end_time: float
+    event_count: int
+    summary: str
+    event_types: Dict[str, int]
+    metrics: Dict[str, Any]
+    key_events: List[Dict[str, Any]]
+    created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -55,151 +44,179 @@ class EventSummary:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EventSummary":
-        return cls(**data)
+    def from_dict(cls, payload: Dict[str, Any]) -> "EventSummary":
+        return cls(
+            period_type=str(payload["period_type"]),
+            period_key=str(payload["period_key"]),
+            start_time=float(payload["start_time"]),
+            end_time=float(payload["end_time"]),
+            event_count=int(payload["event_count"]),
+            summary=str(payload["summary"]),
+            event_types=dict(payload.get("event_types", {})),
+            metrics=dict(payload.get("metrics", {})),
+            key_events=list(payload.get("key_events", [])),
+            created_at=float(payload.get("created_at", time.time())),
+        )
 
 
 class SummaryStore:
-    """
-    summarystorage
+    """Aggregates events into hour/day/week/month summaries."""
 
-    Internal note.
-    """
+    def __init__(self, persist_path: Optional[str] = None):
+        self.persist_path = str(Path(persist_path or "~/.magi/data/memories/summaries.db").expanduser())
+        self._summaries: DefaultDict[str, Dict[str, EventSummary]] = defaultdict(dict)
+        self._event_cache: DefaultDict[str, DefaultDict[str, List[Dict[str, Any]]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
+        # compatibility alias used by old API code
+        self._event_buffers = self._event_cache
+        self._initialized = False
 
-    def __init__(self, persist_path: str = None):
-        """
-        initializesummarystorage
+    async def initialize(self) -> None:
+        if self._initialized:
+            return
 
-        Args:
-            Internal note.
-        """
-        self.persist_path = persist_path
+        Path(self.persist_path).parent.mkdir(parents=True, exist_ok=True)
+        async with aiosqlite.connect(self.persist_path) as db:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS summaries (
+                    period_type TEXT NOT NULL,
+                    period_key TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY(period_type, period_key)
+                )
+                """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_summaries_created_at ON summaries(created_at)"
+            )
+            await db.commit()
 
-        # summarystorage：{period_type: {period_key: EventSummary}}
-        self._summaries: Dict[str, Dict[str, EventSummary]] = defaultdict(dict)
+            cursor = await db.execute("SELECT payload FROM summaries")
+            rows = await cursor.fetchall()
 
-        # eventcache：{period_type: {period_key: [events]}}
-        self._event_cache: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+        for (payload_text,) in rows:
+            summary = EventSummary.from_dict(json.loads(payload_text))
+            self._summaries[summary.period_type][summary.period_key] = summary
 
-        # Internal note.
-        if persist_path:
-            self._load_from_disk()
+        self._initialized = True
 
-    def add_event(self, event: Dict[str, Any]):
-        """
-        Internal note.
-
-        Args:
-            event: eventdata
-        """
-        event_timestamp = event.get("timestamp", time.time())
-
-        # Internal note.
-        for period_type in ["hour", "day", "week", "month"]:
-            period_key = self._get_period_key(event_timestamp, period_type)
-            self._event_cache[period_type][period_key].append(event)
-
-            # limitationcachesize
-            if len(self._event_cache[period_type][period_key]) > 1000:
-                self._event_cache[period_type][period_key] = \
-                    self._event_cache[period_type][period_key][-1000:]
+    def add_event(self, event: Dict[str, Any]) -> None:
+        """Adds an event to in-memory aggregation buffers."""
+        ts = float(event.get("timestamp", time.time()))
+        for period_type in ("hour", "day", "week", "month"):
+            key = self._get_period_key(ts, period_type)
+            self._event_cache[period_type][key].append(dict(event))
+            if len(self._event_cache[period_type][key]) > 5000:
+                self._event_cache[period_type][key] = self._event_cache[period_type][key][-5000:]
 
     def generate_summary(
         self,
         period_type: str,
-        period_key: str = None,
+        period_key: Optional[str] = None,
         force: bool = False,
     ) -> Optional[EventSummary]:
-        """
-        Internal note.
+        """Generates or returns cached summary for a period."""
+        if period_type not in {"hour", "day", "week", "month"}:
+            return None
 
-        Args:
-            Internal note.
-            Internal note.
-            Internal note.
+        key = period_key or self._get_period_key(time.time(), period_type)
+        if not force and key in self._summaries[period_type]:
+            return self._summaries[period_type][key]
 
-        Returns:
-            eventsummary
-        """
-        if not period_key:
-            period_key = self._get_period_key(time.time(), period_type)
-
-        # Internal note.
-        if not force and period_key in self._summaries[period_type]:
-            return self._summaries[period_type][period_key]
-
-        # Internal note.
-        events = self._event_cache[period_type].get(period_key, [])
+        events = self._event_cache[period_type].get(key, [])
         if not events:
             return None
 
-        # generationsummary
-        summary = self._generate_summary_from_events(events, period_type, period_key)
-
-        # storagesummary
-        self._summaries[period_type][period_key] = summary
-
-        # Internal note.
-        if self.persist_path:
-            self._save_to_disk()
-
-        logger.info(f"Summary generated: {period_type}/{period_key} ({len(events)} events)")
-
+        summary = self._build_summary(period_type, key, events)
+        self._summaries[period_type][key] = summary
+        self._persist_summary(summary)
         return summary
 
-    def _generate_summary_from_events(
-        self,
-        events: List[Dict[str, Any]],
-        period_type: str,
-        period_key: str,
-    ) -> EventSummary:
-        """
-        Internal note.
+    def get_summary(self, period_type: str, period_key: Optional[str] = None) -> Optional[EventSummary]:
+        key = period_key or self._get_period_key(time.time(), period_type)
+        return self._summaries.get(period_type, {}).get(key)
 
-        Args:
-            events: eventlist
-            Internal note.
-            Internal note.
+    def get_summaries(self, period_type: str, limit: int = 10) -> List[EventSummary]:
+        items = list(self._summaries.get(period_type, {}).values())
+        items.sort(key=lambda item: item.end_time, reverse=True)
+        return items[:limit]
 
-        Returns:
-            eventsummary
-        """
-        if not events:
-            return None
+    def clear_old_summaries(self, older_than_months: int = 12) -> int:
+        cutoff = time.time() - (older_than_months * 30 * 86400)
+        removed = 0
 
-        # analysisevent
-        event_types = defaultdict(int)
-        key_events = []
+        for period_type in list(self._summaries.keys()):
+            old_keys = [
+                key
+                for key, summary in self._summaries[period_type].items()
+                if summary.end_time < cutoff
+            ]
+            for key in old_keys:
+                del self._summaries[period_type][key]
+                removed += 1
+
+        _sync_delete_old(self.persist_path, cutoff)
+        return removed
+
+    def clear(self) -> int:
+        total = sum(len(items) for items in self._summaries.values())
+        self._summaries.clear()
+        self._event_cache.clear()
+        _sync_clear_all(self.persist_path)
+        return total
+
+    def get_statistics(self) -> Dict[str, Any]:
+        counts = {period_type: len(period_map) for period_type, period_map in self._summaries.items()}
+        return {
+            "summary_counts": counts,
+            "total_summaries": sum(counts.values()),
+            "buffered_periods": {
+                period_type: len(period_map)
+                for period_type, period_map in self._event_cache.items()
+            },
+            "db_path": self.persist_path,
+        }
+
+    def _build_summary(self, period_type: str, period_key: str, events: List[Dict[str, Any]]) -> EventSummary:
+        event_types: Dict[str, int] = defaultdict(int)
+        key_events: List[Dict[str, Any]] = []
         error_count = 0
+        timestamps: List[float] = []
 
         for event in events:
-            event_type = event.get("type", "unknotttwn")
+            event_type = str(event.get("type", "unknown"))
             event_types[event_type] += 1
+            ts = float(event.get("timestamp", 0.0))
+            timestamps.append(ts)
 
-            # Internal note.
-            if event.get("level") in ["EMERGENCY", "HIGH"] or event_type == "errorOccurred":
-                key_events.append({
-                    "timestamp": event.get("timestamp", 0),
-                    "type": event_type,
-                    "data": event.get("data", {}),
-                })
+            level = event.get("level", 1)
+            if isinstance(level, str):
+                level_text = level.upper()
+                level_value = 3 if level_text in {"ERROR", "CRITICAL", "EMERGENCY"} else 1
+            else:
+                level_value = int(level)
 
-            if event_type == "errorOccurred":
+            if level_value >= 3 or event_type.lower() in {"erroroccurred", "system_error"}:
+                key_events.append(
+                    {
+                        "timestamp": ts,
+                        "type": event_type,
+                        "data": event.get("data", {}),
+                    }
+                )
                 error_count += 1
 
-        # Internal note.
-        timestamps = [e.get("timestamp", 0) for e in events]
         start_time = min(timestamps) if timestamps else time.time()
         end_time = max(timestamps) if timestamps else time.time()
 
-        # Internal note.
-        summary_text = self._generate_text_summary(events, period_type, period_key, event_types)
-
-        # calculatemetric
+        summary_text = self._render_summary_text(period_type, period_key, events, event_types, key_events)
         metrics = {
-            "duration_hours": (end_time - start_time) / 3600,
-            "error_rate": error_count / len(events) if events else 0,
-            "most_common_type": max(event_types.items(), key=lambda x: x[1])[0] if event_types else "unknotttwn",
+            "duration_hours": max(0.0, (end_time - start_time) / 3600),
+            "error_rate": (error_count / len(events)) if events else 0.0,
+            "most_common_type": max(event_types.items(), key=lambda item: item[1])[0] if event_types else "unknown",
         }
 
         return EventSummary(
@@ -211,241 +228,115 @@ class SummaryStore:
             summary=summary_text,
             event_types=dict(event_types),
             metrics=metrics,
-            key_events=key_events[:10],  # 最多10个关keyevent
+            key_events=key_events[:10],
         )
 
-    def _generate_text_summary(
+    def _render_summary_text(
         self,
-        events: List[Dict[str, Any]],
         period_type: str,
         period_key: str,
+        events: List[Dict[str, Any]],
         event_types: Dict[str, int],
+        key_events: List[Dict[str, Any]],
     ) -> str:
-        """
-        Internal note.
+        lines = [f"# {period_type} summary ({period_key})", f"- total events: {len(events)}"]
+        if events:
+            lines.append(
+                "- time range: "
+                f"{datetime.fromtimestamp(float(events[0].get('timestamp', 0.0))).isoformat()}"
+                " -> "
+                f"{datetime.fromtimestamp(float(events[-1].get('timestamp', 0.0))).isoformat()}"
+            )
 
-        Args:
-            events: eventlist
-            Internal note.
-            Internal note.
-            event_types: eventtypestatistics
+        lines.append("- event distribution:")
+        for event_type, count in sorted(event_types.items(), key=lambda item: item[1], reverse=True):
+            lines.append(f"  - {event_type}: {count}")
 
-        Returns:
-            Internal note.
-        """
-        lines = []
-
-        # Title
-        period_name = self._format_period_name(period_type, period_key)
-        lines.append(f"# {period_name} summary")
-
-        # Internal note.
-        lines.append(f"- 总event数: {len(events)}")
-        lines.append(f"- 时间range: {self._format_timestamp(events[0].get('timestamp', 0))} - {self._format_timestamp(events[-1].get('timestamp', 0))}")
-
-        # Internal note.
-        if event_types:
-            lines.append("- eventtype分布:")
-            for event_type, count in sorted(event_types.items(), key=lambda x: x[1], reverse=True):
-                lines.append(f"  - {event_type}: {count}")
-
-        # Internal note.
-        key_events = [e for e in events if e.get("level") in ["EMERGENCY", "HIGH"]]
         if key_events:
-            lines.append("- 关keyevent:")
+            lines.append("- key events:")
             for event in key_events[:5]:
-                timestamp = datetime.fromtimestamp(event.get("timestamp", 0)).strftime("%H:%M:%S")
-                lines.append(f"  - [{timestamp}] {event.get('type', 'unknotttwn')}")
-
-        # errorstatistics
-        error_count = event_types.get("errorOccurred", 0)
-        if error_count > 0:
-            lines.append(f"⚠️  error数: {error_count}")
+                ts = datetime.fromtimestamp(float(event.get("timestamp", 0.0))).strftime("%Y-%m-%d %H:%M:%S")
+                lines.append(f"  - [{ts}] {event.get('type', 'unknown')}")
 
         return "\n".join(lines)
 
-    def get_summary(
-        self,
-        period_type: str,
-        period_key: str = None,
-    ) -> Optional[EventSummary]:
-        """
-        getsummary
+    def _persist_summary(self, summary: EventSummary) -> None:
+        import sqlite3
 
-        Args:
-            Internal note.
-            Internal note.
-
-        Returns:
-            eventsummary
-        """
-        if not period_key:
-            period_key = self._get_period_key(time.time(), period_type)
-
-        return self._summaries[period_type].get(period_key)
-
-    def get_summaries(
-        self,
-        period_type: str,
-        limit: int = 10,
-    ) -> List[EventSummary]:
-        """
-        Internal note.
-
-        Args:
-            Internal note.
-            limit: quantitylimitation
-
-        Returns:
-            Internal note.
-        """
-        summaries = list(self._summaries[period_type].values())
-        summaries.sort(key=lambda s: s.end_time, reverse=True)
-        return summaries[:limit]
+        conn = sqlite3.connect(self.persist_path)
+        cur = conn.cursor()
+        payload = json.dumps(summary.to_dict(), ensure_ascii=False)
+        cur.execute(
+            """
+            INSERT INTO summaries(period_type, period_key, payload, created_at)
+            VALUES(?, ?, ?, ?)
+            ON CONFLICT(period_type, period_key) DO UPDATE SET
+                payload = excluded.payload,
+                created_at = excluded.created_at
+            """,
+            (summary.period_type, summary.period_key, payload, summary.created_at),
+        )
+        conn.commit()
+        conn.close()
 
     def _get_period_key(self, timestamp: float, period_type: str) -> str:
-        """get时间窗口identifier"""
         dt = datetime.fromtimestamp(timestamp)
-
         if period_type == "hour":
             return dt.strftime("%Y-%m-%d-%H")
-        elif period_type == "day":
+        if period_type == "day":
             return dt.strftime("%Y-%m-%d")
-        elif period_type == "week":
-            # Internal note.
+        if period_type == "week":
             year, week, _ = dt.isocalendar()
             return f"{year}-W{week:02d}"
-        elif period_type == "month":
+        if period_type == "month":
             return dt.strftime("%Y-%m")
-        else:
-            return "unknotttwn"
+        raise ValueError(f"Unsupported period type: {period_type}")
 
-    def _format_period_name(self, period_type: str, period_key: str) -> str:
-        """format化时间窗口Name"""
-        if period_type == "hour":
-            return f"hours ({period_key})"
-        elif period_type == "day":
-            return f"日期 ({period_key})"
-        elif period_type == "week":
-            return f"weeks ({period_key})"
-        elif period_type == "month":
-            return f"months ({period_key})"
-        else:
-            return period_key
+    # compatibility helpers expected by previous callers
+    def _save_to_disk(self) -> None:
+        return None
 
-    def _format_timestamp(self, timestamp: float) -> str:
-        """format化timestamp"""
-        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-
-    def _save_to_disk(self):
-        """持久化到磁盘"""
-        if not self.persist_path:
-            return
-
-        try:
-            data = {
-                "summaries": {
-                    pt: {
-                        pk: summary.to_dict()
-                        for pk, summary in summaries.items()
-                    }
-                    for pt, summaries in self._summaries.items()
-                }
-            }
-
-            with open(self.persist_path, "w") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
-            logger.debug(f"Summaries saved to {self.persist_path}")
-        except Exception as e:
-            logger.error(f"Failed to save summaries: {e}")
-
-    def _load_from_disk(self):
-        """从磁盘load"""
-        if not self.persist_path:
-            return
-
-        try:
-            from pathlib import Path
-            path = Path(self.persist_path)
-            if not path.exists():
-                return
-
-            with open(self.persist_path, "r") as f:
-                data = json.load(f)
-
-            summaries_data = data.get("summaries", {})
-            for period_type, summaries in summaries_data.items():
-                for period_key, summary_data in summaries.items():
-                    self._summaries[period_type][period_key] = EventSummary.from_dict(summary_data)
-
-            logger.info(f"Summaries loaded from {self.persist_path}")
-        except Exception as e:
-            logger.warning(f"Failed to load summaries: {e}")
-
-    def clear_old_summaries(self, older_than_months: int = 12):
-        """
-        Internal note.
-
-        Args:
-            Internal note.
-        """
-        cutoff_time = time.time() - (older_than_months * 30 * 86400)
-
-        for period_type, summaries in self._summaries.items():
-            keys_to_remove = []
-            for key, summary in summaries.items():
-                if summary.end_time < cutoff_time:
-                    keys_to_remove.append(key)
-
-            for key in keys_to_remove:
-                del summaries[key]
-
-        logger.info(f"Cleared {sum(len(v) for v in self._summaries.values())} old summaries")
-
-    def get_statistics(self) -> Dict[str, Any]:
-        """getstatisticsinfo"""
-        summary_counts = {
-            period_type: len(summaries)
-            for period_type, summaries in self._summaries.items()
-        }
-
-        return {
-            "summary_counts": summary_counts,
-            "total_summaries": sum(summary_counts.values()),
-        }
+    _save = _save_to_disk
 
 
 class AutoSummarizer:
-    """
-    Internal note.
-
-    Internal note.
-    """
+    """Background summary helper."""
 
     def __init__(self, summary_store: SummaryStore):
         self.summary_store = summary_store
         self._running = False
 
-    async def start(self):
-        """启动自动summarygeneration"""
+    async def start(self) -> None:
+        if not self._running:
+            await self.summary_store.initialize()
         self._running = True
-        logger.info("Auto summarizer started")
 
-    def stop(self):
-        """stop自动summarygeneration"""
+    def stop(self) -> None:
         self._running = False
-        logger.info("Auto summarizer stopped")
 
-    async def generate_all_pending(self):
-        """generationallpending的summary"""
-        notttw = time.time()
+    async def generate_all_pending(self) -> None:
+        now = time.time()
+        for period_type in ("hour", "day", "week", "month"):
+            key = self.summary_store._get_period_key(now, period_type)
+            if key not in self.summary_store._summaries.get(period_type, {}):
+                self.summary_store.generate_summary(period_type=period_type, period_key=key)
 
-        for period_type in ["hour", "day", "week"]:
-            period_key = self.summary_store._get_period_key(notttw, period_type)
 
-            # Internal note.
-            if period_key not in self.summary_store._summaries[period_type]:
-                self.summary_store.generate_summary(period_type, period_key)
+def _sync_delete_old(db_path: str, cutoff: float) -> None:
+    import sqlite3
 
-        logger.info("All pending summaries generated")
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM summaries WHERE created_at < ?", (cutoff,))
+    conn.commit()
+    conn.close()
+
+
+def _sync_clear_all(db_path: str) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM summaries")
+    conn.commit()
+    conn.close()
