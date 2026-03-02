@@ -84,7 +84,7 @@ const NumberField: React.FC<{
 );
 
 export const SettingsPage: React.FC = () => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
   const [config, setConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -236,20 +236,12 @@ export const SettingsPage: React.FC = () => {
                   { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
                   { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
                 ]}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.preferences.language = value as SystemConfig['preferences']['language'];
-                })}
-              />
-              <LabeledSelectField
-                label={t('settings.fields.userMode')}
-                value={config.preferences.user_mode || 'quick'}
-                options={[
-                  { label: t('settings.options.quick'), value: 'quick' },
-                  { label: t('settings.options.expert'), value: 'expert' },
-                ]}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.preferences.user_mode = value as NonNullable<SystemConfig['preferences']['user_mode']>;
-                })}
+                onChange={(value) => {
+                  patchConfig((draft) => {
+                    draft.preferences.language = value as SystemConfig['preferences']['language'];
+                  });
+                  i18n.changeLanguage(value);
+                }}
               />
             </div>
           </div>
