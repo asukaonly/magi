@@ -1,6 +1,6 @@
 /**
- * Chat页面 - 与Agent对话
- * 所有通信通过 WebSocket 进行
+ * Chat page - conversation with Agent
+ * All communication via WebSocket
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Bot, Eraser, Plus, Send, UserRound } from 'lucide-react';
@@ -21,7 +21,7 @@ interface ChatMessage {
   status?: 'sending' | 'sent' | 'failed';
 }
 
-// WebSocket 消息类型
+// WebSocket message type
 interface WSMessage {
   type: string;
   data?: any;
@@ -46,7 +46,7 @@ export const ChatPage: React.FC = () => {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectCountRef = useRef(0);
 
-  // WebSocket 配置
+  // WebSocket config
   const WS_CONFIG = {
     baseUrl: 'ws://localhost:8000/ws',
     maxReconnectAttempts: 10,
@@ -54,12 +54,12 @@ export const ChatPage: React.FC = () => {
     maxDelay: 30000,
   };
 
-  // 自动滚动到底部
+  // Auto scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 计算重连延迟（指数退避）
+  // Calculate reconnect delay (exponential backoff)
   const getReconnectDelay = useCallback(() => {
     const delay = Math.min(
       WS_CONFIG.baseDelay * Math.pow(2, reconnectCountRef.current),
@@ -68,38 +68,38 @@ export const ChatPage: React.FC = () => {
     return delay + Math.random() * 1000;
   }, []);
 
-  // 发送 WebSocket 消息
+  // Send WebSocket message
   const sendWS = useCallback((type: string, data?: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type, ...data }));
     }
   }, []);
 
-  // 处理 WebSocket 消息
+  // Handle WebSocket message
   const handleWSMessage = useCallback((data: WSMessage) => {
     console.log('WS message:', data);
 
     switch (data.type) {
       case 'subscribed':
         console.log('Subscribed to room:', data.channel);
-        // 订阅成功后，按顺序请求：当前会话 → 历史记录 → 人格信息
+        // After subscription, request in order: current session -> history -> personality info
         sendWS('get_current_session');
         break;
 
       case 'current_session':
-        // 收到当前会话 ID
+        // Received current session ID
         if (data.data) {
           setSessionId(data.data.session_id);
           if (data.data.session_id) {
             localStorage.setItem('chat_session_web_user', data.data.session_id);
           }
-          // 获取历史记录
+          // Get history
           sendWS('get_history', { session_id: data.data.session_id });
         }
         break;
 
       case 'history':
-        // 收到历史记录
+        // Received history
         if (data.data) {
           setSessionId(data.data.session_id);
           if (data.data.messages && data.data.messages.length > 0) {
@@ -112,18 +112,18 @@ export const ChatPage: React.FC = () => {
             }));
             setMessages(chatMessages);
           }
-          // 获取人格信息
+          // Get personality info
           sendWS('get_personality');
         }
         break;
 
       case 'personality_info':
-        // 收到人格信息
+        // Received personality info
         if (data.data) {
           setAiName(data.data.name || 'AI');
           setAiAvatar(data.data.avatar || '');
 
-          // 如果没有历史消息，显示问候语
+          // Show greeting if no history messages
           setMessages(prev => {
             if (prev.length === 0 && data.data.greeting) {
               return [{
@@ -140,7 +140,7 @@ export const ChatPage: React.FC = () => {
         break;
 
       case 'message_sent':
-        // 消息发送确认
+        // Message sent confirmation
         console.log('Message sent:', data.data);
         break;
 
@@ -150,7 +150,7 @@ export const ChatPage: React.FC = () => {
         break;
     }
 
-    // 处理 Agent 回复（通过 event 字段）
+    // Handle Agent response (via event field)
     if (data.event === 'agent_response' && data.data) {
       const assistantMessage: ChatMessage = {
         id: `ws-${Date.now()}`,
@@ -163,7 +163,7 @@ export const ChatPage: React.FC = () => {
     }
   }, [sendWS]);
 
-  // 创建 WebSocket 连接
+  // Create WebSocket connection
   const connectWebSocket = useCallback(() => {
     const userId = 'web_user';
     const room = `user_${userId}`;
@@ -180,7 +180,7 @@ export const ChatPage: React.FC = () => {
       reconnectCountRef.current = 0;
       setInitialized(false);
 
-      // 订阅用户专属房间
+      // Subscribe to user's exclusive room
       websocket.send(JSON.stringify({
         type: 'subscribe',
         channel: room,
@@ -221,7 +221,7 @@ export const ChatPage: React.FC = () => {
     wsRef.current = websocket;
   }, [getReconnectDelay, handleWSMessage, t]);
 
-  // 初始化 WebSocket
+  // Initialize WebSocket
   useEffect(() => {
     connectWebSocket();
 
@@ -235,7 +235,7 @@ export const ChatPage: React.FC = () => {
     };
   }, [connectWebSocket]);
 
-  // 发送消息（通过 WebSocket）
+  // Send message (via WebSocket)
   const handleSendMessage = () => {
     if (!inputValue.trim()) {
       toast.warning(t('chat.emptyInput'));
@@ -259,7 +259,7 @@ export const ChatPage: React.FC = () => {
     const messageContent = inputValue;
     setInputValue('');
 
-    // 通过 WebSocket 发送消息
+    // Send message via WebSocket
     sendWS('send_message', {
       user_id: 'web_user',
       session_id: sessionId,
@@ -267,7 +267,7 @@ export const ChatPage: React.FC = () => {
     });
   };
 
-  // 清空对话（仍需 HTTP，因为需要操作数据库）
+  // Clear conversation (still needs HTTP for database operations)
   const handleClearMessages = async () => {
     try {
       const { messagesApi } = await import('../api');
@@ -280,7 +280,7 @@ export const ChatPage: React.FC = () => {
     }
   };
 
-  // 新建会话（仍需 HTTP，因为需要操作数据库）
+  // Create new session (still needs HTTP for database operations)
   const handleNewSession = async () => {
     try {
       const { messagesApi } = await import('../api');
@@ -293,7 +293,7 @@ export const ChatPage: React.FC = () => {
       localStorage.setItem('chat_session_web_user', result.session_id);
       setMessages([]);
 
-      // 重新获取人格信息以显示问候语
+      // Re-fetch personality info to show greeting
       sendWS('get_personality');
 
       toast.success(t('chat.sessionSwitched'));
@@ -303,15 +303,16 @@ export const ChatPage: React.FC = () => {
     }
   };
 
-  // 按回车发送
+  // Send on Enter key
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Ignore Enter during IME composition
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSendMessage();
     }
   };
 
-  // 头像渲染
+  // Avatar rendering
   const getAvatar = (role: string) => {
     switch (role) {
       case 'user':
@@ -322,16 +323,16 @@ export const ChatPage: React.FC = () => {
         );
       case 'assistant':
         const initial = aiName?.charAt(0)?.toUpperCase() || 'A';
-        // 处理 avatar URL
+        // Handle avatar URL
         let avatarSrc = aiAvatar;
         if (avatarSrc && avatarSrc.startsWith('/')) {
-          // 相对路径，拼接后端基础 URL
+          // Relative path, prepend backend base URL
           const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-          const baseUrl = apiBaseUrl.replace(/\/api\/?$/, ''); // 移除 /api 后缀
+          const baseUrl = apiBaseUrl.replace(/\/api\/?$/, ''); // Remove /api suffix
           avatarSrc = `${baseUrl}${avatarSrc}`;
         }
 
-        // 判断 avatar 是 URL 还是 emoji/文字
+        // Check if avatar is URL or emoji/text
         const isImageUrl = avatarSrc && avatarSrc.startsWith('http');
         if (isImageUrl) {
           return (
@@ -356,7 +357,7 @@ export const ChatPage: React.FC = () => {
     }
   };
 
-  // 状态标签
+  // Status badge
   const getStatusTag = (status?: string) => {
     switch (status) {
       case 'sending':
@@ -372,7 +373,7 @@ export const ChatPage: React.FC = () => {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
-      {/* 顶部区域 */}
+      {/* Header area */}
       <div className="shrink-0 px-6 pb-3 pt-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -393,7 +394,7 @@ export const ChatPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 消息区 */}
+      {/* Message area */}
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-2">
         {messages.map((msg) => (
           <motion.div
@@ -459,7 +460,7 @@ export const ChatPage: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 底部输入区域 */}
+      {/* Footer input area */}
       <div className="shrink-0 bg-background/95 px-6 pb-4 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex w-full items-end gap-3">
           <AutoResizeTextarea
