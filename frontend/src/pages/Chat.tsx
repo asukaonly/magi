@@ -40,7 +40,7 @@ const CONNECTION_EVENT = 'magi-chat-connection';
 const SESSION_SYNC_EVENT = 'magi-session-sync';
 const USER_ID = 'web_user';
 
-const panelByPathname = (pathname: string): ChatPanelType => {
+export const panelByPathname = (pathname: string): ChatPanelType => {
   if (pathname === '/settings') return 'settings';
   if (pathname === '/personality') return 'personality';
   if (pathname === '/events') return 'memory';

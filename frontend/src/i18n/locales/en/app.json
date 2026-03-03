@@ -12,6 +12,19 @@
   "header": {
     "fallbackTitle": "Magi AI Framework"
   },
+  "shell": {
+    "headerTitle": "AI Conversation Workspace",
+    "desktopMode": "Desktop Mode",
+    "clientMode": "Client Mode",
+    "newChat": "New Chat",
+    "newChatTitle": "New Session",
+    "loadingSessions": "Loading sessions...",
+    "emptySessions": "No conversation yet. Start with a new chat.",
+    "noPreview": "No preview",
+    "personality": "Personality",
+    "memory": "Memory",
+    "settings": "Settings"
+  },
   "dashboard": {
     "welcomeTitle": "Welcome to Magi AI Framework",
     "welcomeSubtitle": "An agent framework with layered memory and dynamic personality configuration",
