@@ -12,6 +12,7 @@ import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion } from 'framer-motion';
+import { getRuntimeConfig } from '@/runtime/config';
 
 interface ChatMessage {
   id: string;
@@ -39,16 +40,14 @@ export const ChatPage: React.FC = () => {
   const [aiAvatar, setAiAvatar] = useState<string>('');
   const [connected, setConnected] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectCountRef = useRef(0);
 
   // WebSocket config
   const WS_CONFIG = {
-    baseUrl: 'ws://localhost:8000/ws',
     maxReconnectAttempts: 10,
     baseDelay: 1000,
     maxDelay: 30000,
@@ -73,6 +72,16 @@ export const ChatPage: React.FC = () => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type, ...data }));
     }
+  }, []);
+
+  const resolveWsUrl = useCallback(() => {
+    const runtime = getRuntimeConfig();
+    const base = `${runtime.wsBaseUrl}/ws`;
+    if (!runtime.sessionToken) {
+      return base;
+    }
+    const separator = base.includes('?') ? '&' : '?';
+    return `${base}${separator}token=${encodeURIComponent(runtime.sessionToken)}`;
   }, []);
 
   // Handle WebSocket message
@@ -135,7 +144,6 @@ export const ChatPage: React.FC = () => {
             }
             return prev;
           });
-          setInitialized(true);
         }
         break;
 
@@ -172,13 +180,12 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
-    const websocket = new WebSocket(WS_CONFIG.baseUrl);
+    const websocket = new WebSocket(resolveWsUrl());
 
     websocket.onopen = () => {
       console.log('WebSocket connected');
       setConnected(true);
       reconnectCountRef.current = 0;
-      setInitialized(false);
 
       // Subscribe to user's exclusive room
       websocket.send(JSON.stringify({
@@ -199,7 +206,6 @@ export const ChatPage: React.FC = () => {
     websocket.onclose = (event) => {
       console.log('WebSocket disconnected:', event.code, event.reason);
       setConnected(false);
-      setInitialized(false);
 
       if (event.code !== 1000 && reconnectCountRef.current < WS_CONFIG.maxReconnectAttempts) {
         const delay = getReconnectDelay();
@@ -219,7 +225,7 @@ export const ChatPage: React.FC = () => {
     };
 
     wsRef.current = websocket;
-  }, [getReconnectDelay, handleWSMessage, t]);
+  }, [getReconnectDelay, handleWSMessage, resolveWsUrl, t]);
 
   // Initialize WebSocket
   useEffect(() => {
@@ -327,7 +333,7 @@ export const ChatPage: React.FC = () => {
         let avatarSrc = aiAvatar;
         if (avatarSrc && avatarSrc.startsWith('/')) {
           // Relative path, prepend backend base URL
-          const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+          const apiBaseUrl = getRuntimeConfig().apiBaseUrl;
           const baseUrl = apiBaseUrl.replace(/\/api\/?$/, ''); // Remove /api suffix
           avatarSrc = `${baseUrl}${avatarSrc}`;
         }

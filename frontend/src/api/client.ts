@@ -2,6 +2,7 @@
  * Axios API客户端
  */
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { getRuntimeConfig } from '@/runtime/config';
 
 // API响应类型
 export interface ApiResponse<T = any> {
@@ -27,9 +28,12 @@ export interface PaginatedResponse<T> {
 }
 
 // 创建axios实例
+let desktopSessionToken: string | undefined;
+
 const createApiClient = (): AxiosInstance => {
+  const runtime = getRuntimeConfig();
   const client = axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api',
+    baseURL: runtime.apiBaseUrl,
     timeout: 30000,
     headers: {
       'Content-Type': 'application/json',
@@ -43,6 +47,11 @@ const createApiClient = (): AxiosInstance => {
       const token = localStorage.getItem('auth_token');
       if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
+      }
+      const runtime = getRuntimeConfig();
+      const sessionToken = desktopSessionToken || runtime.sessionToken;
+      if (sessionToken && config.headers) {
+        config.headers['X-Magi-Session-Token'] = sessionToken;
       }
       return config;
     },
@@ -94,6 +103,21 @@ const createApiClient = (): AxiosInstance => {
 };
 
 export const apiClient = createApiClient();
+
+export const configureApiClient = (options: {
+  baseUrl?: string;
+  sessionToken?: string;
+} = {}): void => {
+  if (options.baseUrl) {
+    apiClient.defaults.baseURL = options.baseUrl.replace(/\/+$/, '');
+  }
+  desktopSessionToken = options.sessionToken;
+  if (desktopSessionToken) {
+    apiClient.defaults.headers.common['X-Magi-Session-Token'] = desktopSessionToken;
+  } else {
+    delete apiClient.defaults.headers.common['X-Magi-Session-Token'];
+  }
+};
 
 // 通用API方法
 export const api = {
