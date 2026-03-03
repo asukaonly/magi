@@ -93,6 +93,19 @@ class MessageBusSettings(BaseModel):
     max_queue_size: int = Field(default=1000, ge=1)
     num_workers: int = Field(default=4, ge=1)
     db_path: str = Field(default="~/.magi/data/events.db")
+    broadcast_max_concurrency: int = Field(default=8, ge=1)
+    handler_timeout_seconds: float = Field(default=2.0, ge=0.1)
+
+
+class RuntimeSettings(BaseModel):
+    """Runtime configuration for P0/P1 features."""
+    router_restart_backoff_seconds: float = Field(default=1.0, ge=0.1)
+    task_agent_queue_maxsize: int = Field(default=100, ge=1)
+    task_agent_enqueue_timeout_ms: float = Field(default=100.0, ge=1.0)
+    task_agent_manager_idle_ttl_seconds: float = Field(default=1800.0, ge=60.0)
+    task_agent_manager_max_dynamic_instances: int = Field(default=100, ge=1)
+    chat_history_cache_max_sessions: int = Field(default=500, ge=1)
+    chat_history_fetch_limit: int = Field(default=200, ge=1)
 
 
 class AgentSettings(BaseModel):
@@ -105,6 +118,7 @@ class AgentSettings(BaseModel):
     memory: MemorySettings = Field(default_factory=MemorySettings)
     personality: PersonalitySettings = Field(default_factory=PersonalitySettings)
     message_bus: MessageBusSettings = Field(default_factory=MessageBusSettings)
+    runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
 
 
 # =============================================================================

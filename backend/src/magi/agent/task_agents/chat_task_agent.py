@@ -71,6 +71,8 @@ class ChatTaskAgent(TaskAgent):
         other_memory=None,
         unified_memory=None,
         memory_integration=None,
+        history_cache_max_sessions: int = 500,
+        history_fetch_limit: int = 200,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
@@ -98,11 +100,14 @@ class ChatTaskAgent(TaskAgent):
         self._conversation_history: dict[str, list[dict]] = {}
         self._tool_interactions: dict[str, list[dict]] = {}
         self._current_session_by_user: dict[str, str] = {}
+        self._history_cache_max_sessions = history_cache_max_sessions
+        self._history_fetch_limit = history_fetch_limit
+        self._history_cache_order: list[str] = []  # LRU tracking
         runtime_paths = get_runtime_paths()
         self._session_state_file = runtime_paths.data_dir / "chat_sessions.json"
         self._events_db_path = runtime_paths.events_db_path
         self._load_session_state()
-        self._restore_conversation_from_events()
+        # Note: Removed _restore_conversation_from_events() - now using lazy loading in build_context
 
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact
@@ -114,16 +119,57 @@ class ChatTaskAgent(TaskAgent):
         user_id = str(payload.get("user_id", self.agent_id))
         user_message = str(payload.get("message", "")).strip()
         session_id = self._resolve_session_id(user_id, payload.get("session_id"))
+        history_key = self._history_key(user_id, session_id)
+
+        # Lazy load history if not in cache
+        history = await self._get_or_load_history(user_id, session_id, history_key)
+
         context.update(
             {
                 "user_id": user_id,
                 "user_message": user_message,
                 "session_id": session_id,
-                "history_key": self._history_key(user_id, session_id),
-                "history": self._conversation_history.get(self._history_key(user_id, session_id), []),
+                "history_key": history_key,
+                "history": history,
             }
         )
         return context
+
+    async def _get_or_load_history(self, user_id: str, session_id: str, history_key: str) -> list[dict]:
+        """Get history from cache or lazy load from storage."""
+        if history_key in self._conversation_history:
+            return self._conversation_history[history_key]
+
+        # Lazy load from ChatReadService
+        try:
+            from ...api.services.chat_read_service import get_chat_read_service
+            read_service = get_chat_read_service()
+            history = read_service.get_conversation_history(
+                user_id=user_id,
+                session_id=session_id,
+                limit=self._history_fetch_limit,
+            )
+            self._conversation_history[history_key] = history
+            self._update_lru_cache(history_key)
+            return history
+        except Exception as exc:
+            logger.warning(f"Failed to lazy load history | user={user_id} session={session_id} error={exc}")
+            return []
+
+    def _update_lru_cache(self, history_key: str) -> None:
+        """Update LRU cache order and evict if necessary."""
+        if history_key in self._history_cache_order:
+            self._history_cache_order.remove(history_key)
+        self._history_cache_order.append(history_key)
+
+        # Evict oldest if over limit
+        while len(self._history_cache_order) > self._history_cache_max_sessions:
+            oldest_key = self._history_cache_order.pop(0)
+            if oldest_key in self._conversation_history:
+                del self._conversation_history[oldest_key]
+            if oldest_key in self._tool_interactions:
+                del self._tool_interactions[oldest_key]
+            logger.debug(f"Evicted history cache for | key={oldest_key}")
 
     async def match_intent(self, context: dict[str, Any]) -> dict[str, Any]:
         user_message = context.get("user_message", "")
@@ -253,12 +299,16 @@ class ChatTaskAgent(TaskAgent):
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": response_text})
         await self._record_memory_updates(user_id=user_id, user_message=user_message)
+
+        latest_fact = context.get("latest_fact")
+        correlation_id = latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None
+
         await self._action_executor.emit_chat_response_event(
             user_id=user_id,
             session_id=session_id,
             response=response_text,
+            correlation_id=correlation_id,
         )
-        latest_fact = context.get("latest_fact")
         if isinstance(latest_fact, FactRecord):
             now = time.time()
             message_started_at = float(latest_fact.timestamp or now)

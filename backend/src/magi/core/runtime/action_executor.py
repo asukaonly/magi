@@ -19,7 +19,13 @@ class ActionExecutor:
     def __init__(self, message_bus: MessageBusBackend) -> None:
         self._message_bus = message_bus
 
-    async def emit_chat_response_event(self, user_id: str, session_id: str, response: str) -> None:
+    async def emit_chat_response_event(
+        self,
+        user_id: str,
+        session_id: str,
+        response: str,
+        correlation_id: str | None = None,
+    ) -> None:
         response_data = {
             "response": response,
             "timestamp": time.time(),
@@ -32,6 +38,7 @@ class ActionExecutor:
                 data=response_data,
                 source="runtime_action_executor",
                 level=EventLevel.INFO,
+                correlation_id=correlation_id,
             )
         )
 

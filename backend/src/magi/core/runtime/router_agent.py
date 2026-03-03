@@ -4,6 +4,7 @@ RouterAgent: infinite loop dispatcher for sensor events.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Optional
 
 from ...core.logger import get_logger
@@ -24,24 +25,44 @@ class RouterAgent:
         task_agent_manager: TaskAgentManager,
         batch_size: int = 16,
         poll_timeout_seconds: float = 0.2,
+        restart_backoff_seconds: float = 1.0,
     ) -> None:
         self._sensor_hub = sensor_hub
         self._task_agent_manager = task_agent_manager
         self._batch_size = batch_size
         self._poll_timeout_seconds = poll_timeout_seconds
+        self._restart_backoff_seconds = restart_backoff_seconds
         self._running = False
         self._task: Optional[asyncio.Task] = None
-        self._stats = {"batches": 0, "events": 0, "facts_written": 0}
+        self._supervisor_task: Optional[asyncio.Task] = None
+        self._stats = {
+            "batches": 0,
+            "events": 0,
+            "facts_written": 0,
+            "facts_rejected": 0,
+            "loop_crash_count": 0,
+            "event_error_count": 0,
+            "last_error": None,
+            "last_restart_at": None,
+        }
 
     async def start(self) -> None:
         if self._running:
             return
         self._running = True
         self._task = asyncio.create_task(self._loop())
+        self._supervisor_task = asyncio.create_task(self._supervisor())
         logger.info("RouterAgent started")
 
     async def stop(self) -> None:
         self._running = False
+        if self._supervisor_task is not None:
+            self._supervisor_task.cancel()
+            try:
+                await self._supervisor_task
+            except asyncio.CancelledError:
+                pass
+            self._supervisor_task = None
         if self._task is not None:
             self._task.cancel()
             try:
@@ -52,30 +73,79 @@ class RouterAgent:
         logger.info("RouterAgent stopped")
 
     async def _loop(self) -> None:
+        """Main processing loop with top-level exception protection."""
         while self._running:
-            batch = await self._sensor_hub.get_batch(
-                max_items=self._batch_size,
-                timeout_seconds=self._poll_timeout_seconds,
-            )
-            if not batch:
-                continue
-            self._stats["batches"] += 1
-            self._stats["events"] += len(batch)
+            try:
+                batch = await self._sensor_hub.get_batch(
+                    max_items=self._batch_size,
+                    timeout_seconds=self._poll_timeout_seconds,
+                )
+                if not batch:
+                    continue
+                self._stats["batches"] += 1
+                self._stats["events"] += len(batch)
 
-            for sensor_event in batch:
-                targets = self._task_agent_manager.resolve_targets(sensor_event)
-                for target_type, target_id in targets:
-                    fact = FactRecord(
-                        agent_id=build_task_agent_key(target_type, target_id),
-                        agent_type=get_task_agent_type_value(target_type),
-                        agent_instance_id=target_id,
-                        event_type=sensor_event.event_type,
-                        payload=sensor_event.payload,
-                        timestamp=sensor_event.timestamp,
-                        correlation_id=sensor_event.correlation_id,
-                    )
-                    await self._task_agent_manager.add_fact_to_agent(target_type, target_id, fact)
-                    self._stats["facts_written"] += 1
+                for sensor_event in batch:
+                    try:
+                        targets = self._task_agent_manager.resolve_targets(sensor_event)
+                        for target_type, target_id in targets:
+                            fact = FactRecord(
+                                agent_id=build_task_agent_key(target_type, target_id),
+                                agent_type=get_task_agent_type_value(target_type),
+                                agent_instance_id=target_id,
+                                event_type=sensor_event.event_type,
+                                payload=sensor_event.payload,
+                                timestamp=sensor_event.timestamp,
+                                correlation_id=sensor_event.correlation_id,
+                            )
+                            success = await self._task_agent_manager.add_fact_to_agent(target_type, target_id, fact)
+                            if success:
+                                self._stats["facts_written"] += 1
+                            else:
+                                self._stats["facts_rejected"] += 1
+                    except Exception as event_exc:
+                        self._stats["event_error_count"] += 1
+                        self._stats["last_error"] = str(event_exc)
+                        logger.error(
+                            f"RouterAgent event processing failed | error={event_exc}",
+                            exc_info=True,
+                        )
+            except asyncio.CancelledError:
+                raise
+            except Exception as loop_exc:
+                self._stats["last_error"] = str(loop_exc)
+                logger.error(
+                    f"RouterAgent loop iteration failed | error={loop_exc}",
+                    exc_info=True,
+                )
+                raise
+
+    async def _supervisor(self) -> None:
+        """Supervisor task that restarts the main loop if it crashes."""
+        while self._running:
+            try:
+                if self._task is None or self._task.done():
+                    if self._task is not None:
+                        try:
+                            exc = self._task.exception()
+                            if exc:
+                                self._stats["loop_crash_count"] += 1
+                                self._stats["last_restart_at"] = time.time()
+                                logger.error(f"RouterAgent loop crashed, restarting | error={exc}")
+                        except asyncio.CancelledError:
+                            pass
+                        except asyncio.InvalidStateError:
+                            pass
+                    if self._running:
+                        await asyncio.sleep(self._restart_backoff_seconds)
+                        self._task = asyncio.create_task(self._loop())
+                        logger.info("RouterAgent loop restarted")
+                await asyncio.sleep(1.0)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error(f"RouterAgent supervisor error | error={exc}")
+                await asyncio.sleep(self._restart_backoff_seconds)
 
     def get_stats(self) -> dict:
         return dict(self._stats)

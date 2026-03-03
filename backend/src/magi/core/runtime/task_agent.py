@@ -16,15 +16,24 @@ logger = get_logger(__name__)
 class TaskAgent:
     """Self-looping task agent instance with its own fact queue."""
 
-    def __init__(self, agent_type: TaskAgentType | str, agent_id: str) -> None:
+    def __init__(
+        self,
+        agent_type: TaskAgentType | str,
+        agent_id: str,
+        queue_maxsize: int = 100,
+        enqueue_timeout_ms: float = 100.0,
+    ) -> None:
         self.agent_type = agent_type
         self.agent_id = agent_id
         self.runtime_key = build_task_agent_key(agent_type, agent_id)
-        self._fact_queue: asyncio.Queue[FactRecord] = asyncio.Queue()
+        self._queue_maxsize = queue_maxsize
+        self._enqueue_timeout_ms = enqueue_timeout_ms
+        self._fact_queue: asyncio.Queue[FactRecord] = asyncio.Queue(maxsize=queue_maxsize)
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self._action_executor = None
         self._processed = 0
+        self._enqueue_rejected = 0
         self._fact_memory: list[FactRecord] = []
         self._max_fact_memory = 200
         self._batch_size = 16
@@ -48,8 +57,25 @@ class TaskAgent:
             self._task = None
         logger.info(f"TaskAgent stopped | key={self.runtime_key}")
 
-    async def add_fact(self, fact: FactRecord) -> None:
-        await self._fact_queue.put(fact)
+    async def add_fact(self, fact: FactRecord) -> bool:
+        """Add fact to queue with timeout. Returns True if successful, False if rejected."""
+        try:
+            timeout_seconds = self._enqueue_timeout_ms / 1000.0
+            await asyncio.wait_for(self._fact_queue.put(fact), timeout=timeout_seconds)
+            return True
+        except asyncio.TimeoutError:
+            self._enqueue_rejected += 1
+            logger.warning(
+                f"TaskAgent queue full, fact rejected | key={self.runtime_key} "
+                f"queue_size={self._fact_queue.qsize()} max={self._queue_maxsize}"
+            )
+            return False
+        except asyncio.QueueFull:
+            self._enqueue_rejected += 1
+            logger.warning(
+                f"TaskAgent queue full, fact rejected | key={self.runtime_key}"
+            )
+            return False
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -147,6 +173,8 @@ class TaskAgent:
             "agent_id": self.agent_id,
             "runtime_key": self.runtime_key,
             "queue_size": self._fact_queue.qsize(),
+            "queue_maxsize": self._queue_maxsize,
             "processed": self._processed,
+            "enqueue_rejected": self._enqueue_rejected,
             "running": self._running,
         }
