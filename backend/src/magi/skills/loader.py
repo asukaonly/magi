@@ -131,6 +131,11 @@ class SkillLoader:
                 category=data.get("category"),
                 tags=data.get("tags", []),
                 examples=data.get("examples", []),
+                # Claude Code Skills spec fields
+                license=data.get("license"),
+                compatibility=data.get("compatibility"),
+                allowed_tools=data.get("allowed-tools"),
+                metadata=data.get("metadata", {}),
             )
             return frontmatter, body
 
@@ -245,10 +250,14 @@ class SkillLoader:
         """
         Load supporting data from the skill directory
 
-        Looks for:
-        - examples/ directory
-        - template files
-        - config files
+        Standard directories per Claude Code Skills spec:
+        - examples/ - Example files
+        - scripts/ - Executable scripts
+        - references/ - Reference documents
+        - assets/ - Static assets (images, etc.)
+
+        Also loads:
+        - template files (template*.md)
 
         Args:
             skill_dir: Skill directory
@@ -272,6 +281,51 @@ class SkillLoader:
                     except Exception as e:
                         logger.warning(f"Failed to load example {example_file}: {e}")
             data["examples"] = examples
+
+        # Load scripts directory (standard directory per spec)
+        scripts_dir = skill_dir / "scripts"
+        if scripts_dir.exists() and scripts_dir.is_dir():
+            scripts = []
+            for script_file in scripts_dir.iterdir():
+                if script_file.is_file():
+                    try:
+                        scripts.append({
+                            "name": script_file.name,
+                            "path": str(script_file),
+                        })
+                    except Exception as e:
+                        logger.warning(f"Failed to scan script {script_file}: {e}")
+            data["scripts"] = scripts
+
+        # Load references directory (standard directory per spec)
+        references_dir = skill_dir / "references"
+        if references_dir.exists() and references_dir.is_dir():
+            references = []
+            for ref_file in references_dir.iterdir():
+                if ref_file.is_file() and ref_file.suffix in ['.md', '.txt', '.json']:
+                    try:
+                        references.append({
+                            "name": ref_file.name,
+                            "content": ref_file.read_text(encoding="utf-8"),
+                        })
+                    except Exception as e:
+                        logger.warning(f"Failed to load reference {ref_file}: {e}")
+            data["references"] = references
+
+        # Load assets directory (standard directory per spec)
+        assets_dir = skill_dir / "assets"
+        if assets_dir.exists() and assets_dir.is_dir():
+            assets = []
+            for asset_file in assets_dir.iterdir():
+                if asset_file.is_file():
+                    try:
+                        assets.append({
+                            "name": asset_file.name,
+                            "path": str(asset_file),
+                        })
+                    except Exception as e:
+                        logger.warning(f"Failed to scan asset {asset_file}: {e}")
+            data["assets"] = assets
 
         # Look for template files
         for template_file in skill_dir.glob("template*.md"):

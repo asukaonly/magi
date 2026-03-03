@@ -14,6 +14,7 @@ class SkillFrontmatter:
     Skill frontmatter parsed from YAML
 
     This is the metadata section of a SKILL.md file.
+    Follows Claude Code Skills specification.
     """
     name: str
     description: str
@@ -25,6 +26,11 @@ class SkillFrontmatter:
     category: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     examples: List[Dict[str, Any]] = field(default_factory=list)
+    # Claude Code Skills spec fields
+    license: Optional[str] = None
+    compatibility: Optional[str] = None  # Max 500 characters
+    allowed_tools: Optional[List[str]] = None  # Tool access control
+    metadata: Dict[str, Any] = field(default_factory=dict)  # Custom key-value pairs
 
 
 @dataclass
@@ -45,6 +51,10 @@ class SkillMetadata:
     agent: Optional[str] = None
     category: Optional[str] = None
     tags: List[str] = field(default_factory=list)
+    # Claude Code Skills spec fields
+    license: Optional[str] = None
+    compatibility: Optional[str] = None
+    allowed_tools: Optional[List[str]] = None
 
 
 @dataclass

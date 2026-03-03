@@ -15,6 +15,14 @@ from .schema import SkillMetadata, SkillFrontmatter
 
 logger = logging.getLogger(__name__)
 
+# Skill name validation pattern:
+# - 1-64 characters
+# - Lowercase alphanumeric with hyphens
+# - Must start with letter or digit
+# - Pattern: ^[a-z0-9][a-z0-9-]*$
+SKILL_NAME_PATTERN = re.compile(r'^[a-z0-9][a-z0-9-]{0,63}$')
+MAX_NAME_LENGTH = 64
+
 
 class SkillIndexer:
     """
@@ -40,6 +48,45 @@ class SkillIndexer:
         """
         self.skill_locations = skill_locations or self.SKILL_LOCATIONS
         self._cache: Dict[str, SkillMetadata] = {}
+
+    @staticmethod
+    def validate_skill_name(name: str, directory_name: Optional[str] = None) -> tuple[bool, Optional[str]]:
+        """
+        Validate skill name according to Claude Code Skills specification.
+
+        Rules:
+        - 1-64 characters
+        - Lowercase alphanumeric with hyphens only
+        - Must start with letter or digit
+        - Cannot end with hyphen
+        - Must match directory name if provided
+
+        Args:
+            name: Skill name to validate
+            directory_name: Expected directory name (for consistency check)
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not name:
+            return False, "Skill name cannot be empty"
+
+        if len(name) > MAX_NAME_LENGTH:
+            return False, f"Skill name must be {MAX_NAME_LENGTH} characters or less, got {len(name)}"
+
+        if not SKILL_NAME_PATTERN.match(name):
+            return False, (
+                f"Skill name must be lowercase alphanumeric with hyphens, "
+                f"start with letter or digit, and not end with hyphen: '{name}'"
+            )
+
+        if name.endswith('-'):
+            return False, f"Skill name cannot end with hyphen: '{name}'"
+
+        if directory_name and name != directory_name:
+            return False, f"Skill name '{name}' must match directory name '{directory_name}'"
+
+        return True, None
 
     def scan_all(self) -> Dict[str, SkillMetadata]:
         """
@@ -141,6 +188,10 @@ class SkillIndexer:
             agent=frontmatter.agent,
             category=frontmatter.category,
             tags=frontmatter.tags,
+            # Claude Code Skills spec fields
+            license=frontmatter.license,
+            compatibility=frontmatter.compatibility,
+            allowed_tools=frontmatter.allowed_tools,
         )
 
     def _parse_yaml_frontmatter(self, yaml_content: str, source_file: Path) -> Optional[SkillFrontmatter]:
@@ -168,9 +219,33 @@ class SkillIndexer:
                 logger.warning(f"Skill missing 'name' field in {source_file}")
                 return None
 
+            # Validate name format and consistency
+            directory_name = source_file.parent.name
+            is_valid, error_msg = self.validate_skill_name(str(name), directory_name)
+            if not is_valid:
+                logger.warning(f"Invalid skill name in {source_file}: {error_msg}")
+                return None
+
             description = data.get("description", "")
             if not description:
                 description = f"Skill: {name}"
+
+            # Validate description length (max 1024 characters per spec)
+            if len(description) > 1024:
+                logger.warning(f"Description too long in {source_file}: {len(description)} chars (max 1024)")
+                description = description[:1024]
+
+            # Validate compatibility field (max 500 characters per spec)
+            compatibility = data.get("compatibility")
+            if compatibility and len(str(compatibility)) > 500:
+                logger.warning(f"Compatibility too long in {source_file}: {len(str(compatibility))} chars (max 500)")
+                compatibility = str(compatibility)[:500]
+
+            # Validate allowed-tools is a list if present
+            allowed_tools = data.get("allowed-tools")
+            if allowed_tools is not None and not isinstance(allowed_tools, list):
+                logger.warning(f"allowed-tools must be a list in {source_file}")
+                allowed_tools = None
 
             return SkillFrontmatter(
                 name=name,
@@ -183,6 +258,11 @@ class SkillIndexer:
                 category=data.get("category"),
                 tags=data.get("tags", []),
                 examples=data.get("examples", []),
+                # New fields for Claude Code Skills spec compliance
+                license=data.get("license"),
+                compatibility=compatibility,
+                allowed_tools=allowed_tools,
+                metadata=data.get("metadata", {}),
             )
 
         except yaml.YAMLerror as e:
