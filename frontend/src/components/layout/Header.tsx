@@ -1,55 +1,69 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Settings, UserRound } from 'lucide-react';
+import { Database, Settings2, Sparkles, UserRound } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { useChatShellStore } from '@/stores';
 
-const Header: React.FC<{ sidebarWidth?: number }> = ({ sidebarWidth = 240 }) => {
+const CONNECTION_EVENT = 'magi-chat-connection';
+
+const Header: React.FC = () => {
   const { t } = useTranslation('app');
-  const location = useLocation();
-  const [currentSidebarWidth, setCurrentSidebarWidth] = useState(sidebarWidth);
-
-  const pageTitleMap: Record<string, string> = {
-    '/': t('nav.dashboard'),
-    '/chat': t('nav.chat'),
-    '/personality': t('nav.personality'),
-    '/events': t('nav.events'),
-    '/settings': t('nav.settings'),
-  };
+  const navigate = useNavigate();
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const handleSidebarToggle = (event: Event) => {
-      const customEvent = event as CustomEvent<{ width: number }>;
-      setCurrentSidebarWidth(customEvent.detail.width);
+    const handleConnection = (event: Event) => {
+      const customEvent = event as CustomEvent<{ connected: boolean }>;
+      setConnected(!!customEvent.detail?.connected);
     };
-    window.addEventListener('sidebar-toggle', handleSidebarToggle);
-    return () => window.removeEventListener('sidebar-toggle', handleSidebarToggle);
+    window.addEventListener(CONNECTION_EVENT, handleConnection as EventListener);
+    return () => {
+      window.removeEventListener(CONNECTION_EVENT, handleConnection as EventListener);
+    };
   }, []);
 
-  const pageTitle = pageTitleMap[location.pathname] || t('header.fallbackTitle');
+  const openPanel = (panel: 'settings' | 'personality' | 'memory') => {
+    setActivePanel(panel);
+    if (panel === 'settings') {
+      navigate('/settings');
+      return;
+    }
+    if (panel === 'personality') {
+      navigate('/personality');
+      return;
+    }
+    navigate('/events');
+  };
 
   return (
-    <header
-      className={cn(
-        'fixed right-0 top-0 z-10 flex h-16 items-center justify-between border-b bg-background/85 px-8 backdrop-blur transition-[left] duration-300'
-      )}
-      style={{ left: currentSidebarWidth }}
-    >
-      <h1 className="text-lg font-semibold">{pageTitle}</h1>
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={() => (window.location.href = '/settings')}>
-          <Settings className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="icon">
+    <header className="flex h-[64px] items-center justify-between border-b px-4">
+      <div className="flex items-center gap-3">
+        <h1 className="text-sm font-semibold tracking-wide text-slate-700">{t('shell.headerTitle')}</h1>
+        <Badge variant={connected ? 'default' : 'secondary'}>
+          {connected ? t('chat.connected') : t('chat.disconnected')}
+        </Badge>
+      </div>
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => openPanel('personality')}>
           <UserRound className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon">
-          <LogOut className="h-4 w-4" />
+        <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => openPanel('memory')}>
+          <Database className="h-4 w-4" />
         </Button>
+        <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => openPanel('settings')}>
+          <Settings2 className="h-4 w-4" />
+        </Button>
+        <div className="ml-1 flex h-8 items-center rounded-xl bg-muted px-2 text-[11px] text-muted-foreground">
+          <Sparkles className="mr-1 h-3.5 w-3.5 text-primary" />
+          {t('shell.desktopMode')}
+        </div>
       </div>
     </header>
   );
 };
 
 export default Header;
+

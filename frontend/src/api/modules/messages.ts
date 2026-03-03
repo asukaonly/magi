@@ -44,6 +44,21 @@ export interface SessionInfo {
   session_id: string | null;
 }
 
+export interface ChatSessionListItem {
+  session_id: string;
+  title: string;
+  last_message_preview: string;
+  last_timestamp: number;
+  message_count: number;
+}
+
+export interface SessionListResponse {
+  user_id: string;
+  current_session_id: string | null;
+  sessions: ChatSessionListItem[];
+  count: number;
+}
+
 export const messagesApi = {
   /**
    * 发送用户消息
@@ -112,5 +127,15 @@ export const messagesApi = {
       params: { user_id: userId },
     });
     return (response.data || response) as { success: boolean; user_id: string; session_id: string | null };
+  },
+
+  listSessions: async (
+    userId: string = 'web_user',
+    limit: number = 30
+  ): Promise<SessionListResponse> => {
+    const response = await api.get<SessionListResponse>('/messages/sessions', {
+      params: { user_id: userId, limit },
+    });
+    return (response.data || response) as SessionListResponse;
   },
 };

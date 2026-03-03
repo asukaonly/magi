@@ -12,6 +12,19 @@
   "header": {
     "fallbackTitle": "Magi AI Framework"
   },
+  "shell": {
+    "headerTitle": "AI 对话工作台",
+    "desktopMode": "桌面模式",
+    "clientMode": "Client Mode",
+    "newChat": "新建聊天",
+    "newChatTitle": "新会话",
+    "loadingSessions": "会话加载中...",
+    "emptySessions": "暂无历史会话，点击“新建聊天”开始对话。",
+    "noPreview": "暂无预览",
+    "personality": "人格",
+    "memory": "记忆",
+    "settings": "设置"
+  },
   "dashboard": {
     "welcomeTitle": "欢迎使用 Magi AI Framework",
     "welcomeSubtitle": "智能代理框架，支持多层记忆和动态人格配置",

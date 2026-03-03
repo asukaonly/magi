@@ -316,6 +316,31 @@ async def create_new_session(user_id: str = "web_user"):
         return {"success": False, "user_id": user_id, "session_id": None}
 
 
+@user_messages_router.get("/sessions", response_model=Dict[str, Any])
+async def list_sessions(
+    user_id: str = "web_user",
+    limit: int = Query(default=30, ge=1, le=200),
+):
+    """List recent chat sessions for the given user."""
+    try:
+        read_service = get_chat_read_service()
+        sessions = read_service.list_sessions(user_id=user_id, limit=limit)
+        current_session_id = read_service.get_current_session_id(user_id)
+        return {
+            "user_id": user_id,
+            "current_session_id": current_session_id,
+            "sessions": sessions,
+            "count": len(sessions),
+        }
+    except RuntimeError:
+        return {
+            "user_id": user_id,
+            "current_session_id": None,
+            "sessions": [],
+            "count": 0,
+        }
+
+
 @user_messages_router.get("/sensor/status")
 async def get_sensor_status():
     """

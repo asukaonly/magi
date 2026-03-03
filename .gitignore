@@ -77,3 +77,7 @@ build/
 # Claude Code local settings
 .claude/settings.local.json
 .claude/settings.json.local
+
+# Tauri build artifacts
+frontend/src-tauri/target/
+frontend/src-tauri/binaries/magi-backend-*

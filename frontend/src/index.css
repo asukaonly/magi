@@ -4,24 +4,24 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --primary: 268 83% 58%;
+    --background: 215 22% 92%;
+    --foreground: 222 28% 12%;
+    --card: 210 25% 98%;
+    --card-foreground: 222 28% 12%;
+    --primary: 194 72% 40%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 268 65% 95%;
-    --accent-foreground: 268 68% 32%;
+    --secondary: 216 23% 90%;
+    --secondary-foreground: 222 28% 12%;
+    --muted: 216 24% 88%;
+    --muted-foreground: 217 14% 40%;
+    --accent: 192 48% 90%;
+    --accent-foreground: 196 80% 21%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 268 83% 58%;
-    --radius: 0.75rem;
+    --border: 214 20% 82%;
+    --input: 214 20% 82%;
+    --ring: 194 72% 40%;
+    --radius: 0.9rem;
   }
 
   * {
@@ -32,12 +32,24 @@
     @apply bg-background text-foreground antialiased;
     margin: 0;
     font-family: 'SF Pro Text', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background:
+      radial-gradient(1100px 520px at 15% -15%, rgba(148, 190, 210, 0.30), transparent 58%),
+      radial-gradient(900px 460px at 100% 8%, rgba(127, 177, 172, 0.20), transparent 56%),
+      linear-gradient(180deg, #dde3ea 0%, #d5dde7 100%);
   }
 }
 
 @layer utilities {
   .page-enter {
     animation: page-fade-in 280ms ease-out;
+  }
+
+  .desktop-surface {
+    @apply border border-border/80 bg-card/92 shadow-[0_24px_80px_-30px_rgba(15,23,42,0.35)] backdrop-blur-sm;
+  }
+
+  .desktop-panel {
+    @apply border border-border/75 bg-card/90 shadow-[0_20px_70px_-36px_rgba(15,23,42,0.45)];
   }
 }
 

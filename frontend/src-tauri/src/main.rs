@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::env;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -29,19 +30,32 @@ struct BackendRuntime {
     pid: Option<u32>,
 }
 
+struct ExternalBackendConfig {
+    host: String,
+    port: u16,
+    base_url: String,
+    ws_base_url: String,
+    session_token: String,
+}
+
 enum BackendProcess {
-    Sidecar(CommandChild),
-    Dev(Child),
+    Sidecar(Option<CommandChild>),
+    Dev(Option<Child>),
 }
 
 impl BackendProcess {
     fn kill(&mut self) {
         match self {
             Self::Sidecar(child) => {
-                let _ = child.kill();
+                if let Some(sidecar) = child.take() {
+                    let _ = sidecar.kill();
+                }
             }
             Self::Dev(child) => {
-                let _ = child.kill();
+                if let Some(process) = child.as_mut() {
+                    let _ = process.kill();
+                }
+                child.take();
             }
         }
     }
@@ -90,13 +104,13 @@ fn pick_open_port() -> Result<u16, String> {
     Ok(port)
 }
 
-fn wait_for_health(port: u16, timeout: Duration) -> bool {
+fn wait_for_health(host: &str, port: u16, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if let Ok(mut stream) = TcpStream::connect((BACKEND_HOST, port)) {
+        if let Ok(mut stream) = TcpStream::connect((host, port)) {
             let request = format!(
                 "GET /api/health HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n",
-                BACKEND_HOST, port
+                host, port
             );
             if stream.write_all(request.as_bytes()).is_ok() {
                 let mut response = String::new();
@@ -118,6 +132,42 @@ fn generate_session_token() -> String {
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
     format!("magi-desktop-{}-{}", std::process::id(), nanos)
+}
+
+fn env_bool(name: &str) -> bool {
+    env::var(name)
+        .map(|value| {
+            matches!(
+                value.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn parse_external_backend_config() -> Result<Option<ExternalBackendConfig>, String> {
+    if !env_bool("MAGI_TAURI_EXTERNAL_BACKEND") {
+        return Ok(None);
+    }
+
+    let host = env::var("MAGI_TAURI_EXTERNAL_BACKEND_HOST").unwrap_or_else(|_| BACKEND_HOST.to_string());
+    let port = env::var("MAGI_TAURI_EXTERNAL_BACKEND_PORT")
+        .ok()
+        .and_then(|text| text.parse::<u16>().ok())
+        .unwrap_or(8000);
+    let base_url = env::var("MAGI_TAURI_EXTERNAL_BACKEND_API_BASE")
+        .unwrap_or_else(|_| format!("http://{}:{}/api", host, port));
+    let ws_base_url = env::var("MAGI_TAURI_EXTERNAL_BACKEND_WS_BASE")
+        .unwrap_or_else(|_| format!("ws://{}:{}", host, port));
+    let session_token = env::var("MAGI_DESKTOP_SESSION_TOKEN").unwrap_or_default();
+
+    Ok(Some(ExternalBackendConfig {
+        host,
+        port,
+        base_url,
+        ws_base_url,
+        session_token,
+    }))
 }
 
 fn spawn_sidecar(
@@ -167,7 +217,7 @@ fn spawn_sidecar(
         }
     });
 
-    Ok((BackendProcess::Sidecar(child), pid))
+    Ok((BackendProcess::Sidecar(Some(child)), Some(pid)))
 }
 
 fn find_backend_dir() -> Result<PathBuf, String> {
@@ -211,7 +261,7 @@ fn spawn_dev_backend(port: u16, session_token: &str) -> Result<(BackendProcess, 
         .spawn()
         .map_err(|err| format!("Failed to spawn backend with python fallback: {err}"))?;
     let pid = Some(child.id());
-    Ok((BackendProcess::Dev(child), pid))
+    Ok((BackendProcess::Dev(Some(child)), pid))
 }
 
 fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
@@ -236,7 +286,7 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
             .runtime
             .lock()
             .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-        if runtime.process.is_some() {
+        if runtime.base_url.is_some() {
             let base_url = runtime
                 .base_url
                 .clone()
@@ -260,6 +310,31 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
         }
     }
 
+    if let Some(external) = parse_external_backend_config()? {
+        if !wait_for_health(&external.host, external.port, STARTUP_TIMEOUT) {
+            return Err("External backend is not ready: /api/health check failed".to_string());
+        }
+
+        let mut runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
+        runtime.process = None;
+        runtime.base_url = Some(external.base_url.clone());
+        runtime.ws_base_url = Some(external.ws_base_url.clone());
+        runtime.session_token = Some(external.session_token.clone());
+        runtime.pid = None;
+
+        return Ok(StartBackendResponse {
+            ok: true,
+            base_url: external.base_url,
+            ws_base_url: external.ws_base_url,
+            session_token: external.session_token,
+            pid: None,
+            error: None,
+        });
+    }
+
     let port = pick_open_port()?;
     let session_token = generate_session_token();
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, port);
@@ -278,7 +353,7 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
     };
 
     let mut process = process;
-    if !wait_for_health(port, STARTUP_TIMEOUT) {
+    if !wait_for_health(BACKEND_HOST, port, STARTUP_TIMEOUT) {
         process.kill();
         return Err("Backend startup timeout: /api/health did not become ready".to_string());
     }
@@ -316,7 +391,7 @@ fn backend_status(state: State<'_, BackendState>) -> Result<BackendStatusRespons
         .lock()
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
     Ok(BackendStatusResponse {
-        running: runtime.process.is_some(),
+        running: runtime.base_url.is_some(),
         base_url: runtime.base_url.clone(),
         ws_base_url: runtime.ws_base_url.clone(),
         pid: runtime.pid,
