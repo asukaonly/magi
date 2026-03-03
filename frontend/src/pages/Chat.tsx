@@ -11,14 +11,13 @@ import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useChatShellStore, type ChatPanelType } from '@/stores';
-import { SettingsPage } from './Settings';
 import PersonalityModern from './PersonalityModern';
 import EventsPage from './Events';
+import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
 
 interface ChatMessage {
   id: string;
@@ -447,11 +446,7 @@ export const ChatPage: React.FC = () => {
         <div className="mt-2 text-center text-xs text-muted-foreground">{t('chat.tip')}</div>
       </div>
 
-      <Dialog open={activePanel === 'settings'} onOpenChange={(open) => !open && closePanel()}>
-        <DialogContent className="h-[88vh] max-w-6xl overflow-hidden p-0">
-          <SettingsPage />
-        </DialogContent>
-      </Dialog>
+      <SettingsCenterDialog open={activePanel === 'settings'} onOpenChange={(open) => !open && closePanel()} />
 
       <Sheet open={activePanel === 'personality'} onOpenChange={(open) => !open && closePanel()}>
         <SheetContent side="right" className="w-[88vw] max-w-5xl overflow-hidden p-0">
