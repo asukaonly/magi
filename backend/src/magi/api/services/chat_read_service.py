@@ -40,6 +40,95 @@ class ChatReadService:
         self._save_session_mapping(mapping)
         return new_session_id
 
+    def list_sessions(self, user_id: str, limit: int = 30) -> list[dict[str, Any]]:
+        """List recent chat sessions for a user."""
+        safe_limit = max(1, min(limit, 200))
+        sessions: dict[str, dict[str, Any]] = {}
+
+        if self._events_db_path.exists():
+            query = """
+                SELECT type, data, timestamp
+                FROM event_store
+                WHERE type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
+                  AND json_extract(data, '$.user_id') = ?
+                ORDER BY timestamp DESC
+            """
+            try:
+                conn = sqlite3.connect(str(self._events_db_path))
+                cur = conn.cursor()
+                cur.execute(query, (user_id,))
+                rows = cur.fetchall()
+                conn.close()
+            except Exception as exc:
+                logger.warning(f"Failed to query session list: {exc}")
+                rows = []
+
+            for event_type, raw_data, raw_ts in rows:
+                try:
+                    payload = json.loads(raw_data or "{}")
+                except Exception:
+                    continue
+                session_id = str(payload.get("session_id") or "").strip()
+                if not session_id:
+                    continue
+                timestamp = int(float(raw_ts or 0))
+                if event_type in ("USER_INPUT", "UserMessage"):
+                    content = str(payload.get("message") or "").strip()
+                elif event_type in ("AI_RESPONSE", "AIResponse"):
+                    content = str(payload.get("response") or "").strip()
+                else:
+                    continue
+
+                session = sessions.setdefault(
+                    session_id,
+                    {
+                        "session_id": session_id,
+                        "title_candidate": "",
+                        "last_message_preview": "",
+                        "last_timestamp": 0,
+                        "message_count": 0,
+                    },
+                )
+                session["message_count"] += 1
+                if timestamp >= int(session["last_timestamp"]):
+                    session["last_timestamp"] = timestamp
+                    session["last_message_preview"] = content[:120]
+                # Iterate desc by timestamp: repeatedly setting this keeps the oldest
+                # user message as title seed after full traversal.
+                if event_type in ("USER_INPUT", "UserMessage") and content:
+                    session["title_candidate"] = content[:80]
+
+        ordered = sorted(
+            sessions.values(),
+            key=lambda item: int(item.get("last_timestamp", 0)),
+            reverse=True,
+        )[:safe_limit]
+
+        result = [
+            {
+                "session_id": str(item["session_id"]),
+                "title": str(item.get("title_candidate") or item.get("last_message_preview") or "New Chat"),
+                "last_message_preview": str(item.get("last_message_preview") or ""),
+                "last_timestamp": int(item.get("last_timestamp") or 0),
+                "message_count": int(item.get("message_count") or 0),
+            }
+            for item in ordered
+        ]
+
+        current_session_id = self._load_session_mapping().get(user_id)
+        if current_session_id and all(item["session_id"] != current_session_id for item in result):
+            result.insert(
+                0,
+                {
+                    "session_id": current_session_id,
+                    "title": "New Chat",
+                    "last_message_preview": "",
+                    "last_timestamp": 0,
+                    "message_count": 0,
+                },
+            )
+        return result[:safe_limit]
+
     def get_conversation_history(self, user_id: str, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
         if not self._events_db_path.exists():
             return []
