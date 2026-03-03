@@ -78,30 +78,39 @@ class SummaryStore:
 
         Path(self.persist_path).parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self.persist_path) as db:
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS summaries (
-                    period_type TEXT NOT NULL,
-                    period_key TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    PRIMARY KEY(period_type, period_key)
-                )
-                """
+            cursor = await db.execute(
+                "SELECT summary_id, summary_type, start_time, end_time, event_count, content, key_topics, created_at FROM summaries"
             )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_summaries_created_at ON summaries(created_at)"
-            )
-            await db.commit()
-
-            cursor = await db.execute("SELECT payload FROM summaries")
             rows = await cursor.fetchall()
 
-        for (payload_text,) in rows:
-            summary = EventSummary.from_dict(json.loads(payload_text))
+        for row in rows:
+            summary_id, summary_type, start_time, end_time, event_count, content, key_topics, created_at = row
+            payload = json.loads(content)
+            # 兼容旧数据：从 summary_id 解析 period_key
+            period_key = payload.get("period_key") or self._extract_period_key(summary_id, summary_type)
+            summary = EventSummary(
+                period_type=summary_type,
+                period_key=period_key,
+                start_time=start_time,
+                end_time=end_time,
+                event_count=event_count,
+                summary=payload.get("summary", ""),
+                event_types=payload.get("event_types", {}),
+                metrics=payload.get("metrics", {}),
+                key_events=payload.get("key_events", []),
+                created_at=created_at,
+            )
             self._summaries[summary.period_type][summary.period_key] = summary
 
         self._initialized = True
+
+    def _extract_period_key(self, summary_id: str, summary_type: str) -> str:
+        """从 summary_id 中提取 period_key（兼容旧数据格式）"""
+        # summary_id 格式为 "{period_type}_{period_key}"
+        prefix = f"{summary_type}_"
+        if summary_id.startswith(prefix):
+            return summary_id[len(prefix):]
+        return summary_id
 
     def add_event(self, event: Dict[str, Any]) -> None:
         """Adds an event to in-memory aggregation buffers."""
@@ -265,16 +274,24 @@ class SummaryStore:
 
         conn = sqlite3.connect(self.persist_path)
         cur = conn.cursor()
-        payload = json.dumps(summary.to_dict(), ensure_ascii=False)
+        summary_id = f"{summary.period_type}_{summary.period_key}"
+        content = json.dumps(summary.to_dict(), ensure_ascii=False)
+        key_topics = list(summary.event_types.keys()) if summary.event_types else None
+        key_topics_json = json.dumps(key_topics, ensure_ascii=False) if key_topics else None
         cur.execute(
             """
-            INSERT INTO summaries(period_type, period_key, payload, created_at)
-            VALUES(?, ?, ?, ?)
-            ON CONFLICT(period_type, period_key) DO UPDATE SET
-                payload = excluded.payload,
+            INSERT INTO summaries(summary_id, content, summary_type, start_time, end_time, event_count, key_topics, created_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(summary_id) DO UPDATE SET
+                content = excluded.content,
+                summary_type = excluded.summary_type,
+                start_time = excluded.start_time,
+                end_time = excluded.end_time,
+                event_count = excluded.event_count,
+                key_topics = excluded.key_topics,
                 created_at = excluded.created_at
             """,
-            (summary.period_type, summary.period_key, payload, summary.created_at),
+            (summary_id, content, summary.period_type, summary.start_time, summary.end_time, summary.event_count, key_topics_json, summary.created_at),
         )
         conn.commit()
         conn.close()
