@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -15,10 +15,12 @@ use tauri_plugin_shell::{
 
 const BACKEND_HOST: &str = "127.0.0.1";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(25);
+const MAX_ERROR_LINES: usize = 20;
 
 #[derive(Default)]
 struct BackendState {
     runtime: Mutex<BackendRuntime>,
+    recent_errors: Arc<Mutex<Vec<String>>>,
 }
 
 #[derive(Default)]
@@ -174,6 +176,7 @@ fn spawn_sidecar(
     app: &AppHandle,
     port: u16,
     session_token: &str,
+    recent_errors: Arc<Mutex<Vec<String>>>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let port_text = port.to_string();
     let (mut rx, child) = app
@@ -191,6 +194,7 @@ fn spawn_sidecar(
 
     let pid = child.pid();
     let app_handle = app.clone();
+    let errors_clone = recent_errors.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
@@ -201,6 +205,13 @@ fn spawn_sidecar(
                 CommandEvent::Stderr(line) => {
                     let message = String::from_utf8_lossy(&line).to_string();
                     let _ = app_handle.emit("backend-log", format!("stderr: {}", message.trim_end()));
+                    // Store recent error lines for error reporting
+                    if let Ok(mut errors) = errors_clone.lock() {
+                        if errors.len() >= MAX_ERROR_LINES {
+                            errors.remove(0);
+                        }
+                        errors.push(message.trim_end().to_string());
+                    }
                 }
                 CommandEvent::Terminated(payload) => {
                     let _ = app_handle.emit(
@@ -281,6 +292,11 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
 
 #[tauri::command]
 fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<StartBackendResponse, String> {
+    // Clear previous error logs
+    if let Ok(mut errors) = state.recent_errors.lock() {
+        errors.clear();
+    }
+
     {
         let runtime = state
             .runtime
@@ -340,7 +356,7 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, port);
     let ws_base_url = format!("ws://{}:{}", BACKEND_HOST, port);
 
-    let (process, pid) = match spawn_sidecar(&app, port, &session_token) {
+    let (process, pid) = match spawn_sidecar(&app, port, &session_token, state.recent_errors.clone()) {
         Ok(result) => result,
         Err(sidecar_err) => {
             if cfg!(debug_assertions) {
@@ -355,7 +371,17 @@ fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<Start
     let mut process = process;
     if !wait_for_health(BACKEND_HOST, port, STARTUP_TIMEOUT) {
         process.kill();
-        return Err("Backend startup timeout: /api/health did not become ready".to_string());
+        // Collect recent error logs for better error message
+        let error_details = if let Ok(errors) = state.recent_errors.lock() {
+            if errors.is_empty() {
+                String::new()
+            } else {
+                format!("\n\nRecent logs:\n{}", errors.join("\n"))
+            }
+        } else {
+            String::new()
+        };
+        return Err(format!("Backend startup timeout: /api/health did not become ready{}", error_details));
     }
 
     let mut runtime = state

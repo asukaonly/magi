@@ -44,7 +44,7 @@ agent:
 
     # Embedding settings
     embedding:
-      backend: "local"
+      backend: "sqlite_vec"
       local_model: "all-MiniLM-L6-v2"
       local_dimension: 384
 

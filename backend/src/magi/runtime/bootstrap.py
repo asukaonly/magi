@@ -26,15 +26,20 @@ from ..memory.self_memory import SelfMemory
 from ..memory.other_memory import OtherMemory
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationModule, MemoryIntegrationConfig
+from ..memory.scenario_prompts import ScenarioPromptsStore
 from ..llm import create_llm_adapter
-from ..utils.runtime import get_runtime_paths, init_runtime_data
+from ..utils.runtime import get_runtime_paths, Runtimepaths, init_runtime_data
 from ..core.logger import get_logger
+from ..core.database_initializer import DatabaseInitializer, set_database_initializer
+from .maintenance import MaintenanceDaemon, MaintenanceConfig, set_maintenance_daemon
 
 logger = get_logger(__name__)
 
 _memory_integration: MemoryIntegrationModule | None = None
 _message_bus: SQLiteMessageBackend | None = None
 _agent_runtime: AgentRuntime | None = None
+_maintenance_daemon: MaintenanceDaemon | None = None
+_scenario_prompts_store: ScenarioPromptsStore | None = None
 
 
 @dataclass
@@ -134,6 +139,20 @@ async def initialize_chat_agent():
         logger.info(f"Runtime directory: {runtime_paths.base_dir}")
         logger.info("Initializing Agent Runtime...")
 
+        # 统一初始化所有数据库表
+        current_personality = "default"
+        if _bindings.get_current_personality is not None:
+            try:
+                current_personality = _bindings.get_current_personality() or "default"
+            except Exception as exc:
+                logger.warning(f"Failed to get current personality from bindings: {exc}")
+
+        db_initializer = DatabaseInitializer(data_dir=runtime_paths.data_dir)
+        await db_initializer.initialize_all()
+        await db_initializer.insert_default_data(persona_name=current_personality)
+        set_database_initializer(db_initializer)
+        logger.info("Database initialization completed")
+
         llm_adapter = _create_llm_adapter(config)
         _message_bus = SQLiteMessageBackend(
             db_path=str(runtime_paths.events_db_path),
@@ -141,19 +160,13 @@ async def initialize_chat_agent():
             num_workers=config.agent.message_bus.num_workers,
             broadcast_max_concurrency=config.agent.message_bus.broadcast_max_concurrency,
             handler_timeout_seconds=config.agent.message_bus.handler_timeout_seconds,
+            max_retries=config.agent.message_bus.max_retries,
+            retry_delay_seconds=config.agent.message_bus.retry_delay_seconds,
         )
         await _message_bus.start()
         logger.info("MessageBus started")
 
         task_database = TaskDatabase(db_path=str(runtime_paths.data_dir / "tasks.db"))
-
-        current_personality = "default"
-        if _bindings.get_current_personality is not None:
-            try:
-                current_personality = _bindings.get_current_personality() or "default"
-            except Exception as exc:
-                logger.warning(f"Failed to get current personality from bindings: {exc}")
-        logger.info(f"Current personality: {current_personality}")
 
         memory = SelfMemory(
             personality_name=current_personality,
@@ -196,6 +209,12 @@ async def initialize_chat_agent():
         await _memory_integration.start()
         logger.info("MemoryIntegrationModule started")
 
+        # Scenario prompts store (table already initialized by DatabaseInitializer)
+        global _scenario_prompts_store
+        _scenario_prompts_store = ScenarioPromptsStore(
+            db_path=str(runtime_paths.scenario_prompts_db_path)
+        )
+
         sensor_hub = SensorHub(message_bus=_message_bus)
         action_executor = ActionExecutor(message_bus=_message_bus)
         task_agent_manager = TaskAgentManager(
@@ -208,6 +227,7 @@ async def initialize_chat_agent():
                 memory_integration=_memory_integration,
                 history_cache_max_sessions=config.agent.runtime.chat_history_cache_max_sessions,
                 history_fetch_limit=config.agent.runtime.chat_history_fetch_limit,
+                scenario_prompts_store=_scenario_prompts_store,
             ),
             create_default_agent=lambda agent_type, agent_id: DefaultTaskAgent(agent_type, agent_id),
             idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
@@ -227,7 +247,6 @@ async def initialize_chat_agent():
             action_executor=action_executor,
         )
 
-        await task_database._init_db()
         await _agent_runtime.start()
 
         # Register services in the DI container
@@ -245,6 +264,25 @@ async def initialize_chat_agent():
             _bindings.init_skills_module(llm_adapter)
             logger.info("Skills module initialized")
 
+        # Start maintenance daemon
+        maintenance_config = MaintenanceConfig(
+            enabled=config.agent.maintenance.enabled,
+            interval_seconds=config.agent.maintenance.interval_seconds,
+            message_cleanup=config.agent.maintenance.message_cleanup,
+            message_retain_hours=config.agent.maintenance.message_retain_hours,
+            message_cleanup_batch_size=config.agent.maintenance.message_cleanup_batch_size,
+            health_check=config.agent.maintenance.health_check,
+            log_rotation_check=config.agent.maintenance.log_rotation_check,
+        )
+        global _maintenance_daemon
+        _maintenance_daemon = MaintenanceDaemon(
+            message_bus=_message_bus,
+            config=maintenance_config,
+        )
+        await _maintenance_daemon.start()
+        set_maintenance_daemon(_maintenance_daemon)
+        logger.info("Maintenance daemon started")
+
         logger.info("Agent runtime initialized successfully")
 
     except Exception as exc:
@@ -254,9 +292,14 @@ async def initialize_chat_agent():
 
 async def shutdown_chat_agent():
     """Shutdown agent runtime."""
-    global _memory_integration, _message_bus, _agent_runtime
+    global _memory_integration, _message_bus, _agent_runtime, _maintenance_daemon
 
     try:
+        # Stop maintenance daemon first
+        if _maintenance_daemon is not None:
+            await _maintenance_daemon.stop()
+            _maintenance_daemon = None
+
         if _agent_runtime is not None:
             await _agent_runtime.stop()
             _agent_runtime = None
