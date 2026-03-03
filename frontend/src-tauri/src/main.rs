@@ -39,18 +39,23 @@ struct ExternalBackendConfig {
 }
 
 enum BackendProcess {
-    Sidecar(CommandChild),
-    Dev(Child),
+    Sidecar(Option<CommandChild>),
+    Dev(Option<Child>),
 }
 
 impl BackendProcess {
     fn kill(&mut self) {
         match self {
             Self::Sidecar(child) => {
-                let _ = child.kill();
+                if let Some(sidecar) = child.take() {
+                    let _ = sidecar.kill();
+                }
             }
             Self::Dev(child) => {
-                let _ = child.kill();
+                if let Some(process) = child.as_mut() {
+                    let _ = process.kill();
+                }
+                child.take();
             }
         }
     }
@@ -212,7 +217,7 @@ fn spawn_sidecar(
         }
     });
 
-    Ok((BackendProcess::Sidecar(child), pid))
+    Ok((BackendProcess::Sidecar(Some(child)), Some(pid)))
 }
 
 fn find_backend_dir() -> Result<PathBuf, String> {
@@ -256,7 +261,7 @@ fn spawn_dev_backend(port: u16, session_token: &str) -> Result<(BackendProcess, 
         .spawn()
         .map_err(|err| format!("Failed to spawn backend with python fallback: {err}"))?;
     let pid = Some(child.id());
-    Ok((BackendProcess::Dev(child), pid))
+    Ok((BackendProcess::Dev(Some(child)), pid))
 }
 
 fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
