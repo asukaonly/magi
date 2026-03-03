@@ -45,11 +45,15 @@
   }
 
   .desktop-surface {
-    @apply border border-border/80 bg-card/92 shadow-[0_24px_80px_-30px_rgba(15,23,42,0.35)] backdrop-blur-sm;
+    @apply border shadow-[0_24px_80px_-30px_rgba(15,23,42,0.35)] backdrop-blur-sm;
+    border-color: hsl(var(--border) / 0.8);
+    background-color: hsl(var(--card) / 0.92);
   }
 
   .desktop-panel {
-    @apply border border-border/75 bg-card/90 shadow-[0_20px_70px_-36px_rgba(15,23,42,0.45)];
+    @apply border shadow-[0_20px_70px_-36px_rgba(15,23,42,0.45)];
+    border-color: hsl(var(--border) / 0.75);
+    background-color: hsl(var(--card) / 0.9);
   }
 }
 
