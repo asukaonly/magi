@@ -3,39 +3,94 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 215 22% 92%;
-    --foreground: 222 28% 12%;
-    --card: 210 25% 98%;
-    --card-foreground: 222 28% 12%;
-    --primary: 194 72% 40%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 216 23% 90%;
-    --secondary-foreground: 222 28% 12%;
-    --muted: 216 24% 88%;
-    --muted-foreground: 217 14% 40%;
-    --accent: 192 48% 90%;
-    --accent-foreground: 196 80% 21%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 20% 82%;
-    --input: 214 20% 82%;
-    --ring: 194 72% 40%;
+  /* Dark theme (default) */
+  :root,
+  .dark {
+    --background: 260 30% 8%;
+    --foreground: 260 20% 92%;
+    --card: 260 25% 12%;
+    --card-foreground: 260 20% 92%;
+    --primary: 175 70% 45%;
+    --primary-foreground: 260 30% 8%;
+    --secondary: 260 25% 18%;
+    --secondary-foreground: 260 20% 85%;
+    --muted: 260 20% 16%;
+    --muted-foreground: 260 15% 55%;
+    --accent: 310 65% 50%;
+    --accent-foreground: 260 30% 98%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 260 30% 98%;
+    --border: 260 20% 22%;
+    --input: 260 20% 22%;
+    --ring: 175 70% 45%;
     --radius: 0.9rem;
+    --eva-cyan: 175 70% 45%;
+    --eva-purple: 280 60% 55%;
+    --eva-magenta: 310 65% 50%;
+    --eva-orange: 25 90% 55%;
+  }
+
+  /* Light theme */
+  .light {
+    --background: 220 20% 97%;
+    --foreground: 260 30% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 260 30% 15%;
+    --primary: 175 65% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 260 15% 92%;
+    --secondary-foreground: 260 30% 25%;
+    --muted: 260 10% 94%;
+    --muted-foreground: 260 15% 45%;
+    --accent: 310 60% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 260 15% 88%;
+    --input: 260 15% 88%;
+    --ring: 175 65% 40%;
+    --radius: 0.9rem;
+    --eva-cyan: 175 65% 40%;
+    --eva-purple: 280 55% 50%;
+    --eva-magenta: 310 60% 45%;
+    --eva-orange: 25 85% 50%;
   }
 
   * {
     @apply border-border;
   }
 
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
-    margin: 0;
     font-family: 'SF Pro Text', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background-attachment: fixed;
+  }
+
+  /* Dark theme background */
+  .dark body,
+  :root body {
     background:
-      radial-gradient(1100px 520px at 15% -15%, rgba(148, 190, 210, 0.30), transparent 58%),
-      radial-gradient(900px 460px at 100% 8%, rgba(127, 177, 172, 0.20), transparent 56%),
-      linear-gradient(180deg, #dde3ea 0%, #d5dde7 100%);
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(132, 94, 194, 0.15), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 100% 50%, rgba(77, 208, 199, 0.08), transparent 50%),
+      radial-gradient(ellipse 50% 30% at 0% 80%, rgba(194, 77, 168, 0.06), transparent 50%),
+      linear-gradient(180deg, hsl(260 30% 7%) 0%, hsl(260 35% 5%) 100%);
+  }
+
+  /* Light theme background */
+  .light body {
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(132, 94, 194, 0.08), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 100% 50%, rgba(77, 208, 199, 0.05), transparent 50%),
+      radial-gradient(ellipse 50% 30% at 0% 80%, rgba(194, 77, 168, 0.04), transparent 50%),
+      linear-gradient(180deg, hsl(220 20% 97%) 0%, hsl(220 25% 95%) 100%);
   }
 }
 
@@ -45,11 +100,30 @@
   }
 
   .desktop-surface {
-    @apply border border-border/80 bg-card/92 shadow-[0_24px_80px_-30px_rgba(15,23,42,0.35)] backdrop-blur-sm;
+    @apply border backdrop-blur-xl;
+    border-color: hsl(var(--border) / 0.5);
+    background-color: hsl(var(--card) / 0.75);
+    box-shadow:
+      0 0 0 1px hsl(var(--border) / 0.1),
+      0 24px 80px -20px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 hsl(var(--foreground) / 0.05);
   }
 
   .desktop-panel {
-    @apply border border-border/75 bg-card/90 shadow-[0_20px_70px_-36px_rgba(15,23,42,0.45)];
+    @apply border backdrop-blur-md;
+    border-color: hsl(var(--border) / 0.4);
+    background-color: hsl(var(--card) / 0.6);
+    box-shadow:
+      0 0 0 1px hsl(var(--border) / 0.08),
+      0 8px 32px -12px rgba(0, 0, 0, 0.4);
+  }
+
+  .eva-glow {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.3), 0 0 40px hsl(var(--primary) / 0.15);
+  }
+
+  .eva-glow-accent {
+    box-shadow: 0 0 20px hsl(var(--accent) / 0.3), 0 0 40px hsl(var(--accent) / 0.15);
   }
 }
 

@@ -81,3 +81,4 @@ build/
 # Tauri build artifacts
 frontend/src-tauri/target/
 frontend/src-tauri/binaries/magi-backend-*
+frontend/src-tauri/gen/
