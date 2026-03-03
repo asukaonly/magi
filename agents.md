@@ -220,6 +220,9 @@ cd ..
 
 # fullstack hot reload
 ./scripts/dev-hot.sh
+
+# tauri desktop + backend hot reload
+./scripts/dev-tauri-hot.sh
 ```
 
 Backend test naming convention:
