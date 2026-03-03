@@ -49,11 +49,15 @@ Magi is a local-first AI agent framework with:
 - Three-layer agents: `MasterAgent -> TaskAgent -> WorkerAgent`
 - Tool registry + builtin/provider tools + skills integration
 - Multi-layer memory system (L1-L5)
+- Dual runtime targets:
+  - Web mode: `React frontend + Python backend`
+  - Desktop mode: `Tauri shell + React WebView + Python sidecar backend`
 
 Main code locations:
 - Backend core: `backend/src/magi/`
 - API layer: `backend/src/magi/api/`
 - Frontend app: `frontend/src/`
+- Desktop host/runtime: `frontend/src-tauri/`
 
 ---
 
@@ -93,10 +97,17 @@ magi/
 │   │   ├── hooks/              # Custom hooks
 │   │   ├── __tests__/          # Frontend tests
 │   │   └── main.tsx
+│   ├── src-tauri/              # Tauri desktop host (Rust + capabilities + sidecar wiring)
 │   ├── package.json
 │   └── vite.config.ts
+├── scripts/
+│   ├── build-sidecar.sh        # Build Python sidecar binary for macOS/Linux
+│   ├── build-sidecar.ps1       # Build Python sidecar binary for Windows
+│   └── dev-hot.sh              # Start backend+frontend with hot reload
 ├── openspec/
 ├── configs/
+├── doc/
+│   └── tauri-python-sidecar-migration-plan.md
 ├── README.md
 └── agents.md
 ```
@@ -107,11 +118,12 @@ magi/
 
 ### Backend
 - Python 3.10+
-- FastAPI + Pydantic v2
+- FastAPI + Pydantic v2 + Uvicorn
 - Structlog
 - aiosqlite / redis / chromadb / networkx
 - OpenAI + Anthropic SDKs
 - Socket.IO + aiohttp
+- PyInstaller (desktop sidecar packaging)
 
 ### Frontend
 - React 18 + TypeScript + Vite
@@ -124,6 +136,11 @@ magi/
 - i18next + react-i18next
 - Vitest + Testing Library
 - Framer Motion (where needed for interaction/transition)
+
+### Desktop Runtime
+- Tauri v2 (Rust host)
+- `@tauri-apps/api` + `@tauri-apps/plugin-shell`
+- Python backend as sidecar process with runtime token handshake
 
 ---
 
@@ -190,10 +207,19 @@ cd frontend
 npm run type-check
 npm run test
 npm run lint
+npm run tauri:dev
+npm run tauri:build
 
 # backend
 cd backend
 pytest
+
+# sidecar build
+cd ..
+./scripts/build-sidecar.sh
+
+# fullstack hot reload
+./scripts/dev-hot.sh
 ```
 
 Backend test naming convention:
@@ -292,5 +318,5 @@ git push
 
 ---
 
-**Last Updated**: 2026-02-26  
+**Last Updated**: 2026-03-03  
 **Maintainer**: Magi Development Team
