@@ -42,6 +42,9 @@ export default {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
       },
+      opacity: {
+        92: '0.92',
+      },
     },
   },
   plugins: [],
