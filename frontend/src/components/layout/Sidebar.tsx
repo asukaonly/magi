@@ -1,104 +1,219 @@
-import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ChevronLeft,
+  ChevronRight,
   Database,
-  LayoutDashboard,
-  MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings,
+  MessageSquarePlus,
+  Settings2,
+  Sparkles,
   UserRound,
-  Zap,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { messagesApi, type ChatSessionListItem } from '@/api';
+import { useChatShellStore } from '@/stores';
 
-export const SidebarContext = React.createContext<{
-  collapsed: boolean;
-  toggleCollapse: () => void;
-  sidebarWidth: number;
-}>({
-  collapsed: false,
-  toggleCollapse: () => undefined,
-  sidebarWidth: 240,
-});
+const USER_ID = 'web_user';
+const SESSION_EVENT = 'magi-session-sync';
+
+const formatSessionTime = (timestamp: number, locale: string): string => {
+  if (!timestamp) {
+    return '';
+  }
+  try {
+    return new Date(timestamp * 1000).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+};
 
 const Sidebar: React.FC = () => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
   const navigate = useNavigate();
-  const location = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
-  const sidebarWidth = collapsed ? 64 : 240;
+  const currentSessionId = useChatShellStore((state) => state.currentSessionId);
+  const setCurrentSessionId = useChatShellStore((state) => state.setCurrentSessionId);
+  const sidebarCollapsed = useChatShellStore((state) => state.sidebarCollapsed);
+  const toggleSidebarCollapsed = useChatShellStore((state) => state.toggleSidebarCollapsed);
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+
+  const [sessions, setSessions] = useState<ChatSessionListItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refreshSessions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await messagesApi.listSessions(USER_ID, 50);
+      setSessions(response.sessions || []);
+      if (!currentSessionId && response.current_session_id) {
+        setCurrentSessionId(response.current_session_id);
+      }
+    } catch {
+      setSessions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentSessionId, setCurrentSessionId]);
 
   useEffect(() => {
-    const savedCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
-    setCollapsed(savedCollapsed);
-  }, []);
+    void refreshSessions();
+    const timer = window.setInterval(() => {
+      void refreshSessions();
+    }, 8000);
+    const handleSync = () => {
+      void refreshSessions();
+    };
+    window.addEventListener(SESSION_EVENT, handleSync as EventListener);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener(SESSION_EVENT, handleSync as EventListener);
+    };
+  }, [refreshSessions]);
 
-  const menuItems = [
-    { key: '/', icon: LayoutDashboard, label: t('nav.dashboard') },
-    { key: '/chat', icon: MessageSquare, label: t('nav.chat') },
-    { key: '/personality', icon: UserRound, label: t('nav.personality') },
-    { key: '/events', icon: Database, label: t('nav.events') },
-    { key: '/settings', icon: Settings, label: t('nav.settings') },
-  ];
-
-  const toggleCollapse = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem('sidebar-collapsed', String(next));
-    window.dispatchEvent(new CustomEvent('sidebar-toggle', { detail: { collapsed: next, width: next ? 64 : 240 } }));
+  const handleCreateSession = async () => {
+    try {
+      const result = await messagesApi.createNewSession(USER_ID);
+      if (result.session_id) {
+        setCurrentSessionId(result.session_id);
+        navigate('/chat');
+        window.dispatchEvent(new Event(SESSION_EVENT));
+      }
+    } catch {
+      // ignore at shell level, chat page will surface failure details
+    }
   };
 
-  return (
-    <SidebarContext.Provider value={{ collapsed, toggleCollapse, sidebarWidth }}>
-      <aside
-        className={cn(
-          'fixed left-0 top-0 z-20 h-screen border-r bg-card transition-all duration-300',
-          collapsed ? 'w-16' : 'w-60'
-        )}
-      >
-        <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center px-0' : 'gap-2')}>
-          <Zap className="h-5 w-5 text-primary" />
-          {!collapsed && (
-            <div className="flex flex-col">
-              <span className="text-base font-semibold">Magi</span>
-              <span className="text-[11px] text-muted-foreground">AI Framework</span>
-            </div>
-          )}
-        </div>
+  const handleOpenPanel = (panel: 'settings' | 'personality' | 'memory') => {
+    setActivePanel(panel);
+    if (panel === 'settings') {
+      navigate('/settings');
+      return;
+    }
+    if (panel === 'personality') {
+      navigate('/personality');
+      return;
+    }
+    navigate('/events');
+  };
 
-        <nav className="space-y-1 p-3">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const active = location.pathname === item.key;
+  const sessionRows = useMemo(() => {
+    if (sessions.length > 0) {
+      return sessions;
+    }
+    if (currentSessionId) {
+      return [
+        {
+          session_id: currentSessionId,
+          title: t('shell.newChatTitle'),
+          last_message_preview: '',
+          last_timestamp: 0,
+          message_count: 0,
+        },
+      ];
+    }
+    return [];
+  }, [currentSessionId, sessions, t]);
+
+  return (
+    <aside
+      className={cn(
+        'desktop-panel flex h-full flex-col border-r transition-all duration-200',
+        sidebarCollapsed ? 'w-[72px]' : 'w-[280px]'
+      )}
+    >
+      <div className={cn('flex items-center border-b px-3 py-3', sidebarCollapsed ? 'justify-center' : 'justify-between')}>
+        {!sidebarCollapsed && (
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div className="leading-tight">
+              <div className="text-sm font-semibold">Magi</div>
+              <div className="text-[11px] text-muted-foreground">{t('shell.clientMode')}</div>
+            </div>
+          </div>
+        )}
+        <Button size="icon" variant="ghost" onClick={toggleSidebarCollapsed} className="h-8 w-8 rounded-lg">
+          {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </Button>
+      </div>
+
+      <div className="p-2">
+        <Button onClick={handleCreateSession} className="w-full justify-start gap-2 rounded-xl">
+          <MessageSquarePlus className="h-4 w-4" />
+          {!sidebarCollapsed && <span>{t('shell.newChat')}</span>}
+        </Button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        {!sidebarCollapsed && sessionRows.length === 0 && (
+          <div className="rounded-xl border border-dashed p-3 text-xs text-muted-foreground">
+            {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
+          </div>
+        )}
+
+        <div className="space-y-1">
+          {sessionRows.map((session) => {
+            const active = currentSessionId === session.session_id;
             return (
               <button
-                key={item.key}
+                key={session.session_id}
                 type="button"
-                onClick={() => navigate(item.key)}
+                onClick={() => {
+                  setCurrentSessionId(session.session_id);
+                  navigate('/chat');
+                }}
                 className={cn(
-                  'flex h-10 w-full items-center rounded-md px-3 text-sm transition-colors',
-                  active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  collapsed && 'justify-center px-0'
+                  'w-full rounded-xl border px-3 py-2 text-left transition-colors',
+                  active ? 'border-primary/35 bg-primary/10' : 'border-transparent hover:border-border/60 hover:bg-muted/70',
+                  sidebarCollapsed && 'flex justify-center px-2'
                 )}
+                title={session.title}
               >
-                <Icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span className="ml-2">{item.label}</span>}
+                {sidebarCollapsed ? (
+                  <span className="text-xs font-semibold">{session.title.slice(0, 1)}</span>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium">{session.title || t('shell.newChatTitle')}</span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {formatSessionTime(session.last_timestamp, i18n.language)}
+                      </span>
+                    </div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">
+                      {session.last_message_preview || t('shell.noPreview')}
+                    </div>
+                  </>
+                )}
               </button>
             );
           })}
-        </nav>
+        </div>
+      </div>
 
-        <div className="absolute bottom-3 left-0 w-full px-3">
-          <Button variant="outline" className={cn('w-full', collapsed && 'px-0')} onClick={toggleCollapse}>
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+      <div className="border-t p-2">
+        <div className="space-y-1">
+          <Button variant="ghost" className="w-full justify-start gap-2 rounded-xl" onClick={() => handleOpenPanel('personality')}>
+            <UserRound className="h-4 w-4" />
+            {!sidebarCollapsed && <span>{t('shell.personality')}</span>}
+          </Button>
+          <Button variant="ghost" className="w-full justify-start gap-2 rounded-xl" onClick={() => handleOpenPanel('memory')}>
+            <Database className="h-4 w-4" />
+            {!sidebarCollapsed && <span>{t('shell.memory')}</span>}
+          </Button>
+          <Button variant="ghost" className="w-full justify-start gap-2 rounded-xl" onClick={() => handleOpenPanel('settings')}>
+            <Settings2 className="h-4 w-4" />
+            {!sidebarCollapsed && <span>{t('shell.settings')}</span>}
           </Button>
         </div>
-      </aside>
-    </SidebarContext.Provider>
+      </div>
+    </aside>
   );
 };
 
 export default Sidebar;
+
