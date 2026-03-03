@@ -14,6 +14,9 @@ import {
   Wrench,
   Cpu,
   ChevronRight,
+  Sun,
+  Moon,
+  Monitor,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +28,7 @@ import { SelectField as BaseSelectField } from '@/components/config-forms/fields
 import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig } from '../api/modules/config';
 import { memoryApi } from '../api/modules/memory';
 import { cn } from '@/lib/utils';
+import { useThemeStore, type ThemeMode } from '@/stores';
 
 type SelectOption = { label: string; value: string };
 
@@ -85,6 +89,8 @@ const NumberField: React.FC<{
 
 export const SettingsPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
+  const themeMode = useThemeStore((state) => state.mode);
+  const setThemeMode = useThemeStore((state) => state.setMode);
   const [config, setConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -243,6 +249,38 @@ export const SettingsPage: React.FC = () => {
                   i18n.changeLanguage(value);
                 }}
               />
+            </div>
+
+            {/* Theme selector */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium">{t('settings.fields.theme')}</h3>
+              <div className="flex gap-3">
+                {([
+                  { value: 'light', icon: Sun, label: t('settings.theme.light') },
+                  { value: 'dark', icon: Moon, label: t('settings.theme.dark') },
+                  { value: 'system', icon: Monitor, label: t('settings.theme.system') },
+                ] as const).map((option) => {
+                  const Icon = option.icon;
+                  const isActive = themeMode === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setThemeMode(option.value)}
+                      className={cn(
+                        'flex flex-1 flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all',
+                        isActive
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border hover:border-border/80 hover:bg-muted/50'
+                      )}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span className="text-sm font-medium">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">{t('settings.themeDesc')}</p>
             </div>
           </div>
         );

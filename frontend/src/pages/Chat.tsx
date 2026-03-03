@@ -11,7 +11,7 @@ import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
-import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useChatShellStore, type ChatPanelType } from '@/stores';
@@ -334,7 +334,7 @@ export const ChatPage: React.FC = () => {
   const getAvatar = (role: string) => {
     if (role === 'user') {
       return (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white">
           <UserRound className="h-4 w-4" />
         </div>
       );
@@ -348,39 +348,39 @@ export const ChatPage: React.FC = () => {
     }
     if (avatarSrc && avatarSrc.startsWith('http')) {
       return (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/80">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/80 eva-glow">
           <img src={avatarSrc} alt={aiName} className="h-full w-full object-cover" />
         </div>
       );
     }
     return (
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/80 text-white">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/80 text-white eva-glow">
         {aiAvatar || initial}
       </div>
     );
   };
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col px-4 pb-4 pt-3">
-      <div className="desktop-panel mb-2 flex items-center justify-between rounded-2xl px-4 py-3">
+    <div className="relative flex h-full min-h-0 flex-col px-4 pb-4 pt-2">
+      <div className="desktop-panel mb-2 flex h-14 shrink-0 items-center justify-between rounded-2xl px-4 py-3">
         <div className="flex items-center gap-2">
           {getAvatar('assistant')}
           <div>
-            <div className="text-sm font-semibold">{aiName}</div>
+            <div className="text-sm font-medium text-foreground/90">{aiName}</div>
             <div className="text-xs text-muted-foreground">{currentSessionId ? currentSessionId.slice(0, 8) : '--'}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={handleClearMessages} className="rounded-xl">
+          <Button size="sm" variant="ghost" onClick={handleClearMessages} className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5">
             <Eraser className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="ghost" onClick={handleNewSession} className="rounded-xl">
+          <Button size="sm" variant="ghost" onClick={handleNewSession} className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5">
             <Plus className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      <div className="desktop-panel min-h-0 flex-1 overflow-y-auto rounded-2xl px-4 py-4">
+      <div className="desktop-panel min-h-0 flex-1 overflow-y-auto rounded-2xl px-4 py-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {messages.map((msg) => (
           <motion.div
             key={msg.id}
@@ -402,8 +402,8 @@ export const ChatPage: React.FC = () => {
                 </div>
                 <div
                   className={msg.role === 'user'
-                    ? 'rounded-2xl rounded-tr-md bg-primary px-4 py-3 text-primary-foreground'
-                    : 'rounded-2xl rounded-tl-md border border-border/80 bg-card px-4 py-3'}
+                    ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-white'
+                    : 'rounded-2xl rounded-tl-md border border-border/50 bg-card/80 px-4 py-3 backdrop-blur-sm'}
                 >
                   {msg.role === 'assistant' ? (
                     <div className="prose prose-sm max-w-none text-current">
@@ -427,7 +427,7 @@ export const ChatPage: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="desktop-panel mt-2 rounded-2xl px-4 pb-3 pt-3">
+      <div className="desktop-panel mt-2 shrink-0 rounded-2xl px-4 pb-3 pt-3">
         <div className="flex items-end gap-3">
           <AutoResizeTextarea
             value={inputValue}
@@ -436,33 +436,33 @@ export const ChatPage: React.FC = () => {
             onKeyDown={handleKeyPress}
             disabled={!connected}
             minHeight={84}
-            className="max-h-64 resize-none rounded-xl border-0 bg-muted/50 px-4 py-3 text-sm shadow-none focus-visible:ring-1"
+            className="max-h-64 resize-none rounded-xl border-0 bg-muted/40 px-4 py-3 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/30"
           />
-          <Button onClick={handleSendMessage} disabled={!connected} className="h-11 rounded-xl px-5">
+          <Button onClick={handleSendMessage} disabled={!connected} className="h-11 rounded-xl bg-primary px-5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
             <Send className="mr-1 h-4 w-4" />
             {t('chat.send')}
           </Button>
         </div>
-        <div className="mt-2 text-center text-xs text-muted-foreground">{t('chat.tip')}</div>
+        <div className="mt-2 text-center text-xs text-muted-foreground/60">{t('chat.tip')}</div>
       </div>
 
       <SettingsCenterDialog open={activePanel === 'settings'} onOpenChange={(open) => !open && closePanel()} />
 
-      <Sheet open={activePanel === 'personality'} onOpenChange={(open) => !open && closePanel()}>
-        <SheetContent side="right" className="w-[88vw] max-w-5xl overflow-hidden p-0">
+      <Dialog open={activePanel === 'personality'} onOpenChange={(open) => !open && closePanel()}>
+        <DialogContent className="h-[88vh] max-w-5xl overflow-hidden p-0">
           <div className="h-full overflow-y-auto p-4">
             <PersonalityModern />
           </div>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
-      <Sheet open={activePanel === 'memory'} onOpenChange={(open) => !open && closePanel()}>
-        <SheetContent side="right" className="w-[86vw] max-w-5xl overflow-hidden p-0">
+      <Dialog open={activePanel === 'memory'} onOpenChange={(open) => !open && closePanel()}>
+        <DialogContent className="h-[88vh] max-w-5xl overflow-hidden p-0">
           <div className="h-full overflow-y-auto p-4">
             <EventsPage />
           </div>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

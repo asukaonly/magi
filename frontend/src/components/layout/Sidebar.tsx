@@ -121,37 +121,45 @@ const Sidebar: React.FC = () => {
   return (
     <aside
       className={cn(
-        'desktop-panel flex h-full flex-col border-r transition-all duration-200',
+        'desktop-panel flex h-full flex-col border-r border-border/30 transition-all duration-200',
         sidebarCollapsed ? 'w-[72px]' : 'w-[280px]'
       )}
     >
-      <div className={cn('flex items-center border-b px-3 py-3', sidebarCollapsed ? 'justify-center' : 'justify-between')}>
+      <div className={cn('flex items-center border-b border-border/30 px-3 py-3', sidebarCollapsed ? 'justify-center' : 'justify-between')}>
         {!sidebarCollapsed && (
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20 text-primary eva-glow">
               <Sparkles className="h-4 w-4" />
             </div>
             <div className="leading-tight">
-              <div className="text-sm font-semibold">Magi</div>
+              <div className="text-sm font-medium text-foreground/90">Magi</div>
               <div className="text-[11px] text-muted-foreground">{t('shell.clientMode')}</div>
             </div>
           </div>
         )}
-        <Button size="icon" variant="ghost" onClick={toggleSidebarCollapsed} className="h-8 w-8 rounded-lg">
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={toggleSidebarCollapsed}
+          className="h-8 w-8 rounded-lg text-foreground/60 hover:text-foreground hover:bg-white/5"
+        >
           {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
       </div>
 
       <div className="p-2">
-        <Button onClick={handleCreateSession} className="w-full justify-start gap-2 rounded-xl">
+        <Button
+          onClick={handleCreateSession}
+          className="w-full justify-start gap-2 rounded-xl bg-primary/15 text-primary border border-primary/20 hover:bg-primary/25"
+        >
           <MessageSquarePlus className="h-4 w-4" />
           {!sidebarCollapsed && <span>{t('shell.newChat')}</span>}
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {!sidebarCollapsed && sessionRows.length === 0 && (
-          <div className="rounded-xl border border-dashed p-3 text-xs text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-border/40 p-3 text-xs text-muted-foreground">
             {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
           </div>
         )}
@@ -168,14 +176,16 @@ const Sidebar: React.FC = () => {
                   navigate('/chat');
                 }}
                 className={cn(
-                  'w-full rounded-xl border px-3 py-2 text-left transition-colors',
-                  active ? 'border-primary/35 bg-primary/10' : 'border-transparent hover:border-border/60 hover:bg-muted/70',
+                  'w-full rounded-xl border px-3 py-2 text-left transition-all duration-200',
+                  active
+                    ? 'border-primary/40 bg-primary/15 text-foreground shadow-[0_0_12px_rgba(45,212,191,0.15)]'
+                    : 'border-transparent hover:border-border/40 hover:bg-white/5',
                   sidebarCollapsed && 'flex justify-center px-2'
                 )}
                 title={session.title}
               >
                 {sidebarCollapsed ? (
-                  <span className="text-xs font-semibold">{session.title.slice(0, 1)}</span>
+                  <span className="text-xs font-medium">{session.title.slice(0, 1)}</span>
                 ) : (
                   <>
                     <div className="flex items-center justify-between gap-2">
@@ -195,17 +205,29 @@ const Sidebar: React.FC = () => {
         </div>
       </div>
 
-      <div className="border-t p-2">
+      <div className="border-t border-border/30 p-2">
         <div className="space-y-1">
-          <Button variant="ghost" className="w-full justify-start gap-2 rounded-xl" onClick={() => handleOpenPanel('personality')}>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2 rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5"
+            onClick={() => handleOpenPanel('personality')}
+          >
             <UserRound className="h-4 w-4" />
             {!sidebarCollapsed && <span>{t('shell.personality')}</span>}
           </Button>
-          <Button variant="ghost" className="w-full justify-start gap-2 rounded-xl" onClick={() => handleOpenPanel('memory')}>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2 rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5"
+            onClick={() => handleOpenPanel('memory')}
+          >
             <Database className="h-4 w-4" />
             {!sidebarCollapsed && <span>{t('shell.memory')}</span>}
           </Button>
-          <Button variant="ghost" className="w-full justify-start gap-2 rounded-xl" onClick={() => handleOpenPanel('settings')}>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2 rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5"
+            onClick={() => handleOpenPanel('settings')}
+          >
             <Settings2 className="h-4 w-4" />
             {!sidebarCollapsed && <span>{t('shell.settings')}</span>}
           </Button>

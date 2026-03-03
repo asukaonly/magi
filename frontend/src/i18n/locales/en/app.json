@@ -121,6 +121,7 @@
     "systemDesc": "Advanced system configuration parameters",
     "fields": {
       "language": "Interface Language",
+      "theme": "Interface Theme",
       "userMode": "User Mode",
       "provider": "Provider",
       "modelName": "Model Name",
@@ -154,6 +155,12 @@
       "currentPersonality": "Current Personality",
       "memoryLayers": "Memory Layers Toggle"
     },
+    "theme": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "themeDesc": "Choose interface color scheme, light or dark mode",
     "actions": {
       "configure": "Configure",
       "clearMemory": "Clear Memory"

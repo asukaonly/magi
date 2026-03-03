@@ -8,7 +8,7 @@ FRONTEND_DIR="${ROOT_DIR}/frontend"
 BACKEND_HOST="${MAGI_BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${MAGI_BACKEND_PORT:-8000}"
 FRONTEND_PORT="${MAGI_FRONTEND_PORT:-5173}"
-BACKEND_LOG_FILE="${MAGI_BACKEND_LOG_FILE:-${ROOT_DIR}/backend/logs/backend-dev-hot.log}"
+BACKEND_LOG_FILE="${MAGI_BACKEND_LOG_FILE:-${HOME}/.magi/logs/backend-dev-hot.log}"
 TAURI_BIN_DIR="${ROOT_DIR}/frontend/src-tauri/binaries"
 
 # Use a stable dev token so HTTP/WS desktop auth passes while backend reload is enabled.

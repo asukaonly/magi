@@ -121,6 +121,7 @@
     "systemDesc": "高级系统配置参数",
     "fields": {
       "language": "界面语言",
+      "theme": "界面主题",
       "userMode": "用户模式",
       "provider": "提供商",
       "modelName": "模型名称",
@@ -154,6 +155,12 @@
       "currentPersonality": "当前人格",
       "memoryLayers": "记忆层级开关"
     },
+    "theme": {
+      "light": "浅色",
+      "dark": "深色",
+      "system": "跟随系统"
+    },
+    "themeDesc": "选择界面主题配色方案，浅色或深色模式",
     "actions": {
       "configure": "配置",
       "clearMemory": "清除记忆"
