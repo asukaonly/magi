@@ -21,6 +21,7 @@ export interface ClearMemoryResponse {
     l3_embeddings: ClearMemoryResult;
     l4_summaries: ClearMemoryResult;
     l5_capabilities: ClearMemoryResult;
+    chat_context: ClearMemoryResult;
   };
   warnings?: string[];
 }

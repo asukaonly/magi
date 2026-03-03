@@ -194,16 +194,19 @@ export const SettingsPage: React.FC = () => {
     setClearing(true);
     try {
       const response = await memoryApi.clearAll();
-      if (response.data?.success) {
-        const results = response.data.results;
+      // API client already unwraps res.data, so check response.success directly
+      if (response.success) {
+        const results = response.results;
         const totalCleared = Object.values(results).reduce(
           (sum: number, r: any) => sum + (r.cleared ? r.count : 0),
           0
         );
         toast.success(t('settings.memoryCleared', { count: totalCleared }));
-        if (response.data.warnings && response.data.warnings.length > 0) {
-          response.data.warnings.forEach((w) => console.warn(w));
+        if (response.warnings && response.warnings.length > 0) {
+          response.warnings.forEach((w) => console.warn(w));
         }
+        // Notify Chat page to refresh sessions and history
+        window.dispatchEvent(new CustomEvent('magi-memory-cleared'));
       }
     } catch (error: any) {
       toast.error(error?.message || t('settings.memoryClearFailed'));
