@@ -149,14 +149,17 @@ const FormBase = ({ form, initialValues, onValuesChange, children }: any) => {
 
 const FormItem = ({ label, name, valuePropName = 'value', rules, noStyle, children }: any) => {
   const ctx = React.useContext(FormContext);
-  if (!ctx) return <>{children}</>;
-  const { instance, values, errors } = ctx;
+  const instance = ctx?.instance;
+  const values = ctx?.values;
+  const errors = ctx?.errors;
 
   React.useEffect(() => {
-    if (name) {
+    if (ctx && name) {
       instance.__registerRule(name, rules);
     }
-  }, [instance, name, rules]);
+  }, [ctx, instance, name, rules]);
+
+  if (!ctx) return <>{children}</>;
 
   if (typeof children === 'function') {
     return <>{children({ getFieldValue: instance.getFieldValue, setFieldValue: instance.setFieldValue })}</>;
