@@ -18,7 +18,6 @@ const MainLayout: React.FC = () => {
       >
         <Sidebar />
         <div className="flex min-w-0 flex-col">
-          <div data-tauri-drag-region className="h-7 shrink-0" />
           <Header />
           <main className="min-h-0 flex-1 overflow-hidden">
             <div className="page-enter h-full overflow-hidden">
