@@ -135,7 +135,13 @@ async def initialize_chat_agent():
         logger.info("Initializing Agent Runtime...")
 
         llm_adapter = _create_llm_adapter(config)
-        _message_bus = SQLiteMessageBackend(db_path=str(runtime_paths.events_db_path))
+        _message_bus = SQLiteMessageBackend(
+            db_path=str(runtime_paths.events_db_path),
+            max_queue_size=config.agent.message_bus.max_queue_size,
+            num_workers=config.agent.message_bus.num_workers,
+            broadcast_max_concurrency=config.agent.message_bus.broadcast_max_concurrency,
+            handler_timeout_seconds=config.agent.message_bus.handler_timeout_seconds,
+        )
         await _message_bus.start()
         logger.info("MessageBus started")
 
@@ -200,14 +206,19 @@ async def initialize_chat_agent():
                 other_memory=other_memory,
                 unified_memory=unified_memory,
                 memory_integration=_memory_integration,
+                history_cache_max_sessions=config.agent.runtime.chat_history_cache_max_sessions,
+                history_fetch_limit=config.agent.runtime.chat_history_fetch_limit,
             ),
             create_default_agent=lambda agent_type, agent_id: DefaultTaskAgent(agent_type, agent_id),
+            idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
+            max_dynamic_instances=config.agent.runtime.task_agent_manager_max_dynamic_instances,
         )
         router_agent = RouterAgent(
             sensor_hub=sensor_hub,
             task_agent_manager=task_agent_manager,
             batch_size=max(8, config.agent.num_task_agents * 4),
             poll_timeout_seconds=0.2,
+            restart_backoff_seconds=config.agent.runtime.router_restart_backoff_seconds,
         )
         _agent_runtime = AgentRuntime(
             sensor_hub=sensor_hub,

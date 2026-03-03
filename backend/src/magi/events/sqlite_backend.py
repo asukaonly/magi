@@ -34,6 +34,8 @@ class SQLiteMessageBackend(MessageBusBackend):
         max_queue_size: int = 1000,
         num_workers: int = 4,
         memory_cache_size: int = 100,
+        broadcast_max_concurrency: int = 8,
+        handler_timeout_seconds: float = 2.0,
     ):
         """
         initialize SQLite message backend
@@ -43,11 +45,15 @@ class SQLiteMessageBackend(MessageBusBackend):
             max_queue_size: queuemaximumlength
             num_workers: number of worker threads
             memory_cache_size: memory cache size (reduce database queries)
+            broadcast_max_concurrency: max concurrent broadcast handlers
+            handler_timeout_seconds: timeout for each handler execution
         """
         self.db_path = db_path
         self.max_queue_size = max_queue_size
         self.num_workers = num_workers
         self.memory_cache_size = memory_cache_size
+        self.broadcast_max_concurrency = broadcast_max_concurrency
+        self.handler_timeout_seconds = handler_timeout_seconds
 
         # subscribeinfo
         self._subscriptions: Dict[str, List[Dict]] = defaultdict(list)
@@ -60,12 +66,18 @@ class SQLiteMessageBackend(MessageBusBackend):
         self._workers: List[asyncio.Task] = []
         self._running = False
 
+        # semaphore for broadcast concurrency
+        self._broadcast_semaphore: Optional[asyncio.Semaphore] = None
+
         # statisticsinfo
         self._stats = {
             "published_count": 0,
             "dropped_count": 0,
             "processed_count": 0,
             "error_count": 0,
+            "handler_error_count": 0,
+            "handler_timeout_count": 0,
+            "broadcast_parallelism": broadcast_max_concurrency,
         }
 
     @property
@@ -228,6 +240,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         await self._init_db()
 
         self._running = True
+        self._broadcast_semaphore = asyncio.Semaphore(self.broadcast_max_concurrency)
         self._workers = [
             asyncio.create_task(self._worker(i)) for i in range(self.num_workers)
         ]
@@ -304,7 +317,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             return Event.from_dict(event_data)
 
     async def _process_event(self, event: Event):
-        """processevent"""
+        """processevent with parallel broadcast dispatch."""
         subscriptions = self._subscriptions.get(event.type, [])
 
         if not subscriptions:
@@ -313,16 +326,34 @@ class SQLiteMessageBackend(MessageBusBackend):
         broadcast_subscriptions = [s for s in subscriptions if s["mode"] == "broadcast"]
         competing_subscriptions = [s for s in subscriptions if s["mode"] == "competing"]
 
-        # broadcast pattern
-        for subscription in broadcast_subscriptions:
-            await self._handle_event(subscription, event)
+        # broadcast pattern - parallel execution with semaphore
+        if broadcast_subscriptions:
+            tasks = [
+                asyncio.create_task(self._handle_event_with_timeout(sub, event))
+                for sub in broadcast_subscriptions
+            ]
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         # competing pattern
         if competing_subscriptions:
             subscription = min(
                 competing_subscriptions, key=lambda s: self._handler_pending[s["handler"]]
             )
-            await self._handle_event(subscription, event)
+            await self._handle_event_with_timeout(subscription, event)
+
+    async def _handle_event_with_timeout(self, subscription: Dict, event: Event):
+        """Handle event with semaphore control and timeout for broadcast isolation."""
+        async def _run_handler():
+            async with self._broadcast_semaphore:
+                await self._handle_event(subscription, event)
+
+        try:
+            await asyncio.wait_for(_run_handler(), timeout=self.handler_timeout_seconds)
+        except asyncio.TimeoutError:
+            self._stats["handler_timeout_count"] += 1
+        except Exception:
+            self._stats["handler_error_count"] += 1
 
     async def _handle_event(self, subscription: Dict, event: Event):
         """call handler to process event"""
@@ -365,4 +396,6 @@ class SQLiteMessageBackend(MessageBusBackend):
             "subscription_count": len(self._subscription_index),
             "worker_count": self.num_workers,
             "running": self._running,
+            "broadcast_max_concurrency": self.broadcast_max_concurrency,
+            "handler_timeout_seconds": self.handler_timeout_seconds,
         }

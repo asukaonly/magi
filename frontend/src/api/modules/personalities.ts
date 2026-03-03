@@ -1,5 +1,6 @@
 import { api } from '../client';
 import type { PersonalityConfig } from './personality';
+import { getRuntimeConfig } from '@/runtime/config';
 
 export interface PersonalityPreset {
   id: string;
@@ -23,7 +24,7 @@ interface AvatarUploadResponse {
 }
 
 const resolveApiBase = (): string =>
-  (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+  getRuntimeConfig().apiBaseUrl.replace(/\/$/, '');
 
 export const personalitiesApi = {
   list: (lang: 'zh' | 'en' = 'zh') =>

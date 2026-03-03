@@ -10,8 +10,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Callable
 import time
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+
+DESKTOP_SESSION_HEADER = "X-Magi-Session-Token"
+
+
+def get_required_desktop_session_token() -> str | None:
+    token = os.getenv("MAGI_DESKTOP_SESSION_TOKEN", "").strip()
+    return token or None
 
 
 class errorHandler(BaseHTTPMiddleware):
@@ -60,6 +69,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # checkis not豁免authentication
         if request.url.path in self.EXEMPT_pathS:
             return await call_next(request)
+
+        if request.url.path.startswith("/static/"):
+            return await call_next(request)
+
+        desktop_token = get_required_desktop_session_token()
+        if desktop_token:
+            provided = request.headers.get(DESKTOP_SESSION_HEADER, "").strip()
+            if provided != desktop_token:
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={
+                        "success": False,
+                        "message": "Desktop session token is invalid",
+                        "error_code": "desktop_auth_failed",
+                    },
+                )
 
         # TODO: ImplementationJWT tokenValidate
         # 目前暂时跳过authentication

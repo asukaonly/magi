@@ -7,3 +7,15 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+interface RuntimeConfig {
+  isDesktop: boolean;
+  apiBaseUrl: string;
+  wsBaseUrl: string;
+  sessionToken?: string;
+  backendPid?: number;
+}
+
+interface Window {
+  __MAGI_RUNTIME__?: RuntimeConfig;
+}

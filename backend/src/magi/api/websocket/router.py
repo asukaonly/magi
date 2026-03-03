@@ -13,6 +13,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from ...core.logger import get_logger
 from ..connection_manager import ConnectionManager, manager
+from ..middleware import get_required_desktop_session_token
 from .handlers import WebSocketContext, handler_registry
 
 if TYPE_CHECKING:
@@ -31,6 +32,14 @@ async def websocket_endpoint(websocket: WebSocket, manager: ConnectionManager) -
     """
     sid = str(uuid.uuid4())
     logger.info("New WebSocket connection attempt", sid=sid)
+
+    required_token = get_required_desktop_session_token()
+    if required_token:
+        provided_token = websocket.query_params.get("token", "").strip()
+        if provided_token != required_token:
+            logger.warning("Rejected WebSocket connection due to invalid desktop token", sid=sid)
+            await websocket.close(code=4401, reason="Unauthorized")
+            return
 
     await manager.connect(sid, websocket)
     logger.info("WebSocket connection established", sid=sid)

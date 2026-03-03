@@ -2,6 +2,7 @@
  * WebSocket客户端
  */
 import { io, Socket } from 'socket.io-client';
+import { getRuntimeConfig } from '@/runtime/config';
 
 // WebSocket事件类型
 export interface WebSocketMessage {
@@ -22,8 +23,8 @@ class WebSocketClient {
   // 事件处理器
   private eventHandlers: Map<string, Set<EventHandler>> = new Map();
 
-  constructor(url: string = 'http://localhost:8000') {
-    this.url = url;
+  constructor(url?: string) {
+    this.url = url || resolveSocketBaseUrl();
   }
 
   /**
@@ -36,6 +37,7 @@ class WebSocketClient {
     }
 
     console.log(`Connecting to WebSocket: ${this.url}`);
+    const runtime = getRuntimeConfig();
 
     this.socket = io(this.url, {
       path: '/ws/socket.io',
@@ -43,6 +45,7 @@ class WebSocketClient {
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,
       reconnectionDelay: this.reconnectDelay,
+      query: runtime.sessionToken ? { token: runtime.sessionToken } : undefined,
     });
 
     // 连接成功
@@ -225,9 +228,15 @@ class WebSocketClient {
   }
 }
 
+const resolveSocketBaseUrl = (): string => {
+  const runtime = getRuntimeConfig();
+  const wsOrigin = runtime.wsBaseUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
+  return wsOrigin;
+};
+
 // 创建全局WebSocket客户端实例
 const wsClient = new WebSocketClient(
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  resolveSocketBaseUrl()
 );
 
 export default wsClient;
