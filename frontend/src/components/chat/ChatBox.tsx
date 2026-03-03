@@ -115,14 +115,14 @@ const ChatBox: React.FC = () => {
                   flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
                 }}
               >
-                <div className={`flex h-8 w-8 items-center justify-center rounded-full text-white ${msg.role === 'user' ? 'bg-blue-500' : 'bg-emerald-500'}`}>
+                <div className={`flex h-8 w-8 items-center justify-center rounded-full text-white ${msg.role === 'user' ? 'bg-primary' : 'bg-primary/70'}`}>
                   {msg.role === 'user' ? <UserRound className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
                 <div
                   style={{
                     padding: '8px 12px',
                     borderRadius: '8px',
-                    backgroundColor: msg.role === 'user' ? '#1890ff' : 'white',
+                    backgroundColor: msg.role === 'user' ? 'hsl(var(--primary))' : 'white',
                     color: msg.role === 'user' ? 'white' : 'black',
                     boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
                   }}

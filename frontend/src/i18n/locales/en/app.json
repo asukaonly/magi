@@ -100,6 +100,12 @@
       "tools": "Tools",
       "system": "System"
     },
+    "preferencesDesc": "Configure interface language and user mode",
+    "llmDesc": "Configure LLM provider and parameters",
+    "personalityDesc": "Manage AI personality configuration",
+    "memoryDesc": "Manage layered memory system and vector models",
+    "toolsDesc": "Configure built-in tools and skills",
+    "systemDesc": "Advanced system configuration parameters",
     "fields": {
       "language": "Interface Language",
       "userMode": "User Mode",
@@ -132,7 +138,8 @@
       "logLevel": "Log Level",
       "clearMemory": "Clear All Memory",
       "clearMemoryDesc": "Clear all memory data from L1-L5 layers. This action is irreversible, use with caution.",
-      "currentPersonality": "Current Personality"
+      "currentPersonality": "Current Personality",
+      "memoryLayers": "Memory Layers Toggle"
     },
     "actions": {
       "configure": "Configure",

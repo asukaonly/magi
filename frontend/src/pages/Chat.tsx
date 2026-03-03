@@ -317,7 +317,7 @@ export const ChatPage: React.FC = () => {
     switch (role) {
       case 'user':
         return (
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-600 text-white">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white">
             <UserRound className="h-5 w-5" />
           </div>
         );
@@ -363,7 +363,7 @@ export const ChatPage: React.FC = () => {
       case 'sending':
         return <Badge variant="secondary">{t('chat.sending')}</Badge>;
       case 'sent':
-        return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">{t('chat.sent')}</Badge>;
+        return <Badge className="bg-primary/10 text-primary hover:bg-primary/10">{t('chat.sent')}</Badge>;
       case 'failed':
         return <Badge variant="destructive">{t('chat.failed')}</Badge>;
       default:
@@ -424,8 +424,8 @@ export const ChatPage: React.FC = () => {
                     width: 'fit-content',
                     padding: '12px 16px',
                     borderRadius: '12px',
-                    backgroundColor: msg.role === 'user' ? '#0d9488' : msg.role === 'system' ? '#f0fdfa' : '#ffffff',
-                    color: msg.role === 'user' ? 'white' : msg.role === 'system' ? '#0f766e' : '#111827',
+                    backgroundColor: msg.role === 'user' ? 'hsl(var(--primary))' : msg.role === 'system' ? 'hsl(var(--accent))' : '#ffffff',
+                    color: msg.role === 'user' ? 'white' : msg.role === 'system' ? 'hsl(var(--accent-foreground))' : '#111827',
                     boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
                     border: msg.role === 'user' ? 'none' : '1px solid #e5e7eb',
                     wordBreak: 'break-word',

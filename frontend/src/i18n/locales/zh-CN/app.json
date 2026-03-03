@@ -100,6 +100,12 @@
       "tools": "工具",
       "system": "系统"
     },
+    "preferencesDesc": "配置界面语言和用户模式",
+    "llmDesc": "配置大语言模型提供商和参数",
+    "personalityDesc": "管理 AI 人格配置",
+    "memoryDesc": "管理多层记忆系统和向量模型",
+    "toolsDesc": "配置内置工具和技能",
+    "systemDesc": "高级系统配置参数",
     "fields": {
       "language": "界面语言",
       "userMode": "用户模式",
@@ -132,7 +138,8 @@
       "logLevel": "日志级别",
       "clearMemory": "清除所有记忆",
       "clearMemoryDesc": "清除 L1-L5 所有层级的记忆数据。此操作不可恢复，请谨慎操作。",
-      "currentPersonality": "当前人格"
+      "currentPersonality": "当前人格",
+      "memoryLayers": "记忆层级开关"
     },
     "actions": {
       "configure": "配置",
