@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from ...core.logger import get_logger
 from ...llm.provider_bridge import LLMProviderBridge
+from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 from ...memory.behavior_evolution import SatisfactionLevel
 from ...memory.context_builder import Scenario
 from ...memory.emotional_state import EngagementLevel, InteractionOutcome
@@ -30,6 +31,7 @@ from ...core.runtime.task_agent import TaskAgent
 from ...core.runtime.types import TaskAgentType
 
 logger = get_logger(__name__)
+llm_logger = get_llm_logger('chat')
 TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"
 
 
@@ -73,6 +75,7 @@ class ChatTaskAgent(TaskAgent):
         memory_integration=None,
         history_cache_max_sessions: int = 500,
         history_fetch_limit: int = 200,
+        scenario_prompts_store=None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
@@ -81,7 +84,10 @@ class ChatTaskAgent(TaskAgent):
         self.unified_memory = unified_memory
         self.memory_integration = memory_integration
         self.context_decider = ContextDecider(tool_registry=tool_registry, llm_adapter=llm_adapter)
-        self.prompt_context_assembler = PromptContextAssembler(tool_registry=tool_registry)
+        self.prompt_context_assembler = PromptContextAssembler(
+            tool_registry=tool_registry,
+            scenario_prompts_store=scenario_prompts_store,
+        )
         self.prompt_context_renderer = PromptContextRenderer()
 
         # Initialize skill system first (dependency for FunctionCallingExecutor)
@@ -261,6 +267,7 @@ class ChatTaskAgent(TaskAgent):
             tool_result=tool_result,
             retrieved_memory_payload=retrieved_memory_payload,
             state_transition_override=None,
+            persona_name=self.memory.personality_name if self.memory else "default",
         )
         return prompt_context
 
@@ -399,14 +406,51 @@ class ChatTaskAgent(TaskAgent):
         messages: list[dict[str, str]],
         disable_thinking: bool = True,
     ) -> str:
-        provider_bridge = LLMProviderBridge(self.llm)
-        return await provider_bridge.chat(
+        request_id = str(uuid.uuid4())[:8]
+        start_time = time.time()
+        model_name = self.llm.model_name
+
+        log_llm_request(
+            llm_logger,
+            request_id=request_id,
+            model=model_name,
             system_prompt=system_prompt,
             messages=messages,
             max_tokens=1000,
             temperature=0.7,
-            disable_thinking=disable_thinking,
         )
+
+        try:
+            provider_bridge = LLMProviderBridge(self.llm)
+            response = await provider_bridge.chat(
+                system_prompt=system_prompt,
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.7,
+                disable_thinking=disable_thinking,
+            )
+
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_llm_response(
+                llm_logger,
+                request_id=request_id,
+                response=response,
+                success=True,
+                duration_ms=duration_ms,
+            )
+            return response
+
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_llm_response(
+                llm_logger,
+                request_id=request_id,
+                response="",
+                success=False,
+                error=str(e),
+                duration_ms=duration_ms,
+            )
+            raise
 
     async def _record_tool_interaction(self, payload: dict[str, Any]) -> None:
         user_id = str(payload.get("user_id") or self.agent_id)

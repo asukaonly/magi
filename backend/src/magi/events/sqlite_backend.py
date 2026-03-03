@@ -6,10 +6,19 @@ import asyncio
 import aiosqlite
 import json
 import time
+import logging
 from typing import Callable, Dict, List, Optional
 from collections import defaultdict
 from .backend import MessageBusBackend
 from .events import Event
+
+logger = logging.getLogger(__name__)
+
+# Message status constants
+STATUS_PENDING = "pending"
+STATUS_PROCESSING = "processing"
+STATUS_COMPLETED = "completed"
+STATUS_FAILED = "failed"
 
 
 class SQLiteMessageBackend(MessageBusBackend):
@@ -21,11 +30,7 @@ class SQLiteMessageBackend(MessageBusBackend):
     - Agent重启后can restore unprocessed events
     - supportpriorityqueue（order BY priority DESC, created_at asC）
     - Worker池concurrently process events
-
-    applicable scenarios：
-    - local deployment
-    - 需要persistence guarantee
-    - single machine run
+    - 支持消息重试机制
     """
 
     def __init__(
@@ -36,6 +41,8 @@ class SQLiteMessageBackend(MessageBusBackend):
         memory_cache_size: int = 100,
         broadcast_max_concurrency: int = 8,
         handler_timeout_seconds: float = 2.0,
+        max_retries: int = 3,
+        retry_delay_seconds: float = 1.0,
     ):
         """
         initialize SQLite message backend
@@ -47,6 +54,8 @@ class SQLiteMessageBackend(MessageBusBackend):
             memory_cache_size: memory cache size (reduce database queries)
             broadcast_max_concurrency: max concurrent broadcast handlers
             handler_timeout_seconds: timeout for each handler execution
+            max_retries: max retry attempts for failed messages
+            retry_delay_seconds: delay before retrying failed messages
         """
         self.db_path = db_path
         self.max_queue_size = max_queue_size
@@ -54,6 +63,8 @@ class SQLiteMessageBackend(MessageBusBackend):
         self.memory_cache_size = memory_cache_size
         self.broadcast_max_concurrency = broadcast_max_concurrency
         self.handler_timeout_seconds = handler_timeout_seconds
+        self.max_retries = max_retries
+        self.retry_delay_seconds = retry_delay_seconds
 
         # subscribeinfo
         self._subscriptions: Dict[str, List[Dict]] = defaultdict(list)
@@ -77,6 +88,8 @@ class SQLiteMessageBackend(MessageBusBackend):
             "error_count": 0,
             "handler_error_count": 0,
             "handler_timeout_count": 0,
+            "retry_count": 0,
+            "dead_letter_count": 0,
             "broadcast_parallelism": broadcast_max_concurrency,
         }
 
@@ -102,38 +115,85 @@ class SQLiteMessageBackend(MessageBusBackend):
             table_exists = await cursor.fetchone()
 
             if table_exists:
-                # check if has processed column
+                # check if has required columns
                 cursor = await db.execute("PRAGMA table_info(message_queue)")
                 columns = await cursor.fetchall()
                 column_names = [col[1] for col in columns]
 
-                # if missing required column, rebuild table
-                required_columns = {'id', 'event_type', 'event_data', 'priority', 'source', 'correlation_id', 'metadata', 'created_at', 'processed'}
-                if not required_columns.issubset(set(column_names)):
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.warning(f"Message queue table schema incompatible, recreating... Existing columns: {column_names}")
-                    await db.execute("DROP table IF EXISTS message_queue")
-                    await db.execute("DROP index IF EXISTS idx_message_queue_processed_priority")
+                # Check for new schema with status and retry_count
+                has_status = "status" in column_names
+                has_retry_count = "retry_count" in column_names
 
+                if not has_status or not has_retry_count:
+                    # Migrate old schema to new schema
+                    logger.info("Migrating message_queue table to new schema with retry support...")
+
+                    # Create new table with proper schema
+                    await db.execute("DROP TABLE IF EXISTS message_queue_new")
+                    await db.execute("""
+                        CREATE TABLE message_queue_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            event_type TEXT NOT NULL,
+                            event_data TEXT NOT NULL,
+                            priority INTEGER NOT NULL,
+                            source TEXT NOT NULL,
+                            correlation_id TEXT NOT NULL,
+                            metadata TEXT,
+                            created_at REAL NOT NULL,
+                            status TEXT DEFAULT 'pending',
+                            retry_count INTEGER DEFAULT 0,
+                            last_error TEXT
+                        )
+                    """)
+
+                    # Migrate data: processed=true -> status='completed', processed=false -> status='pending'
+                    if "processed" in column_names:
+                        await db.execute("""
+                            INSERT INTO message_queue_new
+                            (id, event_type, event_data, priority, source, correlation_id, metadata, created_at, status, retry_count)
+                            SELECT id, event_type, event_data, priority, source, correlation_id, metadata, created_at,
+                                   CASE WHEN processed = 1 THEN 'completed' ELSE 'pending' END,
+                                   0
+                            FROM message_queue
+                        """)
+                    else:
+                        await db.execute("""
+                            INSERT INTO message_queue_new
+                            (id, event_type, event_data, priority, source, correlation_id, metadata, created_at, status, retry_count)
+                            SELECT id, event_type, event_data, priority, source, correlation_id, metadata, created_at, 'pending', 0
+                            FROM message_queue
+                        """)
+
+                    # Drop old table and rename new table
+                    await db.execute("DROP TABLE message_queue")
+                    await db.execute("ALTER TABLE message_queue_new RENAME TO message_queue")
+
+                    # Drop old index if exists
+                    await db.execute("DROP INDEX IF EXISTS idx_message_queue_processed_priority")
+
+                    logger.info("Migration completed successfully")
+
+            # Create table if not exists
             await db.execute("""
-                create table IF NOT EXISTS message_queue (
-                    id intEGER primary key AUTOINCREMENT,
+                CREATE TABLE IF NOT EXISTS message_queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     event_type TEXT NOT NULL,
                     event_data TEXT NOT NULL,
-                    priority intEGER NOT NULL,
+                    priority INTEGER NOT NULL,
                     source TEXT NOT NULL,
                     correlation_id TEXT NOT NULL,
                     metadata TEXT,
-                    created_at real NOT NULL,
-                    processed boolEAN DEFAULT false
+                    created_at REAL NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    retry_count INTEGER DEFAULT 0,
+                    last_error TEXT
                 )
             """)
 
-            # createindexoptimizequery
+            # Create indexes for efficient querying
             await db.execute("""
-                create index IF NOT EXISTS idx_message_queue_processed_priority
-                ON message_queue(processed, priority DESC, created_at asC)
+                CREATE INDEX IF NOT EXISTS idx_message_queue_status_priority
+                ON message_queue(status, priority DESC, created_at ASC)
             """)
 
             await db.commit()
@@ -150,31 +210,32 @@ class SQLiteMessageBackend(MessageBusBackend):
         """
         try:
             async with aiosqlite.connect(self._expanded_db_path) as db:
-                # checkqueuelength
+                # checkqueuelength (only count pending messages)
                 cursor = await db.execute(
-                    "SELECT COUNT(*) FROM message_queue WHERE processed = false",
+                    "SELECT COUNT(*) FROM message_queue WHERE status = ?",
+                    (STATUS_PENDING,),
                 )
                 count = (await cursor.fetchone())[0]
 
                 if count >= self.max_queue_size:
-                    # queue is full, discard oldest
+                    # queue is full, discard oldest pending message
                     await db.execute("""
-                        delete FROM message_queue
+                        DELETE FROM message_queue
                         WHERE id IN (
                             SELECT id FROM message_queue
-                            WHERE processed = false
-                            order BY created_at asC
+                            WHERE status = ?
+                            ORDER BY created_at ASC
                             LIMIT 1
                         )
-                    """)
+                    """, (STATUS_PENDING,))
                     self._stats["dropped_count"] += 1
 
                 # insertnewevent
                 await db.execute("""
-                    INSERT intO message_queue (
+                    INSERT INTO message_queue (
                         event_type, event_data, priority, source,
-                        correlation_id, metadata, created_at, processed
-                    ) valueS (?, ?, ?, ?, ?, ?, ?, false)
+                        correlation_id, metadata, created_at, status, retry_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
                 """, (
                     event.type,
                     json.dumps(event.to_dict()),
@@ -183,6 +244,7 @@ class SQLiteMessageBackend(MessageBusBackend):
                     event.correlation_id,
                     json.dumps(event.metadata),
                     event.timestamp,
+                    STATUS_PENDING,
                 ))
 
                 await db.commit()
@@ -190,6 +252,7 @@ class SQLiteMessageBackend(MessageBusBackend):
                 return True
 
         except Exception as e:
+            logger.error(f"Failed to publish event: {e}")
             self._stats["error_count"] += 1
             return False
 
@@ -259,7 +322,8 @@ class SQLiteMessageBackend(MessageBusBackend):
         while (time.time() - start_time) < timeout:
             async with aiosqlite.connect(self._expanded_db_path) as db:
                 cursor = await db.execute(
-                    "SELECT COUNT(*) FROM message_queue WHERE processed = false"
+                    "SELECT COUNT(*) FROM message_queue WHERE status = ?",
+                    (STATUS_PENDING,),
                 )
                 count = (await cursor.fetchone())[0]
 
@@ -279,52 +343,122 @@ class SQLiteMessageBackend(MessageBusBackend):
         while self._running:
             try:
                 # atomically get and mark unprocessed event from database
-                event = await self._get_next_event()
+                result = await self._get_next_event()
 
-                if event is None:
+                if result is None:
                     await asyncio.sleep(0.1)
                     continue
 
+                event_id, event = result
+
                 # processevent
-                await self._process_event(event)
+                success = await self._process_event(event)
+
+                # Update message status based on result
+                if success:
+                    await self._mark_completed(event_id)
+                else:
+                    await self._mark_failed(event_id, "Handler failed")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                logger.error(f"Worker {worker_id} error: {e}")
                 self._stats["error_count"] += 1
 
-    async def _get_next_event(self) -> Optional[Event]:
-        """get from database and atomically mark next unprocessed event (by priority)"""
+    async def _get_next_event(self) -> Optional[tuple]:
+        """
+        Get next pending event and mark as processing.
+
+        Returns:
+            Tuple of (event_id, event) or None if no pending events
+        """
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            # atomic operation: SELECT + update in same transaction, prevent multiple workers from processing same event
+            # Atomic operation: SELECT + update in same transaction
             cursor = await db.execute("""
-                update message_queue set processed = true
+                UPDATE message_queue SET status = ?
                 WHERE id = (
                     SELECT id FROM message_queue
-                    WHERE processed = false
-                    order BY priority DESC, created_at asC
+                    WHERE status = ?
+                    ORDER BY priority DESC, created_at ASC
                     LIMIT 1
                 )
-                returnING event_data
-            """)
+                RETURNING id, event_data
+            """, (STATUS_PROCESSING, STATUS_PENDING))
             row = await cursor.fetchone()
             await db.commit()
 
             if not row:
                 return None
 
-            event_data = json.loads(row[0])
-            return Event.from_dict(event_data)
+            event_id = row[0]
+            event_data = json.loads(row[1])
+            return (event_id, Event.from_dict(event_data))
 
-    async def _process_event(self, event: Event):
-        """processevent with parallel broadcast dispatch."""
+    async def _mark_completed(self, event_id: int) -> None:
+        """Mark message as successfully completed."""
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            await db.execute(
+                "UPDATE message_queue SET status = ? WHERE id = ?",
+                (STATUS_COMPLETED, event_id),
+            )
+            await db.commit()
+            self._stats["processed_count"] += 1
+
+    async def _mark_failed(self, event_id: int, error_message: str) -> None:
+        """
+        Mark message as failed, with retry logic.
+
+        If retry_count < max_retries, reset to pending for retry.
+        Otherwise, mark as failed (dead letter).
+        """
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            # Get current retry count
+            cursor = await db.execute(
+                "SELECT retry_count FROM message_queue WHERE id = ?",
+                (event_id,),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return
+
+            retry_count = row[0] + 1
+
+            if retry_count < self.max_retries:
+                # Reset to pending for retry
+                await db.execute(
+                    "UPDATE message_queue SET status = ?, retry_count = ?, last_error = ? WHERE id = ?",
+                    (STATUS_PENDING, retry_count, error_message, event_id),
+                )
+                self._stats["retry_count"] += 1
+                logger.info(f"Message {event_id} scheduled for retry ({retry_count}/{self.max_retries})")
+            else:
+                # Max retries exceeded, mark as failed
+                await db.execute(
+                    "UPDATE message_queue SET status = ?, retry_count = ?, last_error = ? WHERE id = ?",
+                    (STATUS_FAILED, retry_count, error_message, event_id),
+                )
+                self._stats["dead_letter_count"] += 1
+                logger.warning(f"Message {event_id} moved to dead letter after {retry_count} retries")
+
+            await db.commit()
+
+    async def _process_event(self, event: Event) -> bool:
+        """
+        Process event with parallel broadcast dispatch.
+
+        Returns:
+            True if all handlers succeeded, False otherwise
+        """
         subscriptions = self._subscriptions.get(event.type, [])
 
         if not subscriptions:
-            return
+            return True  # No subscribers = success
 
         broadcast_subscriptions = [s for s in subscriptions if s["mode"] == "broadcast"]
         competing_subscriptions = [s for s in subscriptions if s["mode"] == "competing"]
+
+        all_success = True
 
         # broadcast pattern - parallel execution with semaphore
         if broadcast_subscriptions:
@@ -333,34 +467,59 @@ class SQLiteMessageBackend(MessageBusBackend):
                 for sub in broadcast_subscriptions
             ]
             if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Check if any handler failed
+                for result in results:
+                    if isinstance(result, Exception):
+                        all_success = False
+                    elif result is False:
+                        all_success = False
 
         # competing pattern
         if competing_subscriptions:
             subscription = min(
                 competing_subscriptions, key=lambda s: self._handler_pending[s["handler"]]
             )
-            await self._handle_event_with_timeout(subscription, event)
+            result = await self._handle_event_with_timeout(subscription, event)
+            if result is False:
+                all_success = False
 
-    async def _handle_event_with_timeout(self, subscription: Dict, event: Event):
-        """Handle event with semaphore control and timeout for broadcast isolation."""
+        return all_success
+
+    async def _handle_event_with_timeout(self, subscription: Dict, event: Event) -> bool:
+        """
+        Handle event with semaphore control and timeout for broadcast isolation.
+
+        Returns:
+            True if handler succeeded, False otherwise
+        """
         async def _run_handler():
             async with self._broadcast_semaphore:
-                await self._handle_event(subscription, event)
+                return await self._handle_event(subscription, event)
 
         try:
-            await asyncio.wait_for(_run_handler(), timeout=self.handler_timeout_seconds)
+            result = await asyncio.wait_for(_run_handler(), timeout=self.handler_timeout_seconds)
+            return result if result is not None else True
         except asyncio.TimeoutError:
             self._stats["handler_timeout_count"] += 1
-        except Exception:
+            logger.warning(f"Handler timeout for event {event.type}")
+            return False
+        except Exception as e:
             self._stats["handler_error_count"] += 1
+            logger.error(f"Handler error for event {event.type}: {e}")
+            return False
 
-    async def _handle_event(self, subscription: Dict, event: Event):
-        """call handler to process event"""
+    async def _handle_event(self, subscription: Dict, event: Event) -> bool:
+        """
+        Call handler to process event.
+
+        Returns:
+            True if handler succeeded, False otherwise
+        """
         if subscription["filter_func"]:
             try:
                 if not subscription["filter_func"](event):
-                    return
+                    return True  # Filtered out = success
             except Exception:
                 pass
 
@@ -373,10 +532,11 @@ class SQLiteMessageBackend(MessageBusBackend):
             else:
                 handler(event)
 
-            self._stats["processed_count"] += 1
+            return True
 
-        except Exception:
-            self._stats["error_count"] += 1
+        except Exception as e:
+            logger.error(f"Handler exception for event {event.type}: {e}")
+            return False
 
         finally:
             self._handler_pending[handler] -= 1
@@ -385,17 +545,128 @@ class SQLiteMessageBackend(MessageBusBackend):
         """getstatisticsinfo"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
-                "SELECT COUNT(*) FROM message_queue WHERE processed = false"
+                "SELECT COUNT(*) FROM message_queue WHERE status = ?",
+                (STATUS_PENDING,),
             )
             queue_size = (await cursor.fetchone())[0]
+
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM message_queue WHERE status = ?",
+                (STATUS_PROCESSING,),
+            )
+            processing_size = (await cursor.fetchone())[0]
+
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM message_queue WHERE status = ?",
+                (STATUS_FAILED,),
+            )
+            failed_size = (await cursor.fetchone())[0]
 
         return {
             **self._stats,
             "queue_size": queue_size,
+            "processing_size": processing_size,
+            "failed_size": failed_size,
             "max_queue_size": self.max_queue_size,
             "subscription_count": len(self._subscription_index),
             "worker_count": self.num_workers,
             "running": self._running,
             "broadcast_max_concurrency": self.broadcast_max_concurrency,
             "handler_timeout_seconds": self.handler_timeout_seconds,
+            "max_retries": self.max_retries,
         }
+
+    # =========================================================================
+    # Maintenance methods (called by MaintenanceDaemon)
+    # =========================================================================
+
+    async def cleanup_old_messages(
+        self,
+        retain_hours: int = 24,
+        batch_size: int = 1000,
+    ) -> int:
+        """
+        Clean up old completed/failed messages.
+
+        Args:
+            retain_hours: Retain messages from last N hours
+            batch_size: Maximum number of messages to delete in one batch
+
+        Returns:
+            Number of messages deleted
+        """
+        cutoff_time = time.time() - (retain_hours * 3600)
+        deleted_count = 0
+
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            # Delete completed messages older than cutoff
+            cursor = await db.execute("""
+                DELETE FROM message_queue
+                WHERE status IN (?, ?) AND created_at < ?
+                LIMIT ?
+            """, (STATUS_COMPLETED, STATUS_FAILED, cutoff_time, batch_size))
+            deleted_count = cursor.rowcount
+            await db.commit()
+
+        if deleted_count > 0:
+            logger.info(f"Cleaned up {deleted_count} old messages (retention: {retain_hours}h)")
+
+        return deleted_count
+
+    async def reset_stale_processing_messages(self, timeout_seconds: float = 300) -> int:
+        """
+        Reset messages stuck in 'processing' state back to 'pending'.
+
+        This handles cases where a worker crashed while processing a message.
+
+        Args:
+            timeout_seconds: Messages in processing state longer than this are considered stale
+
+        Returns:
+            Number of messages reset
+        """
+        # We don't have a 'updated_at' field, so we use created_at as approximation
+        # This is a best-effort recovery mechanism
+        cutoff_time = time.time() - timeout_seconds
+
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            cursor = await db.execute("""
+                UPDATE message_queue SET status = ?
+                WHERE status = ? AND created_at < ?
+            """, (STATUS_PENDING, STATUS_PROCESSING, cutoff_time))
+            reset_count = cursor.rowcount
+            await db.commit()
+
+        if reset_count > 0:
+            logger.warning(f"Reset {reset_count} stale processing messages to pending")
+
+        return reset_count
+
+    async def get_queue_health(self) -> dict:
+        """Get queue health statistics."""
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            stats = {}
+
+            for status in [STATUS_PENDING, STATUS_PROCESSING, STATUS_COMPLETED, STATUS_FAILED]:
+                cursor = await db.execute(
+                    "SELECT COUNT(*) FROM message_queue WHERE status = ?",
+                    (status,),
+                )
+                stats[status] = (await cursor.fetchone())[0]
+
+            # Get oldest pending message age
+            cursor = await db.execute(
+                "SELECT MIN(created_at) FROM message_queue WHERE status = ?",
+                (STATUS_PENDING,),
+            )
+            oldest = await cursor.fetchone()
+            if oldest and oldest[0]:
+                stats["oldest_pending_age_seconds"] = time.time() - oldest[0]
+            else:
+                stats["oldest_pending_age_seconds"] = 0
+
+            # Get database size
+            cursor = await db.execute("SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()")
+            stats["db_size_bytes"] = (await cursor.fetchone())[0]
+
+        return stats
