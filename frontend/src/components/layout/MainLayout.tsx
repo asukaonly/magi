@@ -9,18 +9,19 @@ const MainLayout: React.FC = () => {
   const sidebarCollapsed = useChatShellStore((state) => state.sidebarCollapsed);
 
   return (
-    <div className="h-screen p-3">
+    <div className="h-screen w-screen overflow-hidden">
       <div
         className={cn(
-          'desktop-surface grid h-full overflow-hidden rounded-[22px]',
+          'grid h-full overflow-hidden bg-card/60',
           sidebarCollapsed ? 'grid-cols-[72px_minmax(0,1fr)]' : 'grid-cols-[280px_minmax(0,1fr)]'
         )}
       >
         <Sidebar />
         <div className="flex min-w-0 flex-col">
+          <div data-tauri-drag-region className="h-7 shrink-0" />
           <Header />
-          <main className="min-h-0 flex-1">
-            <div className="page-enter h-full">
+          <main className="min-h-0 flex-1 overflow-hidden">
+            <div className="page-enter h-full overflow-hidden">
               <Outlet />
             </div>
           </main>
@@ -31,4 +32,3 @@ const MainLayout: React.FC = () => {
 };
 
 export default MainLayout;
-
