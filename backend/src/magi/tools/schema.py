@@ -162,6 +162,10 @@ class ToolConfigSpec(BaseModel):
     description: str = Field(default="", description="Config item description")
     sensitive: bool = Field(default=False, description="Can be set but not read")
     read_only: bool = Field(default=False, description="Cannot be changed")
+    required: bool = Field(default=False, description="Whether this config is required")
+    default: Optional[Any] = Field(default=None, description="Default value")
+    enum: Optional[List[Any]] = Field(default=None, description="Enum values for selection")
+    placeholder: Optional[str] = Field(default=None, description="Input placeholder hint")
 
 
 class Tool(ABC):

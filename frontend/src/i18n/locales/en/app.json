@@ -188,7 +188,24 @@
       "formal": "Formal",
       "local": "Local",
       "remote": "Remote"
-    }
+    },
+    "toolStatus": {
+      "ready": "Ready",
+      "notConfigured": "Not Configured"
+    },
+    "toolProviders": "Providers",
+    "loadingTools": "Loading tools...",
+    "loadToolsFailed": "Failed to load tools: {{message}}",
+    "toolConfigSaved": "Tool configuration saved",
+    "toolConfigSaveFailed": "Failed to save tool config: {{message}}",
+    "toolEnabled": "{{tool}} enabled",
+    "toolDisabled": "{{tool}} disabled",
+    "toolToggleFailed": "Failed to toggle tool: {{message}}",
+    "providerStatus": {
+      "ready": "Ready",
+      "notConfigured": "Not Configured"
+    },
+    "saving": "Saving..."
   },
   "events": {
     "title": "Memory Viewer",
