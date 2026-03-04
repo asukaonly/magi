@@ -18,6 +18,7 @@ import {
   Moon,
   Monitor,
 } from 'lucide-react';
+import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -459,44 +460,7 @@ export const SettingsPage: React.FC = () => {
               <h2 className="text-xl font-semibold">{t('settings.tabs.tools')}</h2>
               <p className="text-sm text-muted-foreground">{t('settings.toolsDesc')}</p>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="flex items-center justify-between rounded-md border p-3">
-                <span className="text-sm font-medium">{t('settings.fields.weatherTool')}</span>
-                <Switch
-                  checked={config.tools.builtIn.weather.enabled}
-                  onCheckedChange={(checked) => patchConfig((draft) => {
-                    draft.tools.builtIn.weather.enabled = checked;
-                  })}
-                />
-              </label>
-              <label className="flex items-center justify-between rounded-md border p-3">
-                <span className="text-sm font-medium">{t('settings.fields.webSearchTool')}</span>
-                <Switch
-                  checked={config.tools.builtIn.webSearch.enabled}
-                  onCheckedChange={(checked) => patchConfig((draft) => {
-                    draft.tools.builtIn.webSearch.enabled = checked;
-                  })}
-                />
-              </label>
-              <label className="flex items-center justify-between rounded-md border p-3">
-                <span className="text-sm font-medium">{t('settings.fields.webFetchTool')}</span>
-                <Switch
-                  checked={config.tools.builtIn.webFetch.enabled}
-                  onCheckedChange={(checked) => patchConfig((draft) => {
-                    draft.tools.builtIn.webFetch.enabled = checked;
-                  })}
-                />
-              </label>
-              <label className="flex items-center justify-between rounded-md border p-3">
-                <span className="text-sm font-medium">{t('settings.fields.playwrightRendering')}</span>
-                <Switch
-                  checked={config.tools.builtIn.webFetch.usePlaywright}
-                  onCheckedChange={(checked) => patchConfig((draft) => {
-                    draft.tools.builtIn.webFetch.usePlaywright = checked;
-                  })}
-                />
-              </label>
-            </div>
+            <DynamicToolsConfig />
           </div>
         );
 
