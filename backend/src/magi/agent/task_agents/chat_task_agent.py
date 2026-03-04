@@ -29,10 +29,17 @@ from ...utils.runtime import get_runtime_paths
 from ...core.runtime.contracts import FactRecord
 from ...core.runtime.task_agent import TaskAgent
 from ...core.runtime.types import TaskAgentType
+from ...events.events import EventTypes
 
 logger = get_logger(__name__)
 llm_logger = get_llm_logger('chat')
 TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"
+CHAT_TOOL_LOOP_STEP_EVENT_TYPE = "CHAT_TOOL_LOOP_STEP"
+WORKER_AGENT_EVENT_TYPES = {
+    "WORKER_AGENT_PROGRESS",
+    "WORKER_AGENT_COMPLETED",
+    "WORKER_AGENT_FAILED",
+}
 
 
 def clean_tool_artifacts(text: str) -> str:
@@ -101,6 +108,7 @@ class ChatTaskAgent(TaskAgent):
             tool_registry=tool_registry,
             skill_executor=self._skill_executor,
             tool_result_callback=self._record_tool_interaction,
+            loop_event_callback=self._record_tool_loop_fact,
         )
 
         self._conversation_history: dict[str, list[dict]] = {}
@@ -178,6 +186,26 @@ class ChatTaskAgent(TaskAgent):
             logger.debug(f"Evicted history cache for | key={oldest_key}")
 
     async def match_intent(self, context: dict[str, Any]) -> dict[str, Any]:
+        latest_fact = context.get("latest_fact")
+        if isinstance(latest_fact, FactRecord) and latest_fact.event_type in WORKER_AGENT_EVENT_TYPES:
+            return {
+                "intent": "worker_fact",
+                "difficulty": "normal",
+                "execution_mode": "fact_only",
+                "tools": [],
+                "deep_thinking": False,
+                "reasoning": "Worker fact update does not require immediate LLM response",
+            }
+        if isinstance(latest_fact, FactRecord) and latest_fact.event_type != EventTypes.USER_MESSAGE:
+            return {
+                "intent": "non_user_fact",
+                "difficulty": "normal",
+                "execution_mode": "fact_only",
+                "tools": [],
+                "deep_thinking": False,
+                "reasoning": "Non-user fact does not require immediate LLM response",
+            }
+
         user_message = context.get("user_message", "")
         history = context.get("history", [])
         recent_messages: list[dict[str, str]] = []
@@ -240,6 +268,7 @@ class ChatTaskAgent(TaskAgent):
             "tools": tool_result.get("tools", []),
             "deep_thinking": bool(tool_result.get("deep_thinking", False)),
             "intent": str(tool_result.get("intent", "chat")),
+            "execution_mode": str(intent_result.get("execution_mode", "llm")),
         }
 
     async def build_prompt_context(
@@ -272,6 +301,9 @@ class ChatTaskAgent(TaskAgent):
         return prompt_context
 
     async def call_llm(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
+        if llm_params.get("execution_mode") == "fact_only":
+            return {"response": "", "skip_emit": True}
+
         history = llm_params["history"]
         user_message = llm_params["user_message"]
         if not llm_params["tools"]:
@@ -291,13 +323,29 @@ class ChatTaskAgent(TaskAgent):
                 conversation_history=history,
                 disable_thinking=not llm_params["deep_thinking"],
                 intent=llm_params["intent"],
+                execution_agent_id=str(context.get("runtime_key", "chat_agent")),
             )
         return {"response": clean_tool_artifacts(response_text)}
 
     async def parse_result(self, context: dict[str, Any], raw_result: Any) -> None:
         if self._action_executor is None:
             return
+        latest_fact = context.get("latest_fact")
+        if not isinstance(latest_fact, FactRecord):
+            return
+        if latest_fact.event_type in WORKER_AGENT_EVENT_TYPES:
+            logger.info(
+                "Worker fact received by chat agent | worker_id=%s event_type=%s",
+                latest_fact.payload.get("worker_id"),
+                latest_fact.event_type,
+            )
+            return
+        if latest_fact.event_type != EventTypes.USER_MESSAGE:
+            return
+
         response_text = str(raw_result.get("response", "")) if isinstance(raw_result, dict) else str(raw_result)
+        if not response_text.strip():
+            return
         user_id = context["user_id"]
         session_id = context["session_id"]
         user_message = context["user_message"]
@@ -307,8 +355,7 @@ class ChatTaskAgent(TaskAgent):
         history.append({"role": "assistant", "content": response_text})
         await self._record_memory_updates(user_id=user_id, user_message=user_message)
 
-        latest_fact = context.get("latest_fact")
-        correlation_id = latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None
+        correlation_id = latest_fact.correlation_id
 
         await self._action_executor.emit_chat_response_event(
             user_id=user_id,
@@ -316,33 +363,32 @@ class ChatTaskAgent(TaskAgent):
             response=response_text,
             correlation_id=correlation_id,
         )
-        if isinstance(latest_fact, FactRecord):
-            now = time.time()
-            message_started_at = float(latest_fact.timestamp or now)
-            response_time = max(0.0, now - message_started_at)
-            action_payload = dict(latest_fact.payload) if isinstance(latest_fact.payload, dict) else {}
-            action_payload.update(
-                {
-                    "action_type": "ChatResponseAction",
-                    "response": response_text,
-                    "execution_time": response_time,
-                    "user_id": user_id,
-                    "session_id": session_id,
-                }
-            )
-            await self._action_executor.emit_action_event(
-                fact=FactRecord(
-                    agent_id=latest_fact.agent_id,
-                    event_type=latest_fact.event_type,
-                    payload=action_payload,
-                    agent_type=latest_fact.agent_type,
-                    agent_instance_id=latest_fact.agent_instance_id,
-                    timestamp=latest_fact.timestamp,
-                    correlation_id=latest_fact.correlation_id,
-                ),
-                success=True,
-                error=None,
-            )
+        now = time.time()
+        message_started_at = float(latest_fact.timestamp or now)
+        response_time = max(0.0, now - message_started_at)
+        action_payload = dict(latest_fact.payload) if isinstance(latest_fact.payload, dict) else {}
+        action_payload.update(
+            {
+                "action_type": "ChatResponseAction",
+                "response": response_text,
+                "execution_time": response_time,
+                "user_id": user_id,
+                "session_id": session_id,
+            }
+        )
+        await self._action_executor.emit_action_event(
+            fact=FactRecord(
+                agent_id=latest_fact.agent_id,
+                event_type=latest_fact.event_type,
+                payload=action_payload,
+                agent_type=latest_fact.agent_type,
+                agent_instance_id=latest_fact.agent_instance_id,
+                timestamp=latest_fact.timestamp,
+                correlation_id=latest_fact.correlation_id,
+            ),
+            success=True,
+            error=None,
+        )
 
     async def _record_memory_updates(self, user_id: str, user_message: str) -> None:
         if self.memory is not None:
@@ -497,6 +543,51 @@ class ChatTaskAgent(TaskAgent):
             success=success,
             error=error_text,
         )
+
+    async def _record_tool_loop_fact(self, payload: dict[str, Any]) -> None:
+        """Persist function-calling loop stages as chat facts."""
+        user_id = str(payload.get("user_id") or self.agent_id)
+        session_id = self._resolve_session_id(user_id, payload.get("session_id"))
+        stage = str(payload.get("stage") or "unknown")
+
+        fact = FactRecord(
+            agent_id=f"{TaskAgentType.CHAT.value}:{user_id}",
+            event_type=CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
+            payload={
+                "stage": stage,
+                "iteration": payload.get("iteration"),
+                "max_iterations": payload.get("max_iterations"),
+                "tool_name": payload.get("tool_name"),
+                "tool_names": payload.get("tool_names"),
+                "tool_count": payload.get("tool_count"),
+                "tool_call_id": payload.get("tool_call_id"),
+                "success": payload.get("success"),
+                "error": payload.get("error"),
+                "execution_time": payload.get("execution_time"),
+                "response_preview": payload.get("response_preview"),
+                "intent": payload.get("intent"),
+                "execution_agent_id": payload.get("execution_agent_id"),
+                "user_id": user_id,
+                "session_id": session_id,
+                "timestamp": time.time(),
+            },
+            agent_type=TaskAgentType.CHAT.value,
+            agent_instance_id=user_id,
+            timestamp=time.time(),
+            correlation_id=str(payload.get("tool_call_id") or str(uuid.uuid4())),
+        )
+
+        try:
+            from ...runtime import get_agent_runtime
+
+            runtime = get_agent_runtime()
+            manager = runtime.get_task_agent_manager()
+            await manager.add_fact_to_agent(TaskAgentType.CHAT, user_id, fact)
+        except Exception as exc:
+            logger.debug(f"Failed to append loop stage fact via runtime manager: {exc}")
+            self._fact_memory.append(fact)
+            if len(self._fact_memory) > self._max_fact_memory:
+                self._fact_memory = self._fact_memory[-self._max_fact_memory :]
 
     def _history_key(self, user_id: str, session_id: str) -> str:
         return f"{user_id}::{session_id}"

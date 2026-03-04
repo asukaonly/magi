@@ -15,6 +15,8 @@ class _FakeLLMAdapter:
 
 
 class _FakeSelfMemory:
+    personality_name = "default"
+
     async def get_core_personality(self):
         return PersonalityConfig()
 
@@ -64,8 +66,8 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
         self.assertIn("prompt_context", llm_params)
         self.assertIn("system_prompt", llm_params)
         system_prompt = llm_params["system_prompt"]
-        self.assertIn("# Module 1: Identity & Behavioral Constraints", system_prompt)
-        self.assertIn("# Module 5: Tool Information", system_prompt)
+        self.assertIn("# System Definition", system_prompt)
+        self.assertIn("# Tool Information", system_prompt)
         self.assertIn("weather", system_prompt)
 
 

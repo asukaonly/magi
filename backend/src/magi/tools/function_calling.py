@@ -7,9 +7,10 @@ Handles tool execution using LLM's native function calling capability:
 3. Executes tools (local or skill-based)
 4. Supports continuous tool calling loop
 """
+import inspect
 import json
 import logging
-import inspect
+import os
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
@@ -59,6 +60,7 @@ class FunctionCallingExecutor:
         tool_registry: ToolRegistry,
         skill_executor=None,
         tool_result_callback=None,
+        loop_event_callback=None,
     ):
         """
         initialize the executor
@@ -73,6 +75,7 @@ class FunctionCallingExecutor:
         self.tool_registry = tool_registry
         self.skill_executor = skill_executor
         self.tool_result_callback = tool_result_callback
+        self.loop_event_callback = loop_event_callback
 
     async def execute_with_tools(
         self,
@@ -85,6 +88,8 @@ class FunctionCallingExecutor:
         max_iterations: int = max_ITERATIONS,
         disable_thinking: bool = True,
         intent: str = "unknown",
+        execution_agent_id: str = "chat_agent",
+        execution_workspace: Optional[str] = None,
     ) -> str:
         """
         Execute with continuous tool calling
@@ -112,6 +117,17 @@ class FunctionCallingExecutor:
         iteration = 0
         while iteration < max_iterations:
             iteration += 1
+            await self._emit_loop_event(
+                {
+                    "stage": "iteration_started",
+                    "iteration": iteration,
+                    "max_iterations": max_iterations,
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "intent": intent,
+                    "execution_agent_id": execution_agent_id,
+                }
+            )
 
             # Call LLM with tools
             response = await self._call_llm_with_tools(
@@ -130,6 +146,18 @@ class FunctionCallingExecutor:
             if response.get("tool_calls"):
                 tool_calls = response["tool_calls"]
                 logger.info(f"[FunctionCalling] Iteration {iteration}: {len(tool_calls)} tool(s) to execute")
+                await self._emit_loop_event(
+                    {
+                        "stage": "llm_requested_tools",
+                        "iteration": iteration,
+                        "tool_names": [tool_call.name for tool_call in tool_calls],
+                        "tool_count": len(tool_calls),
+                        "user_id": user_id,
+                        "session_id": session_id,
+                        "intent": intent,
+                        "execution_agent_id": execution_agent_id,
+                    }
+                )
 
                 # Execute all tool calls
                 tool_results = []
@@ -137,8 +165,27 @@ class FunctionCallingExecutor:
                     result = await self._execute_tool_call(
                         tool_call=tool_call,
                         user_id=user_id,
+                        session_id=session_id,
+                        intent=intent,
+                        execution_agent_id=execution_agent_id,
+                        execution_workspace=execution_workspace,
                     )
                     tool_results.append(result)
+                    await self._emit_loop_event(
+                        {
+                            "stage": "tool_executed",
+                            "iteration": iteration,
+                            "tool_name": tool_call.name,
+                            "tool_call_id": tool_call.id,
+                            "success": result.success,
+                            "error": result.error,
+                            "execution_time": result.execution_time,
+                            "user_id": user_id,
+                            "session_id": session_id,
+                            "intent": intent,
+                            "execution_agent_id": execution_agent_id,
+                        }
+                    )
                     await self._emit_tool_result(
                         user_id=user_id,
                         session_id=session_id,
@@ -175,6 +222,17 @@ class FunctionCallingExecutor:
                     llm_logger.warning(
                         f"function_CallING_all_TOOLS_failED | iteration={iteration} | details={failed_details}"
                     )
+                    await self._emit_loop_event(
+                        {
+                            "stage": "iteration_all_tools_failed",
+                            "iteration": iteration,
+                            "details": failed_details,
+                            "user_id": user_id,
+                            "session_id": session_id,
+                            "intent": intent,
+                            "execution_agent_id": execution_agent_id,
+                        }
+                    )
                     break
 
                 # Continue loop for potential more tool calls
@@ -182,6 +240,17 @@ class FunctionCallingExecutor:
             elif response.get("content"):
                 # LLM provided final response
                 logger.info(f"[FunctionCalling] Final response received after {iteration} iteration(s)")
+                await self._emit_loop_event(
+                    {
+                        "stage": "final_response",
+                        "iteration": iteration,
+                        "response_preview": str(response["content"])[:500],
+                        "user_id": user_id,
+                        "session_id": session_id,
+                        "intent": intent,
+                        "execution_agent_id": execution_agent_id,
+                    }
+                )
                 return response["content"]
 
             else:
@@ -191,10 +260,31 @@ class FunctionCallingExecutor:
 
         # Fallback: call LLM without tools for final response
         logger.info("[FunctionCalling] Reached max iterations, getting final response")
+        await self._emit_loop_event(
+            {
+                "stage": "max_iterations_reached",
+                "iteration": iteration,
+                "max_iterations": max_iterations,
+                "user_id": user_id,
+                "session_id": session_id,
+                "intent": intent,
+                "execution_agent_id": execution_agent_id,
+            }
+        )
         final_response = await self._call_llm_without_tools(
             system_prompt=system_prompt,
             messages=messages,
             disable_thinking=disable_thinking,
+        )
+        await self._emit_loop_event(
+            {
+                "stage": "fallback_final_response",
+                "response_preview": str(final_response.get("content", ""))[:500],
+                "user_id": user_id,
+                "session_id": session_id,
+                "intent": intent,
+                "execution_agent_id": execution_agent_id,
+            }
         )
         return final_response.get("content", "No response generated")
 
@@ -232,6 +322,17 @@ class FunctionCallingExecutor:
                 await callback_result
         except Exception as e:
             logger.warning(f"[FunctionCalling] Tool result callback failed: {e}")
+
+    async def _emit_loop_event(self, payload: Dict[str, Any]) -> None:
+        """Emit function-calling loop stage event to external callback if provided."""
+        if not self.loop_event_callback:
+            return
+        try:
+            callback_result = self.loop_event_callback(payload)
+            if inspect.isawaitable(callback_result):
+                await callback_result
+        except Exception as e:
+            logger.warning(f"[FunctionCalling] Loop event callback failed: {e}")
 
     def _build_tools_parameter(self, selected_tools: List[str]) -> List[Dict]:
         """
@@ -457,6 +558,10 @@ class FunctionCallingExecutor:
         self,
         tool_call: ToolCall,
         user_id: str,
+        session_id: Optional[str],
+        intent: str,
+        execution_agent_id: str,
+        execution_workspace: Optional[str],
     ) -> ToolCallResult:
         """
         Execute a single tool call
@@ -493,10 +598,15 @@ class FunctionCallingExecutor:
                 permissions.append("dangerous_tools")
 
             context = ToolExecutionContext(
-                agent_id="chat_agent",
-                user_id=user_id,
-                workspace="/tmp",
-                env_vars={},
+                agent_id=execution_agent_id,
+                workspace=execution_workspace or os.getcwd(),
+                env_vars={
+                    "user_id": user_id,
+                    "session_id": session_id or "",
+                    "intent": intent,
+                    "target_task_agent_type": "chat",
+                    "target_task_agent_id": user_id,
+                },
                 permissions=permissions,
             )
 
