@@ -73,7 +73,6 @@ class ToolRecommender:
         self.tool_capabilities = {
             "file_read": ["读取file", "查看fileContent", "file读取", "read file"],
             "file_write": ["写入file", "savefile", "createfile", "write file", "save file"],
-            "file_list": ["column出file", "查看directory", "filelist", "list files"],
             "bash": ["Executecommand", "runscript", "shellcommand", "execute command"],
         }
 

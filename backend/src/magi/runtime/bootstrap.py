@@ -154,6 +154,15 @@ async def initialize_chat_agent():
         logger.info("Database initialization completed")
 
         llm_adapter = _create_llm_adapter(config)
+
+        # Ensure built-in tools are loaded and inject runtime dependencies for agent tool.
+        from ..tools import tool_registry
+
+        agent_tool = tool_registry.get_tool("agent")
+        if agent_tool and hasattr(agent_tool, "configure"):
+            agent_tool.configure(llm_adapter=llm_adapter, tool_registry_instance=tool_registry)
+            logger.info("Agent tool configured with runtime LLM adapter")
+
         _message_bus = SQLiteMessageBackend(
             db_path=str(runtime_paths.events_db_path),
             max_queue_size=config.agent.message_bus.max_queue_size,

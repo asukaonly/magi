@@ -102,7 +102,6 @@ curl -X POST http://localhost:8000/api/v1/agents \
 - [x] **BashTool**: 执行Shell命令
 - [x] **FileReadTool**: 读取文件
 - [x] **FileWriteTool**: 写入文件
-- [x] **FileListTool**: 列出目录
 
 ---
 

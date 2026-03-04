@@ -72,6 +72,7 @@ JSON structure:
 ### 3. Tool vs Skill Selection
 - Tools: Basic operations (file read/write, bash commands)
 - Skills: Complex capabilities with specialized knowledge (start with /)
+- Agent tool (`agent`): Launch specialized worker agents for complex multi-step work.
 
 **Prioritize Skills when:**
 - Task requires specialized knowledge or workflows
@@ -83,6 +84,16 @@ JSON structure:
 - For binary files (images, PDFs, etc.) modification, use bash to call appropriate processing tools, DO NOT use file_read/file_write alone.
 - Command execution
 - No specialized knowledge needed
+
+**Use `agent` tool proactively when:**
+- The task is complex and likely needs many search/verification steps.
+- You are not confident one or two direct tool calls can finish it.
+- You need parallelizable exploration or a dedicated planning worker.
+
+For `agent` tool launches:
+- Use `subagent_type=general-purpose` for broad multi-step execution.
+- Use `subagent_type=Explore` for codebase exploration/search-heavy tasks.
+- Use `subagent_type=Plan` for architecture and implementation planning.
 
 Always check the "Available Skills" section below for skill descriptions and match user requests accordingly.
 
@@ -112,8 +123,8 @@ JSON: {"intent": "realtime_query", "tools": ["weather"], "deep_thinking": false,
 User: "read /src/main.py and fix the race condition"
 JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_thinking": true, "reasoning": "Complex bug diagnosis required."}
 
-User: "list files in current dir"
-JSON: {"intent": "file_operation", "tools": ["file_list"], "deep_thinking": false, "reasoning": "Simple single-step action."}
+User: "analyze this large repo and design a migration plan"
+JSON: {"intent": "planning", "tools": ["agent"], "deep_thinking": true, "reasoning": "Complex multi-step exploration and planning are better delegated to a worker agent."}
 
 User: "convert ~/tmp/logo.png to transparent background"
 JSON: {"intent": "file_operation", "tools": ["bash"], "deep_thinking": false, "reasoning": "Processing a binary image file requires external tools like ImageMagick, which must be executed via bash. Standard file_read/write cannot modify image contents."}
@@ -431,6 +442,28 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                         reasoning=f"Retry request detected, reusing last failed tool: {last_tool}",
                     )
 
+        # Complex planning/exploration: prefer worker agent tool.
+        complex_keywords = [
+            "复杂",
+            "multi-step",
+            "multi step",
+            "分步",
+            "规划",
+            "方案",
+            "架构",
+            "refactor",
+            "migration",
+            "codebase",
+            "repo",
+        ]
+        if "agent" in available_tools and any(kw in user_lower for kw in complex_keywords):
+            return ContextDecision(
+                intent="planning",
+                tools=["agent"],
+                deep_thinking=True,
+                reasoning="Complex request detected, delegating to worker agent tool",
+            )
+
         # Web page fetch and extraction
         if any(
             kw in user_lower
@@ -468,9 +501,6 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         if any(kw in user_lower for kw in ["写入file", "write file", "savefile", "createfile"]):
             tools.append("file_write")
             intent = "file_write"
-        if any(kw in user_lower for kw in ["column出directory", "list file", "查看directory", "ls", "file夹"]):
-            tools.append("file_list")
-            intent = "file_list"
 
         # Bash operations
         if any(kw in user_lower for kw in ["Executecommand", "runcommand", "bash", "shell", "commandrow"]):

@@ -7,20 +7,23 @@ from .bash_tool import BashTool
 from .file_read_tool import FileReadTool
 from .file_write_tool import FileWriteTool
 from .file_edit_tool import FileEditTool
-from .file_list_tool import FileListTool
+from .grep_tool import GrepTool
+from .glob_tool import GlobTool
 from .dynamic_tool import DynamicTool, create_dynamic_tool
 from .capabilities_tool import CapabilitiesTool
 from .web_search_tool import WebSearchTool
 from .web_fetch_tool import WebFetchTool
 from .weather_tool import WeatherTool
 from .system_settings_tool import SystemSettingsTool
+from .agent_tool import AgentTool
 
 __all__ = [
     "BashTool",
     "FileReadTool",
     "FileWriteTool",
     "FileEditTool",
-    "FileListTool",
+    "GrepTool",
+    "GlobTool",
     "DynamicTool",
     "create_dynamic_tool",
     "CapabilitiesTool",
@@ -29,4 +32,5 @@ __all__ = [
     "SkillsCreatorTool",
     "WeatherTool",
     "SystemSettingsTool",
+    "AgentTool",
 ]

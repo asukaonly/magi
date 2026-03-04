@@ -75,6 +75,4 @@ export const toolsApi = {
     ),
 };
 
-};
-
 export default toolsApi;

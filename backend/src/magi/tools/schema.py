@@ -238,7 +238,7 @@ class Tool(ABC):
                 elif param.type == ParameterType.INTEGER:
                     if not isinstance(value, int):
                         return False, f"Parameter {param.name} must be an integer"
-                elif param.type == ParameterType.float:
+                elif param.type == ParameterType.FLOAT:
                     if not isinstance(value, (int, float)):
                         return False, f"Parameter {param.name} must be a number"
                 elif param.type == ParameterType.BOOLEAN:
@@ -247,7 +247,7 @@ class Tool(ABC):
                 elif param.type == ParameterType.ARRAY:
                     if not isinstance(value, list):
                         return False, f"Parameter {param.name} must be an array"
-                elif param.type == ParameterType.object:
+                elif param.type == ParameterType.OBJECT:
                     if not isinstance(value, dict):
                         return False, f"Parameter {param.name} must be an object"
 

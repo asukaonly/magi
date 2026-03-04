@@ -27,13 +27,15 @@ from .builtin.bash_tool import BashTool
 from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
 from .builtin.file_edit_tool import FileEditTool
-from .builtin.file_list_tool import FileListTool
+from .builtin.grep_tool import GrepTool
+from .builtin.glob_tool import GlobTool
 from .builtin.dynamic_tool import DynamicTool, create_dynamic_tool
 from .builtin.capabilities_tool import CapabilitiesTool
 from .builtin.web_search_tool import WebSearchTool
 from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.system_settings_tool import SystemSettingsTool
+from .builtin.agent_tool import AgentTool
 
 # import Skills module
 from ..skills.indexer import SkillIndexer
@@ -47,12 +49,14 @@ _builtin_tools = [
     FileReadTool,
     FileWriteTool,
     FileEditTool,
-    FileListTool,
+    GrepTool,
+    GlobTool,
     CapabilitiesTool,
     WebSearchTool,
     WebFetchTool,
     WeatherTool,
     SystemSettingsTool,
+    AgentTool,
 ]
 
 for tool_class in _builtin_tools:
@@ -110,13 +114,15 @@ __all__ = [
     "FileReadTool",
     "FileWriteTool",
     "FileEditTool",
-    "FileListTool",
+    "GrepTool",
+    "GlobTool",
     "CapabilitiesTool",
     "WebSearchTool",
     "WebFetchTool",
     "SkillsCreatorTool",
     "WeatherTool",
     "SystemSettingsTool",
+    "AgentTool",
 
     # Skills
     "SkillIndexer",
