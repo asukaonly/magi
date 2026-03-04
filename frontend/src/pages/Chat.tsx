@@ -38,6 +38,7 @@ interface WSMessage {
 
 const CONNECTION_EVENT = 'magi-chat-connection';
 const SESSION_SYNC_EVENT = 'magi-session-sync';
+const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const USER_ID = 'web_user';
 
 export const panelByPathname = (pathname: string): ChatPanelType => {
@@ -265,6 +266,24 @@ export const ChatPage: React.FC = () => {
     requestHistory(currentSessionId);
     sendWS('get_personality');
   }, [connected, currentSessionId, requestHistory, sendWS]);
+
+  // Handle memory cleared event - reset chat state
+  useEffect(() => {
+    const handleMemoryCleared = () => {
+      // Clear current messages
+      setMessages([]);
+      // Reset session ID to trigger a fresh start
+      setCurrentSessionId(null);
+      lastHistoryRequestRef.current = null;
+      // Request new session from server
+      if (connected && wsRef.current?.readyState === WebSocket.OPEN) {
+        sendWS('get_current_session');
+      }
+    };
+
+    window.addEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
+    return () => window.removeEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
+  }, [connected, sendWS, setCurrentSessionId]);
 
   const handleSendMessage = () => {
     if (!inputValue.trim()) {
