@@ -82,3 +82,4 @@ build/
 frontend/src-tauri/target/
 frontend/src-tauri/binaries/magi-backend-*
 frontend/src-tauri/gen/
+.alma-snapshots

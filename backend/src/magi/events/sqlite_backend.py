@@ -600,10 +600,14 @@ class SQLiteMessageBackend(MessageBusBackend):
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
             # Delete completed messages older than cutoff
+            # SQLite doesn't support LIMIT in DELETE directly, use subquery
             cursor = await db.execute("""
                 DELETE FROM message_queue
-                WHERE status IN (?, ?) AND created_at < ?
-                LIMIT ?
+                WHERE rowid IN (
+                    SELECT rowid FROM message_queue
+                    WHERE status IN (?, ?) AND created_at < ?
+                    LIMIT ?
+                )
             """, (STATUS_COMPLETED, STATUS_FAILED, cutoff_time, batch_size))
             deleted_count = cursor.rowcount
             await db.commit()

@@ -249,7 +249,7 @@ interface ToolConfigCardProps {
       }
       return next;
     });
-  });
+  }
 
   const handleFieldChange = (path: string, value: any) => {
     setPendingChanges((prev) => ({ ...prev, [path]: value }));
