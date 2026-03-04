@@ -25,6 +25,8 @@ interface ChatMessage {
   content: string;
   timestamp: number;
   status?: 'sending' | 'sent' | 'failed';
+  kind?: 'worker_update';
+  workerId?: string;
 }
 
 interface WSMessage {
@@ -127,6 +129,41 @@ export const ChatPage: React.FC = () => {
     return `${base}${separator}token=${encodeURIComponent(runtime.sessionToken)}`;
   }, []);
 
+  const formatWorkerUpdateMessage = useCallback(
+    (payload: Record<string, any>) => {
+      const workerIdRaw = String(payload.worker_id || payload.workerId || 'worker');
+      const workerId = workerIdRaw.slice(0, 8);
+      const subagentType = String(payload.worker_subagent_type || payload.subagent_type || 'worker');
+      const description = String(payload.worker_description || payload.description || '').trim();
+      const stage = String(payload.stage || '');
+      const eventType = String(payload.event_type || '');
+      const toolName = String(payload.tool_name || payload.toolName || '').trim();
+      const error = String(payload.error || '').trim();
+
+      if (eventType === 'WORKER_AGENT_COMPLETED') {
+        return t('chat.worker.completed', { workerId, subagentType });
+      }
+      if (eventType === 'WORKER_AGENT_FAILED') {
+        return t('chat.worker.failed', { workerId, subagentType, error: error || '-' });
+      }
+      if (stage === 'started') {
+        return t('chat.worker.started', { workerId, subagentType, description: description || '-' });
+      }
+      if (stage === 'tool_result') {
+        if (payload.success) {
+          return t('chat.worker.toolSuccess', { workerId, toolName: toolName || '-' });
+        }
+        return t('chat.worker.toolFailed', {
+          workerId,
+          toolName: toolName || '-',
+          error: error || '-',
+        });
+      }
+      return t('chat.worker.progress', { workerId, subagentType });
+    },
+    [t]
+  );
+
   const handleWSMessage = useCallback(
     (data: WSMessage) => {
       switch (data.type) {
@@ -200,8 +237,26 @@ export const ChatPage: React.FC = () => {
         setMessages((prev) => [...prev, assistantMessage]);
         window.dispatchEvent(new Event(SESSION_SYNC_EVENT));
       }
+
+      if (data.event === 'worker_agent_update' && data.data) {
+        const payload = data.data;
+        const payloadSessionId = payload?.session_id ? String(payload.session_id) : '';
+        if (payloadSessionId && currentSessionId && payloadSessionId !== currentSessionId) {
+          return;
+        }
+        const workerMessage: ChatMessage = {
+          id: `worker-${payload.worker_id || Date.now()}-${payload.stage || payload.event_type || 'update'}-${Date.now()}`,
+          role: 'system',
+          content: formatWorkerUpdateMessage(payload),
+          timestamp: Number(payload.timestamp || Date.now() / 1000) * 1000,
+          status: 'sent',
+          kind: 'worker_update',
+          workerId: payload.worker_id ? String(payload.worker_id) : undefined,
+        };
+        setMessages((prev) => [...prev, workerMessage]);
+      }
     },
-    [currentSessionId, requestHistory, sendWS, setCurrentSessionId]
+    [currentSessionId, formatWorkerUpdateMessage, requestHistory, sendWS, setCurrentSessionId]
   );
 
   const connectWebSocket = useCallback(() => {
@@ -401,6 +456,19 @@ export const ChatPage: React.FC = () => {
 
       <div className="desktop-panel min-h-0 flex-1 overflow-y-auto rounded-2xl px-4 py-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {messages.map((msg) => (
+          msg.role === 'system' ? (
+            <motion.div
+              key={msg.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="mb-3 flex justify-center"
+            >
+              <div className="max-w-[82%] rounded-xl border border-border/60 bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                {msg.content}
+              </div>
+            </motion.div>
+          ) : (
           <motion.div
             key={msg.id}
             initial={{ opacity: 0, y: 8 }}
@@ -435,6 +503,7 @@ export const ChatPage: React.FC = () => {
               </div>
             </div>
           </motion.div>
+          )
         ))}
         <AnimatePresence>
           {!connected && (

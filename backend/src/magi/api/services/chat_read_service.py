@@ -13,6 +13,7 @@ from ...core.logger import get_logger
 from ...utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
+WORKER_AGENT_EVENT_TYPES = ("WORKER_AGENT_PROGRESS", "WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED")
 
 
 class ChatReadService:
@@ -49,7 +50,10 @@ class ChatReadService:
             query = """
                 SELECT type, data, timestamp
                 FROM event_store
-                WHERE type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
+                WHERE type IN (
+                    'USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse',
+                    'WORKER_AGENT_PROGRESS', 'WORKER_AGENT_COMPLETED', 'WORKER_AGENT_FAILED'
+                )
                   AND json_extract(data, '$.user_id') = ?
                 ORDER BY timestamp DESC
             """
@@ -76,6 +80,8 @@ class ChatReadService:
                     content = str(payload.get("message") or "").strip()
                 elif event_type in ("AI_RESPONSE", "AIResponse"):
                     content = str(payload.get("response") or "").strip()
+                elif event_type in WORKER_AGENT_EVENT_TYPES:
+                    content = self._format_worker_event_content(payload, event_type)
                 else:
                     continue
 
@@ -136,7 +142,10 @@ class ChatReadService:
         query = """
             SELECT type, data, timestamp
             FROM event_store
-            WHERE type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
+            WHERE type IN (
+                'USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse',
+                'WORKER_AGENT_PROGRESS', 'WORKER_AGENT_COMPLETED', 'WORKER_AGENT_FAILED'
+            )
               AND json_extract(data, '$.user_id') = ?
               AND json_extract(data, '$.session_id') = ?
             ORDER BY timestamp ASC
@@ -164,6 +173,9 @@ class ChatReadService:
             elif event_type in ("AI_RESPONSE", "AIResponse"):
                 content = payload.get("response")
                 role = "assistant"
+            elif event_type in WORKER_AGENT_EVENT_TYPES:
+                content = self._format_worker_event_content(payload, event_type)
+                role = "system"
             else:
                 continue
             if not content:
@@ -182,7 +194,10 @@ class ChatReadService:
             return
         delete_sql = """
             DELETE FROM event_store
-            WHERE type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
+            WHERE type IN (
+                'USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse',
+                'WORKER_AGENT_PROGRESS', 'WORKER_AGENT_COMPLETED', 'WORKER_AGENT_FAILED'
+            )
               AND json_extract(data, '$.user_id') = ?
               AND json_extract(data, '$.session_id') = ?
         """
@@ -225,6 +240,31 @@ class ChatReadService:
             )
         except Exception as exc:
             logger.warning(f"Failed to save session mapping: {exc}")
+
+    def _format_worker_event_content(self, payload: dict[str, Any], event_type: str) -> str:
+        worker_id = str(payload.get("worker_id") or "worker")
+        short_worker_id = worker_id[:10]
+        stage = str(payload.get("stage") or "")
+        subagent_type = str(payload.get("worker_subagent_type") or payload.get("subagent_type") or "worker")
+        description = str(payload.get("worker_description") or payload.get("description") or "").strip()
+        tool_name = str(payload.get("tool_name") or "").strip()
+        success = payload.get("success")
+        error = str(payload.get("error") or "").strip()
+
+        if event_type == "WORKER_AGENT_COMPLETED":
+            return f"[Worker:{short_worker_id}] Completed ({subagent_type})"
+        if event_type == "WORKER_AGENT_FAILED":
+            suffix = f": {error}" if error else ""
+            return f"[Worker:{short_worker_id}] Failed ({subagent_type}){suffix}"
+        if stage == "started":
+            suffix = f" - {description}" if description else ""
+            return f"[Worker:{short_worker_id}] Started ({subagent_type}){suffix}"
+        if stage == "tool_result":
+            status = "ok" if bool(success) else "failed"
+            tool_suffix = f" {tool_name}" if tool_name else ""
+            error_suffix = f": {error}" if error and not bool(success) else ""
+            return f"[Worker:{short_worker_id}] Tool{tool_suffix} {status}{error_suffix}"
+        return f"[Worker:{short_worker_id}] Progress ({subagent_type})"
 
 
 _chat_read_service: Optional[ChatReadService] = None

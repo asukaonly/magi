@@ -87,7 +87,15 @@
     "loadHistoryFailed": "加载历史失败",
     "greetingFallback": "👋 欢迎使用 Magi AI Agent Framework！\n\n你可以在这里与 Agent 对话。发送消息后，Agent 会通过感知器接收消息，处理后通过 WebSocket 推送回复。",
     "greetingSimpleFallback": "👋 欢迎使用 Magi AI Agent Framework！",
-    "reconnectFailed": "WebSocket 重连失败，请刷新页面"
+    "reconnectFailed": "WebSocket 重连失败，请刷新页面",
+    "worker": {
+      "started": "Worker {{workerId}} 已启动（{{subagentType}}）：{{description}}",
+      "progress": "Worker {{workerId}} 处理中（{{subagentType}}）",
+      "toolSuccess": "Worker {{workerId}} 工具执行成功：{{toolName}}",
+      "toolFailed": "Worker {{workerId}} 工具执行失败：{{toolName}}（{{error}}）",
+      "completed": "Worker {{workerId}} 已完成（{{subagentType}}）",
+      "failed": "Worker {{workerId}} 执行失败（{{subagentType}}）：{{error}}"
+    }
   },
   "settings": {
     "loadFailed": "加载配置失败: {{message}}",

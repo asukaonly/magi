@@ -87,7 +87,15 @@
     "loadHistoryFailed": "Failed to load history",
     "greetingFallback": "👋 Welcome to Magi AI Agent Framework!\n\nYou can chat with the agent here. After sending a message, the agent will process it and stream replies through WebSocket.",
     "greetingSimpleFallback": "👋 Welcome to Magi AI Agent Framework!",
-    "reconnectFailed": "WebSocket reconnection failed, please refresh the page"
+    "reconnectFailed": "WebSocket reconnection failed, please refresh the page",
+    "worker": {
+      "started": "Worker {{workerId}} started ({{subagentType}}): {{description}}",
+      "progress": "Worker {{workerId}} progressing ({{subagentType}})",
+      "toolSuccess": "Worker {{workerId}} tool succeeded: {{toolName}}",
+      "toolFailed": "Worker {{workerId}} tool failed: {{toolName}} ({{error}})",
+      "completed": "Worker {{workerId}} completed ({{subagentType}})",
+      "failed": "Worker {{workerId}} failed ({{subagentType}}): {{error}}"
+    }
   },
   "settings": {
     "loadFailed": "Failed to load config: {{message}}",

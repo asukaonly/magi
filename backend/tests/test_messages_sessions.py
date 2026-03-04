@@ -145,3 +145,45 @@ def test_list_sessions_router_response(monkeypatch):
     assert result["user_id"] == "u1"
     assert result["current_session_id"] == "s1"
     assert result["count"] == 1
+
+
+def test_get_conversation_history_includes_worker_events(tmp_path):
+    service = _build_service(tmp_path)
+    _init_event_store(service._events_db_path)
+
+    _insert_event(
+        service._events_db_path,
+        "USER_INPUT",
+        {"user_id": "u1", "session_id": "s1", "message": "start task"},
+        1000,
+    )
+    _insert_event(
+        service._events_db_path,
+        "WORKER_AGENT_PROGRESS",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "worker_id": "worker_abc1234567",
+            "worker_subagent_type": "Explore",
+            "stage": "started",
+            "description": "scan codebase",
+        },
+        1010,
+    )
+    _insert_event(
+        service._events_db_path,
+        "WORKER_AGENT_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "worker_id": "worker_abc1234567",
+            "worker_subagent_type": "Explore",
+        },
+        1020,
+    )
+
+    messages = service.get_conversation_history("u1", "s1", limit=20)
+
+    assert [item["role"] for item in messages] == ["user", "system", "system"]
+    assert "Started" in messages[1]["content"]
+    assert "Completed" in messages[2]["content"]
