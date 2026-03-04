@@ -1,11 +1,9 @@
-"""L5 capability memory with SQLite persistence and sqlite-vec-compatible embeddings."""
+"""L5 capability memory with SQLite persistence."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import math
 import re
 import sqlite3
 import time
@@ -21,30 +19,26 @@ class Capability:
     capability_id: str
     name: str
     description: str
-    trigger_pattern: Dict[str, Any]
-    action: Dict[str, Any]
-    success_rate: float = 0.0
+    category: str
+    proficiency: float = 0.0
     usage_count: int = 0
-    avg_duration: float = 0.0
+    success_count: int = 0
     last_used: float = 0.0
     created_at: float = field(default_factory=time.time)
-    examples: List[Dict[str, Any]] = field(default_factory=list)
-    failures: List[str] = field(default_factory=list)
+    updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "capability_id": self.capability_id,
             "name": self.name,
             "description": self.description,
-            "trigger_pattern": self.trigger_pattern,
-            "action": self.action,
-            "success_rate": self.success_rate,
+            "category": self.category,
+            "proficiency": self.proficiency,
             "usage_count": self.usage_count,
-            "avg_duration": self.avg_duration,
+            "success_count": self.success_count,
             "last_used": self.last_used,
             "created_at": self.created_at,
-            "examples": self.examples,
-            "failures": self.failures,
+            "updated_at": self.updated_at,
         }
 
     @classmethod
@@ -52,45 +46,30 @@ class Capability:
         return cls(
             capability_id=str(row["capability_id"]),
             name=str(row["name"]),
-            description=str(row["description"]),
-            trigger_pattern=json.loads(row["trigger_pattern"] or "{}"),
-            action=json.loads(row["action"] or "{}"),
-            success_rate=float(row["success_rate"]),
+            description=str(row["description"] or ""),
+            category=str(row["category"]),
+            proficiency=float(row["proficiency"]),
             usage_count=int(row["usage_count"]),
-            avg_duration=float(row["avg_duration"]),
-            last_used=float(row["last_used"]),
+            success_count=int(row["success_count"]),
+            last_used=float(row["last_used"] or 0),
             created_at=float(row["created_at"]),
-            examples=json.loads(row["examples"] or "[]"),
-            failures=json.loads(row["failures"] or "[]"),
+            updated_at=float(row["updated_at"]),
         )
 
     def matches(self, context: Dict[str, Any]) -> float:
-        score = 0.0
-        pattern = self.trigger_pattern
-
+        """Simple matching based on category and proficiency."""
+        score = self.proficiency
         event_type = str(context.get("event_type", ""))
-        if event_type and event_type in pattern.get("event_types", []):
-            score += 0.35
-
-        context_message = str(context.get("message", "")).lower()
-        for keyword in pattern.get("keywords", []):
-            if keyword.lower() in context_message:
-                score += 0.1
-
-        required_params = pattern.get("requires_params", [])
-        context_params = context.get("parameters") if isinstance(context.get("parameters"), dict) else {}
-        if required_params and all(key in context_params for key in required_params):
+        if event_type and self.category and event_type.lower() in self.category.lower():
             score += 0.3
-
         return min(1.0, score)
 
 
 class CapabilityMemory:
     """Stores extracted capabilities and provides retrieval by context matching."""
 
-    def __init__(self, persist_path: Optional[str] = None, embedding_dimension: int = 256):
+    def __init__(self, persist_path: Optional[str] = None):
         self.persist_path = str(Path(persist_path or "~/.magi/data/memories/capabilities.db").expanduser())
-        self.embedding_dimension = embedding_dimension
         self._initialized = False
         self._blacklist: set[str] = set()
         self._task_history: Dict[str, Dict[str, int]] = {}
@@ -100,48 +79,6 @@ class CapabilityMemory:
             return
 
         Path(self.persist_path).parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.persist_path)
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS capabilities (
-                capability_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL,
-                trigger_pattern TEXT NOT NULL,
-                action TEXT NOT NULL,
-                embedding TEXT NOT NULL,
-                success_rate REAL NOT NULL,
-                usage_count INTEGER NOT NULL,
-                avg_duration REAL NOT NULL,
-                last_used REAL NOT NULL,
-                created_at REAL NOT NULL,
-                examples TEXT,
-                failures TEXT
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS capability_task_stats (
-                task_id TEXT PRIMARY KEY,
-                attempts INTEGER NOT NULL,
-                successes INTEGER NOT NULL,
-                updated_at REAL NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS capability_blacklist (
-                capability_id TEXT PRIMARY KEY,
-                reason TEXT,
-                updated_at REAL NOT NULL
-            )
-            """
-        )
-        conn.commit()
-        conn.close()
-
         self._load_caches()
         self._initialized = True
 
@@ -152,11 +89,11 @@ class CapabilityMemory:
         cursor = conn.execute("SELECT capability_id FROM capability_blacklist")
         self._blacklist = {str(row[0]) for row in cursor.fetchall()}
 
-        cursor = conn.execute("SELECT task_id, attempts, successes FROM capability_task_stats")
+        cursor = conn.execute("SELECT capability_id, task_category, usage_count, success_count FROM capability_task_stats")
         self._task_history = {
-            str(row["task_id"]): {
-                "attempt": int(row["attempts"]),
-                "success": int(row["successes"]),
+            f"{row['capability_id']}:{row['task_category']}": {
+                "attempt": int(row["usage_count"]),
+                "success": int(row["success_count"]),
             }
             for row in cursor.fetchall()
         }
@@ -192,31 +129,38 @@ class CapabilityMemory:
         conn = sqlite3.connect(self.persist_path)
         conn.row_factory = sqlite3.Row
 
+        # task_id 作为 capability_id 使用，task_category 默认为 "default"
+        capability_id = task_id
+        task_category = "default"
+        cache_key = f"{capability_id}:{task_category}"
+
         cursor = conn.execute(
-            "SELECT attempts, successes FROM capability_task_stats WHERE task_id = ?",
-            (task_id,),
+            "SELECT usage_count, success_count FROM capability_task_stats WHERE capability_id = ? AND task_category = ?",
+            (capability_id, task_category),
         )
         row = cursor.fetchone()
         if row:
-            attempts = int(row["attempts"]) + 1
-            successes = int(row["successes"]) + (1 if success else 0)
+            usage_count = int(row["usage_count"]) + 1
+            success_count = int(row["success_count"]) + (1 if success else 0)
+            avg_satisfaction = success_count / usage_count if usage_count > 0 else 0.0
             conn.execute(
-                "UPDATE capability_task_stats SET attempts = ?, successes = ?, updated_at = ? WHERE task_id = ?",
-                (attempts, successes, now, task_id),
+                "UPDATE capability_task_stats SET usage_count = ?, success_count = ?, avg_satisfaction = ?, updated_at = ? WHERE capability_id = ? AND task_category = ?",
+                (usage_count, success_count, avg_satisfaction, now, capability_id, task_category),
             )
         else:
-            attempts = 1
-            successes = 1 if success else 0
+            usage_count = 1
+            success_count = 1 if success else 0
+            avg_satisfaction = success_count / usage_count if usage_count > 0 else 0.0
             conn.execute(
-                "INSERT INTO capability_task_stats(task_id, attempts, successes, updated_at) VALUES (?, ?, ?, ?)",
-                (task_id, attempts, successes, now),
+                "INSERT INTO capability_task_stats(capability_id, task_category, usage_count, success_count, avg_satisfaction, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (capability_id, task_category, usage_count, success_count, avg_satisfaction, now),
             )
 
         conn.commit()
         conn.close()
 
-        self._task_history[task_id] = {"attempt": attempts, "success": successes}
-        return attempts, successes
+        self._task_history[cache_key] = {"attempt": usage_count, "success": success_count}
+        return usage_count, success_count
 
     def _extract_or_update_capability(
         self,
@@ -228,82 +172,42 @@ class CapabilityMemory:
         duration: float,
     ) -> None:
         capability_id = f"cap_{_safe_id(task_id)}"
-        trigger_pattern = self._analyze_trigger_pattern(context, action)
         name = self._generate_capability_name(context, action)
         description = f"Capability extracted from task '{task_id}'"
-        created_at = time.time()
-
-        capability = Capability(
-            capability_id=capability_id,
-            name=name,
-            description=description,
-            trigger_pattern=trigger_pattern,
-            action=dict(action),
-            success_rate=success_rate,
-            usage_count=attempts,
-            avg_duration=max(0.0, duration),
-            last_used=created_at,
-            created_at=created_at,
-            examples=[{"timestamp": created_at, "context": context}] if context else [],
-            failures=[],
-        )
-
-        embedding = _hash_embedding(self._capability_text(capability), self.embedding_dimension)
+        category = action.get("type") or action.get("tool") or context.get("event_type") or "general"
+        now = time.time()
 
         conn = sqlite3.connect(self.persist_path)
         conn.execute(
             """
             INSERT INTO capabilities(
-                capability_id, name, description, trigger_pattern, action, embedding,
-                success_rate, usage_count, avg_duration, last_used, created_at, examples, failures
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                capability_id, name, description, category, proficiency, usage_count, success_count, last_used, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(capability_id) DO UPDATE SET
                 name = excluded.name,
                 description = excluded.description,
-                trigger_pattern = excluded.trigger_pattern,
-                action = excluded.action,
-                embedding = excluded.embedding,
-                success_rate = excluded.success_rate,
+                category = excluded.category,
+                proficiency = excluded.proficiency,
                 usage_count = excluded.usage_count,
-                avg_duration = CASE
-                    WHEN capabilities.avg_duration > 0 AND excluded.avg_duration > 0
-                    THEN (capabilities.avg_duration * 0.7 + excluded.avg_duration * 0.3)
-                    ELSE excluded.avg_duration
-                END,
+                success_count = excluded.success_count,
                 last_used = excluded.last_used,
-                examples = excluded.examples,
-                failures = capabilities.failures
+                updated_at = excluded.updated_at
             """,
             (
-                capability.capability_id,
-                capability.name,
-                capability.description,
-                json.dumps(capability.trigger_pattern, ensure_ascii=False),
-                json.dumps(capability.action, ensure_ascii=False),
-                json.dumps(embedding),
-                capability.success_rate,
-                capability.usage_count,
-                capability.avg_duration,
-                capability.last_used,
-                capability.created_at,
-                json.dumps(capability.examples, ensure_ascii=False),
-                json.dumps(capability.failures, ensure_ascii=False),
+                capability_id,
+                name,
+                description,
+                str(category),
+                success_rate,
+                attempts,
+                int(success_rate * attempts),
+                now,
+                now,
+                now,
             ),
         )
         conn.commit()
         conn.close()
-
-    def _capability_text(self, capability: Capability) -> str:
-        return json.dumps(
-            {
-                "name": capability.name,
-                "description": capability.description,
-                "trigger_pattern": capability.trigger_pattern,
-                "action": capability.action,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
 
     def _update_matching_capabilities(
         self,
@@ -317,6 +221,7 @@ class CapabilityMemory:
             return
 
         conn = sqlite3.connect(self.persist_path)
+        now = time.time()
         for capability in capabilities:
             if capability.capability_id in self._blacklist:
                 continue
@@ -324,39 +229,21 @@ class CapabilityMemory:
                 continue
 
             usage_count = capability.usage_count + 1
-            alpha = 0.3
-            new_success = (1.0 if success else 0.0)
-            success_rate = (1 - alpha) * capability.success_rate + alpha * new_success
-            if duration > 0:
-                avg_duration = (
-                    (0.7 * capability.avg_duration + 0.3 * duration)
-                    if capability.avg_duration > 0
-                    else duration
-                )
-            else:
-                avg_duration = capability.avg_duration
-
-            examples = list(capability.examples)
-            failures = list(capability.failures)
-            if success:
-                if len(examples) < 10:
-                    examples.append({"timestamp": time.time(), "context": context})
-            elif error and len(failures) < 10:
-                failures.append(error)
+            success_count = capability.success_count + (1 if success else 0)
+            proficiency = success_count / usage_count if usage_count > 0 else 0.0
 
             conn.execute(
                 """
                 UPDATE capabilities
-                SET usage_count = ?, success_rate = ?, avg_duration = ?, last_used = ?, examples = ?, failures = ?
+                SET usage_count = ?, success_count = ?, proficiency = ?, last_used = ?, updated_at = ?
                 WHERE capability_id = ?
                 """,
                 (
                     usage_count,
-                    success_rate,
-                    avg_duration,
-                    time.time(),
-                    json.dumps(examples, ensure_ascii=False),
-                    json.dumps(failures, ensure_ascii=False),
+                    success_count,
+                    proficiency,
+                    now,
+                    now,
                     capability.capability_id,
                 ),
             )
@@ -368,41 +255,17 @@ class CapabilityMemory:
         conn = sqlite3.connect(self.persist_path)
         conn.execute(
             """
-            INSERT INTO capability_blacklist(capability_id, reason, updated_at)
+            INSERT INTO capability_blacklist(capability_id, reason, blacklisted_at)
             VALUES (?, ?, ?)
             ON CONFLICT(capability_id) DO UPDATE SET
                 reason = excluded.reason,
-                updated_at = excluded.updated_at
+                blacklisted_at = excluded.blacklisted_at
             """,
             (capability_id, reason, time.time()),
         )
         conn.commit()
         conn.close()
         self._blacklist.add(capability_id)
-
-    def _analyze_trigger_pattern(self, context: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
-        pattern = {
-            "event_types": [],
-            "keywords": [],
-            "requires_params": [],
-        }
-
-        event_type = context.get("event_type")
-        if event_type:
-            pattern["event_types"].append(str(event_type))
-
-        message = str(context.get("message", ""))
-        keywords = [word for word in re.split(r"\W+", message) if len(word) >= 4]
-        pattern["keywords"] = keywords[:8]
-
-        parameters = action.get("params") if isinstance(action.get("params"), dict) else {}
-        pattern["requires_params"] = list(parameters.keys())[:8]
-
-        tool_name = action.get("tool") or action.get("type")
-        if tool_name:
-            pattern["keywords"].append(str(tool_name))
-
-        return pattern
 
     def _generate_capability_name(self, context: Dict[str, Any], action: Dict[str, Any]) -> str:
         tool_name = action.get("tool") or action.get("type")
@@ -419,8 +282,6 @@ class CapabilityMemory:
         if not candidates:
             return None
 
-        context_vector = _hash_embedding(json.dumps(context, sort_keys=True, ensure_ascii=False), self.embedding_dimension)
-
         best_capability: Optional[Capability] = None
         best_score = threshold
 
@@ -428,32 +289,12 @@ class CapabilityMemory:
             if capability.capability_id in self._blacklist:
                 continue
 
-            pattern_score = capability.matches(context)
-            semantic_score = self._semantic_similarity(capability.capability_id, context_vector)
-            score = 0.6 * semantic_score + 0.4 * pattern_score
-
+            score = capability.matches(context)
             if score > best_score:
                 best_score = score
                 best_capability = capability
 
         return best_capability
-
-    def _semantic_similarity(self, capability_id: str, context_vector: List[float]) -> float:
-        conn = sqlite3.connect(self.persist_path)
-        cur = conn.cursor()
-        cur.execute("SELECT embedding FROM capabilities WHERE capability_id = ?", (capability_id,))
-        row = cur.fetchone()
-        conn.close()
-
-        if not row:
-            return 0.0
-
-        try:
-            capability_vector = json.loads(row[0])
-        except Exception:
-            return 0.0
-
-        return _cosine_similarity(context_vector, capability_vector)
 
     def get_all_capabilities(self) -> List[Capability]:
         self._ensure_db()
@@ -526,33 +367,3 @@ class CapabilityMemory:
 
 def _safe_id(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_\-]", "_", value)
-
-
-def _hash_embedding(text: str, dimension: int) -> List[float]:
-    seed = hashlib.sha256(text.encode("utf-8")).digest()
-    buf = bytearray(seed)
-    while len(buf) < dimension:
-        buf.extend(hashlib.sha256(bytes(buf[-32:])).digest())
-    return [float(byte) / 255.0 for byte in buf[:dimension]]
-
-
-def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
-    limit = min(len(vec1), len(vec2))
-    if limit == 0:
-        return 0.0
-
-    dot = 0.0
-    norm1 = 0.0
-    norm2 = 0.0
-    for index in range(limit):
-        left = float(vec1[index])
-        right = float(vec2[index])
-        dot += left * right
-        norm1 += left * left
-        norm2 += right * right
-
-    denom = math.sqrt(norm1) * math.sqrt(norm2)
-    if denom <= 0.0:
-        return 0.0
-
-    return dot / denom

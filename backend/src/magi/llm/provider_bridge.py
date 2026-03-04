@@ -10,11 +10,12 @@ from typing import Any, Dict, List
 
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
+from .zhipu import ZhipuAdapter
 
 
 @dataclass
 class ProviderToolCall:
-    """notttrmalized tool call returned by a provider."""
+    """Normalized tool call returned by a provider."""
     id: str
     name: str
     arguments: Dict[str, Any]
@@ -22,7 +23,7 @@ class ProviderToolCall:
 
 @dataclass
 class ProviderResponse:
-    """notttrmalized response returned by a provider."""
+    """Normalized response returned by a provider."""
     content: str = ""
     tool_calls: List[ProviderToolCall] = None
     assistant_message: Dict[str, Any] | None = None
@@ -44,10 +45,12 @@ class LLMProviderBridge:
     def is_anthropic(self) -> bool:
         return isinstance(self.llm, AnthropicAdapter)
 
+    def is_zhipu(self) -> bool:
+        return isinstance(self.llm, ZhipuAdapter)
+
     def is_glm(self) -> bool:
-        provider = self._provider_name()
-        model_name = (getattr(self.llm, "model_name", "") or "").lower()
-        return provider == "glm" or model_name.startswith("glm")
+        """Check if using GLM (either via ZhipuAdapter or model name)."""
+        return self.is_zhipu() or self._provider_name() == "glm"
 
     async def chat(
         self,
@@ -99,6 +102,8 @@ class LLMProviderBridge:
         """
         Unified tool-calling chat call.
         """
+        import asyncio
+
         if self.is_anthropic():
             api_messages = self._convert_messages_to_anthropic(messages)
             response = await self.llm._client.messages.create(
@@ -111,6 +116,27 @@ class LLMProviderBridge:
             )
             return self._parse_anthropic_response(response)
 
+        if self.is_zhipu():
+            # ZhipuAI SDK is sync, use run_in_executor
+            full_messages = [{"role": "system", "content": system_prompt}] + messages
+            kwargs: Dict[str, Any] = {
+                "model": self.llm.model_name,
+                "messages": full_messages,
+                "tools": tools if tools else None,
+                "tool_choice": "auto" if tools else None,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            }
+            if disable_thinking:
+                kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.llm._client.chat.completions.create(**kwargs)
+            )
+            return self._parse_openai_response(response)
+
         if hasattr(self.llm, "_client"):
             full_messages = [{"role": "system", "content": system_prompt}] + messages
             kwargs: Dict[str, Any] = {
@@ -121,8 +147,6 @@ class LLMProviderBridge:
                 "max_tokens": max_tokens,
                 "temperature": temperature,
             }
-            if self.is_glm() and disable_thinking:
-                kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
             response = await self.llm._client.chat.completions.create(**kwargs)
             return self._parse_openai_response(response)

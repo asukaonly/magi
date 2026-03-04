@@ -26,12 +26,12 @@ from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibili
 from .builtin.bash_tool import BashTool
 from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
+from .builtin.file_edit_tool import FileEditTool
 from .builtin.file_list_tool import FileListTool
 from .builtin.dynamic_tool import DynamicTool, create_dynamic_tool
 from .builtin.capabilities_tool import CapabilitiesTool
 from .builtin.web_search_tool import WebSearchTool
 from .builtin.web_fetch_tool import WebFetchTool
-from .builtin.skills_creator_tool import SkillsCreatorTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.system_settings_tool import SystemSettingsTool
 
@@ -46,11 +46,11 @@ _builtin_tools = [
     BashTool,
     FileReadTool,
     FileWriteTool,
+    FileEditTool,
     FileListTool,
     CapabilitiesTool,
     WebSearchTool,
     WebFetchTool,
-    SkillsCreatorTool,
     WeatherTool,
     SystemSettingsTool,
 ]
@@ -109,6 +109,7 @@ __all__ = [
     "BashTool",
     "FileReadTool",
     "FileWriteTool",
+    "FileEditTool",
     "FileListTool",
     "CapabilitiesTool",
     "WebSearchTool",

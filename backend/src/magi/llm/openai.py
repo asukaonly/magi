@@ -1,5 +1,5 @@
 """
-LLMAdapter - OpenAIImplementation
+LLMAdapter - OpenAI Implementation
 """
 import asyncio
 from typing import Optional, Dict, Any, AsyncIterator, List
@@ -9,17 +9,17 @@ from .base import LLMAdapter
 
 class OpenAIAdapter(LLMAdapter):
     """
-    OpenAI APIAdapter
+    OpenAI API Adapter
 
-    support的model：
+    Supported models:
     - GPT-4
     - GPT-4 Turbo
     - GPT-3.5 Turbo
     - Embeddings (text-embedding-3-small, text-embedding-3-large)
     """
 
-    # default的embeddingmodel
-    DEFAULT_EMBEDDING_MOdel = "text-embedding-3-small"
+    # Default embedding model
+    DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 
     def __init__(
         self,
@@ -31,20 +31,20 @@ class OpenAIAdapter(LLMAdapter):
         timeout: int = 60,
     ):
         """
-        initializeOpenAIAdapter
+        Initialize OpenAIAdapter
 
         Args:
-            api_key: OpenAI APIkey
-            model: modelName
-            base_url: customAPI endpoint（optional，如使用proxy或中转service）
-            api_base: compatibleoldConfiguration，等同于base_url
-            timeout: requesttimeout时间（seconds）
+            api_key: OpenAI API key
+            model: Model name
+            base_url: Custom API endpoint (optional, for proxy or relay service)
+            api_base: Compatible with old config, same as base_url
+            timeout: Request timeout in seconds
         """
         self._model = model
         self._timeout = timeout
         self._provider = provider.lower()
 
-        # 优先使用base_url，nottt则使用api_base（compatibleoldConfiguration）
+        # Prefer base_url, fallback to api_base (compatible with old config)
         api_endpoint = base_url or api_base
 
         client_kwargs = {"api_key": api_key, "timeout": timeout}
@@ -52,7 +52,7 @@ class OpenAIAdapter(LLMAdapter):
             client_kwargs["base_url"] = api_endpoint
 
         self._client = AsyncOpenAI(**client_kwargs)
-        self._embedding_model = self.DEFAULT_EMBEDDING_MOdel
+        self._embedding_model = self.DEFAULT_EMBEDDING_MODEL
 
     async def generate(
         self,
@@ -64,87 +64,37 @@ class OpenAIAdapter(LLMAdapter):
         **kwargs
     ) -> str:
         """
-        generation文本（非流式）
+        Generate text (non-streaming)
 
         Args:
-            prompt: Inputprompt
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter
-            system_prompt: 系统prompt（optional）
-            json_mode: is notEnableJSONpattern（强制ReturnvalidJSON）
-            **kwargs: otherParameter（传递给OpenAI API）
+            prompt: Input prompt
+            max_tokens: Maximum tokens
+            temperature: Temperature parameter
+            system_prompt: System prompt (optional)
+            json_mode: Whether to enable JSON mode (force valid JSON response)
+            **kwargs: Other parameters (passed to OpenAI API)
 
         Returns:
-            str: generation的文本
+            Generated text
         """
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        # JSON mode: 强制ReturnvalidJSON
+        # JSON mode: Force valid JSON response
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
-        # Handle thinking mode for GLM with a single boolean switch.
-        should_disable_thinking = kwargs.pop("disable_thinking", True)
-
-        # Build extra_body for GLM thinking parameter
-        extra_body = kwargs.pop("extra_body", {}) or {}
-        if should_disable_thinking:
-            extra_body["thinking"] = {"type": "disabled"}
-
-        # Make the API call
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            extra_body=extra_body if extra_body else None,
             **kwargs
         )
 
-        # Handle GLM's thinking mode where content is in reasoning_content
-        message = response.choices[0].message
-        content = message.content or ""
-
-        # Debug: log raw response structure for troubleshooting
-        import logging
-        _logger = logging.getLogger(__name__)
-        _logger.debug(f"[GLM] Response model: {response.model}")
-        _logger.debug(f"[GLM] Response usage: {response.usage}")
-        _logger.debug(f"[GLM] Number of choices: {len(response.choices)}")
-        _logger.debug(f"[GLM] Raw message content: {repr(content[:200] if content else content)}")
-        _logger.debug(f"[GLM] Message attributes: {dir(message)}")
-
-        # Log the full raw response as dict for debugging
-        try:
-            if hasattr(response, 'model_dump'):
-                _logger.debug(f"[GLM] Full response dict: {response.model_dump()}")
-            elif hasattr(response, 'dict'):
-                _logger.debug(f"[GLM] Full response dict: {response.dict()}")
-        except Exception as e:
-            _logger.debug(f"[GLM] Could not serialize response: {e}")
-        if hasattr(message, 'reasoning_content'):
-            _logger.debug(f"[GLM] reasoning_content: {repr(message.reasoning_content[:200] if message.reasoning_content else message.reasoning_content)}")
-
-        # Check for reasoning_content (GLM thinking mode)
-        if not content and hasattr(message, 'reasoning_content') and message.reasoning_content:
-            content = message.reasoning_content
-            _logger.info("GLM thinking mode detected, using reasoning_content")
-
-        # Debug: log the response structure when content is empty or incomplete
-        if not content or content == "{":
-            _logger.warning(f"[GLM] Incomplete/empty content: {repr(content)}")
-            _logger.warning(f"[GLM] Full response: {response}")
-            _logger.warning(f"[GLM] Choice: {response.choices[0]}")
-            _logger.warning(f"[GLM] Message: {message}")
-            # Log all message attributes for debugging
-            for attr in ['content', 'reasoning_content', 'role', 'function_call', 'tool_calls']:
-                if hasattr(message, attr):
-                    _logger.warning(f"[GLM] message.{attr}: {getattr(message, attr)}")
-
-        return content or ""
+        return response.choices[0].message.content or ""
 
     async def generate_stream(
         self,
@@ -154,16 +104,16 @@ class OpenAIAdapter(LLMAdapter):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        generation文本（流式）
+        Generate text (streaming)
 
         Args:
-            prompt: Inputprompt
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter
-            **kwargs: otherParameter
+            prompt: Input prompt
+            max_tokens: Maximum tokens
+            temperature: Temperature parameter
+            **kwargs: Other parameters
 
         Yields:
-            str: generation的文本片段
+            Text chunks
         """
         stream = await self._client.chat.completions.create(
             model=self._model,
@@ -186,16 +136,16 @@ class OpenAIAdapter(LLMAdapter):
         **kwargs
     ) -> str:
         """
-        dialoguegeneration（非流式）
+        Chat generation (non-streaming)
 
         Args:
-            messages: dialoguehistory
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter
-            **kwargs: otherParameter
+            messages: Chat history
+            max_tokens: Maximum tokens
+            temperature: Temperature parameter
+            **kwargs: Other parameters
 
         Returns:
-            str: 助手的response
+            Assistant response
         """
         response = await self._client.chat.completions.create(
             model=self._model,
@@ -205,14 +155,7 @@ class OpenAIAdapter(LLMAdapter):
             **kwargs
         )
 
-        # Handle GLM's thinking mode where content is in reasoning_content
-        message = response.choices[0].message
-        content = message.content or ""
-
-        if not content and hasattr(message, 'reasoning_content') and message.reasoning_content:
-            content = message.reasoning_content
-
-        return content or ""
+        return response.choices[0].message.content or ""
 
     async def chat_stream(
         self,
@@ -222,16 +165,16 @@ class OpenAIAdapter(LLMAdapter):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        dialoguegeneration（流式）
+        Chat generation (streaming)
 
         Args:
-            messages: dialoguehistory
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter
-            **kwargs: otherParameter
+            messages: Chat history
+            max_tokens: Maximum tokens
+            temperature: Temperature parameter
+            **kwargs: Other parameters
 
         Yields:
-            str: generation的文本片段
+            Text chunks
         """
         stream = await self._client.chat.completions.create(
             model=self._model,
@@ -248,20 +191,20 @@ class OpenAIAdapter(LLMAdapter):
 
     @property
     def model_name(self) -> str:
-        """getmodelName"""
+        """Get model name"""
         return self._model
 
     @property
     def provider_name(self) -> str:
-        """get提供商Name"""
+        """Get provider name"""
         return self._provider
 
     def set_embedding_model(self, model: str):
         """
-        Settingembeddingmodel
+        Set embedding model
 
         Args:
-            model: modelName（如 text-embedding-3-small）
+            model: Model name (e.g., text-embedding-3-small)
         """
         self._embedding_model = model
 
@@ -271,14 +214,14 @@ class OpenAIAdapter(LLMAdapter):
         model: Optional[str] = None,
     ) -> Optional[List[float]]:
         """
-        get文本的embeddingvector
+        Get text embedding vector
 
         Args:
-            text: Input文本
-            model: embeddingmodelName（optional，default使用预设的embeddingmodel）
+            text: Input text
+            model: Embedding model name (optional, uses preset by default)
 
         Returns:
-            vectorembedding
+            Vector embedding
         """
         if not text or not text.strip():
             return None
@@ -302,16 +245,16 @@ class OpenAIAdapter(LLMAdapter):
         model: Optional[str] = None,
     ) -> List[Optional[List[float]]]:
         """
-        批量getembeddingvector
+        Batch get embedding vectors
 
         Args:
-            texts: Input文本list
-            model: embeddingmodelName（optional）
+            texts: Input text list
+            model: Embedding model name (optional)
 
         Returns:
-            vectorembeddinglist
+            Vector embedding list
         """
-        # filter空文本
+        # Filter empty texts
         valid_texts = [(i, t) for i, t in enumerate(texts) if t and t.strip()]
         if not valid_texts:
             return [None] * len(texts)
@@ -319,13 +262,13 @@ class OpenAIAdapter(LLMAdapter):
         embedding_model = model or self._embedding_model
 
         try:
-            # OpenAIsupport批量request
+            # OpenAI supports batch request
             response = await self._client.embeddings.create(
                 model=embedding_model,
                 input=[t for _, t in valid_texts],
             )
 
-            # buildResult
+            # Build result
             result = [None] * len(texts)
             for (i, _), embedding in zip(valid_texts, response.data):
                 result[i] = embedding.embedding
@@ -335,21 +278,21 @@ class OpenAIAdapter(LLMAdapter):
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to get embeddings: {e}")
-            # failure时逐个get
+            # Fallback to individual retrieval
             return [await self.get_embedding(t, model) for t in texts]
 
     @property
     def supports_embeddings(self) -> bool:
-        """is notsupportembeddingvector"""
+        """Whether embeddings are supported"""
         return True
 
     @property
     def embedding_dimension(self) -> int:
         """
-        getcurrentembeddingmodel的vectordimension
+        Get current embedding model's vector dimension
 
         Returns:
-            vectordimension
+            Vector dimension
         """
         dimensions = {
             "text-embedding-3-small": 1536,

@@ -122,13 +122,13 @@ class FileWriteTool(Tool):
                 data=result_data,
             )
 
-        except Permissionerror:
+        except PermissionError:
             return ToolResult(
                 success=False,
                 error=f"Permission denied writing to file: {file_path}",
                 error_code=ToolErrorCode.PERMISSION_DENIED.value
             )
-        except IsAdirectoryerror:
+        except IsADirectoryError:
             return ToolResult(
                 success=False,
                 error=f"path is a directory, not a file: {file_path}",

@@ -79,7 +79,8 @@ JSON structure:
 - External resources or web access needed
 
 **Use Tools when:**
-- Simple file operations (read/write/list)
+- Simple file operations (read/write/list/edit) for text files.
+- For binary files (images, PDFs, etc.) modification, use bash to call appropriate processing tools, DO NOT use file_read/file_write alone.
 - Command execution
 - No specialized knotttwledge needed
 
@@ -113,6 +114,9 @@ JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_t
 
 User: "list files in current dir"
 JSON: {"intent": "file_operation", "tools": ["file_list"], "deep_thinking": false, "reasoning": "Simple single-step action."}
+
+User: "convert ~/tmp/logo.png to transparent background"
+JSON: {"intent": "file_operation", "tools": ["bash"], "deep_thinking": false, "reasoning": "Processing a binary image file requires external tools like ImageMagick, which must be executed via bash. Standard file_read/write cannot modify image contents."}
 
 Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If nottt matching skill exists, use basic tools."""
 

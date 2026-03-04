@@ -159,7 +159,7 @@ class FileListTool(Tool):
                 data=result_data,
             )
 
-        except Permissionerror:
+        except PermissionError:
             return ToolResult(
                 success=False,
                 error=f"Permission denied accessing directory: {dir_path}",

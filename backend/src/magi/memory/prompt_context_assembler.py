@@ -497,6 +497,18 @@ class PromptContextRenderer:
             lines.append("* (no tools available)")
         lines.append("")
 
+        # Add tool usage instructions
+        if selected:
+            lines.extend([
+                "## Tool Usage Instructions",
+                "* You MUST use the available tools to complete the user's task.",
+                "* If a tool fails, try alternative approaches using other tools or commands.",
+                "* NEVER give up and return plain text suggestions - always attempt tool calls.",
+                "* For bash commands: try different tools/flags if one fails (e.g., if `convert` not found, try `magick`, `sips`, or Python PIL).",
+                "* Continue calling tools until the task is fully completed or all options are exhausted.",
+                "",
+            ])
+
         return lines
 
     def _format_memory_item(self, item: Any) -> str:

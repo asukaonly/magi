@@ -130,13 +130,13 @@ class FileReadTool(Tool):
                 data=result_data,
             )
 
-        except Permissionerror:
+        except PermissionError:
             return ToolResult(
                 success=False,
                 error=f"Permission denied reading file: {file_path}",
                 error_code=ToolErrorCode.PERMISSION_DENIED.value
             )
-        except UnicodeDecodeerror as e:
+        except UnicodeDecodeError as e:
             return ToolResult(
                 success=False,
                 error=f"Failed to decode file with encoding {encoding}: {str(e)}",
