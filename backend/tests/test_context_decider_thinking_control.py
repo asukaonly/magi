@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from typing import Any, AsyncIterator, Dict, List, Optional
+
+import pytest
+
+from magi.llm.base import LLMAdapter
+from magi.tools.context_decider import ContextDecider
+
+
+class _DummyLLMAdapter(LLMAdapter):
+    def __init__(self) -> None:
+        self._model = "dummy-model"
+
+    async def generate(
+        self,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.7,
+        **kwargs,
+    ) -> str:
+        _ = (prompt, max_tokens, temperature, kwargs)
+        return ""
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.7,
+        **kwargs,
+    ) -> AsyncIterator[str]:
+        _ = (prompt, max_tokens, temperature, kwargs)
+        if False:
+            yield ""
+
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.7,
+        **kwargs,
+    ) -> str:
+        _ = (messages, max_tokens, temperature, kwargs)
+        return ""
+
+    async def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.7,
+        **kwargs,
+    ) -> AsyncIterator[str]:
+        _ = (messages, max_tokens, temperature, kwargs)
+        if False:
+            yield ""
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    @property
+    def provider_name(self) -> str:
+        return "openai"
+
+
+class _DummyToolRegistry:
+    def get_all_tools_info(self) -> List[Dict[str, Any]]:
+        return [{"name": "agent", "description": "worker launch", "type": "tool"}]
+
+    def list_tools(self) -> List[str]:
+        return ["agent"]
+
+    def is_skill(self, name: str) -> bool:
+        _ = name
+        return False
+
+
+@pytest.mark.asyncio
+async def test_context_decider_uses_explicit_disable_thinking_from_context() -> None:
+    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+    seen: Dict[str, Any] = {}
+
+    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok"}'
+
+    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+
+    await decider.decide("hello", {"disable_thinking": True})
+
+    assert seen["disable_thinking"] is True
+
+
+@pytest.mark.asyncio
+async def test_context_decider_derives_disable_thinking_from_deep_thinking() -> None:
+    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+    seen: Dict[str, Any] = {}
+
+    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok"}'
+
+    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+
+    await decider.decide("hello", {"deep_thinking": True})
+
+    assert seen["disable_thinking"] is False
+
+
+@pytest.mark.asyncio
+async def test_context_decider_does_not_force_thinking_toggle_without_context_field() -> None:
+    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+    seen: Dict[str, Any] = {}
+
+    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok"}'
+
+    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+
+    await decider.decide("hello", {"os": "Darwin"})
+
+    assert "disable_thinking" not in seen
+

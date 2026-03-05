@@ -6,7 +6,7 @@ This module centralizes API differences between OpenAI-compatible models
 """
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
@@ -53,9 +53,9 @@ class LLMProviderBridge:
         return self.is_zhipu() or self._provider_name() == "glm"
 
     @staticmethod
-    def _disabled_thinking_extra_body(disable_thinking: bool) -> Dict[str, Any] | None:
+    def _disabled_thinking_extra_body(disable_thinking: Optional[bool]) -> Dict[str, Any] | None:
         """Build provider-specific payload to disable reasoning/thinking mode."""
-        if not disable_thinking:
+        if disable_thinking is not True:
             return None
         return {"thinking": {"type": "disabled"}}
 
@@ -65,7 +65,7 @@ class LLMProviderBridge:
         messages: List[Dict[str, Any]],
         max_tokens: int = 1000,
         temperature: float = 0.7,
-        disable_thinking: bool = True,
+        disable_thinking: Optional[bool] = None,
     ) -> str:
         """
         Unified notttn-tool chat call with system prompt.
@@ -100,7 +100,7 @@ class LLMProviderBridge:
         tools: List[Dict[str, Any]],
         max_tokens: int = 4096,
         temperature: float = 0.7,
-        disable_thinking: bool = True,
+        disable_thinking: Optional[bool] = None,
     ) -> ProviderResponse:
         """
         Unified tool-calling chat call.

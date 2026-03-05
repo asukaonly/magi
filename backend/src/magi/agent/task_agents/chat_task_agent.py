@@ -134,6 +134,9 @@ class ChatTaskAgent(TaskAgent):
         user_message = str(payload.get("message", "")).strip()
         session_id = self._resolve_session_id(user_id, payload.get("session_id"))
         history_key = self._history_key(user_id, session_id)
+        message_metadata = payload.get("metadata")
+        if not isinstance(message_metadata, dict):
+            message_metadata = {}
 
         # Lazy load history if not in cache
         history = await self._get_or_load_history(user_id, session_id, history_key)
@@ -145,6 +148,7 @@ class ChatTaskAgent(TaskAgent):
                 "session_id": session_id,
                 "history_key": history_key,
                 "history": history,
+                "message_metadata": message_metadata,
             }
         )
         return context
@@ -225,6 +229,12 @@ class ChatTaskAgent(TaskAgent):
             "current_user": "unknown",
             "recent_messages": recent_messages,
         }
+        message_metadata = context.get("message_metadata")
+        if isinstance(message_metadata, dict):
+            if "disable_thinking" in message_metadata:
+                decision_context["disable_thinking"] = message_metadata.get("disable_thinking")
+            elif "deep_thinking" in message_metadata:
+                decision_context["deep_thinking"] = message_metadata.get("deep_thinking")
         decision = await self.context_decider.decide(user_message, decision_context)
         return {
             "intent": decision.intent,

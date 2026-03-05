@@ -199,13 +199,17 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 temperature=0.3,
             )
 
-            response = await self.provider_bridge.chat(
-                system_prompt=self.system_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-                max_tokens=1000,
-                temperature=0.3,
-                disable_thinking=True,
-            )
+            disable_thinking = self._resolve_disable_thinking_from_context(context)
+            request_kwargs: Dict[str, Any] = {
+                "system_prompt": self.system_PROMPT,
+                "messages": [{"role": "user", "content": user_prompt}],
+                "max_tokens": 1000,
+                "temperature": 0.3,
+            }
+            if disable_thinking is not None:
+                request_kwargs["disable_thinking"] = disable_thinking
+
+            response = await self.provider_bridge.chat(**request_kwargs)
 
             # Check if response is empty or incomplete
             if not response or not response.strip():
@@ -246,6 +250,39 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 deep_thinking=False,
                 reasoning=f"error: {str(e)}",
             )
+
+    def _resolve_disable_thinking_from_context(
+        self,
+        context: Optional[Dict[str, Any]],
+    ) -> Optional[bool]:
+        """Resolve thinking control from context fields without hardcoded forcing."""
+        if not isinstance(context, dict):
+            return None
+
+        explicit_disable = self._coerce_optional_bool(context.get("disable_thinking"))
+        if explicit_disable is not None:
+            return explicit_disable
+
+        deep_thinking = self._coerce_optional_bool(context.get("deep_thinking"))
+        if deep_thinking is not None:
+            return not deep_thinking
+
+        return None
+
+    @staticmethod
+    def _coerce_optional_bool(value: Any) -> Optional[bool]:
+        """Best-effort parse bool-like values from context."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "off"}:
+                return False
+        if isinstance(value, (int, float)) and value in {0, 1}:
+            return bool(value)
+        return None
 
     def _get_available_tools(self) -> List[Dict[str, Any]]:
         """Get list of available tools with metadata"""
