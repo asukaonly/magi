@@ -74,20 +74,12 @@ class LLMProviderBridge:
             return response.content[0].text if response.content else ""
 
         full_messages = [{"role": "system", "content": system_prompt}] + messages
-        kwargs: Dict[str, Any] = {}
-        if self.is_glm():
-            # GLM thinking flag is provider-specific; bridge notttrmalizes by behavior intent.
-            extra_body: Dict[str, Any] = {}
-            if disable_thinking:
-                extra_body["thinking"] = {"type": "disabled"}
-            if extra_body:
-                kwargs["extra_body"] = extra_body
+        _ = disable_thinking
 
         return await self.llm.chat(
             messages=full_messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            **kwargs,
         )
 
     async def chat_with_tools(
@@ -127,8 +119,7 @@ class LLMProviderBridge:
                 "max_tokens": max_tokens,
                 "temperature": temperature,
             }
-            if disable_thinking:
-                kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+            _ = disable_thinking
 
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(

@@ -94,10 +94,8 @@ class ZhipuAdapter(LLMAdapter):
             # ZhipuAI uses different parameter for structured output
             request_kwargs["response_format"] = {"type": "json_object"}
 
-        # Handle thinking mode
-        disable_thinking = kwargs.pop("disable_thinking", True)
-        if disable_thinking:
-            request_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        # Keep API surface compatible but do not force provider-specific thinking flags.
+        kwargs.pop("disable_thinking", None)
 
         # Merge any extra_body
         if "extra_body" in kwargs:
@@ -183,10 +181,8 @@ class ZhipuAdapter(LLMAdapter):
         if max_tokens:
             request_kwargs["max_tokens"] = max_tokens
 
-        # Handle thinking mode
-        disable_thinking = kwargs.pop("disable_thinking", True)
-        if disable_thinking:
-            request_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        # Keep API surface compatible but do not force provider-specific thinking flags.
+        kwargs.pop("disable_thinking", None)
 
         # Merge any extra_body
         if "extra_body" in kwargs:

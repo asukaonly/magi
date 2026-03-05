@@ -165,7 +165,7 @@ async def test_anthropic_path_converts_tool_result_messages():
 
 
 @pytest.mark.asyncio
-async def test_glm_chat_adds_thinking_disable_flag_when_requested():
+async def test_glm_chat_does_not_add_thinking_flag_when_requested():
     llm = DummyLLMAdapter(provider="glm")
     bridge = LLMProviderBridge(llm)
 
@@ -175,7 +175,7 @@ async def test_glm_chat_adds_thinking_disable_flag_when_requested():
         disable_thinking=True,
     )
 
-    assert llm.chat_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert "extra_body" not in llm.chat_kwargs
 
 
 @pytest.mark.asyncio
