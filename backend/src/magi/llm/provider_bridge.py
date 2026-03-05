@@ -259,6 +259,10 @@ class LLMProviderBridge:
 
         return self._build_content_response(message.content or "")
 
+    def normalize_content_response(self, content: Any) -> ProviderResponse:
+        """Normalize plain text content into ProviderResponse with legacy parsing fallback."""
+        return self._build_content_response(content)
+
     def _build_content_response(self, content: Any) -> ProviderResponse:
         """Build provider response from plain text content with legacy tool-call fallback."""
         normalized_content = content if isinstance(content, str) else str(content or "")

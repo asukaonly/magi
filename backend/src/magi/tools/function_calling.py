@@ -53,6 +53,8 @@ class FunctionCallingExecutor:
     """
 
     max_ITERATIONS = 10  # Maximum tool calls in a single loop
+    _TOOL_CONTEXT_MAX_ITEMS = 40
+    _TOOL_CONTEXT_MAX_TEXT_CHARS = 2000
     _EXPLORE_EXCLUDE_PATTERNS = [
         "node_modules",
         "dist",
@@ -214,11 +216,9 @@ class FunctionCallingExecutor:
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": json.dumps({
-                            "success": result.success,
-                            "data": result.data,
-                            "error": result.error,
-                        }),
+                        "content": json.dumps(
+                            self._build_tool_message_payload(tool_name=tool_call.name, result=result)
+                        ),
                     })
 
                 # Check if all tools failed
@@ -291,6 +291,42 @@ class FunctionCallingExecutor:
             messages=messages,
             disable_thinking=disable_thinking,
         )
+
+        # Some models return legacy <tool_call> blocks in fallback text-only responses.
+        # Execute one bounded rescue pass so tool intents are not dropped silently.
+        fallback_content = final_response.get("content", "")
+        fallback_tool_calls = self._parse_tool_calls_from_text_content(fallback_content)
+        if fallback_tool_calls:
+            logger.info(
+                "[FunctionCalling] Fallback response returned %s legacy tool call(s), executing rescue pass",
+                len(fallback_tool_calls),
+            )
+            if fallback_content:
+                messages.append({"role": "assistant", "content": fallback_content})
+            for tool_call in fallback_tool_calls:
+                result = await self._execute_tool_call(
+                    tool_call=tool_call,
+                    user_id=user_id,
+                    session_id=session_id,
+                    intent=intent,
+                    execution_agent_id=execution_agent_id,
+                    execution_workspace=execution_workspace,
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(
+                            self._build_tool_message_payload(tool_name=tool_call.name, result=result)
+                        ),
+                    }
+                )
+            final_response = await self._call_llm_without_tools(
+                system_prompt=system_prompt,
+                messages=messages,
+                disable_thinking=disable_thinking,
+            )
+
         await self._emit_loop_event(
             {
                 "stage": "fallback_final_response",
@@ -302,6 +338,82 @@ class FunctionCallingExecutor:
             }
         )
         return final_response.get("content", "No response generated")
+
+    def _build_tool_message_payload(self, tool_name: str, result: ToolCallResult) -> Dict[str, Any]:
+        """Build compact tool result payload for LLM context messages."""
+        return {
+            "success": result.success,
+            "data": self._compact_tool_data_for_context(tool_name=tool_name, data=result.data),
+            "error": result.error,
+        }
+
+    def _parse_tool_calls_from_text_content(self, content: str) -> List[ToolCall]:
+        """Parse legacy tool calls from plain text via provider bridge normalization."""
+        normalized = self.provider_bridge.normalize_content_response(content)
+        return [
+            ToolCall(id=tc.id, name=tc.name, arguments=tc.arguments)
+            for tc in (normalized.tool_calls or [])
+        ]
+
+    def _compact_tool_data_for_context(self, tool_name: str, data: Any) -> Any:
+        """Trim large tool payloads before injecting them back into model context."""
+        if not isinstance(data, dict):
+            return data
+
+        if tool_name == "glob":
+            matches = data.get("matches")
+            if not isinstance(matches, list):
+                return data
+            limited = matches[: self._TOOL_CONTEXT_MAX_ITEMS]
+            compact_matches = []
+            for item in limited:
+                if not isinstance(item, dict):
+                    continue
+                path = item.get("path")
+                if not path:
+                    continue
+                compact_matches.append(
+                    {
+                        "path": path,
+                        "name": item.get("name"),
+                        "type": "dir" if item.get("is_dir") else "file",
+                    }
+                )
+            omitted = max(0, len(matches) - len(compact_matches))
+            return {
+                "pattern": data.get("pattern"),
+                "base_path": data.get("base_path"),
+                "count": data.get("count", len(matches)),
+                "truncated": bool(data.get("truncated")) or omitted > 0,
+                "omitted_matches": omitted,
+                "matches": compact_matches,
+            }
+
+        if tool_name == "bash":
+            stdout = str(data.get("stdout", ""))
+            stderr = str(data.get("stderr", ""))
+            return {
+                "command": data.get("command"),
+                "return_code": data.get("return_code"),
+                "stdout_preview": stdout[: self._TOOL_CONTEXT_MAX_TEXT_CHARS],
+                "stdout_truncated": len(stdout) > self._TOOL_CONTEXT_MAX_TEXT_CHARS,
+                "stderr_preview": stderr[: self._TOOL_CONTEXT_MAX_TEXT_CHARS],
+                "stderr_truncated": len(stderr) > self._TOOL_CONTEXT_MAX_TEXT_CHARS,
+            }
+
+        if tool_name == "file_read" and "content" in data:
+            content = str(data.get("content", ""))
+            return {
+                "path": data.get("path"),
+                "encoding": data.get("encoding"),
+                "size": data.get("size"),
+                "total_size": data.get("total_size"),
+                "is_complete": data.get("is_complete"),
+                "content_preview": content[: self._TOOL_CONTEXT_MAX_TEXT_CHARS],
+                "content_truncated": len(content) > self._TOOL_CONTEXT_MAX_TEXT_CHARS,
+            }
+
+        return data
 
     async def _emit_tool_result(
         self,

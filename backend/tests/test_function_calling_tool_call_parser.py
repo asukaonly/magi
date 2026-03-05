@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.llm.base import LLMAdapter
-from magi.tools.function_calling import FunctionCallingExecutor
+from magi.tools.function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
 from magi.tools.schema import ToolResult
 
 
@@ -137,3 +137,89 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
     assert len(registry.calls) == 2
     assert registry.calls[0] == ("bash", {"command": "echo one"})
     assert registry.calls[1] == ("agent", {"timeout_seconds": 5})
+
+
+def test_build_tool_message_payload_compacts_glob_matches() -> None:
+    registry = _RecordingToolRegistry()
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+    matches = [
+        {
+            "path": f"/tmp/file_{i}.py",
+            "name": f"file_{i}.py",
+            "is_file": True,
+            "is_dir": False,
+            "size": i,
+            "modified": i,
+        }
+        for i in range(45)
+    ]
+    payload = executor._build_tool_message_payload(
+        tool_name="glob",
+        result=ToolCallResult(
+            tool_call_id="t1",
+            tool_name="glob",
+            success=True,
+            data={"pattern": "**/*.py", "base_path": "/tmp", "matches": matches, "count": len(matches)},
+            error=None,
+        ),
+    )
+
+    assert payload["success"] is True
+    assert payload["data"]["count"] == 45
+    assert payload["data"]["omitted_matches"] == 5
+    assert len(payload["data"]["matches"]) == 40
+    assert payload["data"]["matches"][0]["path"] == "/tmp/file_0.py"
+    assert "size" not in payload["data"]["matches"][0]
+    assert "modified" not in payload["data"]["matches"][0]
+
+
+@pytest.mark.asyncio
+async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
+    registry = _RecordingToolRegistry()
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return {
+            "content": "",
+            "assistant_message": {"role": "assistant", "content": ""},
+            "tool_calls": [ToolCall(id="call_1", name="bash", arguments={"command": "echo one"})],
+        }
+
+    async def _fake_call_llm_without_tools(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        _fake_call_llm_without_tools.calls += 1
+        if _fake_call_llm_without_tools.calls == 1:
+            return {
+                "content": (
+                    "<tool_call>agent"
+                    "<arg_key>timeout_seconds</arg_key><arg_value>5</arg_value>"
+                    "</tool_call>"
+                )
+            }
+        return {"content": "final answer"}
+
+    _fake_call_llm_without_tools.calls = 0  # type: ignore[attr-defined]
+    executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
+    executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
+
+    result = await executor.execute_with_tools(
+        user_message="run tools",
+        system_prompt="sys",
+        selected_tools=["bash", "agent"],
+        user_id="u1",
+        max_iterations=1,
+    )
+
+    assert result == "final answer"
+    assert _fake_call_llm_without_tools.calls == 2  # type: ignore[attr-defined]
+    assert registry.calls == [
+        ("bash", {"command": "echo one"}),
+        ("agent", {"timeout_seconds": 5}),
+    ]
