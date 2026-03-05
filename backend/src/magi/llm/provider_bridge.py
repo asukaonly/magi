@@ -52,6 +52,13 @@ class LLMProviderBridge:
         """Check if using GLM (either via ZhipuAdapter or model name)."""
         return self.is_zhipu() or self._provider_name() == "glm"
 
+    @staticmethod
+    def _disabled_thinking_extra_body(disable_thinking: bool) -> Dict[str, Any] | None:
+        """Build provider-specific payload to disable reasoning/thinking mode."""
+        if not disable_thinking:
+            return None
+        return {"thinking": {"type": "disabled"}}
+
     async def chat(
         self,
         system_prompt: str,
@@ -74,13 +81,17 @@ class LLMProviderBridge:
             return response.content[0].text if response.content else ""
 
         full_messages = [{"role": "system", "content": system_prompt}] + messages
-        _ = disable_thinking
+        chat_kwargs: Dict[str, Any] = {
+            "messages": full_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if self.is_glm():
+            extra_body = self._disabled_thinking_extra_body(disable_thinking)
+            if extra_body:
+                chat_kwargs["extra_body"] = extra_body
 
-        return await self.llm.chat(
-            messages=full_messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+        return await self.llm.chat(**chat_kwargs)
 
     async def chat_with_tools(
         self,
@@ -119,7 +130,9 @@ class LLMProviderBridge:
                 "max_tokens": max_tokens,
                 "temperature": temperature,
             }
-            _ = disable_thinking
+            extra_body = self._disabled_thinking_extra_body(disable_thinking)
+            if extra_body:
+                kwargs["extra_body"] = extra_body
 
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(

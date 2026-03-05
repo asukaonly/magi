@@ -100,6 +100,19 @@ class DummyAnthropicMessagesClient:
         return self.response
 
 
+class DummyZhipuSyncClient:
+    def __init__(self, response: Any):
+        self.response = response
+        self.kwargs: Dict[str, Any] = {}
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(create=self.create),
+        )
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return self.response
+
+
 @pytest.mark.asyncio
 async def test_openai_tool_call_parsing_and_assistant_message():
     message = SimpleNamespace(
@@ -165,7 +178,7 @@ async def test_anthropic_path_converts_tool_result_messages():
 
 
 @pytest.mark.asyncio
-async def test_glm_chat_does_not_add_thinking_flag_when_requested():
+async def test_glm_chat_disables_thinking_when_requested():
     llm = DummyLLMAdapter(provider="glm")
     bridge = LLMProviderBridge(llm)
 
@@ -175,7 +188,7 @@ async def test_glm_chat_does_not_add_thinking_flag_when_requested():
         disable_thinking=True,
     )
 
-    assert "extra_body" not in llm.chat_kwargs
+    assert llm.chat_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 @pytest.mark.asyncio
@@ -190,3 +203,22 @@ async def test_glm_chat_does_not_add_thinking_flag_when_enabled():
     )
 
     assert "extra_body" not in llm.chat_kwargs
+
+
+@pytest.mark.asyncio
+async def test_glm_chat_with_tools_disables_thinking_for_zhipu_path():
+    message = SimpleNamespace(content="ok", tool_calls=[])
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    client = DummyZhipuSyncClient(response=response)
+    llm = DummyLLMAdapter(provider="glm", client=client)
+    bridge = LLMProviderBridge(llm)
+    bridge.is_zhipu = lambda: True
+
+    await bridge.chat_with_tools(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        disable_thinking=True,
+    )
+
+    assert client.kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
