@@ -3,7 +3,19 @@ Path utility helpers for builtin file tools.
 """
 from __future__ import annotations
 
+import fnmatch
 import os
+from typing import Iterable
+
+
+DEFAULT_EXCLUDE_PATTERNS = (
+    "node_modules",
+    "dist",
+    "build",
+    ".git",
+    ".venv",
+    "__pycache__",
+)
 
 
 def expand_input_path(path: str | None, default: str = ".") -> str:
@@ -18,3 +30,40 @@ def has_hidden_path_component(path: str) -> bool:
     """Return True if any path segment is hidden (starts with a dot)."""
     normalized = path.replace("\\", "/")
     return any(part.startswith(".") for part in normalized.split("/") if part and part != ".")
+
+
+def normalize_exclude_patterns(exclude: Iterable[str] | None) -> list[str]:
+    """Normalize exclude patterns and drop empty values."""
+    if exclude is None:
+        return list(DEFAULT_EXCLUDE_PATTERNS)
+    normalized: list[str] = []
+    for item in exclude:
+        value = str(item).strip()
+        if value:
+            normalized.append(value.replace("\\", "/").strip("/"))
+    return normalized
+
+
+def matches_exclude_path(path: str, exclude_patterns: Iterable[str]) -> bool:
+    """Return True when the path matches any exclude pattern."""
+    normalized_path = path.replace("\\", "/").lstrip("./")
+    path_parts = [part for part in normalized_path.split("/") if part and part != "."]
+    basename = path_parts[-1] if path_parts else normalized_path
+
+    for raw_pattern in exclude_patterns:
+        pattern = str(raw_pattern).strip()
+        if not pattern:
+            continue
+        pattern = pattern.replace("\\", "/").strip("/")
+        if not pattern:
+            continue
+        if pattern in path_parts:
+            return True
+        if normalized_path.startswith(pattern + "/"):
+            return True
+        if fnmatch.fnmatch(normalized_path, pattern):
+            return True
+        if fnmatch.fnmatch(basename, pattern):
+            return True
+
+    return False

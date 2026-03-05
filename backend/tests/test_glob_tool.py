@@ -89,3 +89,48 @@ async def test_glob_can_include_dot_paths_when_requested(tmp_path: Path) -> None
     assert result.success is True
     paths = {Path(item["path"]).resolve() for item in result.data["matches"]}
     assert hidden_file.resolve() in paths
+
+
+@pytest.mark.asyncio
+async def test_glob_defaults_to_non_recursive_for_simple_patterns(tmp_path: Path) -> None:
+    top_file = tmp_path / "top.py"
+    nested_dir = tmp_path / "nested"
+    nested_file = nested_dir / "deep.py"
+    top_file.write_text("top = True\n", encoding="utf-8")
+    nested_dir.mkdir()
+    nested_file.write_text("deep = True\n", encoding="utf-8")
+
+    tool = GlobTool()
+    result = await tool.execute({"pattern": "*.py", "path": str(tmp_path)}, _context())
+
+    assert result.success is True
+    paths = {Path(item["path"]).resolve() for item in result.data["matches"]}
+    assert top_file.resolve() in paths
+    assert nested_file.resolve() not in paths
+
+
+@pytest.mark.asyncio
+async def test_glob_excludes_default_large_directories(tmp_path: Path) -> None:
+    src_dir = tmp_path / "src"
+    modules_dir = tmp_path / "node_modules"
+    src_dir.mkdir()
+    modules_dir.mkdir()
+    src_file = src_dir / "app.js"
+    module_file = modules_dir / "dep.js"
+    src_file.write_text("console.log('app')\n", encoding="utf-8")
+    module_file.write_text("console.log('dep')\n", encoding="utf-8")
+
+    tool = GlobTool()
+    result = await tool.execute(
+        {
+            "pattern": "**/*.js",
+            "path": str(tmp_path),
+            "recursive": True,
+        },
+        _context(),
+    )
+
+    assert result.success is True
+    paths = {Path(item["path"]).resolve() for item in result.data["matches"]}
+    assert src_file.resolve() in paths
+    assert module_file.resolve() not in paths

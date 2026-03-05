@@ -69,3 +69,31 @@ async def test_grep_supports_path_glob_filtering(tmp_path: Path) -> None:
     assert src_file.resolve() in matched_files
     assert nested_src_file.resolve() in matched_files
     assert test_file.resolve() not in matched_files
+
+
+@pytest.mark.asyncio
+async def test_grep_excludes_default_large_directories(tmp_path: Path) -> None:
+    src_dir = tmp_path / "src"
+    modules_dir = tmp_path / "node_modules"
+    src_dir.mkdir()
+    modules_dir.mkdir()
+    src_file = src_dir / "a.py"
+    module_file = modules_dir / "b.py"
+    src_file.write_text("TOKEN\n", encoding="utf-8")
+    module_file.write_text("TOKEN\n", encoding="utf-8")
+
+    tool = GrepTool()
+    result = await tool.execute(
+        {
+            "pattern": "TOKEN",
+            "path": str(tmp_path),
+            "glob": "**/*.py",
+            "recursive": True,
+        },
+        _context(),
+    )
+
+    assert result.success is True
+    matched_files = {Path(item["file"]).resolve() for item in result.data["matches"]}
+    assert src_file.resolve() in matched_files
+    assert module_file.resolve() not in matched_files

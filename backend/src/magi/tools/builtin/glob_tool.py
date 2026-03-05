@@ -5,7 +5,13 @@ import os
 from pathlib import Path
 from typing import Dict, Any, List
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
-from .path_utils import expand_input_path, has_hidden_path_component
+from .path_utils import (
+    DEFAULT_EXCLUDE_PATTERNS,
+    expand_input_path,
+    has_hidden_path_component,
+    matches_exclude_path,
+    normalize_exclude_patterns,
+)
 
 
 class GlobTool(Tool):
@@ -42,7 +48,7 @@ class GlobTool(Tool):
                     type=ParameterType.BOOLEAN,
                     description="Use ** for recursive matching",
                     required=False,
-                    default=True,
+                    default=False,
                 ),
                 ToolParameter(
                     name="include_hidden",
@@ -64,6 +70,13 @@ class GlobTool(Tool):
                     description="Only match files, not directories",
                     required=False,
                     default=True,
+                ),
+                ToolParameter(
+                    name="exclude",
+                    type=ParameterType.ARRAY,
+                    description="Path patterns to exclude from traversal",
+                    required=False,
+                    default=list(DEFAULT_EXCLUDE_PATTERNS),
                 ),
                 ToolParameter(
                     name="max_results",
@@ -103,10 +116,11 @@ class GlobTool(Tool):
         """Execute glob search"""
         pattern = parameters["pattern"]
         base_path = expand_input_path(parameters.get("path", "."), default=".")
-        recursive = parameters.get("recursive", True)
+        recursive = parameters.get("recursive", False)
         include_hidden = parameters.get("include_hidden", False)
         directories_only = parameters.get("directories_only", False)
         files_only = parameters.get("files_only", True)
+        exclude_patterns = normalize_exclude_patterns(parameters.get("exclude"))
         max_results = parameters.get("max_results", 1000)
 
         try:
@@ -152,6 +166,8 @@ class GlobTool(Tool):
 
                 if not include_hidden and has_hidden_path_component(relative_path):
                     continue
+                if matches_exclude_path(relative_path, exclude_patterns):
+                    continue
 
                 try:
                     is_dir = os.path.isdir(normalized_path)
@@ -181,6 +197,7 @@ class GlobTool(Tool):
             result_data = {
                 "pattern": pattern,
                 "base_path": base_path,
+                "exclude": exclude_patterns,
                 "matches": matches,
                 "count": len(matches),
                 "truncated": len(matches) >= max_results,

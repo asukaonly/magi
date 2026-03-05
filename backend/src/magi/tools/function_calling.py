@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from .registry import ToolRegistry
-from .schema import ToolExecutionContext
+from .schema import ToolExecutionContext, ToolErrorCode
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,21 @@ class FunctionCallingExecutor:
     """
 
     max_ITERATIONS = 10  # Maximum tool calls in a single loop
+    _EXPLORE_EXCLUDE_PATTERNS = [
+        "node_modules",
+        "dist",
+        "build",
+        ".git",
+        ".venv",
+        "__pycache__",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "poetry.lock",
+        "Pipfile.lock",
+        "uv.lock",
+        "bun.lockb",
+    ]
 
     def __init__(
         self,
@@ -577,7 +592,7 @@ class FunctionCallingExecutor:
         start_time = time.time()
 
         tool_name = tool_call.name
-        arguments = tool_call.arguments
+        arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
 
         logger.info(f"[FunctionCalling] Executing: {tool_name} with args: {arguments}")
 
@@ -592,6 +607,21 @@ class FunctionCallingExecutor:
                 )
 
             # Regular tool
+            arguments, guardrail_error = self._apply_worker_explore_guardrails(
+                intent=intent,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+            if guardrail_error:
+                return ToolCallResult(
+                    tool_call_id=tool_call.id,
+                    tool_name=tool_name,
+                    success=False,
+                    error=guardrail_error,
+                    error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+                    execution_time=time.time() - start_time,
+                )
+
             permissions = ["authenticated"]
             tool_info = self.tool_registry.get_tool_info(tool_name)
             if tool_info and tool_info.get("dangerous", False):
@@ -636,6 +666,69 @@ class FunctionCallingExecutor:
                 error=str(e),
                 execution_time=time.time() - start_time,
             )
+
+    def _apply_worker_explore_guardrails(
+        self,
+        intent: str,
+        tool_name: str,
+        arguments: Dict[str, Any],
+    ) -> tuple[Dict[str, Any], Optional[str]]:
+        """Apply strict guardrails for explore workers to avoid exhaustive scans."""
+        if intent != "worker_explore":
+            return dict(arguments), None
+
+        safe_args = dict(arguments)
+        if tool_name == "glob":
+            pattern = str(safe_args.get("pattern", "")).strip()
+            if pattern in {"*", "**/*", "**"}:
+                return {}, (
+                    "Explore worker guardrail: broad glob patterns are blocked. "
+                    "Use scoped patterns like frontend/*, backend/*, or src/**/*.py."
+                )
+            if not pattern:
+                return {}, "Explore worker guardrail: glob pattern is required."
+            if "recursive" not in safe_args:
+                safe_args["recursive"] = "**" in pattern
+            safe_args["max_results"] = self._bounded_max_results(safe_args.get("max_results"), cap=200)
+            safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
+            return safe_args, None
+
+        if tool_name == "grep":
+            file_glob = str(safe_args.get("glob", "*")).strip()
+            path_value = str(safe_args.get("path", ".")).strip()
+            if file_glob in {"*", "**/*", "**"} and path_value in {"", ".", "./"}:
+                return {}, (
+                    "Explore worker guardrail: root-wide grep is blocked. "
+                    "Use a scoped glob like frontend/**/*.ts or backend/**/*.py."
+                )
+            if "recursive" not in safe_args:
+                safe_args["recursive"] = "**" in file_glob
+            safe_args["max_results"] = self._bounded_max_results(safe_args.get("max_results"), cap=200)
+            safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
+            return safe_args, None
+
+        return safe_args, None
+
+    def _bounded_max_results(self, value: Any, cap: int) -> int:
+        """Parse max_results and keep it within [1, cap]."""
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = cap
+        return max(1, min(parsed, cap))
+
+    def _merge_exclude_patterns(self, extra: Any) -> List[str]:
+        """Merge caller exclude patterns with explore defaults."""
+        merged: List[str] = []
+        if isinstance(extra, list):
+            for item in extra:
+                value = str(item).strip()
+                if value and value not in merged:
+                    merged.append(value)
+        for pattern in self._EXPLORE_EXCLUDE_PATTERNS:
+            if pattern not in merged:
+                merged.append(pattern)
+        return merged
 
     async def _execute_skill(
         self,

@@ -270,6 +270,21 @@ async def test_agent_tool_explore_uses_structured_tools():
     assert tool.schema.timeout == 300
 
 
+def test_agent_tool_explore_prompt_includes_scan_guardrails():
+    tool = AgentTool()
+    prompt = tool._build_worker_system_prompt(
+        worker_id="worker_test",
+        subagent_type=tool.TYPE_EXPLORE,
+        description="explore structure",
+        selected_tools=["glob", "grep", "file_read"],
+    )
+
+    assert "Never use '*' or '**/*' at repository root." in prompt
+    assert "default to recursive=false" in prompt
+    assert "max_results <= 200" in prompt
+    assert "Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files." in prompt
+
+
 @pytest.mark.asyncio
 async def test_await_timeout_does_not_cancel_worker_task():
     tool = AgentTool()

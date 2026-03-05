@@ -6,7 +6,12 @@ import re
 import fnmatch
 from typing import Dict, Any, List
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
-from .path_utils import expand_input_path
+from .path_utils import (
+    DEFAULT_EXCLUDE_PATTERNS,
+    expand_input_path,
+    matches_exclude_path,
+    normalize_exclude_patterns,
+)
 
 
 class GrepTool(Tool):
@@ -77,6 +82,13 @@ class GrepTool(Tool):
                     min_value=0,
                     max_value=10,
                 ),
+                ToolParameter(
+                    name="exclude",
+                    type=ParameterType.ARRAY,
+                    description="Path patterns to exclude from traversal",
+                    required=False,
+                    default=list(DEFAULT_EXCLUDE_PATTERNS),
+                ),
             ],
             examples=[
                 {
@@ -107,6 +119,7 @@ class GrepTool(Tool):
         recursive = parameters.get("recursive", True)
         max_results = parameters.get("max_results", 100)
         context_lines = parameters.get("context_lines", 0)
+        exclude_patterns = normalize_exclude_patterns(parameters.get("exclude"))
 
         try:
             # Validate path exists
@@ -185,6 +198,21 @@ class GrepTool(Tool):
 
             # Walk directory or search single file
             if os.path.isfile(search_path):
+                relative_path = os.path.basename(search_path)
+                if matches_exclude_path(relative_path, exclude_patterns):
+                    return ToolResult(
+                        success=True,
+                        data={
+                            "pattern": pattern,
+                            "path": search_path,
+                            "glob": file_pattern,
+                            "exclude": exclude_patterns,
+                            "matches": [],
+                            "match_count": 0,
+                            "files_searched": 0,
+                            "truncated": False,
+                        },
+                    )
                 files_searched = 1
                 matches.extend(search_file(search_path))
             else:
@@ -192,10 +220,14 @@ class GrepTool(Tool):
                     for root, dirs, files in os.walk(search_path):
                         # Skip hidden directories
                         dirs[:] = [d for d in dirs if not d.startswith(".")]
+                        rel_dirs = [(d, os.path.relpath(os.path.join(root, d), search_path)) for d in dirs]
+                        dirs[:] = [name for name, rel in rel_dirs if not matches_exclude_path(rel, exclude_patterns)]
 
                         for filename in files:
                             file_path = os.path.join(root, filename)
                             relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
+                            if matches_exclude_path(relative_path, exclude_patterns):
+                                continue
                             if not matches_file_glob(relative_path, filename):
                                 continue
                             if len(matches) >= max_results:
@@ -215,6 +247,8 @@ class GrepTool(Tool):
                     for item in os.listdir(search_path):
                         file_path = os.path.join(search_path, item)
                         relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
+                        if matches_exclude_path(relative_path, exclude_patterns):
+                            continue
                         if not matches_file_glob(relative_path, item):
                             continue
                         if os.path.isfile(file_path):
@@ -226,6 +260,7 @@ class GrepTool(Tool):
                 "pattern": pattern,
                 "path": search_path,
                 "glob": file_pattern,
+                "exclude": exclude_patterns,
                 "matches": matches,
                 "match_count": len(matches),
                 "files_searched": files_searched,

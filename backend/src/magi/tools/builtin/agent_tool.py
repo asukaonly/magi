@@ -765,12 +765,15 @@ class AgentTool(Tool):
         )
         if subagent_type == self.TYPE_EXPLORE:
             role_rules = (
-                "Focus on layered codebase exploration instead of one-shot root scans.\n"
-                "Explore in this order: frontend -> backend -> ops/runtime -> docs/specs.\n"
-                "For each layer, first discover with targeted glob patterns, then validate with grep/file_read,\n"
-                "and produce 2-4 concise findings with exact file paths.\n"
-                "Avoid broad commands like `ls -la <repo_root>` and avoid dumping huge file trees.\n"
-                "Ignore generated/vendor paths unless explicitly requested (node_modules, dist, build, .git, .venv)."
+"""
+Prioritize context-aware layered exploration over exhaustive scans.
+1.Directionality: Dynamically determine the entry layer based on the task (e.g., UI issues start at 'frontend', API issues at 'backend'). If unclear, follow: frontend -> backend -> ops -> docs.
+2.Precision Search: Use targeted glob patterns to map structure, then grep for logic entry points. Strictly avoid root-level ls -R or dumping non-essential trees.
+3.Execution Discipline: For glob calls, default to recursive=false and only recurse when pattern explicitly includes '**'. Never use '*' or '**/*' at repository root.
+4.Scope Control: Start from one focused layer (frontend/, backend/, docs/, scripts/) and expand only if needed. Keep every glob/grep call at max_results <= 200.
+5.Negative Constraints: Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files. Do not read binary files or minified assets.
+6.Incremental Validation: For each layer, identify the 'Source of Truth' (e.g., index files, main controllers). Provide 2-5 validated findings with absolute paths and a brief 'why it matters'.
+"""
             )
         elif subagent_type == self.TYPE_PLAN:
             role_rules = (
