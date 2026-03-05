@@ -15,6 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from magi.tools.builtin.agent_tool import (
     AgentTool,
+    WorkerRunState,
     WORKER_AGENT_COMPLETED,
     WORKER_AGENT_PROGRESS,
 )
@@ -255,3 +256,52 @@ async def test_agent_tool_status_not_found():
 
     assert result.success is False
     assert result.error_code == "TOOL_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_explore_uses_structured_tools():
+    tool = AgentTool()
+    tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
+
+    selected_tools = tool._resolve_tools_for_type(tool.TYPE_EXPLORE)
+    assert selected_tools == ["glob", "grep", "file_read"]
+    assert "bash" not in selected_tools
+    assert tool.schema is not None
+    assert tool.schema.timeout == 300
+
+
+@pytest.mark.asyncio
+async def test_await_timeout_does_not_cancel_worker_task():
+    tool = AgentTool()
+    tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
+
+    async def _long_running_task():
+        await asyncio.sleep(0.5)
+
+    run_state = WorkerRunState(
+        worker_id="worker_timeout_check",
+        subagent_type=tool.TYPE_EXPLORE,
+        description="timeout behavior check",
+        prompt="noop",
+        target_task_agent_type="chat",
+        target_task_agent_id="u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        created_at=0.0,
+        updated_at=0.0,
+    )
+    run_state.task = asyncio.create_task(_long_running_task())
+    tool._runs[run_state.worker_id] = run_state
+
+    result = await tool._await_worker(run_state.worker_id, timeout_seconds=0)
+    assert result.success is False
+    assert result.error_code == "TIMEOUT"
+    assert run_state.task is not None
+    assert not run_state.task.cancelled()
+    assert not run_state.task.done()
+
+    run_state.task.cancel()
+    try:
+        await run_state.task
+    except asyncio.CancelledError:
+        pass

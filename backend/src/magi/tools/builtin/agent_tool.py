@@ -72,7 +72,7 @@ class AgentTool(Tool):
         "Plan": TYPE_PLAN,
     }
 
-    _EXPLORE_TOOL_CANDIDATES = ["glob", "grep", "file_read", "bash"]
+    _EXPLORE_TOOL_CANDIDATES = ["glob", "grep", "file_read"]
     _PLAN_TOOL_CANDIDATES = ["glob", "grep", "file_read", "web-search"]
 
     def __init__(self) -> None:
@@ -207,7 +207,7 @@ class AgentTool(Tool):
                     "output": "Returns worker id and status",
                 }
             ],
-            timeout=30,
+            timeout=300,
             dangerous=False,
             tags=["agent", "worker", "planning", "exploration"],
         )
@@ -635,7 +635,8 @@ class AgentTool(Tool):
 
         if run_state.task is not None and not run_state.task.done():
             try:
-                await asyncio.wait_for(run_state.task, timeout=float(timeout_seconds))
+                # Timeout should stop waiting, not terminate the worker task itself.
+                await asyncio.wait_for(asyncio.shield(run_state.task), timeout=float(timeout_seconds))
             except asyncio.TimeoutError:
                 return ToolResult(
                     success=False,
@@ -670,7 +671,7 @@ class AgentTool(Tool):
         if pending_tasks:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*pending_tasks, return_exceptions=True),
+                    asyncio.gather(*(asyncio.shield(task) for task in pending_tasks), return_exceptions=True),
                     timeout=float(timeout_seconds),
                 )
             except asyncio.TimeoutError:
@@ -763,8 +764,12 @@ class AgentTool(Tool):
         )
         if subagent_type == self.TYPE_EXPLORE:
             role_rules = (
-                "Focus on fast codebase exploration. Prefer glob/grep for discovery, "
-                "then file_read for evidence. Include exact file paths in findings."
+                "Focus on layered codebase exploration instead of one-shot root scans.\n"
+                "Explore in this order: frontend -> backend -> ops/runtime -> docs/specs.\n"
+                "For each layer, first discover with targeted glob patterns, then validate with grep/file_read,\n"
+                "and produce 2-4 concise findings with exact file paths.\n"
+                "Avoid broad commands like `ls -la <repo_root>` and avoid dumping huge file trees.\n"
+                "Ignore generated/vendor paths unless explicitly requested (node_modules, dist, build, .git, .venv)."
             )
         elif subagent_type == self.TYPE_PLAN:
             role_rules = (
