@@ -750,13 +750,12 @@ class FunctionCallingExecutor:
         safe_args = dict(arguments)
         if tool_name == "glob":
             pattern = str(safe_args.get("pattern", "")).strip()
-            if pattern in {"*", "**/*", "**"}:
-                return {}, (
-                    "Explore worker guardrail: broad glob patterns are blocked. "
-                    "Use scoped patterns like frontend/*, backend/*, or src/**/*.py."
-                )
             if not pattern:
                 return {}, "Explore worker guardrail: glob pattern is required."
+            if pattern in {"*", "**/*", "**"}:
+                # Downgrade broad scans to a bounded top-level listing instead of failing.
+                safe_args["pattern"] = "*"
+                safe_args["recursive"] = False
             if "recursive" not in safe_args:
                 safe_args["recursive"] = "**" in pattern
             safe_args["max_results"] = self._bounded_max_results(safe_args.get("max_results"), cap=200)

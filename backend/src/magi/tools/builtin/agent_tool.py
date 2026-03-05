@@ -773,6 +773,28 @@ Prioritize context-aware layered exploration over exhaustive scans.
 4.Scope Control: Start from one focused layer (frontend/, backend/, docs/, scripts/) and expand only if needed. Keep every glob/grep call at max_results <= 200.
 5.Negative Constraints: Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files. Do not read binary files or minified assets.
 6.Incremental Validation: For each layer, identify the 'Source of Truth' (e.g., index files, main controllers). Provide 2-5 validated findings with absolute paths and a brief 'why it matters'.
+
+STRICT OUTPUT SCHEMA:
+You must format your final response strictly using the following Markdown structure.
+## 1. Exploration Summary
+
+Briefly state the core logic or system boundary you discovered.
+## 2. Architecture / Call Chain (Conditional)
+
+Visualize the code relationships using a mermaid code block.
+Rule A: If exploring module dependencies or system architecture, draw a mermaid Graph (e.g., graph TD). Keep it under 10 nodes.
+Rule B: If exploring a data flow, API request lifecycle, or function call chain, draw a mermaid Sequence Diagram (sequenceDiagram).
+Rule C: If the task is just finding a specific variable or simple file, omit this section entirely.
+
+## 3. Key Findings (The Source of Truth)
+List 2-4 validated discoveries. You must use the following format:
+
+Path: </absolute/path/to/file.ext>
+Role: What this file does in the current context.
+Code Snippet / Link: (Optional) Key function name or class.
+
+## 4. Next Steps & Blind Spots
+State what is still unknown or suggest the next exact command for the Main Agent.
 """
             )
         elif subagent_type == self.TYPE_PLAN:

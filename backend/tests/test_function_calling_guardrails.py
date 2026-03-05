@@ -77,7 +77,7 @@ def _executor() -> FunctionCallingExecutor:
     )
 
 
-def test_explore_guardrail_blocks_root_wide_glob() -> None:
+def test_explore_guardrail_rewrites_broad_glob_to_safe_scan() -> None:
     executor = _executor()
     guarded_args, error = executor._apply_worker_explore_guardrails(
         intent="worker_explore",
@@ -85,9 +85,11 @@ def test_explore_guardrail_blocks_root_wide_glob() -> None:
         arguments={"pattern": "*", "path": "~/code/magi"},
     )
 
-    assert guarded_args == {}
-    assert error is not None
-    assert "broad glob patterns are blocked" in error
+    assert error is None
+    assert guarded_args["pattern"] == "*"
+    assert guarded_args["recursive"] is False
+    assert guarded_args["max_results"] == 200
+    assert "node_modules" in guarded_args["exclude"]
 
 
 def test_explore_guardrail_injects_safe_defaults_for_glob() -> None:
@@ -102,6 +104,20 @@ def test_explore_guardrail_injects_safe_defaults_for_glob() -> None:
     assert guarded_args["recursive"] is False
     assert guarded_args["max_results"] == 200
     assert "node_modules" in guarded_args["exclude"]
+
+
+def test_explore_guardrail_rewrites_recursive_wildcard_glob() -> None:
+    executor = _executor()
+    guarded_args, error = executor._apply_worker_explore_guardrails(
+        intent="worker_explore",
+        tool_name="glob",
+        arguments={"pattern": "**/*", "recursive": True},
+    )
+
+    assert error is None
+    assert guarded_args["pattern"] == "*"
+    assert guarded_args["recursive"] is False
+    assert guarded_args["max_results"] == 200
 
 
 def test_explore_guardrail_clamps_max_results_for_grep() -> None:
