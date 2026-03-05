@@ -310,7 +310,8 @@ class AgentTool(Tool):
             )
 
         if run_state.task is not None:
-            await run_state.task
+            # Keep worker task alive even if caller-side timeout/cancellation occurs.
+            await asyncio.shield(run_state.task)
         return self._build_run_result(run_state)
 
     async def _start_worker(
