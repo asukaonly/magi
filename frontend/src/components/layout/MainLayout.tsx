@@ -18,7 +18,7 @@ const MainLayout: React.FC = () => {
       />
       <div
         className={cn(
-          'grid grid-rows-[1fr] overflow-hidden bg-card/60',
+          'grid grid-rows-[minmax(0,1fr)] overflow-hidden bg-card/60',
           'h-[calc(100vh-2rem)] mt-8',
           sidebarCollapsed ? 'grid-cols-[72px_minmax(0,1fr)]' : 'grid-cols-[280px_minmax(0,1fr)]'
         )}

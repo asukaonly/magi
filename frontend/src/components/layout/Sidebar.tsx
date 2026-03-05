@@ -121,11 +121,11 @@ const Sidebar: React.FC = () => {
   return (
     <aside
       className={cn(
-        'desktop-panel flex h-full flex-col border-r border-border/30 transition-all duration-200',
+        'desktop-panel flex h-full min-h-0 flex-col overflow-hidden border-r border-border/30 transition-all duration-200',
         sidebarCollapsed ? 'w-[72px]' : 'w-[280px]'
       )}
     >
-      <div className={cn('flex items-center border-b border-border/30 px-3 py-3', sidebarCollapsed ? 'justify-center' : 'justify-between')}>
+      <div className={cn('shrink-0 flex items-center border-b border-border/30 px-3 py-3', sidebarCollapsed ? 'justify-center' : 'justify-between')}>
         {!sidebarCollapsed && (
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20 text-primary eva-glow">
@@ -147,7 +147,7 @@ const Sidebar: React.FC = () => {
         </Button>
       </div>
 
-      <div className="p-2">
+      <div className="shrink-0 p-2">
         <Button
           onClick={handleCreateSession}
           className="w-full justify-start gap-2 rounded-xl bg-primary/15 text-primary border border-primary/20 hover:bg-primary/25"
@@ -205,7 +205,7 @@ const Sidebar: React.FC = () => {
         </div>
       </div>
 
-      <div className="border-t border-border/30 p-2">
+      <div className="shrink-0 border-t border-border/30 p-2">
         <div className="space-y-1">
           <Button
             variant="ghost"
@@ -238,4 +238,3 @@ const Sidebar: React.FC = () => {
 };
 
 export default Sidebar;
-
