@@ -2,9 +2,10 @@
 Glob tool - Find files matching patterns
 """
 import os
-import fnmatch
+from pathlib import Path
 from typing import Dict, Any, List
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+from .path_utils import expand_input_path, has_hidden_path_component
 
 
 class GlobTool(Tool):
@@ -101,7 +102,7 @@ class GlobTool(Tool):
     ) -> ToolResult:
         """Execute glob search"""
         pattern = parameters["pattern"]
-        base_path = parameters.get("path", ".")
+        base_path = expand_input_path(parameters.get("path", "."), default=".")
         recursive = parameters.get("recursive", True)
         include_hidden = parameters.get("include_hidden", False)
         directories_only = parameters.get("directories_only", False)
@@ -125,77 +126,54 @@ class GlobTool(Tool):
                 )
 
             matches: List[Dict[str, Any]] = []
+            seen_paths: set[str] = set()
 
-            # Check if pattern uses ** for recursive
+            # Preserve recursive behavior for simple file-name patterns.
+            # Example: pattern="*.py", recursive=True should search nested directories.
             use_recursive = recursive or "**" in pattern
-            # Normalize pattern (remove ** if present, we handle recursion manually)
-            normalized_pattern = pattern.replace("**/", "").replace("/**", "")
+            pattern_has_path = "/" in pattern or os.sep in pattern
+            if use_recursive and "**" not in pattern and not pattern_has_path:
+                effective_pattern = f"**/{pattern}"
+            else:
+                effective_pattern = pattern
 
-            def match_item(item_path: str) -> None:
-                """Check if item matches pattern and add to results"""
-                if len(matches) >= max_results:
-                    return
+            search_root = Path(base_path)
+
+            for item in search_root.glob(effective_pattern):
+                normalized_path = os.path.normpath(str(item))
+                if normalized_path in seen_paths:
+                    continue
+                seen_paths.add(normalized_path)
 
                 try:
-                    is_dir = os.path.isdir(item_path)
-                    is_file = os.path.isfile(item_path)
+                    relative_path = os.path.relpath(normalized_path, base_path)
+                except ValueError:
+                    relative_path = normalized_path
 
-                    # Filter by type
+                if not include_hidden and has_hidden_path_component(relative_path):
+                    continue
+
+                try:
+                    is_dir = os.path.isdir(normalized_path)
+                    is_file = os.path.isfile(normalized_path)
                     if directories_only and not is_dir:
-                        return
-                    if files_only and not is_file:
-                        return
-
-                    # Get item name for matching
-                    item_name = os.path.basename(item_path)
-
-                    # Check pattern match
-                    if fnmatch.fnmatch(item_name, normalized_pattern):
-                        stat = os.stat(item_path)
-                        matches.append({
-                            "path": item_path,
-                            "name": item_name,
-                            "is_file": is_file,
-                            "is_dir": is_dir,
-                            "size": stat.st_size if is_file else 0,
-                            "modified": stat.st_mtime,
-                        })
-                except (PermissionError, OSError):
-                    pass
-
-            # Walk directory tree
-            if use_recursive:
-                for root, dirs, files in os.walk(base_path):
-                    # Filter hidden directories
-                    if not include_hidden:
-                        dirs[:] = [d for d in dirs if not d.startswith(".")]
-
-                    # Check directories
-                    if not files_only:
-                        for d in dirs:
-                            if len(matches) >= max_results:
-                                break
-                            match_item(os.path.join(root, d))
-
-                    # Check files
-                    if not directories_only:
-                        for f in files:
-                            if len(matches) >= max_results:
-                                break
-                            if not include_hidden and f.startswith("."):
-                                continue
-                            match_item(os.path.join(root, f))
-
-                    if len(matches) >= max_results:
-                        break
-            else:
-                # Non-recursive, only search immediate directory
-                for item in os.listdir(base_path):
-                    if len(matches) >= max_results:
-                        break
-                    if not include_hidden and item.startswith("."):
                         continue
-                    match_item(os.path.join(base_path, item))
+                    if files_only and not is_file:
+                        continue
+
+                    stat = os.stat(normalized_path)
+                    matches.append({
+                        "path": normalized_path,
+                        "name": os.path.basename(normalized_path),
+                        "is_file": is_file,
+                        "is_dir": is_dir,
+                        "size": stat.st_size if is_file else 0,
+                        "modified": stat.st_mtime,
+                    })
+                    if len(matches) >= max_results:
+                        break
+                except (PermissionError, OSError):
+                    continue
 
             # Sort by modification time (most recent first)
             matches.sort(key=lambda x: x["modified"], reverse=True)

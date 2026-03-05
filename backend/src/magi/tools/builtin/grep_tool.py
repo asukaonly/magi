@@ -6,6 +6,7 @@ import re
 import fnmatch
 from typing import Dict, Any, List
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+from .path_utils import expand_input_path
 
 
 class GrepTool(Tool):
@@ -100,7 +101,7 @@ class GrepTool(Tool):
     ) -> ToolResult:
         """Execute grep search"""
         pattern = parameters["pattern"]
-        search_path = parameters.get("path", ".")
+        search_path = expand_input_path(parameters.get("path", "."), default=".")
         file_pattern = parameters.get("glob", "*")
         ignore_case = parameters.get("ignore_case", False)
         recursive = parameters.get("recursive", True)
@@ -167,6 +168,8 @@ class GrepTool(Tool):
                     pass  # Skip files we can't read
                 return file_matches
 
+            pattern_has_path = "/" in file_pattern or os.sep in file_pattern
+
             # Walk directory or search single file
             if os.path.isfile(search_path):
                 files_searched = 1
@@ -178,29 +181,33 @@ class GrepTool(Tool):
                         dirs[:] = [d for d in dirs if not d.startswith(".")]
 
                         for filename in files:
-                            if fnmatch.fnmatch(filename, file_pattern):
+                            file_path = os.path.join(root, filename)
+                            relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
+                            if not fnmatch.fnmatch(relative_path if pattern_has_path else filename, file_pattern):
+                                continue
+                            if len(matches) >= max_results:
+                                break
+                            file_matches = search_file(file_path)
+                            files_searched += 1
+
+                            for m in file_matches:
                                 if len(matches) >= max_results:
                                     break
-                                file_path = os.path.join(root, filename)
-                                file_matches = search_file(file_path)
-                                files_searched += 1
-
-                                for m in file_matches:
-                                    if len(matches) >= max_results:
-                                        break
-                                    matches.append(m)
-                                    total_matches += 1
+                                matches.append(m)
+                                total_matches += 1
 
                         if len(matches) >= max_results:
                             break
                 else:
                     for item in os.listdir(search_path):
-                        if fnmatch.fnmatch(item, file_pattern):
-                            file_path = os.path.join(search_path, item)
-                            if os.path.isfile(file_path):
-                                file_matches = search_file(file_path)
-                                files_searched += 1
-                                matches.extend(file_matches)
+                        file_path = os.path.join(search_path, item)
+                        relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
+                        if not fnmatch.fnmatch(relative_path if pattern_has_path else item, file_pattern):
+                            continue
+                        if os.path.isfile(file_path):
+                            file_matches = search_file(file_path)
+                            files_searched += 1
+                            matches.extend(file_matches)
 
             result_data = {
                 "pattern": pattern,
