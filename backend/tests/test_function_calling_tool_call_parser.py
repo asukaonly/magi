@@ -6,6 +6,8 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.llm.base import LLMAdapter
+from magi.llm.provider_bridge import LLMProviderBridge
+from magi.tools.function_calling_postprocessor import FunctionCallingPostprocessor
 from magi.tools.function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
 from magi.tools.schema import ToolResult
 
@@ -140,10 +142,8 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
 
 
 def test_build_tool_message_payload_compacts_glob_matches() -> None:
-    registry = _RecordingToolRegistry()
-    executor = FunctionCallingExecutor(
-        llm_adapter=_DummyLLMAdapter(),
-        tool_registry=registry,  # type: ignore[arg-type]
+    postprocessor = FunctionCallingPostprocessor(
+        provider_bridge=LLMProviderBridge(_DummyLLMAdapter())
     )
     matches = [
         {
@@ -156,7 +156,7 @@ def test_build_tool_message_payload_compacts_glob_matches() -> None:
         }
         for i in range(45)
     ]
-    payload = executor._build_tool_message_payload(
+    payload = postprocessor.build_tool_message_payload(
         tool_name="glob",
         result=ToolCallResult(
             tool_call_id="t1",
