@@ -1,18 +1,19 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 import pytest
 
 from magi.llm.base import LLMAdapter
-from magi.llm.provider_bridge import ProviderResponse
 from magi.tools.function_calling import FunctionCallingExecutor
 from magi.tools.schema import ToolResult
 
 
 class _DummyLLMAdapter(LLMAdapter):
-    def __init__(self) -> None:
+    def __init__(self, client: Any = None) -> None:
         self._model = "dummy-model"
+        self._client = client
 
     async def generate(
         self,
@@ -89,56 +90,40 @@ class _RecordingToolRegistry:
         return ToolResult(success=True, data={"ok": True, "tool": name, "arguments": arguments})
 
 
-def test_parse_legacy_tool_call_content_with_type_coercion() -> None:
-    registry = _RecordingToolRegistry()
-    executor = FunctionCallingExecutor(
-        llm_adapter=_DummyLLMAdapter(),
-        tool_registry=registry,  # type: ignore[arg-type]
-    )
+class _DummyOpenAIClient:
+    def __init__(self, contents: List[str]) -> None:
+        self._contents = list(contents)
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
-    content = (
-        "<tool_call>agent"
-        "<arg_key>timeout_seconds</arg_key><arg_value>30</arg_value>"
-        "<arg_key>run_in_background</arg_key><arg_value>false</arg_value>"
-        "<arg_key>description</arg_key><arg_value>analyze repo</arg_value>"
-        "</tool_call>"
-    )
-    parsed = executor._parse_tool_calls_from_content(content)
-
-    assert len(parsed) == 1
-    assert parsed[0].name == "agent"
-    assert parsed[0].arguments["timeout_seconds"] == 30
-    assert parsed[0].arguments["run_in_background"] is False
-    assert parsed[0].arguments["description"] == "analyze repo"
+    async def create(self, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        content = self._contents.pop(0)
+        message = SimpleNamespace(content=content, tool_calls=[])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
 @pytest.mark.asyncio
 async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
     registry = _RecordingToolRegistry()
+    llm = _DummyLLMAdapter(
+        client=_DummyOpenAIClient(
+            contents=[
+                (
+                    "<tool_call>bash"
+                    "<arg_key>command</arg_key><arg_value>echo one</arg_value>"
+                    "</tool_call>"
+                    "<tool_call>agent"
+                    "<arg_key>timeout_seconds</arg_key><arg_value>5</arg_value>"
+                    "</tool_call>"
+                ),
+                "final answer",
+            ]
+        )
+    )
     executor = FunctionCallingExecutor(
-        llm_adapter=_DummyLLMAdapter(),
+        llm_adapter=llm,
         tool_registry=registry,  # type: ignore[arg-type]
     )
-
-    responses = [
-        ProviderResponse(
-            content=(
-                "<tool_call>bash"
-                "<arg_key>command</arg_key><arg_value>echo one</arg_value>"
-                "</tool_call>"
-                "<tool_call>agent"
-                "<arg_key>timeout_seconds</arg_key><arg_value>5</arg_value>"
-                "</tool_call>"
-            )
-        ),
-        ProviderResponse(content="final answer"),
-    ]
-
-    async def _fake_chat_with_tools(**kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
-        return responses.pop(0)
-
-    executor.provider_bridge.chat_with_tools = _fake_chat_with_tools  # type: ignore[method-assign]
 
     result = await executor.execute_with_tools(
         user_message="run legacy tool calls",
@@ -152,4 +137,3 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
     assert len(registry.calls) == 2
     assert registry.calls[0] == ("bash", {"command": "echo one"})
     assert registry.calls[1] == ("agent", {"timeout_seconds": 5})
-

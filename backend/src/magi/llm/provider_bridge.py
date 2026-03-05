@@ -5,6 +5,7 @@ This module centralizes API differences between OpenAI-compatible models
 (OpenAI/GLM) and Anthropic, so business layers can use one unified interface.
 """
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -163,7 +164,7 @@ class LLMProviderBridge:
             temperature=temperature,
             disable_thinking=disable_thinking,
         )
-        return ProviderResponse(content=content)
+        return self._build_content_response(content)
 
     def _convert_messages_to_anthropic(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         converted = []
@@ -215,7 +216,7 @@ class LLMProviderBridge:
                 assistant_message={"role": "assistant", "content": assistant_blocks},
             )
 
-        return ProviderResponse(content="".join(content_text_parts))
+        return self._build_content_response("".join(content_text_parts))
 
     def _parse_openai_response(self, response: Any) -> ProviderResponse:
         choice = response.choices[0]
@@ -256,4 +257,76 @@ class LLMProviderBridge:
                 },
             )
 
-        return ProviderResponse(content=message.content or "")
+        return self._build_content_response(message.content or "")
+
+    def _build_content_response(self, content: Any) -> ProviderResponse:
+        """Build provider response from plain text content with legacy tool-call fallback."""
+        normalized_content = content if isinstance(content, str) else str(content or "")
+        parsed_tool_calls = self._parse_legacy_tool_calls_from_content(normalized_content)
+        if parsed_tool_calls:
+            return ProviderResponse(
+                content=normalized_content,
+                tool_calls=parsed_tool_calls,
+                assistant_message={
+                    "role": "assistant",
+                    "content": normalized_content,
+                },
+            )
+        return ProviderResponse(content=normalized_content)
+
+    def _parse_legacy_tool_calls_from_content(self, content: str) -> List[ProviderToolCall]:
+        """Parse xml-like legacy tool calls from plain text content."""
+        if not content:
+            return []
+
+        tool_calls: List[ProviderToolCall] = []
+        for index, match in enumerate(
+            re.finditer(r"<tool_call>(.*?)</tool_call>", content, flags=re.IGNORECASE | re.DOTALL),
+            start=1,
+        ):
+            block = match.group(1).strip()
+            if not block:
+                continue
+
+            name_part = re.split(r"<arg_key>", block, flags=re.IGNORECASE, maxsplit=1)[0]
+            tool_name = re.sub(r"<[^>]+>", "", name_part).strip()
+            if not tool_name:
+                continue
+
+            arguments: Dict[str, Any] = {}
+            for arg_match in re.finditer(
+                r"<arg_key>\s*(.*?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*</arg_value>",
+                block,
+                flags=re.IGNORECASE | re.DOTALL,
+            ):
+                key = arg_match.group(1).strip()
+                if not key:
+                    continue
+                raw_value = arg_match.group(2).strip()
+                arguments[key] = self._coerce_tool_argument_value(raw_value)
+
+            tool_calls.append(
+                ProviderToolCall(
+                    id=f"legacy_call_{index}",
+                    name=tool_name,
+                    arguments=arguments,
+                )
+            )
+
+        return tool_calls
+
+    @staticmethod
+    def _coerce_tool_argument_value(raw_value: str) -> Any:
+        """Coerce primitive JSON-like strings to Python values, otherwise keep text."""
+        value = raw_value.strip()
+        if value == "":
+            return ""
+
+        maybe_json = value
+        if value.lower() in {"true", "false", "null"}:
+            maybe_json = value.lower()
+
+        try:
+            return json.loads(maybe_json)
+        except (TypeError, json.JSONDecodeError):
+            return raw_value

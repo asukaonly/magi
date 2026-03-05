@@ -222,3 +222,34 @@ async def test_glm_chat_with_tools_disables_thinking_for_zhipu_path():
     )
 
     assert client.kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+@pytest.mark.asyncio
+async def test_openai_content_parses_legacy_tool_call_blocks() -> None:
+    legacy_content = (
+        "<tool_call>agent"
+        "<arg_key>timeout_seconds</arg_key><arg_value>30</arg_value>"
+        "<arg_key>run_in_background</arg_key><arg_value>false</arg_value>"
+        "<arg_key>description</arg_key><arg_value>analyze repo</arg_value>"
+        "</tool_call>"
+    )
+    message = SimpleNamespace(content=legacy_content, tool_calls=[])
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(provider="openai", client=client)
+    bridge = LLMProviderBridge(llm)
+
+    result = await bridge.chat_with_tools(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "run tools"}],
+        tools=[{"type": "function", "function": {"name": "agent"}}],
+    )
+
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0].name == "agent"
+    assert result.tool_calls[0].arguments["timeout_seconds"] == 30
+    assert result.tool_calls[0].arguments["run_in_background"] is False
+    assert result.tool_calls[0].arguments["description"] == "analyze repo"
+    assert result.assistant_message is not None
+    assert result.assistant_message["role"] == "assistant"
+    assert result.assistant_message["content"] == legacy_content

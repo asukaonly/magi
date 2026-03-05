@@ -11,7 +11,6 @@ import inspect
 import json
 import logging
 import os
-import re
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
@@ -489,19 +488,6 @@ class FunctionCallingExecutor:
                     )
                     for tc in provider_response.tool_calls
                 ]
-            else:
-                parsed_tool_calls = self._parse_tool_calls_from_content(provider_response.content or "")
-                if parsed_tool_calls:
-                    result["tool_calls"] = parsed_tool_calls
-                    if "assistant_message" not in result:
-                        result["assistant_message"] = {
-                            "role": "assistant",
-                            "content": provider_response.content or "",
-                        }
-                    logger.info(
-                        "[FunctionCalling] Parsed %s tool call(s) from legacy <tool_call> content",
-                        len(parsed_tool_calls),
-                    )
 
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(
@@ -525,62 +511,6 @@ class FunctionCallingExecutor:
             )
             logger.error(f"[FunctionCalling] LLM call failed: {e}")
             raise
-
-    def _parse_tool_calls_from_content(self, content: str) -> List[ToolCall]:
-        """Parse legacy xml-like <tool_call> blocks from plain text content."""
-        if not content:
-            return []
-
-        tool_calls: List[ToolCall] = []
-        for index, match in enumerate(
-            re.finditer(r"<tool_call>(.*?)</tool_call>", content, flags=re.IGNORECASE | re.DOTALL),
-            start=1,
-        ):
-            block = match.group(1).strip()
-            if not block:
-                continue
-
-            name_part = re.split(r"<arg_key>", block, flags=re.IGNORECASE, maxsplit=1)[0]
-            tool_name = re.sub(r"<[^>]+>", "", name_part).strip()
-            if not tool_name:
-                continue
-
-            arguments: Dict[str, Any] = {}
-            for arg_match in re.finditer(
-                r"<arg_key>\s*(.*?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*</arg_value>",
-                block,
-                flags=re.IGNORECASE | re.DOTALL,
-            ):
-                key = arg_match.group(1).strip()
-                if not key:
-                    continue
-                raw_value = arg_match.group(2).strip()
-                arguments[key] = self._coerce_tool_argument_value(raw_value)
-
-            tool_calls.append(
-                ToolCall(
-                    id=f"legacy_call_{index}",
-                    name=tool_name,
-                    arguments=arguments,
-                )
-            )
-
-        return tool_calls
-
-    def _coerce_tool_argument_value(self, raw_value: str) -> Any:
-        """Coerce primitive JSON-like strings to Python values, otherwise keep text."""
-        value = raw_value.strip()
-        if value == "":
-            return ""
-
-        maybe_json = value
-        if value.lower() in {"true", "false", "null"}:
-            maybe_json = value.lower()
-
-        try:
-            return json.loads(maybe_json)
-        except (TypeError, json.JSONDecodeError):
-            return raw_value
 
     async def _call_llm_without_tools(
         self,
