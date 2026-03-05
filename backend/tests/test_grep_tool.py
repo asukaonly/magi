@@ -41,12 +41,16 @@ async def test_grep_expands_home_placeholder(monkeypatch: pytest.MonkeyPatch, tm
 @pytest.mark.asyncio
 async def test_grep_supports_path_glob_filtering(tmp_path: Path) -> None:
     src_dir = tmp_path / "src"
+    nested_src_dir = src_dir / "utils"
     test_dir = tmp_path / "tests"
     src_dir.mkdir()
+    nested_src_dir.mkdir()
     test_dir.mkdir()
     src_file = src_dir / "app.py"
+    nested_src_file = nested_src_dir / "helper.py"
     test_file = test_dir / "app.py"
     src_file.write_text("TARGET_TOKEN\n", encoding="utf-8")
+    nested_src_file.write_text("TARGET_TOKEN\n", encoding="utf-8")
     test_file.write_text("TARGET_TOKEN\n", encoding="utf-8")
 
     tool = GrepTool()
@@ -54,7 +58,7 @@ async def test_grep_supports_path_glob_filtering(tmp_path: Path) -> None:
         {
             "pattern": "TARGET_TOKEN",
             "path": str(tmp_path),
-            "glob": "src/*.py",
+            "glob": "src/**/*.py",
             "recursive": True,
         },
         _context(),
@@ -63,4 +67,5 @@ async def test_grep_supports_path_glob_filtering(tmp_path: Path) -> None:
     assert result.success is True
     matched_files = {Path(item["file"]).resolve() for item in result.data["matches"]}
     assert src_file.resolve() in matched_files
+    assert nested_src_file.resolve() in matched_files
     assert test_file.resolve() not in matched_files

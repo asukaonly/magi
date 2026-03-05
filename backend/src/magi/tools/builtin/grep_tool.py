@@ -169,6 +169,19 @@ class GrepTool(Tool):
                 return file_matches
 
             pattern_has_path = "/" in file_pattern or os.sep in file_pattern
+            normalized_file_pattern = file_pattern.replace(os.sep, "/")
+
+            def matches_file_glob(relative_path: str, filename: str) -> bool:
+                """Match file name/path against glob with basic ** compatibility."""
+                if not pattern_has_path:
+                    return fnmatch.fnmatch(filename, normalized_file_pattern)
+                if fnmatch.fnmatch(relative_path, normalized_file_pattern):
+                    return True
+                if "**/" in normalized_file_pattern:
+                    collapsed_pattern = normalized_file_pattern.replace("**/", "")
+                    if fnmatch.fnmatch(relative_path, collapsed_pattern):
+                        return True
+                return False
 
             # Walk directory or search single file
             if os.path.isfile(search_path):
@@ -183,7 +196,7 @@ class GrepTool(Tool):
                         for filename in files:
                             file_path = os.path.join(root, filename)
                             relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
-                            if not fnmatch.fnmatch(relative_path if pattern_has_path else filename, file_pattern):
+                            if not matches_file_glob(relative_path, filename):
                                 continue
                             if len(matches) >= max_results:
                                 break
@@ -202,7 +215,7 @@ class GrepTool(Tool):
                     for item in os.listdir(search_path):
                         file_path = os.path.join(search_path, item)
                         relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
-                        if not fnmatch.fnmatch(relative_path if pattern_has_path else item, file_pattern):
+                        if not matches_file_glob(relative_path, item):
                             continue
                         if os.path.isfile(file_path):
                             file_matches = search_file(file_path)
