@@ -76,39 +76,7 @@ class _DummyToolRegistry:
 
 
 @pytest.mark.asyncio
-async def test_context_decider_uses_explicit_disable_thinking_from_context() -> None:
-    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
-    seen: Dict[str, Any] = {}
-
-    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
-        seen.update(kwargs)
-        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok"}'
-
-    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
-
-    await decider.decide("hello", {"disable_thinking": True})
-
-    assert seen["disable_thinking"] is True
-
-
-@pytest.mark.asyncio
-async def test_context_decider_derives_disable_thinking_from_deep_thinking() -> None:
-    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
-    seen: Dict[str, Any] = {}
-
-    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
-        seen.update(kwargs)
-        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok"}'
-
-    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
-
-    await decider.decide("hello", {"deep_thinking": True})
-
-    assert seen["disable_thinking"] is False
-
-
-@pytest.mark.asyncio
-async def test_context_decider_does_not_force_thinking_toggle_without_context_field() -> None:
+async def test_context_decider_always_disables_thinking() -> None:
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
     seen: Dict[str, Any] = {}
 
@@ -120,5 +88,20 @@ async def test_context_decider_does_not_force_thinking_toggle_without_context_fi
 
     await decider.decide("hello", {"os": "Darwin"})
 
-    assert "disable_thinking" not in seen
+    assert seen["disable_thinking"] is True
 
+
+@pytest.mark.asyncio
+async def test_context_decider_ignores_context_toggle_and_keeps_disable_thinking_true() -> None:
+    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+    seen: Dict[str, Any] = {}
+
+    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok"}'
+
+    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+
+    await decider.decide("hello", {"disable_thinking": False, "deep_thinking": True})
+
+    assert seen["disable_thinking"] is True
