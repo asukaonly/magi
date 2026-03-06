@@ -30,12 +30,14 @@ class ContextDecision:
         tools: List[str],
         deep_thinking: bool = False,
         reasoning: str = "",
+        worker_strategy: Optional[Dict[str, Any]] = None,
         memory_layer: Optional[str] = None,  # TODO: implement memory layer selection
     ):
         self.intent = intent  # User's intent (e.g., "file_read", "web_search", "chat")
         self.tools = tools  # List of up to 5 tool names
         self.deep_thinking = deep_thinking  # Whether to use extended reasoning mode
         self.reasoning = reasoning  # Why these tools were selected
+        self.worker_strategy = worker_strategy or {}
         self.memory_layer = memory_layer  # Which memory layer to use (L1-L5)
 
 
@@ -58,7 +60,12 @@ JSON structure:
   "intent": "string",
   "tools": ["string"],
   "deep_thinking": boolean,
-  "reasoning": "string"
+  "reasoning": "string",
+  "worker_strategy": {
+    "preferred_subagent_type": "general-purpose|Explore|Plan",
+    "execution_mode": "single|plan_and_decompose",
+    "enforce_subagent_type": boolean
+  }
 }
 
 ### 2. Intent Categories
@@ -115,19 +122,19 @@ Set "deep_thinking": false for:
 ### 5. Few-Shot Examples
 
 User: "hey"
-JSON: {"intent": "chat", "tools": [], "deep_thinking": false, "reasoning": "Casual greeting."}
+JSON: {"intent": "chat", "tools": [], "deep_thinking": false, "reasoning": "Casual greeting.", "worker_strategy": {"preferred_subagent_type": "general-purpose", "execution_mode": "single", "enforce_subagent_type": false}}
 
 User: "what's the weather in tokyo"
-JSON: {"intent": "realtime_query", "tools": ["weather"], "deep_thinking": false, "reasoning": "Real-time weather query. Use the dedicated weather tool."}
+JSON: {"intent": "realtime_query", "tools": ["weather"], "deep_thinking": false, "reasoning": "Real-time weather query. Use the dedicated weather tool.", "worker_strategy": {"preferred_subagent_type": "general-purpose", "execution_mode": "single", "enforce_subagent_type": false}}
 
 User: "read /src/main.py and fix the race condition"
-JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_thinking": true, "reasoning": "Complex bug diagnosis required."}
+JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_thinking": true, "reasoning": "Complex bug diagnosis required.", "worker_strategy": {"preferred_subagent_type": "general-purpose", "execution_mode": "single", "enforce_subagent_type": false}}
 
 User: "analyze this large repo and design a migration plan"
-JSON: {"intent": "planning", "tools": ["agent"], "deep_thinking": true, "reasoning": "Complex multi-step exploration and planning are better delegated to a worker agent."}
+JSON: {"intent": "planning", "tools": ["agent"], "deep_thinking": true, "reasoning": "Complex multi-step exploration and planning are better delegated to a Plan worker that decomposes the task.", "worker_strategy": {"preferred_subagent_type": "Plan", "execution_mode": "plan_and_decompose", "enforce_subagent_type": true}}
 
 User: "convert ~/tmp/logo.png to transparent background"
-JSON: {"intent": "file_operation", "tools": ["bash"], "deep_thinking": false, "reasoning": "Processing a binary image file requires external tools like ImageMagick, which must be executed via bash. Standard file_read/write cannot modify image contents."}
+JSON: {"intent": "file_operation", "tools": ["bash"], "deep_thinking": false, "reasoning": "Processing a binary image file requires external tools like ImageMagick, which must be executed via bash. Standard file_read/write cannot modify image contents.", "worker_strategy": {"preferred_subagent_type": "general-purpose", "execution_mode": "single", "enforce_subagent_type": false}}
 
 Note: Always match tools/skills from the "Available Tools" and "Available Skills" lists. If not matching skill exists, use basic tools."""
 
@@ -172,6 +179,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 tools=[],
                 deep_thinking=False,
                 reasoning="LLM not available",
+                worker_strategy=self._default_worker_strategy(),
             )
 
         # Get available tools
@@ -246,6 +254,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 tools=[],
                 deep_thinking=False,
                 reasoning=f"error: {str(e)}",
+                worker_strategy=self._default_worker_strategy(),
             )
 
     def _get_available_tools(self) -> List[Dict[str, Any]]:
@@ -342,6 +351,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 tools=[],
                 deep_thinking=False,
                 reasoning="Empty LLM response",
+                worker_strategy=self._default_worker_strategy(),
             )
 
         # Handle incomplete response (just `{` or similar)
@@ -352,6 +362,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 tools=[],
                 deep_thinking=False,
                 reasoning="Incomplete LLM response",
+                worker_strategy=self._default_worker_strategy(),
             )
 
         # Try to extract JSON - multiple patterns
@@ -376,6 +387,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 tools = data.get("tools", [])
                 deep_thinking = data.get("deep_thinking", False)
                 reasoning = data.get("reasoning", "")
+                worker_strategy = self._normalize_worker_strategy(data.get("worker_strategy"))
 
                 # Validate tools are available
                 valid_tools = []
@@ -391,6 +403,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                     tools=valid_tools,
                     deep_thinking=deep_thinking,
                     reasoning=reasoning,
+                    worker_strategy=worker_strategy,
                 )
             except json.JSONDecodeError as e:
                 logger.warning(f"[ContextDecider] JSON decode error: {e}")
@@ -404,6 +417,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             tools=[],
             deep_thinking=False,
             reasoning="Failed to parse LLM response",
+            worker_strategy=self._default_worker_strategy(),
         )
 
     def _rule_based_fallback(
@@ -441,6 +455,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                         tools=[last_tool],
                         deep_thinking=False,
                         reasoning=f"Retry request detected, reusing last failed tool: {last_tool}",
+                        worker_strategy=self._default_worker_strategy(),
                     )
 
         # Complex planning/exploration: prefer worker agent tool.
@@ -458,11 +473,23 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             "repo",
         ]
         if "agent" in available_tools and any(kw in user_lower for kw in complex_keywords):
+            strategy = {
+                "preferred_subagent_type": "Plan",
+                "execution_mode": "plan_and_decompose",
+                "enforce_subagent_type": True,
+            }
+            if any(kw in user_lower for kw in ["explore", "scan", "搜索", "定位", "查找", "find"]):
+                strategy = {
+                    "preferred_subagent_type": "Explore",
+                    "execution_mode": "single",
+                    "enforce_subagent_type": True,
+                }
             return ContextDecision(
                 intent="planning",
                 tools=["agent"],
                 deep_thinking=True,
                 reasoning="Complex request detected, delegating to worker agent tool",
+                worker_strategy=strategy,
             )
 
         # Web page fetch and extraction
@@ -528,4 +555,50 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             tools=tools[:self.max_tools],
             deep_thinking=False,
             reasoning="Rule-based fallback (LLM returned empty/incomplete response)",
+            worker_strategy=self._default_worker_strategy(tools[:self.max_tools], user_lower),
         )
+
+    def _default_worker_strategy(
+        self,
+        tools: Optional[List[str]] = None,
+        user_lower: str = "",
+    ) -> Dict[str, Any]:
+        selected_tools = tools or []
+        if "agent" in selected_tools:
+            if any(kw in user_lower for kw in ["架构", "architecture", "migration", "设计", "plan", "方案", "codebase", "repo"]):
+                return {
+                    "preferred_subagent_type": "Plan",
+                    "execution_mode": "plan_and_decompose",
+                    "enforce_subagent_type": True,
+                }
+            if any(kw in user_lower for kw in ["explore", "scan", "搜索", "定位", "查找", "find", "代码结构"]):
+                return {
+                    "preferred_subagent_type": "Explore",
+                    "execution_mode": "single",
+                    "enforce_subagent_type": True,
+                }
+        return {
+            "preferred_subagent_type": "general-purpose",
+            "execution_mode": "single",
+            "enforce_subagent_type": False,
+        }
+
+    def _normalize_worker_strategy(self, payload: Any) -> Dict[str, Any]:
+        strategy = self._default_worker_strategy()
+        if not isinstance(payload, dict):
+            return strategy
+        preferred = str(payload.get("preferred_subagent_type", strategy["preferred_subagent_type"])).strip()
+        execution_mode = str(payload.get("execution_mode", strategy["execution_mode"])).strip()
+        enforce = bool(payload.get("enforce_subagent_type", strategy["enforce_subagent_type"]))
+        if preferred not in {"general-purpose", "Explore", "Plan"}:
+            preferred = strategy["preferred_subagent_type"]
+        if execution_mode not in {"single", "plan_and_decompose"}:
+            execution_mode = strategy["execution_mode"]
+        if execution_mode == "plan_and_decompose":
+            preferred = "Plan"
+            enforce = True
+        return {
+            "preferred_subagent_type": preferred,
+            "execution_mode": execution_mode,
+            "enforce_subagent_type": enforce,
+        }

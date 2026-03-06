@@ -11,8 +11,10 @@ import inspect
 import json
 import logging
 import os
+import time
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
-from dataclasses import dataclass
 
 from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge
@@ -46,6 +48,30 @@ class ToolCallResult:
     execution_time: float = 0.0
 
 
+@dataclass
+class ExecutionOutcome:
+    """Structured result for function-calling execution."""
+
+    status: str
+    content: str
+    failure_reason: Optional[str] = None
+    tool_failures: List[Dict[str, Any]] = field(default_factory=list)
+    iterations: int = 0
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status == "completed"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status,
+            "content": self.content,
+            "failure_reason": self.failure_reason,
+            "tool_failures": list(self.tool_failures),
+            "iterations": self.iterations,
+        }
+
+
 class FunctionCallingExecutor:
     """
     Function Calling Executor
@@ -55,6 +81,7 @@ class FunctionCallingExecutor:
     """
 
     max_ITERATIONS = 10  # Maximum tool calls in a single loop
+    _RAW_TOOL_HISTORY_LIMIT = 4
     _EXPLORE_EXCLUDE_PATTERNS = [
         "node_modules",
         "dist",
@@ -108,7 +135,8 @@ class FunctionCallingExecutor:
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
         execution_workspace: Optional[str] = None,
-    ) -> str:
+        worker_strategy: Optional[Dict[str, Any]] = None,
+    ) -> ExecutionOutcome:
         """
         Execute with continuous tool calling
 
@@ -121,7 +149,7 @@ class FunctionCallingExecutor:
             max_iterations: Maximum tool call iterations
 
         Returns:
-            Final response text
+            Structured execution outcome
         """
         # Build messages
         messages = []
@@ -133,6 +161,8 @@ class FunctionCallingExecutor:
         tools = self._build_tools_parameter(selected_tools)
 
         iteration = 0
+        tool_failures: List[Dict[str, Any]] = []
+        all_tools_failed = False
         while iteration < max_iterations:
             iteration += 1
             await self._emit_loop_event(
@@ -148,17 +178,26 @@ class FunctionCallingExecutor:
             )
 
             # Call LLM with tools
-            response = await self._call_llm_with_tools(
-                system_prompt=system_prompt,
-                messages=messages,
-                tools=tools,
-                disable_thinking=disable_thinking,
-            )
+            try:
+                response = await self._call_llm_with_tools(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    tools=tools,
+                    disable_thinking=disable_thinking,
+                )
+            except Exception as exc:
+                return ExecutionOutcome(
+                    status="failed",
+                    content="",
+                    failure_reason=self._classify_exception_failure(exc),
+                    tool_failures=tool_failures,
+                    iterations=iteration,
+                )
 
             # Preserve assistant tool_call message for protocol-correct next turn
             assistant_message = response.get("assistant_message")
             if assistant_message:
-                messages.append(assistant_message)
+                self._append_message(messages, assistant_message)
 
             # Check if LLM wants to call tools
             if response.get("tool_calls"):
@@ -187,8 +226,19 @@ class FunctionCallingExecutor:
                         intent=intent,
                         execution_agent_id=execution_agent_id,
                         execution_workspace=execution_workspace,
+                        worker_strategy=worker_strategy,
                     )
                     tool_results.append(result)
+                    if not result.success:
+                        tool_failures.append(
+                            {
+                                "tool_call_id": result.tool_call_id,
+                                "tool_name": result.tool_name,
+                                "error": result.error or "unknown error",
+                                "error_code": result.error_code,
+                                "execution_time": round(result.execution_time, 3),
+                            }
+                        )
                     await self._emit_loop_event(
                         {
                             "stage": "tool_executed",
@@ -214,16 +264,19 @@ class FunctionCallingExecutor:
                     )
 
                     # Add tool result message
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(
-                            self.postprocessor.build_tool_message_payload(
-                                tool_name=tool_call.name,
-                                result=result,
-                            )
-                        ),
-                    })
+                    self._append_message(
+                        messages,
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(
+                                self.postprocessor.build_tool_message_payload(
+                                    tool_name=tool_call.name,
+                                    result=result,
+                                )
+                            ),
+                        },
+                    )
 
                 # Check if all tools failed
                 if all(not r.success for r in tool_results):
@@ -252,12 +305,16 @@ class FunctionCallingExecutor:
                             "execution_agent_id": execution_agent_id,
                         }
                     )
+                    all_tools_failed = True
                     break
 
                 # Continue loop for potential more tool calls
 
             elif response.get("content"):
                 # LLM provided final response
+                final_content = str(response["content"])
+                if not final_content.strip():
+                    break
                 logger.info(f"[FunctionCalling] Final response received after {iteration} iteration(s)")
                 await self._emit_loop_event(
                     {
@@ -270,7 +327,12 @@ class FunctionCallingExecutor:
                         "execution_agent_id": execution_agent_id,
                     }
                 )
-                return response["content"]
+                return ExecutionOutcome(
+                    status="completed",
+                    content=final_content,
+                    tool_failures=tool_failures,
+                    iterations=iteration,
+                )
 
             else:
                 # Unexpected response format
@@ -290,11 +352,20 @@ class FunctionCallingExecutor:
                 "execution_agent_id": execution_agent_id,
             }
         )
-        final_response = await self._call_llm_without_tools(
-            system_prompt=system_prompt,
-            messages=messages,
-            disable_thinking=disable_thinking,
-        )
+        try:
+            final_response = await self._call_llm_without_tools(
+                system_prompt=system_prompt,
+                messages=messages,
+                disable_thinking=disable_thinking,
+            )
+        except Exception as exc:
+            return ExecutionOutcome(
+                status="failed",
+                content="",
+                failure_reason=self._classify_exception_failure(exc),
+                tool_failures=tool_failures,
+                iterations=iteration,
+            )
 
         # Some models return legacy <tool_call> blocks in fallback text-only responses.
         # Execute one bounded rescue pass so tool intents are not dropped silently.
@@ -306,7 +377,7 @@ class FunctionCallingExecutor:
                 len(fallback_tool_calls),
             )
             if fallback_content:
-                messages.append({"role": "assistant", "content": fallback_content})
+                self._append_message(messages, {"role": "assistant", "content": fallback_content})
             for tool_call in fallback_tool_calls:
                 result = await self._execute_tool_call(
                     tool_call=tool_call,
@@ -315,8 +386,20 @@ class FunctionCallingExecutor:
                     intent=intent,
                     execution_agent_id=execution_agent_id,
                     execution_workspace=execution_workspace,
+                    worker_strategy=worker_strategy,
                 )
-                messages.append(
+                if not result.success:
+                    tool_failures.append(
+                        {
+                            "tool_call_id": result.tool_call_id,
+                            "tool_name": result.tool_name,
+                            "error": result.error or "unknown error",
+                            "error_code": result.error_code,
+                            "execution_time": round(result.execution_time, 3),
+                        }
+                    )
+                self._append_message(
+                    messages,
                     {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -326,13 +409,22 @@ class FunctionCallingExecutor:
                                 result=result,
                             )
                         ),
-                    }
+                    },
                 )
-            final_response = await self._call_llm_without_tools(
-                system_prompt=system_prompt,
-                messages=messages,
-                disable_thinking=disable_thinking,
-            )
+            try:
+                final_response = await self._call_llm_without_tools(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    disable_thinking=disable_thinking,
+                )
+            except Exception as exc:
+                return ExecutionOutcome(
+                    status="failed",
+                    content="",
+                    failure_reason=self._classify_exception_failure(exc),
+                    tool_failures=tool_failures,
+                    iterations=iteration,
+                )
 
         await self._emit_loop_event(
             {
@@ -344,7 +436,22 @@ class FunctionCallingExecutor:
                 "execution_agent_id": execution_agent_id,
             }
         )
-        return final_response.get("content", "No response generated")
+        final_content = str(final_response.get("content", ""))
+        if final_content.strip():
+            return ExecutionOutcome(
+                status="completed",
+                content=final_content,
+                tool_failures=tool_failures,
+                iterations=iteration,
+            )
+
+        return ExecutionOutcome(
+            status="failed",
+            content="",
+            failure_reason=self._classify_final_failure(tool_failures, all_tools_failed),
+            tool_failures=tool_failures,
+            iterations=iteration,
+        )
 
     async def _emit_tool_result(
         self,
@@ -633,6 +740,7 @@ class FunctionCallingExecutor:
         intent: str,
         execution_agent_id: str,
         execution_workspace: Optional[str],
+        worker_strategy: Optional[Dict[str, Any]],
     ) -> ToolCallResult:
         """
         Execute a single tool call
@@ -697,6 +805,19 @@ class FunctionCallingExecutor:
                 },
                 permissions=permissions,
             )
+
+            if tool_name == "agent":
+                if self._should_orchestrate_plan(arguments=arguments, worker_strategy=worker_strategy):
+                    return await self._execute_agent_plan_workflow(
+                        tool_call=tool_call,
+                        arguments=arguments,
+                        context=context,
+                        start_time=start_time,
+                    )
+                arguments = self._normalize_agent_launch_arguments(
+                    arguments=arguments,
+                    worker_strategy=worker_strategy,
+                )
 
             result = await self.tool_registry.execute(tool_name, arguments, context)
             if not result.success:
@@ -786,6 +907,249 @@ class FunctionCallingExecutor:
             if pattern not in merged:
                 merged.append(pattern)
         return merged
+
+    def _append_message(self, messages: List[Dict[str, Any]], message: Dict[str, Any]) -> None:
+        """Append a message and compact old tool interactions."""
+        messages.append(message)
+        self._compact_message_history(messages)
+
+    def _compact_message_history(self, messages: List[Dict[str, Any]]) -> None:
+        """Keep only a few raw tool turns and summarize older ones."""
+        tool_indexes = [idx for idx, msg in enumerate(messages) if msg.get("role") == "tool"]
+        if len(tool_indexes) <= self._RAW_TOOL_HISTORY_LIMIT:
+            return
+
+        keep_from = tool_indexes[-self._RAW_TOOL_HISTORY_LIMIT]
+        summary_lines: List[str] = []
+        drop_until = keep_from
+        idx = 0
+        while idx < keep_from:
+            msg = messages[idx]
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                tool_call_names = [call.get("function", {}).get("name", "unknown") for call in msg.get("tool_calls", [])]
+                if idx + 1 < len(messages) and messages[idx + 1].get("role") == "tool":
+                    summary_lines.append(self._build_tool_summary(tool_call_names, messages[idx + 1]))
+                    idx += 2
+                    drop_until = idx
+                    continue
+            idx += 1
+
+        if not summary_lines:
+            return
+
+        summary_message = {
+            "role": "assistant",
+            "content": "Previous tool activity summary:\n" + "\n".join(summary_lines),
+        }
+        del messages[:drop_until]
+        messages.insert(1 if messages and messages[0].get("role") == "user" else 0, summary_message)
+
+    def _build_tool_summary(self, tool_names: List[str], tool_message: Dict[str, Any]) -> str:
+        tool_name = tool_names[0] if tool_names else "unknown"
+        try:
+            payload = json.loads(str(tool_message.get("content", "{}")))
+        except json.JSONDecodeError:
+            payload = {}
+        success = bool(payload.get("success"))
+        data = payload.get("data")
+        error = payload.get("error")
+        status = "ok" if success else "failed"
+        detail = ""
+        if isinstance(data, dict):
+            result_summary = data.get("result_summary")
+            if result_summary:
+                detail = f" | {result_summary}"
+            elif data.get("match_count") is not None:
+                detail = f" | matches={data.get('match_count')}"
+            elif data.get("return_code") is not None:
+                detail = f" | return_code={data.get('return_code')}"
+        if error and not success:
+            detail = f" | error={error}"
+        return f"- {tool_name}: {status}{detail}"
+
+    def _classify_exception_failure(self, exc: Exception) -> str:
+        message = str(exc).lower()
+        if "429" in message or "rate limit" in message or "速率限制" in message:
+            return "LLM_RATE_LIMIT"
+        if "timeout" in message:
+            return "WORKER_TIMEOUT"
+        return "EXECUTION_ERROR"
+
+    def _classify_final_failure(
+        self,
+        tool_failures: List[Dict[str, Any]],
+        all_tools_failed: bool,
+    ) -> str:
+        if tool_failures and all(item.get("error_code") == "INVALID_PARAMETERS" for item in tool_failures):
+            return "INVALID_TOOL_CALL"
+        if all_tools_failed and tool_failures:
+            return "ALL_TOOLS_FAILED"
+        return "EMPTY_FINAL_RESPONSE"
+
+    def _should_orchestrate_plan(
+        self,
+        arguments: Dict[str, Any],
+        worker_strategy: Optional[Dict[str, Any]],
+    ) -> bool:
+        if not isinstance(worker_strategy, dict):
+            return False
+        if str(arguments.get("action", "launch")) != "launch":
+            return False
+        return str(worker_strategy.get("execution_mode", "")) == "plan_and_decompose"
+
+    def _normalize_agent_launch_arguments(
+        self,
+        arguments: Dict[str, Any],
+        worker_strategy: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        normalized = dict(arguments)
+        action = str(normalized.get("action", "launch"))
+        if action != "launch":
+            return normalized
+        if "run_in_background" not in normalized:
+            normalized["run_in_background"] = True
+        if not isinstance(worker_strategy, dict):
+            return normalized
+
+        preferred_type = str(worker_strategy.get("preferred_subagent_type", "")).strip()
+        enforce_type = bool(worker_strategy.get("enforce_subagent_type", False))
+        if enforce_type and preferred_type:
+            normalized["subagent_type"] = preferred_type
+        elif preferred_type and not str(normalized.get("subagent_type", "")).strip():
+            normalized["subagent_type"] = preferred_type
+        return normalized
+
+    async def _execute_agent_plan_workflow(
+        self,
+        tool_call: ToolCall,
+        arguments: Dict[str, Any],
+        context: Any,
+        start_time: float,
+    ) -> ToolCallResult:
+        from ...tools.schema import ToolErrorCode
+
+        plan_args = dict(arguments)
+        plan_args["action"] = "launch"
+        plan_args["subagent_type"] = "Plan"
+        plan_args["run_in_background"] = False
+
+        plan_result = await self.tool_registry.execute("agent", plan_args, context)
+        if not plan_result.success:
+            return ToolCallResult(
+                tool_call_id=tool_call.id,
+                tool_name="agent",
+                success=False,
+                data=plan_result.data,
+                error=plan_result.error,
+                error_code=getattr(plan_result, "error_code", ToolErrorCode.EXECUTION_ERROR.value),
+                execution_time=time.time() - start_time,
+            )
+
+        plan_state = plan_result.data if isinstance(plan_result.data, dict) else {}
+        plan_content = str(plan_state.get("result") or "").strip()
+        try:
+            parsed_plan = self._parse_plan_result(plan_content)
+        except ValueError as exc:
+            return ToolCallResult(
+                tool_call_id=tool_call.id,
+                tool_name="agent",
+                success=False,
+                error=str(exc),
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+                execution_time=time.time() - start_time,
+            )
+
+        worker_groups = self._group_plan_subtasks(parsed_plan["subtasks"])
+        aggregated_workers: List[Dict[str, Any]] = []
+        for group_workers in worker_groups:
+            batch_result = await self.tool_registry.execute(
+                "agent",
+                {
+                    "action": "launch",
+                    "workers": group_workers,
+                    "parallel": True,
+                    "run_in_background": False,
+                },
+                context,
+            )
+            batch_data = batch_result.data if isinstance(batch_result.data, dict) else {}
+            batch_workers = batch_data.get("workers", []) if isinstance(batch_data.get("workers"), list) else []
+            aggregated_workers.extend(batch_workers)
+            if not batch_result.success:
+                return ToolCallResult(
+                    tool_call_id=tool_call.id,
+                    tool_name="agent",
+                    success=False,
+                    data={
+                        "plan": parsed_plan,
+                        "workers": [self.postprocessor._compact_agent_data(item) for item in aggregated_workers],
+                    },
+                    error=batch_result.error or "Planner workflow failed while executing subtasks",
+                    error_code=getattr(batch_result, "error_code", ToolErrorCode.EXECUTION_ERROR.value),
+                    execution_time=time.time() - start_time,
+                )
+
+        compact_workers = [self.postprocessor._compact_agent_data(item) for item in aggregated_workers]
+        result_summary = parsed_plan.get("summary", "").strip() or "Planner completed structured decomposition."
+        return ToolCallResult(
+            tool_call_id=tool_call.id,
+            tool_name="agent",
+            success=True,
+            data={
+                "worker_id": plan_state.get("worker_id"),
+                "status": "completed",
+                "subagent_type": "Plan",
+                "description": plan_state.get("description"),
+                "result_summary": result_summary,
+                "plan": parsed_plan,
+                "workers": compact_workers,
+                "needs_await": False,
+            },
+            execution_time=time.time() - start_time,
+        )
+
+    def _parse_plan_result(self, content: str) -> Dict[str, Any]:
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Plan worker did not produce valid JSON output") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Plan worker result must be a JSON object")
+        subtasks = parsed.get("subtasks")
+        if not isinstance(subtasks, list) or not subtasks:
+            raise ValueError("Plan worker result must include non-empty subtasks")
+        normalized_subtasks: List[Dict[str, Any]] = []
+        for item in subtasks:
+            if not isinstance(item, dict):
+                raise ValueError("Plan worker subtasks must be objects")
+            normalized_subtasks.append(
+                {
+                    "description": str(item.get("description", "")).strip(),
+                    "subagent_type": str(item.get("subagent_type", "")).strip(),
+                    "prompt": str(item.get("prompt", "")).strip(),
+                    "parallel_group": str(item.get("parallel_group", "default")).strip() or "default",
+                }
+            )
+        for item in normalized_subtasks:
+            if not item["description"] or not item["subagent_type"] or not item["prompt"]:
+                raise ValueError("Plan worker subtasks require description, subagent_type, and prompt")
+        return {
+            "summary": str(parsed.get("summary", "")).strip(),
+            "subtasks": normalized_subtasks,
+        }
+
+    def _group_plan_subtasks(self, subtasks: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+        grouped: "OrderedDict[str, List[Dict[str, Any]]]" = OrderedDict()
+        for item in subtasks:
+            group = item.get("parallel_group", "default")
+            grouped.setdefault(str(group), []).append(
+                {
+                    "description": item["description"],
+                    "subagent_type": item["subagent_type"],
+                    "prompt": item["prompt"],
+                }
+            )
+        return list(grouped.values())
 
     async def _execute_skill(
         self,

@@ -4,6 +4,7 @@ Worker manager for launching and tracking specialized worker agents.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from dataclasses import dataclass
@@ -47,7 +48,9 @@ class WorkerRunState:
     updated_at: float = 0.0
     completed_at: Optional[float] = None
     result: Optional[str] = None
+    result_summary: Optional[str] = None
     error: Optional[str] = None
+    failure_reason: Optional[str] = None
     task: Optional[asyncio.Task] = None
 
 
@@ -306,6 +309,7 @@ class WorkerAgentManager(Tool):
                     "run_in_background": True,
                     "target_task_agent_type": run_state.target_task_agent_type,
                     "target_task_agent_id": run_state.target_task_agent_id,
+                    "needs_await": True,
                 },
             )
 
@@ -459,7 +463,7 @@ class WorkerAgentManager(Tool):
                 skill_executor=None,
                 tool_result_callback=lambda payload: self._handle_tool_result(run_state, payload),
             )
-            result_text = await executor.execute_with_tools(
+            outcome = await executor.execute_with_tools(
                 user_message=run_state.prompt,
                 system_prompt=worker_system_prompt,
                 selected_tools=selected_tools,
@@ -472,18 +476,33 @@ class WorkerAgentManager(Tool):
                 execution_agent_id=run_state.worker_id,
                 execution_workspace=execution_workspace,
             )
-
-            run_state.status = "completed"
-            run_state.result = str(result_text)
             run_state.completed_at = time.time()
             run_state.updated_at = run_state.completed_at
+            run_state.result = outcome.content
+            run_state.result_summary = self._summarize_result(outcome.content)
+            run_state.failure_reason = outcome.failure_reason
 
+            if outcome.succeeded and run_state.result_summary:
+                run_state.status = "completed"
+                await self._publish_worker_fact(
+                    run_state=run_state,
+                    event_type=WORKER_AGENT_COMPLETED,
+                    event_payload={
+                        "stage": "completed",
+                        "result_summary": run_state.result_summary,
+                    },
+                )
+                return
+
+            run_state.status = "failed"
+            run_state.error = outcome.failure_reason or "Worker execution failed"
             await self._publish_worker_fact(
                 run_state=run_state,
-                event_type=WORKER_AGENT_COMPLETED,
+                event_type=WORKER_AGENT_FAILED,
                 event_payload={
-                    "stage": "completed",
-                    "result": run_state.result,
+                    "stage": "failed",
+                    "error": run_state.error,
+                    "result_summary": run_state.result_summary,
                 },
             )
         except Exception as exc:
@@ -516,7 +535,7 @@ class WorkerAgentManager(Tool):
                 "success": bool(payload.get("success")),
                 "execution_time": float(payload.get("execution_time") or 0.0),
                 "error": payload.get("error"),
-                "result_preview": self._compact_value(payload.get("data")),
+                "result_summary": self._compact_value(payload.get("data")),
             },
         )
 
@@ -546,6 +565,7 @@ class WorkerAgentManager(Tool):
             "worker_status": run_state.status,
             "worker_subagent_type": run_state.subagent_type,
             "worker_description": run_state.description,
+            "failure_reason": run_state.failure_reason,
             "user_id": run_state.user_id,
             "session_id": run_state.session_id,
             "timestamp": now,
@@ -729,7 +749,9 @@ class WorkerAgentManager(Tool):
             "updated_at": run_state.updated_at,
             "completed_at": run_state.completed_at,
             "result": run_state.result,
+            "result_summary": run_state.result_summary,
             "error": run_state.error,
+            "failure_reason": run_state.failure_reason,
         }
 
     def _normalize_subagent_type(self, subagent_type: str) -> Optional[str]:
@@ -799,8 +821,9 @@ State what is still unknown or suggest the next exact command for the Main Agent
             )
         elif subagent_type == self.TYPE_PLAN:
             role_rules = (
-                "Act as a software architect. Produce a practical implementation plan "
-                "with ordered steps, critical files, and trade-offs."
+                "Act as a software architect. Return ONLY valid JSON with this schema: "
+                '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
+                "The plan must be decision-complete, use planner-only decomposition, and keep subtasks bounded."
             )
         else:
             role_rules = (
@@ -824,3 +847,18 @@ State what is still unknown or suggest the next exact command for the Main Agent
         if len(text) <= limit:
             return text
         return text[:limit] + "...(truncated)"
+
+    def _summarize_result(self, result: str, limit: int = 400) -> str:
+        stripped = str(result or "").strip()
+        if not stripped:
+            return ""
+        if stripped.startswith("{"):
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, dict):
+                    summary = str(parsed.get("summary", "")).strip()
+                    if summary:
+                        return summary[:limit]
+            except json.JSONDecodeError:
+                pass
+        return stripped[:limit]

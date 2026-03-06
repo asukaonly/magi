@@ -205,6 +205,7 @@ class ChatTaskAgent(TaskAgent):
             "tools": decision.tools,
             "deep_thinking": decision.deep_thinking,
             "reasoning": decision.reasoning,
+            "worker_strategy": decision.worker_strategy,
         }
 
     async def match_tools(self, context: dict[str, Any], intent_result: dict[str, Any]) -> dict[str, Any]:
@@ -212,6 +213,7 @@ class ChatTaskAgent(TaskAgent):
             "tools": intent_result.get("tools", []),
             "deep_thinking": bool(intent_result.get("deep_thinking", False)),
             "intent": str(intent_result.get("intent", "chat")),
+            "worker_strategy": intent_result.get("worker_strategy", {}),
         }
 
     async def assemble_llm_params(
@@ -240,6 +242,7 @@ class ChatTaskAgent(TaskAgent):
             "tools": tool_result.get("tools", []),
             "deep_thinking": bool(tool_result.get("deep_thinking", False)),
             "intent": str(tool_result.get("intent", "chat")),
+            "worker_strategy": tool_result.get("worker_strategy", {}),
             "execution_mode": str(intent_result.get("execution_mode", "llm")),
         }
 
@@ -286,7 +289,7 @@ class ChatTaskAgent(TaskAgent):
                 disable_thinking=not llm_params["deep_thinking"],
             )
         else:
-            response_text = await self.function_calling_executor.execute_with_tools(
+            execution_outcome = await self.function_calling_executor.execute_with_tools(
                 user_message=user_message,
                 system_prompt=llm_params["system_prompt"],
                 selected_tools=llm_params["tools"],
@@ -296,7 +299,10 @@ class ChatTaskAgent(TaskAgent):
                 disable_thinking=not llm_params["deep_thinking"],
                 intent=llm_params["intent"],
                 execution_agent_id=str(context.get("runtime_key", "chat_agent")),
+                worker_strategy=llm_params.get("worker_strategy"),
             )
+            response_text = execution_outcome.content
+            return {"response": response_text, "execution_outcome": execution_outcome.to_dict()}
         return {"response": response_text}
 
     async def parse_result(self, context: dict[str, Any], raw_result: Any) -> None:
@@ -316,6 +322,10 @@ class ChatTaskAgent(TaskAgent):
             return
 
         response_text = str(raw_result.get("response", "")) if isinstance(raw_result, dict) else str(raw_result)
+        execution_outcome = raw_result.get("execution_outcome", {}) if isinstance(raw_result, dict) else {}
+        if not response_text.strip() and isinstance(execution_outcome, dict) and execution_outcome.get("status") == "failed":
+            failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
+            response_text = f"Execution failed: {failure_reason}"
         if not response_text.strip():
             return
         user_id = context["user_id"]

@@ -19,6 +19,7 @@ from magi.tools.builtin.agent_tool import (
     WORKER_AGENT_COMPLETED,
     WORKER_AGENT_PROGRESS,
 )
+from magi.agent.execution.function_calling import ExecutionOutcome
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -72,7 +73,11 @@ class _FakeFunctionCallingExecutor:
                 }
             )
         await asyncio.sleep(0.01)
-        return f"worker finished: {user_message}"
+        return ExecutionOutcome(
+            status="completed",
+            content=f"worker finished: {user_message}",
+            iterations=1,
+        )
 
 
 @pytest.mark.asyncio
@@ -320,3 +325,50 @@ async def test_await_timeout_does_not_cancel_worker_task():
         await run_state.task
     except asyncio.CancelledError:
         pass
+
+
+@pytest.mark.asyncio
+async def test_empty_worker_result_is_marked_failed(monkeypatch):
+    from magi.agent.workers import worker_manager as worker_manager_module
+
+    class _EmptyExecutor:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return ExecutionOutcome(
+                status="failed",
+                content="",
+                failure_reason="EMPTY_FINAL_RESPONSE",
+                iterations=2,
+            )
+
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _EmptyExecutor)
+    tool = AgentTool()
+    tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
+
+    async def _fake_publish(run_state, event_type, event_payload):
+        _ = (run_state, event_type, event_payload)
+
+    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
+
+    result = await tool.execute(
+        parameters={
+            "action": "launch",
+            "subagent_type": "Explore",
+            "description": "scan auth flow",
+            "prompt": "Locate token generation points",
+            "run_in_background": False,
+        },
+        context=ToolExecutionContext(
+            agent_id="chat:u-chat",
+            workspace="/tmp",
+            env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+            permissions=["authenticated"],
+        ),
+    )
+
+    assert result.success is False
+    assert result.data["status"] == "failed"
+    assert result.data["failure_reason"] == "EMPTY_FINAL_RESPONSE"

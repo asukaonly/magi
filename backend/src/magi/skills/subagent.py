@@ -248,7 +248,9 @@ class SkillSubagent:
             intent="skill_execution",
         )
 
-        return result
+        if not result.succeeded:
+            raise RuntimeError(result.failure_reason or "Skill subagent execution failed")
+        return result.content
 
     async def _execute_direct(
         self,
