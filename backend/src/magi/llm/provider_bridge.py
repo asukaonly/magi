@@ -5,12 +5,12 @@ This module centralizes API differences between OpenAI-compatible models
 (OpenAI/GLM) and Anthropic, so business layers can use one unified interface.
 """
 import json
-import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
+from .parsers import parse_legacy_tool_calls, sanitize_llm_text
 from .zhipu import ZhipuAdapter
 
 
@@ -71,6 +71,26 @@ class LLMProviderBridge:
         """
         Unified notttn-tool chat call with system prompt.
         """
+        response = await self.chat_response(
+            system_prompt=system_prompt,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            disable_thinking=disable_thinking,
+        )
+        return response.content
+
+    async def chat_response(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        max_tokens: int = 1000,
+        temperature: float = 0.7,
+        disable_thinking: Optional[bool] = None,
+    ) -> ProviderResponse:
+        """
+        Unified plain-chat call that still returns normalized ProviderResponse.
+        """
         if self.is_anthropic():
             response = await self.llm._client.messages.create(
                 model=self.llm.model_name,
@@ -79,7 +99,9 @@ class LLMProviderBridge:
                 system=system_prompt,
                 messages=messages,
             )
-            return response.content[0].text if response.content else ""
+            if hasattr(response, "content"):
+                return self._parse_anthropic_response(response)
+            return self._build_content_response("")
 
         full_messages = [{"role": "system", "content": system_prompt}] + messages
         chat_kwargs: Dict[str, Any] = {
@@ -92,7 +114,8 @@ class LLMProviderBridge:
             if extra_body:
                 chat_kwargs["extra_body"] = extra_body
 
-        return await self.llm.chat(**chat_kwargs)
+        content = await self.llm.chat(**chat_kwargs)
+        return self._build_content_response(content)
 
     async def chat_with_tools(
         self,
@@ -265,8 +288,16 @@ class LLMProviderBridge:
 
     def _build_content_response(self, content: Any) -> ProviderResponse:
         """Build provider response from plain text content with legacy tool-call fallback."""
-        normalized_content = content if isinstance(content, str) else str(content or "")
-        parsed_tool_calls = self._parse_legacy_tool_calls_from_content(normalized_content)
+        raw_content = content if isinstance(content, str) else str(content or "")
+        normalized_content = sanitize_llm_text(raw_content)
+        parsed_tool_calls = [
+            ProviderToolCall(
+                id=parsed_call.id,
+                name=parsed_call.name,
+                arguments=parsed_call.arguments,
+            )
+            for parsed_call in parse_legacy_tool_calls(raw_content)
+        ]
         if parsed_tool_calls:
             return ProviderResponse(
                 content=normalized_content,
@@ -277,60 +308,3 @@ class LLMProviderBridge:
                 },
             )
         return ProviderResponse(content=normalized_content)
-
-    def _parse_legacy_tool_calls_from_content(self, content: str) -> List[ProviderToolCall]:
-        """Parse xml-like legacy tool calls from plain text content."""
-        if not content:
-            return []
-
-        tool_calls: List[ProviderToolCall] = []
-        for index, match in enumerate(
-            re.finditer(r"<tool_call>(.*?)</tool_call>", content, flags=re.IGNORECASE | re.DOTALL),
-            start=1,
-        ):
-            block = match.group(1).strip()
-            if not block:
-                continue
-
-            name_part = re.split(r"<arg_key>", block, flags=re.IGNORECASE, maxsplit=1)[0]
-            tool_name = re.sub(r"<[^>]+>", "", name_part).strip()
-            if not tool_name:
-                continue
-
-            arguments: Dict[str, Any] = {}
-            for arg_match in re.finditer(
-                r"<arg_key>\s*(.*?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*</arg_value>",
-                block,
-                flags=re.IGNORECASE | re.DOTALL,
-            ):
-                key = arg_match.group(1).strip()
-                if not key:
-                    continue
-                raw_value = arg_match.group(2).strip()
-                arguments[key] = self._coerce_tool_argument_value(raw_value)
-
-            tool_calls.append(
-                ProviderToolCall(
-                    id=f"legacy_call_{index}",
-                    name=tool_name,
-                    arguments=arguments,
-                )
-            )
-
-        return tool_calls
-
-    @staticmethod
-    def _coerce_tool_argument_value(raw_value: str) -> Any:
-        """Coerce primitive JSON-like strings to Python values, otherwise keep text."""
-        value = raw_value.strip()
-        if value == "":
-            return ""
-
-        maybe_json = value
-        if value.lower() in {"true", "false", "null"}:
-            maybe_json = value.lower()
-
-        try:
-            return json.loads(maybe_json)
-        except (TypeError, json.JSONDecodeError):
-            return raw_value

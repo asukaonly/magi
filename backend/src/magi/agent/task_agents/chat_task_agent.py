@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import platform
-import re
 import sqlite3
 import time
 import uuid
@@ -40,33 +39,6 @@ WORKER_AGENT_EVENT_TYPES = {
     "WORKER_AGENT_COMPLETED",
     "WORKER_AGENT_FAILED",
 }
-
-
-def clean_tool_artifacts(text: str) -> str:
-    text = re.sub(r"<antml:function_calls>.*?</antml:function_calls>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<antml:tool_result>.*?</antml:tool_result>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<tool_result>.*?</tool_result>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<invoke>.*?</invoke>", "", text, flags=re.DOTALL)
-    cleaned_lines = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        remove_line = False
-        if stripped.startswith("{") and stripped.endswith("}"):
-            try:
-                maybe_call = json.loads(stripped)
-                remove_line = (
-                    isinstance(maybe_call, dict)
-                    and isinstance(maybe_call.get("name"), str)
-                    and isinstance(maybe_call.get("arguments"), dict)
-                    and set(maybe_call.keys()).issubset({"name", "arguments"})
-                )
-            except Exception:
-                remove_line = False
-        if not remove_line:
-            cleaned_lines.append(line)
-    text = "\n".join(cleaned_lines)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
 
 
 class ChatTaskAgent(TaskAgent):
@@ -325,7 +297,7 @@ class ChatTaskAgent(TaskAgent):
                 intent=llm_params["intent"],
                 execution_agent_id=str(context.get("runtime_key", "chat_agent")),
             )
-        return {"response": clean_tool_artifacts(response_text)}
+        return {"response": response_text}
 
     async def parse_result(self, context: dict[str, Any], raw_result: Any) -> None:
         if self._action_executor is None:

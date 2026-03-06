@@ -6,21 +6,17 @@ parsing out of the executor orchestration logic.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
-
-from ..llm.provider_bridge import LLMProviderBridge, ProviderToolCall
+from typing import Any, Dict
 
 
 class FunctionCallingPostprocessor:
-    """Build compact tool payloads and parse legacy fallback tool calls."""
+    """Build compact tool payloads for function-calling contexts."""
 
     def __init__(
         self,
-        provider_bridge: LLMProviderBridge,
         max_items: int = 40,
         max_text_chars: int = 2000,
     ) -> None:
-        self.provider_bridge = provider_bridge
         self.max_items = max_items
         self.max_text_chars = max_text_chars
 
@@ -33,11 +29,6 @@ class FunctionCallingPostprocessor:
             ),
             "error": getattr(result, "error", None),
         }
-
-    def parse_legacy_tool_calls_from_text(self, content: str) -> List[ProviderToolCall]:
-        """Parse legacy tool calls from plain text using provider bridge normalization."""
-        normalized = self.provider_bridge.normalize_content_response(content)
-        return list(normalized.tool_calls or [])
 
     def _compact_tool_data_for_context(self, tool_name: str, data: Any) -> Any:
         """Trim large tool payloads before injecting back into model context."""

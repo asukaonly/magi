@@ -252,4 +252,4 @@ async def test_openai_content_parses_legacy_tool_call_blocks() -> None:
     assert result.tool_calls[0].arguments["description"] == "analyze repo"
     assert result.assistant_message is not None
     assert result.assistant_message["role"] == "assistant"
-    assert result.assistant_message["content"] == legacy_content
+    assert result.assistant_message["content"] == ""

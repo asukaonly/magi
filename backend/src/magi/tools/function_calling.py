@@ -88,7 +88,7 @@ class FunctionCallingExecutor:
         """
         self.llm = llm_adapter
         self.provider_bridge = LLMProviderBridge(llm_adapter)
-        self.postprocessor = FunctionCallingPostprocessor(self.provider_bridge)
+        self.postprocessor = FunctionCallingPostprocessor()
         self.tool_registry = tool_registry
         self.skill_executor = skill_executor
         self.tool_result_callback = tool_result_callback
@@ -298,20 +298,15 @@ class FunctionCallingExecutor:
         # Some models return legacy <tool_call> blocks in fallback text-only responses.
         # Execute one bounded rescue pass so tool intents are not dropped silently.
         fallback_content = final_response.get("content", "")
-        fallback_tool_calls = self.postprocessor.parse_legacy_tool_calls_from_text(fallback_content)
+        fallback_tool_calls = final_response.get("tool_calls") or []
         if fallback_tool_calls:
             logger.info(
-                "[FunctionCalling] Fallback response returned %s legacy tool call(s), executing rescue pass",
+                "[FunctionCalling] Fallback response returned %s tool call(s), executing rescue pass",
                 len(fallback_tool_calls),
             )
             if fallback_content:
                 messages.append({"role": "assistant", "content": fallback_content})
-            for parsed_tool_call in fallback_tool_calls:
-                tool_call = ToolCall(
-                    id=parsed_tool_call.id,
-                    name=parsed_tool_call.name,
-                    arguments=parsed_tool_call.arguments,
-                )
+            for tool_call in fallback_tool_calls:
                 result = await self._execute_tool_call(
                     tool_call=tool_call,
                     user_id=user_id,
@@ -585,13 +580,14 @@ class FunctionCallingExecutor:
         )
 
         try:
-            content = await self.provider_bridge.chat(
+            provider_response = await self.provider_bridge.chat_response(
                 system_prompt=system_prompt,
                 messages=messages,
                 max_tokens=4096,
                 temperature=0.7,
                 disable_thinking=disable_thinking,
             )
+            content = provider_response.content
 
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(
@@ -602,7 +598,19 @@ class FunctionCallingExecutor:
                 duration_ms=duration_ms,
                 fallback_reason="function_calling_final_response_without_tools",
             )
-            return {"content": content}
+            result: Dict[str, Any] = {"content": content}
+            if provider_response.assistant_message:
+                result["assistant_message"] = provider_response.assistant_message
+            if provider_response.tool_calls:
+                result["tool_calls"] = [
+                    ToolCall(
+                        id=tc.id,
+                        name=tc.name,
+                        arguments=tc.arguments,
+                    )
+                    for tc in provider_response.tool_calls
+                ]
+            return result
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(

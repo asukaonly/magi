@@ -6,7 +6,6 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.llm.base import LLMAdapter
-from magi.llm.provider_bridge import LLMProviderBridge
 from magi.tools.function_calling_postprocessor import FunctionCallingPostprocessor
 from magi.tools.function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
 from magi.tools.schema import ToolResult
@@ -142,9 +141,7 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
 
 
 def test_build_tool_message_payload_compacts_glob_matches() -> None:
-    postprocessor = FunctionCallingPostprocessor(
-        provider_bridge=LLMProviderBridge(_DummyLLMAdapter())
-    )
+    postprocessor = FunctionCallingPostprocessor()
     matches = [
         {
             "path": f"/tmp/file_{i}.py",
@@ -197,11 +194,8 @@ async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
         _fake_call_llm_without_tools.calls += 1
         if _fake_call_llm_without_tools.calls == 1:
             return {
-                "content": (
-                    "<tool_call>agent"
-                    "<arg_key>timeout_seconds</arg_key><arg_value>5</arg_value>"
-                    "</tool_call>"
-                )
+                "content": "",
+                "tool_calls": [ToolCall(id="legacy_call_1", name="agent", arguments={"timeout_seconds": 5})],
             }
         return {"content": "final answer"}
 
