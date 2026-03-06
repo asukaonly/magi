@@ -565,40 +565,24 @@ class ChatTaskAgent(TaskAgent):
         }
 
     async def _aggregate_orchestration(self, state: TaskOrchestrationState) -> str:
-        payload = {
-            "user_request": state.root_user_message,
-            "planner": state.planner,
-            "completed_subtasks": [
-                {
-                    "subtask_id": item.subtask_id,
-                    "description": item.description,
-                    "result": item.worker_result,
-                }
-                for item in state.subtasks
-                if item.status == "completed" and isinstance(item.worker_result, dict)
-            ],
-            "failed_subtasks": [
-                {
-                    "subtask_id": item.subtask_id,
-                    "description": item.description,
-                    "failure_reason": item.failure_reason,
-                    "attempt_count": item.attempt_count,
-                }
-                for item in state.subtasks
-                if item.status == "failed"
-            ],
-        }
-        system_prompt = (
-            "You are the parent task agent for a decomposed task. "
-            "Synthesize a final response from completed leaf worker results. "
-            "Use only the provided worker outputs, mention concrete evidence when available, "
-            "and explicitly call out gaps caused by failed subtasks. "
-            "Do not mention internal implementation details like orchestration ids."
+        payload = self._build_aggregation_payload(state)
+        history_key = self._history_key(state.user_id, state.session_id)
+        history = await self._get_or_load_history(state.user_id, state.session_id, history_key)
+        filtered_history = self._filter_history_for_aggregation(history)
+        system_prompt = await self._build_system_prompt(
+            user_id=state.user_id,
+            task_category="chat",
         )
+        messages = filtered_history + [
+            {
+                "role": "user",
+                "content": self._build_aggregation_user_message(state, payload),
+            }
+        ]
         try:
             response = await self._call_llm(
                 system_prompt=system_prompt,
-                messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                messages=messages,
                 disable_thinking=False,
             )
         except Exception as exc:
@@ -606,6 +590,10 @@ class ChatTaskAgent(TaskAgent):
             response = ""
         if response.strip():
             return response.strip()
+        logger.warning(
+            "Parent aggregation returned empty response | orchestration_id=%s",
+            state.orchestration_id,
+        )
         return self._build_aggregation_fallback(state)
 
     def _normalize_subtask_plan(
@@ -762,20 +750,114 @@ class ChatTaskAgent(TaskAgent):
     def _build_agent_tool_context(self, user_id: str, session_id: str):
         return self._task_orchestrator._build_agent_tool_context(user_id, session_id)
 
+    def _build_aggregation_payload(self, state: TaskOrchestrationState) -> dict[str, Any]:
+        return {
+            "user_request": state.root_user_message,
+            "planner": state.planner,
+            "completed_subtasks": [
+                {
+                    "subtask_id": item.subtask_id,
+                    "description": item.description,
+                    "result": item.worker_result,
+                }
+                for item in state.subtasks
+                if item.status == "completed" and isinstance(item.worker_result, dict)
+            ],
+            "failed_subtasks": [
+                {
+                    "subtask_id": item.subtask_id,
+                    "description": item.description,
+                    "failure_reason": item.failure_reason,
+                    "attempt_count": item.attempt_count,
+                }
+                for item in state.subtasks
+                if item.status == "failed"
+            ],
+        }
+
+    def _filter_history_for_aggregation(self, history: list[dict[str, Any]]) -> list[dict[str, str]]:
+        filtered: list[dict[str, str]] = []
+        for item in history[-8:]:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "")).strip()
+            content = str(item.get("content", "")).strip()
+            if role not in {"user", "assistant"} or not content:
+                continue
+            if content.startswith("[Worker:"):
+                continue
+            filtered.append({"role": role, "content": content})
+        return filtered
+
+    def _build_aggregation_user_message(
+        self,
+        state: TaskOrchestrationState,
+        payload: dict[str, Any],
+    ) -> str:
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        if self._prefers_chinese_response(state.root_user_message):
+            return "\n".join(
+                [
+                    f"用户原始请求：{state.root_user_message}",
+                    "你已经拿到了内部子任务的结构化结果。现在请直接面向用户回答原始请求。",
+                    "要求：",
+                    "- 使用自然、正常的聊天语气，不要暴露子任务、worker、编排、JSON 或内部流程。",
+                    "- 优先整合已经确认的信息，并在合适的时候引用关键文件路径作为依据。",
+                    "- 对失败的部分，只需要简短说明哪些方面还没完全确认，不要把失败列表原样抄给用户。",
+                    "- 如果已有信息不足以完整覆盖原问题，就先给出当前最可靠的结论，再明确缺口。",
+                    "- 回复语言跟随用户。",
+                    "",
+                    f"内部结果(JSON): {payload_json}",
+                ]
+            )
+        return "\n".join(
+            [
+                f"Original user request: {state.root_user_message}",
+                "You already have the structured results from internal leaf tasks. Now answer the original request directly to the user.",
+                "Requirements:",
+                "- Respond in a natural conversational style and do not mention subtasks, workers, orchestration, JSON, or internal process details.",
+                "- Prioritize confirmed information and cite key file paths naturally when they matter.",
+                "- For failed areas, briefly mention what remains unconfirmed instead of dumping an internal failure list.",
+                "- If the available evidence is incomplete, give the most reliable current conclusion first and then call out the remaining gaps.",
+                "- Mirror the user's language.",
+                "",
+                f"Internal results (JSON): {payload_json}",
+            ]
+        )
+
+    def _prefers_chinese_response(self, text: str) -> bool:
+        return any("\u4e00" <= char <= "\u9fff" for char in text)
+
     def _build_aggregation_fallback(self, state: TaskOrchestrationState) -> str:
-        lines = [f"Request: {state.root_user_message}", ""]
         completed = [item for item in state.subtasks if item.status == "completed" and isinstance(item.worker_result, dict)]
         failed = [item for item in state.subtasks if item.status == "failed"]
+        if self._prefers_chinese_response(state.root_user_message):
+            lines = ["我先基于目前已经确认的结果给你一个可用的结论。", ""]
+            if completed:
+                lines.append("目前已经确认的部分：")
+                for item in completed:
+                    summary = str(item.worker_result.get("summary", "")).strip()
+                    if summary:
+                        lines.append(f"- {summary}")
+            if failed:
+                lines.append("")
+                lines.append("还有几部分这次没有成功完成，所以相关信息暂时不能完全确认：")
+                for item in failed:
+                    lines.append(f"- {item.description}")
+            return "\n".join(lines).strip()
+
+        lines = ["Here is the most reliable answer I can give based on the completed analysis so far.", ""]
+        completed = [item for item in state.subtasks if item.status == "completed" and isinstance(item.worker_result, dict)]
         if completed:
-            lines.append("Completed subtasks:")
+            lines.append("Confirmed so far:")
             for item in completed:
                 summary = str(item.worker_result.get("summary", "")).strip()
-                lines.append(f"- {item.description}: {summary or 'Completed with structured findings.'}")
+                lines.append(f"- {summary or 'Completed with structured findings.'}")
         if failed:
             lines.append("")
-            lines.append("Gaps / failed subtasks:")
+            lines.append("These areas are still not fully confirmed because the underlying worker run failed:")
             for item in failed:
-                lines.append(f"- {item.description}: {item.failure_reason or 'Unknown failure'}")
+                lines.append(f"- {item.description}")
         return "\n".join(lines).strip()
 
     def _append_user_message_to_history(self, history_key: str, user_message: str) -> None:

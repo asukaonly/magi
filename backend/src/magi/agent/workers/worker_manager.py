@@ -929,6 +929,7 @@ Prioritize context-aware layered exploration over exhaustive scans.
 4.Scope Control: Start from one focused layer (frontend/, backend/, docs/, scripts/) and expand only if needed. Keep every glob/grep call at max_results <= 200.
 5.Negative Constraints: Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files. Do not read binary files or minified assets.
 6.Incremental Validation: For each layer, identify the 'Source of Truth' (e.g., index files, main controllers). Provide 2-5 validated findings with absolute paths and a brief 'why it matters'.
+7.Response Validation: Your final answer must be one parseable JSON object and nothing else. Any prose, markdown, code fences, or trailing commentary will be treated as failure.
 
 STRICT OUTPUT SCHEMA:
 Return ONLY valid JSON with this schema:
@@ -940,19 +941,22 @@ Return ONLY valid JSON with this schema:
   "next_steps": ["string"]
 }
 Do not emit Markdown, prose before the JSON, or fenced code blocks.
+Before sending the final answer, self-check that it can be parsed by json.loads and that all required fields are present.
 """
             )
         elif subagent_type == self.TYPE_PLAN:
             role_rules = (
                 "Act as a software architect. Return ONLY valid JSON with this schema: "
                 '{"summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
-                "The plan must be decision-complete, keep subtasks bounded, and not include any final user-facing aggregation."
+                "The plan must be decision-complete, keep subtasks bounded, and not include any final user-facing aggregation. "
+                "Any response that is not a single valid JSON object will be treated as failure."
             )
         else:
             role_rules = (
                 "Act as a general-purpose leaf execution agent for one bounded task. "
                 "Return ONLY valid JSON with this schema: "
-                '{"summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"]}.'
+                '{"summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"]}. '
+                "Any response that is not a single valid JSON object will be treated as failure."
             )
         return "\n".join([base_rules, role_rules, tool_rules])
 
@@ -985,10 +989,22 @@ Do not emit Markdown, prose before the JSON, or fenced code blocks.
         required_keys = {"summary", "findings", "evidence", "gaps", "next_steps"}
         if not required_keys.issubset(set(parsed.keys())):
             raise ValueError("Worker result is missing required fields")
+        if not isinstance(parsed.get("findings"), list):
+            raise ValueError("Worker result field 'findings' must be a list")
+        if not isinstance(parsed.get("evidence"), list):
+            raise ValueError("Worker result field 'evidence' must be a list")
+        if not isinstance(parsed.get("gaps"), list):
+            raise ValueError("Worker result field 'gaps' must be a list")
+        if not isinstance(parsed.get("next_steps"), list):
+            raise ValueError("Worker result field 'next_steps' must be a list")
 
         worker_result = WorkerResult.from_dict(parsed)
         if not worker_result.summary:
             raise ValueError("Worker result requires a non-empty summary")
+        self._validate_findings(worker_result.findings, subagent_type=subagent_type)
+        self._validate_evidence(worker_result.evidence)
+        self._validate_string_items(worker_result.gaps, field_name="gaps")
+        self._validate_string_items(worker_result.next_steps, field_name="next_steps")
         normalized = worker_result.to_dict()
 
         if subagent_type == self.TYPE_PLAN:
@@ -1014,6 +1030,36 @@ Do not emit Markdown, prose before the JSON, or fenced code blocks.
                 normalized_subtasks.append(normalized_item)
             normalized["subtasks"] = normalized_subtasks
         return normalized
+
+    def _validate_findings(self, findings: List[Dict[str, Any]], subagent_type: str) -> None:
+        for item in findings:
+            if not isinstance(item, dict):
+                raise ValueError("Worker findings must be objects")
+            title = str(item.get("title", "")).strip()
+            detail = str(item.get("detail", "")).strip()
+            if not title or not detail:
+                raise ValueError("Each worker finding requires non-empty title and detail")
+            if subagent_type != self.TYPE_PLAN:
+                path = str(item.get("path", "")).strip()
+                why_it_matters = str(item.get("why_it_matters", "")).strip()
+                if not path or not why_it_matters:
+                    raise ValueError(
+                        "Each worker finding requires non-empty path and why_it_matters"
+                    )
+
+    def _validate_evidence(self, evidence: List[Dict[str, Any]]) -> None:
+        for item in evidence:
+            if not isinstance(item, dict):
+                raise ValueError("Worker evidence entries must be objects")
+            path = str(item.get("path", "")).strip()
+            detail = str(item.get("detail", "")).strip()
+            if not path or not detail:
+                raise ValueError("Each worker evidence entry requires non-empty path and detail")
+
+    def _validate_string_items(self, values: List[str], field_name: str) -> None:
+        for item in values:
+            if not str(item).strip():
+                raise ValueError(f"Worker result field '{field_name}' cannot contain empty items")
 
     def _preview_worker_result(self, worker_result: Dict[str, Any], limit: int = 400) -> str:
         summary = str(worker_result.get("summary", "")).strip()

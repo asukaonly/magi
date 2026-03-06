@@ -84,7 +84,8 @@ class _FakeFunctionCallingExecutor:
             content = (
                 '{"summary":"worker finished","findings":[{"title":"done","detail":"'
                 + user_message
-                + '"}],"evidence":[{"path":"/tmp/example.py","detail":"validated path"}],'
+                + '","path":"/tmp/example.py","why_it_matters":"confirms the bounded worker scope"}],'
+                '"evidence":[{"path":"/tmp/example.py","detail":"validated path"}],'
                 '"gaps":[],"next_steps":["report upstream"]}'
             )
         return ExecutionOutcome(
@@ -302,6 +303,7 @@ def test_agent_tool_explore_prompt_includes_scan_guardrails():
     assert "default to recursive=false" in prompt
     assert "max_results <= 200" in prompt
     assert "Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files." in prompt
+    assert "Any prose, markdown, code fences, or trailing commentary will be treated as failure." in prompt
 
 
 @pytest.mark.asyncio
@@ -390,3 +392,55 @@ async def test_empty_worker_result_is_marked_failed(monkeypatch):
     assert result.success is False
     assert result.data["status"] == "failed"
     assert result.data["failure_reason"] == "EMPTY_FINAL_RESPONSE"
+
+
+@pytest.mark.asyncio
+async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
+    from magi.agent.workers import worker_manager as worker_manager_module
+
+    class _InvalidJsonExecutor:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return ExecutionOutcome(
+                status="completed",
+                content="Here is the result:\n```json\n{\"summary\":\"oops\"}\n```",
+                iterations=1,
+            )
+
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _InvalidJsonExecutor)
+    tool = AgentTool()
+    tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
+
+    published_events = []
+
+    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+        _ = (internal_payload, public_payload)
+        published_events.append((event_type, run_state.failure_reason, run_state.error))
+
+    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
+
+    result = await tool.execute(
+        parameters={
+            "action": "launch",
+            "subagent_type": "Explore",
+            "description": "scan auth flow",
+            "prompt": "Locate token generation points",
+            "run_in_background": False,
+        },
+        context=ToolExecutionContext(
+            agent_id="chat:u-chat",
+            workspace="/tmp",
+            env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+            permissions=["authenticated"],
+        ),
+    )
+
+    assert result.success is False
+    assert result.data["status"] == "failed"
+    assert result.data["failure_reason"] == "INVALID_WORKER_RESULT"
+    assert result.error == "Worker did not return valid JSON"
+    assert published_events[-1][0] == "WORKER_AGENT_FAILED"
+    assert published_events[-1][1] == "INVALID_WORKER_RESULT"

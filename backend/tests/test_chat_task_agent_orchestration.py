@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.orchestration import OrchestrationStore
+from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, TaskOrchestrationState
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.core.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
@@ -117,3 +117,83 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
     assert updated is not None
     assert updated.status == "completed"
     assert updated.final_response == "aggregated answer"
+
+
+@pytest.mark.asyncio
+async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    history_key = "u-chat::s-chat"
+    agent._conversation_history[history_key] = [
+        {"role": "user", "content": "看下代码架构"},
+        {"role": "assistant", "content": "[Worker:abc] Started (Explore)"},
+    ]
+
+    calls: dict[str, object] = {}
+
+    async def _fake_build_system_prompt(*, user_id=None, task_category="chat"):  # type: ignore[no-untyped-def]
+        calls["build_system_prompt"] = {
+            "user_id": user_id,
+            "task_category": task_category,
+        }
+        return "persona-system-prompt"
+
+    async def _fake_call_llm(system_prompt, messages, disable_thinking=True):  # type: ignore[no-untyped-def]
+        calls["call_llm"] = {
+            "system_prompt": system_prompt,
+            "messages": messages,
+            "disable_thinking": disable_thinking,
+        }
+        return "这是面向用户的最终回答"
+
+    monkeypatch.setattr(agent, "_build_system_prompt", _fake_build_system_prompt)
+    monkeypatch.setattr(agent, "_call_llm", _fake_call_llm)
+
+    state = TaskOrchestrationState(
+        orchestration_id="orch_test",
+        user_id="u-chat",
+        session_id="s-chat",
+        root_user_message="看下~/code/magi下的代码，分析下代码架构",
+        planner="task_agent",
+        subtasks=[
+            SubtaskDefinition(
+                subtask_id="subtask_1",
+                description="Analyze backend modules",
+                subagent_type="Explore",
+                prompt="Inspect backend",
+                status="completed",
+                worker_result={
+                    "summary": "后端采用分层多 agent 架构。",
+                    "findings": [
+                        {
+                            "title": "runtime",
+                            "detail": "runtime/bootstrap.py 负责初始化",
+                            "path": "/tmp/runtime/bootstrap.py",
+                            "why_it_matters": "这是主入口",
+                        }
+                    ],
+                    "evidence": [{"path": "/tmp/runtime/bootstrap.py", "detail": "bootstrap entry"}],
+                    "gaps": [],
+                    "next_steps": [],
+                    "subtasks": [],
+                },
+                failure_reason=None,
+                attempt_count=1,
+            ),
+        ],
+    )
+
+    response = await agent._aggregate_orchestration(state)
+    assert response == "这是面向用户的最终回答"
+    assert calls["build_system_prompt"] == {"user_id": "u-chat", "task_category": "chat"}
+
+    llm_call = calls["call_llm"]
+    assert isinstance(llm_call, dict)
+    assert llm_call["system_prompt"] == "persona-system-prompt"
+    assert llm_call["disable_thinking"] is False
+    messages = llm_call["messages"]
+    assert isinstance(messages, list)
+    assert messages[0] == {"role": "user", "content": "看下代码架构"}
+    final_message = messages[-1]
+    assert "直接面向用户回答原始请求" in final_message["content"]
+    assert "不要暴露子任务、worker、编排、JSON" in final_message["content"]
+    assert '"completed_subtasks"' in final_message["content"]
