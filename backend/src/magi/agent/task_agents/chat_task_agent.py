@@ -35,6 +35,7 @@ from ...core.runtime.contracts import FactRecord
 from ...core.runtime.task_agent import TaskAgent
 from ...core.runtime.types import TaskAgentType
 from ...events.events import EventTypes
+from ...config import get_config
 
 logger = get_logger(__name__)
 llm_logger = get_llm_logger('chat')
@@ -555,7 +556,7 @@ class ChatTaskAgent(TaskAgent):
             response = await self._call_llm(
                 system_prompt=system_prompt,
                 messages=messages,
-                disable_thinking=False,
+                disable_thinking=True,
             )
         except Exception as exc:
             logger.warning("Explore dossier rendering failed | orchestration_id=%s error=%s", orchestration_id, exc)
@@ -1138,6 +1139,7 @@ class ChatTaskAgent(TaskAgent):
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
         model_name = self.llm.model_name
+        max_tokens = self._llm_max_tokens()
 
         log_llm_request(
             llm_logger,
@@ -1145,7 +1147,7 @@ class ChatTaskAgent(TaskAgent):
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
-            max_tokens=1000,
+            max_tokens=max_tokens,
             temperature=0.7,
         )
 
@@ -1154,7 +1156,7 @@ class ChatTaskAgent(TaskAgent):
             provider_response = await provider_bridge.chat_response(
                 system_prompt=system_prompt,
                 messages=messages,
-                max_tokens=1000,
+                max_tokens=max_tokens,
                 temperature=0.7,
                 disable_thinking=disable_thinking,
             )
@@ -1284,6 +1286,12 @@ class ChatTaskAgent(TaskAgent):
 
     def _history_key(self, user_id: str, session_id: str) -> str:
         return f"{user_id}::{session_id}"
+
+    def _llm_max_tokens(self) -> int:
+        try:
+            return int(get_config().llm.max_tokens)
+        except Exception:
+            return 4096
 
     def _resolve_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
         if session_id:

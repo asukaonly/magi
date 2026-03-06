@@ -325,7 +325,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
     }
     call_llm = calls["call_llm"]
     assert call_llm["system_prompt"] == "analysis-system-prompt"
-    assert call_llm["disable_thinking"] is False
+    assert call_llm["disable_thinking"] is True
     assert "探索报告" in call_llm["messages"][-1]["content"]
     assert "# Request" in call_llm["messages"][-1]["content"]
 

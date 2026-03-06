@@ -13,6 +13,7 @@ from ...core.runtime.contracts import FactRecord
 from ...core.runtime.task_agent import TaskAgent
 from ...core.runtime.types import TaskAgentType
 from ...events.events import EventTypes
+from ...config import get_config
 from ...llm.provider_bridge import LLMProviderBridge
 from ...tools.registry import tool_registry
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
@@ -583,13 +584,14 @@ class ExploreTaskAgent(TaskAgent):
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
         model_name = getattr(self.llm, "model_name", "unknown")
+        max_tokens = self._llm_max_tokens()
         log_llm_request(
             llm_logger,
             request_id=request_id,
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
-            max_tokens=1000,
+            max_tokens=max_tokens,
             temperature=0.3,
         )
         try:
@@ -597,7 +599,7 @@ class ExploreTaskAgent(TaskAgent):
             provider_response = await provider_bridge.chat_response(
                 system_prompt=system_prompt,
                 messages=messages,
-                max_tokens=1000,
+                max_tokens=max_tokens,
                 temperature=0.3,
                 disable_thinking=disable_thinking,
             )
@@ -631,3 +633,9 @@ class ExploreTaskAgent(TaskAgent):
                 duration_ms=duration_ms,
             )
             raise
+
+    def _llm_max_tokens(self) -> int:
+        try:
+            return int(get_config().llm.max_tokens)
+        except Exception:
+            return 4096

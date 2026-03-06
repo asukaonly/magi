@@ -15,7 +15,7 @@ llm:
   api_key: "${LLM_API_KEY:}"
   base_url: "${LLM_BASE_URL:}"
   temperature: 0.7
-  max_tokens: 1000
+  max_tokens: 4096
   timeout: 60
 
 # =============================================================================
