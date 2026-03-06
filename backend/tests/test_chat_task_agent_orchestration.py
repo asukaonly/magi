@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, TaskOrchestrationState
+from magi.agent.task_agents import chat_task_agent as chat_task_agent_module
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.core.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
@@ -197,3 +198,59 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
     assert "直接面向用户回答原始请求" in final_message["content"]
     assert "不要暴露子任务、worker、编排、JSON" in final_message["content"]
     assert '"completed_subtasks"' in final_message["content"]
+
+
+@pytest.mark.asyncio
+async def test_plan_with_task_agent_logs_empty_response(monkeypatch) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    warnings: list[str] = []
+
+    async def _fake_call_llm(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return ""
+
+    def _fake_warning(message, *args):  # type: ignore[no-untyped-def]
+        warnings.append(message % args)
+
+    monkeypatch.setattr(agent, "_call_llm", _fake_call_llm)
+    monkeypatch.setattr(chat_task_agent_module.logger, "warning", _fake_warning)
+
+    result = await agent._plan_with_task_agent(
+        user_message="Analyze repo architecture",
+        history=[],
+        orchestration_strategy={
+            "default_leaf_type": "Explore",
+            "allow_parallel": True,
+        },
+    )
+
+    assert result is None
+    assert any("Task-agent planning returned empty response" in item for item in warnings)
+
+
+@pytest.mark.asyncio
+async def test_plan_with_task_agent_logs_non_executable_plan(monkeypatch) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    warnings: list[str] = []
+
+    async def _fake_call_llm(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return '{"summary":"planned","subtasks":[]}'
+
+    def _fake_warning(message, *args):  # type: ignore[no-untyped-def]
+        warnings.append(message % args)
+
+    monkeypatch.setattr(agent, "_call_llm", _fake_call_llm)
+    monkeypatch.setattr(chat_task_agent_module.logger, "warning", _fake_warning)
+
+    result = await agent._plan_with_task_agent(
+        user_message="Analyze repo architecture",
+        history=[],
+        orchestration_strategy={
+            "default_leaf_type": "Explore",
+            "allow_parallel": True,
+        },
+    )
+
+    assert result is None
+    assert any("Task-agent planning returned non-executable plan" in item for item in warnings)

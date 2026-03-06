@@ -523,7 +523,22 @@ class ChatTaskAgent(TaskAgent):
         except Exception as exc:
             logger.warning("Task-agent planning call failed | error=%s", exc)
             return None
-        return self._parse_subtask_plan(response)
+        if not str(response or "").strip():
+            logger.warning(
+                "Task-agent planning returned empty response | user_id=%s request_preview=%s",
+                self.agent_id,
+                user_message[:120],
+            )
+            return None
+
+        parsed_plan = self._parse_subtask_plan(response)
+        if parsed_plan is None:
+            logger.warning(
+                "Task-agent planning returned non-executable plan | request_preview=%s response_preview=%s",
+                user_message[:120],
+                str(response).strip()[:300],
+            )
+        return parsed_plan
 
     async def _plan_with_plan_worker(
         self,
@@ -591,8 +606,10 @@ class ChatTaskAgent(TaskAgent):
         if response.strip():
             return response.strip()
         logger.warning(
-            "Parent aggregation returned empty response | orchestration_id=%s",
+            "Parent aggregation returned empty response | orchestration_id=%s completed_subtasks=%s failed_subtasks=%s",
             state.orchestration_id,
+            len(payload.get("completed_subtasks", [])),
+            len(payload.get("failed_subtasks", [])),
         )
         return self._build_aggregation_fallback(state)
 
