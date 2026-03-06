@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
 from .parsers import parse_legacy_tool_calls, sanitize_llm_text
-from .zhipu import ZhipuAdapter
 
 
 @dataclass
@@ -46,12 +45,9 @@ class LLMProviderBridge:
     def is_anthropic(self) -> bool:
         return isinstance(self.llm, AnthropicAdapter)
 
-    def is_zhipu(self) -> bool:
-        return isinstance(self.llm, ZhipuAdapter)
-
     def is_glm(self) -> bool:
-        """Check if using GLM (either via ZhipuAdapter or model name)."""
-        return self.is_zhipu() or self._provider_name() == "glm"
+        """Check if using GLM provider."""
+        return self._provider_name() == "glm"
 
     @staticmethod
     def _disabled_thinking_extra_body(disable_thinking: Optional[bool]) -> Dict[str, Any] | None:
@@ -129,8 +125,6 @@ class LLMProviderBridge:
         """
         Unified tool-calling chat call.
         """
-        import asyncio
-
         if self.is_anthropic():
             api_messages = self._convert_messages_to_anthropic(messages)
             response = await self.llm._client.messages.create(
@@ -143,28 +137,6 @@ class LLMProviderBridge:
             )
             return self._parse_anthropic_response(response)
 
-        if self.is_zhipu():
-            # ZhipuAI SDK is sync, use run_in_executor
-            full_messages = [{"role": "system", "content": system_prompt}] + messages
-            kwargs: Dict[str, Any] = {
-                "model": self.llm.model_name,
-                "messages": full_messages,
-                "tools": tools if tools else None,
-                "tool_choice": "auto" if tools else None,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            }
-            extra_body = self._disabled_thinking_extra_body(disable_thinking)
-            if extra_body:
-                kwargs["extra_body"] = extra_body
-
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.llm._client.chat.completions.create(**kwargs)
-            )
-            return self._parse_openai_response(response)
-
         if hasattr(self.llm, "_client"):
             full_messages = [{"role": "system", "content": system_prompt}] + messages
             kwargs: Dict[str, Any] = {
@@ -175,6 +147,10 @@ class LLMProviderBridge:
                 "max_tokens": max_tokens,
                 "temperature": temperature,
             }
+            if self.is_glm():
+                extra_body = self._disabled_thinking_extra_body(disable_thinking)
+                if extra_body:
+                    kwargs["extra_body"] = extra_body
 
             response = await self.llm._client.chat.completions.create(**kwargs)
             return self._parse_openai_response(response)

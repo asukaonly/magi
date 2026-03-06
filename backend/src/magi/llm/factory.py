@@ -10,7 +10,6 @@ from ..config import AppConfig, get_config
 from .anthropic import AnthropicAdapter
 from .base import LLMAdapter
 from .openai import OpenAIAdapter
-from .zhipu import ZhipuAdapter
 
 
 def create_llm_adapter(config: Optional[AppConfig] = None) -> LLMAdapter:
@@ -49,10 +48,11 @@ def create_llm_adapter(config: Optional[AppConfig] = None) -> LLMAdapter:
         )
 
     if provider == "glm":
-        return ZhipuAdapter(
+        return OpenAIAdapter(
             api_key=api_key,
             model=model,
             provider=provider,
+            base_url=base_url,
         )
 
     raise ValueError(f"Unsupported LLM provider: {provider}")

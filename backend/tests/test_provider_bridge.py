@@ -100,19 +100,6 @@ class DummyAnthropicMessagesClient:
         return self.response
 
 
-class DummyZhipuSyncClient:
-    def __init__(self, response: Any):
-        self.response = response
-        self.kwargs: Dict[str, Any] = {}
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self.create),
-        )
-
-    def create(self, **kwargs):
-        self.kwargs = kwargs
-        return self.response
-
-
 @pytest.mark.asyncio
 async def test_openai_tool_call_parsing_and_assistant_message():
     message = SimpleNamespace(
@@ -206,13 +193,12 @@ async def test_glm_chat_does_not_add_thinking_flag_when_enabled():
 
 
 @pytest.mark.asyncio
-async def test_glm_chat_with_tools_disables_thinking_for_zhipu_path():
+async def test_glm_chat_with_tools_disables_thinking_for_openai_compatible_path():
     message = SimpleNamespace(content="ok", tool_calls=[])
     response = SimpleNamespace(choices=[SimpleNamespace(message=message)])
-    client = DummyZhipuSyncClient(response=response)
+    client = DummyOpenAIClient(response=response)
     llm = DummyLLMAdapter(provider="glm", client=client)
     bridge = LLMProviderBridge(llm)
-    bridge.is_zhipu = lambda: True
 
     await bridge.chat_with_tools(
         system_prompt="sys",

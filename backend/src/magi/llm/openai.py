@@ -1,7 +1,6 @@
 """
 LLMAdapter - OpenAI Implementation
 """
-import asyncio
 from typing import Optional, Dict, Any, AsyncIterator, List
 from openai import AsyncOpenAI
 from .base import LLMAdapter
@@ -20,6 +19,7 @@ class OpenAIAdapter(LLMAdapter):
 
     # Default embedding model
     DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+    GLM_DISABLED_THINKING_PAYLOAD = {"thinking": {"type": "disabled"}}
 
     def __init__(
         self,
@@ -54,6 +54,27 @@ class OpenAIAdapter(LLMAdapter):
         self._client = AsyncOpenAI(**client_kwargs)
         self._embedding_model = self.DEFAULT_EMBEDDING_MODEL
 
+    def _apply_glm_thinking_control(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Apply GLM-specific thinking toggle using OpenAI-compatible extra_body.
+
+        GLM models support disabling deep thinking by sending:
+        {"thinking": {"type": "disabled"}} in extra_body.
+        """
+        payload = dict(kwargs)
+        disable_thinking = payload.pop("disable_thinking", None)
+        if self._provider != "glm" or disable_thinking is not True:
+            return payload
+
+        extra_body = payload.get("extra_body")
+        if isinstance(extra_body, dict):
+            merged_extra_body = dict(extra_body)
+        else:
+            merged_extra_body = {}
+        merged_extra_body.update(self.GLM_DISABLED_THINKING_PAYLOAD)
+        payload["extra_body"] = merged_extra_body
+        return payload
+
     async def generate(
         self,
         prompt: str,
@@ -86,6 +107,8 @@ class OpenAIAdapter(LLMAdapter):
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
+        kwargs = self._apply_glm_thinking_control(kwargs)
+
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
@@ -115,6 +138,8 @@ class OpenAIAdapter(LLMAdapter):
         Yields:
             Text chunks
         """
+        kwargs = self._apply_glm_thinking_control(kwargs)
+
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=[{"role": "user", "content": prompt}],
@@ -147,6 +172,8 @@ class OpenAIAdapter(LLMAdapter):
         Returns:
             Assistant response
         """
+        kwargs = self._apply_glm_thinking_control(kwargs)
+
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
@@ -176,6 +203,8 @@ class OpenAIAdapter(LLMAdapter):
         Yields:
             Text chunks
         """
+        kwargs = self._apply_glm_thinking_control(kwargs)
+
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
