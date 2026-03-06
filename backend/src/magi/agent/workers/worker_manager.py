@@ -568,13 +568,37 @@ class WorkerAgentManager(Tool):
             if outcome.succeeded and validated_result:
                 run_state.result = validated_result
                 run_state.result_preview = self._preview_worker_result(validated_result)
-                run_state.status = "completed"
                 await self._orchestration_store.save_worker_result(
                     worker_id=run_state.worker_id,
                     orchestration_id=run_state.orchestration_id,
                     subtask_id=run_state.subtask_id,
                     worker_result=validated_result,
                 )
+                if str(validated_result.get("result_status", "success")).strip() == "failed":
+                    run_state.status = "failed"
+                    run_state.failure_reason = str(
+                        validated_result.get("failure_reason")
+                        or outcome.failure_reason
+                        or "WORKER_REPORTED_FAILURE"
+                    ).strip()
+                    run_state.error = run_state.failure_reason
+                    await self._publish_worker_fact(
+                        run_state=run_state,
+                        event_type=WORKER_AGENT_FAILED,
+                        internal_payload={
+                            "stage": "failed",
+                            "error": run_state.error,
+                            "worker_result": validated_result,
+                        },
+                        public_payload={
+                            "stage": "failed",
+                            "error": run_state.error,
+                            "result_preview": run_state.result_preview,
+                        },
+                    )
+                    return
+
+                run_state.status = "completed"
                 await self._publish_worker_fact(
                     run_state=run_state,
                     event_type=WORKER_AGENT_COMPLETED,
@@ -934,11 +958,13 @@ Prioritize context-aware layered exploration over exhaustive scans.
 STRICT OUTPUT SCHEMA:
 Return ONLY valid JSON with this schema:
 {
+  "result_status": "success|partial|failed",
   "summary": "string",
   "findings": [{"title": "string", "detail": "string", "path": "string", "why_it_matters": "string"}],
   "evidence": [{"path": "string", "detail": "string"}],
   "gaps": ["string"],
-  "next_steps": ["string"]
+  "next_steps": ["string"],
+  "failure_reason": "string|null"
 }
 Do not emit Markdown, prose before the JSON, or fenced code blocks.
 Before sending the final answer, self-check that it can be parsed by json.loads and that all required fields are present.
@@ -947,7 +973,7 @@ Before sending the final answer, self-check that it can be parsed by json.loads 
         elif subagent_type == self.TYPE_PLAN:
             role_rules = (
                 "Act as a software architect. Return ONLY valid JSON with this schema: "
-                '{"summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
+                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "The plan must be decision-complete, keep subtasks bounded, and not include any final user-facing aggregation. "
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
@@ -955,7 +981,7 @@ Before sending the final answer, self-check that it can be parsed by json.loads 
             role_rules = (
                 "Act as a general-purpose leaf execution agent for one bounded task. "
                 "Return ONLY valid JSON with this schema: "
-                '{"summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"]}. '
+                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
         return "\n".join([base_rules, role_rules, tool_rules])
@@ -986,9 +1012,12 @@ Before sending the final answer, self-check that it can be parsed by json.loads 
             raise ValueError("Worker did not return valid JSON") from exc
         if not isinstance(parsed, dict):
             raise ValueError("Worker result must be a JSON object")
-        required_keys = {"summary", "findings", "evidence", "gaps", "next_steps"}
+        required_keys = {"result_status", "summary", "findings", "evidence", "gaps", "next_steps"}
         if not required_keys.issubset(set(parsed.keys())):
             raise ValueError("Worker result is missing required fields")
+        result_status = str(parsed.get("result_status", "")).strip()
+        if result_status not in {"success", "partial", "failed"}:
+            raise ValueError("Worker result field 'result_status' must be success, partial, or failed")
         if not isinstance(parsed.get("findings"), list):
             raise ValueError("Worker result field 'findings' must be a list")
         if not isinstance(parsed.get("evidence"), list):
@@ -1006,6 +1035,11 @@ Before sending the final answer, self-check that it can be parsed by json.loads 
         self._validate_string_items(worker_result.gaps, field_name="gaps")
         self._validate_string_items(worker_result.next_steps, field_name="next_steps")
         normalized = worker_result.to_dict()
+        normalized["result_status"] = result_status
+        normalized["failure_reason"] = worker_result.failure_reason
+
+        if result_status == "failed" and not str(parsed.get("failure_reason") or "").strip():
+            raise ValueError("Failed worker results must include failure_reason")
 
         if subagent_type == self.TYPE_PLAN:
             subtasks = parsed.get("subtasks")

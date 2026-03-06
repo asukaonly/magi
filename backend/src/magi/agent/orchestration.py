@@ -26,11 +26,13 @@ class WorkerResult:
     """Structured worker result consumed by parent task agents."""
 
     summary: str
+    result_status: str = "success"
     findings: List[Dict[str, Any]] = field(default_factory=list)
     evidence: List[Dict[str, Any]] = field(default_factory=list)
     gaps: List[str] = field(default_factory=list)
     next_steps: List[str] = field(default_factory=list)
     subtasks: List[Dict[str, Any]] = field(default_factory=list)
+    failure_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -38,12 +40,14 @@ class WorkerResult:
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "WorkerResult":
         return cls(
+            result_status=str(payload.get("result_status", "success")).strip() or "success",
             summary=str(payload.get("summary", "")).strip(),
             findings=_as_dict_list(payload.get("findings")),
             evidence=_as_dict_list(payload.get("evidence")),
             gaps=_as_string_list(payload.get("gaps")),
             next_steps=_as_string_list(payload.get("next_steps")),
             subtasks=_as_dict_list(payload.get("subtasks")),
+            failure_reason=_optional_string(payload.get("failure_reason")),
         )
 
 
@@ -102,6 +106,7 @@ class TaskOrchestrationState:
     correlation_id: Optional[str] = None
     subtasks: List[SubtaskDefinition] = field(default_factory=list)
     final_response: Optional[str] = None
+    aggregated_markdown: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)
@@ -132,6 +137,7 @@ class TaskOrchestrationState:
             correlation_id=_optional_string(payload.get("correlation_id")),
             subtasks=subtasks,
             final_response=_optional_string(payload.get("final_response")),
+            aggregated_markdown=_optional_string(payload.get("aggregated_markdown")),
         )
 
     @property

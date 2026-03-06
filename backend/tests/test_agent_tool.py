@@ -75,18 +75,18 @@ class _FakeFunctionCallingExecutor:
         await asyncio.sleep(0.01)
         if disable_thinking is False:
             content = (
-                '{"summary":"plan ready","findings":[{"title":"plan","detail":"created subtasks"}],'
+                '{"result_status":"success","summary":"plan ready","findings":[{"title":"plan","detail":"created subtasks"}],'
                 '"evidence":[{"path":"/tmp/plan.json","detail":"planner output"}],'
-                '"gaps":[],"next_steps":["launch subtasks"],'
+                '"gaps":[],"next_steps":["launch subtasks"],"failure_reason":null,'
                 '"subtasks":[{"description":"scan module","subagent_type":"Explore","prompt":"Inspect module layout","parallel_group":"g1"}]}'
             )
         else:
             content = (
-                '{"summary":"worker finished","findings":[{"title":"done","detail":"'
+                '{"result_status":"success","summary":"worker finished","findings":[{"title":"done","detail":"'
                 + user_message
                 + '","path":"/tmp/example.py","why_it_matters":"confirms the bounded worker scope"}],'
                 '"evidence":[{"path":"/tmp/example.py","detail":"validated path"}],'
-                '"gaps":[],"next_steps":["report upstream"]}'
+                '"gaps":[],"next_steps":["report upstream"],"failure_reason":null}'
             )
         return ExecutionOutcome(
             status="completed",
@@ -444,3 +444,58 @@ async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
     assert result.error == "Worker did not return valid JSON"
     assert published_events[-1][0] == "WORKER_AGENT_FAILED"
     assert published_events[-1][1] == "INVALID_WORKER_RESULT"
+
+
+@pytest.mark.asyncio
+async def test_structured_failed_worker_result_is_not_marked_completed(monkeypatch):
+    from magi.agent.workers import worker_manager as worker_manager_module
+
+    class _StructuredFailureExecutor:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return ExecutionOutcome(
+                status="completed",
+                content=(
+                    '{"result_status":"failed","summary":"path did not exist",'
+                    '"findings":[],"evidence":[],"gaps":["Target path was missing"],'
+                    '"next_steps":["Verify the repository path"],'
+                    '"failure_reason":"PATH_NOT_FOUND"}'
+                ),
+                iterations=1,
+            )
+
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _StructuredFailureExecutor)
+    tool = AgentTool()
+    tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
+
+    published_events = []
+
+    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+        _ = (internal_payload, public_payload)
+        published_events.append((event_type, run_state.failure_reason, run_state.status))
+
+    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
+
+    result = await tool.execute(
+        parameters={
+            "action": "launch",
+            "subagent_type": "Explore",
+            "description": "map repo",
+            "prompt": "Inspect repository layout",
+            "run_in_background": False,
+        },
+        context=ToolExecutionContext(
+            agent_id="chat:u-chat",
+            workspace="/tmp",
+            env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+            permissions=["authenticated"],
+        ),
+    )
+
+    assert result.success is False
+    assert result.data["status"] == "failed"
+    assert result.data["failure_reason"] == "PATH_NOT_FOUND"
+    assert published_events[-1] == ("WORKER_AGENT_FAILED", "PATH_NOT_FOUND", "failed")

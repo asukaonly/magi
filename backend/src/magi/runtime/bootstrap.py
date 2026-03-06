@@ -20,7 +20,9 @@ from ..core.runtime import (
 from ..agent.task_agents import (
     ChatTaskAgent,
     DefaultTaskAgent,
+    ExploreTaskAgent,
 )
+from ..core.runtime.types import TaskAgentType
 from ..events.sqlite_backend import SQLiteMessageBackend
 from ..memory.self_memory import SelfMemory
 from ..memory.other_memory import OtherMemory
@@ -238,7 +240,11 @@ async def initialize_chat_agent():
                 history_fetch_limit=config.agent.runtime.chat_history_fetch_limit,
                 scenario_prompts_store=_scenario_prompts_store,
             ),
-            create_default_agent=lambda agent_type, agent_id: DefaultTaskAgent(agent_type, agent_id),
+            create_default_agent=lambda agent_type, agent_id: (
+                ExploreTaskAgent(agent_id=agent_id, llm_adapter=llm_adapter)
+                if agent_type == TaskAgentType.EXPLORE.value
+                else DefaultTaskAgent(agent_type, agent_id)
+            ),
             idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
             max_dynamic_instances=config.agent.runtime.task_agent_manager_max_dynamic_instances,
         )

@@ -560,7 +560,10 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                     "default_leaf_type": "Explore",
                     "allow_parallel": True,
                 }
-            if any(kw in user_lower for kw in ["架构", "architecture", "设计", "方案", "codebase", "repo", "代码结构", "代码库"]):
+            if any(
+                kw in user_lower
+                for kw in ["架构", "architecture", "设计", "方案", "codebase", "repo", "代码结构", "代码库", "跨模块", "跨子系统"]
+            ):
                 return {
                     "mode": "decompose",
                     "planner": "task_agent",

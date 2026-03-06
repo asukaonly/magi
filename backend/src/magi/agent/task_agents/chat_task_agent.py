@@ -12,6 +12,10 @@ from typing import Any, Optional
 
 from ...agent.orchestration import TaskOrchestrationState, get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
+from .explore_task_agent import (
+    EXPLORE_TASK_COMPLETED,
+    EXPLORE_TASK_REQUEST,
+)
 from ...core.logger import get_logger
 from ...llm.provider_bridge import LLMProviderBridge
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
@@ -41,6 +45,7 @@ WORKER_AGENT_EVENT_TYPES = {
     "WORKER_AGENT_COMPLETED",
     "WORKER_AGENT_FAILED",
 }
+CHAT_INTERNAL_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES | {EXPLORE_TASK_COMPLETED}
 
 
 class ChatTaskAgent(TaskAgent):
@@ -122,7 +127,7 @@ class ChatTaskAgent(TaskAgent):
         if not payload and batch_facts:
             payload = batch_facts[-1].payload if isinstance(batch_facts[-1], FactRecord) else {}
         user_id = str(payload.get("user_id", self.agent_id))
-        user_message = str(payload.get("message", "")).strip()
+        user_message = str(payload.get("message") or payload.get("root_user_message") or "").strip()
         session_id = self._resolve_session_id(user_id, payload.get("session_id"))
         history_key = self._history_key(user_id, session_id)
 
@@ -200,6 +205,21 @@ class ChatTaskAgent(TaskAgent):
                 "reasoning": "Worker events must update orchestration state before any final response is emitted.",
                 "orchestration_strategy": {},
             }
+        explore_batch = [
+            fact
+            for fact in batch_facts
+            if isinstance(fact, FactRecord) and fact.event_type == EXPLORE_TASK_COMPLETED
+        ]
+        if explore_batch:
+            return {
+                "intent": "explore_task_completed",
+                "difficulty": "normal",
+                "execution_mode": "explore_task_result",
+                "tools": [],
+                "deep_thinking": False,
+                "reasoning": "ExploreTaskAgent produced a Markdown dossier that must be rendered back to the user.",
+                "orchestration_strategy": {},
+            }
         latest_fact = context.get("latest_fact")
         if isinstance(latest_fact, FactRecord) and latest_fact.event_type != EventTypes.USER_MESSAGE:
             return {
@@ -249,7 +269,7 @@ class ChatTaskAgent(TaskAgent):
     async def match_tools(self, context: dict[str, Any], intent_result: dict[str, Any]) -> dict[str, Any]:
         execution_mode = str(intent_result.get("execution_mode", "llm"))
         return {
-            "tools": [] if execution_mode in {"orchestration_launch", "orchestration_update", "fact_only"} else intent_result.get("tools", []),
+            "tools": [] if execution_mode in {"orchestration_launch", "orchestration_update", "fact_only", "explore_task_result"} else intent_result.get("tools", []),
             "deep_thinking": bool(intent_result.get("deep_thinking", False)),
             "intent": str(intent_result.get("intent", "chat")),
             "orchestration_strategy": intent_result.get("orchestration_strategy", {}),
@@ -266,7 +286,7 @@ class ChatTaskAgent(TaskAgent):
         user_message = context["user_message"]
         history = context["history"]
         execution_mode = str(intent_result.get("execution_mode", "llm"))
-        if execution_mode in {"fact_only", "orchestration_launch", "orchestration_update"}:
+        if execution_mode in {"fact_only", "orchestration_launch", "orchestration_update", "explore_task_result"}:
             return {
                 "user_id": user_id,
                 "session_id": session_id,
@@ -275,6 +295,9 @@ class ChatTaskAgent(TaskAgent):
                 "batch_facts": context.get("batch_facts", []),
                 "orchestration_strategy": tool_result.get("orchestration_strategy", {}),
                 "execution_mode": execution_mode,
+                "markdown_dossier": payload_or_none(context.get("latest_fact"), "markdown_dossier"),
+                "root_user_message": payload_or_none(context.get("latest_fact"), "root_user_message") or user_message,
+                "message_started_at": payload_or_none(context.get("latest_fact"), "message_started_at"),
             }
         prompt_context = await self.build_prompt_context(
             context=context,
@@ -333,6 +356,8 @@ class ChatTaskAgent(TaskAgent):
             return await self._start_orchestration(context, llm_params)
         if execution_mode == "orchestration_update":
             return await self._process_worker_updates(context, llm_params)
+        if execution_mode == "explore_task_result":
+            return await self._render_explore_task_result(context, llm_params)
 
         history = llm_params["history"]
         user_message = llm_params["user_message"]
@@ -368,7 +393,7 @@ class ChatTaskAgent(TaskAgent):
         latest_fact = context.get("latest_fact")
         if not isinstance(latest_fact, FactRecord):
             return
-        if latest_fact.event_type != EventTypes.USER_MESSAGE and latest_fact.event_type not in WORKER_AGENT_EVENT_TYPES:
+        if latest_fact.event_type != EventTypes.USER_MESSAGE and latest_fact.event_type not in CHAT_INTERNAL_EVENT_TYPES:
             return
 
         response_text = str(raw_result.get("response", "")) if isinstance(raw_result, dict) else str(raw_result)
@@ -430,6 +455,12 @@ class ChatTaskAgent(TaskAgent):
         )
 
     async def _start_orchestration(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
+        orchestration_strategy = llm_params.get("orchestration_strategy", {})
+        if self._should_route_to_explore_task_agent(
+            user_message=str(llm_params.get("user_message") or context.get("user_message") or "").strip(),
+            orchestration_strategy=orchestration_strategy,
+        ):
+            return await self._start_explore_task_agent(context, llm_params)
         latest_fact = context.get("latest_fact")
         return await self._task_orchestrator.start_orchestration(
             user_id=str(llm_params.get("user_id") or context.get("user_id") or self.agent_id),
@@ -438,7 +469,7 @@ class ChatTaskAgent(TaskAgent):
             history=llm_params.get("history", []),
             history_key=str(context.get("history_key", "")),
             correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
-            orchestration_strategy=llm_params.get("orchestration_strategy", {}),
+            orchestration_strategy=orchestration_strategy,
         )
 
     async def _process_worker_updates(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
@@ -446,6 +477,103 @@ class ChatTaskAgent(TaskAgent):
         return await self._task_orchestrator.process_worker_updates(
             llm_params.get("batch_facts", []) if isinstance(llm_params, dict) else []
         )
+
+    async def _start_explore_task_agent(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
+        latest_fact = context.get("latest_fact")
+        user_id = str(llm_params.get("user_id") or context.get("user_id") or self.agent_id)
+        session_id = str(llm_params.get("session_id") or context.get("session_id") or "")
+        user_message = str(llm_params.get("user_message") or context.get("user_message") or "").strip()
+        history = self._filter_history_for_aggregation(llm_params.get("history", []))
+        fact = FactRecord(
+            agent_id=f"{TaskAgentType.EXPLORE.value}:{user_id}",
+            event_type=EXPLORE_TASK_REQUEST,
+            payload={
+                "message": user_message,
+                "user_id": user_id,
+                "session_id": session_id,
+                "history_snapshot": history,
+                "upstream_task_agent_type": TaskAgentType.CHAT.value,
+                "upstream_task_agent_id": user_id,
+            },
+            agent_type=TaskAgentType.EXPLORE.value,
+            agent_instance_id=user_id,
+            timestamp=time.time(),
+            correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
+        )
+        try:
+            from ...runtime import get_agent_runtime
+
+            runtime = get_agent_runtime()
+            manager = runtime.get_task_agent_manager()
+            enqueued = await manager.add_fact_to_agent(TaskAgentType.EXPLORE, user_id, fact)
+        except Exception as exc:
+            logger.warning("Failed to route request to ExploreTaskAgent | user_id=%s error=%s", user_id, exc)
+            enqueued = False
+        if not enqueued:
+            return {
+                "response": "Failed to start Explore task decomposition for this request.",
+                "skip_emit": False,
+                "root_user_message": user_message,
+                "correlation_id": fact.correlation_id,
+            }
+        self._append_user_message_to_history(str(context.get("history_key", "")), user_message)
+        return {
+            "response": "",
+            "skip_emit": True,
+        }
+
+    async def _render_explore_task_result(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
+        dossier = str(llm_params.get("markdown_dossier") or "").strip()
+        root_user_message = str(llm_params.get("root_user_message") or context.get("user_message") or "").strip()
+        latest_fact = context.get("latest_fact")
+        orchestration_id = None
+        if isinstance(latest_fact, FactRecord) and isinstance(latest_fact.payload, dict):
+            orchestration_id = latest_fact.payload.get("orchestration_id")
+        if not dossier:
+            return {
+                "response": self._build_explore_render_fallback(root_user_message),
+                "root_user_message": root_user_message,
+                "correlation_id": latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
+                "orchestration_id": orchestration_id,
+                "message_started_at": llm_params.get("message_started_at"),
+            }
+
+        history = llm_params.get("history", [])
+        filtered_history = self._filter_history_for_aggregation(history)
+        system_prompt = await self._build_system_prompt(
+            scenario=Scenario.ANALYSIS,
+            user_id=str(llm_params.get("user_id") or context.get("user_id") or self.agent_id),
+            task_category="analysis",
+        )
+        messages = filtered_history + [
+            {
+                "role": "user",
+                "content": self._build_explore_render_message(root_user_message, dossier),
+            }
+        ]
+        try:
+            response = await self._call_llm(
+                system_prompt=system_prompt,
+                messages=messages,
+                disable_thinking=False,
+            )
+        except Exception as exc:
+            logger.warning("Explore dossier rendering failed | orchestration_id=%s error=%s", orchestration_id, exc)
+            response = ""
+        if not response.strip():
+            logger.warning(
+                "Explore dossier rendering returned empty response | orchestration_id=%s dossier_preview=%s",
+                orchestration_id,
+                dossier[:300],
+            )
+            response = self._build_explore_render_fallback(root_user_message, dossier)
+        return {
+            "response": response.strip(),
+            "root_user_message": root_user_message,
+            "correlation_id": latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
+            "orchestration_id": orchestration_id,
+            "message_started_at": llm_params.get("message_started_at"),
+        }
 
     async def _generate_subtask_plan(
         self,
@@ -842,6 +970,66 @@ class ChatTaskAgent(TaskAgent):
             ]
         )
 
+    def _build_explore_render_message(self, root_user_message: str, dossier: str) -> str:
+        if self._prefers_chinese_response(root_user_message):
+            return "\n".join(
+                [
+                    f"用户原始请求：{root_user_message}",
+                    "下面是一份已经整理好的探索报告，请直接面向用户给出最终回答。",
+                    "要求：",
+                    "- 使用自然、正常的聊天语气，但允许多段或简短的小标题来提升清晰度。",
+                    "- 以已经确认的信息为主，必要时自然引用关键文件路径。",
+                    "- 对尚未确认的部分，简短说明边界和缺口，不要暴露内部流程。",
+                    "",
+                    dossier,
+                ]
+            )
+        return "\n".join(
+            [
+                f"Original user request: {root_user_message}",
+                "Below is a prepared exploration dossier. Answer the user directly based on it.",
+                "Requirements:",
+                "- Use a natural conversational tone, but you may use multiple paragraphs or short headings when clarity improves.",
+                "- Lead with confirmed findings and cite important file paths naturally when they matter.",
+                "- Briefly call out remaining gaps without exposing internal process details.",
+                "",
+                dossier,
+            ]
+        )
+
+    def _build_explore_render_fallback(self, root_user_message: str, dossier: str = "") -> str:
+        if dossier.strip():
+            return dossier.strip()
+        if self._prefers_chinese_response(root_user_message):
+            return "这次探索报告已经完成，但最终整理回答时没有拿到可用文本结果。"
+        return "The exploration dossier completed, but the final rendering step did not return usable text."
+
+    def _should_route_to_explore_task_agent(
+        self,
+        *,
+        user_message: str,
+        orchestration_strategy: dict[str, Any],
+    ) -> bool:
+        if str(orchestration_strategy.get("mode", "")).strip() != "decompose":
+            return False
+        if str(orchestration_strategy.get("default_leaf_type", "")).strip() != "Explore":
+            return False
+        lowered = user_message.lower()
+        return any(
+            keyword in lowered
+            for keyword in [
+                "architecture",
+                "codebase",
+                "repo",
+                "跨模块",
+                "跨子系统",
+                "代码架构",
+                "项目架构",
+                "代码库",
+                "目录结构",
+            ]
+        )
+
     def _prefers_chinese_response(self, text: str) -> bool:
         return any("\u4e00" <= char <= "\u9fff" for char in text)
 
@@ -1180,3 +1368,9 @@ class ChatTaskAgent(TaskAgent):
                 content = payload.get("response", "")
                 if content:
                     history.append({"role": "assistant", "content": str(content)})
+
+
+def payload_or_none(fact: Any, key: str) -> Any:
+    if not isinstance(fact, FactRecord) or not isinstance(fact.payload, dict):
+        return None
+    return fact.payload.get(key)

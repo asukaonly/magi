@@ -180,6 +180,12 @@ class TaskOrchestrator:
                 if not isinstance(worker_result, dict):
                     subtask.status = "failed"
                     subtask.failure_reason = "INVALID_WORKER_RESULT"
+                elif str(worker_result.get("result_status", "success")).strip() == "failed":
+                    subtask.worker_result = worker_result
+                    subtask.failure_reason = str(
+                        worker_result.get("failure_reason") or "WORKER_REPORTED_FAILURE"
+                    ).strip()
+                    subtask.status = "failed"
                 else:
                     subtask.worker_result = worker_result
                     subtask.failure_reason = None
