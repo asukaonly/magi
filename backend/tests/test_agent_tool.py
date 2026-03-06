@@ -77,9 +77,9 @@ class _FakeFunctionCallingExecutor:
 
 @pytest.mark.asyncio
 async def test_agent_tool_launch_foreground(monkeypatch):
-    from magi.tools.builtin import agent_tool as agent_tool_module
+    from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(agent_tool_module, "FunctionCallingExecutor", _FakeFunctionCallingExecutor)
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _FakeFunctionCallingExecutor)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -89,7 +89,7 @@ async def test_agent_tool_launch_foreground(monkeypatch):
         _ = (run_state, event_payload)
         published_events.append(event_type)
 
-    monkeypatch.setattr(tool, "_publish_worker_fact", _fake_publish)
+    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
 
     result = await tool.execute(
         parameters={
@@ -116,16 +116,16 @@ async def test_agent_tool_launch_foreground(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_tool_background_then_await(monkeypatch):
-    from magi.tools.builtin import agent_tool as agent_tool_module
+    from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(agent_tool_module, "FunctionCallingExecutor", _FakeFunctionCallingExecutor)
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _FakeFunctionCallingExecutor)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
     async def _fake_publish(run_state, event_type, event_payload):
         _ = (run_state, event_type, event_payload)
 
-    monkeypatch.setattr(tool, "_publish_worker_fact", _fake_publish)
+    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
 
     launch_result = await tool.execute(
         parameters={
@@ -172,16 +172,16 @@ async def test_agent_tool_background_then_await(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_tool_batch_workers(monkeypatch):
-    from magi.tools.builtin import agent_tool as agent_tool_module
+    from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(agent_tool_module, "FunctionCallingExecutor", _FakeFunctionCallingExecutor)
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _FakeFunctionCallingExecutor)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
     async def _fake_publish(run_state, event_type, event_payload):
         _ = (run_state, event_type, event_payload)
 
-    monkeypatch.setattr(tool, "_publish_worker_fact", _fake_publish)
+    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
 
     launch_result = await tool.execute(
         parameters={
