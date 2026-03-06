@@ -1,7 +1,7 @@
 """
 LLMAdapter - ZhipuAI (智谱) Implementation
 
-Uses official zhipuai SDK for GLM models.
+Uses official zai-sdk for GLM models.
 """
 import asyncio
 import logging
@@ -49,8 +49,8 @@ class ZhipuAdapter(LLMAdapter):
         self._provider = provider.lower()
 
         # Lazy import to avoid dependency issues
-        from zhipuai import ZhipuAI
-        self._client = ZhipuAI(api_key=api_key)
+        from zai import ZhipuAiClient
+        self._client = ZhipuAiClient(api_key=api_key)
         self._embedding_model = self.DEFAULT_EMBEDDING_MODEL
 
     async def generate(
