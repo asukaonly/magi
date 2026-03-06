@@ -4,19 +4,14 @@ Runtime task agent for chat facts.
 from __future__ import annotations
 
 import json
-import os
 import platform
 import sqlite3
 import time
 import uuid
 from typing import Any, Optional
 
-from ...agent.orchestration import (
-    RETRIABLE_WORKER_FAILURES,
-    SubtaskDefinition,
-    TaskOrchestrationState,
-    get_orchestration_store,
-)
+from ...agent.orchestration import TaskOrchestrationState, get_orchestration_store
+from ...agent.task_orchestrator import TaskOrchestrator
 from ...core.logger import get_logger
 from ...llm.provider_bridge import LLMProviderBridge
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
@@ -31,7 +26,6 @@ from ...skills.loader import SkillLoader
 from ..execution.function_calling import FunctionCallingExecutor
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry
-from ...tools.schema import ToolExecutionContext
 from ...utils.runtime import get_runtime_paths
 from ...core.runtime.contracts import FactRecord
 from ...core.runtime.task_agent import TaskAgent
@@ -99,6 +93,14 @@ class ChatTaskAgent(TaskAgent):
         self._history_cache_order: list[str] = []  # LRU tracking
         self._last_batch_facts: list[FactRecord] = []
         self._orchestration_store = get_orchestration_store()
+        self._task_orchestrator = TaskOrchestrator(
+            runtime_key=self.runtime_key,
+            tool_registry=tool_registry,
+            plan_subtasks=self._generate_subtask_plan,
+            aggregate_orchestration=self._aggregate_orchestration,
+            register_user_message=self._append_user_message_to_history,
+            parent_task_agent_type=TaskAgentType.CHAT.value,
+        )
         runtime_paths = get_runtime_paths()
         self._session_state_file = runtime_paths.data_dir / "chat_sessions.json"
         self._events_db_path = runtime_paths.events_db_path
@@ -428,221 +430,22 @@ class ChatTaskAgent(TaskAgent):
         )
 
     async def _start_orchestration(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
-        user_id = str(llm_params.get("user_id") or context.get("user_id") or self.agent_id)
-        session_id = str(llm_params.get("session_id") or context.get("session_id") or self._resolve_session_id(user_id))
-        user_message = str(llm_params.get("user_message") or context.get("user_message") or "").strip()
         latest_fact = context.get("latest_fact")
-        orchestration_strategy = llm_params.get("orchestration_strategy", {})
-        plan_payload = await self._generate_subtask_plan(
-            user_message=user_message,
+        return await self._task_orchestrator.start_orchestration(
+            user_id=str(llm_params.get("user_id") or context.get("user_id") or self.agent_id),
+            session_id=str(llm_params.get("session_id") or context.get("session_id") or ""),
+            user_message=str(llm_params.get("user_message") or context.get("user_message") or "").strip(),
             history=llm_params.get("history", []),
-            orchestration_strategy=orchestration_strategy,
-            user_id=user_id,
-            session_id=session_id,
-        )
-
-        raw_subtasks = plan_payload.get("subtasks") if isinstance(plan_payload, dict) else []
-        if not isinstance(raw_subtasks, list) or not raw_subtasks:
-            raw_subtasks = self._fallback_subtask_plan(
-                user_message=user_message,
-                default_leaf_type=str(orchestration_strategy.get("default_leaf_type", "Explore")),
-            )
-
-        orchestration_id = f"orch_{uuid.uuid4().hex[:12]}"
-        now = time.time()
-        state = TaskOrchestrationState(
-            orchestration_id=orchestration_id,
-            user_id=user_id,
-            session_id=session_id,
-            root_user_message=user_message,
-            planner=str(orchestration_strategy.get("planner", "task_agent") or "task_agent"),
-            status="running",
-            retry_budget=1,
-            allow_parallel=bool(orchestration_strategy.get("allow_parallel", True)),
-            created_at=now,
-            updated_at=now,
+            history_key=str(context.get("history_key", "")),
             correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
-            subtasks=[
-                SubtaskDefinition(
-                    subtask_id=f"subtask_{uuid.uuid4().hex[:10]}",
-                    description=str(item.get("description", "")).strip(),
-                    subagent_type=str(item.get("subagent_type", orchestration_strategy.get("default_leaf_type", "Explore"))).strip() or "Explore",
-                    prompt=self._build_leaf_worker_prompt(
-                        root_user_message=user_message,
-                        subtask_description=str(item.get("description", "")).strip(),
-                        subtask_prompt=str(item.get("prompt", "")).strip(),
-                    ),
-                    parallel_group=str(item.get("parallel_group", "default")).strip() or "default",
-                    status="pending",
-                    created_at=now,
-                    updated_at=now,
-                )
-                for item in raw_subtasks
-                if isinstance(item, dict) and str(item.get("description", "")).strip() and str(item.get("prompt", "")).strip()
-            ],
+            orchestration_strategy=llm_params.get("orchestration_strategy", {}),
         )
-        if not state.subtasks:
-            state.subtasks = [
-                SubtaskDefinition(
-                    subtask_id=f"subtask_{uuid.uuid4().hex[:10]}",
-                    description=str(item.get("description", "")).strip(),
-                    subagent_type=str(item.get("subagent_type", "Explore")).strip() or "Explore",
-                    prompt=self._build_leaf_worker_prompt(
-                        root_user_message=user_message,
-                        subtask_description=str(item.get("description", "")).strip(),
-                        subtask_prompt=str(item.get("prompt", "")).strip(),
-                    ),
-                    parallel_group=str(item.get("parallel_group", "default")).strip() or "default",
-                    status="pending",
-                    created_at=now,
-                    updated_at=now,
-                )
-                for item in self._fallback_subtask_plan(
-                    user_message=user_message,
-                    default_leaf_type=str(orchestration_strategy.get("default_leaf_type", "Explore")),
-                )
-            ]
-
-        await self._orchestration_store.save_orchestration(state)
-        launch_error = await self._launch_orchestration_workers(state)
-        if launch_error:
-            state.status = "failed"
-            state.updated_at = time.time()
-            await self._orchestration_store.save_orchestration(state)
-            return {
-                "response": f"Failed to launch worker subtasks: {launch_error}",
-                "skip_emit": False,
-                "root_user_message": user_message,
-                "correlation_id": state.correlation_id,
-                "orchestration_id": state.orchestration_id,
-            }
-
-        self._append_user_message_to_history(
-            history_key=context["history_key"],
-            user_message=user_message,
-        )
-        return {
-            "response": "",
-            "skip_emit": True,
-            "orchestration_id": orchestration_id,
-        }
 
     async def _process_worker_updates(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
-        batch_facts = llm_params.get("batch_facts", []) if isinstance(llm_params, dict) else []
-        touched_states: dict[str, TaskOrchestrationState] = {}
-        for fact in batch_facts:
-            if not isinstance(fact, FactRecord) or fact.event_type not in WORKER_AGENT_EVENT_TYPES:
-                continue
-            payload = fact.payload if isinstance(fact.payload, dict) else {}
-            orchestration_id = str(payload.get("orchestration_id", "")).strip()
-            subtask_id = str(payload.get("subtask_id", "")).strip()
-            if not orchestration_id or not subtask_id:
-                continue
-            state = touched_states.get(orchestration_id)
-            if state is None:
-                state = await self._orchestration_store.get_orchestration(orchestration_id)
-            if state is None or state.status in {"completed", "failed"}:
-                continue
-            subtask = state.get_subtask(subtask_id)
-            if subtask is None:
-                continue
-            payload_worker_id = str(payload.get("worker_id", "")).strip()
-            if payload_worker_id and subtask.worker_id and payload_worker_id != subtask.worker_id:
-                continue
-
-            now = time.time()
-            if fact.event_type == "WORKER_AGENT_PROGRESS":
-                if subtask.status == "pending":
-                    subtask.status = "running"
-                subtask.updated_at = now
-                state.updated_at = now
-                touched_states[state.orchestration_id] = state
-                continue
-
-            if fact.event_type == "WORKER_AGENT_COMPLETED":
-                worker_result = payload.get("worker_result")
-                if not isinstance(worker_result, dict) and payload_worker_id:
-                    worker_result = await self._orchestration_store.get_worker_result(payload_worker_id)
-                if not isinstance(worker_result, dict):
-                    subtask.status = "failed"
-                    subtask.failure_reason = "INVALID_WORKER_RESULT"
-                    subtask.updated_at = now
-                    state.updated_at = now
-                    touched_states[state.orchestration_id] = state
-                    continue
-                subtask.worker_result = worker_result
-                subtask.failure_reason = None
-                subtask.status = "completed"
-                subtask.updated_at = now
-                state.updated_at = now
-                touched_states[state.orchestration_id] = state
-                continue
-
-            failure_reason = str(
-                payload.get("failure_reason")
-                or payload.get("error")
-                or "WORKER_FAILED"
-            ).strip()
-            retried = await self._maybe_retry_subtask(state, subtask, failure_reason)
-            if not retried:
-                subtask.status = "failed"
-                subtask.failure_reason = failure_reason
-            subtask.updated_at = now
-            state.updated_at = now
-            touched_states[state.orchestration_id] = state
-
-        for state in touched_states.values():
-            await self._orchestration_store.save_orchestration(state)
-
-        completed_payloads: list[dict[str, Any]] = []
-        for state in touched_states.values():
-            if not self._is_orchestration_terminal(state):
-                continue
-            if state.status == "completed":
-                continue
-            state.status = "aggregating"
-            state.updated_at = time.time()
-            await self._orchestration_store.save_orchestration(state)
-            final_response = await self._aggregate_orchestration(state)
-            state.final_response = final_response
-            state.status = "completed" if final_response.strip() else "failed"
-            state.updated_at = time.time()
-            await self._orchestration_store.save_orchestration(state)
-            if final_response.strip():
-                completed_payloads.append(
-                    {
-                        "response": final_response,
-                        "skip_emit": False,
-                        "root_user_message": state.root_user_message,
-                        "correlation_id": state.correlation_id,
-                        "orchestration_id": state.orchestration_id,
-                        "message_started_at": state.created_at,
-                    }
-                )
-
-        if not completed_payloads:
-            return {"response": "", "skip_emit": True}
-        if len(completed_payloads) == 1:
-            return completed_payloads[0]
-
-        combined = "\n\n".join(
-            item["response"]
-            for item in completed_payloads
-            if str(item.get("response", "")).strip()
+        _ = context
+        return await self._task_orchestrator.process_worker_updates(
+            llm_params.get("batch_facts", []) if isinstance(llm_params, dict) else []
         )
-        first = completed_payloads[0]
-        return {
-            "response": combined,
-            "skip_emit": False,
-            "root_user_message": first.get("root_user_message"),
-            "correlation_id": first.get("correlation_id"),
-            "orchestration_id": ",".join(
-                str(item.get("orchestration_id", ""))
-                for item in completed_payloads
-                if item.get("orchestration_id")
-            ),
-            "message_started_at": first.get("message_started_at"),
-        }
 
     async def _generate_subtask_plan(
         self,
@@ -653,28 +456,32 @@ class ChatTaskAgent(TaskAgent):
         session_id: str,
     ) -> dict[str, Any]:
         planner = str(orchestration_strategy.get("planner", "task_agent") or "task_agent")
+        raw_plan: Optional[dict[str, Any]] = None
         if planner == "plan_worker":
-            plan_payload = await self._plan_with_plan_worker(
+            raw_plan = await self._plan_with_plan_worker(
                 user_message=user_message,
                 user_id=user_id,
                 session_id=session_id,
             )
-            if plan_payload:
-                return plan_payload
-        plan_payload = await self._plan_with_task_agent(
-            user_message=user_message,
-            history=history,
-            orchestration_strategy=orchestration_strategy,
-        )
-        if plan_payload:
-            return plan_payload
-        return {
-            "summary": "Fallback decomposition generated by chat task agent.",
-            "subtasks": self._fallback_subtask_plan(
+        if raw_plan is None:
+            raw_plan = await self._plan_with_task_agent(
                 user_message=user_message,
-                default_leaf_type=str(orchestration_strategy.get("default_leaf_type", "Explore")),
-            ),
-        }
+                history=history,
+                orchestration_strategy=orchestration_strategy,
+            )
+        if raw_plan is None:
+            raw_plan = {
+                "summary": "Fallback decomposition generated by chat task agent.",
+                "subtasks": self._fallback_subtask_plan(
+                    user_message=user_message,
+                    default_leaf_type=str(orchestration_strategy.get("default_leaf_type", "Explore")),
+                ),
+            }
+        return self._normalize_subtask_plan(
+            user_message=user_message,
+            raw_plan=raw_plan,
+            default_leaf_type=str(orchestration_strategy.get("default_leaf_type", "Explore")),
+        )
 
     async def _plan_with_task_agent(
         self,
@@ -757,102 +564,6 @@ class ChatTaskAgent(TaskAgent):
             "subtasks": subtasks,
         }
 
-    async def _launch_orchestration_workers(self, state: TaskOrchestrationState) -> Optional[str]:
-        context = self._build_agent_tool_context(user_id=state.user_id, session_id=state.session_id)
-        worker_payloads = []
-        for subtask in state.subtasks:
-            worker_payloads.append(
-                {
-                    "subagent_type": subtask.subagent_type,
-                    "description": subtask.description,
-                    "prompt": subtask.prompt,
-                    "orchestration_id": state.orchestration_id,
-                    "subtask_id": subtask.subtask_id,
-                    "parent_task_agent_type": "chat",
-                    "parent_task_agent_id": state.user_id,
-                    "target_task_agent_type": "chat",
-                    "target_task_agent_id": state.user_id,
-                    "retry_count": max(subtask.attempt_count, 0),
-                }
-            )
-        result = await tool_registry.execute(
-            "agent",
-            {
-                "action": "launch",
-                "workers": worker_payloads,
-                "parallel": state.allow_parallel,
-                "run_in_background": True,
-                "target_task_agent_type": "chat",
-                "target_task_agent_id": state.user_id,
-            },
-            context,
-        )
-        if not result.success or not isinstance(result.data, dict):
-            return str(result.error or "Unknown worker launch error")
-        worker_ids = result.data.get("worker_ids")
-        if not isinstance(worker_ids, list) or len(worker_ids) != len(state.subtasks):
-            return "Worker launch did not return a complete worker id list"
-        now = time.time()
-        for subtask, worker_id in zip(state.subtasks, worker_ids):
-            subtask.worker_id = str(worker_id)
-            subtask.status = "running"
-            subtask.attempt_count = max(subtask.attempt_count, 1)
-            subtask.updated_at = now
-        state.updated_at = now
-        await self._orchestration_store.save_orchestration(state)
-        return None
-
-    async def _maybe_retry_subtask(
-        self,
-        state: TaskOrchestrationState,
-        subtask: SubtaskDefinition,
-        failure_reason: str,
-    ) -> bool:
-        if failure_reason not in RETRIABLE_WORKER_FAILURES:
-            return False
-        if subtask.attempt_count > state.retry_budget:
-            return False
-        context = self._build_agent_tool_context(user_id=state.user_id, session_id=state.session_id)
-        next_attempt = subtask.attempt_count + 1
-        result = await tool_registry.execute(
-            "agent",
-            {
-                "action": "launch",
-                "subagent_type": subtask.subagent_type,
-                "description": subtask.description,
-                "prompt": subtask.prompt,
-                "run_in_background": True,
-                "orchestration_id": state.orchestration_id,
-                "subtask_id": subtask.subtask_id,
-                "parent_task_agent_type": "chat",
-                "parent_task_agent_id": state.user_id,
-                "target_task_agent_type": "chat",
-                "target_task_agent_id": state.user_id,
-                "retry_count": next_attempt - 1,
-            },
-            context,
-        )
-        if not result.success or not isinstance(result.data, dict):
-            logger.warning(
-                "Failed to relaunch worker for retry | orchestration_id=%s subtask_id=%s error=%s",
-                state.orchestration_id,
-                subtask.subtask_id,
-                result.error,
-            )
-            return False
-        worker_id = str(result.data.get("worker_id", "")).strip()
-        if not worker_id:
-            return False
-        subtask.worker_id = worker_id
-        subtask.status = "running"
-        subtask.failure_reason = None
-        subtask.worker_result = None
-        subtask.attempt_count = next_attempt
-        subtask.updated_at = time.time()
-        state.updated_at = subtask.updated_at
-        await self._orchestration_store.save_orchestration(state)
-        return True
-
     async def _aggregate_orchestration(self, state: TaskOrchestrationState) -> str:
         payload = {
             "user_request": state.root_user_message,
@@ -896,6 +607,43 @@ class ChatTaskAgent(TaskAgent):
         if response.strip():
             return response.strip()
         return self._build_aggregation_fallback(state)
+
+    def _normalize_subtask_plan(
+        self,
+        user_message: str,
+        raw_plan: dict[str, Any],
+        default_leaf_type: str,
+    ) -> dict[str, Any]:
+        raw_subtasks = raw_plan.get("subtasks")
+        if not isinstance(raw_subtasks, list) or not raw_subtasks:
+            raw_subtasks = self._fallback_subtask_plan(user_message, default_leaf_type)
+        normalized_subtasks: list[dict[str, Any]] = []
+        for item in raw_subtasks:
+            if not isinstance(item, dict):
+                continue
+            description = str(item.get("description", "")).strip()
+            subtask_prompt = str(item.get("prompt", "")).strip()
+            if not description or not subtask_prompt:
+                continue
+            subagent_type = str(item.get("subagent_type", default_leaf_type)).strip()
+            if subagent_type not in {"Explore", "general-purpose"}:
+                subagent_type = "Explore"
+            normalized_subtasks.append(
+                {
+                    "description": description,
+                    "subagent_type": subagent_type,
+                    "prompt": self._build_leaf_worker_prompt(
+                        root_user_message=user_message,
+                        subtask_description=description,
+                        subtask_prompt=subtask_prompt,
+                    ),
+                    "parallel_group": str(item.get("parallel_group", "default")).strip() or "default",
+                }
+            )
+        return {
+            "summary": str(raw_plan.get("summary", "")).strip(),
+            "subtasks": normalized_subtasks,
+        }
 
     def _parse_subtask_plan(self, response: str) -> Optional[dict[str, Any]]:
         raw = str(response or "").strip()
@@ -1011,25 +759,8 @@ class ChatTaskAgent(TaskAgent):
             ]
         )
 
-    def _build_agent_tool_context(self, user_id: str, session_id: str) -> ToolExecutionContext:
-        return ToolExecutionContext(
-            agent_id=self.runtime_key,
-            workspace=os.getcwd(),
-            env_vars={
-                "user_id": user_id,
-                "session_id": session_id,
-                "target_task_agent_type": "chat",
-                "target_task_agent_id": user_id,
-                "parent_task_agent_type": "chat",
-                "parent_task_agent_id": user_id,
-            },
-            permissions=["authenticated"],
-        )
-
-    def _is_orchestration_terminal(self, state: TaskOrchestrationState) -> bool:
-        if not state.subtasks:
-            return False
-        return all(item.status in {"completed", "failed"} for item in state.subtasks)
+    def _build_agent_tool_context(self, user_id: str, session_id: str):
+        return self._task_orchestrator._build_agent_tool_context(user_id, session_id)
 
     def _build_aggregation_fallback(self, state: TaskOrchestrationState) -> str:
         lines = [f"Request: {state.root_user_message}", ""]

@@ -19,9 +19,10 @@ class _FakeLLMAdapter:
 async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_path: Path, monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._orchestration_store = OrchestrationStore(tmp_path / "orchestrations.json")
+    agent._task_orchestrator._orchestration_store = agent._orchestration_store
 
-    async def _fake_generate_subtask_plan(**kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
+    async def _fake_generate_subtask_plan(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
         return {
             "summary": "planned",
             "subtasks": [
@@ -44,9 +45,9 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
         assert state.subtasks[0].worker_result is not None
         return "aggregated answer"
 
-    monkeypatch.setattr(agent, "_generate_subtask_plan", _fake_generate_subtask_plan)
-    monkeypatch.setattr(agent, "_launch_orchestration_workers", _fake_launch)
-    monkeypatch.setattr(agent, "_aggregate_orchestration", _fake_aggregate)
+    monkeypatch.setattr(agent._task_orchestrator, "_plan_subtasks", _fake_generate_subtask_plan)
+    monkeypatch.setattr(agent._task_orchestrator, "_launch_workers", _fake_launch)
+    monkeypatch.setattr(agent._task_orchestrator, "_aggregate_orchestration", _fake_aggregate)
 
     user_fact = FactRecord(
         agent_id="chat:u-chat",
