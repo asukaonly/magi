@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from magi.llm.base import LLMAdapter
-from magi.tools.function_calling import FunctionCallingExecutor
+from magi.agent.execution.function_calling import FunctionCallingExecutor
 
 
 class _DummyLLMAdapter(LLMAdapter):

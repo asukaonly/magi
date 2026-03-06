@@ -20,7 +20,7 @@ from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 
 if TYPE_CHECKING:
-    from ..tools.function_calling import FunctionCallingExecutor
+    from ..agent.execution.function_calling import FunctionCallingExecutor
     from ..tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def _get_tool_registry():
 
 def _get_function_calling_executor(llm_adapter, tool_registry, skill_executor, tool_result_callback):
     """Lazy import to avoid circular dependency."""
-    from ..tools.function_calling import FunctionCallingExecutor
+    from ..agent.execution.function_calling import FunctionCallingExecutor
     return FunctionCallingExecutor(
         llm_adapter=llm_adapter,
         tool_registry=tool_registry,

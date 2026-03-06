@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from ...core.logger import get_logger
 from ...events.events import Event, EventLevel
-from ..function_calling import FunctionCallingExecutor
+from ...agent.execution.function_calling import FunctionCallingExecutor
 from ..registry import ToolRegistry, tool_registry
 from ..schema import (
     ParameterType,

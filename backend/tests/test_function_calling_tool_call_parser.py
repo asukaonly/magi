@@ -6,8 +6,8 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.llm.base import LLMAdapter
-from magi.tools.function_calling_postprocessor import FunctionCallingPostprocessor
-from magi.tools.function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
+from magi.agent.execution.function_calling_postprocessor import FunctionCallingPostprocessor
+from magi.agent.execution.function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
 from magi.tools.schema import ToolResult
 
 

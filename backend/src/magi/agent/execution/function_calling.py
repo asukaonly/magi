@@ -11,15 +11,16 @@ import inspect
 import json
 import logging
 import os
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 
-from ..llm.base import LLMAdapter
-from ..llm.provider_bridge import LLMProviderBridge
+from ...llm.base import LLMAdapter
+from ...llm.provider_bridge import LLMProviderBridge
 from .function_calling_postprocessor import FunctionCallingPostprocessor
-from .registry import ToolRegistry
-from .schema import ToolExecutionContext, ToolErrorCode
-from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
+from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
+
+if TYPE_CHECKING:
+    from ...tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 llm_logger = get_llm_logger('function_calling')
@@ -73,7 +74,7 @@ class FunctionCallingExecutor:
     def __init__(
         self,
         llm_adapter: LLMAdapter,
-        tool_registry: ToolRegistry,
+        tool_registry: "ToolRegistry",
         skill_executor=None,
         tool_result_callback=None,
         loop_event_callback=None,
@@ -652,6 +653,8 @@ class FunctionCallingExecutor:
         logger.info(f"[FunctionCalling] Executing: {tool_name} with args: {arguments}")
 
         try:
+            from ...tools.schema import ToolExecutionContext, ToolErrorCode
+
             # Check if it's a skill
             if tool_name.startswith("skill_"):
                 skill_name = tool_name.replace("skill_", "")

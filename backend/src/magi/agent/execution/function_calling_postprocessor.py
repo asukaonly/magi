@@ -1,8 +1,7 @@
 """
 Postprocessing helpers for function-calling loop.
 
-This module keeps tool-result context shaping and fallback legacy tool-call
-parsing out of the executor orchestration logic.
+This module keeps tool-result context shaping out of executor orchestration logic.
 """
 from __future__ import annotations
 

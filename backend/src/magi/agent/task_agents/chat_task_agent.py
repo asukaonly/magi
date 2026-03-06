@@ -21,8 +21,8 @@ from ...memory.prompt_context_assembler import PromptContextAssembler, PromptCon
 from ...skills.executor import SkillExecutor
 from ...skills.indexer import SkillIndexer
 from ...skills.loader import SkillLoader
+from ..execution.function_calling import FunctionCallingExecutor
 from ...tools.context_decider import ContextDecider
-from ...tools.function_calling import FunctionCallingExecutor
 from ...tools.registry import tool_registry
 from ...utils.runtime import get_runtime_paths
 from ...core.runtime.contracts import FactRecord

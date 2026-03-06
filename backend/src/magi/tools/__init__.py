@@ -17,7 +17,6 @@ from .schema import (
 )
 from .registry import ToolRegistry, tool_registry
 from .context_decider import ContextDecider, ContextDecision
-from .function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
 from .recommender import ToolRecommender, ScenarioType
 from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
 from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
@@ -84,11 +83,6 @@ __all__ = [
     # Context Decider (replaces old ToolSelector)
     "ContextDecider",
     "ContextDecision",
-
-    # Function Calling Executor
-    "FunctionCallingExecutor",
-    "ToolCall",
-    "ToolCallResult",
 
     # recommended引擎
     "ToolRecommender",
