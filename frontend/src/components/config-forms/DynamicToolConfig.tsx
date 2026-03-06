@@ -9,7 +9,6 @@ import { useTranslation } from 'react-i18next';
 import {
   ChevronDown,
   ChevronUp,
-  Settings,
   AlertCircle,
   CheckCircle,
   Eye,
@@ -22,8 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField } from '@/components/config-forms/fields';
-import { toolsApi, type ToolConfig, ToolConfigSpec, ToolProviderInfo } from '@/api/modules/tools';
-import { cn } from '@/lib/utils';
+import { toolsApi, type ToolConfig, ToolConfigSpec } from '@/api/modules/tools';
 
 /**
  * DynamicConfigField - Renders a single config field based on spec
@@ -421,7 +419,7 @@ export const DynamicToolsConfig: React.FC = () => {
   const handleUpdateConfig = async (toolName: string, updates: Record<string, any>) => {
     setSaving(true);
     try {
-      await toolsApi.updateToolConfig(toolName, updates);
+      await toolsApi.updateToolConfig(toolName, { updates });
       toast.success(t('settings.toolConfigSaved', { tool: toolName }));
       // Refresh tools to get updated values
       await fetchTools();
@@ -435,7 +433,7 @@ export const DynamicToolsConfig: React.FC = () => {
   const handleUpdateEnabled = async (toolName: string, enabled: boolean) => {
     setSaving(true);
     try {
-      await toolsApi.updateToolConfig(toolName, { enabled });
+      await toolsApi.updateToolConfig(toolName, { updates: {}, enabled });
       toast.success(
         enabled
           ? t('settings.toolEnabled', { tool: toolName })

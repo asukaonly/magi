@@ -29,7 +29,7 @@ import { SelectField as BaseSelectField } from '@/components/config-forms/fields
 import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig } from '../api/modules/config';
 import { memoryApi } from '../api/modules/memory';
 import { cn } from '@/lib/utils';
-import { useThemeStore, type ThemeMode } from '@/stores';
+import { useThemeStore } from '@/stores';
 
 type SelectOption = { label: string; value: string };
 

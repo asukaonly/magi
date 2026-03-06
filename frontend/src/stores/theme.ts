@@ -59,7 +59,7 @@ const applyTheme = (theme: 'dark' | 'light'): void => {
   }
 };
 
-export const useThemeStore = create<ThemeState>((set, get) => {
+export const useThemeStore = create<ThemeState>((set) => {
   // Initialize from localStorage
   const storedMode = safeGetItem(STORAGE_KEY) as ThemeMode | null;
   const initialMode: ThemeMode = storedMode || 'dark';

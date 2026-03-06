@@ -14,6 +14,11 @@ from ..events.events import BusinessEventTypes, Event, EventTypes
 from . import UnifiedMemoryStore
 
 logger = logging.getLogger(__name__)
+WORKER_AGENT_EVENT_TYPES: Set[str] = {
+    "WORKER_AGENT_PROGRESS",
+    "WORKER_AGENT_COMPLETED",
+    "WORKER_AGENT_FAILED",
+}
 
 
 @dataclass
@@ -45,6 +50,7 @@ class MemoryIntegrationConfig:
             EventTypes.TASK_COMPLETED,
             EventTypes.TASK_FAILED,
             EventTypes.ERROR_OCCURRED,
+            *WORKER_AGENT_EVENT_TYPES,
         }
     )
     l1_event_blacklist: Set[str] = field(
@@ -83,6 +89,7 @@ class MemoryIntegrationConfig:
             EventTypes.TASK_COMPLETED,
             EventTypes.TASK_FAILED,
             EventTypes.ERROR_OCCURRED,
+            *WORKER_AGENT_EVENT_TYPES,
         }
     )
 

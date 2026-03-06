@@ -34,7 +34,7 @@ export const memoryApi = {
   listModels: () =>
     api.get<{ models: string[] }>('/memory/models'),
   clearAll: () =>
-    api.delete<ClearMemoryResponse>('/memory/clear'),
+    api.delete<ClearMemoryResponse>('/memory/clear') as unknown as Promise<ClearMemoryResponse>,
 };
 
 export default memoryApi;
