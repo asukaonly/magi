@@ -138,33 +138,48 @@ class FunctionCallingPostprocessor:
     def _compact_agent_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         workers = data.get("workers")
         if isinstance(workers, list):
-            return {
+            compact = {
                 "worker_count": len(workers),
                 "workers": [
                     self._compact_agent_data(item)
                     for item in workers[: self.max_items]
                     if isinstance(item, dict)
                 ],
-                "missing_worker_ids": data.get("missing_worker_ids"),
+            }
+            if "worker_ids" in data:
+                compact["worker_ids"] = data.get("worker_ids")
+            if "orchestration_id" in data:
+                compact["orchestration_id"] = data.get("orchestration_id")
+            if "status" in data:
+                compact["status"] = data.get("status")
+            if "missing_worker_ids" in data:
+                compact["missing_worker_ids"] = data.get("missing_worker_ids")
+            if "run_in_background" in data:
+                compact["run_in_background"] = data.get("run_in_background")
+            if "parallel" in data:
+                compact["parallel"] = data.get("parallel")
+            return compact
+
+        if "worker_ids" in data and "worker_count" in data:
+            return {
+                "worker_count": data.get("worker_count"),
+                "worker_ids": data.get("worker_ids"),
+                "orchestration_id": data.get("orchestration_id"),
+                "status": data.get("status"),
                 "run_in_background": data.get("run_in_background"),
                 "parallel": data.get("parallel"),
             }
-
-        result_text = str(data.get("result", "") or "")
-        summary = str(data.get("result_summary", "") or "").strip()
-        if not summary and result_text:
-            summary = result_text[: self.max_text_chars]
 
         compact = {
             "worker_id": data.get("worker_id"),
             "status": data.get("status"),
             "subagent_type": data.get("subagent_type"),
             "description": data.get("description"),
-            "result_summary": summary,
+            "orchestration_id": data.get("orchestration_id"),
+            "subtask_id": data.get("subtask_id"),
+            "worker_result": data.get("result") if isinstance(data.get("result"), dict) else None,
             "error": data.get("error"),
             "failure_reason": data.get("failure_reason"),
             "needs_await": data.get("status") == "running",
         }
-        if "plan" in data:
-            compact["plan"] = data.get("plan")
         return compact

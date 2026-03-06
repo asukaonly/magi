@@ -73,9 +73,23 @@ class _FakeFunctionCallingExecutor:
                 }
             )
         await asyncio.sleep(0.01)
+        if disable_thinking is False:
+            content = (
+                '{"summary":"plan ready","findings":[{"title":"plan","detail":"created subtasks"}],'
+                '"evidence":[{"path":"/tmp/plan.json","detail":"planner output"}],'
+                '"gaps":[],"next_steps":["launch subtasks"],'
+                '"subtasks":[{"description":"scan module","subagent_type":"Explore","prompt":"Inspect module layout","parallel_group":"g1"}]}'
+            )
+        else:
+            content = (
+                '{"summary":"worker finished","findings":[{"title":"done","detail":"'
+                + user_message
+                + '"}],"evidence":[{"path":"/tmp/example.py","detail":"validated path"}],'
+                '"gaps":[],"next_steps":["report upstream"]}'
+            )
         return ExecutionOutcome(
             status="completed",
-            content=f"worker finished: {user_message}",
+            content=content,
             iterations=1,
         )
 
@@ -90,8 +104,8 @@ async def test_agent_tool_launch_foreground(monkeypatch):
 
     published_events = []
 
-    async def _fake_publish(run_state, event_type, event_payload):
-        _ = (run_state, event_payload)
+    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+        _ = (run_state, internal_payload, public_payload)
         published_events.append(event_type)
 
     monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
@@ -114,7 +128,7 @@ async def test_agent_tool_launch_foreground(monkeypatch):
 
     assert result.success is True
     assert result.data["status"] == "completed"
-    assert "worker finished" in result.data["result"]
+    assert result.data["result"]["summary"] == "worker finished"
     assert WORKER_AGENT_PROGRESS in published_events
     assert WORKER_AGENT_COMPLETED in published_events
 
@@ -127,8 +141,8 @@ async def test_agent_tool_background_then_await(monkeypatch):
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
-    async def _fake_publish(run_state, event_type, event_payload):
-        _ = (run_state, event_type, event_payload)
+    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+        _ = (run_state, event_type, internal_payload, public_payload)
 
     monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
 
@@ -183,8 +197,8 @@ async def test_agent_tool_batch_workers(monkeypatch):
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
-    async def _fake_publish(run_state, event_type, event_payload):
-        _ = (run_state, event_type, event_payload)
+    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+        _ = (run_state, event_type, internal_payload, public_payload)
 
     monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
 
@@ -303,6 +317,10 @@ async def test_await_timeout_does_not_cancel_worker_task():
         subagent_type=tool.TYPE_EXPLORE,
         description="timeout behavior check",
         prompt="noop",
+        orchestration_id=None,
+        subtask_id=None,
+        parent_task_agent_type="chat",
+        parent_task_agent_id="u-chat",
         target_task_agent_type="chat",
         target_task_agent_id="u-chat",
         user_id="u-chat",
@@ -348,8 +366,8 @@ async def test_empty_worker_result_is_marked_failed(monkeypatch):
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
-    async def _fake_publish(run_state, event_type, event_payload):
-        _ = (run_state, event_type, event_payload)
+    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+        _ = (run_state, event_type, internal_payload, public_payload)
 
     monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
 

@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
+from ...agent.orchestration import get_orchestration_store
 from ...core.logger import get_logger
 from ...utils.runtime import get_runtime_paths
 
@@ -40,6 +41,12 @@ class ChatReadService:
         mapping[user_id] = new_session_id
         self._save_session_mapping(mapping)
         return new_session_id
+
+    def get_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
+        if not worker_id.strip():
+            return None
+        store = get_orchestration_store()
+        return store.get_worker_result_sync(worker_id)
 
     def list_sessions(self, user_id: str, limit: int = 30) -> list[dict[str, Any]]:
         """List recent chat sessions for a user."""
@@ -252,7 +259,9 @@ class ChatReadService:
         error = str(payload.get("error") or "").strip()
 
         if event_type == "WORKER_AGENT_COMPLETED":
-            return f"[Worker:{short_worker_id}] Completed ({subagent_type})"
+            preview = str(payload.get("result_preview") or "").strip()
+            suffix = f": {preview[:80]}" if preview else ""
+            return f"[Worker:{short_worker_id}] Completed ({subagent_type}){suffix}"
         if event_type == "WORKER_AGENT_FAILED":
             suffix = f": {error}" if error else ""
             return f"[Worker:{short_worker_id}] Failed ({subagent_type}){suffix}"

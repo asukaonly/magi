@@ -69,7 +69,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
         self.assertIn("# System Definition", system_prompt)
         self.assertIn("# Tool Information", system_prompt)
         self.assertIn("weather", system_prompt)
-        self.assertEqual(llm_params["worker_strategy"], {})
+        self.assertEqual(llm_params["orchestration_strategy"], {})
 
 
 if __name__ == "__main__":

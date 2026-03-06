@@ -92,45 +92,6 @@ class _RecordingToolRegistry:
         return ToolResult(success=True, data={"ok": True, "tool": name, "arguments": arguments})
 
 
-class _PlannerRegistry(_RecordingToolRegistry):
-    async def execute(self, name: str, arguments: Dict[str, Any], context: Any) -> ToolResult:
-        _ = context
-        self.calls.append((name, dict(arguments)))
-        if name != "agent":
-            return ToolResult(success=False, error="unsupported")
-        if arguments.get("subagent_type") == "Plan":
-            return ToolResult(
-                success=True,
-                data={
-                    "worker_id": "worker_plan_1",
-                    "status": "completed",
-                    "subagent_type": "Plan",
-                    "description": arguments.get("description"),
-                    "result": (
-                        '{"summary":"Repo architecture split into focused scans.",'
-                        '"subtasks":[{"description":"scan backend","subagent_type":"Explore","prompt":"Inspect backend layout","parallel_group":"g1"},'
-                        '{"description":"scan frontend","subagent_type":"Explore","prompt":"Inspect frontend layout","parallel_group":"g1"}]}'
-                    ),
-                },
-            )
-        workers = arguments.get("workers", [])
-        return ToolResult(
-            success=True,
-            data={
-                "workers": [
-                    {
-                        "worker_id": f"worker_{idx}",
-                        "status": "completed",
-                        "subagent_type": worker.get("subagent_type"),
-                        "description": worker.get("description"),
-                        "result": f"completed {worker.get('description')}",
-                    }
-                    for idx, worker in enumerate(workers, start=1)
-                ]
-            },
-        )
-
-
 class _DummyOpenAIClient:
     def __init__(self, contents: List[str]) -> None:
         self._contents = list(contents)
@@ -214,6 +175,36 @@ def test_build_tool_message_payload_compacts_glob_matches() -> None:
     assert "modified" not in payload["data"]["matches"][0]
 
 
+def test_build_tool_message_payload_keeps_structured_worker_result() -> None:
+    postprocessor = FunctionCallingPostprocessor()
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="agent",
+        result=ToolCallResult(
+            tool_call_id="a1",
+            tool_name="agent",
+            success=True,
+            data={
+                "worker_id": "worker_1",
+                "status": "completed",
+                "subagent_type": "Explore",
+                "description": "scan backend",
+                "result": {
+                    "summary": "backend analyzed",
+                    "findings": [{"title": "backend", "detail": "runtime path"}],
+                    "evidence": [{"path": "/tmp/backend.py", "detail": "entrypoint"}],
+                    "gaps": [],
+                    "next_steps": ["aggregate"],
+                },
+            },
+            error=None,
+        ),
+    )
+
+    assert payload["success"] is True
+    assert payload["data"]["worker_result"]["summary"] == "backend analyzed"
+    assert payload["data"]["worker_id"] == "worker_1"
+
+
 @pytest.mark.asyncio
 async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
     registry = _RecordingToolRegistry()
@@ -284,7 +275,7 @@ def test_build_tool_message_payload_compacts_agent_run_state() -> None:
     )
 
     assert payload["data"]["worker_id"] == "worker_123"
-    assert payload["data"]["result_summary"].startswith("Found auth flow")
+    assert payload["data"]["worker_result"] is None
     assert "created_at" not in payload["data"]
     assert "target_task_agent_id" not in payload["data"]
 
@@ -368,8 +359,8 @@ def test_compact_message_history_preserves_protocol_for_multi_tool_blocks() -> N
 
 
 @pytest.mark.asyncio
-async def test_agent_plan_workflow_orchestrates_subtasks() -> None:
-    registry = _PlannerRegistry()
+async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
+    registry = _RecordingToolRegistry()
     executor = FunctionCallingExecutor(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=registry,  # type: ignore[arg-type]
@@ -390,14 +381,24 @@ async def test_agent_plan_workflow_orchestrates_subtasks() -> None:
         intent="planning",
         execution_agent_id="chat_agent",
         execution_workspace="/tmp",
-        worker_strategy={
-            "preferred_subagent_type": "Plan",
-            "execution_mode": "plan_and_decompose",
-            "enforce_subagent_type": True,
+        orchestration_strategy={
+            "mode": "decompose",
+            "planner": "task_agent",
+            "default_leaf_type": "Explore",
+            "allow_parallel": True,
         },
     )
 
     assert result.success is True
-    assert registry.calls[0][1]["subagent_type"] == "Plan"
-    assert registry.calls[1][1]["workers"][0]["subagent_type"] == "Explore"
-    assert result.data["workers"][0]["result_summary"] == "completed scan backend"
+    assert registry.calls == [
+        (
+            "agent",
+            {
+                "action": "launch",
+                "description": "Analyze repo architecture",
+                "prompt": "Analyze the repo and split work.",
+                "run_in_background": True,
+                "subagent_type": "Explore",
+            },
+        )
+    ]

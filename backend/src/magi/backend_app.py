@@ -71,7 +71,11 @@ def create_backend_app() -> FastAPI:
                 user_id = str(data.get("user_id", "")).strip()
                 if not user_id:
                     return
-                enriched_data = dict(data)
+                enriched_data = {
+                    key: value
+                    for key, value in dict(data).items()
+                    if key != "worker_result"
+                }
                 enriched_data["event_type"] = event.type
                 await manager.broadcast("worker_agent_update", enriched_data, room=f"user_{user_id}")
 

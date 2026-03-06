@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import time
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
@@ -145,7 +144,7 @@ class FunctionCallingExecutor:
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",
         execution_workspace: Optional[str] = None,
-        worker_strategy: Optional[Dict[str, Any]] = None,
+        orchestration_strategy: Optional[Dict[str, Any]] = None,
     ) -> ExecutionOutcome:
         """
         Execute with continuous tool calling
@@ -236,7 +235,7 @@ class FunctionCallingExecutor:
                         intent=intent,
                         execution_agent_id=execution_agent_id,
                         execution_workspace=execution_workspace,
-                        worker_strategy=worker_strategy,
+                        orchestration_strategy=orchestration_strategy,
                     )
                     tool_results.append(result)
                     if not result.success:
@@ -396,7 +395,7 @@ class FunctionCallingExecutor:
                     intent=intent,
                     execution_agent_id=execution_agent_id,
                     execution_workspace=execution_workspace,
-                    worker_strategy=worker_strategy,
+                    orchestration_strategy=orchestration_strategy,
                 )
                 if not result.success:
                     tool_failures.append(
@@ -750,7 +749,7 @@ class FunctionCallingExecutor:
         intent: str,
         execution_agent_id: str,
         execution_workspace: Optional[str],
-        worker_strategy: Optional[Dict[str, Any]],
+        orchestration_strategy: Optional[Dict[str, Any]],
     ) -> ToolCallResult:
         """
         Execute a single tool call
@@ -816,25 +815,9 @@ class FunctionCallingExecutor:
             )
 
             if tool_name == "agent":
-                if self._should_orchestrate_plan(arguments=arguments, worker_strategy=worker_strategy):
-                    logger.info(
-                        "[FunctionCalling] Executing orchestrated agent workflow with args: %s",
-                        {
-                            **arguments,
-                            "action": "launch",
-                            "subagent_type": "Plan",
-                            "run_in_background": False,
-                        },
-                    )
-                    return await self._execute_agent_plan_workflow(
-                        tool_call=tool_call,
-                        arguments=arguments,
-                        context=context,
-                        start_time=start_time,
-                    )
                 arguments = self._normalize_agent_launch_arguments(
                     arguments=arguments,
-                    worker_strategy=worker_strategy,
+                    orchestration_strategy=orchestration_strategy,
                 )
 
             logger.info(f"[FunctionCalling] Executing: {tool_name} with args: {arguments}")
@@ -1054,9 +1037,13 @@ class FunctionCallingExecutor:
         status = "ok" if success else "failed"
         detail = ""
         if isinstance(data, dict):
-            result_summary = data.get("result_summary")
-            if result_summary:
-                detail = f" | {result_summary}"
+            result_preview = data.get("result_preview")
+            if result_preview:
+                detail = f" | {result_preview}"
+            elif isinstance(data.get("worker_result"), dict):
+                summary = str(data["worker_result"].get("summary", "")).strip()
+                if summary:
+                    detail = f" | {summary}"
             elif data.get("match_count") is not None:
                 detail = f" | matches={data.get('match_count')}"
             elif data.get("return_code") is not None:
@@ -1084,21 +1071,10 @@ class FunctionCallingExecutor:
             return "ALL_TOOLS_FAILED"
         return "EMPTY_FINAL_RESPONSE"
 
-    def _should_orchestrate_plan(
-        self,
-        arguments: Dict[str, Any],
-        worker_strategy: Optional[Dict[str, Any]],
-    ) -> bool:
-        if not isinstance(worker_strategy, dict):
-            return False
-        if str(arguments.get("action", "launch")) != "launch":
-            return False
-        return str(worker_strategy.get("execution_mode", "")) == "plan_and_decompose"
-
     def _normalize_agent_launch_arguments(
         self,
         arguments: Dict[str, Any],
-        worker_strategy: Optional[Dict[str, Any]],
+        orchestration_strategy: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         normalized = dict(arguments)
         action = str(normalized.get("action", "launch"))
@@ -1106,148 +1082,13 @@ class FunctionCallingExecutor:
             return normalized
         if "run_in_background" not in normalized:
             normalized["run_in_background"] = True
-        if not isinstance(worker_strategy, dict):
+        if not isinstance(orchestration_strategy, dict):
             return normalized
 
-        preferred_type = str(worker_strategy.get("preferred_subagent_type", "")).strip()
-        enforce_type = bool(worker_strategy.get("enforce_subagent_type", False))
-        if enforce_type and preferred_type:
-            normalized["subagent_type"] = preferred_type
-        elif preferred_type and not str(normalized.get("subagent_type", "")).strip():
+        preferred_type = str(orchestration_strategy.get("default_leaf_type", "")).strip()
+        if preferred_type and not str(normalized.get("subagent_type", "")).strip():
             normalized["subagent_type"] = preferred_type
         return normalized
-
-    async def _execute_agent_plan_workflow(
-        self,
-        tool_call: ToolCall,
-        arguments: Dict[str, Any],
-        context: Any,
-        start_time: float,
-    ) -> ToolCallResult:
-        from ...tools.schema import ToolErrorCode
-
-        plan_args = dict(arguments)
-        plan_args["action"] = "launch"
-        plan_args["subagent_type"] = "Plan"
-        plan_args["run_in_background"] = False
-
-        plan_result = await self.tool_registry.execute("agent", plan_args, context)
-        if not plan_result.success:
-            return ToolCallResult(
-                tool_call_id=tool_call.id,
-                tool_name="agent",
-                success=False,
-                data=plan_result.data,
-                error=plan_result.error,
-                error_code=getattr(plan_result, "error_code", ToolErrorCode.EXECUTION_ERROR.value),
-                execution_time=time.time() - start_time,
-            )
-
-        plan_state = plan_result.data if isinstance(plan_result.data, dict) else {}
-        plan_content = str(plan_state.get("result") or "").strip()
-        try:
-            parsed_plan = self._parse_plan_result(plan_content)
-        except ValueError as exc:
-            return ToolCallResult(
-                tool_call_id=tool_call.id,
-                tool_name="agent",
-                success=False,
-                error=str(exc),
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
-                execution_time=time.time() - start_time,
-            )
-
-        worker_groups = self._group_plan_subtasks(parsed_plan["subtasks"])
-        aggregated_workers: List[Dict[str, Any]] = []
-        for group_workers in worker_groups:
-            batch_result = await self.tool_registry.execute(
-                "agent",
-                {
-                    "action": "launch",
-                    "workers": group_workers,
-                    "parallel": True,
-                    "run_in_background": False,
-                },
-                context,
-            )
-            batch_data = batch_result.data if isinstance(batch_result.data, dict) else {}
-            batch_workers = batch_data.get("workers", []) if isinstance(batch_data.get("workers"), list) else []
-            aggregated_workers.extend(batch_workers)
-            if not batch_result.success:
-                return ToolCallResult(
-                    tool_call_id=tool_call.id,
-                    tool_name="agent",
-                    success=False,
-                    data={
-                        "plan": parsed_plan,
-                        "workers": [self.postprocessor._compact_agent_data(item) for item in aggregated_workers],
-                    },
-                    error=batch_result.error or "Planner workflow failed while executing subtasks",
-                    error_code=getattr(batch_result, "error_code", ToolErrorCode.EXECUTION_ERROR.value),
-                    execution_time=time.time() - start_time,
-                )
-
-        compact_workers = [self.postprocessor._compact_agent_data(item) for item in aggregated_workers]
-        result_summary = parsed_plan.get("summary", "").strip() or "Planner completed structured decomposition."
-        return ToolCallResult(
-            tool_call_id=tool_call.id,
-            tool_name="agent",
-            success=True,
-            data={
-                "worker_id": plan_state.get("worker_id"),
-                "status": "completed",
-                "subagent_type": "Plan",
-                "description": plan_state.get("description"),
-                "result_summary": result_summary,
-                "plan": parsed_plan,
-                "workers": compact_workers,
-                "needs_await": False,
-            },
-            execution_time=time.time() - start_time,
-        )
-
-    def _parse_plan_result(self, content: str) -> Dict[str, Any]:
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise ValueError("Plan worker did not produce valid JSON output") from exc
-        if not isinstance(parsed, dict):
-            raise ValueError("Plan worker result must be a JSON object")
-        subtasks = parsed.get("subtasks")
-        if not isinstance(subtasks, list) or not subtasks:
-            raise ValueError("Plan worker result must include non-empty subtasks")
-        normalized_subtasks: List[Dict[str, Any]] = []
-        for item in subtasks:
-            if not isinstance(item, dict):
-                raise ValueError("Plan worker subtasks must be objects")
-            normalized_subtasks.append(
-                {
-                    "description": str(item.get("description", "")).strip(),
-                    "subagent_type": str(item.get("subagent_type", "")).strip(),
-                    "prompt": str(item.get("prompt", "")).strip(),
-                    "parallel_group": str(item.get("parallel_group", "default")).strip() or "default",
-                }
-            )
-        for item in normalized_subtasks:
-            if not item["description"] or not item["subagent_type"] or not item["prompt"]:
-                raise ValueError("Plan worker subtasks require description, subagent_type, and prompt")
-        return {
-            "summary": str(parsed.get("summary", "")).strip(),
-            "subtasks": normalized_subtasks,
-        }
-
-    def _group_plan_subtasks(self, subtasks: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
-        grouped: "OrderedDict[str, List[Dict[str, Any]]]" = OrderedDict()
-        for item in subtasks:
-            group = item.get("parallel_group", "default")
-            grouped.setdefault(str(group), []).append(
-                {
-                    "description": item["description"],
-                    "subagent_type": item["subagent_type"],
-                    "prompt": item["prompt"],
-                }
-            )
-        return list(grouped.values())
 
     async def _execute_skill(
         self,

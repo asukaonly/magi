@@ -10,6 +10,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from ...agent.orchestration import WorkerResult, get_orchestration_store
 from ...core.logger import get_logger
 from ...events.events import Event, EventLevel
 from ...agent.execution.function_calling import FunctionCallingExecutor
@@ -39,6 +40,10 @@ class WorkerRunState:
     subagent_type: str
     description: str
     prompt: str
+    orchestration_id: Optional[str]
+    subtask_id: Optional[str]
+    parent_task_agent_type: str
+    parent_task_agent_id: str
     target_task_agent_type: str
     target_task_agent_id: str
     user_id: str
@@ -47,10 +52,11 @@ class WorkerRunState:
     status: str = "running"
     updated_at: float = 0.0
     completed_at: Optional[float] = None
-    result: Optional[str] = None
-    result_summary: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    result_preview: Optional[str] = None
     error: Optional[str] = None
     failure_reason: Optional[str] = None
+    retry_count: int = 0
     task: Optional[asyncio.Task] = None
 
 
@@ -83,6 +89,7 @@ class WorkerAgentManager(Tool):
         self._tool_registry: ToolRegistry = tool_registry
         self._runs: Dict[str, WorkerRunState] = {}
         self._lock = asyncio.Lock()
+        self._orchestration_store = get_orchestration_store()
         super().__init__()
 
     def _init_schema(self) -> None:
@@ -198,6 +205,39 @@ class WorkerAgentManager(Tool):
                     description="Target task agent id to receive worker facts",
                     required=False,
                 ),
+                ToolParameter(
+                    name="orchestration_id",
+                    type=ParameterType.STRING,
+                    description="Parent orchestration id when this worker belongs to a task decomposition",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="subtask_id",
+                    type=ParameterType.STRING,
+                    description="Subtask id within the parent orchestration",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="parent_task_agent_type",
+                    type=ParameterType.STRING,
+                    description="Parent task agent type that owns this worker",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="parent_task_agent_id",
+                    type=ParameterType.STRING,
+                    description="Parent task agent id that owns this worker",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="retry_count",
+                    type=ParameterType.INTEGER,
+                    description="Retry attempt count for this worker launch",
+                    required=False,
+                    default=0,
+                    min_value=0,
+                    max_value=3,
+                ),
             ],
             examples=[
                 {
@@ -307,6 +347,8 @@ class WorkerAgentManager(Tool):
                     "subagent_type": run_state.subagent_type,
                     "description": run_state.description,
                     "run_in_background": True,
+                    "orchestration_id": run_state.orchestration_id,
+                    "subtask_id": run_state.subtask_id,
                     "target_task_agent_type": run_state.target_task_agent_type,
                     "target_task_agent_id": run_state.target_task_agent_id,
                     "needs_await": True,
@@ -341,11 +383,29 @@ class WorkerAgentManager(Tool):
         description = str(parameters.get("description", "")).strip()
         prompt = str(parameters.get("prompt", "")).strip()
         max_iterations = int(parameters.get("max_iterations", 8))
+        orchestration_id = _optional_string(parameters.get("orchestration_id"))
+        subtask_id = _optional_string(parameters.get("subtask_id"))
+        retry_count = int(parameters.get("retry_count", 0))
 
         user_id = str(context.env_vars.get("user_id", "unknown"))
         session_id = str(context.env_vars.get("session_id", ""))
-        target_task_agent_type = str(parameters.get("target_task_agent_type") or context.env_vars.get("target_task_agent_type") or "chat")
-        target_task_agent_id = str(parameters.get("target_task_agent_id") or context.env_vars.get("target_task_agent_id") or user_id or "default")
+        parent_task_agent_type = str(
+            parameters.get("parent_task_agent_type")
+            or context.env_vars.get("parent_task_agent_type")
+            or parameters.get("target_task_agent_type")
+            or context.env_vars.get("target_task_agent_type")
+            or "chat"
+        )
+        parent_task_agent_id = str(
+            parameters.get("parent_task_agent_id")
+            or context.env_vars.get("parent_task_agent_id")
+            or parameters.get("target_task_agent_id")
+            or context.env_vars.get("target_task_agent_id")
+            or user_id
+            or "default"
+        )
+        target_task_agent_type = str(parameters.get("target_task_agent_type") or parent_task_agent_type)
+        target_task_agent_id = str(parameters.get("target_task_agent_id") or parent_task_agent_id)
 
         worker_id = f"worker_{uuid.uuid4().hex[:10]}"
         created_at = time.time()
@@ -354,12 +414,17 @@ class WorkerAgentManager(Tool):
             subagent_type=subagent_type,
             description=description,
             prompt=prompt,
+            orchestration_id=orchestration_id,
+            subtask_id=subtask_id,
+            parent_task_agent_type=parent_task_agent_type,
+            parent_task_agent_id=parent_task_agent_id,
             target_task_agent_type=target_task_agent_type,
             target_task_agent_id=target_task_agent_id,
             user_id=user_id,
             session_id=session_id,
             created_at=created_at,
             updated_at=created_at,
+            retry_count=retry_count,
         )
 
         selected_tools = self._resolve_tools_for_type(subagent_type)
@@ -425,11 +490,16 @@ class WorkerAgentManager(Tool):
             "worker_count": len(run_states),
             "run_in_background": run_in_background,
             "parallel": parallel,
-            "workers": [self._serialize_run_state(state) for state in run_states],
         }
+        orchestration_ids = {state.orchestration_id for state in run_states if state.orchestration_id}
+        if len(orchestration_ids) == 1:
+            data["orchestration_id"] = next(iter(orchestration_ids))
         if run_in_background:
+            data["status"] = "running"
+            data["worker_ids"] = [state.worker_id for state in run_states]
             return ToolResult(success=True, data=data)
 
+        data["workers"] = [self._serialize_run_state(state) for state in run_states]
         all_success = all(state.status == "completed" for state in run_states)
         return ToolResult(
             success=all_success,
@@ -449,7 +519,12 @@ class WorkerAgentManager(Tool):
         await self._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_PROGRESS,
-            event_payload={
+            internal_payload={
+                "stage": "started",
+                "description": run_state.description,
+                "subagent_type": run_state.subagent_type,
+            },
+            public_payload={
                 "stage": "started",
                 "description": run_state.description,
                 "subagent_type": run_state.subagent_type,
@@ -478,31 +553,55 @@ class WorkerAgentManager(Tool):
             )
             run_state.completed_at = time.time()
             run_state.updated_at = run_state.completed_at
-            run_state.result = outcome.content
-            run_state.result_summary = self._summarize_result(outcome.content)
             run_state.failure_reason = outcome.failure_reason
+            validated_result: Optional[Dict[str, Any]] = None
+            if outcome.succeeded:
+                try:
+                    validated_result = self._validate_worker_result(
+                        subagent_type=run_state.subagent_type,
+                        content=outcome.content,
+                    )
+                except ValueError as exc:
+                    run_state.failure_reason = "INVALID_WORKER_RESULT"
+                    run_state.error = str(exc)
 
-            if outcome.succeeded and run_state.result_summary:
+            if outcome.succeeded and validated_result:
+                run_state.result = validated_result
+                run_state.result_preview = self._preview_worker_result(validated_result)
                 run_state.status = "completed"
+                await self._orchestration_store.save_worker_result(
+                    worker_id=run_state.worker_id,
+                    orchestration_id=run_state.orchestration_id,
+                    subtask_id=run_state.subtask_id,
+                    worker_result=validated_result,
+                )
                 await self._publish_worker_fact(
                     run_state=run_state,
                     event_type=WORKER_AGENT_COMPLETED,
-                    event_payload={
+                    internal_payload={
                         "stage": "completed",
-                        "result_summary": run_state.result_summary,
+                        "worker_result": validated_result,
+                    },
+                    public_payload={
+                        "stage": "completed",
+                        "result_preview": run_state.result_preview,
                     },
                 )
                 return
 
             run_state.status = "failed"
-            run_state.error = outcome.failure_reason or "Worker execution failed"
+            run_state.error = run_state.error or outcome.failure_reason or "Worker execution failed"
             await self._publish_worker_fact(
                 run_state=run_state,
                 event_type=WORKER_AGENT_FAILED,
-                event_payload={
+                internal_payload={
                     "stage": "failed",
                     "error": run_state.error,
-                    "result_summary": run_state.result_summary,
+                },
+                public_payload={
+                    "stage": "failed",
+                    "error": run_state.error,
+                    "result_preview": run_state.result_preview,
                 },
             )
         except Exception as exc:
@@ -519,23 +618,35 @@ class WorkerAgentManager(Tool):
             await self._publish_worker_fact(
                 run_state=run_state,
                 event_type=WORKER_AGENT_FAILED,
-                event_payload={
+                internal_payload={
+                    "stage": "failed",
+                    "error": run_state.error,
+                },
+                public_payload={
                     "stage": "failed",
                     "error": run_state.error,
                 },
             )
 
     async def _handle_tool_result(self, run_state: WorkerRunState, payload: Dict[str, Any]) -> None:
+        result_preview = self._compact_value(payload.get("data"))
         await self._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_PROGRESS,
-            event_payload={
+            internal_payload={
                 "stage": "tool_result",
                 "tool_name": payload.get("tool_name"),
                 "success": bool(payload.get("success")),
                 "execution_time": float(payload.get("execution_time") or 0.0),
                 "error": payload.get("error"),
-                "result_summary": self._compact_value(payload.get("data")),
+            },
+            public_payload={
+                "stage": "tool_result",
+                "tool_name": payload.get("tool_name"),
+                "success": bool(payload.get("success")),
+                "execution_time": float(payload.get("execution_time") or 0.0),
+                "error": payload.get("error"),
+                "result_preview": result_preview,
             },
         )
 
@@ -543,7 +654,8 @@ class WorkerAgentManager(Tool):
         self,
         run_state: WorkerRunState,
         event_type: str,
-        event_payload: Dict[str, Any],
+        internal_payload: Dict[str, Any],
+        public_payload: Optional[Dict[str, Any]] = None,
     ) -> None:
         try:
             from ...core.runtime.contracts import FactRecord
@@ -560,28 +672,45 @@ class WorkerAgentManager(Tool):
             return
 
         now = time.time()
-        payload = {
+        internal_data = {
             "worker_id": run_state.worker_id,
             "worker_status": run_state.status,
             "worker_subagent_type": run_state.subagent_type,
             "worker_description": run_state.description,
             "failure_reason": run_state.failure_reason,
+            "orchestration_id": run_state.orchestration_id,
+            "subtask_id": run_state.subtask_id,
+            "parent_task_agent_type": run_state.parent_task_agent_type,
+            "parent_task_agent_id": run_state.parent_task_agent_id,
             "user_id": run_state.user_id,
             "session_id": run_state.session_id,
             "timestamp": now,
-            **event_payload,
+            **internal_payload,
         }
         fact = FactRecord(
             agent_id=f"{run_state.target_task_agent_type}:{run_state.target_task_agent_id}",
             event_type=event_type,
-            payload=payload,
+            payload=internal_data,
             agent_type=run_state.target_task_agent_type,
             agent_instance_id=run_state.target_task_agent_id,
             timestamp=now,
             correlation_id=run_state.worker_id,
         )
         await manager.add_fact_to_agent(run_state.target_task_agent_type, run_state.target_task_agent_id, fact)
-        await self._publish_worker_bus_event(event_type=event_type, payload=payload, correlation_id=run_state.worker_id)
+        external_data = {
+            "worker_id": run_state.worker_id,
+            "worker_status": run_state.status,
+            "worker_subagent_type": run_state.subagent_type,
+            "worker_description": run_state.description,
+            "failure_reason": run_state.failure_reason,
+            "orchestration_id": run_state.orchestration_id,
+            "subtask_id": run_state.subtask_id,
+            "user_id": run_state.user_id,
+            "session_id": run_state.session_id,
+            "timestamp": now,
+            **(public_payload or internal_payload),
+        }
+        await self._publish_worker_bus_event(event_type=event_type, payload=external_data, correlation_id=run_state.worker_id)
 
     async def _publish_worker_bus_event(
         self,
@@ -743,15 +872,20 @@ class WorkerAgentManager(Tool):
             "status": run_state.status,
             "subagent_type": run_state.subagent_type,
             "description": run_state.description,
+            "orchestration_id": run_state.orchestration_id,
+            "subtask_id": run_state.subtask_id,
+            "parent_task_agent_type": run_state.parent_task_agent_type,
+            "parent_task_agent_id": run_state.parent_task_agent_id,
             "target_task_agent_type": run_state.target_task_agent_type,
             "target_task_agent_id": run_state.target_task_agent_id,
             "created_at": run_state.created_at,
             "updated_at": run_state.updated_at,
             "completed_at": run_state.completed_at,
             "result": run_state.result,
-            "result_summary": run_state.result_summary,
+            "result_preview": run_state.result_preview,
             "error": run_state.error,
             "failure_reason": run_state.failure_reason,
+            "retry_count": run_state.retry_count,
         }
 
     def _normalize_subagent_type(self, subagent_type: str) -> Optional[str]:
@@ -777,8 +911,8 @@ class WorkerAgentManager(Tool):
         base_rules = (
             f"You are worker agent {worker_id}. "
             f"Task summary: {description}. "
-            "You can use tools autonomously and should keep reasoning concise. "
-            "Return a clear final answer with key findings and evidence."
+            "You are a leaf executor. Stay inside the given scope, use tools autonomously when needed, "
+            "and return only the requested structured JSON result."
         )
         tool_rules = (
             "Only use these tools: " + ", ".join(selected_tools)
@@ -797,38 +931,28 @@ Prioritize context-aware layered exploration over exhaustive scans.
 6.Incremental Validation: For each layer, identify the 'Source of Truth' (e.g., index files, main controllers). Provide 2-5 validated findings with absolute paths and a brief 'why it matters'.
 
 STRICT OUTPUT SCHEMA:
-You must format your final response strictly using the following Markdown structure.
-## 1. Exploration Summary
-
-Briefly state the core logic or system boundary you discovered.
-## 2. Architecture / Call Chain (Conditional)
-
-Visualize the code relationships using a mermaid code block.
-Rule A: If exploring module dependencies or system architecture, draw a mermaid Graph (e.g., graph TD). Keep it under 10 nodes.
-Rule B: If exploring a data flow, API request lifecycle, or function call chain, draw a mermaid Sequence Diagram (sequenceDiagram).
-Rule C: If the task is just finding a specific variable or simple file, omit this section entirely.
-
-## 3. Key Findings (The Source of Truth)
-List 2-4 validated discoveries. You must use the following format:
-
-Path: </absolute/path/to/file.ext>
-Role: What this file does in the current context.
-Code Snippet / Link: (Optional) Key function name or class.
-
-## 4. Next Steps & Blind Spots
-State what is still unknown or suggest the next exact command for the Main Agent.
+Return ONLY valid JSON with this schema:
+{
+  "summary": "string",
+  "findings": [{"title": "string", "detail": "string", "path": "string", "why_it_matters": "string"}],
+  "evidence": [{"path": "string", "detail": "string"}],
+  "gaps": ["string"],
+  "next_steps": ["string"]
+}
+Do not emit Markdown, prose before the JSON, or fenced code blocks.
 """
             )
         elif subagent_type == self.TYPE_PLAN:
             role_rules = (
                 "Act as a software architect. Return ONLY valid JSON with this schema: "
-                '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
-                "The plan must be decision-complete, use planner-only decomposition, and keep subtasks bounded."
+                '{"summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
+                "The plan must be decision-complete, keep subtasks bounded, and not include any final user-facing aggregation."
             )
         else:
             role_rules = (
-                "Act as a general-purpose execution agent for complex multi-step tasks. "
-                "Break down work and use tools proactively when uncertain."
+                "Act as a general-purpose leaf execution agent for one bounded task. "
+                "Return ONLY valid JSON with this schema: "
+                '{"summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"]}.'
             )
         return "\n".join([base_rules, role_rules, tool_rules])
 
@@ -848,17 +972,65 @@ State what is still unknown or suggest the next exact command for the Main Agent
             return text
         return text[:limit] + "...(truncated)"
 
-    def _summarize_result(self, result: str, limit: int = 400) -> str:
-        stripped = str(result or "").strip()
+    def _validate_worker_result(self, subagent_type: str, content: str) -> Dict[str, Any]:
+        stripped = str(content or "").strip()
         if not stripped:
-            return ""
-        if stripped.startswith("{"):
-            try:
-                parsed = json.loads(stripped)
-                if isinstance(parsed, dict):
-                    summary = str(parsed.get("summary", "")).strip()
-                    if summary:
-                        return summary[:limit]
-            except json.JSONDecodeError:
-                pass
-        return stripped[:limit]
+            raise ValueError("Worker returned an empty response")
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Worker did not return valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Worker result must be a JSON object")
+        required_keys = {"summary", "findings", "evidence", "gaps", "next_steps"}
+        if not required_keys.issubset(set(parsed.keys())):
+            raise ValueError("Worker result is missing required fields")
+
+        worker_result = WorkerResult.from_dict(parsed)
+        if not worker_result.summary:
+            raise ValueError("Worker result requires a non-empty summary")
+        normalized = worker_result.to_dict()
+
+        if subagent_type == self.TYPE_PLAN:
+            subtasks = parsed.get("subtasks")
+            if not isinstance(subtasks, list) or not subtasks:
+                raise ValueError("Plan worker result must include non-empty subtasks")
+            normalized_subtasks: List[Dict[str, Any]] = []
+            for item in subtasks:
+                if not isinstance(item, dict):
+                    raise ValueError("Plan worker subtasks must be objects")
+                normalized_item = {
+                    "description": str(item.get("description", "")).strip(),
+                    "subagent_type": str(item.get("subagent_type", "")).strip(),
+                    "prompt": str(item.get("prompt", "")).strip(),
+                    "parallel_group": str(item.get("parallel_group", "default")).strip() or "default",
+                }
+                if (
+                    not normalized_item["description"]
+                    or not normalized_item["subagent_type"]
+                    or not normalized_item["prompt"]
+                ):
+                    raise ValueError("Plan worker subtasks require description, subagent_type, and prompt")
+                normalized_subtasks.append(normalized_item)
+            normalized["subtasks"] = normalized_subtasks
+        return normalized
+
+    def _preview_worker_result(self, worker_result: Dict[str, Any], limit: int = 400) -> str:
+        summary = str(worker_result.get("summary", "")).strip()
+        if summary:
+            return summary[:limit]
+        findings = worker_result.get("findings")
+        if isinstance(findings, list) and findings:
+            first = findings[0]
+            if isinstance(first, dict):
+                detail = str(first.get("detail") or first.get("title") or "").strip()
+                if detail:
+                    return detail[:limit]
+        return ""
+
+
+def _optional_string(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

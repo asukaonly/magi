@@ -159,6 +159,39 @@ class AgentTool(Tool):
                     description="Target task agent id to receive worker facts",
                     required=False,
                 ),
+                ToolParameter(
+                    name="orchestration_id",
+                    type=ParameterType.STRING,
+                    description="Parent orchestration id when this worker belongs to a decomposed task",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="subtask_id",
+                    type=ParameterType.STRING,
+                    description="Subtask id within the parent orchestration",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="parent_task_agent_type",
+                    type=ParameterType.STRING,
+                    description="Parent task agent type that owns this worker",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="parent_task_agent_id",
+                    type=ParameterType.STRING,
+                    description="Parent task agent id that owns this worker",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="retry_count",
+                    type=ParameterType.INTEGER,
+                    description="Retry attempt count for this worker launch",
+                    required=False,
+                    default=0,
+                    min_value=0,
+                    max_value=3,
+                ),
             ],
             examples=[
                 {

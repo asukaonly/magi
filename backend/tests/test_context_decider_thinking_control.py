@@ -82,7 +82,7 @@ async def test_context_decider_always_disables_thinking() -> None:
 
     async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
         seen.update(kwargs)
-        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","worker_strategy":{"preferred_subagent_type":"general-purpose","execution_mode":"single","enforce_subagent_type":false}}'
+        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
 
     decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
 
@@ -98,7 +98,7 @@ async def test_context_decider_ignores_context_toggle_and_keeps_disable_thinking
 
     async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
         seen.update(kwargs)
-        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","worker_strategy":{"preferred_subagent_type":"general-purpose","execution_mode":"single","enforce_subagent_type":false}}'
+        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
 
     decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
 
@@ -107,13 +107,14 @@ async def test_context_decider_ignores_context_toggle_and_keeps_disable_thinking
     assert seen["disable_thinking"] is True
 
 
-def test_context_decider_parses_plan_worker_strategy() -> None:
+def test_context_decider_parses_decompose_orchestration_strategy() -> None:
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
 
     decision = decider._parse_response(
-        '{"intent":"planning","tools":["agent"],"deep_thinking":true,"reasoning":"repo architecture","worker_strategy":{"preferred_subagent_type":"Plan","execution_mode":"plan_and_decompose","enforce_subagent_type":true}}'
+        '{"intent":"planning","tools":["agent"],"deep_thinking":true,"reasoning":"repo architecture","orchestration_strategy":{"mode":"decompose","planner":"task_agent","default_leaf_type":"Explore","allow_parallel":true}}'
     )
 
-    assert decision.worker_strategy["preferred_subagent_type"] == "Plan"
-    assert decision.worker_strategy["execution_mode"] == "plan_and_decompose"
-    assert decision.worker_strategy["enforce_subagent_type"] is True
+    assert decision.orchestration_strategy["mode"] == "decompose"
+    assert decision.orchestration_strategy["planner"] == "task_agent"
+    assert decision.orchestration_strategy["default_leaf_type"] == "Explore"
+    assert decision.orchestration_strategy["allow_parallel"] is True

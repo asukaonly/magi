@@ -259,6 +259,19 @@ async def get_conversation_history(
         }
 
 
+@user_messages_router.get("/worker/{worker_id}", response_model=Dict[str, Any])
+async def get_worker_result(worker_id: str, user_id: str = "web_user"):
+    """Get the full structured result for one worker."""
+    read_service = get_chat_read_service()
+    result = read_service.get_worker_result(worker_id)
+    return {
+        "success": result is not None,
+        "worker_id": worker_id,
+        "user_id": user_id,
+        "result": result,
+    }
+
+
 @user_messages_router.post("/history/clear")
 async def clear_conversation_history(
     user_id: str = "web_user",

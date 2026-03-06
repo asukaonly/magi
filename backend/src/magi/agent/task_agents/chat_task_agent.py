@@ -4,12 +4,19 @@ Runtime task agent for chat facts.
 from __future__ import annotations
 
 import json
+import os
 import platform
 import sqlite3
 import time
 import uuid
 from typing import Any, Optional
 
+from ...agent.orchestration import (
+    RETRIABLE_WORKER_FAILURES,
+    SubtaskDefinition,
+    TaskOrchestrationState,
+    get_orchestration_store,
+)
 from ...core.logger import get_logger
 from ...llm.provider_bridge import LLMProviderBridge
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
@@ -24,6 +31,7 @@ from ...skills.loader import SkillLoader
 from ..execution.function_calling import FunctionCallingExecutor
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry
+from ...tools.schema import ToolExecutionContext
 from ...utils.runtime import get_runtime_paths
 from ...core.runtime.contracts import FactRecord
 from ...core.runtime.task_agent import TaskAgent
@@ -89,6 +97,8 @@ class ChatTaskAgent(TaskAgent):
         self._history_cache_max_sessions = history_cache_max_sessions
         self._history_fetch_limit = history_fetch_limit
         self._history_cache_order: list[str] = []  # LRU tracking
+        self._last_batch_facts: list[FactRecord] = []
+        self._orchestration_store = get_orchestration_store()
         runtime_paths = get_runtime_paths()
         self._session_state_file = runtime_paths.data_dir / "chat_sessions.json"
         self._events_db_path = runtime_paths.events_db_path
@@ -98,10 +108,17 @@ class ChatTaskAgent(TaskAgent):
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact
 
+    async def merge_facts(self, new_facts: list[FactRecord]) -> list[FactRecord]:
+        self._last_batch_facts = list(new_facts)
+        return await super().merge_facts(new_facts)
+
     async def build_context(self, merged_facts: list[FactRecord]) -> dict[str, Any]:
         context = await super().build_context(merged_facts)
+        batch_facts = list(self._last_batch_facts)
         latest_fact = context.get("latest_fact")
         payload = latest_fact.payload if isinstance(latest_fact, FactRecord) else {}
+        if not payload and batch_facts:
+            payload = batch_facts[-1].payload if isinstance(batch_facts[-1], FactRecord) else {}
         user_id = str(payload.get("user_id", self.agent_id))
         user_message = str(payload.get("message", "")).strip()
         session_id = self._resolve_session_id(user_id, payload.get("session_id"))
@@ -117,8 +134,15 @@ class ChatTaskAgent(TaskAgent):
                 "session_id": session_id,
                 "history_key": history_key,
                 "history": history,
+                "batch_facts": batch_facts,
             }
         )
+        active_orchestrations = await self._orchestration_store.list_orchestrations(
+            user_id=user_id,
+            session_id=session_id,
+            statuses=["running", "aggregating"],
+        )
+        context["active_orchestrations"] = [item.to_dict() for item in active_orchestrations]
         return context
 
     async def _get_or_load_history(self, user_id: str, session_id: str, history_key: str) -> list[dict]:
@@ -158,16 +182,23 @@ class ChatTaskAgent(TaskAgent):
             logger.debug(f"Evicted history cache for | key={oldest_key}")
 
     async def match_intent(self, context: dict[str, Any]) -> dict[str, Any]:
-        latest_fact = context.get("latest_fact")
-        if isinstance(latest_fact, FactRecord) and latest_fact.event_type in WORKER_AGENT_EVENT_TYPES:
+        batch_facts = context.get("batch_facts", [])
+        worker_batch = [
+            fact
+            for fact in batch_facts
+            if isinstance(fact, FactRecord) and fact.event_type in WORKER_AGENT_EVENT_TYPES
+        ]
+        if worker_batch:
             return {
-                "intent": "worker_fact",
+                "intent": "worker_orchestration_update",
                 "difficulty": "normal",
-                "execution_mode": "fact_only",
+                "execution_mode": "orchestration_update",
                 "tools": [],
                 "deep_thinking": False,
-                "reasoning": "Worker fact update does not require immediate LLM response",
+                "reasoning": "Worker events must update orchestration state before any final response is emitted.",
+                "orchestration_strategy": {},
             }
+        latest_fact = context.get("latest_fact")
         if isinstance(latest_fact, FactRecord) and latest_fact.event_type != EventTypes.USER_MESSAGE:
             return {
                 "intent": "non_user_fact",
@@ -176,6 +207,7 @@ class ChatTaskAgent(TaskAgent):
                 "tools": [],
                 "deep_thinking": False,
                 "reasoning": "Non-user fact does not require immediate LLM response",
+                "orchestration_strategy": {},
             }
 
         user_message = context.get("user_message", "")
@@ -201,19 +233,24 @@ class ChatTaskAgent(TaskAgent):
         return {
             "intent": decision.intent,
             "difficulty": "hard" if decision.deep_thinking else "normal",
-            "execution_mode": "function_calling" if decision.tools else "llm",
+            "execution_mode": (
+                "orchestration_launch"
+                if decision.orchestration_strategy.get("mode") == "decompose" and "agent" in decision.tools
+                else "function_calling" if decision.tools else "llm"
+            ),
             "tools": decision.tools,
             "deep_thinking": decision.deep_thinking,
             "reasoning": decision.reasoning,
-            "worker_strategy": decision.worker_strategy,
+            "orchestration_strategy": decision.orchestration_strategy,
         }
 
     async def match_tools(self, context: dict[str, Any], intent_result: dict[str, Any]) -> dict[str, Any]:
+        execution_mode = str(intent_result.get("execution_mode", "llm"))
         return {
-            "tools": intent_result.get("tools", []),
+            "tools": [] if execution_mode in {"orchestration_launch", "orchestration_update", "fact_only"} else intent_result.get("tools", []),
             "deep_thinking": bool(intent_result.get("deep_thinking", False)),
             "intent": str(intent_result.get("intent", "chat")),
-            "worker_strategy": intent_result.get("worker_strategy", {}),
+            "orchestration_strategy": intent_result.get("orchestration_strategy", {}),
         }
 
     async def assemble_llm_params(
@@ -226,6 +263,17 @@ class ChatTaskAgent(TaskAgent):
         session_id = context["session_id"]
         user_message = context["user_message"]
         history = context["history"]
+        execution_mode = str(intent_result.get("execution_mode", "llm"))
+        if execution_mode in {"fact_only", "orchestration_launch", "orchestration_update"}:
+            return {
+                "user_id": user_id,
+                "session_id": session_id,
+                "user_message": user_message,
+                "history": history,
+                "batch_facts": context.get("batch_facts", []),
+                "orchestration_strategy": tool_result.get("orchestration_strategy", {}),
+                "execution_mode": execution_mode,
+            }
         prompt_context = await self.build_prompt_context(
             context=context,
             intent_result=intent_result,
@@ -242,8 +290,8 @@ class ChatTaskAgent(TaskAgent):
             "tools": tool_result.get("tools", []),
             "deep_thinking": bool(tool_result.get("deep_thinking", False)),
             "intent": str(tool_result.get("intent", "chat")),
-            "worker_strategy": tool_result.get("worker_strategy", {}),
-            "execution_mode": str(intent_result.get("execution_mode", "llm")),
+            "orchestration_strategy": tool_result.get("orchestration_strategy", {}),
+            "execution_mode": execution_mode,
         }
 
     async def build_prompt_context(
@@ -276,8 +324,13 @@ class ChatTaskAgent(TaskAgent):
         return prompt_context
 
     async def call_llm(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
-        if llm_params.get("execution_mode") == "fact_only":
+        execution_mode = llm_params.get("execution_mode")
+        if execution_mode == "fact_only":
             return {"response": "", "skip_emit": True}
+        if execution_mode == "orchestration_launch":
+            return await self._start_orchestration(context, llm_params)
+        if execution_mode == "orchestration_update":
+            return await self._process_worker_updates(context, llm_params)
 
         history = llm_params["history"]
         user_message = llm_params["user_message"]
@@ -299,7 +352,7 @@ class ChatTaskAgent(TaskAgent):
                 disable_thinking=not llm_params["deep_thinking"],
                 intent=llm_params["intent"],
                 execution_agent_id=str(context.get("runtime_key", "chat_agent")),
-                worker_strategy=llm_params.get("worker_strategy"),
+                orchestration_strategy=llm_params.get("orchestration_strategy"),
             )
             response_text = execution_outcome.content
             return {"response": response_text, "execution_outcome": execution_outcome.to_dict()}
@@ -308,17 +361,12 @@ class ChatTaskAgent(TaskAgent):
     async def parse_result(self, context: dict[str, Any], raw_result: Any) -> None:
         if self._action_executor is None:
             return
+        if isinstance(raw_result, dict) and raw_result.get("skip_emit"):
+            return
         latest_fact = context.get("latest_fact")
         if not isinstance(latest_fact, FactRecord):
             return
-        if latest_fact.event_type in WORKER_AGENT_EVENT_TYPES:
-            logger.info(
-                "Worker fact received by chat agent | worker_id=%s event_type=%s",
-                latest_fact.payload.get("worker_id"),
-                latest_fact.event_type,
-            )
-            return
-        if latest_fact.event_type != EventTypes.USER_MESSAGE:
+        if latest_fact.event_type != EventTypes.USER_MESSAGE and latest_fact.event_type not in WORKER_AGENT_EVENT_TYPES:
             return
 
         response_text = str(raw_result.get("response", "")) if isinstance(raw_result, dict) else str(raw_result)
@@ -330,14 +378,20 @@ class ChatTaskAgent(TaskAgent):
             return
         user_id = context["user_id"]
         session_id = context["session_id"]
-        user_message = context["user_message"]
         history_key = context["history_key"]
         history = self._conversation_history.setdefault(history_key, [])
-        history.append({"role": "user", "content": user_message})
+        user_message = str(raw_result.get("root_user_message") or context.get("user_message") or "")
+        if latest_fact.event_type == EventTypes.USER_MESSAGE and user_message:
+            history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": response_text})
-        await self._record_memory_updates(user_id=user_id, user_message=user_message)
+        if user_message:
+            await self._record_memory_updates(user_id=user_id, user_message=user_message)
 
-        correlation_id = latest_fact.correlation_id
+        correlation_id = (
+            str(raw_result.get("correlation_id"))
+            if isinstance(raw_result, dict) and raw_result.get("correlation_id")
+            else latest_fact.correlation_id
+        )
 
         await self._action_executor.emit_chat_response_event(
             user_id=user_id,
@@ -346,7 +400,7 @@ class ChatTaskAgent(TaskAgent):
             correlation_id=correlation_id,
         )
         now = time.time()
-        message_started_at = float(latest_fact.timestamp or now)
+        message_started_at = float(raw_result.get("message_started_at") or latest_fact.timestamp or now) if isinstance(raw_result, dict) else float(latest_fact.timestamp or now)
         response_time = max(0.0, now - message_started_at)
         action_payload = dict(latest_fact.payload) if isinstance(latest_fact.payload, dict) else {}
         action_payload.update(
@@ -356,21 +410,650 @@ class ChatTaskAgent(TaskAgent):
                 "execution_time": response_time,
                 "user_id": user_id,
                 "session_id": session_id,
+                "orchestration_id": raw_result.get("orchestration_id") if isinstance(raw_result, dict) else None,
             }
         )
         await self._action_executor.emit_action_event(
             fact=FactRecord(
                 agent_id=latest_fact.agent_id,
-                event_type=latest_fact.event_type,
+                event_type=EventTypes.AI_RESPONSE if latest_fact.event_type in WORKER_AGENT_EVENT_TYPES else latest_fact.event_type,
                 payload=action_payload,
                 agent_type=latest_fact.agent_type,
                 agent_instance_id=latest_fact.agent_instance_id,
                 timestamp=latest_fact.timestamp,
-                correlation_id=latest_fact.correlation_id,
+                correlation_id=correlation_id,
             ),
             success=True,
             error=None,
         )
+
+    async def _start_orchestration(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
+        user_id = str(llm_params.get("user_id") or context.get("user_id") or self.agent_id)
+        session_id = str(llm_params.get("session_id") or context.get("session_id") or self._resolve_session_id(user_id))
+        user_message = str(llm_params.get("user_message") or context.get("user_message") or "").strip()
+        latest_fact = context.get("latest_fact")
+        orchestration_strategy = llm_params.get("orchestration_strategy", {})
+        plan_payload = await self._generate_subtask_plan(
+            user_message=user_message,
+            history=llm_params.get("history", []),
+            orchestration_strategy=orchestration_strategy,
+            user_id=user_id,
+            session_id=session_id,
+        )
+
+        raw_subtasks = plan_payload.get("subtasks") if isinstance(plan_payload, dict) else []
+        if not isinstance(raw_subtasks, list) or not raw_subtasks:
+            raw_subtasks = self._fallback_subtask_plan(
+                user_message=user_message,
+                default_leaf_type=str(orchestration_strategy.get("default_leaf_type", "Explore")),
+            )
+
+        orchestration_id = f"orch_{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        state = TaskOrchestrationState(
+            orchestration_id=orchestration_id,
+            user_id=user_id,
+            session_id=session_id,
+            root_user_message=user_message,
+            planner=str(orchestration_strategy.get("planner", "task_agent") or "task_agent"),
+            status="running",
+            retry_budget=1,
+            allow_parallel=bool(orchestration_strategy.get("allow_parallel", True)),
+            created_at=now,
+            updated_at=now,
+            correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
+            subtasks=[
+                SubtaskDefinition(
+                    subtask_id=f"subtask_{uuid.uuid4().hex[:10]}",
+                    description=str(item.get("description", "")).strip(),
+                    subagent_type=str(item.get("subagent_type", orchestration_strategy.get("default_leaf_type", "Explore"))).strip() or "Explore",
+                    prompt=self._build_leaf_worker_prompt(
+                        root_user_message=user_message,
+                        subtask_description=str(item.get("description", "")).strip(),
+                        subtask_prompt=str(item.get("prompt", "")).strip(),
+                    ),
+                    parallel_group=str(item.get("parallel_group", "default")).strip() or "default",
+                    status="pending",
+                    created_at=now,
+                    updated_at=now,
+                )
+                for item in raw_subtasks
+                if isinstance(item, dict) and str(item.get("description", "")).strip() and str(item.get("prompt", "")).strip()
+            ],
+        )
+        if not state.subtasks:
+            state.subtasks = [
+                SubtaskDefinition(
+                    subtask_id=f"subtask_{uuid.uuid4().hex[:10]}",
+                    description=str(item.get("description", "")).strip(),
+                    subagent_type=str(item.get("subagent_type", "Explore")).strip() or "Explore",
+                    prompt=self._build_leaf_worker_prompt(
+                        root_user_message=user_message,
+                        subtask_description=str(item.get("description", "")).strip(),
+                        subtask_prompt=str(item.get("prompt", "")).strip(),
+                    ),
+                    parallel_group=str(item.get("parallel_group", "default")).strip() or "default",
+                    status="pending",
+                    created_at=now,
+                    updated_at=now,
+                )
+                for item in self._fallback_subtask_plan(
+                    user_message=user_message,
+                    default_leaf_type=str(orchestration_strategy.get("default_leaf_type", "Explore")),
+                )
+            ]
+
+        await self._orchestration_store.save_orchestration(state)
+        launch_error = await self._launch_orchestration_workers(state)
+        if launch_error:
+            state.status = "failed"
+            state.updated_at = time.time()
+            await self._orchestration_store.save_orchestration(state)
+            return {
+                "response": f"Failed to launch worker subtasks: {launch_error}",
+                "skip_emit": False,
+                "root_user_message": user_message,
+                "correlation_id": state.correlation_id,
+                "orchestration_id": state.orchestration_id,
+            }
+
+        self._append_user_message_to_history(
+            history_key=context["history_key"],
+            user_message=user_message,
+        )
+        return {
+            "response": "",
+            "skip_emit": True,
+            "orchestration_id": orchestration_id,
+        }
+
+    async def _process_worker_updates(self, context: dict[str, Any], llm_params: dict[str, Any]) -> dict[str, Any]:
+        batch_facts = llm_params.get("batch_facts", []) if isinstance(llm_params, dict) else []
+        touched_states: dict[str, TaskOrchestrationState] = {}
+        for fact in batch_facts:
+            if not isinstance(fact, FactRecord) or fact.event_type not in WORKER_AGENT_EVENT_TYPES:
+                continue
+            payload = fact.payload if isinstance(fact.payload, dict) else {}
+            orchestration_id = str(payload.get("orchestration_id", "")).strip()
+            subtask_id = str(payload.get("subtask_id", "")).strip()
+            if not orchestration_id or not subtask_id:
+                continue
+            state = touched_states.get(orchestration_id)
+            if state is None:
+                state = await self._orchestration_store.get_orchestration(orchestration_id)
+            if state is None or state.status in {"completed", "failed"}:
+                continue
+            subtask = state.get_subtask(subtask_id)
+            if subtask is None:
+                continue
+            payload_worker_id = str(payload.get("worker_id", "")).strip()
+            if payload_worker_id and subtask.worker_id and payload_worker_id != subtask.worker_id:
+                continue
+
+            now = time.time()
+            if fact.event_type == "WORKER_AGENT_PROGRESS":
+                if subtask.status == "pending":
+                    subtask.status = "running"
+                subtask.updated_at = now
+                state.updated_at = now
+                touched_states[state.orchestration_id] = state
+                continue
+
+            if fact.event_type == "WORKER_AGENT_COMPLETED":
+                worker_result = payload.get("worker_result")
+                if not isinstance(worker_result, dict) and payload_worker_id:
+                    worker_result = await self._orchestration_store.get_worker_result(payload_worker_id)
+                if not isinstance(worker_result, dict):
+                    subtask.status = "failed"
+                    subtask.failure_reason = "INVALID_WORKER_RESULT"
+                    subtask.updated_at = now
+                    state.updated_at = now
+                    touched_states[state.orchestration_id] = state
+                    continue
+                subtask.worker_result = worker_result
+                subtask.failure_reason = None
+                subtask.status = "completed"
+                subtask.updated_at = now
+                state.updated_at = now
+                touched_states[state.orchestration_id] = state
+                continue
+
+            failure_reason = str(
+                payload.get("failure_reason")
+                or payload.get("error")
+                or "WORKER_FAILED"
+            ).strip()
+            retried = await self._maybe_retry_subtask(state, subtask, failure_reason)
+            if not retried:
+                subtask.status = "failed"
+                subtask.failure_reason = failure_reason
+            subtask.updated_at = now
+            state.updated_at = now
+            touched_states[state.orchestration_id] = state
+
+        for state in touched_states.values():
+            await self._orchestration_store.save_orchestration(state)
+
+        completed_payloads: list[dict[str, Any]] = []
+        for state in touched_states.values():
+            if not self._is_orchestration_terminal(state):
+                continue
+            if state.status == "completed":
+                continue
+            state.status = "aggregating"
+            state.updated_at = time.time()
+            await self._orchestration_store.save_orchestration(state)
+            final_response = await self._aggregate_orchestration(state)
+            state.final_response = final_response
+            state.status = "completed" if final_response.strip() else "failed"
+            state.updated_at = time.time()
+            await self._orchestration_store.save_orchestration(state)
+            if final_response.strip():
+                completed_payloads.append(
+                    {
+                        "response": final_response,
+                        "skip_emit": False,
+                        "root_user_message": state.root_user_message,
+                        "correlation_id": state.correlation_id,
+                        "orchestration_id": state.orchestration_id,
+                        "message_started_at": state.created_at,
+                    }
+                )
+
+        if not completed_payloads:
+            return {"response": "", "skip_emit": True}
+        if len(completed_payloads) == 1:
+            return completed_payloads[0]
+
+        combined = "\n\n".join(
+            item["response"]
+            for item in completed_payloads
+            if str(item.get("response", "")).strip()
+        )
+        first = completed_payloads[0]
+        return {
+            "response": combined,
+            "skip_emit": False,
+            "root_user_message": first.get("root_user_message"),
+            "correlation_id": first.get("correlation_id"),
+            "orchestration_id": ",".join(
+                str(item.get("orchestration_id", ""))
+                for item in completed_payloads
+                if item.get("orchestration_id")
+            ),
+            "message_started_at": first.get("message_started_at"),
+        }
+
+    async def _generate_subtask_plan(
+        self,
+        user_message: str,
+        history: list[dict[str, Any]],
+        orchestration_strategy: dict[str, Any],
+        user_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        planner = str(orchestration_strategy.get("planner", "task_agent") or "task_agent")
+        if planner == "plan_worker":
+            plan_payload = await self._plan_with_plan_worker(
+                user_message=user_message,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            if plan_payload:
+                return plan_payload
+        plan_payload = await self._plan_with_task_agent(
+            user_message=user_message,
+            history=history,
+            orchestration_strategy=orchestration_strategy,
+        )
+        if plan_payload:
+            return plan_payload
+        return {
+            "summary": "Fallback decomposition generated by chat task agent.",
+            "subtasks": self._fallback_subtask_plan(
+                user_message=user_message,
+                default_leaf_type=str(orchestration_strategy.get("default_leaf_type", "Explore")),
+            ),
+        }
+
+    async def _plan_with_task_agent(
+        self,
+        user_message: str,
+        history: list[dict[str, Any]],
+        orchestration_strategy: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        recent_history = [
+            {
+                "role": str(item.get("role", "unknown")),
+                "content": str(item.get("content", ""))[:400],
+            }
+            for item in history[-4:]
+            if isinstance(item, dict) and str(item.get("content", "")).strip()
+        ]
+        planning_prompt = {
+            "user_request": user_message,
+            "recent_history": recent_history,
+            "default_leaf_type": str(orchestration_strategy.get("default_leaf_type", "Explore")),
+            "allow_parallel": bool(orchestration_strategy.get("allow_parallel", True)),
+            "requirements": [
+                "Decompose into bounded leaf subtasks owned by the parent task agent.",
+                "Favor parallel subtasks when there are no strong dependencies.",
+                "For codebase architecture analysis, prefer separate subtasks for directory structure, tech stack, frontend, backend, and project progress when relevant.",
+            ],
+        }
+        system_prompt = (
+            "You are a parent task agent planning bounded leaf subtasks. "
+            "Return ONLY valid JSON with this schema: "
+            '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
+            "Do not answer the user request directly. Produce execution-ready leaf tasks only."
+        )
+        try:
+            response = await self._call_llm(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": json.dumps(planning_prompt, ensure_ascii=False)}],
+                disable_thinking=False,
+            )
+        except Exception as exc:
+            logger.warning("Task-agent planning call failed | error=%s", exc)
+            return None
+        return self._parse_subtask_plan(response)
+
+    async def _plan_with_plan_worker(
+        self,
+        user_message: str,
+        user_id: str,
+        session_id: str,
+    ) -> Optional[dict[str, Any]]:
+        context = self._build_agent_tool_context(user_id=user_id, session_id=session_id)
+        result = await tool_registry.execute(
+            "agent",
+            {
+                "action": "launch",
+                "subagent_type": "Plan",
+                "description": "plan leaf subtasks",
+                "prompt": (
+                    "Decompose the parent task into bounded leaf workers. "
+                    "Return JSON with summary, findings, evidence, gaps, next_steps, and subtasks only. "
+                    f"Parent task: {user_message}"
+                ),
+                "run_in_background": False,
+                "target_task_agent_type": "chat",
+                "target_task_agent_id": user_id,
+                "parent_task_agent_type": "chat",
+                "parent_task_agent_id": user_id,
+            },
+            context,
+        )
+        if not result.success or not isinstance(result.data, dict):
+            return None
+        payload = result.data.get("result")
+        if not isinstance(payload, dict):
+            return None
+        subtasks = payload.get("subtasks")
+        if not isinstance(subtasks, list) or not subtasks:
+            return None
+        return {
+            "summary": str(payload.get("summary", "")).strip(),
+            "subtasks": subtasks,
+        }
+
+    async def _launch_orchestration_workers(self, state: TaskOrchestrationState) -> Optional[str]:
+        context = self._build_agent_tool_context(user_id=state.user_id, session_id=state.session_id)
+        worker_payloads = []
+        for subtask in state.subtasks:
+            worker_payloads.append(
+                {
+                    "subagent_type": subtask.subagent_type,
+                    "description": subtask.description,
+                    "prompt": subtask.prompt,
+                    "orchestration_id": state.orchestration_id,
+                    "subtask_id": subtask.subtask_id,
+                    "parent_task_agent_type": "chat",
+                    "parent_task_agent_id": state.user_id,
+                    "target_task_agent_type": "chat",
+                    "target_task_agent_id": state.user_id,
+                    "retry_count": max(subtask.attempt_count, 0),
+                }
+            )
+        result = await tool_registry.execute(
+            "agent",
+            {
+                "action": "launch",
+                "workers": worker_payloads,
+                "parallel": state.allow_parallel,
+                "run_in_background": True,
+                "target_task_agent_type": "chat",
+                "target_task_agent_id": state.user_id,
+            },
+            context,
+        )
+        if not result.success or not isinstance(result.data, dict):
+            return str(result.error or "Unknown worker launch error")
+        worker_ids = result.data.get("worker_ids")
+        if not isinstance(worker_ids, list) or len(worker_ids) != len(state.subtasks):
+            return "Worker launch did not return a complete worker id list"
+        now = time.time()
+        for subtask, worker_id in zip(state.subtasks, worker_ids):
+            subtask.worker_id = str(worker_id)
+            subtask.status = "running"
+            subtask.attempt_count = max(subtask.attempt_count, 1)
+            subtask.updated_at = now
+        state.updated_at = now
+        await self._orchestration_store.save_orchestration(state)
+        return None
+
+    async def _maybe_retry_subtask(
+        self,
+        state: TaskOrchestrationState,
+        subtask: SubtaskDefinition,
+        failure_reason: str,
+    ) -> bool:
+        if failure_reason not in RETRIABLE_WORKER_FAILURES:
+            return False
+        if subtask.attempt_count > state.retry_budget:
+            return False
+        context = self._build_agent_tool_context(user_id=state.user_id, session_id=state.session_id)
+        next_attempt = subtask.attempt_count + 1
+        result = await tool_registry.execute(
+            "agent",
+            {
+                "action": "launch",
+                "subagent_type": subtask.subagent_type,
+                "description": subtask.description,
+                "prompt": subtask.prompt,
+                "run_in_background": True,
+                "orchestration_id": state.orchestration_id,
+                "subtask_id": subtask.subtask_id,
+                "parent_task_agent_type": "chat",
+                "parent_task_agent_id": state.user_id,
+                "target_task_agent_type": "chat",
+                "target_task_agent_id": state.user_id,
+                "retry_count": next_attempt - 1,
+            },
+            context,
+        )
+        if not result.success or not isinstance(result.data, dict):
+            logger.warning(
+                "Failed to relaunch worker for retry | orchestration_id=%s subtask_id=%s error=%s",
+                state.orchestration_id,
+                subtask.subtask_id,
+                result.error,
+            )
+            return False
+        worker_id = str(result.data.get("worker_id", "")).strip()
+        if not worker_id:
+            return False
+        subtask.worker_id = worker_id
+        subtask.status = "running"
+        subtask.failure_reason = None
+        subtask.worker_result = None
+        subtask.attempt_count = next_attempt
+        subtask.updated_at = time.time()
+        state.updated_at = subtask.updated_at
+        await self._orchestration_store.save_orchestration(state)
+        return True
+
+    async def _aggregate_orchestration(self, state: TaskOrchestrationState) -> str:
+        payload = {
+            "user_request": state.root_user_message,
+            "planner": state.planner,
+            "completed_subtasks": [
+                {
+                    "subtask_id": item.subtask_id,
+                    "description": item.description,
+                    "result": item.worker_result,
+                }
+                for item in state.subtasks
+                if item.status == "completed" and isinstance(item.worker_result, dict)
+            ],
+            "failed_subtasks": [
+                {
+                    "subtask_id": item.subtask_id,
+                    "description": item.description,
+                    "failure_reason": item.failure_reason,
+                    "attempt_count": item.attempt_count,
+                }
+                for item in state.subtasks
+                if item.status == "failed"
+            ],
+        }
+        system_prompt = (
+            "You are the parent task agent for a decomposed task. "
+            "Synthesize a final response from completed leaf worker results. "
+            "Use only the provided worker outputs, mention concrete evidence when available, "
+            "and explicitly call out gaps caused by failed subtasks. "
+            "Do not mention internal implementation details like orchestration ids."
+        )
+        try:
+            response = await self._call_llm(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                disable_thinking=False,
+            )
+        except Exception as exc:
+            logger.warning("Parent aggregation LLM call failed | orchestration_id=%s error=%s", state.orchestration_id, exc)
+            response = ""
+        if response.strip():
+            return response.strip()
+        return self._build_aggregation_fallback(state)
+
+    def _parse_subtask_plan(self, response: str) -> Optional[dict[str, Any]]:
+        raw = str(response or "").strip()
+        if not raw:
+            return None
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        subtasks = payload.get("subtasks")
+        if not isinstance(subtasks, list) or not subtasks:
+            return None
+        normalized = []
+        for item in subtasks:
+            if not isinstance(item, dict):
+                continue
+            normalized_item = {
+                "description": str(item.get("description", "")).strip(),
+                "subagent_type": str(item.get("subagent_type", "Explore")).strip() or "Explore",
+                "prompt": str(item.get("prompt", "")).strip(),
+                "parallel_group": str(item.get("parallel_group", "default")).strip() or "default",
+            }
+            if not normalized_item["description"] or not normalized_item["prompt"]:
+                continue
+            normalized.append(normalized_item)
+        if not normalized:
+            return None
+        return {
+            "summary": str(payload.get("summary", "")).strip(),
+            "subtasks": normalized,
+        }
+
+    def _fallback_subtask_plan(self, user_message: str, default_leaf_type: str) -> list[dict[str, Any]]:
+        is_repo_architecture = any(
+            keyword in user_message.lower()
+            for keyword in ["architecture", "codebase", "repo", "代码架构", "项目架构", "代码库", "目录结构"]
+        )
+        leaf_type = default_leaf_type if default_leaf_type in {"Explore", "general-purpose"} else "Explore"
+        if is_repo_architecture:
+            return [
+                {
+                    "description": "Map repository layout",
+                    "subagent_type": "Explore",
+                    "prompt": "Analyze the top-level directory structure, major modules, and entry folders.",
+                    "parallel_group": "group_a",
+                },
+                {
+                    "description": "Identify technology stack",
+                    "subagent_type": "Explore",
+                    "prompt": "Inspect dependency manifests and boot files to identify the backend, frontend, storage, and runtime stack.",
+                    "parallel_group": "group_a",
+                },
+                {
+                    "description": "Analyze frontend structure",
+                    "subagent_type": "Explore",
+                    "prompt": "Focus on frontend organization, bootstrap flow, routing, and the main UI entry points.",
+                    "parallel_group": "group_a",
+                },
+                {
+                    "description": "Analyze backend modules",
+                    "subagent_type": "Explore",
+                    "prompt": "Focus on backend module boundaries, runtime startup, task agent chain, and the main execution flow.",
+                    "parallel_group": "group_a",
+                },
+                {
+                    "description": "Inspect project progress",
+                    "subagent_type": "Explore",
+                    "prompt": "Look for docs, progress trackers, release notes, or TODO-style files that indicate the current project status and recent progress.",
+                    "parallel_group": "group_a",
+                },
+            ]
+        return [
+            {
+                "description": "Gather primary context",
+                "subagent_type": leaf_type,
+                "prompt": "Collect the most relevant files, modules, and source-of-truth evidence for the request.",
+                "parallel_group": "group_a",
+            },
+            {
+                "description": "Analyze implementation details",
+                "subagent_type": leaf_type,
+                "prompt": "Inspect the core implementation path, dependencies, and behavior that matter for the request.",
+                "parallel_group": "group_a",
+            },
+            {
+                "description": "Summarize risks and gaps",
+                "subagent_type": leaf_type,
+                "prompt": "Identify open questions, gaps, and next actions needed to complete the request.",
+                "parallel_group": "group_b",
+            },
+        ]
+
+    def _build_leaf_worker_prompt(
+        self,
+        root_user_message: str,
+        subtask_description: str,
+        subtask_prompt: str,
+    ) -> str:
+        return "\n".join(
+            [
+                f"Parent user request: {root_user_message}",
+                f"Assigned subtask: {subtask_description}",
+                "Task-specific instructions:",
+                subtask_prompt,
+                "Success criteria:",
+                "- Stay strictly within this subtask scope.",
+                "- Use absolute file paths in findings and evidence when you reference code.",
+                "- Prefer validated findings over speculation.",
+                "- If information is missing, put it into gaps instead of guessing.",
+                "- Do not duplicate likely sibling subtasks unless it is necessary evidence.",
+            ]
+        )
+
+    def _build_agent_tool_context(self, user_id: str, session_id: str) -> ToolExecutionContext:
+        return ToolExecutionContext(
+            agent_id=self.runtime_key,
+            workspace=os.getcwd(),
+            env_vars={
+                "user_id": user_id,
+                "session_id": session_id,
+                "target_task_agent_type": "chat",
+                "target_task_agent_id": user_id,
+                "parent_task_agent_type": "chat",
+                "parent_task_agent_id": user_id,
+            },
+            permissions=["authenticated"],
+        )
+
+    def _is_orchestration_terminal(self, state: TaskOrchestrationState) -> bool:
+        if not state.subtasks:
+            return False
+        return all(item.status in {"completed", "failed"} for item in state.subtasks)
+
+    def _build_aggregation_fallback(self, state: TaskOrchestrationState) -> str:
+        lines = [f"Request: {state.root_user_message}", ""]
+        completed = [item for item in state.subtasks if item.status == "completed" and isinstance(item.worker_result, dict)]
+        failed = [item for item in state.subtasks if item.status == "failed"]
+        if completed:
+            lines.append("Completed subtasks:")
+            for item in completed:
+                summary = str(item.worker_result.get("summary", "")).strip()
+                lines.append(f"- {item.description}: {summary or 'Completed with structured findings.'}")
+        if failed:
+            lines.append("")
+            lines.append("Gaps / failed subtasks:")
+            for item in failed:
+                lines.append(f"- {item.description}: {item.failure_reason or 'Unknown failure'}")
+        return "\n".join(lines).strip()
+
+    def _append_user_message_to_history(self, history_key: str, user_message: str) -> None:
+        if not user_message:
+            return
+        history = self._conversation_history.setdefault(history_key, [])
+        if history and history[-1].get("role") == "user" and history[-1].get("content") == user_message:
+            return
+        history.append({"role": "user", "content": user_message})
 
     async def _record_memory_updates(self, user_id: str, user_message: str) -> None:
         if self.memory is not None:
