@@ -27,10 +27,13 @@ class ProviderResponse:
     content: str = ""
     tool_calls: List[ProviderToolCall] = None
     assistant_message: Dict[str, Any] | None = None
+    metadata: Dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.tool_calls is None:
             self.tool_calls = []
+        if self.metadata is None:
+            self.metadata = {}
 
 
 class LLMProviderBridge:
@@ -109,6 +112,11 @@ class LLMProviderBridge:
             extra_body = self._disabled_thinking_extra_body(disable_thinking)
             if extra_body:
                 chat_kwargs["extra_body"] = extra_body
+
+        if getattr(self.llm, "_client", None) is not None:
+            chat_kwargs["model"] = self.llm.model_name
+            response = await self.llm._client.chat.completions.create(**chat_kwargs)
+            return self._parse_openai_response(response)
 
         content = await self.llm.chat(**chat_kwargs)
         return self._build_content_response(content)
@@ -254,9 +262,39 @@ class LLMProviderBridge:
                     "content": message.content or "",
                     "tool_calls": raw_tool_calls,
                 },
+                metadata=self._build_openai_metadata(choice, message, raw_tool_calls),
             )
 
-        return self._build_content_response(message.content or "")
+        response = self._build_content_response(message.content or "")
+        response.metadata = self._build_openai_metadata(choice, message, raw_tool_calls)
+        return response
+
+    def _build_openai_metadata(
+        self,
+        choice: Any,
+        message: Any,
+        raw_tool_calls: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        metadata: Dict[str, Any] = {
+            "provider": self._provider_name() or type(self.llm).__name__,
+            "model": getattr(self.llm, "model_name", "unknown"),
+            "finish_reason": getattr(choice, "finish_reason", None),
+            "tool_call_count": len(raw_tool_calls),
+            "has_content": bool(getattr(message, "content", None)),
+        }
+        if hasattr(message, "model_dump"):
+            try:
+                dumped = message.model_dump()
+                metadata["raw_message"] = dumped
+            except Exception:
+                pass
+        else:
+            metadata["raw_message"] = {
+                "role": getattr(message, "role", None),
+                "content": getattr(message, "content", None),
+                "tool_calls": raw_tool_calls or None,
+            }
+        return metadata
 
     def normalize_content_response(self, content: Any) -> ProviderResponse:
         """Normalize plain text content into ProviderResponse with legacy parsing fallback."""

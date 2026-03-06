@@ -594,13 +594,14 @@ class ExploreTaskAgent(TaskAgent):
         )
         try:
             provider_bridge = LLMProviderBridge(self.llm)
-            response = await provider_bridge.chat(
+            provider_response = await provider_bridge.chat_response(
                 system_prompt=system_prompt,
                 messages=messages,
                 max_tokens=1000,
                 temperature=0.3,
                 disable_thinking=disable_thinking,
             )
+            response = provider_response.content
             duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(
                 llm_logger,
@@ -608,7 +609,16 @@ class ExploreTaskAgent(TaskAgent):
                 response=response,
                 success=True,
                 duration_ms=duration_ms,
+                provider_metadata=provider_response.metadata,
             )
+            if not response.strip():
+                logger.warning(
+                    "ExploreTaskAgent LLM returned empty content | request_id=%s model=%s disable_thinking=%s metadata=%s",
+                    request_id,
+                    model_name,
+                    disable_thinking,
+                    provider_response.metadata,
+                )
             return response
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)

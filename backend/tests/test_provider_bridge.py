@@ -195,7 +195,7 @@ async def test_glm_chat_does_not_add_thinking_flag_when_enabled():
 @pytest.mark.asyncio
 async def test_glm_chat_with_tools_disables_thinking_for_openai_compatible_path():
     message = SimpleNamespace(content="ok", tool_calls=[])
-    response = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
     client = DummyOpenAIClient(response=response)
     llm = DummyLLMAdapter(provider="glm", client=client)
     bridge = LLMProviderBridge(llm)
@@ -208,6 +208,28 @@ async def test_glm_chat_with_tools_disables_thinking_for_openai_compatible_path(
     )
 
     assert client.kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+@pytest.mark.asyncio
+async def test_chat_response_exposes_openai_metadata_for_empty_content():
+    message = SimpleNamespace(content="", tool_calls=[], role="assistant")
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(provider="glm", client=client)
+    bridge = LLMProviderBridge(llm)
+
+    result = await bridge.chat_response(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        disable_thinking=False,
+    )
+
+    assert result.content == ""
+    assert result.metadata is not None
+    assert result.metadata["finish_reason"] == "stop"
+    assert result.metadata["has_content"] is False
+    assert result.metadata["provider"] == "glm"
+    assert result.metadata["raw_message"]["content"] == ""
 
 
 @pytest.mark.asyncio

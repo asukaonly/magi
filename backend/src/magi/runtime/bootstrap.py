@@ -28,7 +28,7 @@ from ..memory.self_memory import SelfMemory
 from ..memory.other_memory import OtherMemory
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationModule, MemoryIntegrationConfig
-from ..memory.scenario_prompts import ScenarioPromptsStore
+from ..memory.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
 from ..llm import create_llm_adapter
 from ..utils.runtime import get_runtime_paths, Runtimepaths, init_runtime_data
 from ..core.logger import get_logger
@@ -225,6 +225,8 @@ async def initialize_chat_agent():
         _scenario_prompts_store = ScenarioPromptsStore(
             db_path=str(runtime_paths.scenario_prompts_db_path)
         )
+        await _scenario_prompts_store.init()
+        await initialize_default_prompts(_scenario_prompts_store, persona_name=current_personality)
 
         sensor_hub = SensorHub(message_bus=_message_bus)
         action_executor = ActionExecutor(message_bus=_message_bus)

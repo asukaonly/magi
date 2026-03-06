@@ -176,6 +176,8 @@ def log_llm_response(
         logger.debug(f"Duration: {duration_ms}ms")
     if error:
         logger.debug(f"error: {error}")
+    if metadata:
+        logger.debug(f"Metadata: {metadata}")
     logger.debug("-" * 80)
     if success and response:
         logger.debug(f"Response:\n{_format_log_text(response, response_max_length, truncate)}")
