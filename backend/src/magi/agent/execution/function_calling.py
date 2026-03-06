@@ -29,6 +29,16 @@ llm_logger = get_llm_logger('function_calling')
 
 
 @dataclass
+class ToolMessageBlock:
+    """One protocol-complete assistant tool-call block plus its tool messages."""
+
+    start: int
+    end: int
+    assistant_message: Dict[str, Any]
+    tool_messages: List[Dict[str, Any]]
+
+
+@dataclass
 class ToolCall:
     """Represents a single tool call from LLM"""
     id: str
@@ -758,8 +768,6 @@ class FunctionCallingExecutor:
         tool_name = tool_call.name
         arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
 
-        logger.info(f"[FunctionCalling] Executing: {tool_name} with args: {arguments}")
-
         try:
             from ...tools.schema import ToolExecutionContext, ToolErrorCode
 
@@ -777,6 +785,7 @@ class FunctionCallingExecutor:
                 intent=intent,
                 tool_name=tool_name,
                 arguments=arguments,
+                execution_workspace=execution_workspace,
             )
             if guardrail_error:
                 return ToolCallResult(
@@ -808,6 +817,15 @@ class FunctionCallingExecutor:
 
             if tool_name == "agent":
                 if self._should_orchestrate_plan(arguments=arguments, worker_strategy=worker_strategy):
+                    logger.info(
+                        "[FunctionCalling] Executing orchestrated agent workflow with args: %s",
+                        {
+                            **arguments,
+                            "action": "launch",
+                            "subagent_type": "Plan",
+                            "run_in_background": False,
+                        },
+                    )
                     return await self._execute_agent_plan_workflow(
                         tool_call=tool_call,
                         arguments=arguments,
@@ -819,6 +837,7 @@ class FunctionCallingExecutor:
                     worker_strategy=worker_strategy,
                 )
 
+            logger.info(f"[FunctionCalling] Executing: {tool_name} with args: {arguments}")
             result = await self.tool_registry.execute(tool_name, arguments, context)
             if not result.success:
                 logger.warning(
@@ -851,41 +870,63 @@ class FunctionCallingExecutor:
         intent: str,
         tool_name: str,
         arguments: Dict[str, Any],
+        execution_workspace: Optional[str] = None,
     ) -> tuple[Dict[str, Any], Optional[str]]:
-        """Apply strict guardrails for explore workers to avoid exhaustive scans."""
-        if intent != "worker_explore":
+        """Apply strict guardrails for bounded scan-oriented workers."""
+        if intent not in {"worker_explore", "worker_plan"}:
             return dict(arguments), None
 
+        scan_label = "Explore" if intent == "worker_explore" else "Plan"
         safe_args = dict(arguments)
         if tool_name == "glob":
             pattern = str(safe_args.get("pattern", "")).strip()
             if not pattern:
-                return {}, "Explore worker guardrail: glob pattern is required."
+                return {}, f"{scan_label} worker guardrail: glob pattern is required."
             if pattern in {"*", "**/*", "**"}:
                 # Downgrade broad scans to a bounded top-level listing instead of failing.
                 safe_args["pattern"] = "*"
                 safe_args["recursive"] = False
             if "recursive" not in safe_args:
                 safe_args["recursive"] = "**" in pattern
-            safe_args["max_results"] = self._bounded_max_results(safe_args.get("max_results"), cap=200)
+            if self._is_workspace_root_path(safe_args.get("path", "."), execution_workspace):
+                safe_args["recursive"] = False
+                if safe_args.get("pattern") in {"", "*", "**/*", "**"}:
+                    safe_args["pattern"] = "*"
+            safe_args["max_results"] = self._bounded_max_results(
+                safe_args.get("max_results"),
+                cap=200 if intent == "worker_explore" else 120,
+            )
             safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
             return safe_args, None
 
         if tool_name == "grep":
             file_glob = str(safe_args.get("glob", "*")).strip()
             path_value = str(safe_args.get("path", ".")).strip()
-            if file_glob in {"*", "**/*", "**"} and path_value in {"", ".", "./"}:
+            if file_glob in {"*", "**/*", "**"} and self._is_workspace_root_path(path_value, execution_workspace):
                 return {}, (
-                    "Explore worker guardrail: root-wide grep is blocked. "
+                    f"{scan_label} worker guardrail: root-wide grep is blocked. "
                     "Use a scoped glob like frontend/**/*.ts or backend/**/*.py."
                 )
             if "recursive" not in safe_args:
                 safe_args["recursive"] = "**" in file_glob
-            safe_args["max_results"] = self._bounded_max_results(safe_args.get("max_results"), cap=200)
+            safe_args["max_results"] = self._bounded_max_results(
+                safe_args.get("max_results"),
+                cap=200 if intent == "worker_explore" else 120,
+            )
             safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
             return safe_args, None
 
         return safe_args, None
+
+    def _is_workspace_root_path(self, path_value: Any, execution_workspace: Optional[str]) -> bool:
+        """Return True when the requested path resolves to the active workspace root."""
+        raw_path = "." if path_value is None else str(path_value).strip()
+        if raw_path in {"", ".", "./"}:
+            return True
+
+        workspace_root = os.path.realpath(execution_workspace or os.getcwd())
+        candidate_path = os.path.realpath(os.path.expandvars(os.path.expanduser(raw_path)))
+        return candidate_path == workspace_root
 
     def _bounded_max_results(self, value: Any, cap: int) -> int:
         """Parse max_results and keep it within [1, cap]."""
@@ -915,37 +956,94 @@ class FunctionCallingExecutor:
 
     def _compact_message_history(self, messages: List[Dict[str, Any]]) -> None:
         """Keep only a few raw tool turns and summarize older ones."""
-        tool_indexes = [idx for idx, msg in enumerate(messages) if msg.get("role") == "tool"]
-        if len(tool_indexes) <= self._RAW_TOOL_HISTORY_LIMIT:
+        completed_blocks = self._collect_completed_tool_blocks(messages)
+        if len(completed_blocks) <= self._RAW_TOOL_HISTORY_LIMIT:
             return
 
-        keep_from = tool_indexes[-self._RAW_TOOL_HISTORY_LIMIT]
+        blocks_to_summarize = completed_blocks[:-self._RAW_TOOL_HISTORY_LIMIT]
         summary_lines: List[str] = []
-        drop_until = keep_from
-        idx = 0
-        while idx < keep_from:
-            msg = messages[idx]
-            if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                tool_call_names = [call.get("function", {}).get("name", "unknown") for call in msg.get("tool_calls", [])]
-                if idx + 1 < len(messages) and messages[idx + 1].get("role") == "tool":
-                    summary_lines.append(self._build_tool_summary(tool_call_names, messages[idx + 1]))
-                    idx += 2
-                    drop_until = idx
-                    continue
-            idx += 1
+        for block in blocks_to_summarize:
+            summary_lines.extend(self._build_block_summaries(block))
 
         if not summary_lines:
             return
+
+        drop_start = blocks_to_summarize[0].start
+        drop_end = blocks_to_summarize[-1].end
+        if drop_start > 0 and self._is_tool_summary_message(messages[drop_start - 1]):
+            existing_summary = self._extract_summary_lines(messages[drop_start - 1])
+            summary_lines = existing_summary + summary_lines
+            drop_start -= 1
 
         summary_message = {
             "role": "assistant",
             "content": "Previous tool activity summary:\n" + "\n".join(summary_lines),
         }
-        del messages[:drop_until]
-        messages.insert(1 if messages and messages[0].get("role") == "user" else 0, summary_message)
+        del messages[drop_start:drop_end]
+        messages.insert(drop_start, summary_message)
 
-    def _build_tool_summary(self, tool_names: List[str], tool_message: Dict[str, Any]) -> str:
-        tool_name = tool_names[0] if tool_names else "unknown"
+    def _collect_completed_tool_blocks(self, messages: List[Dict[str, Any]]) -> List[ToolMessageBlock]:
+        """Collect protocol-complete assistant/tool blocks from message history."""
+        blocks: List[ToolMessageBlock] = []
+        index = 0
+        while index < len(messages):
+            message = messages[index]
+            if message.get("role") != "assistant" or not message.get("tool_calls"):
+                index += 1
+                continue
+
+            tool_calls = message.get("tool_calls", [])
+            expected_tool_messages = len(tool_calls) if isinstance(tool_calls, list) else 0
+            if expected_tool_messages <= 0:
+                index += 1
+                continue
+
+            tool_messages: List[Dict[str, Any]] = []
+            next_index = index + 1
+            while next_index < len(messages) and messages[next_index].get("role") == "tool":
+                tool_messages.append(messages[next_index])
+                next_index += 1
+
+            if len(tool_messages) < expected_tool_messages:
+                break
+
+            blocks.append(
+                ToolMessageBlock(
+                    start=index,
+                    end=index + 1 + len(tool_messages),
+                    assistant_message=message,
+                    tool_messages=tool_messages[:expected_tool_messages],
+                )
+            )
+            index = next_index
+
+        return blocks
+
+    def _build_block_summaries(self, block: ToolMessageBlock) -> List[str]:
+        """Build deterministic summaries for one completed tool block."""
+        tool_calls = block.assistant_message.get("tool_calls", [])
+        if not isinstance(tool_calls, list):
+            tool_calls = []
+        summaries: List[str] = []
+        for call, tool_message in zip(tool_calls, block.tool_messages):
+            tool_name = call.get("function", {}).get("name", "unknown")
+            summaries.append(self._build_tool_summary(tool_name, tool_message))
+        return summaries
+
+    def _is_tool_summary_message(self, message: Dict[str, Any]) -> bool:
+        """Return True for synthetic tool-history summary assistant messages."""
+        if message.get("role") != "assistant":
+            return False
+        content = str(message.get("content", "") or "")
+        return content.startswith("Previous tool activity summary:\n")
+
+    def _extract_summary_lines(self, message: Dict[str, Any]) -> List[str]:
+        """Extract bullet lines from an existing synthetic summary message."""
+        content = str(message.get("content", "") or "")
+        lines = content.splitlines()[1:]
+        return [line for line in lines if line.strip()]
+
+    def _build_tool_summary(self, tool_name: str, tool_message: Dict[str, Any]) -> str:
         try:
             payload = json.loads(str(tool_message.get("content", "{}")))
         except json.JSONDecodeError:

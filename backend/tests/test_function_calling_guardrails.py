@@ -3,6 +3,7 @@ Tests for explore-worker guardrails in function-calling execution.
 """
 from __future__ import annotations
 
+import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from magi.llm.base import LLMAdapter
@@ -132,3 +133,35 @@ def test_explore_guardrail_clamps_max_results_for_grep() -> None:
     assert guarded_args["max_results"] == 200
     assert guarded_args["recursive"] is True
     assert "dist" in guarded_args["exclude"]
+
+
+def test_plan_guardrail_rewrites_root_recursive_glob_to_bounded_scan() -> None:
+    executor = _executor()
+    guarded_args, error = executor._apply_worker_explore_guardrails(
+        intent="worker_plan",
+        tool_name="glob",
+        arguments={"pattern": "**/*", "path": "/tmp/repo", "recursive": True, "max_results": 5000},
+        execution_workspace="/tmp/repo",
+    )
+
+    assert error is None
+    assert guarded_args["pattern"] == "*"
+    assert guarded_args["recursive"] is False
+    assert guarded_args["max_results"] == 120
+    assert "node_modules" in guarded_args["exclude"]
+
+
+def test_plan_guardrail_blocks_root_wide_grep_in_workspace() -> None:
+    executor = _executor()
+    guarded_args, error = executor._apply_worker_explore_guardrails(
+        intent="worker_plan",
+        tool_name="grep",
+        arguments={"pattern": "TODO", "glob": "**/*", "path": "~/repo"},
+        execution_workspace=os.path.expanduser("~/repo"),
+    )
+
+    assert guarded_args == {}
+    assert error == (
+        "Plan worker guardrail: root-wide grep is blocked. "
+        "Use a scoped glob like frontend/**/*.ts or backend/**/*.py."
+    )

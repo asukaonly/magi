@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -286,6 +287,84 @@ def test_build_tool_message_payload_compacts_agent_run_state() -> None:
     assert payload["data"]["result_summary"].startswith("Found auth flow")
     assert "created_at" not in payload["data"]
     assert "target_task_agent_id" not in payload["data"]
+
+
+def test_compact_message_history_preserves_protocol_for_multi_tool_blocks() -> None:
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+    messages: List[Dict[str, Any]] = [{"role": "user", "content": "analyze repo"}]
+
+    for index in range(1, 6):
+        tool_name = f"tool_{index}"
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": f"call_{index}",
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": "{}"},
+                    }
+                ],
+            }
+        )
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"call_{index}",
+                "content": json.dumps({"success": True, "data": {"result_summary": f"ok {index}"}, "error": None}),
+            }
+        )
+
+    messages.append(
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_6_a",
+                    "type": "function",
+                    "function": {"name": "glob", "arguments": "{}"},
+                },
+                {
+                    "id": "call_6_b",
+                    "type": "function",
+                    "function": {"name": "grep", "arguments": "{}"},
+                },
+            ],
+        }
+    )
+    messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": "call_6_a",
+            "content": json.dumps({"success": True, "data": {"count": 3}, "error": None}),
+        }
+    )
+
+    executor._compact_message_history(messages)
+
+    assert messages[0]["role"] == "user"
+    assert messages[1]["role"] == "assistant"
+    assert messages[1]["content"].startswith("Previous tool activity summary:\n")
+
+    seen_tool_block = False
+    for index, message in enumerate(messages):
+        if message.get("role") != "tool":
+            continue
+        previous = messages[index - 1] if index > 0 else {}
+        assert previous.get("role") in {"assistant", "tool"}
+        if previous.get("role") == "assistant":
+            assert previous.get("tool_calls")
+            seen_tool_block = True
+
+    assert seen_tool_block is True
+    assert messages[-2]["role"] == "assistant"
+    assert len(messages[-2]["tool_calls"]) == 2
+    assert messages[-1]["role"] == "tool"
 
 
 @pytest.mark.asyncio
