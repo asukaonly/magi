@@ -1,25 +1,26 @@
 """Shared parent-task orchestration for task agents."""
 from __future__ import annotations
 
-import os
 import time
 import uuid
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from ..core.logger import get_logger
 from ..core.runtime.contracts import FactRecord
 from ..tools.registry import ToolRegistry
 from ..tools.schema import ToolExecutionContext
 from .orchestration import (
+    OrchestrationExecutionResult,
     RETRIABLE_WORKER_FAILURES,
     SubtaskDefinition,
+    SubtaskPlan,
     TaskOrchestrationState,
     get_orchestration_store,
 )
 
 logger = get_logger(__name__)
 
-WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, str], Awaitable[dict[str, Any]]]
+WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, str], Awaitable[SubtaskPlan]]
 AggregateCallback = Callable[[TaskOrchestrationState], Awaitable[str]]
 HistoryCallback = Callable[[str, str], None]
 
@@ -60,7 +61,7 @@ class TaskOrchestrator:
         history_key: str,
         correlation_id: Optional[str],
         orchestration_strategy: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> OrchestrationExecutionResult:
         plan_payload = await self._plan_subtasks(
             user_message,
             history,
@@ -68,40 +69,36 @@ class TaskOrchestrator:
             user_id,
             session_id,
         )
-        raw_subtasks = plan_payload.get("subtasks") if isinstance(plan_payload, dict) else []
-        if not isinstance(raw_subtasks, list) or not raw_subtasks:
-            return {
-                "response": "Failed to generate worker subtasks for this request.",
-                "skip_emit": False,
-                "root_user_message": user_message,
-                "correlation_id": correlation_id,
-            }
+        if not plan_payload.subtasks:
+            return OrchestrationExecutionResult(
+                response="Failed to generate worker subtasks for this request.",
+                skip_emit=False,
+                root_user_message=user_message,
+                correlation_id=correlation_id,
+            )
 
         orchestration_id = f"orch_{uuid.uuid4().hex[:12]}"
         now = time.time()
         subtasks = [
             SubtaskDefinition(
                 subtask_id=f"subtask_{uuid.uuid4().hex[:10]}",
-                description=str(item.get("description", "")).strip(),
-                subagent_type=str(item.get("subagent_type", "Explore")).strip() or "Explore",
-                prompt=str(item.get("prompt", "")).strip(),
-                parallel_group=str(item.get("parallel_group", "default")).strip() or "default",
+                description=item.description,
+                subagent_type=item.subagent_type,
+                prompt=item.prompt,
+                parallel_group=item.parallel_group,
                 status="pending",
                 created_at=now,
                 updated_at=now,
             )
-            for item in raw_subtasks
-            if isinstance(item, dict)
-            and str(item.get("description", "")).strip()
-            and str(item.get("prompt", "")).strip()
+            for item in plan_payload.subtasks
         ]
         if not subtasks:
-            return {
-                "response": "Failed to build execution-ready worker subtasks for this request.",
-                "skip_emit": False,
-                "root_user_message": user_message,
-                "correlation_id": correlation_id,
-            }
+            return OrchestrationExecutionResult(
+                response="Failed to build execution-ready worker subtasks for this request.",
+                skip_emit=False,
+                root_user_message=user_message,
+                correlation_id=correlation_id,
+            )
 
         state = TaskOrchestrationState(
             orchestration_id=orchestration_id,
@@ -124,22 +121,22 @@ class TaskOrchestrator:
             state.status = "failed"
             state.updated_at = time.time()
             await self._orchestration_store.save_orchestration(state)
-            return {
-                "response": f"Failed to launch worker subtasks: {launch_error}",
-                "skip_emit": False,
-                "root_user_message": user_message,
-                "correlation_id": state.correlation_id,
-                "orchestration_id": state.orchestration_id,
-            }
+            return OrchestrationExecutionResult(
+                response=f"Failed to launch worker subtasks: {launch_error}",
+                skip_emit=False,
+                root_user_message=user_message,
+                correlation_id=state.correlation_id,
+                orchestration_id=state.orchestration_id,
+            )
 
         self._register_user_message(history_key, user_message)
-        return {
-            "response": "",
-            "skip_emit": True,
-            "orchestration_id": orchestration_id,
-        }
+        return OrchestrationExecutionResult(
+            response="",
+            skip_emit=True,
+            orchestration_id=orchestration_id,
+        )
 
-    async def process_worker_updates(self, batch_facts: list[Any]) -> dict[str, Any]:
+    async def process_worker_updates(self, batch_facts: list[Any]) -> OrchestrationExecutionResult:
         touched_states: dict[str, TaskOrchestrationState] = {}
         for fact in batch_facts:
             if not isinstance(fact, FactRecord) or fact.event_type not in self.WORKER_AGENT_EVENT_TYPES:
@@ -207,7 +204,7 @@ class TaskOrchestrator:
         for state in touched_states.values():
             await self._orchestration_store.save_orchestration(state)
 
-        completed_payloads: list[dict[str, Any]] = []
+        completed_payloads: list[OrchestrationExecutionResult] = []
         for state in touched_states.values():
             if not self._is_terminal(state):
                 continue
@@ -225,38 +222,38 @@ class TaskOrchestrator:
 
             if final_response.strip():
                 completed_payloads.append(
-                    {
-                        "response": final_response,
-                        "skip_emit": False,
-                        "root_user_message": state.root_user_message,
-                        "correlation_id": state.correlation_id,
-                        "orchestration_id": state.orchestration_id,
-                        "message_started_at": state.created_at,
-                    }
+                    OrchestrationExecutionResult(
+                        response=final_response,
+                        skip_emit=False,
+                        root_user_message=state.root_user_message,
+                        correlation_id=state.correlation_id,
+                        orchestration_id=state.orchestration_id,
+                        message_started_at=state.created_at,
+                    )
                 )
 
         if not completed_payloads:
-            return {"response": "", "skip_emit": True}
+            return OrchestrationExecutionResult(response="", skip_emit=True)
         if len(completed_payloads) == 1:
             return completed_payloads[0]
 
         first = completed_payloads[0]
-        return {
-            "response": "\n\n".join(
-                item["response"]
+        return OrchestrationExecutionResult(
+            response="\n\n".join(
+                item.response
                 for item in completed_payloads
-                if str(item.get("response", "")).strip()
+                if str(item.response).strip()
             ),
-            "skip_emit": False,
-            "root_user_message": first.get("root_user_message"),
-            "correlation_id": first.get("correlation_id"),
-            "orchestration_id": ",".join(
-                str(item.get("orchestration_id", ""))
+            skip_emit=False,
+            root_user_message=first.root_user_message,
+            correlation_id=first.correlation_id,
+            orchestration_id=",".join(
+                str(item.orchestration_id or "")
                 for item in completed_payloads
-                if item.get("orchestration_id")
+                if item.orchestration_id
             ),
-            "message_started_at": first.get("message_started_at"),
-        }
+            message_started_at=first.message_started_at,
+        )
 
     async def _launch_workers(self, state: TaskOrchestrationState) -> Optional[str]:
         context = self._build_agent_tool_context(state.user_id, state.session_id)

@@ -123,12 +123,12 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
         )
         return ExecutionResult(
             mode=request.mode,
-            response_text=str(raw_result.get("response", "")),
-            skip_emit=bool(raw_result.get("skip_emit", False)),
-            root_user_message=str(raw_result.get("root_user_message") or request.context.latest_user_message),
-            correlation_id=raw_result.get("correlation_id"),
-            orchestration_id=raw_result.get("orchestration_id"),
-            message_started_at=raw_result.get("message_started_at"),
+            response_text=raw_result.response,
+            skip_emit=raw_result.skip_emit,
+            root_user_message=raw_result.root_user_message or request.context.latest_user_message,
+            correlation_id=raw_result.correlation_id,
+            orchestration_id=raw_result.orchestration_id,
+            message_started_at=raw_result.message_started_at,
         )
 
 
@@ -149,10 +149,10 @@ class OrchestrationUpdateHandler(BaseExecutionHandler):
         raw_result = await self._deps.task_orchestrator.process_worker_updates(request.context.batch_facts)
         return ExecutionResult(
             mode=request.mode,
-            response_text=str(raw_result.get("response", "")),
-            skip_emit=bool(raw_result.get("skip_emit", False)),
-            root_user_message=str(raw_result.get("root_user_message") or request.context.latest_user_message),
-            correlation_id=raw_result.get("correlation_id"),
-            orchestration_id=raw_result.get("orchestration_id"),
-            message_started_at=raw_result.get("message_started_at"),
+            response_text=raw_result.response,
+            skip_emit=raw_result.skip_emit,
+            root_user_message=raw_result.root_user_message or request.context.latest_user_message,
+            correlation_id=raw_result.correlation_id,
+            orchestration_id=raw_result.orchestration_id,
+            message_started_at=raw_result.message_started_at,
         )

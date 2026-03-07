@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, TaskOrchestrationState
+from magi.agent.orchestration import OrchestrationStore, PlannedSubtask, SubtaskDefinition, SubtaskPlan, TaskOrchestrationState
 from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
 from magi.agent.task_agents.chat import planning_service as planning_service_module
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
@@ -27,17 +27,17 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
 
     async def _fake_generate_subtask_plan(*args, **kwargs):  # type: ignore[no-untyped-def]
         _ = (args, kwargs)
-        return {
-            "summary": "planned",
-            "subtasks": [
-                {
-                    "description": "scan backend",
-                    "subagent_type": "Explore",
-                    "prompt": "Inspect backend layout",
-                    "parallel_group": "group_a",
-                }
+        return SubtaskPlan(
+            summary="planned",
+            subtasks=[
+                PlannedSubtask(
+                    description="scan backend",
+                    subagent_type="Explore",
+                    prompt="Inspect backend layout",
+                    parallel_group="group_a",
+                )
             ],
-        }
+        )
 
     async def _fake_launch(state):  # type: ignore[no-untyped-def]
         state.subtasks[0].worker_id = "worker_1"

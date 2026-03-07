@@ -52,6 +52,62 @@ class WorkerResult:
 
 
 @dataclass
+class PlannedSubtask:
+    """Execution-ready leaf worker definition before persistence."""
+
+    description: str
+    subagent_type: str
+    prompt: str
+    parallel_group: str = "default"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> Optional["PlannedSubtask"]:
+        description = str(payload.get("description", "")).strip()
+        prompt = str(payload.get("prompt", "")).strip()
+        if not description or not prompt:
+            return None
+        return cls(
+            description=description,
+            subagent_type=str(payload.get("subagent_type", "Explore")).strip() or "Explore",
+            prompt=prompt,
+            parallel_group=str(payload.get("parallel_group", "default")).strip() or "default",
+        )
+
+
+@dataclass
+class SubtaskPlan:
+    """Normalized subtask plan returned by planning services."""
+
+    summary: str = ""
+    subtasks: List[PlannedSubtask] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "summary": self.summary,
+            "subtasks": [item.to_dict() for item in self.subtasks],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "SubtaskPlan":
+        raw_subtasks = payload.get("subtasks")
+        subtasks: List[PlannedSubtask] = []
+        if isinstance(raw_subtasks, list):
+            for item in raw_subtasks:
+                if not isinstance(item, dict):
+                    continue
+                normalized = PlannedSubtask.from_dict(item)
+                if normalized is not None:
+                    subtasks.append(normalized)
+        return cls(
+            summary=str(payload.get("summary", "")).strip(),
+            subtasks=subtasks,
+        )
+
+
+@dataclass
 class SubtaskDefinition:
     """One leaf worker task owned by a parent task agent orchestration."""
 
@@ -157,6 +213,18 @@ class TaskOrchestrationState:
             if item.subtask_id == subtask_id:
                 return item
         return None
+
+
+@dataclass
+class OrchestrationExecutionResult:
+    """Structured orchestration execution output consumed by handlers."""
+
+    response: str = ""
+    skip_emit: bool = False
+    root_user_message: str = ""
+    correlation_id: Optional[str] = None
+    orchestration_id: Optional[str] = None
+    message_started_at: Optional[float] = None
 
 
 class OrchestrationStore:

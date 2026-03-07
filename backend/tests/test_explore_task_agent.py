@@ -26,7 +26,7 @@ async def test_explore_task_agent_uses_canonical_repo_plan() -> None:
         session_id="s-chat",
     )
 
-    descriptions = [item["description"] for item in plan["subtasks"]]
+    descriptions = [item.description for item in plan.subtasks]
     assert descriptions == [
         "Map repository layout",
         "Identify technology stack",
@@ -34,7 +34,7 @@ async def test_explore_task_agent_uses_canonical_repo_plan() -> None:
         "Analyze backend modules",
         "Inspect project progress",
     ]
-    assert all(item["subagent_type"] == "Explore" for item in plan["subtasks"])
+    assert all(item.subagent_type == "Explore" for item in plan.subtasks)
 
 
 @pytest.mark.asyncio
