@@ -10,7 +10,13 @@ from .sensor_hub import SensorHub
 from .router_agent import RouterAgent
 from .action_executor import ActionExecutor
 from .agent_runtime import AgentRuntime
-from .task_agent import TaskAgent
+from .task_agent import (
+    TaskAgent,
+    TaskAgentExecutionRequest,
+    TaskAgentIntentResult,
+    TaskAgentRuntimeContext,
+    TaskAgentToolSelection,
+)
 from .task_agent_manager import TaskAgentManager
 
 __all__ = [
@@ -24,5 +30,9 @@ __all__ = [
     "ActionExecutor",
     "AgentRuntime",
     "TaskAgent",
+    "TaskAgentRuntimeContext",
+    "TaskAgentIntentResult",
+    "TaskAgentToolSelection",
+    "TaskAgentExecutionRequest",
     "TaskAgentManager",
 ]

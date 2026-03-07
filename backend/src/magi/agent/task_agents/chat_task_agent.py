@@ -8,7 +8,7 @@ from ...agent.task_orchestrator import TaskOrchestrator
 from ...config import get_config
 from ...core.logger import get_logger
 from ...core.runtime.contracts import FactRecord
-from ...core.runtime.task_agent import TaskAgent
+from ...core.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
 from ...core.runtime.types import TaskAgentType
 from ...memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
 from ...skills.executor import SkillExecutor
@@ -21,6 +21,7 @@ from ..execution.function_calling import FunctionCallingExecutor
 from .chat import (
     ChatExecutionCoordinator,
     ChatFactClassifier,
+    IntentDecision,
     ChatPlanningService,
     ChatPostProcessService,
     ChatPromptService,
@@ -30,6 +31,7 @@ from .chat import (
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
+    ToolSelection,
 )
 from .chat.handlers import (
     ChatHandlerDependencies,
@@ -43,7 +45,7 @@ from .common import FactOnlyHandler, OrchestrationLaunchHandler, OrchestrationUp
 logger = get_logger(__name__)
 
 
-class ChatTaskAgent(TaskAgent):
+class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection, ExecutionRequest, ExecutionResult]):
     """Consumes chat facts and delegates execution to typed handlers."""
 
     def __init__(
@@ -165,7 +167,7 @@ class ChatTaskAgent(TaskAgent):
     async def build_context(self, merged_facts: list[FactRecord]) -> ChatRuntimeContext:
         base_context = await super().build_context(merged_facts)
         batch_facts = list(self._last_batch_facts)
-        latest_fact = base_context.get("latest_fact")
+        latest_fact = base_context.latest_fact if isinstance(base_context, TaskAgentRuntimeContext) else None
         classified = self._fact_classifier.classify(
             agent_id=self.agent_id,
             latest_fact=latest_fact,
@@ -180,11 +182,11 @@ class ChatTaskAgent(TaskAgent):
         )
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
-            recent_facts=list(base_context.get("recent_facts", [])),
+            recent_facts=list(base_context.recent_facts if isinstance(base_context, TaskAgentRuntimeContext) else []),
             batch_facts=batch_facts,
             agent_id=self.agent_id,
-            agent_type=str(base_context.get("agent_type", TaskAgentType.CHAT.value)),
-            runtime_key=str(base_context.get("runtime_key", self.runtime_key)),
+            agent_type=str(base_context.agent_type if isinstance(base_context, TaskAgentRuntimeContext) else TaskAgentType.CHAT.value),
+            runtime_key=str(base_context.runtime_key if isinstance(base_context, TaskAgentRuntimeContext) else self.runtime_key),
             user_id=classified.user_id,
             session_id=session_id,
             history_key=self._session_service.history_key(classified.user_id, session_id),

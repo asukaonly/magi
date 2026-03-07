@@ -6,16 +6,18 @@ from typing import Any
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...core.runtime.contracts import FactRecord
-from ...core.runtime.task_agent import TaskAgent
+from ...core.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
 from ...core.runtime.types import TaskAgentType
 from ...tools.registry import tool_registry
 from .common import (
     CommonHandlerDependencies,
+    ExecutionRequest,
+    ExecutionResult,
     ExecutionHandlerRegistry,
-    ExecutionMode,
     FactOnlyHandler,
     OrchestrationLaunchHandler,
     OrchestrationUpdateHandler,
+    ToolSelection,
 )
 from .explore import (
     EXPLORE_TASK_COMPLETED,
@@ -33,7 +35,7 @@ from .explore.coordinator import ExploreIntentDecision
 from .explore.prompt_service import ExplorePromptService
 
 
-class ExploreTaskAgent(TaskAgent):
+class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, ToolSelection, ExecutionRequest, ExecutionResult]):
     """Parent task agent for large Explore tasks composed of leaf Explore workers."""
 
     def __init__(self, agent_id: str, llm_adapter) -> None:
@@ -78,7 +80,7 @@ class ExploreTaskAgent(TaskAgent):
     async def build_context(self, merged_facts: list[FactRecord]) -> ExploreRuntimeContext:
         base_context = await super().build_context(merged_facts)
         batch_facts = list(self._last_batch_facts)
-        latest_fact = base_context.get("latest_fact")
+        latest_fact = base_context.latest_fact if isinstance(base_context, TaskAgentRuntimeContext) else None
         classified = self._fact_classifier.classify(
             agent_id=self.agent_id,
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
@@ -89,11 +91,11 @@ class ExploreTaskAgent(TaskAgent):
         history = self._session_service.get_history(history_key)
         return ExploreRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
-            recent_facts=list(base_context.get("recent_facts", [])),
+            recent_facts=list(base_context.recent_facts if isinstance(base_context, TaskAgentRuntimeContext) else []),
             batch_facts=batch_facts,
             agent_id=self.agent_id,
-            agent_type=str(base_context.get("agent_type", TaskAgentType.EXPLORE.value)),
-            runtime_key=str(base_context.get("runtime_key", self.runtime_key)),
+            agent_type=str(base_context.agent_type if isinstance(base_context, TaskAgentRuntimeContext) else TaskAgentType.EXPLORE.value),
+            runtime_key=str(base_context.runtime_key if isinstance(base_context, TaskAgentRuntimeContext) else self.runtime_key),
             user_id=classified.user_id,
             session_id=classified.session_id,
             history_key=history_key,

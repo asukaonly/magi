@@ -19,6 +19,10 @@ from magi.core.runtime import (
     RouterAgent,
     SensorHub,
     TaskAgent,
+    TaskAgentExecutionRequest,
+    TaskAgentIntentResult,
+    TaskAgentRuntimeContext,
+    TaskAgentToolSelection,
     TaskAgentManager,
     TaskAgentType,
 )
@@ -27,30 +31,38 @@ from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
 
 
-class _FakeChatTaskAgent(TaskAgent):
+class _FakeChatTaskAgent(
+    TaskAgent[
+        TaskAgentRuntimeContext,
+        TaskAgentIntentResult,
+        TaskAgentToolSelection,
+        TaskAgentExecutionRequest,
+        dict,
+    ]
+):
     def __init__(self):
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id="default")
         self.called = 0
         self.last_user_id = None
         self.last_session_id = None
 
-    async def build_context(self, merged_facts: list[FactRecord]) -> dict:
+    async def build_context(self, merged_facts: list[FactRecord]) -> TaskAgentRuntimeContext:
         context = await super().build_context(merged_facts)
-        latest = context["latest_fact"]
+        latest = context.latest_fact
         payload = latest.payload if isinstance(latest, FactRecord) else {}
         self.last_user_id = payload.get("user_id")
         self.last_session_id = payload.get("session_id")
         return context
 
-    async def call_llm(self, context: dict, llm_params: dict) -> dict:
+    async def call_llm(self, context: TaskAgentRuntimeContext, llm_params: TaskAgentExecutionRequest) -> dict:
         _ = (context, llm_params)
         self.called += 1
         return {"response": "ok"}
 
-    async def parse_result(self, context: dict, raw_result):
+    async def parse_result(self, context: TaskAgentRuntimeContext, raw_result):
         if self._action_executor is None:
             return
-        latest = context.get("latest_fact")
+        latest = context.latest_fact
         if isinstance(latest, FactRecord):
             await self._action_executor.emit_action_event(latest, success=True)
 

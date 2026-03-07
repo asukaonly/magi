@@ -5,12 +5,26 @@ from __future__ import annotations
 
 from ...core.logger import get_logger
 from ...core.runtime.contracts import FactRecord
-from ...core.runtime.task_agent import TaskAgent
+from ...core.runtime.task_agent import (
+    TaskAgent,
+    TaskAgentExecutionRequest,
+    TaskAgentIntentResult,
+    TaskAgentRuntimeContext,
+    TaskAgentToolSelection,
+)
 
 logger = get_logger(__name__)
 
 
-class DefaultTaskAgent(TaskAgent):
+class DefaultTaskAgent(
+    TaskAgent[
+        TaskAgentRuntimeContext,
+        TaskAgentIntentResult,
+        TaskAgentToolSelection,
+        TaskAgentExecutionRequest,
+        TaskAgentExecutionRequest,
+    ]
+):
     """Fallback implementation for task-agent types without specialization."""
 
     async def handle_fact(self, fact: FactRecord) -> None:

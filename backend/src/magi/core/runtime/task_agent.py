@@ -4,7 +4,8 @@ TaskAgent base abstraction for multi-instance runtime.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional
+from dataclasses import dataclass, field
+from typing import Generic, Optional, TypeVar, cast
 
 from ...core.logger import get_logger
 from .contracts import FactRecord
@@ -13,7 +14,51 @@ from .types import TaskAgentType, build_task_agent_key, get_task_agent_type_valu
 logger = get_logger(__name__)
 
 
-class TaskAgent:
+@dataclass(slots=True)
+class TaskAgentRuntimeContext:
+    """Base runtime context produced by the shared task-agent loop."""
+
+    latest_fact: Optional[FactRecord]
+    recent_facts: list[FactRecord]
+    agent_id: str
+    agent_type: str
+    runtime_key: str
+
+
+@dataclass(slots=True)
+class TaskAgentIntentResult:
+    """Minimal typed intent result for non-specialized task agents."""
+
+    intent: str
+    difficulty: str = "normal"
+    execution_mode: str = "llm"
+
+
+@dataclass(slots=True)
+class TaskAgentToolSelection:
+    """Minimal typed tool-selection result for non-specialized task agents."""
+
+    tools: list[str] = field(default_factory=list)
+    reasoning: str = "default_no_tool"
+
+
+@dataclass(slots=True)
+class TaskAgentExecutionRequest:
+    """Minimal typed execution payload for the default task-agent pipeline."""
+
+    context: TaskAgentRuntimeContext
+    intent_result: TaskAgentIntentResult
+    tool_result: TaskAgentToolSelection
+
+
+ContextT = TypeVar("ContextT")
+IntentT = TypeVar("IntentT")
+ToolSelectionT = TypeVar("ToolSelectionT")
+RequestT = TypeVar("RequestT")
+ResultT = TypeVar("ResultT")
+
+
+class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
     """Self-looping task agent instance with its own fact queue."""
 
     def __init__(
@@ -115,55 +160,69 @@ class TaskAgent:
             self._fact_memory = self._fact_memory[-self._max_fact_memory :]
         return list(self._fact_memory)
 
-    async def build_context(self, merged_facts: list[FactRecord]) -> Any:
+    async def build_context(self, merged_facts: list[FactRecord]) -> ContextT:
         """Build runtime context from merged facts."""
         latest_fact = merged_facts[-1] if merged_facts else None
-        return {
-            "latest_fact": latest_fact,
-            "recent_facts": merged_facts[-20:],
-            "agent_id": self.agent_id,
-            "agent_type": get_task_agent_type_value(self.agent_type),
-            "runtime_key": self.runtime_key,
-        }
+        return cast(
+            ContextT,
+            TaskAgentRuntimeContext(
+                latest_fact=latest_fact,
+                recent_facts=merged_facts[-20:],
+                agent_id=self.agent_id,
+                agent_type=get_task_agent_type_value(self.agent_type),
+                runtime_key=self.runtime_key,
+            ),
+        )
 
-    async def match_intent(self, context: Any) -> Any:
+    async def match_intent(self, context: ContextT) -> IntentT:
         """Intent and complexity matching for model/tool path selection."""
-        latest_fact = context.get("latest_fact")
+        latest_fact = getattr(context, "latest_fact", None)
         event_type = latest_fact.event_type if isinstance(latest_fact, FactRecord) else "unknown"
-        return {"intent": event_type, "difficulty": "normal", "execution_mode": "llm"}
+        return cast(
+            IntentT,
+            TaskAgentIntentResult(intent=event_type),
+        )
 
-    async def match_tools(self, context: Any, intent_result: Any) -> Any:
+    async def match_tools(self, context: ContextT, intent_result: IntentT) -> ToolSelectionT:
         """Tool matching step."""
-        return {"tools": [], "reasoning": "default_no_tool"}
+        _ = (context, intent_result)
+        return cast(
+            ToolSelectionT,
+            TaskAgentToolSelection(),
+        )
 
     async def assemble_llm_params(
         self,
-        context: Any,
-        intent_result: Any,
-        tool_result: Any,
-    ) -> Any:
+        context: ContextT,
+        intent_result: IntentT,
+        tool_result: ToolSelectionT,
+    ) -> RequestT:
         """Assemble model invocation parameters."""
-        return {
-            "context": context,
-            "intent_result": intent_result,
-            "tool_result": tool_result,
-        }
+        return cast(
+            RequestT,
+            TaskAgentExecutionRequest(
+                context=cast(TaskAgentRuntimeContext, context),
+                intent_result=cast(TaskAgentIntentResult, intent_result),
+                tool_result=cast(TaskAgentToolSelection, tool_result),
+            ),
+        )
 
     async def build_prompt_context(
         self,
-        context: Any,
-        intent_result: Any,
-        tool_result: Any,
-    ) -> Optional[Any]:
+        context: ContextT,
+        intent_result: IntentT,
+        tool_result: ToolSelectionT,
+    ) -> Optional[object]:
         """Build modular prompt context for reusable prompt assembly."""
         _ = (context, intent_result, tool_result)
         return None
 
-    async def call_llm(self, context: Any, llm_params: Any) -> Any:
+    async def call_llm(self, context: ContextT, llm_params: RequestT) -> ResultT:
         """Model/tool execution step."""
-        return llm_params
+        _ = context
+        return cast(ResultT, llm_params)
 
-    async def parse_result(self, context: Any, raw_result: Any) -> None:
+    async def parse_result(self, context: ContextT, raw_result: ResultT) -> None:
         """Parse and emit final result."""
         _ = (context, raw_result)
 
