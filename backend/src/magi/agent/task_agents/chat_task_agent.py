@@ -1148,8 +1148,6 @@ class ChatTaskAgent(TaskAgent):
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.7,
         )
 
         try:

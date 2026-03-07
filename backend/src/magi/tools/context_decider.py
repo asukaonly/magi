@@ -14,12 +14,7 @@ from typing import Dict, Any, Optional, List
 
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
-from ..config.constants import (
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_THINKING_TOKENS,
-    MIN_THINKING_TOKENS,
-    DEFAULT_TOOL_RESPONSE_TOKENS,
-)
+from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 from .registry import ToolRegistry
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
@@ -204,9 +199,6 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 model=self.llm.model_name,
                 system_prompt=self.system_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
-                truncate=False,
-                max_tokens=MIN_THINKING_TOKENS,
-                temperature=0.3,
             )
 
             response = await self.provider_bridge.chat(

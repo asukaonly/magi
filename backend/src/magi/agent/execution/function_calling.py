@@ -621,9 +621,6 @@ class FunctionCallingExecutor:
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
-            tools=tools,
-            max_tokens=DEFAULT_MAX_TOKENS,
-            temperature=0.7,
         )
 
         try:
@@ -692,9 +689,6 @@ class FunctionCallingExecutor:
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
-            max_tokens=DEFAULT_MAX_TOKENS,
-            temperature=0.7,
-            fallback_reason="function_calling_final_response_without_tools",
         )
 
         try:

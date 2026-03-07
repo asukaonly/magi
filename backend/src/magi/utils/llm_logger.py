@@ -143,6 +143,8 @@ def log_llm_request(
             f"  [{i}] {msg.get('role')}: "
             f"{_format_log_text(msg.get('content', ''), message_max_length, truncate)}"
         )
+    if kwargs:
+        logger.debug(f"Parameters: {kwargs}")
     logger.debug("=" * 80)
 
 
