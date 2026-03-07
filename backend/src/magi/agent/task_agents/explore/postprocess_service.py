@@ -6,7 +6,7 @@ from typing import Optional
 
 from ....core.logger import get_logger
 from ....core.runtime.contracts import FactRecord
-from ..common import ExecutionResult
+from ..common import ExecutionResult, ExploreTaskCompletedPayload
 from .constants import EXPLORE_TASK_COMPLETED
 from .contracts import ExploreParseOutcome, ExploreRuntimeContext
 
@@ -28,16 +28,16 @@ class ExplorePostProcessService:
         )
         await self._emit_upstream_fact(
             event_type=EXPLORE_TASK_COMPLETED,
-            user_id=context.user_id,
-            session_id=context.session_id,
             upstream_task_agent_type=context.upstream_task_agent_type,
             upstream_task_agent_id=context.upstream_task_agent_id,
-            payload={
-                "root_user_message": result.root_user_message or context.latest_user_message,
-                "markdown_dossier": response_text,
-                "orchestration_id": result.orchestration_id,
-                "message_started_at": result.message_started_at,
-            },
+            payload=ExploreTaskCompletedPayload(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                root_user_message=result.root_user_message or context.latest_user_message,
+                markdown_dossier=response_text,
+                orchestration_id=result.orchestration_id,
+                message_started_at=result.message_started_at,
+            ),
             correlation_id=correlation_id,
         )
         return ExploreParseOutcome(emitted=True)
@@ -46,11 +46,9 @@ class ExplorePostProcessService:
         self,
         *,
         event_type: str,
-        user_id: str,
-        session_id: str,
         upstream_task_agent_type: str,
         upstream_task_agent_id: str,
-        payload: dict,
+        payload: ExploreTaskCompletedPayload,
         correlation_id: Optional[str],
     ) -> None:
         try:
@@ -65,11 +63,11 @@ class ExplorePostProcessService:
             agent_id=f"{upstream_task_agent_type}:{upstream_task_agent_id}",
             event_type=event_type,
             payload={
-                "user_id": user_id,
-                "session_id": session_id,
+                "user_id": payload.user_id,
+                "session_id": payload.session_id,
                 "upstream_task_agent_type": upstream_task_agent_type,
                 "upstream_task_agent_id": upstream_task_agent_id,
-                **payload,
+                **payload.to_dict(),
             },
             agent_type=upstream_task_agent_type,
             agent_instance_id=upstream_task_agent_id,

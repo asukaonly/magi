@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from ....core.runtime.contracts import FactRecord
 from ....events.events import EventTypes
-from ..common import IncomingFactKind
+from ..common import (
+    ExploreTaskCompletedPayload,
+    GenericFactPayload,
+    IncomingFactKind,
+    TaskFactPayload,
+    UserMessagePayload,
+    WorkerUpdatePayload,
+)
 from ..explore.constants import EXPLORE_TASK_COMPLETED
 
 WORKER_AGENT_EVENT_TYPES = {
@@ -23,7 +30,7 @@ class ClassifiedFact:
     kind: IncomingFactKind
     latest_fact: Optional[FactRecord]
     batch_facts: list[FactRecord]
-    payload: dict[str, Any]
+    payload: TaskFactPayload
     user_id: str
     session_id: str
     user_message: str
@@ -39,21 +46,22 @@ class ChatFactClassifier:
         latest_fact: Optional[FactRecord],
         batch_facts: list[FactRecord],
     ) -> ClassifiedFact:
-        payload = latest_fact.payload if isinstance(latest_fact, FactRecord) and isinstance(latest_fact.payload, dict) else {}
-        if not payload and batch_facts:
+        payload_dict = latest_fact.payload if isinstance(latest_fact, FactRecord) and isinstance(latest_fact.payload, dict) else {}
+        if not payload_dict and batch_facts:
             last_batch = batch_facts[-1]
             if isinstance(last_batch, FactRecord) and isinstance(last_batch.payload, dict):
-                payload = last_batch.payload
+                payload_dict = last_batch.payload
 
         kind = self._detect_kind(latest_fact=latest_fact, batch_facts=batch_facts)
-        user_id = str(payload.get("user_id") or agent_id)
-        session_id = str(payload.get("session_id") or "")
-        user_message = str(payload.get("message") or payload.get("root_user_message") or "").strip()
+        payload = self._normalize_payload(kind=kind, payload=payload_dict, fallback_user_id=agent_id)
+        user_id = self._payload_user_id(payload, fallback_user_id=agent_id)
+        session_id = self._payload_session_id(payload)
+        user_message = self._payload_user_message(payload)
         return ClassifiedFact(
             kind=kind,
             latest_fact=latest_fact,
             batch_facts=batch_facts,
-            payload=dict(payload),
+            payload=payload,
             user_id=user_id,
             session_id=session_id,
             user_message=user_message,
@@ -78,3 +86,37 @@ class ChatFactClassifier:
         if isinstance(latest_fact, FactRecord) and latest_fact.event_type == EventTypes.USER_MESSAGE:
             return IncomingFactKind.USER_MESSAGE
         return IncomingFactKind.OTHER_FACT
+
+    def _normalize_payload(
+        self,
+        *,
+        kind: IncomingFactKind,
+        payload: dict[str, object],
+        fallback_user_id: str,
+    ) -> TaskFactPayload:
+        if kind == IncomingFactKind.USER_MESSAGE:
+            return UserMessagePayload.from_dict(payload, fallback_user_id=fallback_user_id)
+        if kind == IncomingFactKind.WORKER_UPDATE:
+            return WorkerUpdatePayload.from_dict(payload, fallback_user_id=fallback_user_id)
+        if kind == IncomingFactKind.EXPLORE_TASK_COMPLETED:
+            return ExploreTaskCompletedPayload.from_dict(payload, fallback_user_id=fallback_user_id)
+        return GenericFactPayload(raw=dict(payload))
+
+    def _payload_user_id(self, payload: TaskFactPayload, *, fallback_user_id: str) -> str:
+        if isinstance(payload, GenericFactPayload):
+            return str(payload.raw.get("user_id") or fallback_user_id)
+        return str(getattr(payload, "user_id", fallback_user_id) or fallback_user_id)
+
+    def _payload_session_id(self, payload: TaskFactPayload) -> str:
+        if isinstance(payload, GenericFactPayload):
+            return str(payload.raw.get("session_id") or "")
+        return str(getattr(payload, "session_id", "") or "")
+
+    def _payload_user_message(self, payload: TaskFactPayload) -> str:
+        if isinstance(payload, UserMessagePayload):
+            return payload.message
+        if isinstance(payload, ExploreTaskCompletedPayload):
+            return payload.root_user_message
+        if isinstance(payload, GenericFactPayload):
+            return str(payload.raw.get("message") or payload.raw.get("root_user_message") or "").strip()
+        return str(getattr(payload, "message", "") or "").strip()

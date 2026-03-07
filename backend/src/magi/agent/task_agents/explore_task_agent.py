@@ -12,6 +12,7 @@ from .common import (
     ExecutionRequest,
     ExecutionResult,
     ExecutionHandlerRegistry,
+    ExploreTaskRequestPayload,
     FactOnlyHandler,
     OrchestrationLaunchHandler,
     OrchestrationUpdateHandler,
@@ -85,7 +86,12 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
             batch_facts=batch_facts,
         )
         history_key = self._session_service.history_key(classified.user_id, classified.session_id)
-        self._session_service.ingest_history_snapshot(history_key, classified.payload.get("history_snapshot"))
+        history_snapshot = (
+            classified.payload.history_snapshot
+            if isinstance(classified.payload, ExploreTaskRequestPayload)
+            else None
+        )
+        self._session_service.ingest_history_snapshot(history_key, history_snapshot)
         history = self._session_service.get_history(history_key)
         return ExploreRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
@@ -100,8 +106,16 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
             history=history,
             latest_user_message=classified.user_message,
             incoming_fact_kind=classified.kind,
-            upstream_task_agent_type=str(classified.payload.get("upstream_task_agent_type") or TaskAgentType.CHAT.value),
-            upstream_task_agent_id=str(classified.payload.get("upstream_task_agent_id") or classified.user_id),
+            upstream_task_agent_type=(
+                classified.payload.upstream_task_agent_type
+                if isinstance(classified.payload, ExploreTaskRequestPayload)
+                else TaskAgentType.CHAT.value
+            ),
+            upstream_task_agent_id=(
+                classified.payload.upstream_task_agent_id
+                if isinstance(classified.payload, ExploreTaskRequestPayload)
+                else classified.user_id
+            ),
             latest_payload=classified.payload,
         )
 

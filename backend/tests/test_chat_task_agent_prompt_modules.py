@@ -7,6 +7,7 @@ import unittest
 from magi.agent.task_agents.chat import (
     ChatRuntimeContext,
     ExecutionMode,
+    GenericFactPayload,
     IncomingFactKind,
     IntentDecision,
     OrchestrationPlan,
@@ -75,7 +76,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             active_orchestrations=[],
             latest_user_message="今天天气怎么样",
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-            latest_payload={},
+            latest_payload=GenericFactPayload(),
         )
         intent_result = IntentDecision(
             intent="chat",

@@ -17,6 +17,8 @@ from ..common import (
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
+    ExploreTaskCompletedPayload,
+    ExploreTaskRequestPayload,
     ExploreRenderRequest,
     FactOnlyHandler,
     FunctionCallingExecutionResult,
@@ -145,17 +147,18 @@ async def _start_explore_task_agent(
         return None
     latest_fact = request.context.latest_fact
     history = deps.prompt_service.filter_history_for_aggregation(request.context.history)
+    payload = ExploreTaskRequestPayload(
+        user_id=request.context.user_id,
+        session_id=request.context.session_id,
+        message=request.context.latest_user_message,
+        history_snapshot=history,
+        upstream_task_agent_type=TaskAgentType.CHAT.value,
+        upstream_task_agent_id=request.context.user_id,
+    )
     fact = FactRecord(
         agent_id=f"{TaskAgentType.EXPLORE.value}:{request.context.user_id}",
         event_type=EXPLORE_TASK_REQUEST,
-        payload={
-            "message": request.context.latest_user_message,
-            "user_id": request.context.user_id,
-            "session_id": request.context.session_id,
-            "history_snapshot": history,
-            "upstream_task_agent_type": TaskAgentType.CHAT.value,
-            "upstream_task_agent_id": request.context.user_id,
-        },
+        payload=payload.to_dict(),
         agent_type=TaskAgentType.EXPLORE.value,
         agent_instance_id=request.context.user_id,
         timestamp=time.time(),
@@ -192,17 +195,32 @@ class ExploreRenderHandler(BaseExecutionHandler):
     mode = ExecutionMode.EXPLORE_TASK_RENDER
 
     async def build_request(self, request: ExecutionRequest) -> ExploreRenderRequest:
+        latest_payload = request.context.latest_payload
         return ExploreRenderRequest(
             mode=request.mode,
             context=request.context,
             intent=request.intent,
             tool_selection=request.tool_selection,
-            markdown_dossier=str(request.context.latest_payload.get("markdown_dossier") or "").strip(),
-            root_user_message=str(
-                request.context.latest_payload.get("root_user_message") or request.context.latest_user_message
+            markdown_dossier=(
+                latest_payload.markdown_dossier
+                if isinstance(latest_payload, ExploreTaskCompletedPayload)
+                else ""
+            ),
+            root_user_message=(
+                latest_payload.root_user_message
+                if isinstance(latest_payload, ExploreTaskCompletedPayload)
+                else request.context.latest_user_message
             ).strip(),
-            message_started_at=request.context.latest_payload.get("message_started_at"),
-            orchestration_id=request.context.latest_payload.get("orchestration_id"),
+            message_started_at=(
+                latest_payload.message_started_at
+                if isinstance(latest_payload, ExploreTaskCompletedPayload)
+                else None
+            ),
+            orchestration_id=(
+                latest_payload.orchestration_id
+                if isinstance(latest_payload, ExploreTaskCompletedPayload)
+                else None
+            ),
         )
 
     async def execute(self, request: ExploreRenderRequest) -> ExecutionResult:

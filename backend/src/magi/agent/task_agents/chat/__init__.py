@@ -10,9 +10,11 @@ from ..common import (
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
+    GenericFactPayload,
     IncomingFactKind,
     OrchestrationPlan,
     ToolSelection,
+    UserMessagePayload,
 )
 from .coordinator import ChatExecutionCoordinator
 from .fact_classifier import ChatFactClassifier
@@ -34,8 +36,10 @@ __all__ = [
     "ExecutionMode",
     "ExecutionRequest",
     "ExecutionResult",
+    "GenericFactPayload",
     "IncomingFactKind",
     "IntentDecision",
     "OrchestrationPlan",
     "ToolSelection",
+    "UserMessagePayload",
 ]

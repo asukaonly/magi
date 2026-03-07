@@ -142,9 +142,15 @@ class TaskOrchestrator:
         for fact in batch_facts:
             if not isinstance(fact, FactRecord) or fact.event_type not in self.WORKER_AGENT_EVENT_TYPES:
                 continue
-            payload = fact.payload if isinstance(fact.payload, dict) else {}
-            orchestration_id = str(payload.get("orchestration_id", "")).strip()
-            subtask_id = str(payload.get("subtask_id", "")).strip()
+            from .task_agents.common.contracts import WorkerUpdatePayload
+
+            payload = (
+                WorkerUpdatePayload.from_dict(fact.payload, fallback_user_id="")
+                if isinstance(fact.payload, dict)
+                else None
+            )
+            orchestration_id = str(payload.orchestration_id or "").strip() if payload else ""
+            subtask_id = str(payload.subtask_id or "").strip() if payload else ""
             if not orchestration_id or not subtask_id:
                 continue
 
@@ -158,7 +164,7 @@ class TaskOrchestrator:
             if subtask is None:
                 continue
 
-            payload_worker_id = str(payload.get("worker_id", "")).strip()
+            payload_worker_id = str(payload.worker_id or "").strip() if payload else ""
             if payload_worker_id and subtask.worker_id and payload_worker_id != subtask.worker_id:
                 continue
 
@@ -172,11 +178,9 @@ class TaskOrchestrator:
                 continue
 
             if fact.event_type == "WORKER_AGENT_COMPLETED":
-                worker_result = payload.get("worker_result")
-                if not isinstance(worker_result, dict) and payload_worker_id:
+                worker_result = payload.worker_result if payload else None
+                if worker_result is None and payload_worker_id:
                     worker_result = await self._orchestration_store.get_worker_result(payload_worker_id)
-                if isinstance(worker_result, dict):
-                    worker_result = WorkerResult.from_dict(worker_result)
                 if not isinstance(worker_result, WorkerResult):
                     subtask.status = "failed"
                     subtask.failure_reason = "INVALID_WORKER_RESULT"
@@ -193,7 +197,11 @@ class TaskOrchestrator:
                 touched_states[state.orchestration_id] = state
                 continue
 
-            failure_reason = str(payload.get("failure_reason") or payload.get("error") or "WORKER_FAILED").strip()
+            failure_reason = str(
+                (payload.failure_reason if payload else None)
+                or (payload.error if payload else None)
+                or "WORKER_FAILED"
+            ).strip()
             retried = await self._maybe_retry_subtask(state, subtask, failure_reason)
             if not retried:
                 subtask.status = "failed"

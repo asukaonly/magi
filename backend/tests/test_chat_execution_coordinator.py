@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.agent.task_agents.chat import ChatRuntimeContext, ExecutionMode
+from magi.agent.task_agents.chat import ChatRuntimeContext, ExecutionMode, UserMessagePayload
 from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
 from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier, IncomingFactKind
 from magi.agent.task_agents.chat.handlers import ExecutionHandlerRegistry
@@ -69,7 +69,7 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
         active_orchestrations=[],
         latest_user_message="分析代码架构",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=dict(fact.payload),
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
     )
 
     decision = await coordinator.match_intent(context)
