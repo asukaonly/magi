@@ -12,6 +12,7 @@ from ....events.events import EventTypes
 from ....memory.behavior_evolution import SatisfactionLevel
 from ....memory.emotional_state import EngagementLevel, InteractionOutcome
 from ....memory.growth_memory import InteractionType
+from ..common import FunctionCallingExecutionResult
 from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext, ExecutionResult, IncomingFactKind
 from .fact_classifier import WORKER_AGENT_EVENT_TYPES
@@ -60,7 +61,11 @@ class ChatPostProcessService:
 
         response_text = str(result.response_text or "").strip()
         if not response_text:
-            execution_outcome = result.metadata.get("execution_outcome", {})
+            execution_outcome = (
+                result.execution_outcome
+                if isinstance(result, FunctionCallingExecutionResult)
+                else {}
+            )
             if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "failed":
                 failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
                 response_text = f"Execution failed: {failure_reason}"

@@ -62,19 +62,48 @@ class ExecutionRequest:
     context: Any
     intent: Any
     tool_selection: ToolSelection
-    prompt_payload: dict[str, Any] = field(default_factory=dict)
-    tool_payload: dict[str, Any] = field(default_factory=dict)
-    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class DirectLLMRequest(ExecutionRequest):
+    """Typed request for direct LLM rendering."""
+
+    prompt_context: Optional[dict[str, Any]] = None
+    system_prompt: str = ""
+    messages: list[dict[str, str]] = field(default_factory=list)
+    disable_thinking: bool = True
+
+
+@dataclass(slots=True)
+class FunctionCallingRequest(ExecutionRequest):
+    """Typed request for function-calling execution."""
+
+    prompt_context: Optional[dict[str, Any]] = None
+    system_prompt: str = ""
+    selected_tools: list[str] = field(default_factory=list)
+    disable_thinking: bool = True
 
 
 @dataclass(slots=True)
 class OrchestrationLaunchRequest(ExecutionRequest):
     """Execution request for orchestration launch handlers."""
 
+    correlation_id: Optional[str] = None
+
 
 @dataclass(slots=True)
 class OrchestrationUpdateRequest(ExecutionRequest):
     """Execution request for orchestration update handlers."""
+
+
+@dataclass(slots=True)
+class ExploreRenderRequest(ExecutionRequest):
+    """Typed request for chat-side Explore dossier rendering."""
+
+    markdown_dossier: str = ""
+    root_user_message: str = ""
+    message_started_at: Optional[float] = None
+    orchestration_id: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -89,3 +118,10 @@ class ExecutionResult:
     orchestration_id: Optional[str] = None
     message_started_at: Optional[float] = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class FunctionCallingExecutionResult(ExecutionResult):
+    """Execution result carrying structured function-calling outcome details."""
+
+    execution_outcome: dict[str, Any] = field(default_factory=dict)

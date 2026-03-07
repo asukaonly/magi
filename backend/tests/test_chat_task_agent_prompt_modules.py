@@ -89,9 +89,8 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
 
         llm_params = await agent.assemble_llm_params(context, intent_result, tool_result)
 
-        self.assertIn("prompt_context", llm_params.prompt_payload)
-        self.assertIn("system_prompt", llm_params.prompt_payload)
-        system_prompt = llm_params.prompt_payload["system_prompt"]
+        self.assertIsNotNone(llm_params.prompt_context)
+        system_prompt = llm_params.system_prompt
         self.assertIn("# System Definition", system_prompt)
         self.assertIn("# Tool Information", system_prompt)
         self.assertIn("weather", system_prompt)

@@ -12,11 +12,15 @@ from ....memory.context_builder import Scenario
 from ..common import (
     BaseExecutionHandler,
     CommonHandlerDependencies,
+    DirectLLMRequest,
     ExecutionHandlerRegistry,
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
+    ExploreRenderRequest,
     FactOnlyHandler,
+    FunctionCallingExecutionResult,
+    FunctionCallingRequest,
     OrchestrationLaunchHandler,
     OrchestrationUpdateHandler,
 )
@@ -53,28 +57,31 @@ def build_common_handler_dependencies(
 class DirectLLMHandler(BaseExecutionHandler):
     mode = ExecutionMode.DIRECT_LLM
 
-    async def build_request(self, request: ExecutionRequest) -> ExecutionRequest:
+    async def build_request(self, request: ExecutionRequest) -> DirectLLMRequest:
         prompt_context = await self._deps.prompt_service.build_prompt_context(
             user_id=request.context.user_id,
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
         )
-        request.prompt_payload = {
-            "prompt_context": prompt_context,
-            "system_prompt": self._deps.prompt_service.render_system_prompt(prompt_context),
-            "messages": request.context.history[-10:] + [
+        return DirectLLMRequest(
+            mode=request.mode,
+            context=request.context,
+            intent=request.intent,
+            tool_selection=request.tool_selection,
+            prompt_context=prompt_context,
+            system_prompt=self._deps.prompt_service.render_system_prompt(prompt_context),
+            messages=request.context.history[-10:] + [
                 {"role": "user", "content": request.context.latest_user_message}
             ],
-            "disable_thinking": not request.intent.deep_thinking,
-        }
-        return request
+            disable_thinking=not request.intent.deep_thinking,
+        )
 
-    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
+    async def execute(self, request: DirectLLMRequest) -> ExecutionResult:
         response_text = await self._deps.prompt_service.call_llm(
-            system_prompt=request.prompt_payload["system_prompt"],
-            messages=request.prompt_payload["messages"],
-            disable_thinking=bool(request.prompt_payload["disable_thinking"]),
+            system_prompt=request.system_prompt,
+            messages=request.messages,
+            disable_thinking=request.disable_thinking,
         )
         return ExecutionResult(
             mode=request.mode,
@@ -86,32 +93,33 @@ class DirectLLMHandler(BaseExecutionHandler):
 class FunctionCallingHandler(BaseExecutionHandler):
     mode = ExecutionMode.FUNCTION_CALLING
 
-    async def build_request(self, request: ExecutionRequest) -> ExecutionRequest:
+    async def build_request(self, request: ExecutionRequest) -> FunctionCallingRequest:
         prompt_context = await self._deps.prompt_service.build_prompt_context(
             user_id=request.context.user_id,
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
         )
-        request.prompt_payload = {
-            "prompt_context": prompt_context,
-            "system_prompt": self._deps.prompt_service.render_system_prompt(prompt_context),
-        }
-        request.tool_payload = {
-            "selected_tools": request.tool_selection.tools,
-            "disable_thinking": not request.intent.deep_thinking,
-        }
-        return request
+        return FunctionCallingRequest(
+            mode=request.mode,
+            context=request.context,
+            intent=request.intent,
+            tool_selection=request.tool_selection,
+            prompt_context=prompt_context,
+            system_prompt=self._deps.prompt_service.render_system_prompt(prompt_context),
+            selected_tools=list(request.tool_selection.tools),
+            disable_thinking=not request.intent.deep_thinking,
+        )
 
-    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
+    async def execute(self, request: FunctionCallingRequest) -> ExecutionResult:
         execution_outcome = await self._deps.function_calling_executor.execute_with_tools(
             user_message=request.context.latest_user_message,
-            system_prompt=request.prompt_payload["system_prompt"],
-            selected_tools=request.tool_payload["selected_tools"],
+            system_prompt=request.system_prompt,
+            selected_tools=request.selected_tools,
             user_id=request.context.user_id,
             session_id=request.context.session_id,
             conversation_history=request.context.history,
-            disable_thinking=bool(request.tool_payload["disable_thinking"]),
+            disable_thinking=request.disable_thinking,
             intent=request.intent.intent,
             execution_agent_id=request.context.runtime_key,
             orchestration_strategy=(
@@ -120,11 +128,11 @@ class FunctionCallingHandler(BaseExecutionHandler):
                 else None
             ),
         )
-        return ExecutionResult(
+        return FunctionCallingExecutionResult(
             mode=request.mode,
             response_text=execution_outcome.content,
             root_user_message=request.context.latest_user_message,
-            metadata={"execution_outcome": execution_outcome.to_dict()},
+            execution_outcome=execution_outcome.to_dict(),
         )
 
 
@@ -183,21 +191,24 @@ async def _start_explore_task_agent(
 class ExploreRenderHandler(BaseExecutionHandler):
     mode = ExecutionMode.EXPLORE_TASK_RENDER
 
-    async def build_request(self, request: ExecutionRequest) -> ExecutionRequest:
-        request.prompt_payload = {
-            "markdown_dossier": str(request.context.latest_payload.get("markdown_dossier") or "").strip(),
-            "root_user_message": str(
+    async def build_request(self, request: ExecutionRequest) -> ExploreRenderRequest:
+        return ExploreRenderRequest(
+            mode=request.mode,
+            context=request.context,
+            intent=request.intent,
+            tool_selection=request.tool_selection,
+            markdown_dossier=str(request.context.latest_payload.get("markdown_dossier") or "").strip(),
+            root_user_message=str(
                 request.context.latest_payload.get("root_user_message") or request.context.latest_user_message
             ).strip(),
-            "message_started_at": request.context.latest_payload.get("message_started_at"),
-            "orchestration_id": request.context.latest_payload.get("orchestration_id"),
-        }
-        return request
+            message_started_at=request.context.latest_payload.get("message_started_at"),
+            orchestration_id=request.context.latest_payload.get("orchestration_id"),
+        )
 
-    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
-        dossier = str(request.prompt_payload.get("markdown_dossier") or "").strip()
-        root_user_message = str(request.prompt_payload.get("root_user_message") or request.context.latest_user_message).strip()
-        orchestration_id = request.prompt_payload.get("orchestration_id")
+    async def execute(self, request: ExploreRenderRequest) -> ExecutionResult:
+        dossier = request.markdown_dossier
+        root_user_message = str(request.root_user_message or request.context.latest_user_message).strip()
+        orchestration_id = request.orchestration_id
         if not dossier:
             return ExecutionResult(
                 mode=request.mode,
@@ -205,7 +216,7 @@ class ExploreRenderHandler(BaseExecutionHandler):
                 root_user_message=root_user_message,
                 correlation_id=request.context.latest_fact.correlation_id if isinstance(request.context.latest_fact, FactRecord) else None,
                 orchestration_id=orchestration_id,
-                message_started_at=request.prompt_payload.get("message_started_at"),
+                message_started_at=request.message_started_at,
             )
 
         filtered_history = self._deps.prompt_service.filter_history_for_aggregation(request.context.history)
@@ -246,5 +257,5 @@ class ExploreRenderHandler(BaseExecutionHandler):
             root_user_message=root_user_message,
             correlation_id=request.context.latest_fact.correlation_id if isinstance(request.context.latest_fact, FactRecord) else None,
             orchestration_id=orchestration_id,
-            message_started_at=request.prompt_payload.get("message_started_at"),
+            message_started_at=request.message_started_at,
         )

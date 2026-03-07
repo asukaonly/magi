@@ -7,9 +7,12 @@ from typing import Awaitable, Callable, Optional, Protocol
 from ....core.runtime.contracts import FactRecord
 from ...task_orchestrator import TaskOrchestrator
 from .contracts import (
+    DirectLLMRequest,
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
+    ExploreRenderRequest,
+    FunctionCallingRequest,
     OrchestrationLaunchRequest,
     OrchestrationUpdateRequest,
 )
@@ -86,20 +89,16 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
     mode = ExecutionMode.ORCHESTRATION_LAUNCH
 
     async def build_request(self, request: ExecutionRequest) -> OrchestrationLaunchRequest:
-        request.metadata = {
-            **request.metadata,
-            "correlation_id": request.context.latest_fact.correlation_id
-            if isinstance(request.context.latest_fact, FactRecord)
-            else None,
-        }
         return OrchestrationLaunchRequest(
             mode=request.mode,
             context=request.context,
             intent=request.intent,
             tool_selection=request.tool_selection,
-            prompt_payload=dict(request.prompt_payload),
-            tool_payload=dict(request.tool_payload),
-            metadata=dict(request.metadata),
+            correlation_id=(
+                request.context.latest_fact.correlation_id
+                if isinstance(request.context.latest_fact, FactRecord)
+                else None
+            ),
         )
 
     async def execute(self, request: OrchestrationLaunchRequest) -> ExecutionResult:
@@ -119,7 +118,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             user_message=request.context.latest_user_message,
             history=request.context.history,
             history_key=request.context.history_key,
-            correlation_id=request.metadata.get("correlation_id"),
+            correlation_id=request.correlation_id,
             orchestration_strategy=orchestration_plan.to_strategy_dict(),
         )
         return ExecutionResult(
@@ -144,9 +143,6 @@ class OrchestrationUpdateHandler(BaseExecutionHandler):
             context=request.context,
             intent=request.intent,
             tool_selection=request.tool_selection,
-            prompt_payload=dict(request.prompt_payload),
-            tool_payload=dict(request.tool_payload),
-            metadata=dict(request.metadata),
         )
 
     async def execute(self, request: OrchestrationUpdateRequest) -> ExecutionResult:

@@ -1,9 +1,13 @@
 """Common execution building blocks shared by task agents."""
 
 from .contracts import (
+    DirectLLMRequest,
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
+    ExploreRenderRequest,
+    FunctionCallingExecutionResult,
+    FunctionCallingRequest,
     IncomingFactKind,
     OrchestrationLaunchRequest,
     OrchestrationPlan,
@@ -24,12 +28,16 @@ from .llm_service import TaskAgentLLMService
 __all__ = [
     "BaseExecutionHandler",
     "CommonHandlerDependencies",
+    "DirectLLMRequest",
     "ExecutionHandler",
     "ExecutionHandlerRegistry",
     "ExecutionMode",
     "ExecutionRequest",
     "ExecutionResult",
+    "ExploreRenderRequest",
     "FactOnlyHandler",
+    "FunctionCallingExecutionResult",
+    "FunctionCallingRequest",
     "IncomingFactKind",
     "OrchestrationLaunchHandler",
     "OrchestrationLaunchRequest",
