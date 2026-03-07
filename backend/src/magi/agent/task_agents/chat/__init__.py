@@ -3,17 +3,19 @@
 from .contracts import (
     ChatParseOutcome,
     ChatRuntimeContext,
+    IntentDecision,
+)
+from ..common import (
+    ExecutionHandlerRegistry,
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
     IncomingFactKind,
-    IntentDecision,
     OrchestrationPlan,
     ToolSelection,
 )
 from .coordinator import ChatExecutionCoordinator
 from .fact_classifier import ChatFactClassifier
-from .handlers import ExecutionHandlerRegistry
 from .planning_service import ChatPlanningService
 from .postprocess_service import ChatPostProcessService
 from .prompt_service import ChatPromptService

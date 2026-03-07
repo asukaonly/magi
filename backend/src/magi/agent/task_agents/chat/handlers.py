@@ -3,51 +3,30 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Optional
 
 from ....core.logger import get_logger
 from ....core.runtime.contracts import FactRecord
 from ....core.runtime.types import TaskAgentType
 from ....memory.context_builder import Scenario
-from ...task_orchestrator import TaskOrchestrator
-from ..explore_task_agent import EXPLORE_TASK_REQUEST
-from .contracts import ExecutionMode, ExecutionRequest, ExecutionResult
+from ..common import (
+    BaseExecutionHandler,
+    CommonHandlerDependencies,
+    ExecutionHandlerRegistry,
+    ExecutionMode,
+    ExecutionRequest,
+    ExecutionResult,
+    FactOnlyHandler,
+    OrchestrationLaunchHandler,
+    OrchestrationUpdateHandler,
+)
+from ..explore.constants import EXPLORE_TASK_REQUEST
 from .planning_service import ChatPlanningService
 from .prompt_service import ChatPromptService
 from .session_service import ChatSessionService
+from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
-
-
-class ExecutionHandler(Protocol):
-    """Protocol for typed execution handlers."""
-
-    mode: ExecutionMode
-
-    def supports(self, mode: ExecutionMode) -> bool:
-        """Return whether this handler supports the execution mode."""
-
-    async def build_request(self, request: ExecutionRequest) -> ExecutionRequest:
-        """Prepare request payload for execution."""
-
-    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
-        """Execute a prepared request."""
-
-
-class ExecutionHandlerRegistry:
-    """Registry for execution handlers keyed by execution mode."""
-
-    def __init__(self) -> None:
-        self._handlers: dict[ExecutionMode, ExecutionHandler] = {}
-
-    def register(self, handler: ExecutionHandler) -> None:
-        self._handlers[handler.mode] = handler
-
-    def get(self, mode: ExecutionMode) -> ExecutionHandler:
-        handler = self._handlers.get(mode)
-        if handler is None:
-            raise KeyError(f"No execution handler registered for mode={mode}")
-        return handler
 
 
 @dataclass(slots=True)
@@ -62,26 +41,13 @@ class ChatHandlerDependencies:
     agent_id: str
 
 
-class BaseExecutionHandler:
-    """Common execution-handler utilities."""
-
-    mode: ExecutionMode
-
-    def __init__(self, deps: ChatHandlerDependencies) -> None:
-        self._deps = deps
-
-    def supports(self, mode: ExecutionMode) -> bool:
-        return mode == self.mode
-
-    async def build_request(self, request: ExecutionRequest) -> ExecutionRequest:
-        return request
-
-
-class FactOnlyHandler(BaseExecutionHandler):
-    mode = ExecutionMode.FACT_ONLY
-
-    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
-        return ExecutionResult(mode=request.mode, skip_emit=True)
+def build_common_handler_dependencies(
+    deps: ChatHandlerDependencies,
+):
+    return CommonHandlerDependencies(
+        task_orchestrator=deps.task_orchestrator,
+        start_specialized_orchestration=lambda request: _start_explore_task_agent(deps, request),
+    )
 
 
 class DirectLLMHandler(BaseExecutionHandler):
@@ -162,105 +128,56 @@ class FunctionCallingHandler(BaseExecutionHandler):
         )
 
 
-class OrchestrationLaunchHandler(BaseExecutionHandler):
-    mode = ExecutionMode.ORCHESTRATION_LAUNCH
+async def _start_explore_task_agent(
+    deps: ChatHandlerDependencies,
+    request: ExecutionRequest,
+) -> Optional[ExecutionResult]:
+    orchestration_plan = request.intent.orchestration_plan
+    if orchestration_plan is None or not orchestration_plan.route_to_explore_task_agent:
+        return None
+    latest_fact = request.context.latest_fact
+    history = deps.prompt_service.filter_history_for_aggregation(request.context.history)
+    fact = FactRecord(
+        agent_id=f"{TaskAgentType.EXPLORE.value}:{request.context.user_id}",
+        event_type=EXPLORE_TASK_REQUEST,
+        payload={
+            "message": request.context.latest_user_message,
+            "user_id": request.context.user_id,
+            "session_id": request.context.session_id,
+            "history_snapshot": history,
+            "upstream_task_agent_type": TaskAgentType.CHAT.value,
+            "upstream_task_agent_id": request.context.user_id,
+        },
+        agent_type=TaskAgentType.EXPLORE.value,
+        agent_instance_id=request.context.user_id,
+        timestamp=time.time(),
+        correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
+    )
+    try:
+        from ....runtime import get_agent_runtime
 
-    async def build_request(self, request: ExecutionRequest) -> ExecutionRequest:
-        request.metadata = {
-            "correlation_id": request.context.latest_fact.correlation_id
-            if isinstance(request.context.latest_fact, FactRecord)
-            else None,
-        }
-        return request
-
-    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
-        orchestration_plan = request.intent.orchestration_plan
-        if orchestration_plan is None:
-            return ExecutionResult(
-                mode=request.mode,
-                response_text="Failed to generate orchestration strategy for this request.",
-            )
-        if orchestration_plan.route_to_explore_task_agent:
-            return await self._start_explore_task_agent(request)
-        raw_result = await self._deps.task_orchestrator.start_orchestration(
-            user_id=request.context.user_id,
-            session_id=request.context.session_id,
-            user_message=request.context.latest_user_message,
-            history=request.context.history,
-            history_key=request.context.history_key,
-            correlation_id=request.metadata.get("correlation_id"),
-            orchestration_strategy=orchestration_plan.to_strategy_dict(),
+        runtime = get_agent_runtime()
+        manager = runtime.get_task_agent_manager()
+        enqueued = await manager.add_fact_to_agent(TaskAgentType.EXPLORE, request.context.user_id, fact)
+    except Exception as exc:
+        logger.warning(
+            "Failed to route request to ExploreTaskAgent | user_id=%s error=%s",
+            request.context.user_id,
+            exc,
         )
+        enqueued = False
+    if not enqueued:
         return ExecutionResult(
             mode=request.mode,
-            response_text=str(raw_result.get("response", "")),
-            skip_emit=bool(raw_result.get("skip_emit", False)),
-            root_user_message=str(raw_result.get("root_user_message") or request.context.latest_user_message),
-            correlation_id=raw_result.get("correlation_id"),
-            orchestration_id=raw_result.get("orchestration_id"),
-            message_started_at=raw_result.get("message_started_at"),
+            response_text="Failed to start Explore task decomposition for this request.",
+            root_user_message=request.context.latest_user_message,
+            correlation_id=fact.correlation_id,
         )
-
-    async def _start_explore_task_agent(self, request: ExecutionRequest) -> ExecutionResult:
-        latest_fact = request.context.latest_fact
-        history = self._deps.prompt_service.filter_history_for_aggregation(request.context.history)
-        fact = FactRecord(
-            agent_id=f"{TaskAgentType.EXPLORE.value}:{request.context.user_id}",
-            event_type=EXPLORE_TASK_REQUEST,
-            payload={
-                "message": request.context.latest_user_message,
-                "user_id": request.context.user_id,
-                "session_id": request.context.session_id,
-                "history_snapshot": history,
-                "upstream_task_agent_type": TaskAgentType.CHAT.value,
-                "upstream_task_agent_id": request.context.user_id,
-            },
-            agent_type=TaskAgentType.EXPLORE.value,
-            agent_instance_id=request.context.user_id,
-            timestamp=time.time(),
-            correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
-        )
-        try:
-            from ....runtime import get_agent_runtime
-
-            runtime = get_agent_runtime()
-            manager = runtime.get_task_agent_manager()
-            enqueued = await manager.add_fact_to_agent(TaskAgentType.EXPLORE, request.context.user_id, fact)
-        except Exception as exc:
-            logger.warning(
-                "Failed to route request to ExploreTaskAgent | user_id=%s error=%s",
-                request.context.user_id,
-                exc,
-            )
-            enqueued = False
-        if not enqueued:
-            return ExecutionResult(
-                mode=request.mode,
-                response_text="Failed to start Explore task decomposition for this request.",
-                root_user_message=request.context.latest_user_message,
-                correlation_id=fact.correlation_id,
-            )
-        self._deps.session_service.append_user_message(
-            request.context.history_key,
-            request.context.latest_user_message,
-        )
-        return ExecutionResult(mode=request.mode, skip_emit=True)
-
-
-class OrchestrationUpdateHandler(BaseExecutionHandler):
-    mode = ExecutionMode.ORCHESTRATION_UPDATE
-
-    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
-        raw_result = await self._deps.task_orchestrator.process_worker_updates(request.context.batch_facts)
-        return ExecutionResult(
-            mode=request.mode,
-            response_text=str(raw_result.get("response", "")),
-            skip_emit=bool(raw_result.get("skip_emit", False)),
-            root_user_message=str(raw_result.get("root_user_message") or request.context.latest_user_message),
-            correlation_id=raw_result.get("correlation_id"),
-            orchestration_id=raw_result.get("orchestration_id"),
-            message_started_at=raw_result.get("message_started_at"),
-        )
+    deps.session_service.append_user_message(
+        request.context.history_key,
+        request.context.latest_user_message,
+    )
+    return ExecutionResult(mode=request.mode, skip_emit=True)
 
 
 class ExploreRenderHandler(BaseExecutionHandler):

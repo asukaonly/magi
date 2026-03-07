@@ -35,11 +35,10 @@ from .chat.handlers import (
     ChatHandlerDependencies,
     DirectLLMHandler,
     ExploreRenderHandler,
-    FactOnlyHandler,
     FunctionCallingHandler,
-    OrchestrationLaunchHandler,
-    OrchestrationUpdateHandler,
+    build_common_handler_dependencies,
 )
+from .common import FactOnlyHandler, OrchestrationLaunchHandler, OrchestrationUpdateHandler
 
 logger = get_logger(__name__)
 
@@ -134,12 +133,13 @@ class ChatTaskAgent(TaskAgent):
             agent_id=self.agent_id,
         )
         self._handler_registry = ExecutionHandlerRegistry()
+        common_handler_deps = build_common_handler_dependencies(handler_deps)
         for handler in (
-            FactOnlyHandler(handler_deps),
+            FactOnlyHandler(common_handler_deps),
             DirectLLMHandler(handler_deps),
             FunctionCallingHandler(handler_deps),
-            OrchestrationLaunchHandler(handler_deps),
-            OrchestrationUpdateHandler(handler_deps),
+            OrchestrationLaunchHandler(common_handler_deps),
+            OrchestrationUpdateHandler(common_handler_deps),
             ExploreRenderHandler(handler_deps),
         ):
             self._handler_registry.register(handler)

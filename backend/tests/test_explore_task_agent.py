@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, TaskOrchestrationState
+from magi.agent.task_agents.common import ExecutionMode, ExecutionResult
 from magi.agent.task_agents.explore_task_agent import ExploreTaskAgent, EXPLORE_TASK_COMPLETED
 from magi.core.runtime.contracts import FactRecord
 
@@ -17,10 +18,10 @@ class _FakeLLMAdapter:
 async def test_explore_task_agent_uses_canonical_repo_plan() -> None:
     agent = ExploreTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
 
-    plan = await agent._generate_subtask_plan(
+    plan = await agent._planning_service.generate_subtask_plan(
         user_message="看下~/code/magi下的代码，分析下代码架构",
         history=[],
-        orchestration_strategy={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
+        orchestration_plan={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
         user_id="u-chat",
         session_id="s-chat",
     )
@@ -103,35 +104,38 @@ async def test_explore_task_agent_builds_markdown_dossier_and_emits_upstream_fac
 
     monkeypatch.setattr("magi.runtime.get_agent_runtime", lambda: _FakeRuntime())
 
-    dossier = await agent._aggregate_orchestration(state)
+    dossier = await agent._aggregation_service.aggregate_orchestration(state)
     assert state.aggregated_markdown == dossier
     assert "## Backend Modules" in dossier
     assert "/tmp/runtime/bootstrap.py" in dossier
     assert "## Frontend Structure" in dossier
     assert "PATH_NOT_FOUND" in dossier
 
-    await agent.parse_result(
-        {
-            "latest_fact": FactRecord(
-                agent_id="explore:u-chat",
-                event_type="WORKER_AGENT_COMPLETED",
-                payload={"user_id": "u-chat", "session_id": "s-chat", "upstream_task_agent_type": "chat", "upstream_task_agent_id": "u-chat"},
-                agent_type="explore",
-                agent_instance_id="u-chat",
-                correlation_id="corr_1",
-            ),
+    fact = FactRecord(
+        agent_id="explore:u-chat",
+        event_type="WORKER_AGENT_COMPLETED",
+        payload={
             "user_id": "u-chat",
             "session_id": "s-chat",
             "upstream_task_agent_type": "chat",
             "upstream_task_agent_id": "u-chat",
         },
-        {
-            "response": dossier,
-            "skip_emit": False,
-            "root_user_message": state.root_user_message,
-            "orchestration_id": state.orchestration_id,
-            "correlation_id": "corr_1",
-        },
+        agent_type="explore",
+        agent_instance_id="u-chat",
+        correlation_id="corr_1",
+    )
+    merged = await agent.merge_facts([fact])
+    context = await agent.build_context(merged)
+    await agent.parse_result(
+        context,
+        ExecutionResult(
+            mode=ExecutionMode.ORCHESTRATION_UPDATE,
+            response_text=dossier,
+            skip_emit=False,
+            root_user_message=state.root_user_message,
+            orchestration_id=state.orchestration_id,
+            correlation_id="corr_1",
+        ),
     )
 
     fact = captured["fact"]

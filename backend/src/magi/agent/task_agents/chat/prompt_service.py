@@ -2,20 +2,11 @@
 from __future__ import annotations
 
 import json
-import time
-import uuid
 from typing import Any
 
-from ....config import get_config
-from ....config.constants import DEFAULT_MAX_TOKENS
-from ....core.logger import get_logger
-from ....llm.provider_bridge import LLMProviderBridge
 from ....memory.context_builder import Scenario
 from ....memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
-from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
-
-logger = get_logger(__name__)
-llm_logger = get_llm_logger("chat")
+from ..common import TaskAgentLLMService
 
 
 class ChatPromptService:
@@ -39,6 +30,7 @@ class ChatPromptService:
         self._prompt_context_renderer = prompt_context_renderer
         self._memory = memory
         self._other_memory = other_memory
+        self._llm_service = TaskAgentLLMService(llm_adapter=llm_adapter, logger_name="chat")
 
     async def build_prompt_context(
         self,
@@ -97,57 +89,12 @@ class ChatPromptService:
         messages: list[dict[str, str]],
         disable_thinking: bool = True,
     ) -> str:
-        request_id = str(uuid.uuid4())[:8]
-        start_time = time.time()
-        model_name = self._llm.model_name
-
-        log_llm_request(
-            llm_logger,
-            request_id=request_id,
-            model=model_name,
+        return await self._llm_service.call(
             system_prompt=system_prompt,
             messages=messages,
+            disable_thinking=disable_thinking,
+            temperature=0.7,
         )
-
-        try:
-            provider_bridge = LLMProviderBridge(self._llm)
-            provider_response = await provider_bridge.chat_response(
-                system_prompt=system_prompt,
-                messages=messages,
-                max_tokens=self._llm_max_tokens(),
-                temperature=0.7,
-                disable_thinking=disable_thinking,
-            )
-            response = provider_response.content
-            duration_ms = int((time.time() - start_time) * 1000)
-            log_llm_response(
-                llm_logger,
-                request_id=request_id,
-                response=response,
-                success=True,
-                duration_ms=duration_ms,
-                provider_metadata=provider_response.metadata,
-            )
-            if not response.strip():
-                logger.warning(
-                    "LLM returned empty content | request_id=%s model=%s disable_thinking=%s metadata=%s",
-                    request_id,
-                    model_name,
-                    disable_thinking,
-                    provider_response.metadata,
-                )
-            return response
-        except Exception as exc:
-            duration_ms = int((time.time() - start_time) * 1000)
-            log_llm_response(
-                llm_logger,
-                request_id=request_id,
-                response="",
-                success=False,
-                error=str(exc),
-                duration_ms=duration_ms,
-            )
-            raise
 
     def filter_history_for_aggregation(self, history: list[dict[str, Any]]) -> list[dict[str, str]]:
         filtered: list[dict[str, str]] = []
@@ -288,9 +235,3 @@ class ChatPromptService:
 
     def prefers_chinese_response(self, text: str) -> bool:
         return any("\u4e00" <= char <= "\u9fff" for char in text)
-
-    def _llm_max_tokens(self) -> int:
-        try:
-            return int(get_config().llm.max_tokens)
-        except Exception:
-            return DEFAULT_MAX_TOKENS

@@ -12,7 +12,7 @@ from ....events.events import EventTypes
 from ....memory.behavior_evolution import SatisfactionLevel
 from ....memory.emotional_state import EngagementLevel, InteractionOutcome
 from ....memory.growth_memory import InteractionType
-from ..explore_task_agent import EXPLORE_TASK_COMPLETED
+from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext, ExecutionResult, IncomingFactKind
 from .fact_classifier import WORKER_AGENT_EVENT_TYPES
 from .session_service import ChatSessionService

@@ -1,0 +1,85 @@
+"""Shared LLM invocation service for task agents."""
+from __future__ import annotations
+
+import time
+import uuid
+
+from ....config import get_config
+from ....config.constants import DEFAULT_MAX_TOKENS
+from ....core.logger import get_logger
+from ....llm.provider_bridge import LLMProviderBridge
+from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
+
+logger = get_logger(__name__)
+
+
+class TaskAgentLLMService:
+    """Centralizes task-agent LLM calls and logging."""
+
+    def __init__(self, *, llm_adapter, logger_name: str) -> None:
+        self._llm = llm_adapter
+        self._llm_logger = get_llm_logger(logger_name)
+
+    async def call(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        disable_thinking: bool = True,
+        temperature: float = 0.7,
+    ) -> str:
+        request_id = str(uuid.uuid4())[:8]
+        start_time = time.time()
+        model_name = getattr(self._llm, "model_name", "unknown")
+        log_llm_request(
+            self._llm_logger,
+            request_id=request_id,
+            model=model_name,
+            system_prompt=system_prompt,
+            messages=messages,
+        )
+        try:
+            provider_bridge = LLMProviderBridge(self._llm)
+            provider_response = await provider_bridge.chat_response(
+                system_prompt=system_prompt,
+                messages=messages,
+                max_tokens=self._llm_max_tokens(),
+                temperature=temperature,
+                disable_thinking=disable_thinking,
+            )
+            response = provider_response.content
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_llm_response(
+                self._llm_logger,
+                request_id=request_id,
+                response=response,
+                success=True,
+                duration_ms=duration_ms,
+                provider_metadata=provider_response.metadata,
+            )
+            if not response.strip():
+                logger.warning(
+                    "Task-agent LLM returned empty content | request_id=%s model=%s disable_thinking=%s metadata=%s",
+                    request_id,
+                    model_name,
+                    disable_thinking,
+                    provider_response.metadata,
+                )
+            return response
+        except Exception as exc:
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_llm_response(
+                self._llm_logger,
+                request_id=request_id,
+                response="",
+                success=False,
+                error=str(exc),
+                duration_ms=duration_ms,
+            )
+            raise
+
+    def _llm_max_tokens(self) -> int:
+        try:
+            return int(get_config().llm.max_tokens)
+        except Exception:
+            return DEFAULT_MAX_TOKENS

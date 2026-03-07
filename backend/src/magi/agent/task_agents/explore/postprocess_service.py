@@ -1,0 +1,79 @@
+"""Post-processing and upstream emit for ExploreTaskAgent."""
+from __future__ import annotations
+
+import time
+from typing import Optional
+
+from ....core.logger import get_logger
+from ....core.runtime.contracts import FactRecord
+from ..common import ExecutionResult
+from .constants import EXPLORE_TASK_COMPLETED
+from .contracts import ExploreParseOutcome, ExploreRuntimeContext
+
+logger = get_logger(__name__)
+
+
+class ExplorePostProcessService:
+    """Emits completed Explore dossiers upstream as task-agent facts."""
+
+    async def handle(self, context: ExploreRuntimeContext, result: ExecutionResult) -> ExploreParseOutcome:
+        if result.skip_emit:
+            return ExploreParseOutcome(emitted=False)
+        response_text = str(result.response_text or "").strip()
+        if not response_text:
+            return ExploreParseOutcome(emitted=False)
+        latest_fact = context.latest_fact
+        correlation_id = result.correlation_id or (
+            latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None
+        )
+        await self._emit_upstream_fact(
+            event_type=EXPLORE_TASK_COMPLETED,
+            user_id=context.user_id,
+            session_id=context.session_id,
+            upstream_task_agent_type=context.upstream_task_agent_type,
+            upstream_task_agent_id=context.upstream_task_agent_id,
+            payload={
+                "root_user_message": result.root_user_message or context.latest_user_message,
+                "markdown_dossier": response_text,
+                "orchestration_id": result.orchestration_id,
+                "message_started_at": result.message_started_at,
+            },
+            correlation_id=correlation_id,
+        )
+        return ExploreParseOutcome(emitted=True)
+
+    async def _emit_upstream_fact(
+        self,
+        *,
+        event_type: str,
+        user_id: str,
+        session_id: str,
+        upstream_task_agent_type: str,
+        upstream_task_agent_id: str,
+        payload: dict,
+        correlation_id: Optional[str],
+    ) -> None:
+        try:
+            from ....runtime import get_agent_runtime
+
+            runtime = get_agent_runtime()
+            manager = runtime.get_task_agent_manager()
+        except Exception as exc:
+            logger.warning("Failed to deliver ExploreTaskAgent result upstream | error=%s", exc)
+            return
+        fact = FactRecord(
+            agent_id=f"{upstream_task_agent_type}:{upstream_task_agent_id}",
+            event_type=event_type,
+            payload={
+                "user_id": user_id,
+                "session_id": session_id,
+                "upstream_task_agent_type": upstream_task_agent_type,
+                "upstream_task_agent_id": upstream_task_agent_id,
+                **payload,
+            },
+            agent_type=upstream_task_agent_type,
+            agent_instance_id=upstream_task_agent_id,
+            timestamp=time.time(),
+            correlation_id=correlation_id,
+        )
+        await manager.add_fact_to_agent(upstream_task_agent_type, upstream_task_agent_id, fact)
