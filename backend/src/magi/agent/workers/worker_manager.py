@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from ...agent.orchestration import WorkerResult, get_orchestration_store
+from ...agent.orchestration import WorkerEvidence, WorkerFinding, WorkerResult, get_orchestration_store
 from ...core.logger import get_logger
 from ...events.events import Event, EventLevel
 from ...agent.execution.function_calling import FunctionCallingExecutor
@@ -554,7 +554,7 @@ class WorkerAgentManager(Tool):
             run_state.completed_at = time.time()
             run_state.updated_at = run_state.completed_at
             run_state.failure_reason = outcome.failure_reason
-            validated_result: Optional[Dict[str, Any]] = None
+            validated_result: Optional[WorkerResult] = None
             if outcome.succeeded:
                 try:
                     validated_result = self._validate_worker_result(
@@ -566,7 +566,7 @@ class WorkerAgentManager(Tool):
                     run_state.error = str(exc)
 
             if outcome.succeeded and validated_result:
-                run_state.result = validated_result
+                run_state.result = validated_result.to_dict()
                 run_state.result_preview = self._preview_worker_result(validated_result)
                 await self._orchestration_store.save_worker_result(
                     worker_id=run_state.worker_id,
@@ -574,10 +574,10 @@ class WorkerAgentManager(Tool):
                     subtask_id=run_state.subtask_id,
                     worker_result=validated_result,
                 )
-                if str(validated_result.get("result_status", "success")).strip() == "failed":
+                if validated_result.result_status == "failed":
                     run_state.status = "failed"
                     run_state.failure_reason = str(
-                        validated_result.get("failure_reason")
+                        validated_result.failure_reason
                         or outcome.failure_reason
                         or "WORKER_REPORTED_FAILURE"
                     ).strip()
@@ -588,7 +588,7 @@ class WorkerAgentManager(Tool):
                         internal_payload={
                             "stage": "failed",
                             "error": run_state.error,
-                            "worker_result": validated_result,
+                            "worker_result": validated_result.to_dict(),
                         },
                         public_payload={
                             "stage": "failed",
@@ -604,7 +604,7 @@ class WorkerAgentManager(Tool):
                     event_type=WORKER_AGENT_COMPLETED,
                     internal_payload={
                         "stage": "completed",
-                        "worker_result": validated_result,
+                        "worker_result": validated_result.to_dict(),
                     },
                     public_payload={
                         "stage": "completed",
@@ -1002,7 +1002,7 @@ Before sending the final answer, self-check that it can be parsed by json.loads 
             return text
         return text[:limit] + "...(truncated)"
 
-    def _validate_worker_result(self, subagent_type: str, content: str) -> Dict[str, Any]:
+    def _validate_worker_result(self, subagent_type: str, content: str) -> WorkerResult:
         stripped = str(content or "").strip()
         if not stripped:
             raise ValueError("Worker returned an empty response")
@@ -1034,10 +1034,6 @@ Before sending the final answer, self-check that it can be parsed by json.loads 
         self._validate_evidence(worker_result.evidence)
         self._validate_string_items(worker_result.gaps, field_name="gaps")
         self._validate_string_items(worker_result.next_steps, field_name="next_steps")
-        normalized = worker_result.to_dict()
-        normalized["result_status"] = result_status
-        normalized["failure_reason"] = worker_result.failure_reason
-
         if result_status == "failed" and not str(parsed.get("failure_reason") or "").strip():
             raise ValueError("Failed worker results must include failure_reason")
 
@@ -1045,48 +1041,28 @@ Before sending the final answer, self-check that it can be parsed by json.loads 
             subtasks = parsed.get("subtasks")
             if not isinstance(subtasks, list) or not subtasks:
                 raise ValueError("Plan worker result must include non-empty subtasks")
-            normalized_subtasks: List[Dict[str, Any]] = []
-            for item in subtasks:
-                if not isinstance(item, dict):
-                    raise ValueError("Plan worker subtasks must be objects")
-                normalized_item = {
-                    "description": str(item.get("description", "")).strip(),
-                    "subagent_type": str(item.get("subagent_type", "")).strip(),
-                    "prompt": str(item.get("prompt", "")).strip(),
-                    "parallel_group": str(item.get("parallel_group", "default")).strip() or "default",
-                }
-                if (
-                    not normalized_item["description"]
-                    or not normalized_item["subagent_type"]
-                    or not normalized_item["prompt"]
-                ):
-                    raise ValueError("Plan worker subtasks require description, subagent_type, and prompt")
-                normalized_subtasks.append(normalized_item)
-            normalized["subtasks"] = normalized_subtasks
-        return normalized
+            if not worker_result.subtasks:
+                raise ValueError("Plan worker subtasks require description, subagent_type, and prompt")
+        return worker_result
 
-    def _validate_findings(self, findings: List[Dict[str, Any]], subagent_type: str) -> None:
+    def _validate_findings(self, findings: List[WorkerFinding], subagent_type: str) -> None:
         for item in findings:
-            if not isinstance(item, dict):
-                raise ValueError("Worker findings must be objects")
-            title = str(item.get("title", "")).strip()
-            detail = str(item.get("detail", "")).strip()
+            title = item.title.strip()
+            detail = item.detail.strip()
             if not title or not detail:
                 raise ValueError("Each worker finding requires non-empty title and detail")
             if subagent_type != self.TYPE_PLAN:
-                path = str(item.get("path", "")).strip()
-                why_it_matters = str(item.get("why_it_matters", "")).strip()
+                path = (item.path or "").strip()
+                why_it_matters = (item.why_it_matters or "").strip()
                 if not path or not why_it_matters:
                     raise ValueError(
                         "Each worker finding requires non-empty path and why_it_matters"
                     )
 
-    def _validate_evidence(self, evidence: List[Dict[str, Any]]) -> None:
+    def _validate_evidence(self, evidence: List[WorkerEvidence]) -> None:
         for item in evidence:
-            if not isinstance(item, dict):
-                raise ValueError("Worker evidence entries must be objects")
-            path = str(item.get("path", "")).strip()
-            detail = str(item.get("detail", "")).strip()
+            path = item.path.strip()
+            detail = item.detail.strip()
             if not path or not detail:
                 raise ValueError("Each worker evidence entry requires non-empty path and detail")
 
@@ -1095,17 +1071,15 @@ Before sending the final answer, self-check that it can be parsed by json.loads 
             if not str(item).strip():
                 raise ValueError(f"Worker result field '{field_name}' cannot contain empty items")
 
-    def _preview_worker_result(self, worker_result: Dict[str, Any], limit: int = 400) -> str:
-        summary = str(worker_result.get("summary", "")).strip()
+    def _preview_worker_result(self, worker_result: WorkerResult, limit: int = 400) -> str:
+        summary = worker_result.summary.strip()
         if summary:
             return summary[:limit]
-        findings = worker_result.get("findings")
-        if isinstance(findings, list) and findings:
-            first = findings[0]
-            if isinstance(first, dict):
-                detail = str(first.get("detail") or first.get("title") or "").strip()
-                if detail:
-                    return detail[:limit]
+        if worker_result.findings:
+            first = worker_result.findings[0]
+            detail = str(first.detail or first.title).strip()
+            if detail:
+                return detail[:limit]
         return ""
 
 

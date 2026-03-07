@@ -22,31 +22,93 @@ RETRIABLE_WORKER_FAILURES = {
 
 
 @dataclass
+class WorkerFinding:
+    """One validated finding produced by a worker."""
+
+    title: str
+    detail: str
+    path: Optional[str] = None
+    why_it_matters: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload = {
+            "title": self.title,
+            "detail": self.detail,
+        }
+        if self.path:
+            payload["path"] = self.path
+        if self.why_it_matters:
+            payload["why_it_matters"] = self.why_it_matters
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> Optional["WorkerFinding"]:
+        title = str(payload.get("title", "")).strip()
+        detail = str(payload.get("detail", "")).strip()
+        if not title or not detail:
+            return None
+        return cls(
+            title=title,
+            detail=detail,
+            path=_optional_string(payload.get("path")),
+            why_it_matters=_optional_string(payload.get("why_it_matters")),
+        )
+
+
+@dataclass
+class WorkerEvidence:
+    """One evidence record produced by a worker."""
+
+    path: str
+    detail: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"path": self.path, "detail": self.detail}
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> Optional["WorkerEvidence"]:
+        path = str(payload.get("path", "")).strip()
+        detail = str(payload.get("detail", "")).strip()
+        if not path or not detail:
+            return None
+        return cls(path=path, detail=detail)
+
+
+@dataclass
 class WorkerResult:
     """Structured worker result consumed by parent task agents."""
 
     summary: str
     result_status: str = "success"
-    findings: List[Dict[str, Any]] = field(default_factory=list)
-    evidence: List[Dict[str, Any]] = field(default_factory=list)
+    findings: List[WorkerFinding] = field(default_factory=list)
+    evidence: List[WorkerEvidence] = field(default_factory=list)
     gaps: List[str] = field(default_factory=list)
     next_steps: List[str] = field(default_factory=list)
-    subtasks: List[Dict[str, Any]] = field(default_factory=list)
+    subtasks: List["PlannedSubtask"] = field(default_factory=list)
     failure_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return {
+            "summary": self.summary,
+            "result_status": self.result_status,
+            "findings": [item.to_dict() for item in self.findings],
+            "evidence": [item.to_dict() for item in self.evidence],
+            "gaps": list(self.gaps),
+            "next_steps": list(self.next_steps),
+            "subtasks": [item.to_dict() for item in self.subtasks],
+            "failure_reason": self.failure_reason,
+        }
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "WorkerResult":
         return cls(
             result_status=str(payload.get("result_status", "success")).strip() or "success",
             summary=str(payload.get("summary", "")).strip(),
-            findings=_as_dict_list(payload.get("findings")),
-            evidence=_as_dict_list(payload.get("evidence")),
+            findings=_as_findings(payload.get("findings")),
+            evidence=_as_evidence(payload.get("evidence")),
             gaps=_as_string_list(payload.get("gaps")),
             next_steps=_as_string_list(payload.get("next_steps")),
-            subtasks=_as_dict_list(payload.get("subtasks")),
+            subtasks=_as_planned_subtasks(payload.get("subtasks")),
             failure_reason=_optional_string(payload.get("failure_reason")),
         )
 
@@ -120,12 +182,14 @@ class SubtaskDefinition:
     worker_id: Optional[str] = None
     failure_reason: Optional[str] = None
     attempt_count: int = 0
-    worker_result: Optional[Dict[str, Any]] = None
+    worker_result: Optional[WorkerResult] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["worker_result"] = self.worker_result.to_dict() if self.worker_result is not None else None
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "SubtaskDefinition":
@@ -139,7 +203,11 @@ class SubtaskDefinition:
             worker_id=_optional_string(payload.get("worker_id")),
             failure_reason=_optional_string(payload.get("failure_reason")),
             attempt_count=_safe_int(payload.get("attempt_count"), default=0),
-            worker_result=payload.get("worker_result") if isinstance(payload.get("worker_result"), dict) else None,
+            worker_result=(
+                WorkerResult.from_dict(payload.get("worker_result"))
+                if isinstance(payload.get("worker_result"), dict)
+                else None
+            ),
             created_at=_safe_float(payload.get("created_at"), default=time.time()),
             updated_at=_safe_float(payload.get("updated_at"), default=time.time()),
         )
@@ -277,7 +345,7 @@ class OrchestrationStore:
         worker_id: str,
         orchestration_id: Optional[str],
         subtask_id: Optional[str],
-        worker_result: Dict[str, Any],
+        worker_result: WorkerResult,
     ) -> None:
         async with self._lock:
             payload = self._load_payload()
@@ -286,27 +354,27 @@ class OrchestrationStore:
                 "worker_id": worker_id,
                 "orchestration_id": orchestration_id,
                 "subtask_id": subtask_id,
-                "worker_result": worker_result,
+                "worker_result": worker_result.to_dict(),
                 "updated_at": time.time(),
             }
             self._write_payload(payload)
 
-    async def get_worker_result(self, worker_id: str) -> Optional[Dict[str, Any]]:
+    async def get_worker_result(self, worker_id: str) -> Optional[WorkerResult]:
         async with self._lock:
             payload = self._load_payload()
         raw = payload.get("worker_results", {}).get(worker_id)
         if not isinstance(raw, dict):
             return None
         worker_result = raw.get("worker_result")
-        return worker_result if isinstance(worker_result, dict) else None
+        return WorkerResult.from_dict(worker_result) if isinstance(worker_result, dict) else None
 
-    def get_worker_result_sync(self, worker_id: str) -> Optional[Dict[str, Any]]:
+    def get_worker_result_sync(self, worker_id: str) -> Optional[WorkerResult]:
         payload = self._load_payload()
         raw = payload.get("worker_results", {}).get(worker_id)
         if not isinstance(raw, dict):
             return None
         worker_result = raw.get("worker_result")
-        return worker_result if isinstance(worker_result, dict) else None
+        return WorkerResult.from_dict(worker_result) if isinstance(worker_result, dict) else None
 
     def _load_payload(self) -> Dict[str, Any]:
         if not self._file_path.exists():
@@ -349,6 +417,45 @@ def _as_dict_list(value: Any) -> List[Dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _as_findings(value: Any) -> List[WorkerFinding]:
+    if not isinstance(value, list):
+        return []
+    findings: List[WorkerFinding] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        finding = WorkerFinding.from_dict(item)
+        if finding is not None:
+            findings.append(finding)
+    return findings
+
+
+def _as_evidence(value: Any) -> List[WorkerEvidence]:
+    if not isinstance(value, list):
+        return []
+    evidence: List[WorkerEvidence] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        record = WorkerEvidence.from_dict(item)
+        if record is not None:
+            evidence.append(record)
+    return evidence
+
+
+def _as_planned_subtasks(value: Any) -> List[PlannedSubtask]:
+    if not isinstance(value, list):
+        return []
+    subtasks: List[PlannedSubtask] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        subtask = PlannedSubtask.from_dict(item)
+        if subtask is not None:
+            subtasks.append(subtask)
+    return subtasks
 
 
 def _as_string_list(value: Any) -> List[str]:

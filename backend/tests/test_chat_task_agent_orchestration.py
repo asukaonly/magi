@@ -4,7 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.orchestration import OrchestrationStore, PlannedSubtask, SubtaskDefinition, SubtaskPlan, TaskOrchestrationState
+from magi.agent.orchestration import (
+    OrchestrationStore,
+    PlannedSubtask,
+    SubtaskDefinition,
+    SubtaskPlan,
+    TaskOrchestrationState,
+    WorkerResult,
+)
 from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
 from magi.agent.task_agents.chat import planning_service as planning_service_module
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
@@ -178,23 +185,25 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
                 subagent_type="Explore",
                 prompt="Inspect backend",
                 status="completed",
-                worker_result={
-                    "result_status": "success",
-                    "summary": "后端采用分层多 agent 架构。",
-                    "findings": [
-                        {
-                            "title": "runtime",
-                            "detail": "runtime/bootstrap.py 负责初始化",
-                            "path": "/tmp/runtime/bootstrap.py",
-                            "why_it_matters": "这是主入口",
-                        }
-                    ],
-                    "evidence": [{"path": "/tmp/runtime/bootstrap.py", "detail": "bootstrap entry"}],
-                    "gaps": [],
-                    "next_steps": [],
-                    "failure_reason": None,
-                    "subtasks": [],
-                },
+                worker_result=WorkerResult.from_dict(
+                    {
+                        "result_status": "success",
+                        "summary": "后端采用分层多 agent 架构。",
+                        "findings": [
+                            {
+                                "title": "runtime",
+                                "detail": "runtime/bootstrap.py 负责初始化",
+                                "path": "/tmp/runtime/bootstrap.py",
+                                "why_it_matters": "这是主入口",
+                            }
+                        ],
+                        "evidence": [{"path": "/tmp/runtime/bootstrap.py", "detail": "bootstrap entry"}],
+                        "gaps": [],
+                        "next_steps": [],
+                        "failure_reason": None,
+                        "subtasks": [],
+                    }
+                ),
                 failure_reason=None,
                 attempt_count=1,
             ),

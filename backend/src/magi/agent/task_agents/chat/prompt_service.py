@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from ....memory.context_builder import Scenario
+from ...orchestration import WorkerResult
 from ....memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
 from ..common import TaskAgentLLMService
 
@@ -116,10 +117,10 @@ class ChatPromptService:
                 {
                     "subtask_id": item.subtask_id,
                     "description": item.description,
-                    "result": item.worker_result,
+                    "result": item.worker_result.to_dict(),
                 }
                 for item in state.subtasks
-                if item.status == "completed" and isinstance(item.worker_result, dict)
+                if item.status == "completed" and isinstance(item.worker_result, WorkerResult)
             ],
             "failed_subtasks": [
                 {
@@ -202,7 +203,7 @@ class ChatPromptService:
     def build_aggregation_fallback(self, state) -> str:
         completed = [
             item for item in state.subtasks
-            if item.status == "completed" and isinstance(item.worker_result, dict)
+            if item.status == "completed" and isinstance(item.worker_result, WorkerResult)
         ]
         failed = [item for item in state.subtasks if item.status == "failed"]
         if self.prefers_chinese_response(state.root_user_message):
@@ -210,7 +211,7 @@ class ChatPromptService:
             if completed:
                 lines.append("目前已经确认的部分：")
                 for item in completed:
-                    summary = str(item.worker_result.get("summary", "")).strip()
+                    summary = item.worker_result.summary.strip()
                     if summary:
                         lines.append(f"- {summary}")
             if failed:
@@ -224,7 +225,7 @@ class ChatPromptService:
         if completed:
             lines.append("Confirmed so far:")
             for item in completed:
-                summary = str(item.worker_result.get("summary", "")).strip()
+                summary = item.worker_result.summary.strip()
                 lines.append(f"- {summary or 'Completed with structured findings.'}")
         if failed:
             lines.append("")

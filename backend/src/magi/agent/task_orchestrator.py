@@ -15,6 +15,7 @@ from .orchestration import (
     SubtaskDefinition,
     SubtaskPlan,
     TaskOrchestrationState,
+    WorkerResult,
     get_orchestration_store,
 )
 
@@ -174,14 +175,14 @@ class TaskOrchestrator:
                 worker_result = payload.get("worker_result")
                 if not isinstance(worker_result, dict) and payload_worker_id:
                     worker_result = await self._orchestration_store.get_worker_result(payload_worker_id)
-                if not isinstance(worker_result, dict):
+                if isinstance(worker_result, dict):
+                    worker_result = WorkerResult.from_dict(worker_result)
+                if not isinstance(worker_result, WorkerResult):
                     subtask.status = "failed"
                     subtask.failure_reason = "INVALID_WORKER_RESULT"
-                elif str(worker_result.get("result_status", "success")).strip() == "failed":
+                elif worker_result.result_status == "failed":
                     subtask.worker_result = worker_result
-                    subtask.failure_reason = str(
-                        worker_result.get("failure_reason") or "WORKER_REPORTED_FAILURE"
-                    ).strip()
+                    subtask.failure_reason = worker_result.failure_reason or "WORKER_REPORTED_FAILURE"
                     subtask.status = "failed"
                 else:
                     subtask.worker_result = worker_result

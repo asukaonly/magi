@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, TaskOrchestrationState
+from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, TaskOrchestrationState, WorkerResult
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult
 from magi.agent.task_agents.explore_task_agent import ExploreTaskAgent, EXPLORE_TASK_COMPLETED
 from magi.core.runtime.contracts import FactRecord
@@ -59,22 +59,24 @@ async def test_explore_task_agent_builds_markdown_dossier_and_emits_upstream_fac
                 subagent_type="Explore",
                 prompt="Inspect backend modules",
                 status="completed",
-                worker_result={
-                    "result_status": "success",
-                    "summary": "Backend is initialized through runtime/bootstrap.py.",
-                    "findings": [
-                        {
-                            "title": "Bootstrap entry",
-                            "detail": "runtime/bootstrap.py wires the runtime graph.",
-                            "path": "/tmp/runtime/bootstrap.py",
-                            "why_it_matters": "This is the main backend entry path.",
-                        }
-                    ],
-                    "evidence": [{"path": "/tmp/runtime/bootstrap.py", "detail": "bootstrap entry"}],
-                    "gaps": [],
-                    "next_steps": ["Inspect task agent boundaries"],
-                    "failure_reason": None,
-                },
+                worker_result=WorkerResult.from_dict(
+                    {
+                        "result_status": "success",
+                        "summary": "Backend is initialized through runtime/bootstrap.py.",
+                        "findings": [
+                            {
+                                "title": "Bootstrap entry",
+                                "detail": "runtime/bootstrap.py wires the runtime graph.",
+                                "path": "/tmp/runtime/bootstrap.py",
+                                "why_it_matters": "This is the main backend entry path.",
+                            }
+                        ],
+                        "evidence": [{"path": "/tmp/runtime/bootstrap.py", "detail": "bootstrap entry"}],
+                        "gaps": [],
+                        "next_steps": ["Inspect task agent boundaries"],
+                        "failure_reason": None,
+                    }
+                ),
                 attempt_count=1,
             ),
             SubtaskDefinition(
