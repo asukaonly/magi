@@ -117,7 +117,6 @@ class ExecutionResult:
     correlation_id: Optional[str] = None
     orchestration_id: Optional[str] = None
     message_started_at: Optional[float] = None
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
