@@ -9,7 +9,7 @@ This document defines mandatory implementation and delivery rules for coding age
 ## Quick Rules (Do / Don't)
 
 **Do**
-- Align major changes with OpenSpec before implementation.
+- Align major changes with the active `doc/` architecture and product guides before implementation.
 - Keep each task atomic and independently verifiable.
 - Commit immediately after each completed independent task.
 - Use Conventional Commits with clear English subjects.
@@ -20,7 +20,7 @@ This document defines mandatory implementation and delivery rules for coding age
 - Don't batch unrelated tasks in one commit.
 - Don't include `cursor` / `claude` / `chatgpt` / `copilot` in commit text.
 - Don't add AI identity signatures (for example, `Co-authored-by: AI Agent`).
-- Don't diverge from OpenSpec without documenting why and impact.
+- Don't diverge from the active `doc/` guidance without documenting why and impact.
 - Don't skip validation for core logic changes.
 - Don't enforce English-only for UI copy unless explicitly required.
 - Never add any compatibility code paths; this project is in active development mode.
@@ -29,13 +29,13 @@ This document defines mandatory implementation and delivery rules for coding age
 
 ## 1) Source Of Truth
 
-Before changing architecture, core flows, or module boundaries, align with OpenSpec:
+Before changing architecture, core flows, product behavior, or module boundaries, align with the active documentation in `doc/`:
 
-- `openspec/changes/ai-agent-framework/design.md`
-- `openspec/changes/ai-agent-framework/specs/**/spec.md`
-- `openspec/changes/ai-agent-framework/tasks.md`
+- `doc/project-overview.md`
+- `doc/product-configuration-guide.md`
+- `doc/task-agent-runtime-architecture.md`
 
-If implementation must deviate from OpenSpec, explain in commit body:
+If implementation must deviate from the active documentation, explain in commit body:
 1. Why deviation is necessary
 2. Scope and impact
 3. Follow-up plan
@@ -104,9 +104,11 @@ magi/
 │   ├── build-sidecar.sh        # Build Python sidecar binary for macOS/Linux
 │   ├── build-sidecar.ps1       # Build Python sidecar binary for Windows
 │   └── dev-hot.sh              # Start backend+frontend with hot reload
-├── openspec/
 ├── configs/
 ├── doc/
+│   ├── project-overview.md
+│   ├── product-configuration-guide.md
+│   ├── task-agent-runtime-architecture.md
 │   └── tauri-python-sidecar-migration-plan.md
 ├── README.md
 └── agents.md
@@ -271,7 +273,7 @@ Also prohibited:
 
 ## 9) Development Workflow
 
-1. (Optional) Create OpenSpec change
+1. Review the relevant document in `doc/`
 2. Implement code changes
 3. Validate (tests or explicit verification)
 4. Commit immediately for the completed task
@@ -298,7 +300,7 @@ git push
 
 ## 11) Review Checklist
 
-- [ ] OpenSpec alignment verified (or deviation documented)
+- [ ] `doc/` alignment verified (or deviation documented)
 - [ ] Code follows naming/type/async conventions
 - [ ] Validation completed (tests or explicit checks)
 - [ ] Task is atomic and independently reversible

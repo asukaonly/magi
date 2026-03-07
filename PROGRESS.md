@@ -188,7 +188,7 @@ magi/
 
 ## 📚 相关文档
 
-- [OpenSpec提案](../openspec/changes/ai-agent-framework/proposal.md)
-- [设计文档](../openspec/changes/ai-agent-framework/design.md)
-- [规格说明](../openspec/changes/ai-agent-framework/specs/)
-- [任务清单](../openspec/changes/ai-agent-framework/tasks.md)
+- [项目总览](./doc/project-overview.md)
+- [产品与配置指南](./doc/product-configuration-guide.md)
+- [Task-Agent Runtime 架构](./doc/task-agent-runtime-architecture.md)
+- [Tauri Python Sidecar Migration Plan](./doc/tauri-python-sidecar-migration-plan.md)
