@@ -1,7 +1,7 @@
 """Runtime task agent for chat facts."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
@@ -28,7 +28,6 @@ from .chat import (
     ChatRuntimeContext,
     ChatSessionService,
     ExecutionHandlerRegistry,
-    ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
     ToolSelection,

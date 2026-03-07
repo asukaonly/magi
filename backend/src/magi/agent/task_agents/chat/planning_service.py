@@ -10,7 +10,7 @@ from ....memory.context_builder import Scenario
 from ....tools.registry import ToolRegistry
 from ....tools.schema import ToolExecutionContext
 from ...orchestration import TaskOrchestrationState
-from .contracts import OrchestrationPlan
+from ..common import OrchestrationPlan
 from .prompt_service import ChatPromptService
 from .session_service import ChatSessionService
 

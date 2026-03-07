@@ -1,6 +1,8 @@
 """Common execution building blocks shared by task agents."""
 
 from .contracts import (
+    BaseIntentDecision,
+    BaseRuntimeContext,
     DirectLLMRequest,
     ExecutionMode,
     ExecutionRequest,
@@ -27,6 +29,8 @@ from .llm_service import TaskAgentLLMService
 
 __all__ = [
     "BaseExecutionHandler",
+    "BaseIntentDecision",
+    "BaseRuntimeContext",
     "CommonHandlerDependencies",
     "DirectLLMRequest",
     "ExecutionHandler",

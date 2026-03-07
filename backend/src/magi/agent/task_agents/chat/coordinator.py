@@ -7,14 +7,13 @@ from typing import Any
 from ....core.logger import get_logger
 from ....events.events import EventTypes
 from ....tools.context_decider import ContextDecider
-from .contracts import (
-    ChatRuntimeContext,
+from ..common import (
     ExecutionMode,
     ExecutionRequest,
-    IntentDecision,
     OrchestrationPlan,
     ToolSelection,
 )
+from .contracts import ChatRuntimeContext, IntentDecision
 from .fact_classifier import ChatFactClassifier
 from .handlers import ExecutionHandlerRegistry
 

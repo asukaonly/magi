@@ -6,8 +6,8 @@ from typing import Any, Optional
 
 from ....core.runtime.contracts import FactRecord
 from ....events.events import EventTypes
+from ..common import IncomingFactKind
 from ..explore.constants import EXPLORE_TASK_COMPLETED
-from .contracts import IncomingFactKind
 
 WORKER_AGENT_EVENT_TYPES = {
     "WORKER_AGENT_PROGRESS",

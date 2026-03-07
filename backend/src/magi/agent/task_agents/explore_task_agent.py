@@ -1,8 +1,6 @@
 """Task agent dedicated to large Explore-style decompositions."""
 from __future__ import annotations
 
-from typing import Any
-
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...core.runtime.contracts import FactRecord
@@ -122,5 +120,5 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
         prepared = await handler.build_request(llm_params)
         return await handler.execute(prepared)
 
-    async def parse_result(self, context: ExploreRuntimeContext, raw_result: Any) -> None:
+    async def parse_result(self, context: ExploreRuntimeContext, raw_result: ExecutionResult) -> None:
         await self._postprocess_service.handle(context, raw_result)

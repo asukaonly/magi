@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
+from ....core.runtime.contracts import FactRecord
+
 
 class IncomingFactKind(str, Enum):
     """Normalized fact categories consumed by task-agent coordinators."""
@@ -55,12 +57,41 @@ class ToolSelection:
 
 
 @dataclass(slots=True)
+class BaseRuntimeContext:
+    """Common runtime context fields shared across task-agent pipelines."""
+
+    latest_fact: Optional[FactRecord]
+    recent_facts: list[FactRecord]
+    batch_facts: list[FactRecord]
+    agent_id: str
+    agent_type: str
+    runtime_key: str
+    user_id: str
+    session_id: str
+    history_key: str
+    history: list[dict[str, Any]]
+    latest_user_message: str
+    incoming_fact_kind: IncomingFactKind
+    latest_payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class BaseIntentDecision:
+    """Common intent-routing result shared across task-agent pipelines."""
+
+    intent: str
+    execution_mode: ExecutionMode
+    reasoning: str = ""
+    orchestration_plan: Optional[OrchestrationPlan] = None
+
+
+@dataclass(slots=True)
 class ExecutionRequest:
     """Normalized request passed into an execution handler."""
 
     mode: ExecutionMode
-    context: Any
-    intent: Any
+    context: BaseRuntimeContext
+    intent: BaseIntentDecision
     tool_selection: ToolSelection
 
 
