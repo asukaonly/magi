@@ -154,10 +154,10 @@ class MyPlugin(Plugin):
 
 ## 文档
 
-- [API文档](./docs/api.md)
-- [架构设计](./docs/architecture.md)
-- [插件开发指南](./docs/plugins.md)
-- [部署指南](./docs/deployment.md)
+- [文档索引](./doc/README.md)
+- [项目总览](./doc/project-overview.md)
+- [Task-Agent Runtime 架构](./doc/task-agent-runtime-architecture.md)
+- [Tauri Python Sidecar Migration Plan](./doc/tauri-python-sidecar-migration-plan.md)
 
 ## 许可证
 
