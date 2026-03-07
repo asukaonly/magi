@@ -4,6 +4,14 @@ from __future__ import annotations
 
 import unittest
 
+from magi.agent.task_agents.chat import (
+    ChatRuntimeContext,
+    ExecutionMode,
+    IncomingFactKind,
+    IntentDecision,
+    OrchestrationPlan,
+    ToolSelection,
+)
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.memory.models import EmotionalState, TaskBehaviorProfile
 from magi.memory.personality_loader import PersonalityConfig
@@ -52,24 +60,42 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             other_memory=_FakeOtherMemory(),
         )
 
-        context = {
-            "user_id": "u-chat",
-            "session_id": "s-1",
-            "user_message": "今天天气怎么样",
-            "history": [{"role": "user", "content": "你好"}],
-        }
-        intent_result = {"intent": "chat"}
-        tool_result = {"tools": ["weather"], "deep_thinking": False, "intent": "chat"}
+        context = ChatRuntimeContext(
+            latest_fact=None,
+            recent_facts=[],
+            batch_facts=[],
+            agent_id="u-chat",
+            agent_type="chat",
+            runtime_key="chat:u-chat",
+            user_id="u-chat",
+            session_id="s-1",
+            history_key="u-chat::s-1",
+            history=[{"role": "user", "content": "你好"}],
+            conversation_history=[{"role": "user", "content": "你好"}],
+            active_orchestrations=[],
+            latest_user_message="今天天气怎么样",
+            incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+            latest_payload={},
+        )
+        intent_result = IntentDecision(
+            intent="chat",
+            difficulty="normal",
+            execution_mode=ExecutionMode.FUNCTION_CALLING,
+            tools=["weather"],
+            deep_thinking=False,
+            orchestration_plan=OrchestrationPlan(),
+        )
+        tool_result = ToolSelection(tools=["weather"], reasoning="weather lookup")
 
         llm_params = await agent.assemble_llm_params(context, intent_result, tool_result)
 
-        self.assertIn("prompt_context", llm_params)
-        self.assertIn("system_prompt", llm_params)
-        system_prompt = llm_params["system_prompt"]
+        self.assertIn("prompt_context", llm_params.prompt_payload)
+        self.assertIn("system_prompt", llm_params.prompt_payload)
+        system_prompt = llm_params.prompt_payload["system_prompt"]
         self.assertIn("# System Definition", system_prompt)
         self.assertIn("# Tool Information", system_prompt)
         self.assertIn("weather", system_prompt)
-        self.assertEqual(llm_params["orchestration_strategy"], {})
+        self.assertEqual(llm_params.mode, ExecutionMode.FUNCTION_CALLING)
 
 
 if __name__ == "__main__":

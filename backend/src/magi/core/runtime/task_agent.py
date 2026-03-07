@@ -115,7 +115,7 @@ class TaskAgent:
             self._fact_memory = self._fact_memory[-self._max_fact_memory :]
         return list(self._fact_memory)
 
-    async def build_context(self, merged_facts: list[FactRecord]) -> dict[str, Any]:
+    async def build_context(self, merged_facts: list[FactRecord]) -> Any:
         """Build runtime context from merged facts."""
         latest_fact = merged_facts[-1] if merged_facts else None
         return {
@@ -126,22 +126,22 @@ class TaskAgent:
             "runtime_key": self.runtime_key,
         }
 
-    async def match_intent(self, context: dict[str, Any]) -> dict[str, Any]:
+    async def match_intent(self, context: Any) -> Any:
         """Intent and complexity matching for model/tool path selection."""
         latest_fact = context.get("latest_fact")
         event_type = latest_fact.event_type if isinstance(latest_fact, FactRecord) else "unknown"
         return {"intent": event_type, "difficulty": "normal", "execution_mode": "llm"}
 
-    async def match_tools(self, context: dict[str, Any], intent_result: dict[str, Any]) -> dict[str, Any]:
+    async def match_tools(self, context: Any, intent_result: Any) -> Any:
         """Tool matching step."""
         return {"tools": [], "reasoning": "default_no_tool"}
 
     async def assemble_llm_params(
         self,
-        context: dict[str, Any],
-        intent_result: dict[str, Any],
-        tool_result: dict[str, Any],
-    ) -> dict[str, Any]:
+        context: Any,
+        intent_result: Any,
+        tool_result: Any,
+    ) -> Any:
         """Assemble model invocation parameters."""
         return {
             "context": context,
@@ -151,19 +151,19 @@ class TaskAgent:
 
     async def build_prompt_context(
         self,
-        context: dict[str, Any],
-        intent_result: dict[str, Any],
-        tool_result: dict[str, Any],
-    ) -> Optional[dict[str, Any]]:
+        context: Any,
+        intent_result: Any,
+        tool_result: Any,
+    ) -> Optional[Any]:
         """Build modular prompt context for reusable prompt assembly."""
         _ = (context, intent_result, tool_result)
         return None
 
-    async def call_llm(self, context: dict[str, Any], llm_params: dict[str, Any]) -> Any:
+    async def call_llm(self, context: Any, llm_params: Any) -> Any:
         """Model/tool execution step."""
         return llm_params
 
-    async def parse_result(self, context: dict[str, Any], raw_result: Any) -> None:
+    async def parse_result(self, context: Any, raw_result: Any) -> None:
         """Parse and emit final result."""
         _ = (context, raw_result)
 

@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, TaskOrchestrationState
-from magi.agent.task_agents import chat_task_agent as chat_task_agent_module
+from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
+from magi.agent.task_agents.chat import planning_service as planning_service_module
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.explore_task_agent import EXPLORE_TASK_COMPLETED
 from magi.core.runtime.contracts import FactRecord
@@ -60,29 +61,27 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
         agent_instance_id="u-chat",
         correlation_id="corr_1",
     )
-    context = {
-        "user_id": "u-chat",
-        "session_id": "s-chat",
-        "user_message": "Analyze repo architecture",
-        "history": [],
-        "history_key": "u-chat::s-chat",
-        "latest_fact": user_fact,
-    }
-    llm_params = {
-        "user_id": "u-chat",
-        "session_id": "s-chat",
-        "user_message": "Analyze repo architecture",
-        "history": [],
-        "orchestration_strategy": {
-            "mode": "decompose",
-            "planner": "task_agent",
-            "default_leaf_type": "general-purpose",
-            "allow_parallel": True,
-        },
-    }
-
-    launch_result = await agent._start_orchestration(context, llm_params)
-    assert launch_result["skip_emit"] is True
+    merged = await agent.merge_facts([user_fact])
+    context = await agent.build_context(merged)
+    request = ExecutionRequest(
+        mode=ExecutionMode.ORCHESTRATION_LAUNCH,
+        context=context,
+        intent=IntentDecision(
+            intent="repo_analysis",
+            difficulty="normal",
+            execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
+            orchestration_plan=OrchestrationPlan(
+                mode="decompose",
+                planner="task_agent",
+                default_leaf_type="general-purpose",
+                allow_parallel=True,
+            ),
+        ),
+        tool_selection=ToolSelection(),
+    )
+    request = await agent._handler_registry.get(ExecutionMode.ORCHESTRATION_LAUNCH).build_request(request)
+    launch_result = await agent._handler_registry.get(ExecutionMode.ORCHESTRATION_LAUNCH).execute(request)
+    assert launch_result.skip_emit is True
 
     states = await agent._orchestration_store.list_orchestrations(user_id="u-chat", session_id="s-chat")
     assert len(states) == 1
@@ -114,9 +113,21 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
         correlation_id="worker_1",
     )
 
-    update_result = await agent._process_worker_updates({}, {"batch_facts": [completed_fact]})
-    assert update_result["response"] == "aggregated answer"
-    assert update_result["orchestration_id"] == state.orchestration_id
+    merged_update = await agent.merge_facts([completed_fact])
+    update_context = await agent.build_context(merged_update)
+    update_request = ExecutionRequest(
+        mode=ExecutionMode.ORCHESTRATION_UPDATE,
+        context=update_context,
+        intent=IntentDecision(
+            intent="worker_orchestration_update",
+            difficulty="normal",
+            execution_mode=ExecutionMode.ORCHESTRATION_UPDATE,
+        ),
+        tool_selection=ToolSelection(),
+    )
+    update_result = await agent._handler_registry.get(ExecutionMode.ORCHESTRATION_UPDATE).execute(update_request)
+    assert update_result.response_text == "aggregated answer"
+    assert update_result.orchestration_id == state.orchestration_id
 
     updated = await agent._orchestration_store.get_orchestration(state.orchestration_id)
     assert updated is not None
@@ -135,14 +146,15 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
 
     calls: dict[str, object] = {}
 
-    async def _fake_build_system_prompt(*, user_id=None, task_category="chat"):  # type: ignore[no-untyped-def]
+    async def _fake_build_system_prompt(*, user_id=None, task_category="chat", scenario="chat"):  # type: ignore[no-untyped-def]
         calls["build_system_prompt"] = {
             "user_id": user_id,
             "task_category": task_category,
+            "scenario": scenario,
         }
         return "persona-system-prompt"
 
-    async def _fake_call_llm(system_prompt, messages, disable_thinking=True):  # type: ignore[no-untyped-def]
+    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True):  # type: ignore[no-untyped-def]
         calls["call_llm"] = {
             "system_prompt": system_prompt,
             "messages": messages,
@@ -150,8 +162,8 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
         }
         return "这是面向用户的最终回答"
 
-    monkeypatch.setattr(agent, "_build_system_prompt", _fake_build_system_prompt)
-    monkeypatch.setattr(agent, "_call_llm", _fake_call_llm)
+    monkeypatch.setattr(agent._prompt_service, "build_system_prompt", _fake_build_system_prompt)
+    monkeypatch.setattr(agent._prompt_service, "call_llm", _fake_call_llm)
 
     state = TaskOrchestrationState(
         orchestration_id="orch_test",
@@ -189,9 +201,9 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
         ],
     )
 
-    response = await agent._aggregate_orchestration(state)
+    response = await agent._planning_service.aggregate_orchestration(state)
     assert response == "这是面向用户的最终回答"
-    assert calls["build_system_prompt"] == {"user_id": "u-chat", "task_category": "chat"}
+    assert calls["build_system_prompt"] == {"user_id": "u-chat", "task_category": "chat", "scenario": "chat"}
 
     llm_call = calls["call_llm"]
     assert isinstance(llm_call, dict)
@@ -232,26 +244,30 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
         agent_instance_id="u-chat",
         correlation_id="corr_x",
     )
-    result = await agent._start_orchestration(
-        {
-            "latest_fact": user_fact,
-            "history_key": "u-chat::s-chat",
-        },
-        {
-            "user_id": "u-chat",
-            "session_id": "s-chat",
-            "user_message": "看下~/code/magi下的代码，分析下代码架构",
-            "history": [{"role": "user", "content": "看下代码架构"}],
-            "orchestration_strategy": {
-                "mode": "decompose",
-                "planner": "task_agent",
-                "default_leaf_type": "Explore",
-                "allow_parallel": True,
-            },
-        },
+    merged = await agent.merge_facts([user_fact])
+    context = await agent.build_context(merged)
+    agent._conversation_history["u-chat::s-chat"] = [{"role": "user", "content": "看下代码架构"}]
+    request = ExecutionRequest(
+        mode=ExecutionMode.ORCHESTRATION_LAUNCH,
+        context=context,
+        intent=IntentDecision(
+            intent="repo_analysis",
+            difficulty="normal",
+            execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
+            orchestration_plan=OrchestrationPlan(
+                mode="decompose",
+                planner="task_agent",
+                default_leaf_type="Explore",
+                allow_parallel=True,
+                route_to_explore_task_agent=True,
+            ),
+        ),
+        tool_selection=ToolSelection(),
     )
+    request = await agent._handler_registry.get(ExecutionMode.ORCHESTRATION_LAUNCH).build_request(request)
+    result = await agent._handler_registry.get(ExecutionMode.ORCHESTRATION_LAUNCH).execute(request)
 
-    assert result["skip_emit"] is True
+    assert result.skip_emit is True
     assert captured["agent_type"] == TaskAgentType.EXPLORE
     assert captured["agent_id"] == "u-chat"
     fact = captured["fact"]
@@ -277,7 +293,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         }
         return "analysis-system-prompt"
 
-    async def _fake_call_llm(system_prompt, messages, disable_thinking=True):  # type: ignore[no-untyped-def]
+    async def _fake_call_llm(*, system_prompt, messages, disable_thinking=True):  # type: ignore[no-untyped-def]
         calls["call_llm"] = {
             "system_prompt": system_prompt,
             "messages": messages,
@@ -285,8 +301,8 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         }
         return "这是最终分析回答"
 
-    monkeypatch.setattr(agent, "_build_system_prompt", _fake_build_system_prompt)
-    monkeypatch.setattr(agent, "_call_llm", _fake_call_llm)
+    monkeypatch.setattr(agent._prompt_service, "build_system_prompt", _fake_build_system_prompt)
+    monkeypatch.setattr(agent._prompt_service, "call_llm", _fake_call_llm)
 
     latest_fact = FactRecord(
         agent_id="chat:u-chat",
@@ -303,21 +319,22 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         correlation_id="corr_dossier",
     )
 
-    result = await agent._render_explore_task_result(
-        {
-            "latest_fact": latest_fact,
-            "user_id": "u-chat",
-            "session_id": "s-chat",
-        },
-        {
-            "user_id": "u-chat",
-            "history": agent._conversation_history["u-chat::s-chat"],
-            "markdown_dossier": latest_fact.payload["markdown_dossier"],
-            "root_user_message": latest_fact.payload["root_user_message"],
-        },
+    merged = await agent.merge_facts([latest_fact])
+    context = await agent.build_context(merged)
+    request = ExecutionRequest(
+        mode=ExecutionMode.EXPLORE_TASK_RENDER,
+        context=context,
+        intent=IntentDecision(
+            intent="explore_task_completed",
+            difficulty="normal",
+            execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
+        ),
+        tool_selection=ToolSelection(),
     )
+    request = await agent._handler_registry.get(ExecutionMode.EXPLORE_TASK_RENDER).build_request(request)
+    result = await agent._handler_registry.get(ExecutionMode.EXPLORE_TASK_RENDER).execute(request)
 
-    assert result["response"] == "这是最终分析回答"
+    assert result.response_text == "这是最终分析回答"
     assert calls["build_system_prompt"] == {
         "scenario": "analysis",
         "user_id": "u-chat",
@@ -335,23 +352,23 @@ async def test_plan_with_task_agent_logs_empty_response(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     warnings: list[str] = []
 
-    async def _fake_call_llm(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = (args, kwargs)
+    async def _fake_call_llm(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
         return ""
 
     def _fake_warning(message, *args):  # type: ignore[no-untyped-def]
         warnings.append(message % args)
 
-    monkeypatch.setattr(agent, "_call_llm", _fake_call_llm)
-    monkeypatch.setattr(chat_task_agent_module.logger, "warning", _fake_warning)
+    monkeypatch.setattr(agent._prompt_service, "call_llm", _fake_call_llm)
+    monkeypatch.setattr(planning_service_module.logger, "warning", _fake_warning)
 
-    result = await agent._plan_with_task_agent(
+    result = await agent._planning_service._plan_with_task_agent(
         user_message="Analyze repo architecture",
         history=[],
-        orchestration_strategy={
-            "default_leaf_type": "Explore",
-            "allow_parallel": True,
-        },
+        orchestration_plan=OrchestrationPlan(
+            default_leaf_type="Explore",
+            allow_parallel=True,
+        ),
     )
 
     assert result is None
@@ -363,23 +380,23 @@ async def test_plan_with_task_agent_logs_non_executable_plan(monkeypatch) -> Non
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     warnings: list[str] = []
 
-    async def _fake_call_llm(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = (args, kwargs)
+    async def _fake_call_llm(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
         return '{"summary":"planned","subtasks":[]}'
 
     def _fake_warning(message, *args):  # type: ignore[no-untyped-def]
         warnings.append(message % args)
 
-    monkeypatch.setattr(agent, "_call_llm", _fake_call_llm)
-    monkeypatch.setattr(chat_task_agent_module.logger, "warning", _fake_warning)
+    monkeypatch.setattr(agent._prompt_service, "call_llm", _fake_call_llm)
+    monkeypatch.setattr(planning_service_module.logger, "warning", _fake_warning)
 
-    result = await agent._plan_with_task_agent(
+    result = await agent._planning_service._plan_with_task_agent(
         user_message="Analyze repo architecture",
         history=[],
-        orchestration_strategy={
-            "default_leaf_type": "Explore",
-            "allow_parallel": True,
-        },
+        orchestration_plan=OrchestrationPlan(
+            default_leaf_type="Explore",
+            allow_parallel=True,
+        ),
     )
 
     assert result is None
