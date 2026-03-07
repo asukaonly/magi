@@ -1,0 +1,17 @@
+"""LLM Token 相关常量定义"""
+
+# 主 LLM 默认最大 token 数
+DEFAULT_MAX_TOKENS = 4096
+
+# Skills 子代理 token 限制
+DEFAULT_SKILL_MAX_TOKENS = 4000
+
+# 工具响应最大 token
+DEFAULT_TOOL_RESPONSE_TOKENS = 2000
+
+# 思考输出相关
+DEFAULT_THINKING_TOKENS = 1000
+MIN_THINKING_TOKENS = 300
+
+# 最小值限制
+MIN_MAX_TOKENS = 1

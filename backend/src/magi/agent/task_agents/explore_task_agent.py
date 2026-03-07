@@ -15,6 +15,7 @@ from ...core.runtime.types import TaskAgentType
 from ...events.events import EventTypes
 from ...config import get_config
 from ...llm.provider_bridge import LLMProviderBridge
+from ...config.constants import DEFAULT_MAX_TOKENS
 from ...tools.registry import tool_registry
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
@@ -638,4 +639,4 @@ class ExploreTaskAgent(TaskAgent):
         try:
             return int(get_config().llm.max_tokens)
         except Exception:
-            return 4096
+            return DEFAULT_MAX_TOKENS

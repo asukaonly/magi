@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
 from .parsers import parse_legacy_tool_calls, sanitize_llm_text
+from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 
 
 @dataclass
@@ -63,7 +64,7 @@ class LLMProviderBridge:
         self,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int = 1000,
+        max_tokens: int = DEFAULT_THINKING_TOKENS,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
     ) -> str:
@@ -83,7 +84,7 @@ class LLMProviderBridge:
         self,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int = 1000,
+        max_tokens: int = DEFAULT_THINKING_TOKENS,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
     ) -> ProviderResponse:
@@ -126,7 +127,7 @@ class LLMProviderBridge:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int = 4096,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
     ) -> ProviderResponse:

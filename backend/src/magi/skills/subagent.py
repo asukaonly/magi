@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 from .schema import SkillContent, SkillResult
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
+from ..config.constants import DEFAULT_SKILL_MAX_TOKENS
 
 if TYPE_CHECKING:
     from ..agent.execution.function_calling import FunctionCallingExecutor
@@ -275,7 +276,7 @@ class SkillSubagent:
         return await provider_bridge.chat(
             system_prompt=system_prompt,
             messages=messages,
-            max_tokens=4000,
+            max_tokens=DEFAULT_SKILL_MAX_TOKENS,
             temperature=0.7,
             disable_thinking=True,
         )

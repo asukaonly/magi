@@ -4,6 +4,7 @@ LLMAdapter - AnthropicImplementation
 from typing import Optional, Dict, Any, AsyncIterator
 from anthropic import AsyncAnthropic
 from .base import LLMAdapter
+from ..config.constants import DEFAULT_MAX_TOKENS
 
 
 class AnthropicAdapter(LLMAdapter):
@@ -67,7 +68,7 @@ class AnthropicAdapter(LLMAdapter):
         """
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=max_tokens or 4096,
+            max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
             **kwargs
@@ -96,7 +97,7 @@ class AnthropicAdapter(LLMAdapter):
         """
         stream = await self._client.messages.create(
             model=self._model,
-            max_tokens=max_tokens or 4096,
+            max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
@@ -128,7 +129,7 @@ class AnthropicAdapter(LLMAdapter):
         """
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=max_tokens or 4096,
+            max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
             temperature=temperature,
             messages=messages,
             **kwargs
@@ -157,7 +158,7 @@ class AnthropicAdapter(LLMAdapter):
         """
         stream = await self._client.messages.create(
             model=self._model,
-            max_tokens=max_tokens or 4096,
+            max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
             temperature=temperature,
             messages=messages,
             stream=True,

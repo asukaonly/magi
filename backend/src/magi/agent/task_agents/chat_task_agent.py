@@ -18,6 +18,7 @@ from .explore_task_agent import (
 )
 from ...core.logger import get_logger
 from ...llm.provider_bridge import LLMProviderBridge
+from ...config.constants import DEFAULT_MAX_TOKENS
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 from ...memory.behavior_evolution import SatisfactionLevel
 from ...memory.context_builder import Scenario
@@ -1291,7 +1292,7 @@ class ChatTaskAgent(TaskAgent):
         try:
             return int(get_config().llm.max_tokens)
         except Exception:
-            return 4096
+            return DEFAULT_MAX_TOKENS
 
     def _resolve_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
         if session_id:

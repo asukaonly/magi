@@ -32,6 +32,7 @@ from .models import (
     LLMSettings, LLMProvider, MemorySettings, MessageBusSettings,
     PersonalitySettings, WeatherToolSettings, WebSearchToolSettings,
 )
+from .constants import DEFAULT_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ ENV_MAPPINGS: Dict[str, Tuple[str, Callable, Any]] = {
     "llm.api_key": ("LLM_API_KEY", str, None),
     "llm.base_url": ("LLM_BASE_URL", str, None),
     "llm.temperature": ("LLM_TEMPERATURE", float, 0.7),
-    "llm.max_tokens": ("LLM_MAX_TOKENS", int, 4096),
+    "llm.max_tokens": ("LLM_MAX_TOKENS", int, DEFAULT_MAX_TOKENS),
     "llm.timeout": ("LLM_TIMEOUT", int, 60),
 
     # Agent Settings
@@ -190,7 +191,7 @@ class ConfigLoader:
                 "model": "gpt-4o-mini",
                 "api_key": "",
                 "temperature": 0.7,
-                "max_tokens": 4096,
+                "max_tokens": DEFAULT_MAX_TOKENS,
                 "timeout": 60,
             },
             "agent": {

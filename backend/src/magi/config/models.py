@@ -7,6 +7,8 @@ from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from enum import Enum
 
+from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
+
 
 class LLMProvider(str, Enum):
     """LLM provider type."""
@@ -47,7 +49,7 @@ class LLMSettings(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=4096, ge=1)
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=MIN_MAX_TOKENS)
     timeout: int = Field(default=60, ge=1)
 
 

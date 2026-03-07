@@ -17,6 +17,7 @@ from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge
+from ...config.constants import DEFAULT_MAX_TOKENS
 from .function_calling_postprocessor import FunctionCallingPostprocessor
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
@@ -621,7 +622,7 @@ class FunctionCallingExecutor:
             system_prompt=system_prompt,
             messages=messages,
             tools=tools,
-            max_tokens=4096,
+            max_tokens=DEFAULT_MAX_TOKENS,
             temperature=0.7,
         )
 
@@ -630,7 +631,7 @@ class FunctionCallingExecutor:
                 system_prompt=system_prompt,
                 messages=messages,
                 tools=tools,
-                max_tokens=4096,
+                max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=0.7,
                 disable_thinking=disable_thinking,
             )
@@ -691,7 +692,7 @@ class FunctionCallingExecutor:
             model=model_name,
             system_prompt=system_prompt,
             messages=messages,
-            max_tokens=4096,
+            max_tokens=DEFAULT_MAX_TOKENS,
             temperature=0.7,
             fallback_reason="function_calling_final_response_without_tools",
         )
@@ -700,7 +701,7 @@ class FunctionCallingExecutor:
             provider_response = await self.provider_bridge.chat_response(
                 system_prompt=system_prompt,
                 messages=messages,
-                max_tokens=4096,
+                max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=0.7,
                 disable_thinking=disable_thinking,
             )
