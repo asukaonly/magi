@@ -38,6 +38,16 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
   const [selectedNode, setSelectedNode] = React.useState<NormalizedExecutionTraceNode | null>(null);
 
   React.useEffect(() => {
+    console.debug('[toolchain] drawer props changed', {
+      open,
+      loading,
+      turnId: snapshot?.turnId || null,
+      hasSnapshot: Boolean(snapshot),
+      rootNodeId: snapshot?.root?.id || null,
+    });
+  }, [loading, open, snapshot]);
+
+  React.useEffect(() => {
     if (snapshot?.root) {
       setSelectedNode(snapshot.root.children[0] || snapshot.root);
     }
@@ -45,7 +55,29 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[min(92vw,1100px)] rounded-l-[28px] border-l border-border/60 bg-[linear-gradient(180deg,rgba(250,250,250,0.98),rgba(244,246,248,0.96))] p-0">
+      <SheetContent
+        side="right"
+        className="w-[min(92vw,1100px)] rounded-l-[28px] border-l border-border/60 bg-[linear-gradient(180deg,rgba(250,250,250,0.98),rgba(244,246,248,0.96))] p-0"
+        onOpenAutoFocus={() => {
+          console.debug('[toolchain] sheet onOpenAutoFocus');
+        }}
+        onCloseAutoFocus={() => {
+          console.debug('[toolchain] sheet onCloseAutoFocus');
+        }}
+        onPointerDownOutside={(event) => {
+          console.debug('[toolchain] sheet onPointerDownOutside', {
+            target: event.target instanceof HTMLElement ? event.target.outerHTML.slice(0, 200) : String(event.target),
+          });
+        }}
+        onInteractOutside={(event) => {
+          console.debug('[toolchain] sheet onInteractOutside', {
+            target: event.target instanceof HTMLElement ? event.target.outerHTML.slice(0, 200) : String(event.target),
+          });
+        }}
+        onEscapeKeyDown={() => {
+          console.debug('[toolchain] sheet onEscapeKeyDown');
+        }}
+      >
         <SheetHeader className="border-b border-border/50 pb-4">
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{subtitle}</SheetDescription>
