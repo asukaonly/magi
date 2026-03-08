@@ -92,6 +92,32 @@ class _RecordingToolRegistry:
         return ToolResult(success=True, data={"ok": True, "tool": name, "arguments": arguments})
 
 
+class _SequencedToolRegistry:
+    def __init__(self, results: Dict[str, List[ToolResult]]) -> None:
+        self._results = {name: list(items) for name, items in results.items()}
+        self.calls: List[tuple[str, Dict[str, Any]]] = []
+
+    def is_skill(self, name: str) -> bool:
+        _ = name
+        return False
+
+    def get_tool_info(self, name: str) -> Dict[str, Any] | None:
+        return {
+            "name": name,
+            "description": name,
+            "parameters": [],
+            "dangerous": False,
+        }
+
+    async def execute(self, name: str, arguments: Dict[str, Any], context: Any) -> ToolResult:
+        _ = context
+        self.calls.append((name, dict(arguments)))
+        queue = self._results.get(name, [])
+        if queue:
+            return queue.pop(0)
+        return ToolResult(success=False, error="unexpected tool call", error_code="EXECUTION_ERROR")
+
+
 class _DummyOpenAIClient:
     def __init__(self, contents: List[str]) -> None:
         self._contents = list(contents)
@@ -378,6 +404,7 @@ async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
         ),
         user_id="u1",
         session_id="s1",
+        turn_id="turn_1",
         intent="planning",
         execution_agent_id="chat_agent",
         execution_workspace="/tmp",
@@ -402,3 +429,146 @@ async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> None:
+    registry = _SequencedToolRegistry(
+        results={
+            "grep": [
+                ToolResult(
+                    success=False,
+                    error="Explore worker guardrail: root-wide grep is blocked.",
+                    error_code="INVALID_PARAMETERS",
+                )
+            ],
+            "glob": [
+                ToolResult(
+                    success=True,
+                    data={"matches": [{"path": "/tmp/backend/app.py"}], "count": 1},
+                )
+            ],
+        }
+    )
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+
+    llm_calls: list[dict[str, Any]] = []
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        llm_calls.append(kwargs)
+        call_index = len(llm_calls)
+        if call_index == 1:
+            return {
+                "content": "",
+                "assistant_message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_grep",
+                            "type": "function",
+                            "function": {"name": "grep", "arguments": "{}"},
+                        }
+                    ],
+                },
+                "tool_calls": [ToolCall(id="call_grep", name="grep", arguments={"pattern": "TODO", "glob": "**/*"})],
+            }
+        if call_index == 2:
+            return {
+                "content": "",
+                "assistant_message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_glob",
+                            "type": "function",
+                            "function": {"name": "glob", "arguments": "{}"},
+                        }
+                    ],
+                },
+                "tool_calls": [ToolCall(id="call_glob", name="glob", arguments={"pattern": "backend/**/*.py"})],
+            }
+        return {
+            "content": "Recovered with a narrower scan.",
+            "assistant_message": {"role": "assistant", "content": "Recovered with a narrower scan."},
+            "tool_calls": [],
+        }
+
+    executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
+
+    result = await executor.execute_with_tools(
+        user_message="inspect backend",
+        system_prompt="sys",
+        selected_tools=["grep", "glob"],
+        user_id="u1",
+        max_iterations=4,
+    )
+
+    assert result.status == "completed"
+    assert result.content == "Recovered with a narrower scan."
+    assert [call[0] for call in registry.calls] == ["grep", "glob"]
+    assert len(llm_calls) == 3
+    assert "Tool recovery rules:" in llm_calls[0]["system_prompt"]
+    assert result.tool_failures[0]["error_code"] == "INVALID_PARAMETERS"
+
+
+@pytest.mark.asyncio
+async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_failure() -> None:
+    registry = _SequencedToolRegistry(
+        results={
+            "web_search": [
+                ToolResult(
+                    success=False,
+                    error="No providers configured",
+                    error_code="NO_PROVIDERS_CONFIGURED",
+                )
+            ]
+        }
+    )
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+
+    llm_calls: list[dict[str, Any]] = []
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        llm_calls.append(kwargs)
+        return {
+            "content": "",
+            "assistant_message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_search",
+                        "type": "function",
+                        "function": {"name": "web_search", "arguments": "{}"},
+                    }
+                ],
+            },
+            "tool_calls": [ToolCall(id="call_search", name="web_search", arguments={"query": "magi"})],
+        }
+
+    async def _fake_call_llm_without_tools(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return {"content": ""}
+
+    executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
+    executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
+
+    result = await executor.execute_with_tools(
+        user_message="search docs",
+        system_prompt="sys",
+        selected_tools=["web_search"],
+        user_id="u1",
+        max_iterations=4,
+    )
+
+    assert result.status == "failed"
+    assert result.failure_reason == "ALL_TOOLS_FAILED"
+    assert len(llm_calls) == 1

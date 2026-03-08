@@ -92,6 +92,16 @@ class FunctionCallingExecutor:
 
     max_ITERATIONS = 10  # Maximum tool calls in a single loop
     _RAW_TOOL_HISTORY_LIMIT = 4
+    _FAILED_ITERATION_REPLAN_LIMIT = 2
+    _NON_REPLAN_ERROR_CODES = {
+        "ACCESS_DENIED",
+        "AUTH_REQUIRED",
+        "NO_PROVIDERS_CONFIGURED",
+        "PERMISSION_DENIED",
+        "PROVIDER_NOT_CONFIGURED",
+        "READ_ONLY",
+        "ROLE_NOT_ALLOWED",
+    }
     _EXPLORE_EXCLUDE_PATTERNS = [
         "node_modules",
         "dist",
@@ -167,6 +177,7 @@ class FunctionCallingExecutor:
         if conversation_history:
             messages.extend(conversation_history[-10:])  # Last 10 messages
         messages.append({"role": "user", "content": user_message})
+        effective_system_prompt = self._augment_system_prompt(system_prompt)
 
         # Build tools parameter
         tools = self._build_tools_parameter(selected_tools)
@@ -174,6 +185,7 @@ class FunctionCallingExecutor:
         iteration = 0
         tool_failures: List[Dict[str, Any]] = []
         all_tools_failed = False
+        consecutive_failed_tool_iterations = 0
         while iteration < max_iterations:
             iteration += 1
             await self._emit_loop_event(
@@ -192,7 +204,7 @@ class FunctionCallingExecutor:
             # Call LLM with tools
             try:
                 response = await self._call_llm_with_tools(
-                    system_prompt=system_prompt,
+                    system_prompt=effective_system_prompt,
                     messages=messages,
                     tools=tools,
                     disable_thinking=disable_thinking,
@@ -297,24 +309,37 @@ class FunctionCallingExecutor:
 
                 # Check if all tools failed
                 if all(not r.success for r in tool_results):
+                    consecutive_failed_tool_iterations += 1
+                    replan_allowed = self._should_allow_replan_after_failed_iteration(
+                        tool_results,
+                        consecutive_failed_tool_iterations=consecutive_failed_tool_iterations,
+                    )
                     failed_details = []
                     for r in tool_results:
                         failed_details.append({
                             "tool_call_id": r.tool_call_id,
                             "tool_name": r.tool_name,
                             "error": r.error or "unknown error",
+                            "error_code": r.error_code,
                             "execution_time": round(r.execution_time, 3),
                         })
-                    logger.warning(
-                        f"[FunctionCalling] All tools failed, stopping loop | details={failed_details}"
+                    log_message = (
+                        f"[FunctionCalling] All tools failed | iteration={iteration} "
+                        f"| replan_allowed={replan_allowed} | details={failed_details}"
                     )
+                    logger.warning(log_message)
                     llm_logger.warning(
-                        f"function_CallING_all_TOOLS_failED | iteration={iteration} | details={failed_details}"
+                        "function_calling_all_tools_failed | iteration=%s | replan_allowed=%s | details=%s",
+                        iteration,
+                        replan_allowed,
+                        failed_details,
                     )
                     await self._emit_loop_event(
                         {
                             "stage": "iteration_all_tools_failed",
                             "iteration": iteration,
+                            "replan_allowed": replan_allowed,
+                            "consecutive_failed_iterations": consecutive_failed_tool_iterations,
                             "details": failed_details,
                             "user_id": user_id,
                             "session_id": session_id,
@@ -323,10 +348,13 @@ class FunctionCallingExecutor:
                             "execution_agent_id": execution_agent_id,
                         }
                     )
+                    if replan_allowed:
+                        continue
                     all_tools_failed = True
                     break
 
                 # Continue loop for potential more tool calls
+                consecutive_failed_tool_iterations = 0
 
             elif response.get("content"):
                 # LLM provided final response
@@ -374,7 +402,7 @@ class FunctionCallingExecutor:
         )
         try:
             final_response = await self._call_llm_without_tools(
-                system_prompt=system_prompt,
+                system_prompt=effective_system_prompt,
                 messages=messages,
                 disable_thinking=disable_thinking,
             )
@@ -434,7 +462,7 @@ class FunctionCallingExecutor:
                 )
             try:
                 final_response = await self._call_llm_without_tools(
-                    system_prompt=system_prompt,
+                    system_prompt=effective_system_prompt,
                     messages=messages,
                     disable_thinking=disable_thinking,
                 )
@@ -1064,6 +1092,36 @@ class FunctionCallingExecutor:
         if error and not success:
             detail = f" | error={error}"
         return f"- {tool_name}: {status}{detail}"
+
+    def _augment_system_prompt(self, system_prompt: str) -> str:
+        guidance = (
+            "\n\nTool recovery rules:\n"
+            "- When a tool fails, inspect the tool error before deciding the next step.\n"
+            "- Do not repeat the same tool call with the same arguments after a failure.\n"
+            "- If a call fails because parameters or path selection are wrong, choose a narrower or corrected tool strategy.\n"
+            "- If grep is blocked or too broad, switch to scoped glob plus file_read before trying again.\n"
+            "- Prefer an alternative tool or narrower scope over repeating the failed call unchanged."
+        )
+        if guidance.strip() in system_prompt:
+            return system_prompt
+        return f"{system_prompt}{guidance}"
+
+    def _should_allow_replan_after_failed_iteration(
+        self,
+        tool_results: List[ToolCallResult],
+        *,
+        consecutive_failed_tool_iterations: int,
+    ) -> bool:
+        if consecutive_failed_tool_iterations > self._FAILED_ITERATION_REPLAN_LIMIT:
+            return False
+        error_codes = {
+            str(result.error_code or "").strip()
+            for result in tool_results
+            if str(result.error_code or "").strip()
+        }
+        if not error_codes:
+            return True
+        return not any(code in self._NON_REPLAN_ERROR_CODES for code in error_codes)
 
     def _classify_exception_failure(self, exc: Exception) -> str:
         message = str(exc).lower()
