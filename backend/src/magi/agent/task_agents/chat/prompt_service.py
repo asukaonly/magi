@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from ....memory.context_builder import Scenario
@@ -173,9 +174,12 @@ class ChatPromptService:
                     f"用户原始请求：{root_user_message}",
                     "下面是一份已经整理好的探索报告，请直接面向用户给出最终回答。",
                     "要求：",
-                    "- 使用自然、正常的聊天语气，但允许多段或简短的小标题来提升清晰度。",
+                    "- 使用自然、正常的聊天语气，但必须用清晰的 Markdown 结构来组织内容。",
+                    "- 使用 `##` 二级标题组织主要部分；每个主要部分之间保留空行。",
+                    "- 关键点尽量用短段落或 `-` 列表，不要输出一整块没有换行的大段文字。",
                     "- 以已经确认的信息为主，必要时自然引用关键文件路径。",
                     "- 对尚未确认的部分，简短说明边界和缺口，不要暴露内部流程。",
+                    "- 如果是代码库/架构分析，优先使用这些部分：`## 项目概况`、`## 技术栈`、`## 架构分析`、`## 当前进展与缺口`、`## 总结`。可以按实际情况裁剪。",
                     "",
                     dossier,
                 ]
@@ -185,9 +189,12 @@ class ChatPromptService:
                 f"Original user request: {root_user_message}",
                 "Below is a prepared exploration dossier. Answer the user directly based on it.",
                 "Requirements:",
-                "- Use a natural conversational tone, but you may use multiple paragraphs or short headings when clarity improves.",
+                "- Use a natural conversational tone, but organize the answer with clear Markdown structure.",
+                "- Use `##` section headings and keep a blank line between major sections.",
+                "- Prefer short paragraphs or `-` bullets over a single dense wall of text.",
                 "- Lead with confirmed findings and cite important file paths naturally when they matter.",
                 "- Briefly call out remaining gaps without exposing internal process details.",
+                "- For repository or architecture analysis, prefer sections like `## Overview`, `## Stack`, `## Architecture`, `## Gaps`, and `## Summary` when relevant.",
                 "",
                 dossier,
             ]
@@ -195,10 +202,22 @@ class ChatPromptService:
 
     def build_explore_render_fallback(self, root_user_message: str, dossier: str = "") -> str:
         if dossier.strip():
-            return dossier.strip()
+            return self.format_explore_render_response(dossier.strip())
         if self.prefers_chinese_response(root_user_message):
             return "这次探索报告已经完成，但最终整理回答时没有拿到可用文本结果。"
         return "The exploration dossier completed, but the final rendering step did not return usable text."
+
+    def format_explore_render_response(self, response_text: str) -> str:
+        text = str(response_text or "").replace("\r\n", "\n").strip()
+        if not text:
+            return text
+
+        if "## " not in text and "### " not in text:
+            text = re.sub(r"(?<!\n)(\d+\.\s)", r"\n\n\1", text)
+            text = re.sub(r"(?<!\n)(-\s)", r"\n\1", text)
+
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
 
     def build_aggregation_fallback(self, state) -> str:
         completed = [

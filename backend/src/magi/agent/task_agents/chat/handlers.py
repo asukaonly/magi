@@ -269,6 +269,7 @@ class ExploreRenderHandler(BaseExecutionHandler):
                 dossier[:300],
             )
             response = self._deps.prompt_service.build_explore_render_fallback(root_user_message, dossier)
+        response = self._deps.prompt_service.format_explore_render_response(response)
         return ExecutionResult(
             mode=request.mode,
             response_text=response.strip(),

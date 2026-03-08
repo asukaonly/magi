@@ -356,6 +356,25 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
     assert "# Request" in call_llm["messages"][-1]["content"]
 
 
+def test_chat_prompt_service_formats_dense_explore_render_text() -> None:
+    from magi.agent.task_agents.chat.prompt_service import ChatPromptService
+
+    service = ChatPromptService(
+        agent_id="u-chat",
+        agent_type="chat",
+        llm_adapter=_FakeLLMAdapter(),
+        prompt_context_assembler=None,  # type: ignore[arg-type]
+        prompt_context_renderer=None,  # type: ignore[arg-type]
+    )
+
+    raw = "第一段总览。1. 项目概况与布局整体说明2. 技术栈说明- FastAPI- React3. 总结"
+    formatted = service.format_explore_render_response(raw)
+
+    assert "\n\n1. 项目概况与布局" in formatted
+    assert "\n- FastAPI" in formatted
+    assert "\n- React" in formatted
+
+
 @pytest.mark.asyncio
 async def test_plan_with_task_agent_logs_empty_response(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
