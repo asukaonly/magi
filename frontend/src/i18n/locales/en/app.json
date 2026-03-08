@@ -106,6 +106,10 @@
       "summaryMode": "Mode",
       "selected": "Selected Node",
       "result": "Result",
+      "startedAt": "Started",
+      "endedAt": "Ended",
+      "nodeDuration": "Node Duration",
+      "executionTime": "Execution Time",
       "error": "Error",
       "metadata": "Metadata",
       "noSelection": "Select a node on the left to inspect details"

@@ -279,16 +279,25 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
         },
         1015,
     )
+    _insert_event(
+        service._events_db_path,
+        "AI_RESPONSE",
+        {"user_id": "u1", "session_id": "s1", "turn_id": "turn_1", "response": "final answer"},
+        1030,
+    )
 
     snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_1")
 
     assert snapshot is not None
     assert snapshot["summary"]["trace_available"] is True
     assert snapshot["summary"]["mode"] == "orchestration"
+    assert snapshot["summary"]["status"] == "completed"
     planning = snapshot["root"]["children"][0]
     assert planning["kind"] == "planning"
+    assert planning["status"] == "completed"
     group = planning["children"][0]
     assert group["kind"] == "parallel_group"
+    assert group["status"] == "completed"
     worker = group["children"][0]
     assert worker["kind"] == "worker"
     assert worker["children"][0]["label"] == "grep"

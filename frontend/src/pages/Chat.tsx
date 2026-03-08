@@ -517,14 +517,7 @@ export const ChatPage: React.FC = () => {
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          console.debug('[toolchain] trace button clicked', {
-            turnId,
-            messageTraceAvailable: message.traceAvailable,
-            messageTraceSummaryAvailable: Boolean(message.traceSummary?.traceAvailable),
-            storeTraceAvailable: Boolean(traceSummary?.trace_available),
-          });
           window.setTimeout(() => {
-            console.debug('[toolchain] opening drawer', { turnId });
             openDrawer(turnId);
             void loadTrace(turnId);
           }, 0);
@@ -650,16 +643,7 @@ export const ChatPage: React.FC = () => {
 
       <ToolchainDrawer
         open={drawerOpen}
-        onOpenChange={(open) => {
-          console.debug('[toolchain] drawer onOpenChange', {
-            open,
-            activeTurnId,
-            hasSnapshot: Boolean(activeTurnId && snapshots[activeTurnId]),
-          });
-          if (!open) {
-            closeDrawer();
-          }
-        }}
+        onOpenChange={(open) => !open && closeDrawer()}
         loading={loadingTrace}
         snapshot={normalizeTraceSnapshot(snapshots[activeTurnId || ''] || null)}
         title={t('chat.trace.title')}

@@ -217,6 +217,8 @@ class ChatTraceReadService:
             response_event=response_event,
             orchestration_state=orchestration_state,
         )
+        if status in {"completed", "failed"}:
+            self._finalize_terminal_nodes(root, status=status, ended_at=ended_at)
         root.status = status
         root.ended_at = ended_at if status in {"completed", "failed"} else None
 
@@ -341,6 +343,9 @@ class ChatTraceReadService:
                 for index, tool_event in enumerate(tool_events_by_worker.get(worker_id, []), start=1):
                     worker_node.children.append(self._build_worker_tool_node(tool_event, index=index, turn_id=turn_id))
                 group_node.children.append(worker_node)
+            for group_node in group_nodes.values():
+                group_node.status = self._derive_rollup_status(group_node.children)
+                group_node.ended_at = ended_at if group_node.status in {"completed", "failed"} else None
             planning_node.status = self._derive_parent_status(planning_node.children)
             planning_node.ended_at = ended_at if planning_node.status in {"completed", "failed"} else None
             return root
@@ -450,7 +455,7 @@ class ChatTraceReadService:
 
         ordered_iterations = sorted(iteration_nodes.values(), key=lambda item: self._safe_int(item.metadata.get("iteration"), default=1))
         for iteration_node in ordered_iterations:
-            iteration_node.status = self._derive_parent_status(iteration_node.children) if iteration_node.children else "running"
+            iteration_node.status = self._derive_rollup_status(iteration_node.children) if iteration_node.children else "running"
             iteration_node.ended_at = ended_at if iteration_node.status in {"completed", "failed"} else None
             root.children.append(iteration_node)
         return root
@@ -503,6 +508,20 @@ class ChatTraceReadService:
         statuses = {child.status for child in children}
         if "running" in statuses or "pending" in statuses:
             return "running"
+        if "completed" in statuses:
+            return "completed"
+        if "failed" in statuses:
+            return "failed"
+        return "completed"
+
+    def _derive_rollup_status(self, children: list[ExecutionTraceNode]) -> str:
+        if not children:
+            return "running"
+        statuses = {child.status for child in children}
+        if "running" in statuses or "pending" in statuses:
+            return "running"
+        if "completed" in statuses:
+            return "completed"
         if "failed" in statuses:
             return "failed"
         return "completed"
@@ -649,6 +668,15 @@ class ChatTraceReadService:
         for child in node.children:
             nodes.extend(self._walk_nodes(child))
         return nodes
+
+    def _finalize_terminal_nodes(self, node: ExecutionTraceNode, *, status: str, ended_at: float) -> None:
+        for child in node.children:
+            self._finalize_terminal_nodes(child, status=status, ended_at=ended_at)
+        if node.kind != "root" and node.status in {"running", "pending"}:
+            node.status = "completed" if status == "completed" else "failed"
+            node.metadata = {**node.metadata, "inferred_terminal": True}
+        if node.status in {"completed", "failed"} and node.ended_at is None:
+            node.ended_at = ended_at
 
     def _compact_value(self, value: Any) -> str:
         if isinstance(value, dict):
