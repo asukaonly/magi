@@ -273,12 +273,14 @@ class AgentTool(Tool):
         subagent_type: str,
         description: str,
         selected_tools,
+        execution_workspace: Optional[str] = None,
     ) -> str:
         return self._manager._build_worker_system_prompt(
             worker_id=worker_id,
             subagent_type=subagent_type,
             description=description,
             selected_tools=selected_tools,
+            execution_workspace=execution_workspace,
         )
 
     async def _await_worker(self, worker_id: str, timeout_seconds: int) -> ToolResult:

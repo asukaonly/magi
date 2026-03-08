@@ -334,6 +334,24 @@ def test_agent_tool_explore_prompt_uses_layout_profile():
     assert "Prefer directory and manifest evidence" in prompt
 
 
+def test_agent_tool_prompt_includes_execution_environment():
+    tool = AgentTool()
+    prompt = tool._build_worker_system_prompt(
+        worker_id="worker_test",
+        subagent_type=tool.TYPE_EXPLORE,
+        description="Analyze backend modules",
+        selected_tools=["glob", "grep", "file_read"],
+        execution_workspace="~/code/magi",
+    )
+
+    assert "Execution environment:" in prompt
+    assert "Workspace root:" in prompt
+    assert "Home directory:" in prompt
+    assert "Operating system:" in prompt
+    assert "Interpret '~' as:" in prompt
+    assert "Do not invent alternative Linux-style or macOS-style home paths" in prompt
+
+
 @pytest.mark.asyncio
 async def test_await_timeout_does_not_cancel_worker_task():
     tool = AgentTool()

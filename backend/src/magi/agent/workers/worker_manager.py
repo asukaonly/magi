@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import platform
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ...agent.orchestration import WorkerEvidence, WorkerFinding, WorkerResult, get_orchestration_store
@@ -433,6 +436,7 @@ class WorkerAgentManager(Tool):
             subagent_type=subagent_type,
             description=description,
             selected_tools=selected_tools,
+            execution_workspace=context.workspace,
         )
 
         run_state.task = asyncio.create_task(
@@ -931,6 +935,7 @@ class WorkerAgentManager(Tool):
         subagent_type: str,
         description: str,
         selected_tools: List[str],
+        execution_workspace: Optional[str] = None,
     ) -> str:
         base_rules = (
             f"You are worker agent {worker_id}. "
@@ -938,6 +943,7 @@ class WorkerAgentManager(Tool):
             "You are a leaf executor. Stay inside the given scope, use tools autonomously when needed, "
             "and return only the requested structured JSON result."
         )
+        environment_rules = self._build_worker_environment_rules(execution_workspace)
         tool_rules = (
             "Only use these tools: " + ", ".join(selected_tools)
             if selected_tools
@@ -959,7 +965,26 @@ class WorkerAgentManager(Tool):
                 '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
-        return "\n".join([base_rules, role_rules, tool_rules])
+        return "\n".join([base_rules, environment_rules, role_rules, tool_rules])
+
+    def _build_worker_environment_rules(self, execution_workspace: Optional[str]) -> str:
+        workspace_root = os.path.realpath(
+            os.path.expandvars(os.path.expanduser(execution_workspace or os.getcwd()))
+        )
+        home_dir = os.path.realpath(os.path.expanduser("~"))
+        current_time = datetime.now().astimezone().isoformat(timespec="seconds")
+        return "\n".join(
+            [
+                "Execution environment:",
+                f"- Workspace root: {workspace_root}",
+                f"- Home directory: {home_dir}",
+                f"- Operating system: {platform.system()} {platform.release()}",
+                f"- Current local time: {current_time}",
+                f"- Interpret '~' as: {home_dir}",
+                "- Prefer paths under the workspace root unless the prompt explicitly requires another location.",
+                "- Do not invent alternative Linux-style or macOS-style home paths when a path is missing; report the missing path instead.",
+            ]
+        )
 
     def _build_explore_role_rules(self, description: str) -> str:
         lowered = description.lower()
