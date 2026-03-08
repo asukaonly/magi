@@ -199,20 +199,26 @@ export const applyAgentResponse = (
   const timestamp = Number(payload.timestamp || Date.now());
   const traceSummary = payload.traceSummary || null;
   const traceAvailable = Boolean(payload.traceAvailable || traceSummary?.traceAvailable);
-
-  const assistantMessage: ChatTimelineMessage = {
-    id: `${turnId || 'assistant'}-assistant-${timestamp}`,
+  const buildAssistantMessage = (resolvedTurnId?: string): ChatTimelineMessage => ({
+    id: `${resolvedTurnId || turnId || 'assistant'}-assistant-${timestamp}`,
     role: 'assistant',
     kind: 'assistant',
     content: payload.response,
     timestamp,
-    turnId: turnId || undefined,
+    turnId: resolvedTurnId || turnId || undefined,
     traceSummary,
     traceAvailable,
-  };
+  });
 
   if (!turnId) {
-    return [...messages, assistantMessage];
+    const lastStatusIndex = [...messages].map((message) => message.kind).lastIndexOf('status');
+    if (lastStatusIndex >= 0) {
+      const fallbackTurnId = messages[lastStatusIndex]?.turnId;
+      return messages.map((message, index) =>
+        index === lastStatusIndex ? buildAssistantMessage(fallbackTurnId) : message
+      );
+    }
+    return [...messages, buildAssistantMessage()];
   }
 
   let replaced = false;
@@ -220,12 +226,24 @@ export const applyAgentResponse = (
     if (message.turnId !== turnId) return message;
     if (message.kind === 'status' || message.kind === 'assistant') {
       replaced = true;
-      return { ...assistantMessage, id: `${turnId}-assistant`, turnId };
+      return { ...buildAssistantMessage(turnId), id: `${turnId}-assistant`, turnId };
     }
     return message;
   });
 
   if (replaced) return nextMessages;
 
-  return [...messages, { ...assistantMessage, id: `${turnId}-assistant`, turnId }];
+  const fallbackStatusIndex = [...messages]
+    .map((message, index) => ({ message, index }))
+    .reverse()
+    .find(({ message }) => message.kind === 'status')
+    ?.index;
+
+  if (fallbackStatusIndex !== undefined) {
+    return messages.map((message, index) =>
+      index === fallbackStatusIndex ? { ...buildAssistantMessage(turnId), id: `${turnId}-assistant`, turnId } : message
+    );
+  }
+
+  return [...messages, { ...buildAssistantMessage(turnId), id: `${turnId}-assistant`, turnId }];
 };

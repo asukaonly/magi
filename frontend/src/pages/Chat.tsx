@@ -97,6 +97,7 @@ export const ChatPage: React.FC = () => {
 
   const drawerOpen = useChatTraceStore((state) => state.drawerOpen);
   const activeTurnId = useChatTraceStore((state) => state.activeTurnId);
+  const summaries = useChatTraceStore((state) => state.summaries);
   const snapshots = useChatTraceStore((state) => state.snapshots);
   const upsertSummary = useChatTraceStore((state) => state.upsertSummary);
   const setSnapshot = useChatTraceStore((state) => state.setSnapshot);
@@ -336,12 +337,14 @@ export const ChatPage: React.FC = () => {
           break;
       }
 
-      if (data.event === 'execution_trace_update' && data.data) {
+      const eventName = data.event || data.type;
+
+      if (eventName === 'execution_trace_update' && data.data) {
         handleExecutionTraceUpdate(data.data);
         return;
       }
 
-      if (data.event === 'agent_response' && data.data) {
+      if (eventName === 'agent_response' && data.data) {
         handleAgentResponseEvent(data.data);
       }
     },
@@ -494,13 +497,25 @@ export const ChatPage: React.FC = () => {
   };
 
   const renderTraceButton = (message: ChatTimelineMessage) => {
-    if (!message.turnId || !message.traceAvailable) return null;
+    const turnId = message.turnId;
+    const traceSummary = turnId ? summaries[turnId] : undefined;
+    const canOpenTrace = Boolean(
+      turnId &&
+      (
+        message.traceAvailable ||
+        message.traceSummary?.traceAvailable ||
+        traceSummary?.trace_available
+      )
+    );
+
+    if (!turnId || !canOpenTrace) return null;
+
     return (
       <button
         type="button"
         onClick={() => {
-          openDrawer(message.turnId!);
-          void loadTrace(message.turnId!);
+          openDrawer(turnId);
+          void loadTrace(turnId);
         }}
         className="mt-3 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
       >
@@ -520,7 +535,7 @@ export const ChatPage: React.FC = () => {
     >
       <div className="flex max-w-[76%] gap-3">
         {getAvatar('assistant')}
-        <div className="rounded-[24px] border border-border/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(242,246,246,0.88))] px-4 py-4 shadow-[0_18px_48px_-30px_rgba(15,23,42,0.35)]">
+        <div className="rounded-2xl rounded-tl-md border border-border/50 bg-white px-4 py-3 shadow-sm">
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
             <span className="text-sm font-medium text-foreground">{message.traceSummary?.headline || message.content}</span>

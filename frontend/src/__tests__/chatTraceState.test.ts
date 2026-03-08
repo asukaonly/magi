@@ -67,6 +67,19 @@ describe('chat trace state helpers', () => {
     expect(next[1].traceAvailable).toBe(true);
   });
 
+  it('reuses the pending turn id when the final response arrives without turn metadata', () => {
+    const initial = createPendingTurn('Analyze this repo', 'turn_9', 1000, 'Thinking');
+    const next = applyAgentResponse(initial, {
+      response: 'Final answer from the backend.',
+      timestamp: 2000,
+    });
+
+    expect(next).toHaveLength(2);
+    expect(next[1].kind).toBe('assistant');
+    expect(next[1].turnId).toBe('turn_9');
+    expect(next[1].content).toContain('Final answer');
+  });
+
   it('normalizes history messages with trace metadata', () => {
     const normalized = normalizeHistoryMessages([
       {
