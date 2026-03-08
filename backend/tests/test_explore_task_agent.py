@@ -15,7 +15,7 @@ class _FakeLLMAdapter:
 
 
 @pytest.mark.asyncio
-async def test_explore_task_agent_uses_canonical_repo_plan() -> None:
+async def test_explore_task_agent_repo_plan_falls_back_to_canonical_when_planner_unavailable() -> None:
     agent = ExploreTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
 
     plan = await agent._planning_service.generate_subtask_plan(
@@ -35,6 +35,66 @@ async def test_explore_task_agent_uses_canonical_repo_plan() -> None:
         "Inspect project progress",
     ]
     assert all(item.subagent_type == "Explore" for item in plan.subtasks)
+
+
+@pytest.mark.asyncio
+async def test_explore_planning_service_prefers_llm_plan_for_scoped_request() -> None:
+    class _FakePromptService:
+        async def call_llm(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return (
+                '{"summary":"Scoped backend analysis plan","subtasks":['
+                '{"description":"Map agent scope","subagent_type":"Explore","prompt":"Inspect backend/src/magi/agent boundaries","parallel_group":"g1"},'
+                '{"description":"Trace task orchestration flow","subagent_type":"Explore","prompt":"Trace task agent and worker orchestration in backend/src/magi/agent","parallel_group":"g1"},'
+                '{"description":"Summarize orchestration risks","subagent_type":"Explore","prompt":"Summarize risks and open questions inside backend/src/magi/agent","parallel_group":"g2"}'
+                ']}'
+            )
+
+    from magi.agent.task_agents.explore.planning_service import ExplorePlanningService
+
+    service = ExplorePlanningService(prompt_service=_FakePromptService())
+    plan = await service.generate_subtask_plan(
+        user_message="看下 backend/src/magi/agent 的代码结构和任务编排",
+        history=[],
+        orchestration_plan={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
+        user_id="u-chat",
+        session_id="s-chat",
+    )
+
+    descriptions = [item.description for item in plan.subtasks]
+    assert descriptions == [
+        "Map agent scope",
+        "Trace task orchestration flow",
+        "Summarize orchestration risks",
+    ]
+    assert all(item.subagent_type == "Explore" for item in plan.subtasks)
+    assert all("Parent user request:" in item.prompt for item in plan.subtasks)
+
+
+@pytest.mark.asyncio
+async def test_explore_planning_service_uses_scope_fallback_for_backend_request() -> None:
+    class _FailingPromptService:
+        async def call_llm(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            raise RuntimeError("planner unavailable")
+
+    from magi.agent.task_agents.explore.planning_service import ExplorePlanningService
+
+    service = ExplorePlanningService(prompt_service=_FailingPromptService())
+    plan = await service.generate_subtask_plan(
+        user_message="分析 backend/src/magi/agent 里的任务编排实现",
+        history=[],
+        orchestration_plan={"mode": "decompose", "default_leaf_type": "Explore", "allow_parallel": True},
+        user_id="u-chat",
+        session_id="s-chat",
+    )
+
+    descriptions = [item.description for item in plan.subtasks]
+    assert descriptions == [
+        "Map backend scope",
+        "Trace backend execution flow",
+        "Summarize backend gaps",
+    ]
 
 
 @pytest.mark.asyncio
