@@ -75,7 +75,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="!max-w-none w-[min(88vw,1520px)] rounded-l-[32px] border-l border-border/60 bg-[radial-gradient(circle_at_top,rgba(219,244,239,0.5),transparent_34%),linear-gradient(180deg,rgba(252,253,252,0.98),rgba(244,247,246,0.96))] p-0"
+        className="!max-w-none w-[min(92vw,1680px)] rounded-l-[32px] border-l border-border/60 bg-[radial-gradient(circle_at_top,rgba(219,244,239,0.5),transparent_34%),linear-gradient(180deg,rgba(252,253,252,0.98),rgba(244,247,246,0.96))] p-0"
       >
         <SheetHeader className="border-b border-border/50 bg-white/70 pb-5">
           <SheetTitle className="text-[30px] font-semibold tracking-[-0.04em] text-foreground">{title}</SheetTitle>
@@ -118,8 +118,12 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                   <div className="mt-2 text-lg font-semibold capitalize text-foreground">{snapshot.mode}</div>
                 </div>
               </div>
-              <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-[minmax(460px,0.95fr)_minmax(620px,1.05fr)]">
-                <div className="min-h-0 overflow-y-auto border-r border-border/40 bg-white/38 px-6 py-5">
+              <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-[minmax(420px,0.72fr)_minmax(780px,1.28fr)]">
+                <div className="min-h-0 overflow-y-auto border-r border-border/40 bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(247,251,249,0.72))] px-6 py-5">
+                  <div className="mb-4 rounded-[24px] border border-border/50 bg-white/80 px-4 py-4 shadow-sm">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">Execution Timeline</div>
+                    <div className="mt-2 text-sm leading-6 text-foreground/90">按顺序展开本轮编排、并行分支和工具调用。</div>
+                  </div>
                   <TraceTree node={snapshot.root} selectedNodeId={selectedNode?.id || null} onSelectNode={setSelectedNode} />
                 </div>
                 <div className="min-h-0 overflow-y-auto bg-white/72 px-6 py-5">
