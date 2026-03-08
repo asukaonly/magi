@@ -2,7 +2,7 @@
  * Chat page - desktop-focused conversation workspace
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Eraser, Plus, Send, UserRound } from 'lucide-react';
+import { Send, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -13,7 +13,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useChatShellStore, type ChatPanelType } from '@/stores';
 import PersonalityModern from './PersonalityModern';
@@ -399,35 +398,6 @@ export const ChatPage: React.FC = () => {
     window.dispatchEvent(new Event(SESSION_SYNC_EVENT));
   };
 
-  const handleClearMessages = async () => {
-    try {
-      await messagesApi.clearHistory(USER_ID, currentSessionId || undefined);
-      setMessages([]);
-      toast.info(t('chat.cleared'));
-      window.dispatchEvent(new Event(SESSION_SYNC_EVENT));
-    } catch {
-      toast.error(t('chat.clearFailed'));
-    }
-  };
-
-  const handleNewSession = async () => {
-    try {
-      const result = await messagesApi.createNewSession(USER_ID);
-      if (!result.success || !result.session_id) {
-        toast.error(t('chat.createSessionFailed'));
-        return;
-      }
-      setCurrentSessionId(result.session_id);
-      lastHistoryRequestRef.current = null;
-      setMessages([]);
-      sendWS('get_personality');
-      toast.success(t('chat.sessionSwitched'));
-      window.dispatchEvent(new Event(SESSION_SYNC_EVENT));
-    } catch {
-      toast.error(t('chat.createSessionFailed'));
-    }
-  };
-
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
@@ -465,26 +435,8 @@ export const ChatPage: React.FC = () => {
   };
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col px-4 pb-4 pt-2">
-      <div className="desktop-panel mb-2 flex h-14 shrink-0 items-center justify-between rounded-2xl px-4 py-3">
-        <div className="flex items-center gap-2">
-          {getAvatar('assistant')}
-          <div>
-            <div className="text-sm font-medium text-foreground/90">{aiName}</div>
-            <div className="text-xs text-muted-foreground">{currentSessionId ? currentSessionId.slice(0, 8) : '--'}</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={handleClearMessages} className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5">
-            <Eraser className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleNewSession} className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5">
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="desktop-panel min-h-0 flex-1 overflow-y-auto rounded-2xl px-4 py-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+    <div className="relative flex h-full min-h-0 flex-col px-4 py-4">
+      <div className="desktop-panel min-h-0 flex-1 overflow-y-auto rounded-2xl px-5 py-5 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {messages.map((msg) => (
           msg.role === 'system' ? (
             <motion.div
@@ -547,7 +499,7 @@ export const ChatPage: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="desktop-panel mt-2 shrink-0 rounded-2xl px-4 pb-3 pt-3">
+      <div className="desktop-panel mt-3 shrink-0 rounded-2xl px-4 pb-3 pt-3">
         <div className="flex items-end gap-3">
           <AutoResizeTextarea
             value={inputValue}
