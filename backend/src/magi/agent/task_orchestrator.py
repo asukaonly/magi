@@ -60,6 +60,7 @@ class TaskOrchestrator:
         user_id: str,
         session_id: str,
         user_message: str,
+        turn_id: Optional[str],
         history: list[dict[str, Any]],
         history_key: str,
         correlation_id: Optional[str],
@@ -78,6 +79,7 @@ class TaskOrchestrator:
                 skip_emit=False,
                 root_user_message=user_message,
                 correlation_id=correlation_id,
+                turn_id=turn_id,
             )
 
         orchestration_id = f"orch_{uuid.uuid4().hex[:12]}"
@@ -102,6 +104,7 @@ class TaskOrchestrator:
                 skip_emit=False,
                 root_user_message=user_message,
                 correlation_id=correlation_id,
+                turn_id=turn_id,
             )
 
         state = TaskOrchestrationState(
@@ -109,6 +112,7 @@ class TaskOrchestrator:
             user_id=user_id,
             session_id=session_id,
             root_user_message=user_message,
+            turn_id=turn_id,
             planner=str(orchestration_strategy.get("planner", "task_agent") or "task_agent"),
             workspace_root=workspace_root,
             status="running",
@@ -132,6 +136,7 @@ class TaskOrchestrator:
                 root_user_message=user_message,
                 correlation_id=state.correlation_id,
                 orchestration_id=state.orchestration_id,
+                turn_id=state.turn_id,
             )
 
         self._register_user_message(history_key, user_message)
@@ -139,6 +144,7 @@ class TaskOrchestrator:
             response="",
             skip_emit=True,
             orchestration_id=orchestration_id,
+            turn_id=turn_id,
         )
 
     async def process_worker_updates(self, batch_facts: list[Any]) -> OrchestrationExecutionResult:
@@ -242,6 +248,7 @@ class TaskOrchestrator:
                         correlation_id=state.correlation_id,
                         orchestration_id=state.orchestration_id,
                         message_started_at=state.created_at,
+                        turn_id=state.turn_id,
                     )
                 )
 
@@ -266,6 +273,7 @@ class TaskOrchestrator:
                 if item.orchestration_id
             ),
             message_started_at=first.message_started_at,
+            turn_id=first.turn_id,
         )
 
     async def _launch_workers(self, state: TaskOrchestrationState) -> Optional[str]:
@@ -282,6 +290,7 @@ class TaskOrchestrator:
                 "target_task_agent_type": self._parent_task_agent_type,
                 "target_task_agent_id": state.user_id,
                 "retry_count": max(item.attempt_count, 0),
+                "turn_id": state.turn_id,
             }
             for item in state.subtasks
         ]
@@ -341,6 +350,7 @@ class TaskOrchestrator:
                 "target_task_agent_type": self._parent_task_agent_type,
                 "target_task_agent_id": state.user_id,
                 "retry_count": next_attempt - 1,
+                "turn_id": state.turn_id,
             },
             context,
         )

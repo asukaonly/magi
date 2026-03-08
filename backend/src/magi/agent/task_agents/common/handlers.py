@@ -116,6 +116,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             user_id=request.context.user_id,
             session_id=request.context.session_id,
             user_message=request.context.latest_user_message,
+            turn_id=getattr(request.context.latest_payload, "turn_id", None),
             history=request.context.history,
             history_key=request.context.history_key,
             correlation_id=request.correlation_id,
@@ -129,6 +130,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             correlation_id=raw_result.correlation_id,
             orchestration_id=raw_result.orchestration_id,
             message_started_at=raw_result.message_started_at,
+            turn_id=raw_result.turn_id,
         )
 
 
@@ -155,4 +157,5 @@ class OrchestrationUpdateHandler(BaseExecutionHandler):
             correlation_id=raw_result.correlation_id,
             orchestration_id=raw_result.orchestration_id,
             message_started_at=raw_result.message_started_at,
+            turn_id=raw_result.turn_id,
         )

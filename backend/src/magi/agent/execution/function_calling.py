@@ -139,6 +139,7 @@ class FunctionCallingExecutor:
         selected_tools: List[str],
         user_id: str,
         session_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
         conversation_history: List[Dict] = None,
         max_iterations: int = max_ITERATIONS,
         disable_thinking: bool = True,
@@ -182,6 +183,7 @@ class FunctionCallingExecutor:
                     "max_iterations": max_iterations,
                     "user_id": user_id,
                     "session_id": session_id,
+                    "turn_id": turn_id,
                     "intent": intent,
                     "execution_agent_id": execution_agent_id,
                 }
@@ -221,6 +223,7 @@ class FunctionCallingExecutor:
                         "tool_count": len(tool_calls),
                         "user_id": user_id,
                         "session_id": session_id,
+                        "turn_id": turn_id,
                         "intent": intent,
                         "execution_agent_id": execution_agent_id,
                     }
@@ -233,6 +236,7 @@ class FunctionCallingExecutor:
                         tool_call=tool_call,
                         user_id=user_id,
                         session_id=session_id,
+                        turn_id=turn_id,
                         intent=intent,
                         execution_agent_id=execution_agent_id,
                         execution_workspace=execution_workspace,
@@ -260,6 +264,7 @@ class FunctionCallingExecutor:
                             "execution_time": result.execution_time,
                             "user_id": user_id,
                             "session_id": session_id,
+                            "turn_id": turn_id,
                             "intent": intent,
                             "execution_agent_id": execution_agent_id,
                         }
@@ -267,8 +272,10 @@ class FunctionCallingExecutor:
                     await self._emit_tool_result(
                         user_id=user_id,
                         session_id=session_id,
+                        turn_id=turn_id,
                         user_message=user_message,
                         intent=intent,
+                        iteration=iteration,
                         tool_call=tool_call,
                         result=result,
                     )
@@ -311,6 +318,7 @@ class FunctionCallingExecutor:
                             "details": failed_details,
                             "user_id": user_id,
                             "session_id": session_id,
+                            "turn_id": turn_id,
                             "intent": intent,
                             "execution_agent_id": execution_agent_id,
                         }
@@ -333,6 +341,7 @@ class FunctionCallingExecutor:
                         "response_preview": str(response["content"])[:500],
                         "user_id": user_id,
                         "session_id": session_id,
+                        "turn_id": turn_id,
                         "intent": intent,
                         "execution_agent_id": execution_agent_id,
                     }
@@ -358,6 +367,7 @@ class FunctionCallingExecutor:
                 "max_iterations": max_iterations,
                 "user_id": user_id,
                 "session_id": session_id,
+                "turn_id": turn_id,
                 "intent": intent,
                 "execution_agent_id": execution_agent_id,
             }
@@ -393,6 +403,7 @@ class FunctionCallingExecutor:
                     tool_call=tool_call,
                     user_id=user_id,
                     session_id=session_id,
+                    turn_id=turn_id,
                     intent=intent,
                     execution_agent_id=execution_agent_id,
                     execution_workspace=execution_workspace,
@@ -442,6 +453,7 @@ class FunctionCallingExecutor:
                 "response_preview": str(final_response.get("content", ""))[:500],
                 "user_id": user_id,
                 "session_id": session_id,
+                "turn_id": turn_id,
                 "intent": intent,
                 "execution_agent_id": execution_agent_id,
             }
@@ -467,8 +479,10 @@ class FunctionCallingExecutor:
         self,
         user_id: str,
         session_id: Optional[str],
+        turn_id: Optional[str],
         user_message: str,
         intent: str,
+        iteration: int,
         tool_call: ToolCall,
         result: ToolCallResult,
     ) -> None:
@@ -479,8 +493,10 @@ class FunctionCallingExecutor:
         payload = {
             "user_id": user_id,
             "session_id": session_id,
+            "turn_id": turn_id,
             "user_message": user_message,
             "intent": intent,
+            "iteration": iteration,
             "tool_name": tool_call.name,
             "tool_call_id": tool_call.id,
             "arguments": tool_call.arguments,
@@ -741,6 +757,7 @@ class FunctionCallingExecutor:
         tool_call: ToolCall,
         user_id: str,
         session_id: Optional[str],
+        turn_id: Optional[str],
         intent: str,
         execution_agent_id: str,
         execution_workspace: Optional[str],
@@ -802,6 +819,7 @@ class FunctionCallingExecutor:
                 env_vars={
                     "user_id": user_id,
                     "session_id": session_id or "",
+                    "turn_id": turn_id or "",
                     "intent": intent,
                     "target_task_agent_type": "chat",
                     "target_task_agent_id": user_id,

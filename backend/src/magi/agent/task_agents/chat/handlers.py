@@ -89,6 +89,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             mode=request.mode,
             response_text=response_text,
             root_user_message=request.context.latest_user_message,
+            turn_id=getattr(request.context.latest_payload, "turn_id", None),
         )
 
 
@@ -120,6 +121,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             selected_tools=request.selected_tools,
             user_id=request.context.user_id,
             session_id=request.context.session_id,
+            turn_id=getattr(request.context.latest_payload, "turn_id", None),
             conversation_history=request.context.history,
             disable_thinking=request.disable_thinking,
             intent=request.intent.intent,
@@ -135,6 +137,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             response_text=execution_outcome.content,
             root_user_message=request.context.latest_user_message,
             execution_outcome=execution_outcome.to_dict(),
+            turn_id=getattr(request.context.latest_payload, "turn_id", None),
         )
 
 
@@ -154,6 +157,7 @@ async def _start_explore_task_agent(
         history_snapshot=history,
         upstream_task_agent_type=TaskAgentType.CHAT.value,
         upstream_task_agent_id=request.context.user_id,
+        turn_id=getattr(request.context.latest_payload, "turn_id", None),
     )
     fact = FactRecord(
         agent_id=f"{TaskAgentType.EXPLORE.value}:{request.context.user_id}",
@@ -183,12 +187,17 @@ async def _start_explore_task_agent(
             response_text="Failed to start Explore task decomposition for this request.",
             root_user_message=request.context.latest_user_message,
             correlation_id=fact.correlation_id,
+            turn_id=payload.turn_id,
         )
     deps.session_service.append_user_message(
         request.context.history_key,
         request.context.latest_user_message,
     )
-    return ExecutionResult(mode=request.mode, skip_emit=True)
+    return ExecutionResult(
+        mode=request.mode,
+        skip_emit=True,
+        turn_id=payload.turn_id,
+    )
 
 
 class ExploreRenderHandler(BaseExecutionHandler):
@@ -235,6 +244,7 @@ class ExploreRenderHandler(BaseExecutionHandler):
                 correlation_id=request.context.latest_fact.correlation_id if isinstance(request.context.latest_fact, FactRecord) else None,
                 orchestration_id=orchestration_id,
                 message_started_at=request.message_started_at,
+                turn_id=getattr(request.context.latest_payload, "turn_id", None),
             )
 
         filtered_history = self._deps.prompt_service.filter_history_for_aggregation(request.context.history)
@@ -277,4 +287,5 @@ class ExploreRenderHandler(BaseExecutionHandler):
             correlation_id=request.context.latest_fact.correlation_id if isinstance(request.context.latest_fact, FactRecord) else None,
             orchestration_id=orchestration_id,
             message_started_at=request.message_started_at,
+            turn_id=getattr(request.context.latest_payload, "turn_id", None),
         )

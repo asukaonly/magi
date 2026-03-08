@@ -25,6 +25,8 @@ class ActionExecutor:
         session_id: str,
         response: str,
         correlation_id: str | None = None,
+        turn_id: str | None = None,
+        orchestration_id: str | None = None,
     ) -> None:
         response_data = {
             "response": response,
@@ -32,6 +34,10 @@ class ActionExecutor:
             "user_id": user_id,
             "session_id": session_id,
         }
+        if turn_id:
+            response_data["turn_id"] = turn_id
+        if orchestration_id:
+            response_data["orchestration_id"] = orchestration_id
         await self._message_bus.publish(
             Event(
                 type=EventTypes.AI_RESPONSE,
@@ -86,3 +92,21 @@ class ActionExecutor:
             )
         except Exception as exc:
             logger.warning(f"Failed to publish action execution event: {exc}")
+
+    async def emit_runtime_event(
+        self,
+        *,
+        event_type: str,
+        payload: dict[str, object],
+        correlation_id: str | None = None,
+        success: bool = True,
+    ) -> None:
+        await self._message_bus.publish(
+            Event(
+                type=event_type,
+                data=payload,
+                source="runtime_action_executor",
+                level=EventLevel.INFO if success else EventLevel.ERROR,
+                correlation_id=correlation_id,
+            )
+        )

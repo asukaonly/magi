@@ -88,11 +88,14 @@ class ChatPostProcessService:
             )
 
         correlation_id = result.correlation_id or latest_fact.correlation_id
+        turn_id = result.turn_id or self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
         await action_executor.emit_chat_response_event(
             user_id=context.user_id,
             session_id=context.session_id,
             response=response_text,
             correlation_id=correlation_id,
+            turn_id=turn_id,
+            orchestration_id=result.orchestration_id,
         )
         now = time.time()
         message_started_at = float(result.message_started_at or latest_fact.timestamp or now)
@@ -106,6 +109,7 @@ class ChatPostProcessService:
                 "user_id": context.user_id,
                 "session_id": context.session_id,
                 "orchestration_id": result.orchestration_id,
+                "turn_id": turn_id,
             }
         )
         await action_executor.emit_action_event(
@@ -131,6 +135,7 @@ class ChatPostProcessService:
         user_id = str(payload.get("user_id") or self._agent_id)
         session_id = self._session_service.resolve_session_id(user_id, payload.get("session_id"))
         history_key = self._session_service.history_key(user_id, session_id)
+        turn_id = str(payload.get("turn_id") or "").strip() or None
         self._session_service.store_tool_interaction(
             history_key,
             {
@@ -141,6 +146,7 @@ class ChatPostProcessService:
                 "error_code": str(payload.get("error_code") or ""),
                 "error_message": str(payload.get("error") or ""),
                 "result_summary": str(payload.get("data") or ""),
+                "turn_id": turn_id,
             },
         )
 
@@ -170,11 +176,33 @@ class ChatPostProcessService:
             success=success,
             error=error_text,
         )
+        await action_executor.emit_runtime_event(
+            event_type=TOOL_INTERACTION_EVENT_TYPE,
+            payload={
+                "tool_name": tool_name,
+                "tool_call_id": payload.get("tool_call_id"),
+                "arguments": arguments,
+                "success": success,
+                "error": error_text,
+                "error_code": payload.get("error_code"),
+                "execution_time": execution_time,
+                "data": payload.get("data"),
+                "intent": payload.get("intent"),
+                "iteration": payload.get("iteration"),
+                "user_id": user_id,
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "timestamp": time.time(),
+            },
+            correlation_id=str(payload.get("tool_call_id") or str(uuid.uuid4())),
+            success=success,
+        )
 
     async def record_tool_loop_fact(self, payload: dict[str, Any]) -> None:
         user_id = str(payload.get("user_id") or self._agent_id)
         session_id = self._session_service.resolve_session_id(user_id, payload.get("session_id"))
         stage = str(payload.get("stage") or "unknown")
+        turn_id = str(payload.get("turn_id") or "").strip() or None
         fact = FactRecord(
             agent_id=f"{TaskAgentType.CHAT.value}:{user_id}",
             event_type=CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
@@ -194,6 +222,7 @@ class ChatPostProcessService:
                 "execution_agent_id": payload.get("execution_agent_id"),
                 "user_id": user_id,
                 "session_id": session_id,
+                "turn_id": turn_id,
                 "timestamp": time.time(),
             },
             agent_type=TaskAgentType.CHAT.value,
@@ -212,6 +241,14 @@ class ChatPostProcessService:
             self._local_fact_memory.append(fact)
             if len(self._local_fact_memory) > self._max_fact_memory:
                 self._local_fact_memory = self._local_fact_memory[-self._max_fact_memory :]
+        action_executor = self._get_action_executor()
+        if action_executor is not None:
+            await action_executor.emit_runtime_event(
+                event_type=CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
+                payload=dict(fact.payload),
+                correlation_id=fact.correlation_id,
+                success=bool(payload.get("success", True)),
+            )
 
     async def _record_memory_updates(self, *, user_id: str, user_message: str) -> bool:
         updated = False
@@ -252,3 +289,11 @@ class ChatPostProcessService:
             except Exception as exc:
                 logger.warning("Failed to update other memory: %s", exc)
         return updated
+
+    def _resolve_turn_id(self, context: ChatRuntimeContext, payload: dict[str, Any]) -> str | None:
+        latest_payload = context.latest_payload
+        typed_turn_id = str(getattr(latest_payload, "turn_id", "") or "").strip()
+        if typed_turn_id:
+            return typed_turn_id
+        raw_turn_id = str(payload.get("turn_id") or "").strip()
+        return raw_turn_id or None

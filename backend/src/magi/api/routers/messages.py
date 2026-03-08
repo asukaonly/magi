@@ -32,6 +32,7 @@ class UserMessageRequest(BaseModel):
     message: str = Field(..., description="User messageContent")
     user_id: str = Field(default="web_user", description="userid")
     session_id: Optional[str] = Field(None, description="sessionid")
+    client_turn_id: Optional[str] = Field(None, description="Optional client-generated turn id")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="metadata")
 
 
@@ -159,6 +160,7 @@ async def send_user_message(
             "message": request.message,
             "user_id": request.user_id,
             "session_id": session_id,
+            "turn_id": request.client_turn_id or f"turn_{uuid.uuid4().hex[:12]}",
             "metadata": request.metadata,
             "timestamp": time.time(),
         }
@@ -205,6 +207,7 @@ async def send_user_message(
             data={
                 "user_id": request.user_id,
                 "session_id": session_id,
+                "turn_id": message_data["turn_id"],
                 "message_length": len(request.message),
                 "timestamp": time.time(),
             }
@@ -232,7 +235,7 @@ async def get_conversation_history(
     try:
         read_service = get_chat_read_service()
         resolved_session_id = session_id or read_service.get_current_session_id(user_id)
-        history = read_service.get_conversation_history(user_id, resolved_session_id)
+        history = read_service.get_display_history(user_id, resolved_session_id)
 
         # convert为前端expectation的format
         messages = []
@@ -241,6 +244,10 @@ async def get_conversation_history(
                 "role": msg["role"],
                 "content": msg["content"],
                 "timestamp": int(msg.get("timestamp", time.time())),
+                "turn_id": msg.get("turn_id"),
+                "kind": msg.get("kind"),
+                "trace_summary": msg.get("trace_summary"),
+                "trace_available": bool(msg.get("trace_available")),
             })
 
         return {
@@ -269,6 +276,32 @@ async def get_worker_result(worker_id: str, user_id: str = "web_user"):
         "worker_id": worker_id,
         "user_id": user_id,
         "result": result,
+    }
+
+
+@user_messages_router.get("/trace", response_model=Dict[str, Any])
+async def get_execution_trace(
+    user_id: str = "web_user",
+    session_id: Optional[str] = Query(default=None, description="sessionid，不传则使用currentsession"),
+    turn_id: str = Query(..., description="turn id for the target user message"),
+):
+    """Get structured execution trace for one chat turn."""
+    from ..services import get_chat_trace_read_service
+
+    read_service = get_chat_read_service()
+    resolved_session_id = session_id or read_service.get_current_session_id(user_id)
+    trace_service = get_chat_trace_read_service()
+    snapshot = trace_service.get_trace_snapshot(
+        user_id=user_id,
+        session_id=resolved_session_id,
+        turn_id=turn_id,
+    )
+    return {
+        "success": snapshot is not None,
+        "user_id": user_id,
+        "session_id": resolved_session_id,
+        "turn_id": turn_id,
+        "trace": snapshot,
     }
 
 

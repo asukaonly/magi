@@ -51,6 +51,7 @@ class WorkerRunState:
     target_task_agent_id: str
     user_id: str
     session_id: str
+    turn_id: Optional[str]
     created_at: float
     status: str = "running"
     updated_at: float = 0.0
@@ -218,6 +219,12 @@ class WorkerAgentManager(Tool):
                     name="subtask_id",
                     type=ParameterType.STRING,
                     description="Subtask id within the parent orchestration",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="turn_id",
+                    type=ParameterType.STRING,
+                    description="Conversation turn id associated with the parent user request",
                     required=False,
                 ),
                 ToolParameter(
@@ -389,6 +396,7 @@ class WorkerAgentManager(Tool):
         orchestration_id = _optional_string(parameters.get("orchestration_id"))
         subtask_id = _optional_string(parameters.get("subtask_id"))
         retry_count = int(parameters.get("retry_count", 0))
+        turn_id = _optional_string(parameters.get("turn_id") or context.env_vars.get("turn_id"))
 
         user_id = str(context.env_vars.get("user_id", "unknown"))
         session_id = str(context.env_vars.get("session_id", ""))
@@ -425,6 +433,7 @@ class WorkerAgentManager(Tool):
             target_task_agent_id=target_task_agent_id,
             user_id=user_id,
             session_id=session_id,
+            turn_id=turn_id,
             created_at=created_at,
             updated_at=created_at,
             retry_count=retry_count,
@@ -548,6 +557,7 @@ class WorkerAgentManager(Tool):
                 selected_tools=selected_tools,
                 user_id=run_state.user_id,
                 session_id=run_state.session_id or run_state.worker_id,
+                turn_id=run_state.turn_id,
                 conversation_history=[],
                 max_iterations=max_iterations,
                 disable_thinking=False if run_state.subagent_type == self.TYPE_PLAN else True,
@@ -712,6 +722,7 @@ class WorkerAgentManager(Tool):
             "parent_task_agent_id": run_state.parent_task_agent_id,
             "user_id": run_state.user_id,
             "session_id": run_state.session_id,
+            "turn_id": run_state.turn_id,
             "timestamp": now,
             **internal_payload,
         }
@@ -735,6 +746,7 @@ class WorkerAgentManager(Tool):
             "subtask_id": run_state.subtask_id,
             "user_id": run_state.user_id,
             "session_id": run_state.session_id,
+            "turn_id": run_state.turn_id,
             "timestamp": now,
             **(public_payload or internal_payload),
         }
@@ -902,6 +914,7 @@ class WorkerAgentManager(Tool):
             "description": run_state.description,
             "orchestration_id": run_state.orchestration_id,
             "subtask_id": run_state.subtask_id,
+            "turn_id": run_state.turn_id,
             "parent_task_agent_type": run_state.parent_task_agent_type,
             "parent_task_agent_id": run_state.parent_task_agent_id,
             "target_task_agent_type": run_state.target_task_agent_type,

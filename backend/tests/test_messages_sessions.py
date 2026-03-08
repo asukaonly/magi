@@ -9,6 +9,7 @@ if str(BACKEND_SRC) not in sys.path:
 
 from magi.api.routers import messages
 from magi.api.services.chat_read_service import ChatReadService
+from magi.api.services.chat_trace_read_service import ChatTraceReadService
 
 
 def _init_event_store(db_path: Path) -> None:
@@ -147,14 +148,21 @@ def test_list_sessions_router_response(monkeypatch):
     assert result["count"] == 1
 
 
-def test_get_conversation_history_includes_worker_events(tmp_path):
+def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tmp_path, monkeypatch):
     service = _build_service(tmp_path)
+    trace_service = ChatTraceReadService()
+    trace_service._events_db_path = service._events_db_path
+    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    monkeypatch.setattr(
+        "magi.api.services.chat_read_service.get_chat_trace_read_service",
+        lambda: trace_service,
+    )
     _init_event_store(service._events_db_path)
 
     _insert_event(
         service._events_db_path,
         "USER_INPUT",
-        {"user_id": "u1", "session_id": "s1", "message": "start task"},
+        {"user_id": "u1", "session_id": "s1", "message": "start task", "turn_id": "turn_1"},
         1000,
     )
     _insert_event(
@@ -163,6 +171,7 @@ def test_get_conversation_history_includes_worker_events(tmp_path):
         {
             "user_id": "u1",
             "session_id": "s1",
+            "turn_id": "turn_1",
             "worker_id": "worker_abc1234567",
             "worker_subagent_type": "Explore",
             "stage": "started",
@@ -176,14 +185,110 @@ def test_get_conversation_history_includes_worker_events(tmp_path):
         {
             "user_id": "u1",
             "session_id": "s1",
+            "turn_id": "turn_1",
             "worker_id": "worker_abc1234567",
             "worker_subagent_type": "Explore",
         },
         1020,
     )
 
-    messages = service.get_conversation_history("u1", "s1", limit=20)
+    messages = service.get_display_history("u1", "s1", limit=20)
 
-    assert [item["role"] for item in messages] == ["user", "system", "system"]
-    assert "Started" in messages[1]["content"]
-    assert "Completed" in messages[2]["content"]
+    assert [item["kind"] for item in messages] == ["user", "status"]
+    assert messages[1]["turn_id"] == "turn_1"
+    assert messages[1]["trace_available"] is True
+    assert messages[1]["trace_summary"]["headline"] == "正在执行工具链"
+
+
+def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
+    service = ChatTraceReadService()
+    service._events_db_path = tmp_path / "events.sqlite3"
+    service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    _init_event_store(service._events_db_path)
+
+    service._orchestrations_path.write_text(
+        json.dumps(
+            {
+                "orchestrations": {
+                    "orch_1": {
+                        "orchestration_id": "orch_1",
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "root_user_message": "analyze repo",
+                        "planner": "task_agent",
+                        "turn_id": "turn_1",
+                        "status": "running",
+                        "allow_parallel": True,
+                        "subtasks": [
+                            {
+                                "subtask_id": "sub_1",
+                                "description": "scan backend",
+                                "subagent_type": "Explore",
+                                "prompt": "scan backend",
+                                "parallel_group": "group_a",
+                                "status": "running",
+                                "worker_id": "worker_1",
+                                "created_at": 1000,
+                                "updated_at": 1015,
+                            },
+                            {
+                                "subtask_id": "sub_2",
+                                "description": "scan frontend",
+                                "subagent_type": "Explore",
+                                "prompt": "scan frontend",
+                                "parallel_group": "group_a",
+                                "status": "completed",
+                                "worker_id": "worker_2",
+                                "worker_result": {"summary": "frontend summary"},
+                                "created_at": 1001,
+                                "updated_at": 1020,
+                            },
+                        ],
+                    }
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    _insert_event(
+        service._events_db_path,
+        "USER_INPUT",
+        {"user_id": "u1", "session_id": "s1", "message": "analyze repo", "turn_id": "turn_1"},
+        1000,
+    )
+    _insert_event(
+        service._events_db_path,
+        "WORKER_AGENT_PROGRESS",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "turn_id": "turn_1",
+            "orchestration_id": "orch_1",
+            "subtask_id": "sub_1",
+            "worker_id": "worker_1",
+            "worker_description": "scan backend",
+            "worker_subagent_type": "Explore",
+            "stage": "tool_result",
+            "tool_name": "grep",
+            "success": True,
+            "result_preview": "match count: 3",
+            "timestamp": 1015,
+        },
+        1015,
+    )
+
+    snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_1")
+
+    assert snapshot is not None
+    assert snapshot["summary"]["trace_available"] is True
+    assert snapshot["summary"]["mode"] == "orchestration"
+    planning = snapshot["root"]["children"][0]
+    assert planning["kind"] == "planning"
+    group = planning["children"][0]
+    assert group["kind"] == "parallel_group"
+    worker = group["children"][0]
+    assert worker["kind"] == "worker"
+    assert worker["children"][0]["label"] == "grep"

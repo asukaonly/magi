@@ -37,6 +37,7 @@ class ExplorePostProcessService:
                 markdown_dossier=response_text,
                 orchestration_id=result.orchestration_id,
                 message_started_at=result.message_started_at,
+                turn_id=result.turn_id or getattr(context.latest_payload, "turn_id", None),
             ),
             correlation_id=correlation_id,
         )

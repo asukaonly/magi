@@ -222,6 +222,7 @@ class TaskOrchestrationState:
     session_id: str
     root_user_message: str
     planner: str
+    turn_id: Optional[str] = None
     workspace_root: Optional[str] = None
     status: str = "running"
     retry_budget: int = 1
@@ -253,6 +254,7 @@ class TaskOrchestrationState:
             user_id=str(payload.get("user_id", "")).strip(),
             session_id=str(payload.get("session_id", "")).strip(),
             root_user_message=str(payload.get("root_user_message", "")).strip(),
+            turn_id=_optional_string(payload.get("turn_id")),
             planner=str(payload.get("planner", "task_agent")).strip() or "task_agent",
             workspace_root=_optional_string(payload.get("workspace_root")),
             status=str(payload.get("status", "running")).strip() or "running",
@@ -295,6 +297,7 @@ class OrchestrationExecutionResult:
     correlation_id: Optional[str] = None
     orchestration_id: Optional[str] = None
     message_started_at: Optional[float] = None
+    turn_id: Optional[str] = None
 
 
 class OrchestrationStore:

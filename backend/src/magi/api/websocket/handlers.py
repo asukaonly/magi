@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import random
 import time
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
@@ -189,6 +190,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
             "message": message,
             "user_id": user_id,
             "session_id": resolved_session,
+            "turn_id": str(data.get("client_turn_id") or "").strip() or f"turn_{uuid.uuid4().hex[:12]}",
             "timestamp": time.time(),
         }
 
@@ -212,6 +214,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
             "data": {
                 "user_id": user_id,
                 "session_id": resolved_session,
+                "turn_id": message_data["turn_id"],
                 "timestamp": time.time(),
             },
         }
@@ -262,13 +265,17 @@ async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
 
         read_service = get_chat_read_service()
         resolved_session = session_id or read_service.get_current_session_id(user_id)
-        history = read_service.get_conversation_history(user_id, resolved_session)
+        history = read_service.get_display_history(user_id, resolved_session)
 
         messages = [
             {
                 "role": msg["role"],
                 "content": msg["content"],
                 "timestamp": int(msg.get("timestamp", time.time())),
+                "turn_id": msg.get("turn_id"),
+                "kind": msg.get("kind"),
+                "trace_summary": msg.get("trace_summary"),
+                "trace_available": bool(msg.get("trace_available")),
             }
             for msg in history
         ]

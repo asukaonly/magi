@@ -71,13 +71,17 @@ class UserMessagePayload:
     user_id: str
     session_id: str
     message: str
+    turn_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "user_id": self.user_id,
             "session_id": self.session_id,
             "message": self.message,
         }
+        if self.turn_id is not None:
+            payload["turn_id"] = self.turn_id
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any], *, fallback_user_id: str) -> "UserMessagePayload":
@@ -85,6 +89,7 @@ class UserMessagePayload:
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
             message=str(payload.get("message") or "").strip(),
+            turn_id=_optional_string(payload.get("turn_id")),
         )
 
 
@@ -94,6 +99,7 @@ class WorkerUpdatePayload:
 
     user_id: str
     session_id: str
+    turn_id: Optional[str] = None
     worker_id: str = ""
     stage: str = ""
     orchestration_id: Optional[str] = None
@@ -113,6 +119,8 @@ class WorkerUpdatePayload:
             "stage": self.stage,
             "result_preview": self.result_preview,
         }
+        if self.turn_id is not None:
+            payload["turn_id"] = self.turn_id
         if self.orchestration_id is not None:
             payload["orchestration_id"] = self.orchestration_id
         if self.subtask_id is not None:
@@ -135,6 +143,7 @@ class WorkerUpdatePayload:
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
+            turn_id=_optional_string(payload.get("turn_id")),
             worker_id=str(payload.get("worker_id") or ""),
             stage=str(payload.get("stage") or ""),
             orchestration_id=_optional_string(payload.get("orchestration_id")),
@@ -162,9 +171,10 @@ class ExploreTaskRequestPayload:
     history_snapshot: list[dict[str, Any]] = field(default_factory=list)
     upstream_task_agent_type: str = "chat"
     upstream_task_agent_id: str = ""
+    turn_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "user_id": self.user_id,
             "session_id": self.session_id,
             "message": self.message,
@@ -172,6 +182,9 @@ class ExploreTaskRequestPayload:
             "upstream_task_agent_type": self.upstream_task_agent_type,
             "upstream_task_agent_id": self.upstream_task_agent_id,
         }
+        if self.turn_id is not None:
+            payload["turn_id"] = self.turn_id
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any], *, fallback_user_id: str) -> "ExploreTaskRequestPayload":
@@ -183,6 +196,7 @@ class ExploreTaskRequestPayload:
             history_snapshot=history_snapshot if isinstance(history_snapshot, list) else [],
             upstream_task_agent_type=str(payload.get("upstream_task_agent_type") or "chat"),
             upstream_task_agent_id=str(payload.get("upstream_task_agent_id") or fallback_user_id),
+            turn_id=_optional_string(payload.get("turn_id")),
         )
 
 
@@ -196,6 +210,7 @@ class ExploreTaskCompletedPayload:
     markdown_dossier: str
     orchestration_id: Optional[str] = None
     message_started_at: Optional[float] = None
+    turn_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -208,6 +223,8 @@ class ExploreTaskCompletedPayload:
             payload["orchestration_id"] = self.orchestration_id
         if self.message_started_at is not None:
             payload["message_started_at"] = self.message_started_at
+        if self.turn_id is not None:
+            payload["turn_id"] = self.turn_id
         return payload
 
     @classmethod
@@ -219,6 +236,7 @@ class ExploreTaskCompletedPayload:
             markdown_dossier=str(payload.get("markdown_dossier") or "").strip(),
             orchestration_id=_optional_string(payload.get("orchestration_id")),
             message_started_at=_optional_float(payload.get("message_started_at")),
+            turn_id=_optional_string(payload.get("turn_id")),
         )
 
 
@@ -323,6 +341,7 @@ class ExecutionResult:
     correlation_id: Optional[str] = None
     orchestration_id: Optional[str] = None
     message_started_at: Optional[float] = None
+    turn_id: Optional[str] = None
 
 
 @dataclass(slots=True)
