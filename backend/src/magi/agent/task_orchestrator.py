@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from ..core.logger import get_logger
@@ -81,6 +82,7 @@ class TaskOrchestrator:
 
         orchestration_id = f"orch_{uuid.uuid4().hex[:12]}"
         now = time.time()
+        workspace_root = self._resolve_workspace_root(user_message)
         subtasks = [
             SubtaskDefinition(
                 subtask_id=f"subtask_{uuid.uuid4().hex[:10]}",
@@ -108,6 +110,7 @@ class TaskOrchestrator:
             session_id=session_id,
             root_user_message=user_message,
             planner=str(orchestration_strategy.get("planner", "task_agent") or "task_agent"),
+            workspace_root=workspace_root,
             status="running",
             retry_budget=1,
             allow_parallel=bool(orchestration_strategy.get("allow_parallel", True)),
@@ -266,7 +269,7 @@ class TaskOrchestrator:
         )
 
     async def _launch_workers(self, state: TaskOrchestrationState) -> Optional[str]:
-        context = self._build_agent_tool_context(state.user_id, state.session_id)
+        context = self._build_agent_tool_context(state.user_id, state.session_id, state.workspace_root)
         worker_payloads = [
             {
                 "subagent_type": item.subagent_type,
@@ -321,7 +324,7 @@ class TaskOrchestrator:
         if subtask.attempt_count > state.retry_budget:
             return False
 
-        context = self._build_agent_tool_context(state.user_id, state.session_id)
+        context = self._build_agent_tool_context(state.user_id, state.session_id, state.workspace_root)
         next_attempt = subtask.attempt_count + 1
         result = await self._tool_registry.execute(
             "agent",
@@ -364,10 +367,15 @@ class TaskOrchestrator:
         await self._orchestration_store.save_orchestration(state)
         return True
 
-    def _build_agent_tool_context(self, user_id: str, session_id: str) -> ToolExecutionContext:
+    def _build_agent_tool_context(
+        self,
+        user_id: str,
+        session_id: str,
+        workspace_root: Optional[str] = None,
+    ) -> ToolExecutionContext:
         return ToolExecutionContext(
             agent_id=self._runtime_key,
-            workspace=os.getcwd(),
+            workspace=workspace_root or self._default_workspace_root(),
             env_vars={
                 "user_id": user_id,
                 "session_id": session_id,
@@ -378,6 +386,48 @@ class TaskOrchestrator:
             },
             permissions=["authenticated"],
         )
+
+    def _resolve_workspace_root(self, user_message: str) -> str:
+        default_root = self._default_workspace_root()
+        message = str(user_message or "").strip()
+        if not message:
+            return default_root
+
+        explicit_candidates = self._extract_explicit_path_candidates(message, default_root)
+        for candidate in explicit_candidates:
+            normalized = self._normalize_existing_path(candidate)
+            if normalized:
+                return normalized
+        return default_root
+
+    def _default_workspace_root(self) -> str:
+        cwd = Path(os.getcwd()).expanduser().resolve()
+        if cwd.name == "backend":
+            parent = cwd.parent
+            if (parent / "frontend").exists() or (parent / "doc").exists():
+                return str(parent)
+        return str(cwd)
+
+    def _extract_explicit_path_candidates(self, message: str, default_root: str) -> list[str]:
+        candidates: list[str] = []
+        tokens = message.replace("\n", " ").split()
+        relative_prefixes = ("backend/", "frontend/", "doc/", "docs/", "configs/", "scripts/")
+        for token in tokens:
+            cleaned = token.strip("`'\"()[]{}<>,，。；：!?")
+            if not cleaned:
+                continue
+            if cleaned.startswith(("~/", "/")):
+                candidates.append(cleaned)
+                continue
+            if cleaned.startswith(relative_prefixes):
+                candidates.append(str(Path(default_root) / cleaned))
+        return candidates
+
+    def _normalize_existing_path(self, raw_path: str) -> Optional[str]:
+        candidate = Path(os.path.expandvars(os.path.expanduser(raw_path))).resolve()
+        if candidate.exists():
+            return str(candidate if candidate.is_dir() else candidate.parent)
+        return None
 
     def _is_terminal(self, state: TaskOrchestrationState) -> bool:
         return bool(state.subtasks) and all(item.status in {"completed", "failed"} for item in state.subtasks)

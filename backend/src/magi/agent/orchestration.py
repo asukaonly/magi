@@ -222,6 +222,7 @@ class TaskOrchestrationState:
     session_id: str
     root_user_message: str
     planner: str
+    workspace_root: Optional[str] = None
     status: str = "running"
     retry_budget: int = 1
     allow_parallel: bool = True
@@ -253,6 +254,7 @@ class TaskOrchestrationState:
             session_id=str(payload.get("session_id", "")).strip(),
             root_user_message=str(payload.get("root_user_message", "")).strip(),
             planner=str(payload.get("planner", "task_agent")).strip() or "task_agent",
+            workspace_root=_optional_string(payload.get("workspace_root")),
             status=str(payload.get("status", "running")).strip() or "running",
             retry_budget=_safe_int(payload.get("retry_budget"), default=1),
             allow_parallel=bool(payload.get("allow_parallel", True)),

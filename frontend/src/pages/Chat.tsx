@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,35 @@ const CONNECTION_EVENT = 'magi-chat-connection';
 const SESSION_SYNC_EVENT = 'magi-session-sync';
 const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const USER_ID = 'web_user';
+
+const assistantMarkdownComponents: Components = {
+  h1: ({ children }) => <h1 className="mb-3 mt-1 text-lg font-semibold leading-snug text-foreground">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-3 mt-5 text-base font-semibold leading-snug text-foreground first:mt-0">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-2 mt-4 text-sm font-semibold leading-snug text-foreground">{children}</h3>,
+  p: ({ children }) => <p className="mb-3 whitespace-pre-wrap text-sm leading-7 text-foreground last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 text-sm leading-7 text-foreground">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm leading-7 text-foreground">{children}</ol>,
+  li: ({ children }) => <li className="pl-1 marker:text-muted-foreground">{children}</li>,
+  blockquote: ({ children }) => (
+    <blockquote className="mb-3 border-l-2 border-border/80 pl-3 text-sm italic leading-7 text-muted-foreground">
+      {children}
+    </blockquote>
+  ),
+  code: ({ children }) => (
+    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
+  ),
+  pre: ({ children }) => (
+    <pre className="mb-3 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-3 text-xs leading-6 text-foreground">
+      {children}
+    </pre>
+  ),
+  a: ({ href, children }) => (
+    <a href={href} className="text-primary underline decoration-primary/50 underline-offset-2" target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  ),
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+};
 
 export const panelByPathname = (pathname: string): ChatPanelType => {
   if (pathname === '/settings') return 'settings';
@@ -493,8 +523,10 @@ export const ChatPage: React.FC = () => {
                     : 'rounded-2xl rounded-tl-md border border-border/50 bg-card/80 px-4 py-3 backdrop-blur-sm'}
                 >
                   {msg.role === 'assistant' ? (
-                    <div className="prose prose-sm max-w-none text-current">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                    <div className="max-w-none text-current">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+                        {msg.content}
+                      </ReactMarkdown>
                     </div>
                   ) : (
                     <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
