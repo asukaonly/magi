@@ -100,6 +100,7 @@ export const ChatPage: React.FC = () => {
   const summaries = useChatTraceStore((state) => state.summaries);
   const snapshots = useChatTraceStore((state) => state.snapshots);
   const upsertSummary = useChatTraceStore((state) => state.upsertSummary);
+  const replaceSummaries = useChatTraceStore((state) => state.replaceSummaries);
   const setSnapshot = useChatTraceStore((state) => state.setSnapshot);
   const openDrawer = useChatTraceStore((state) => state.openDrawer);
   const closeDrawer = useChatTraceStore((state) => state.closeDrawer);
@@ -145,25 +146,25 @@ export const ChatPage: React.FC = () => {
 
   const preloadTraceSummaries = useCallback(
     (historyMessages: ChatTimelineMessage[]) => {
-      resetTraceStore();
-      historyMessages.forEach((message) => {
-        if (message.traceSummary) {
-          upsertSummary({
-            turn_id: message.traceSummary.turnId,
-            mode: message.traceSummary.mode,
-            status: message.traceSummary.status,
-            headline: message.traceSummary.headline,
-            active_steps: message.traceSummary.activeSteps,
-            completed_steps: message.traceSummary.completedSteps,
-            failed_steps: message.traceSummary.failedSteps,
-            duration_seconds: message.traceSummary.durationSeconds,
-            trace_available: message.traceSummary.traceAvailable,
-            orchestration_id: message.traceSummary.orchestrationId || null,
-          });
-        }
-      });
+      const nextSummaries = historyMessages.flatMap((message) =>
+        message.traceSummary
+          ? [{
+              turn_id: message.traceSummary.turnId,
+              mode: message.traceSummary.mode,
+              status: message.traceSummary.status,
+              headline: message.traceSummary.headline,
+              active_steps: message.traceSummary.activeSteps,
+              completed_steps: message.traceSummary.completedSteps,
+              failed_steps: message.traceSummary.failedSteps,
+              duration_seconds: message.traceSummary.durationSeconds,
+              trace_available: message.traceSummary.traceAvailable,
+              orchestration_id: message.traceSummary.orchestrationId || null,
+            }]
+          : []
+      );
+      replaceSummaries(nextSummaries);
     },
-    [resetTraceStore, upsertSummary]
+    [replaceSummaries]
   );
 
   const loadTrace = useCallback(

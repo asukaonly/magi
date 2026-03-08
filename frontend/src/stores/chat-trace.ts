@@ -7,6 +7,7 @@ interface ChatTraceState {
   drawerOpen: boolean;
   activeTurnId: string | null;
   upsertSummary: (summary: ExecutionTraceSummary) => void;
+  replaceSummaries: (summaries: ExecutionTraceSummary[]) => void;
   setSnapshot: (snapshot: ExecutionTraceSnapshot) => void;
   openDrawer: (turnId: string) => void;
   closeDrawer: () => void;
@@ -24,6 +25,13 @@ export const useChatTraceStore = create<ChatTraceState>((set) => ({
         ...state.summaries,
         [summary.turn_id]: summary,
       },
+    })),
+  replaceSummaries: (summaries) =>
+    set((state) => ({
+      summaries: Object.fromEntries(summaries.map((summary) => [summary.turn_id, summary])),
+      snapshots: state.snapshots,
+      drawerOpen: state.drawerOpen,
+      activeTurnId: state.activeTurnId,
     })),
   setSnapshot: (snapshot) =>
     set((state) => ({
