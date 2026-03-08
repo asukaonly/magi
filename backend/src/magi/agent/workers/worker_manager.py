@@ -944,32 +944,7 @@ class WorkerAgentManager(Tool):
             else "No tools are available. Reason directly from prompt context."
         )
         if subagent_type == self.TYPE_EXPLORE:
-            role_rules = (
-"""
-Prioritize context-aware layered exploration over exhaustive scans.
-1.Directionality: Dynamically determine the entry layer based on the task (e.g., UI issues start at 'frontend', API issues at 'backend'). If unclear, follow: frontend -> backend -> ops -> docs.
-2.Precision Search: Use targeted glob patterns to map structure, then grep for logic entry points. Strictly avoid root-level ls -R or dumping non-essential trees.
-3.Execution Discipline: For glob calls, default to recursive=false and only recurse when pattern explicitly includes '**'. Never use '*' or '**/*' at repository root.
-4.Scope Control: Start from one focused layer (frontend/, backend/, docs/, scripts/) and expand only if needed. Keep every glob/grep call at max_results <= 200.
-5.Negative Constraints: Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files. Do not read binary files or minified assets.
-6.Incremental Validation: For each layer, identify the 'Source of Truth' (e.g., index files, main controllers). Provide 2-5 validated findings with absolute paths and a brief 'why it matters'.
-7.Response Validation: Your final answer must be one parseable JSON object and nothing else. Any prose, markdown, code fences, or trailing commentary will be treated as failure.
-
-STRICT OUTPUT SCHEMA:
-Return ONLY valid JSON with this schema:
-{
-  "result_status": "success|partial|failed",
-  "summary": "string",
-  "findings": [{"title": "string", "detail": "string", "path": "string", "why_it_matters": "string"}],
-  "evidence": [{"path": "string", "detail": "string"}],
-  "gaps": ["string"],
-  "next_steps": ["string"],
-  "failure_reason": "string|null"
-}
-Do not emit Markdown, prose before the JSON, or fenced code blocks.
-Before sending the final answer, self-check that it can be parsed by json.loads and that all required fields are present.
-"""
-            )
+            role_rules = self._build_explore_role_rules(description)
         elif subagent_type == self.TYPE_PLAN:
             role_rules = (
                 "Act as a software architect. Return ONLY valid JSON with this schema: "
@@ -985,6 +960,86 @@ Before sending the final answer, self-check that it can be parsed by json.loads 
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
         return "\n".join([base_rules, role_rules, tool_rules])
+
+    def _build_explore_role_rules(self, description: str) -> str:
+        lowered = description.lower()
+        profile = self._select_explore_prompt_profile(lowered)
+        common_rules = """
+Prioritize bounded exploration over exhaustive scans.
+Common rules:
+1.Directionality: Start from the layer most likely to contain the answer. If unclear, follow: frontend -> backend -> ops -> docs.
+2.Precision Search: Use targeted glob patterns to map structure, then grep for logic entry points. Strictly avoid root-level ls -R or dumping non-essential trees.
+3.Execution Discipline: For glob calls, default to recursive=false and only recurse when pattern explicitly includes '**'. Never use '*' or '**/*' at repository root.
+4.Scope Control: Start from one focused layer (frontend/, backend/, docs/, scripts/) and expand only if needed. Keep every glob/grep call at max_results <= 200.
+5.Negative Constraints: Always exclude node_modules, dist, build, .git, .venv, __pycache__, and lock files. Do not read binary files or minified assets.
+6.Incremental Validation: Identify 2-5 validated findings with absolute paths and a brief 'why it matters'. Prefer source-of-truth entry files over broad scans.
+7.Response Validation: Your final answer must be one parseable JSON object and nothing else. Any prose, markdown, code fences, or trailing commentary will be treated as failure.
+"""
+        schema_rules = """
+STRICT OUTPUT SCHEMA:
+Return ONLY valid JSON with this schema:
+{
+  "result_status": "success|partial|failed",
+  "summary": "string",
+  "findings": [{"title": "string", "detail": "string", "path": "string", "why_it_matters": "string"}],
+  "evidence": [{"path": "string", "detail": "string"}],
+  "gaps": ["string"],
+  "next_steps": ["string"],
+  "failure_reason": "string|null"
+}
+Do not emit Markdown, prose before the JSON, or fenced code blocks.
+Before sending the final answer, self-check that it can be parsed by json.loads and that all required fields are present.
+"""
+        return "\n".join([common_rules.strip(), profile, schema_rules.strip()])
+
+    def _select_explore_prompt_profile(self, lowered_description: str) -> str:
+        if "repository layout" in lowered_description or "layout" in lowered_description:
+            return """
+SUBTASK PROFILE: Repository Layout
+- Primary goal: map the top-level structure, major directories, and ownership boundaries.
+- Start with immediate children of the repository root and major first-level folders before any recursive scan.
+- Prefer directory and manifest evidence over reading many implementation files.
+- Do not drift into detailed frontend/backend logic unless it is necessary to explain module boundaries.
+""".strip()
+        if "technology stack" in lowered_description or "tech stack" in lowered_description:
+            return """
+SUBTASK PROFILE: Technology Stack
+- Primary goal: identify frameworks, runtimes, storage, package managers, and deployment/runtime targets.
+- Prioritize dependency manifests, lockfiles, config files, boot files, and build scripts.
+- Avoid broad source-code traversal unless a manifest is ambiguous and needs confirmation.
+- Call out the evidence file that confirms each stack claim.
+""".strip()
+        if "frontend structure" in lowered_description or "frontend" in lowered_description:
+            return """
+SUBTASK PROFILE: Frontend Structure
+- Primary goal: explain frontend organization, bootstrap flow, routing, stores, and key UI entry points.
+- Start from frontend entry files, router setup, app shell, and major feature folders.
+- Prefer reading index, main, router, page, and store files before component-level exploration.
+- Do not spend time on backend or docs unless they directly explain the frontend boundary.
+""".strip()
+        if "backend modules" in lowered_description or "backend" in lowered_description:
+            return """
+SUBTASK PROFILE: Backend Modules
+- Primary goal: explain backend module boundaries, runtime startup, task-agent chain, APIs, and execution flow.
+- Start from backend runtime/bootstrap/app entry files, then trace the task-agent and worker chain.
+- Prefer source-of-truth files such as backend app creation, runtime bootstrap, router wiring, and agent runtime modules.
+- Do not drift into frontend structure or docs unless they are required to explain a backend dependency.
+""".strip()
+        if "project progress" in lowered_description or "progress" in lowered_description:
+            return """
+SUBTASK PROFILE: Project Progress
+- Primary goal: infer current project status, active migration work, and unfinished areas.
+- Prioritize README, PROGRESS, CHANGELOG, migration plans, release notes, TODO-style docs, and roadmap files.
+- Use source code only as supporting evidence when documentation is stale or missing.
+- Do not spend time mapping the whole codebase; stay focused on status signals and recent direction.
+""".strip()
+        return """
+SUBTASK PROFILE: Generic Exploration
+- Primary goal: gather the minimum source-of-truth evidence needed to answer this bounded exploration request.
+- Start from the most likely folder and expand only when evidence is incomplete.
+- Prefer entry files, manifests, and coordinator modules over exhaustive file reads.
+- Keep the result narrow, evidence-driven, and scoped to the assigned subtask.
+""".strip()
 
     def _trim_history(self, max_runs: int) -> None:
         if len(self._runs) <= max_runs:

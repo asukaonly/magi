@@ -306,6 +306,34 @@ def test_agent_tool_explore_prompt_includes_scan_guardrails():
     assert "Any prose, markdown, code fences, or trailing commentary will be treated as failure." in prompt
 
 
+def test_agent_tool_explore_prompt_uses_backend_profile():
+    tool = AgentTool()
+    prompt = tool._build_worker_system_prompt(
+        worker_id="worker_test",
+        subagent_type=tool.TYPE_EXPLORE,
+        description="Analyze backend modules",
+        selected_tools=["glob", "grep", "file_read"],
+    )
+
+    assert "SUBTASK PROFILE: Backend Modules" in prompt
+    assert "Start from backend runtime/bootstrap/app entry files" in prompt
+    assert "Do not drift into frontend structure or docs" in prompt
+
+
+def test_agent_tool_explore_prompt_uses_layout_profile():
+    tool = AgentTool()
+    prompt = tool._build_worker_system_prompt(
+        worker_id="worker_test",
+        subagent_type=tool.TYPE_EXPLORE,
+        description="Map repository layout",
+        selected_tools=["glob", "grep", "file_read"],
+    )
+
+    assert "SUBTASK PROFILE: Repository Layout" in prompt
+    assert "Start with immediate children of the repository root" in prompt
+    assert "Prefer directory and manifest evidence" in prompt
+
+
 @pytest.mark.asyncio
 async def test_await_timeout_does_not_cancel_worker_task():
     tool = AgentTool()
