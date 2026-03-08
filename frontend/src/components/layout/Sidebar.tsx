@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { MessageSquarePlus } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Database, MessageSquarePlus, Settings2, UserRound } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -27,8 +27,11 @@ const formatSessionTime = (timestamp: number, locale: string): string => {
 const Sidebar: React.FC = () => {
   const { t, i18n } = useTranslation('app');
   const navigate = useNavigate();
+  const location = useLocation();
   const currentSessionId = useChatShellStore((state) => state.currentSessionId);
   const setCurrentSessionId = useChatShellStore((state) => state.setCurrentSessionId);
+  const activePanel = useChatShellStore((state) => state.activePanel);
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
 
   const [sessions, setSessions] = useState<ChatSessionListItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -94,6 +97,32 @@ const Sidebar: React.FC = () => {
     return [];
   }, [currentSessionId, sessions, t]);
 
+  const utilityActions = [
+    {
+      id: 'personality' as const,
+      label: t('shell.personality'),
+      icon: UserRound,
+      path: '/personality',
+    },
+    {
+      id: 'memory' as const,
+      label: t('shell.memory'),
+      icon: Database,
+      path: '/events',
+    },
+    {
+      id: 'settings' as const,
+      label: t('shell.settings'),
+      icon: Settings2,
+      path: '/settings',
+    },
+  ];
+
+  const handleOpenPanel = (panel: 'personality' | 'memory' | 'settings', path: string) => {
+    setActivePanel(panel);
+    navigate(path);
+  };
+
   return (
     <aside
       className="desktop-panel flex h-full min-h-0 flex-col overflow-hidden border-r border-border/30"
@@ -149,6 +178,40 @@ const Sidebar: React.FC = () => {
                 <div className="mt-1 truncate text-xs text-muted-foreground">
                   {session.last_message_preview || t('shell.noPreview')}
                 </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t border-border/30 bg-white/40 px-3 py-3">
+        <div className="grid gap-2">
+          {utilityActions.map((action) => {
+            const Icon = action.icon;
+            const active =
+              activePanel === action.id ||
+              location.pathname === action.path;
+            return (
+              <button
+                key={action.id}
+                type="button"
+                onClick={() => handleOpenPanel(action.id, action.path)}
+                className={cn(
+                  'flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition-all duration-200',
+                  active
+                    ? 'border-primary/35 bg-primary/12 text-foreground shadow-[0_10px_24px_-18px_rgba(45,212,191,0.4)]'
+                    : 'border-transparent text-muted-foreground hover:border-border/40 hover:bg-white/70 hover:text-foreground'
+                )}
+              >
+                <span className={cn(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border',
+                  active
+                    ? 'border-primary/20 bg-primary/15 text-primary'
+                    : 'border-border/50 bg-background/85'
+                )}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="text-sm font-medium">{action.label}</span>
               </button>
             );
           })}
