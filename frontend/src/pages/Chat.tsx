@@ -513,9 +513,13 @@ export const ChatPage: React.FC = () => {
     return (
       <button
         type="button"
-        onClick={() => {
-          openDrawer(turnId);
-          void loadTrace(turnId);
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          window.setTimeout(() => {
+            openDrawer(turnId);
+            void loadTrace(turnId);
+          }, 0);
         }}
         className="mt-3 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
       >
