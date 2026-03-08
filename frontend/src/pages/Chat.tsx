@@ -2,7 +2,7 @@
  * Chat page - desktop-focused conversation workspace
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Send, UserRound } from 'lucide-react';
+import { Loader2, Send, Wrench, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -13,24 +13,25 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
-import { useChatShellStore, type ChatPanelType } from '@/stores';
+import { useChatShellStore, useChatTraceStore, type ChatPanelType } from '@/stores';
+import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import PersonalityModern from './PersonalityModern';
 import EventsPage from './Events';
 import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: number;
-  status?: 'sending' | 'sent' | 'failed';
-  kind?: 'worker_update';
-  workerId?: string;
-}
+import {
+  applyAgentResponse,
+  createPendingTurn,
+  normalizeHistoryMessages,
+  normalizeTraceSnapshot,
+  normalizeTraceSummary,
+  type ChatTimelineMessage,
+} from './chat-state';
+import { upsertTraceSummary } from './chat-state';
 
 interface WSMessage {
-  type: string;
+  type?: string;
   data?: any;
   event?: string;
   channel?: string;
@@ -39,7 +40,6 @@ interface WSMessage {
 }
 
 const CONNECTION_EVENT = 'magi-chat-connection';
-const SESSION_SYNC_EVENT = 'magi-session-sync';
 const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const USER_ID = 'web_user';
 
@@ -79,6 +79,13 @@ export const panelByPathname = (pathname: string): ChatPanelType => {
   return 'none';
 };
 
+const createClientTurnId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `turn_${crypto.randomUUID()}`;
+  }
+  return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+};
+
 export const ChatPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
   const location = useLocation();
@@ -88,11 +95,21 @@ export const ChatPage: React.FC = () => {
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const drawerOpen = useChatTraceStore((state) => state.drawerOpen);
+  const activeTurnId = useChatTraceStore((state) => state.activeTurnId);
+  const snapshots = useChatTraceStore((state) => state.snapshots);
+  const upsertSummary = useChatTraceStore((state) => state.upsertSummary);
+  const setSnapshot = useChatTraceStore((state) => state.setSnapshot);
+  const openDrawer = useChatTraceStore((state) => state.openDrawer);
+  const closeDrawer = useChatTraceStore((state) => state.closeDrawer);
+  const resetTraceStore = useChatTraceStore((state) => state.reset);
+
+  const [messages, setMessages] = useState<ChatTimelineMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [aiName, setAiName] = useState<string>('AI');
   const [aiAvatar, setAiAvatar] = useState<string>('');
   const [connected, setConnected] = useState(false);
+  const [loadingTrace, setLoadingTrace] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -124,6 +141,48 @@ export const ChatPage: React.FC = () => {
       navigate('/chat');
     }
   }, [location.pathname, navigate, setActivePanel]);
+
+  const preloadTraceSummaries = useCallback(
+    (historyMessages: ChatTimelineMessage[]) => {
+      resetTraceStore();
+      historyMessages.forEach((message) => {
+        if (message.traceSummary) {
+          upsertSummary({
+            turn_id: message.traceSummary.turnId,
+            mode: message.traceSummary.mode,
+            status: message.traceSummary.status,
+            headline: message.traceSummary.headline,
+            active_steps: message.traceSummary.activeSteps,
+            completed_steps: message.traceSummary.completedSteps,
+            failed_steps: message.traceSummary.failedSteps,
+            duration_seconds: message.traceSummary.durationSeconds,
+            trace_available: message.traceSummary.traceAvailable,
+            orchestration_id: message.traceSummary.orchestrationId || null,
+          });
+        }
+      });
+    },
+    [resetTraceStore, upsertSummary]
+  );
+
+  const loadTrace = useCallback(
+    async (turnId: string) => {
+      if (!currentSessionId || !turnId) return;
+      setLoadingTrace(true);
+      try {
+        const result = await messagesApi.getTrace(USER_ID, currentSessionId, turnId);
+        const snapshot = normalizeTraceSnapshot(result.trace || undefined);
+        if (snapshot) {
+          setSnapshot(result.trace!);
+        }
+      } catch {
+        toast.error(t('chat.trace.loadFailed'));
+      } finally {
+        setLoadingTrace(false);
+      }
+    },
+    [currentSessionId, setSnapshot, t]
+  );
 
   const getReconnectDelay = useCallback(() => {
     const delay = Math.min(
@@ -158,39 +217,63 @@ export const ChatPage: React.FC = () => {
     return `${base}${separator}token=${encodeURIComponent(runtime.sessionToken)}`;
   }, []);
 
-  const formatWorkerUpdateMessage = useCallback(
-    (payload: Record<string, any>) => {
-      const workerIdRaw = String(payload.worker_id || payload.workerId || 'worker');
-      const workerId = workerIdRaw.slice(0, 8);
-      const subagentType = String(payload.worker_subagent_type || payload.subagent_type || 'worker');
-      const description = String(payload.worker_description || payload.description || '').trim();
-      const stage = String(payload.stage || '');
-      const eventType = String(payload.event_type || '');
-      const toolName = String(payload.tool_name || payload.toolName || '').trim();
-      const error = String(payload.error || '').trim();
+  const handleExecutionTraceUpdate = useCallback(
+    (payload: any) => {
+      const turnId = String(payload?.turn_id || '').trim();
+      const summary = normalizeTraceSummary(payload?.trace_summary);
+      if (!turnId || !summary) return;
+      upsertSummary({
+        turn_id: summary.turnId,
+        mode: summary.mode,
+        status: summary.status,
+        headline: summary.headline,
+        active_steps: summary.activeSteps,
+        completed_steps: summary.completedSteps,
+        failed_steps: summary.failedSteps,
+        duration_seconds: summary.durationSeconds,
+        trace_available: summary.traceAvailable,
+        orchestration_id: summary.orchestrationId || null,
+      });
+      setMessages((prev) => upsertTraceSummary(prev, turnId, summary));
+      if (drawerOpen && activeTurnId === turnId) {
+        void loadTrace(turnId);
+      }
+    },
+    [activeTurnId, drawerOpen, loadTrace, upsertSummary]
+  );
 
-      if (eventType === 'WORKER_AGENT_COMPLETED') {
-        return t('chat.worker.completed', { workerId, subagentType });
-      }
-      if (eventType === 'WORKER_AGENT_FAILED') {
-        return t('chat.worker.failed', { workerId, subagentType, error: error || '-' });
-      }
-      if (stage === 'started') {
-        return t('chat.worker.started', { workerId, subagentType, description: description || '-' });
-      }
-      if (stage === 'tool_result') {
-        if (payload.success) {
-          return t('chat.worker.toolSuccess', { workerId, toolName: toolName || '-' });
-        }
-        return t('chat.worker.toolFailed', {
-          workerId,
-          toolName: toolName || '-',
-          error: error || '-',
+  const handleAgentResponseEvent = useCallback(
+    (payload: any) => {
+      const turnId = String(payload?.turn_id || '').trim();
+      const summary = normalizeTraceSummary(payload?.trace_summary);
+      if (summary) {
+        upsertSummary({
+          turn_id: summary.turnId,
+          mode: summary.mode,
+          status: summary.status,
+          headline: summary.headline,
+          active_steps: summary.activeSteps,
+          completed_steps: summary.completedSteps,
+          failed_steps: summary.failedSteps,
+          duration_seconds: summary.durationSeconds,
+          trace_available: summary.traceAvailable,
+          orchestration_id: summary.orchestrationId || null,
         });
       }
-      return t('chat.worker.progress', { workerId, subagentType });
+      setMessages((prev) =>
+        applyAgentResponse(prev, {
+          response: String(payload?.response || ''),
+          timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
+          turnId,
+          traceSummary: summary,
+          traceAvailable: Boolean(payload?.trace_available || summary?.traceAvailable),
+        })
+      );
+      if (drawerOpen && activeTurnId === turnId) {
+        void loadTrace(turnId);
+      }
     },
-    [t]
+    [activeTurnId, drawerOpen, loadTrace, upsertSummary]
   );
 
   const handleWSMessage = useCallback(
@@ -202,8 +285,7 @@ export const ChatPage: React.FC = () => {
           } else {
             sendWS('get_current_session');
           }
-          break;
-
+          return;
         case 'current_session':
           if (data.data?.session_id) {
             const nextSession = String(data.data.session_id);
@@ -211,24 +293,17 @@ export const ChatPage: React.FC = () => {
             localStorage.setItem(`chat_session_${USER_ID}`, nextSession);
             requestHistory(nextSession);
           }
-          break;
-
+          return;
         case 'history':
           if (data.data?.session_id) {
             const resolvedSession = String(data.data.session_id);
             setCurrentSessionId(resolvedSession);
-            const chatMessages: ChatMessage[] = (data.data.messages || []).map((msg: any, index: number) => ({
-              id: `${resolvedSession}-${index}`,
-              role: msg.role,
-              content: msg.content,
-              timestamp: msg.timestamp * 1000,
-              status: 'sent',
-            }));
-            setMessages(chatMessages);
+            const historyMessages = normalizeHistoryMessages(data.data.messages || []);
+            preloadTraceSummaries(historyMessages);
+            setMessages(historyMessages);
             sendWS('get_personality');
           }
-          break;
-
+          return;
         case 'personality_info':
           if (data.data) {
             setAiName(data.data.name || 'AI');
@@ -239,53 +314,46 @@ export const ChatPage: React.FC = () => {
                   {
                     id: `welcome-${Date.now()}`,
                     role: 'assistant',
+                    kind: 'assistant',
                     content: data.data.greeting,
                     timestamp: Date.now(),
-                    status: 'sent',
                   },
                 ];
               }
               return prev;
             });
           }
-          break;
-
+          return;
+        case 'message_sent':
+          if (data.data?.session_id) {
+            setCurrentSessionId(String(data.data.session_id));
+          }
+          return;
         case 'error':
           toast.error(data.message || 'WebSocket error');
+          return;
+        default:
           break;
+      }
+
+      if (data.event === 'execution_trace_update' && data.data) {
+        handleExecutionTraceUpdate(data.data);
+        return;
       }
 
       if (data.event === 'agent_response' && data.data) {
-        const assistantMessage: ChatMessage = {
-          id: `ws-${Date.now()}`,
-          role: 'assistant',
-          content: data.data.response,
-          timestamp: data.data.timestamp * 1000,
-          status: 'sent',
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-        window.dispatchEvent(new Event(SESSION_SYNC_EVENT));
-      }
-
-      if (data.event === 'worker_agent_update' && data.data) {
-        const payload = data.data;
-        const payloadSessionId = payload?.session_id ? String(payload.session_id) : '';
-        if (payloadSessionId && currentSessionId && payloadSessionId !== currentSessionId) {
-          return;
-        }
-        const workerMessage: ChatMessage = {
-          id: `worker-${payload.worker_id || Date.now()}-${payload.stage || payload.event_type || 'update'}-${Date.now()}`,
-          role: 'system',
-          content: formatWorkerUpdateMessage(payload),
-          timestamp: Number(payload.timestamp || Date.now() / 1000) * 1000,
-          status: 'sent',
-          kind: 'worker_update',
-          workerId: payload.worker_id ? String(payload.worker_id) : undefined,
-        };
-        setMessages((prev) => [...prev, workerMessage]);
+        handleAgentResponseEvent(data.data);
       }
     },
-    [currentSessionId, formatWorkerUpdateMessage, requestHistory, sendWS, setCurrentSessionId]
+    [
+      currentSessionId,
+      handleAgentResponseEvent,
+      handleExecutionTraceUpdate,
+      preloadTraceSummaries,
+      requestHistory,
+      sendWS,
+      setCurrentSessionId,
+    ]
   );
 
   const connectWebSocket = useCallback(() => {
@@ -351,15 +419,12 @@ export const ChatPage: React.FC = () => {
     sendWS('get_personality');
   }, [connected, currentSessionId, requestHistory, sendWS]);
 
-  // Handle memory cleared event - reset chat state
   useEffect(() => {
     const handleMemoryCleared = () => {
-      // Clear current messages
       setMessages([]);
-      // Reset session ID to trigger a fresh start
       setCurrentSessionId(null);
       lastHistoryRequestRef.current = null;
-      // Request new session from server
+      resetTraceStore();
       if (connected && wsRef.current?.readyState === WebSocket.OPEN) {
         sendWS('get_current_session');
       }
@@ -367,7 +432,7 @@ export const ChatPage: React.FC = () => {
 
     window.addEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
     return () => window.removeEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
-  }, [connected, sendWS, setCurrentSessionId]);
+  }, [connected, resetTraceStore, sendWS, setCurrentSessionId]);
 
   const handleSendMessage = () => {
     if (!inputValue.trim()) {
@@ -379,23 +444,17 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
-    const userMessage: ChatMessage = {
-      id: `local-${Date.now()}`,
-      role: 'user',
-      content: inputValue,
-      timestamp: Date.now(),
-      status: 'sent',
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    const messageContent = inputValue;
+    const messageContent = inputValue.trim();
+    const turnId = createClientTurnId();
+    const now = Date.now();
+    setMessages((prev) => [...prev, ...createPendingTurn(messageContent, turnId, now, t('chat.trace.pending'))]);
     setInputValue('');
     sendWS('send_message', {
       user_id: USER_ID,
       session_id: currentSessionId,
       message: messageContent,
+      client_turn_id: turnId,
     });
-    window.dispatchEvent(new Event(SESSION_SYNC_EVENT));
   };
 
   const handleKeyPress = (event: React.KeyboardEvent) => {
@@ -405,7 +464,7 @@ export const ChatPage: React.FC = () => {
     }
   };
 
-  const getAvatar = (role: string) => {
+  const getAvatar = (role: 'user' | 'assistant') => {
     if (role === 'user') {
       return (
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white">
@@ -434,59 +493,103 @@ export const ChatPage: React.FC = () => {
     );
   };
 
+  const renderTraceButton = (message: ChatTimelineMessage) => {
+    if (!message.turnId || !message.traceAvailable) return null;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          openDrawer(message.turnId!);
+          void loadTrace(message.turnId!);
+        }}
+        className="mt-3 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+      >
+        <Wrench className="h-3.5 w-3.5" />
+        {t('chat.trace.view')}
+      </button>
+    );
+  };
+
+  const renderStatusCard = (message: ChatTimelineMessage) => (
+    <motion.div
+      key={message.id}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
+      className="mb-4 flex justify-start"
+    >
+      <div className="flex max-w-[76%] gap-3">
+        {getAvatar('assistant')}
+        <div className="rounded-[24px] border border-border/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(242,246,246,0.88))] px-4 py-4 shadow-[0_18px_48px_-30px_rgba(15,23,42,0.35)]">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <span className="text-sm font-medium text-foreground">{message.traceSummary?.headline || message.content}</span>
+          </div>
+          {message.traceSummary && (
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+              <span className="rounded-full bg-muted px-2.5 py-1">
+                {t('chat.trace.active', { count: message.traceSummary.activeSteps })}
+              </span>
+              <span className="rounded-full bg-muted px-2.5 py-1">
+                {t('chat.trace.done', { count: message.traceSummary.completedSteps })}
+              </span>
+              {message.traceSummary.failedSteps > 0 && (
+                <span className="rounded-full bg-rose-50 px-2.5 py-1 text-rose-600">
+                  {t('chat.trace.failedCount', { count: message.traceSummary.failedSteps })}
+                </span>
+              )}
+            </div>
+          )}
+          {renderTraceButton(message)}
+        </div>
+      </div>
+    </motion.div>
+  );
+
   return (
     <div className="relative flex h-full min-h-0 flex-col px-4 py-4">
       <div className="desktop-panel min-h-0 flex-1 overflow-y-auto rounded-2xl px-5 py-5 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {messages.map((msg) => (
-          msg.role === 'system' ? (
+          msg.kind === 'status' ? (
+            renderStatusCard(msg)
+          ) : (
             <motion.div
               key={msg.id}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="mb-3 flex justify-center"
+              className={msg.role === 'user' ? 'mb-5 flex justify-end' : 'mb-5 flex justify-start'}
             >
-              <div className="max-w-[82%] rounded-xl border border-border/60 bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                {msg.content}
+              <div className={msg.role === 'user' ? 'flex max-w-[75%] flex-row-reverse gap-3' : 'flex max-w-[75%] gap-3'}>
+                {getAvatar(msg.role)}
+                <div className={msg.role === 'user' ? 'items-end' : 'items-start'}>
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {msg.role === 'user' ? t('chat.you') : aiName}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {new Date(msg.timestamp).toLocaleTimeString(i18n.language === 'en' ? 'en-US' : 'zh-CN')}
+                    </span>
+                  </div>
+                  <div
+                    className={msg.role === 'user'
+                      ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-white'
+                      : 'rounded-2xl rounded-tl-md border border-border/50 bg-card/80 px-4 py-3 backdrop-blur-sm'}
+                  >
+                    {msg.role === 'assistant' ? (
+                      <div className="max-w-none text-current">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
+                    )}
+                    {msg.role === 'assistant' && renderTraceButton(msg)}
+                  </div>
+                </div>
               </div>
             </motion.div>
-          ) : (
-          <motion.div
-            key={msg.id}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-            className={msg.role === 'user' ? 'mb-5 flex justify-end' : 'mb-5 flex justify-start'}
-          >
-            <div className={msg.role === 'user' ? 'flex max-w-[75%] flex-row-reverse gap-3' : 'flex max-w-[75%] gap-3'}>
-              {getAvatar(msg.role)}
-              <div className={msg.role === 'user' ? 'items-end' : 'items-start'}>
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {msg.role === 'user' ? t('chat.you') : aiName}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {new Date(msg.timestamp).toLocaleTimeString(i18n.language === 'en' ? 'en-US' : 'zh-CN')}
-                  </span>
-                </div>
-                <div
-                  className={msg.role === 'user'
-                    ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-white'
-                    : 'rounded-2xl rounded-tl-md border border-border/50 bg-card/80 px-4 py-3 backdrop-blur-sm'}
-                >
-                  {msg.role === 'assistant' ? (
-                    <div className="max-w-none text-current">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
-                        {msg.content}
-                      </ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </motion.div>
           )
         ))}
         <AnimatePresence>
@@ -517,6 +620,15 @@ export const ChatPage: React.FC = () => {
         </div>
         <div className="mt-2 text-center text-xs text-muted-foreground/60">{t('chat.tip')}</div>
       </div>
+
+      <ToolchainDrawer
+        open={drawerOpen}
+        onOpenChange={(open) => !open && closeDrawer()}
+        loading={loadingTrace}
+        snapshot={normalizeTraceSnapshot(snapshots[activeTurnId || ''] || null)}
+        title={t('chat.trace.title')}
+        subtitle={t('chat.trace.subtitle')}
+      />
 
       <SettingsCenterDialog open={activePanel === 'settings'} onOpenChange={(open) => !open && closePanel()} />
 

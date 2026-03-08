@@ -27,9 +27,13 @@ export interface SensorStatus {
 }
 
 export interface ChatHistoryMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  turn_id?: string | null;
+  kind?: 'user' | 'assistant' | 'status' | null;
+  trace_summary?: Record<string, any> | null;
+  trace_available?: boolean;
 }
 
 export interface ConversationHistory {
@@ -57,6 +61,45 @@ export interface SessionListResponse {
   current_session_id: string | null;
   sessions: ChatSessionListItem[];
   count: number;
+}
+
+export interface ExecutionTraceSummary {
+  turn_id: string;
+  mode: string;
+  status: string;
+  headline: string;
+  active_steps: number;
+  completed_steps: number;
+  failed_steps: number;
+  duration_seconds: number;
+  trace_available: boolean;
+  orchestration_id?: string | null;
+}
+
+export interface ExecutionTraceNode {
+  id: string;
+  kind: string;
+  label: string;
+  status: string;
+  started_at?: number | null;
+  ended_at?: number | null;
+  result_preview?: string;
+  error?: string | null;
+  metadata?: Record<string, any>;
+  children: ExecutionTraceNode[];
+}
+
+export interface ExecutionTraceSnapshot {
+  turn_id: string;
+  user_id: string;
+  session_id: string;
+  status: string;
+  mode: string;
+  orchestration_id?: string | null;
+  started_at?: number | null;
+  ended_at?: number | null;
+  summary: ExecutionTraceSummary;
+  root: ExecutionTraceNode;
 }
 
 export const messagesApi = {
@@ -137,5 +180,16 @@ export const messagesApi = {
       params: { user_id: userId, limit },
     });
     return (response.data || response) as SessionListResponse;
+  },
+
+  getTrace: async (
+    userId: string = 'web_user',
+    sessionId: string,
+    turnId: string
+  ): Promise<{ success: boolean; user_id: string; session_id: string; turn_id: string; trace: ExecutionTraceSnapshot | null }> => {
+    const response = await api.get<{ success: boolean; user_id: string; session_id: string; turn_id: string; trace: ExecutionTraceSnapshot | null }>('/messages/trace', {
+      params: { user_id: userId, session_id: sessionId, turn_id: turnId },
+    });
+    return (response.data || response) as { success: boolean; user_id: string; session_id: string; turn_id: string; trace: ExecutionTraceSnapshot | null };
   },
 };

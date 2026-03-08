@@ -14,6 +14,9 @@ export type {
   SessionInfo,
   ChatSessionListItem,
   SessionListResponse,
+  ExecutionTraceSummary,
+  ExecutionTraceNode,
+  ExecutionTraceSnapshot,
 } from './modules/messages';
 
 export { configApi } from './modules/config';
