@@ -37,11 +37,11 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
   const [open, setOpen] = React.useState(depth < 2 || node.status === 'running');
   const hasChildren = node.children.length > 0;
   const isToolNode = node.kind === 'tool';
-  const compact = isToolNode || depth >= 1;
+  const compact = depth >= 1;
   const selected = selectedNodeId === node.id;
 
   return (
-    <div className={cn('space-y-2', compact && 'space-y-1.5')}>
+    <div className={cn('space-y-1.5', compact && 'space-y-1')}>
       <button
         type="button"
         onClick={() => {
@@ -52,26 +52,29 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
         }}
         className={cn(
           'w-full text-left transition-colors',
-          compact ? 'rounded-[18px] border px-3 py-2' : 'rounded-[22px] border px-3 py-3',
+          compact ? 'rounded-2xl px-2.5 py-2' : 'rounded-[20px] px-3 py-2.5',
+          selected
+            ? 'bg-emerald-50/90 ring-1 ring-emerald-200'
+            : 'hover:bg-white/72',
           compact
             ? selected
-              ? 'border-primary/20 bg-primary/10 shadow-none'
-              : 'border-transparent bg-transparent hover:border-border/40 hover:bg-white/72'
+              ? 'shadow-none'
+              : 'border-transparent bg-transparent'
             : selected
-              ? 'border-primary/35 bg-[linear-gradient(180deg,rgba(235,250,247,0.96),rgba(228,246,242,0.88))] shadow-[0_18px_40px_-28px_rgba(45,151,140,0.45)]'
-              : 'border-border/50 bg-white/88 hover:bg-muted/35'
+              ? 'shadow-[0_18px_40px_-30px_rgba(45,151,140,0.35)]'
+              : 'bg-white/78'
         )}
-        style={{ marginLeft: `${depth * 6}px` }}
+        style={{ marginLeft: `${depth * 4}px` }}
       >
-        <div className={cn('flex items-start gap-3', compact && 'gap-2.5')}>
+        <div className={cn('flex items-start gap-3', compact && 'gap-2')}>
           <div className={cn('mt-0.5 flex shrink-0 items-center gap-2 text-muted-foreground', compact && 'gap-1.5')}>
             {hasChildren && (
               <ChevronRight className={cn('transition-transform', compact ? 'h-3.5 w-3.5' : 'h-4 w-4', open && 'rotate-90')} />
             )}
-            {!hasChildren && <span className={cn('inline-block rounded-full bg-border/80', compact ? 'h-1.5 w-1.5' : 'mt-1 h-2 w-2')} />}
+            {!hasChildren && <span className={cn('inline-block rounded-full bg-emerald-200', compact ? 'h-1.5 w-1.5' : 'mt-1 h-2 w-2')} />}
             <span className={cn(
-              'flex items-center justify-center rounded-2xl border border-border/50 bg-background/90',
-              compact ? 'h-6 w-6 rounded-xl border-border/40 bg-white/92' : 'h-8 w-8'
+              'flex items-center justify-center rounded-2xl border border-border/40 bg-white/92 text-muted-foreground',
+              compact ? 'h-7 w-7 rounded-xl' : 'h-8 w-8'
             )}>
               {kindIcon(node.kind)}
             </span>
@@ -80,7 +83,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
             <div className={cn('flex items-start gap-2', compact && 'items-center')}>
               <span className={cn(
                 'min-w-0 flex-1 font-medium text-foreground',
-                compact ? 'truncate text-[14px] leading-6' : 'text-sm leading-6'
+                compact ? 'truncate text-[15px] leading-6' : 'text-[15px] leading-6'
               )}>
                 {node.label}
               </span>
@@ -92,7 +95,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
             {node.resultPreview && (
               <div className={cn(
                 'mt-1 text-muted-foreground',
-                compact ? 'line-clamp-1 text-[12px] leading-5' : 'line-clamp-2 text-xs leading-5'
+                isToolNode ? 'line-clamp-1 text-[12px] leading-5' : compact ? 'line-clamp-1 text-[12px] leading-5' : 'line-clamp-2 text-[13px] leading-5'
               )}>
                 {node.resultPreview}
               </div>
@@ -106,10 +109,10 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
       {hasChildren && open && (
         <div
           className={cn(
-            'space-y-2 border-l-2 border-emerald-100/80 pl-3',
-            compact && 'space-y-1.5 pl-2.5'
+            'space-y-1.5 border-l border-emerald-200/90 pl-3',
+            compact && 'space-y-1 pl-3'
           )}
-          style={{ marginLeft: `${depth * 6 + (compact ? 14 : 18)}px` }}
+          style={{ marginLeft: `${depth * 4 + 18}px` }}
         >
           {node.children.map((child) => (
             <TraceTreeNode
@@ -129,7 +132,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
 const TraceTree: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelectNode }) => {
   if (node.kind === 'root') {
     return (
-      <div className="space-y-2.5">
+      <div className="space-y-2">
         {node.children.map((child) => (
           <TraceTreeNode
             key={child.id}
