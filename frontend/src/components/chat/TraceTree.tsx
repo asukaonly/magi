@@ -39,6 +39,9 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
   const isToolNode = node.kind === 'tool';
   const compact = depth >= 1;
   const selected = selectedNodeId === node.id;
+  const preview = isToolNode
+    ? ''
+    : (node.resultPreview || '').replace(/\s+/g, ' ').trim();
 
   return (
     <div className={cn('space-y-1.5', compact && 'space-y-1')}>
@@ -52,7 +55,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
         }}
         className={cn(
           'w-full text-left transition-colors',
-          compact ? 'rounded-2xl px-2.5 py-2' : 'rounded-[20px] px-3 py-2.5',
+          compact ? 'rounded-2xl px-2.5 py-1.5' : 'rounded-[20px] px-3 py-2',
           selected
             ? 'bg-emerald-50/90 ring-1 ring-emerald-200'
             : 'hover:bg-white/72',
@@ -83,7 +86,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
             <div className={cn('flex items-start gap-2', compact && 'items-center')}>
               <span className={cn(
                 'min-w-0 flex-1 font-medium text-foreground',
-                compact ? 'truncate text-[15px] leading-6' : 'text-[15px] leading-6'
+                compact ? 'truncate text-[15px] leading-5.5' : 'text-[15px] leading-6'
               )}>
                 {node.label}
               </span>
@@ -92,16 +95,16 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
                 {node.status}
               </span>
             </div>
-            {node.resultPreview && (
+            {preview && (
               <div className={cn(
-                'mt-1 text-muted-foreground',
-                isToolNode ? 'line-clamp-1 text-[12px] leading-5' : compact ? 'line-clamp-1 text-[12px] leading-5' : 'line-clamp-2 text-[13px] leading-5'
+                'mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground',
+                compact ? 'text-[12px] leading-5' : 'text-[13px] leading-5'
               )}>
-                {node.resultPreview}
+                {preview}
               </div>
             )}
             {node.error && (
-              <div className="mt-1 line-clamp-1 text-xs text-rose-600">{node.error}</div>
+              <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-rose-600">{node.error}</div>
             )}
           </div>
         </div>
@@ -109,8 +112,8 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
       {hasChildren && open && (
         <div
           className={cn(
-            'space-y-1.5 border-l border-emerald-200/90 pl-3',
-            compact && 'space-y-1 pl-3'
+            'space-y-0.5 border-l border-emerald-200/90 pl-3',
+            compact && 'space-y-0.5 pl-3'
           )}
           style={{ marginLeft: `${depth * 4 + 18}px` }}
         >

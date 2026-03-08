@@ -95,16 +95,16 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
           )}
           {!loading && snapshot && (
             <>
-              <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-border/40 bg-white/48 px-8 py-4 xl:grid-cols-4">
-                <div className="rounded-[22px] border border-border/50 bg-white/92 px-5 py-3 shadow-sm">
+              <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border/40 bg-white/40 px-8 py-3 xl:grid-cols-4">
+                <div className="rounded-[20px] border border-border/50 bg-white/92 px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryStatus')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">{snapshot.summary.headline}</div>
                 </div>
-                <div className="rounded-[22px] border border-border/50 bg-white/92 px-5 py-3 shadow-sm">
+                <div className="rounded-[20px] border border-border/50 bg-white/92 px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryDuration')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">{formatDuration(snapshot.summary.durationSeconds)}</div>
                 </div>
-                <div className="rounded-[22px] border border-border/50 bg-white/92 px-5 py-3 shadow-sm">
+                <div className="rounded-[20px] border border-border/50 bg-white/92 px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summarySteps')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">
                     {t('chat.trace.summaryStepsValue', {
@@ -113,17 +113,17 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                     })}
                   </div>
                 </div>
-                <div className="rounded-[22px] border border-border/50 bg-white/92 px-5 py-3 shadow-sm">
+                <div className="rounded-[20px] border border-border/50 bg-white/92 px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryMode')}</div>
                   <div className="mt-1.5 text-base font-semibold capitalize text-foreground">{snapshot.mode}</div>
                 </div>
               </div>
               <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-[minmax(520px,0.92fr)_minmax(720px,1.08fr)]">
                 <div className="min-h-0 overflow-y-auto border-r border-border/40 bg-[linear-gradient(180deg,rgba(255,255,255,0.56),rgba(247,251,249,0.76))] px-8 py-6">
-                  <div className="mb-4 flex items-center justify-between rounded-2xl border border-border/40 bg-white/72 px-4 py-3">
+                  <div className="mb-3 flex items-center justify-between rounded-2xl border border-border/40 bg-white/72 px-4 py-2.5">
                     <div>
                       <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">Execution Timeline</div>
-                      <div className="mt-1 text-sm text-foreground/90">按执行顺序查看编排、分支和工具调用。</div>
+                      <div className="mt-1 text-[13px] text-foreground/90">按执行顺序查看编排、分支和工具调用。</div>
                     </div>
                     <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">
                       {snapshot.summary.completedSteps + snapshot.summary.failedSteps} steps
