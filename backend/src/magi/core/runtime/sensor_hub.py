@@ -74,6 +74,7 @@ class SensorHub:
                 "message": message,
                 "user_id": str(data.get("user_id", "web_user")),
                 "session_id": session_id,
+                "turn_id": str(data.get("turn_id") or "").strip() or None,
                 "metadata": data.get("metadata") or {},
                 "timestamp": float(data.get("timestamp") or event.timestamp),
             },

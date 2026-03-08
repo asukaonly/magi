@@ -82,6 +82,8 @@ class ActionExecutor:
                         "response": response if isinstance(response, str) else "",
                         "user_id": payload.get("user_id"),
                         "session_id": payload.get("session_id"),
+                        "turn_id": payload.get("turn_id"),
+                        "orchestration_id": payload.get("orchestration_id"),
                         "success": success,
                         "error": error,
                     },

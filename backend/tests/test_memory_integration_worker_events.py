@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from magi.events.events import Event, EventLevel
+from magi.events.events import BusinessEventTypes, Event, EventLevel, EventTypes
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
 
 
@@ -62,6 +62,35 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(integration.unified_memory.l1_raw.stored_events), 1)
         self.assertEqual(integration.unified_memory.l1_raw.stored_events[0].type, "WORKER_AGENT_PROGRESS")
+
+    async def test_chat_response_action_preserves_trace_identity(self):
+        integration = MemoryIntegrationModule(
+            unified_memory=_FakeUnifiedMemory(),
+            message_bus=_FakeBus(),
+            config=MemoryIntegrationConfig(),
+        )
+
+        event = Event(
+            type=EventTypes.ACTION_EXECUTED,
+            data={
+                "action_type": "ChatResponseAction",
+                "response": "Done.",
+                "execution_time": 0.2,
+                "user_id": "u1",
+                "session_id": "s1",
+                "turn_id": "turn_1",
+                "orchestration_id": "orch_1",
+            },
+            source="test",
+            level=EventLevel.INFO,
+            correlation_id="corr-1",
+        )
+
+        transformed = integration._transform_to_business_event(event)
+
+        self.assertEqual(transformed.type, BusinessEventTypes.AI_RESPONSE)
+        self.assertEqual(transformed.data["turn_id"], "turn_1")
+        self.assertEqual(transformed.data["orchestration_id"], "orch_1")
 
 
 if __name__ == "__main__":

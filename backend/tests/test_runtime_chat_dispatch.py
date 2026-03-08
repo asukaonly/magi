@@ -45,6 +45,7 @@ class _FakeChatTaskAgent(
         self.called = 0
         self.last_user_id = None
         self.last_session_id = None
+        self.last_turn_id = None
 
     async def build_context(self, merged_facts: list[FactRecord]) -> TaskAgentRuntimeContext:
         context = await super().build_context(merged_facts)
@@ -52,6 +53,7 @@ class _FakeChatTaskAgent(
         payload = latest.payload if isinstance(latest, FactRecord) else {}
         self.last_user_id = payload.get("user_id")
         self.last_session_id = payload.get("session_id")
+        self.last_turn_id = payload.get("turn_id")
         return context
 
     async def call_llm(self, context: TaskAgentRuntimeContext, llm_params: TaskAgentExecutionRequest) -> dict:
@@ -90,7 +92,7 @@ async def test_runtime_chat_dispatch_from_message_bus():
     await message_bus.publish(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"message": "你好", "user_id": "u-chat", "session_id": "s-chat"},
+            data={"message": "你好", "user_id": "u-chat", "session_id": "s-chat", "turn_id": "turn_1"},
             source="test",
             level=EventLevel.INFO,
         )
@@ -104,4 +106,5 @@ async def test_runtime_chat_dispatch_from_message_bus():
     assert fake_chat.called >= 1
     assert fake_chat.last_user_id == "u-chat"
     assert fake_chat.last_session_id == "s-chat"
+    assert fake_chat.last_turn_id == "turn_1"
     assert any(key.startswith("chat:") for key in stats["agents"]["instances"].keys())

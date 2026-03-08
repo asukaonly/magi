@@ -267,6 +267,8 @@ class MemoryIntegrationModule:
                         "action_type": action_type,
                         "user_id": data.get("user_id"),
                         "session_id": data.get("session_id"),
+                        "turn_id": data.get("turn_id"),
+                        "orchestration_id": data.get("orchestration_id"),
                     },
                     timestamp=event.timestamp,
                     source="memory_integration",
