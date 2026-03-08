@@ -1,6 +1,7 @@
 """Shared parent-task orchestration for task agents."""
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import uuid
@@ -26,6 +27,11 @@ logger = get_logger(__name__)
 WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, str], Awaitable[SubtaskPlan]]
 AggregateCallback = Callable[[TaskOrchestrationState], Awaitable[str]]
 HistoryCallback = Callable[[str, str], None]
+
+DEFAULT_WORKER_RETRY_BUDGET = 1
+LLM_RATE_LIMIT_RETRY_BUDGET = 10
+LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS = 1.0
+LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS = 60.0
 
 
 class TaskOrchestrator:
@@ -116,7 +122,7 @@ class TaskOrchestrator:
             planner=str(orchestration_strategy.get("planner", "task_agent") or "task_agent"),
             workspace_root=workspace_root,
             status="running",
-            retry_budget=1,
+            retry_budget=DEFAULT_WORKER_RETRY_BUDGET,
             allow_parallel=bool(orchestration_strategy.get("allow_parallel", True)),
             created_at=now,
             updated_at=now,
@@ -330,11 +336,24 @@ class TaskOrchestrator:
     ) -> bool:
         if failure_reason not in RETRIABLE_WORKER_FAILURES:
             return False
-        if subtask.attempt_count > state.retry_budget:
+        retry_budget = self._retry_budget_for_failure(failure_reason, state.retry_budget)
+        if subtask.attempt_count > retry_budget:
             return False
 
         context = self._build_agent_tool_context(state.user_id, state.session_id, state.workspace_root)
         next_attempt = subtask.attempt_count + 1
+        delay_seconds = self._retry_delay_seconds(failure_reason, subtask.attempt_count)
+        if delay_seconds > 0:
+            logger.info(
+                "Retrying worker after backoff | orchestration_id=%s subtask_id=%s reason=%s retry=%s/%s delay=%.1fs",
+                state.orchestration_id,
+                subtask.subtask_id,
+                failure_reason,
+                next_attempt - 1,
+                retry_budget,
+                delay_seconds,
+            )
+            await asyncio.sleep(delay_seconds)
         result = await self._tool_registry.execute(
             "agent",
             {
@@ -376,6 +395,18 @@ class TaskOrchestrator:
         state.updated_at = subtask.updated_at
         await self._orchestration_store.save_orchestration(state)
         return True
+
+    def _retry_budget_for_failure(self, failure_reason: str, default_budget: int) -> int:
+        if failure_reason == "LLM_RATE_LIMIT":
+            return max(default_budget, LLM_RATE_LIMIT_RETRY_BUDGET)
+        return max(default_budget, 0)
+
+    def _retry_delay_seconds(self, failure_reason: str, attempt_count: int) -> float:
+        if failure_reason != "LLM_RATE_LIMIT":
+            return 0.0
+        retry_index = max(attempt_count, 1)
+        delay_seconds = LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (retry_index - 1))
+        return min(delay_seconds, LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS)
 
     def _build_agent_tool_context(
         self,
