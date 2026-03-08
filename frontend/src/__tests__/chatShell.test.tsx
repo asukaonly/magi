@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { panelByPathname } from '@/pages/Chat';
+import { panelByPathname, shouldSubmitOnEnter } from '@/pages/Chat';
 import { useChatShellStore } from '@/stores';
 
 describe('chat shell state', () => {
@@ -34,6 +34,52 @@ describe('chat shell state', () => {
     expect(panelByPathname('/personality')).toBe('personality');
     expect(panelByPathname('/events')).toBe('memory');
     expect(panelByPathname('/chat')).toBe('none');
+  });
+
+  it('does not submit while IME composition is active', () => {
+    expect(
+      shouldSubmitOnEnter(
+        {
+          key: 'Enter',
+          shiftKey: false,
+          nativeEvent: { isComposing: true, keyCode: 13 } as KeyboardEvent,
+        },
+        false
+      )
+    ).toBe(false);
+
+    expect(
+      shouldSubmitOnEnter(
+        {
+          key: 'Enter',
+          shiftKey: false,
+          nativeEvent: { isComposing: false, keyCode: 229 } as KeyboardEvent,
+        },
+        false
+      )
+    ).toBe(false);
+
+    expect(
+      shouldSubmitOnEnter(
+        {
+          key: 'Enter',
+          shiftKey: false,
+          nativeEvent: { isComposing: false, keyCode: 13 } as KeyboardEvent,
+        },
+        true
+      )
+    ).toBe(false);
+
+    expect(
+      shouldSubmitOnEnter(
+        {
+          key: 'Enter',
+          shiftKey: false,
+          nativeEvent: { isComposing: false, keyCode: 13 } as KeyboardEvent,
+        },
+        false
+      )
+    ).toBe(true);
   });
 
   it('persists sidebar collapsed state', () => {

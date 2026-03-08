@@ -79,6 +79,21 @@ export const panelByPathname = (pathname: string): ChatPanelType => {
   return 'none';
 };
 
+export const shouldSubmitOnEnter = (
+  event: Pick<React.KeyboardEvent<HTMLTextAreaElement>, 'key' | 'shiftKey' | 'nativeEvent'>,
+  isComposing: boolean,
+): boolean => {
+  const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number };
+  const keyCode = Number(nativeEvent?.keyCode || 0);
+  return (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !isComposing &&
+    !nativeEvent?.isComposing &&
+    keyCode !== 229
+  );
+};
+
 const createClientTurnId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `turn_${crypto.randomUUID()}`;
@@ -118,6 +133,7 @@ export const ChatPage: React.FC = () => {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectCountRef = useRef(0);
   const lastHistoryRequestRef = useRef<string | null>(null);
+  const isComposingRef = useRef(false);
 
   const WS_CONFIG = {
     maxReconnectAttempts: 10,
@@ -462,7 +478,7 @@ export const ChatPage: React.FC = () => {
   };
 
   const handleKeyPress = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (shouldSubmitOnEnter(event as React.KeyboardEvent<HTMLTextAreaElement>, isComposingRef.current)) {
       event.preventDefault();
       handleSendMessage();
     }
@@ -627,6 +643,12 @@ export const ChatPage: React.FC = () => {
           <AutoResizeTextarea
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false;
+            }}
             placeholder={t('chat.inputPlaceholder')}
             onKeyDown={handleKeyPress}
             disabled={!connected}
