@@ -51,6 +51,8 @@ from .models import (
     # LLM configuration
     LLMSettings,
     LLMProvider,
+    LLMCapabilitiesSettings,
+    LLMLimitsSettings,
 
     # Memory configuration
     MemorySettings,
@@ -72,6 +74,18 @@ from .models import (
 
     # Backward compatibility
     Config,
+)
+from .llm_registry import (
+    LLMModelMetaModel,
+    LLMProviderFieldModel,
+    LLMProviderMetaModel,
+    LLMCustomProviderMetaModel,
+    LLMProviderRegistryModel,
+    ResolvedLLMProfile,
+    find_model_meta,
+    find_provider_meta,
+    load_llm_provider_registry,
+    resolve_llm_profile,
 )
 from .introspection import ConfigPathSpec, list_app_config_specs
 
@@ -102,6 +116,18 @@ __all__ = [
     "ToolsSettings",
     "LLMSettings",
     "LLMProvider",
+    "LLMCapabilitiesSettings",
+    "LLMLimitsSettings",
+    "LLMModelMetaModel",
+    "LLMProviderFieldModel",
+    "LLMProviderMetaModel",
+    "LLMCustomProviderMetaModel",
+    "LLMProviderRegistryModel",
+    "ResolvedLLMProfile",
+    "find_model_meta",
+    "find_provider_meta",
+    "load_llm_provider_registry",
+    "resolve_llm_profile",
     "MemorySettings",
     "MemoryBackend",
     "EmbeddingSettings",

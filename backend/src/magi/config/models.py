@@ -18,6 +18,23 @@ class LLMProvider(str, Enum):
     LOCAL = "local"
 
 
+class LLMCapabilitiesSettings(BaseModel):
+    """Declared capability flags for the active LLM."""
+
+    vision: bool = Field(default=False)
+    image_output: bool = Field(default=False)
+    tool_calling: bool = Field(default=True)
+    reasoning: bool = Field(default=True)
+    embedding: bool = Field(default=False)
+
+
+class LLMLimitsSettings(BaseModel):
+    """Capability-adjacent numeric limits for the active LLM."""
+
+    context_window: Optional[int] = Field(default=None, ge=1)
+    max_output_tokens: Optional[int] = Field(default=None, ge=1)
+
+
 class MessageBusBackend(str, Enum):
     """Message bus backend type."""
     MEMORY = "memory"
@@ -51,6 +68,10 @@ class LLMSettings(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=MIN_MAX_TOKENS)
     timeout: int = Field(default=60, ge=1)
+    capability_override_enabled: bool = Field(default=False)
+    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
+    limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    provider_options: Dict[str, Any] = Field(default_factory=dict)
 
 
 # =============================================================================

@@ -11,6 +11,16 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...config.loader import get_config, get_config_file_path, save_config
+from ...config.llm_registry import (
+    LLMCustomProviderMetaModel,
+    LLMModelMetaModel,
+    LLMProviderFieldModel,
+    LLMProviderMetaModel,
+    LLMProviderRegistryModel,
+    load_llm_provider_registry,
+    resolve_llm_profile,
+)
+from ...config.models import LLMCapabilitiesSettings, LLMLimitsSettings
 from ...core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -30,6 +40,10 @@ class LLMConfigModel(BaseModel):
     custom_name: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default=None)
     from_env: bool = Field(default=False)
+    capability_override_enabled: bool = Field(default=False)
+    capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
+    limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
+    provider_options: Dict[str, Any] = Field(default_factory=dict)
 
 
 class LoopConfigModel(BaseModel):
@@ -151,33 +165,6 @@ class ConfigResponse(BaseModel):
     data: Optional[SystemConfigModel] = None
 
 
-class LLMProviderFieldModel(BaseModel):
-    visible: bool = Field(default=True)
-    required: bool = Field(default=False)
-    placeholder: Optional[str] = Field(default=None)
-    options: Optional[List[str]] = Field(default=None)
-
-
-class LLMProviderMetaModel(BaseModel):
-    id: str
-    icon: Optional[str] = Field(default=None)
-    default_model: Optional[str] = Field(default=None)
-    default_base_url: Optional[str] = Field(default=None)
-    model_options: List[str] = Field(default_factory=list)
-    fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
-
-
-class LLMCustomProviderMetaModel(BaseModel):
-    enabled: bool = Field(default=True)
-    icon: Optional[str] = Field(default=None)
-    fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
-
-
-class LLMProviderRegistryModel(BaseModel):
-    providers: List[LLMProviderMetaModel] = Field(default_factory=list)
-    custom_provider: LLMCustomProviderMetaModel = Field(default_factory=LLMCustomProviderMetaModel)
-
-
 class LLMProviderRegistryResponse(BaseModel):
     success: bool
     message: str
@@ -219,11 +206,30 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
                 display_name="OpenAI",
                 description="General purpose, strongest ecosystem",
                 icon="sparkles",
-                default_model="gpt-4o-mini",
+                default_model="gpt-5.2",
                 default_base_url="https://api.openai.com/v1",
-                model_options=["gpt-4o-mini", "gpt-4.1", "o3"],
+                models=[
+                    LLMModelMetaModel(
+                        id="gpt-5",
+                        label="gpt-5",
+                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
+                        limits=LLMLimitsSettings(context_window=400000, max_output_tokens=128000),
+                    ),
+                    LLMModelMetaModel(
+                        id="gpt-5.2",
+                        label="gpt-5.2",
+                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
+                        limits=LLMLimitsSettings(context_window=400000, max_output_tokens=128000),
+                    ),
+                    LLMModelMetaModel(
+                        id="o3",
+                        label="o3",
+                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
+                        limits=LLMLimitsSettings(context_window=200000, max_output_tokens=100000),
+                    ),
+                ],
                 fields={
-                    "model": LLMProviderFieldModel(visible=False, required=False),
+                    "model": LLMProviderFieldModel(visible=True, required=True),
                     "api_key": LLMProviderFieldModel(visible=True, required=True),
                     "base_url": LLMProviderFieldModel(visible=True, required=False),
                 },
@@ -233,11 +239,30 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
                 display_name="Anthropic",
                 description="Stable for long context and reasoning-heavy tasks",
                 icon="brain",
-                default_model="claude-3-5-sonnet",
+                default_model="claude-sonnet-4-6",
                 default_base_url="https://api.anthropic.com/v1",
-                model_options=["claude-3-5-sonnet", "claude-3-7-sonnet", "claude-opus-4-1"],
+                models=[
+                    LLMModelMetaModel(
+                        id="claude-sonnet-4-6",
+                        label="Claude Sonnet 4.6",
+                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
+                        limits=LLMLimitsSettings(context_window=200000, max_output_tokens=64000),
+                    ),
+                    LLMModelMetaModel(
+                        id="claude-opus-4-6",
+                        label="Claude Opus 4.6",
+                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
+                        limits=LLMLimitsSettings(context_window=200000, max_output_tokens=64000),
+                    ),
+                    LLMModelMetaModel(
+                        id="claude-haiku-4-5",
+                        label="Claude Haiku 4.5",
+                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
+                        limits=LLMLimitsSettings(context_window=200000, max_output_tokens=32000),
+                    ),
+                ],
                 fields={
-                    "model": LLMProviderFieldModel(visible=False, required=False),
+                    "model": LLMProviderFieldModel(visible=True, required=True),
                     "api_key": LLMProviderFieldModel(visible=True, required=True),
                     "base_url": LLMProviderFieldModel(visible=True, required=False),
                 },
@@ -247,11 +272,33 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
                 display_name="GLM",
                 description="Friendly experience for Chinese-first scenarios",
                 icon="zap",
-                default_model="glm-4.5",
+                default_model="glm-5",
                 default_base_url="https://open.bigmodel.cn/api/paas/v4",
-                model_options=["glm-4.5", "glm-4.5-air", "glm-4.5-flash"],
+                models=[
+                    LLMModelMetaModel(
+                        id="glm-5",
+                        label="GLM-5",
+                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
+                        limits=LLMLimitsSettings(context_window=204800, max_output_tokens=131072),
+                        provider_options_example={"thinking": {"type": "disabled"}},
+                    ),
+                    LLMModelMetaModel(
+                        id="glm-4.7",
+                        label="GLM-4.7",
+                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
+                        limits=LLMLimitsSettings(context_window=128000, max_output_tokens=65536),
+                        provider_options_example={"thinking": {"type": "disabled"}},
+                    ),
+                    LLMModelMetaModel(
+                        id="glm-4.7-flash",
+                        label="GLM-4.7 Flash",
+                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
+                        limits=LLMLimitsSettings(context_window=128000, max_output_tokens=32768),
+                        provider_options_example={"thinking": {"type": "disabled"}},
+                    ),
+                ],
                 fields={
-                    "model": LLMProviderFieldModel(visible=False, required=False),
+                    "model": LLMProviderFieldModel(visible=True, required=True),
                     "api_key": LLMProviderFieldModel(visible=True, required=True),
                     "base_url": LLMProviderFieldModel(visible=True, required=False),
                 },
@@ -262,6 +309,7 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
             display_name="Custom Provider",
             description="Connect OpenAI-compatible or custom format endpoints",
             icon="wand",
+            capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
             fields={
                 "custom_name": LLMProviderFieldModel(visible=True, required=True, placeholder="My Provider"),
                 "api_format": LLMProviderFieldModel(
@@ -276,17 +324,10 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
 
 
 def _load_llm_provider_registry() -> LLMProviderRegistryModel:
-    path = _llm_provider_registry_path()
-    if not path.exists():
-        return _default_llm_provider_registry()
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        return LLMProviderRegistryModel(**data)
-    except Exception:
-        logger.exception("Failed to load LLM provider registry")
-        return _default_llm_provider_registry()
+    return load_llm_provider_registry(
+        _llm_provider_registry_path(),
+        fallback=_default_llm_provider_registry(),
+    )
 
 
 def _build_memory_layers(raw: Dict[str, Any], runtime_config: Any) -> MemoryLayersConfigModel:
@@ -372,12 +413,36 @@ def _load_full_personality() -> FullPersonalityConfigModel:
         return FullPersonalityConfigModel()
 
 
+def _build_llm_config_model(
+    *,
+    runtime_config: Any,
+    raw_llm: Dict[str, Any],
+    registry: LLMProviderRegistryModel,
+    mask_api_key: bool,
+    from_env: bool = False,
+) -> LLMConfigModel:
+    api_key = runtime_config.llm.api_key
+    llm_api_key = "***" if (mask_api_key and api_key) else api_key
+    resolved = resolve_llm_profile(runtime_config.llm, registry)
+    return LLMConfigModel(
+        provider=str(getattr(runtime_config.llm.provider, "value", runtime_config.llm.provider)),
+        model=runtime_config.llm.model,
+        api_key=llm_api_key,
+        base_url=runtime_config.llm.base_url,
+        custom_name=raw_llm.get("custom_name"),
+        api_format=raw_llm.get("api_format"),
+        from_env=from_env,
+        capability_override_enabled=bool(runtime_config.llm.capability_override_enabled),
+        capabilities=resolved.capabilities,
+        limits=resolved.limits,
+        provider_options=resolved.provider_options,
+    )
+
+
 def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
     runtime_config = get_config()
     raw = _read_raw_yaml()
-
-    api_key = runtime_config.llm.api_key
-    llm_api_key = "***" if (mask_api_key and api_key) else api_key
+    registry = _load_llm_provider_registry()
 
     preferences_data = raw.get("preferences", {})
 
@@ -386,13 +451,11 @@ def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
             name=runtime_config.agent.name,
             description=raw.get("agent", {}).get("description", "Magi AI Agent Framework"),
         ),
-        llm=LLMConfigModel(
-            provider=str(runtime_config.llm.provider.value),
-            model=runtime_config.llm.model,
-            api_key=llm_api_key,
-            base_url=runtime_config.llm.base_url,
-            custom_name=raw.get("llm", {}).get("custom_name"),
-            api_format=raw.get("llm", {}).get("api_format"),
+        llm=_build_llm_config_model(
+            runtime_config=runtime_config,
+            raw_llm=raw.get("llm", {}) if isinstance(raw.get("llm"), dict) else {},
+            registry=registry,
+            mask_api_key=mask_api_key,
         ),
         loop=LoopConfigModel(
             strategy=raw.get("loop", {}).get("strategy", "continuous"),
@@ -430,6 +493,10 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "llm.base_url": config.llm.base_url,
         "llm.custom_name": config.llm.custom_name,
         "llm.api_format": config.llm.api_format,
+        "llm.capability_override_enabled": config.llm.capability_override_enabled,
+        "llm.capabilities": config.llm.capabilities.model_dump(),
+        "llm.limits": config.llm.limits.model_dump(),
+        "llm.provider_options": config.llm.provider_options,
         "loop.strategy": config.loop.strategy,
         "loop.interval": config.loop.interval,
         "agent.loop_interval": config.loop.interval,
@@ -515,7 +582,13 @@ def _build_onboarding_template() -> SystemConfigModel:
             template.llm.api_key = _mask_api_key(env_api_key)
         if env_base_url:
             template.llm.base_url = env_base_url
-        template.llm.from_env = True
+        template.llm = _build_llm_config_model(
+            runtime_config=type("RuntimeConfigProxy", (), {"llm": template.llm})(),
+            raw_llm={},
+            registry=registry,
+            mask_api_key=False,
+            from_env=True,
+        )
     elif registry.providers:
         primary = registry.providers[0]
         template.llm.provider = primary.id
@@ -523,7 +596,13 @@ def _build_onboarding_template() -> SystemConfigModel:
             template.llm.model = primary.default_model
         if primary.default_base_url:
             template.llm.base_url = primary.default_base_url
-        template.llm.from_env = False
+        template.llm = _build_llm_config_model(
+            runtime_config=type("RuntimeConfigProxy", (), {"llm": template.llm})(),
+            raw_llm={},
+            registry=registry,
+            mask_api_key=False,
+            from_env=False,
+        )
 
     template.preferences.onboarding_completed = False
     template.preferences.user_mode = None

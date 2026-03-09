@@ -114,6 +114,10 @@ Current product expectations:
 - API credentials are stored safely
 - custom base URLs are supported where applicable
 - expert-facing configuration can expose more fields than quick mode
+- provider/model metadata should come from the backend registry rather than hardcoded frontend lists
+- each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
+- users can review the active model capability profile during onboarding and later in settings
+- advanced users can override capability flags, model limits, and provider-specific JSON options for the current model
 
 At a minimum, the product should support:
 
@@ -121,6 +125,8 @@ At a minimum, the product should support:
 - model selection
 - API key input
 - optional custom endpoint configuration
+- model capability summary
+- advanced capability override controls for the currently selected model
 
 The exact provider list may evolve, but the product architecture should keep provider configuration extensible rather than hardcoding one vendor path.
 

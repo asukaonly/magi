@@ -193,6 +193,19 @@ class ConfigLoader:
                 "temperature": 0.7,
                 "max_tokens": DEFAULT_MAX_TOKENS,
                 "timeout": 60,
+                "capability_override_enabled": False,
+                "capabilities": {
+                    "vision": False,
+                    "image_output": False,
+                    "tool_calling": True,
+                    "reasoning": True,
+                    "embedding": False,
+                },
+                "limits": {
+                    "context_window": None,
+                    "max_output_tokens": None,
+                },
+                "provider_options": {},
             },
             "agent": {
                 "name": "magi-agent",

@@ -20,10 +20,10 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
+import LLMForm from '@/components/config-forms/LLMForm';
 import { LLMUsageSection } from '@/components/settings/LLMUsageSection';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -274,8 +274,10 @@ export const SettingsPage: React.FC = () => {
                       key={option.value}
                       type="button"
                       onClick={() => setThemeMode(option.value)}
+                      aria-pressed={isActive}
+                      aria-label={option.label}
                       className={cn(
-                        'flex flex-1 flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all',
+                        'flex flex-1 flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
                         isActive
                           ? 'border-primary bg-primary/10 text-primary'
                           : 'border-border hover:border-border/80 hover:bg-muted/50'
@@ -299,49 +301,14 @@ export const SettingsPage: React.FC = () => {
               <h2 className="text-xl font-semibold">{t('settings.tabs.llm')}</h2>
               <p className="text-sm text-muted-foreground">{t('settings.llmDesc')}</p>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <LabeledSelectField
-                label={t('settings.fields.provider')}
-                value={config.llm.provider}
-                options={[
-                  { label: 'OpenAI', value: 'openai' },
-                  { label: 'Anthropic', value: 'anthropic' },
-                  { label: 'GLM', value: 'glm' },
-                  { label: 'Custom', value: 'custom' },
-                ]}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.llm.provider = value as SystemConfig['llm']['provider'];
-                })}
-              />
-              <label className="space-y-2">
-                <span className="text-sm font-medium">{t('settings.fields.modelName')}</span>
-                <Input
-                  value={config.llm.model}
-                  onChange={(event) => patchConfig((draft) => {
-                    draft.llm.model = event.target.value;
-                  })}
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">{t('settings.fields.apiKey')}</span>
-                <Input
-                  type="password"
-                  value={config.llm.api_key || ''}
-                  onChange={(event) => patchConfig((draft) => {
-                    draft.llm.api_key = event.target.value;
-                  })}
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">{t('settings.fields.baseUrl')}</span>
-                <Input
-                  value={config.llm.base_url || ''}
-                  onChange={(event) => patchConfig((draft) => {
-                    draft.llm.base_url = event.target.value;
-                  })}
-                />
-              </label>
-            </div>
+            <LLMForm
+              quickMode={false}
+              value={config.llm}
+              showAdvancedByDefault
+              onChange={(nextLLM) => patchConfig((draft) => {
+                draft.llm = nextLLM;
+              })}
+            />
           </div>
         );
 
@@ -352,16 +319,16 @@ export const SettingsPage: React.FC = () => {
               <h2 className="text-xl font-semibold">{t('settings.tabs.personality')}</h2>
               <p className="text-sm text-muted-foreground">{t('settings.personalityDesc')}</p>
             </div>
-            <div className="overflow-hidden rounded-3xl border border-violet-500/20 bg-[radial-gradient(120%_160%_at_0%_0%,rgba(124,58,237,0.12)_0%,rgba(124,58,237,0.03)_42%,transparent_72%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] p-5 shadow-[0_16px_40px_-28px_rgba(124,58,237,0.55)]">
+            <div className="overflow-hidden rounded-3xl border border-primary/20 bg-muted/30 p-5">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-medium text-violet-700">{t('settings.fields.currentPersonality')}</h3>
+                  <h3 className="font-medium text-primary">{t('settings.fields.currentPersonality')}</h3>
                   <p className="text-sm text-muted-foreground">{config.personality?.persona_entity?.basic_profile?.name || 'Default'}</p>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-xl border-violet-500/20 bg-background/80"
+                  className="rounded-xl"
                   onClick={() => window.location.href = '/personality'}
                 >
                   {t('settings.actions.configure')}
@@ -597,8 +564,10 @@ export const SettingsPage: React.FC = () => {
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  aria-label={t(`settings.tabs.${item.id}`)}
                   className={cn(
-                    'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                    'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
                     isActive
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'

@@ -24,6 +24,23 @@ export interface LLMConfig {
   custom_name?: string;
   api_format?: ApiFormat;
   from_env?: boolean;
+  capability_override_enabled: boolean;
+  capabilities: LLMCapabilities;
+  limits: LLMLimits;
+  provider_options: Record<string, any>;
+}
+
+export interface LLMCapabilities {
+  vision: boolean;
+  image_output: boolean;
+  tool_calling: boolean;
+  reasoning: boolean;
+  embedding: boolean;
+}
+
+export interface LLMLimits {
+  context_window?: number | null;
+  max_output_tokens?: number | null;
 }
 
 export interface LLMProviderFieldConfig {
@@ -35,17 +52,33 @@ export interface LLMProviderFieldConfig {
 
 export interface LLMProviderMeta {
   id: string;
+  display_name?: string;
+  description?: string;
   icon?: string;
   default_model?: string;
   default_base_url?: string;
   model_options?: string[];
+  models?: LLMModelMeta[];
   fields?: Record<string, LLMProviderFieldConfig>;
 }
 
 export interface LLMCustomProviderMeta {
   enabled: boolean;
+  display_name?: string;
+  description?: string;
   icon?: string;
   fields?: Record<string, LLMProviderFieldConfig>;
+  capabilities?: LLMCapabilities;
+  limits?: LLMLimits;
+  provider_options_example?: Record<string, any>;
+}
+
+export interface LLMModelMeta {
+  id: string;
+  label?: string;
+  capabilities: LLMCapabilities;
+  limits: LLMLimits;
+  provider_options_example?: Record<string, any>;
 }
 
 export interface LLMProviderRegistry {
@@ -152,9 +185,29 @@ export interface SystemConfig {
   memory_layers: MemoryLayersConfig;
 }
 
+export const DEFAULT_LLM_CAPABILITIES: LLMCapabilities = {
+  vision: false,
+  image_output: false,
+  tool_calling: true,
+  reasoning: true,
+  embedding: false,
+};
+
+export const DEFAULT_LLM_LIMITS: LLMLimits = {
+  context_window: null,
+  max_output_tokens: null,
+};
+
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   agent: { name: 'magi-agent', description: 'Magi AI Agent Framework' },
-  llm: { provider: 'openai', model: 'gpt-4o-mini' },
+  llm: {
+    provider: 'openai',
+    model: 'gpt-4o-mini',
+    capability_override_enabled: false,
+    capabilities: DEFAULT_LLM_CAPABILITIES,
+    limits: DEFAULT_LLM_LIMITS,
+    provider_options: {},
+  },
   loop: { strategy: 'continuous', interval: 1 },
   message_bus: { backend: 'sqlite', max_size: 1000 },
   memory: { backend: 'sqlite', path: '~/.magi/data/memories' },

@@ -1,13 +1,44 @@
 providers:
   - id: openai
+    display_name: OpenAI
+    description: General purpose, strongest ecosystem
     icon: sparkles
     default_model: gpt-5.2
     default_base_url: https://api.openai.com/v1
-    model_options:
-      - gpt-5
-      - gpt-5.2
-      - o3
-      - o4-mini
+    models:
+      - id: gpt-5
+        label: GPT-5
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 400000
+          max_output_tokens: 128000
+      - id: gpt-5.2
+        label: GPT-5.2
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 400000
+          max_output_tokens: 128000
+      - id: o3
+        label: o3
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 200000
+          max_output_tokens: 100000
     fields:
       model:
         visible: true
@@ -18,14 +49,47 @@ providers:
       base_url:
         visible: true
         required: false
+
   - id: anthropic
+    display_name: Anthropic
+    description: Stable for long context and reasoning-heavy tasks
     icon: brain
-    default_model: claude-opus-4-6
+    default_model: claude-sonnet-4-6
     default_base_url: https://api.anthropic.com/v1
-    model_options:
-      - claude-sonnet-4-6
-      - claude-opus-4-6
-      - claude-haiku-4-5
+    models:
+      - id: claude-sonnet-4-6
+        label: Claude Sonnet 4.6
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 200000
+          max_output_tokens: 64000
+      - id: claude-opus-4-6
+        label: Claude Opus 4.6
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 200000
+          max_output_tokens: 64000
+      - id: claude-haiku-4-5
+        label: Claude Haiku 4.5
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 200000
+          max_output_tokens: 32000
     fields:
       model:
         visible: true
@@ -36,16 +100,56 @@ providers:
       base_url:
         visible: true
         required: false
+
   - id: glm
+    display_name: GLM
+    description: Friendly experience for Chinese-first scenarios
     icon: zap
-    default_model: glm-4.7
+    default_model: glm-5
     default_base_url: https://open.bigmodel.cn/api/paas/v4
-    model_options:
-      - glm-5
-      - glm-4.7
-      - glm-4.7-flash
-      - glm-4.7-flashx
-      - glm-4.6
+    models:
+      - id: glm-5
+        label: GLM-5
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 204800
+          max_output_tokens: 131072
+        provider_options_example:
+          thinking:
+            type: disabled
+      - id: glm-4.7
+        label: GLM-4.7
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 128000
+          max_output_tokens: 65536
+        provider_options_example:
+          thinking:
+            type: disabled
+      - id: glm-4.7-flash
+        label: GLM-4.7 Flash
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 128000
+          max_output_tokens: 32768
+        provider_options_example:
+          thinking:
+            type: disabled
     fields:
       model:
         visible: true
@@ -56,9 +160,19 @@ providers:
       base_url:
         visible: true
         required: false
+
 custom_provider:
   enabled: true
+  display_name: Custom Provider
+  description: Connect OpenAI-compatible or custom format endpoints
   icon: wand
+  capabilities:
+    vision: false
+    image_output: false
+    tool_calling: true
+    reasoning: true
+    embedding: false
+  provider_options_example: {}
   fields:
     custom_name:
       visible: true
