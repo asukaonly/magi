@@ -560,7 +560,7 @@ export const ChatPage: React.FC = () => {
     >
       <div className="flex max-w-[76%] gap-3">
         {getAvatar('assistant')}
-        <div className="rounded-2xl rounded-tl-md border border-border/50 bg-white px-4 py-3 shadow-sm">
+        <div className="rounded-[22px] rounded-tl-md border border-border/28 bg-background/72 px-4 py-3 backdrop-blur-sm">
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
             <span className="text-sm font-medium text-foreground">{message.traceSummary?.headline || message.content}</span>
@@ -587,8 +587,8 @@ export const ChatPage: React.FC = () => {
   );
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col px-4 py-4">
-      <div className="desktop-panel min-h-0 flex-1 overflow-y-auto rounded-2xl px-5 py-5 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+    <div className="relative flex h-full min-h-0 flex-col px-5 pb-5 pt-4">
+      <div className="desktop-panel-soft min-h-0 flex-1 overflow-y-auto rounded-[26px] px-6 py-5 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {messages.map((msg) => (
           msg.kind === 'status' ? (
             renderStatusCard(msg)
@@ -614,7 +614,7 @@ export const ChatPage: React.FC = () => {
                   <div
                     className={msg.role === 'user'
                       ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-white'
-                      : 'rounded-2xl rounded-tl-md border border-border/50 bg-card/80 px-4 py-3 backdrop-blur-sm'}
+                      : 'rounded-[22px] rounded-tl-md border border-border/24 bg-background/68 px-4 py-3 backdrop-blur-sm'}
                   >
                     {msg.role === 'assistant' ? (
                       <div className="max-w-none text-current">
@@ -642,8 +642,8 @@ export const ChatPage: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="desktop-panel mt-3 shrink-0 rounded-2xl px-4 pb-3 pt-3">
-        <div className="flex items-end gap-3">
+      <div className="desktop-panel-soft mt-3 shrink-0 rounded-[24px] px-4 pb-3 pt-3">
+        <div className="flex items-end gap-3 rounded-[20px] bg-background/52 px-2 py-2 ring-1 ring-border/12">
           <AutoResizeTextarea
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
@@ -657,9 +657,9 @@ export const ChatPage: React.FC = () => {
             onKeyDown={handleKeyPress}
             disabled={!connected}
             minHeight={84}
-            className="max-h-64 resize-none rounded-xl border-0 bg-muted/40 px-4 py-3 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/30"
+            className="max-h-64 resize-none rounded-[18px] border-0 bg-transparent px-4 py-3 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:ring-0 focus-visible:ring-offset-0"
           />
-          <Button onClick={handleSendMessage} disabled={!connected} className="h-11 rounded-xl bg-primary px-5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+          <Button onClick={handleSendMessage} disabled={!connected} className="h-11 rounded-[18px] bg-primary/92 px-5 text-primary-foreground shadow-none hover:bg-primary disabled:opacity-50">
             <Send className="mr-1 h-4 w-4" />
             {t('chat.send')}
           </Button>

@@ -133,19 +133,21 @@ const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className="desktop-panel flex h-full min-h-0 flex-col overflow-hidden border-r border-border/30"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-[linear-gradient(180deg,hsl(var(--foreground)/0.05),transparent_140px),hsl(var(--card)/0.3)] pt-[4.25rem]"
     >
-      <div className="shrink-0 border-b border-border/30 p-3">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[radial-gradient(110%_90%_at_0%_0%,rgba(45,212,191,0.12),transparent_72%)]" />
+
+      <div className="shrink-0 px-3 pb-3">
         <Button
           onClick={handleCreateSession}
-          className="w-full justify-start gap-2 rounded-xl border border-primary/20 bg-primary/15 text-primary hover:bg-primary/25"
+          className="w-full justify-start gap-2 rounded-2xl border border-primary/14 bg-primary/10 text-primary hover:bg-primary/16"
         >
           <MessageSquarePlus className="h-4 w-4" />
           <span>{t('shell.newChat')}</span>
         </Button>
       </div>
 
-      <div className="border-b border-border/20 px-4 py-3">
+      <div className="px-4 py-3">
         <div className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground/70">
           {t('nav.chat')}
         </div>
@@ -170,10 +172,10 @@ const Sidebar: React.FC = () => {
                   navigate('/chat');
                 }}
                 className={cn(
-                  'w-full rounded-xl border px-3 py-2 text-left transition-all duration-200',
+                  'w-full rounded-2xl px-3 py-2.5 text-left transition-all duration-200',
                   active
-                    ? 'border-primary/40 bg-primary/15 text-foreground shadow-[0_0_12px_rgba(45,212,191,0.15)]'
-                    : 'border-transparent hover:border-border/40 hover:bg-white/5'
+                    ? 'border border-primary/16 bg-primary/12 text-foreground'
+                    : 'border border-transparent hover:bg-white/6'
                 )}
                 title={session.title}
               >
@@ -192,7 +194,7 @@ const Sidebar: React.FC = () => {
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border/30 bg-white/40 px-3 py-3">
+      <div className="shrink-0 px-3 py-3">
         <div className="grid gap-2">
           {utilityActions.map((action) => {
             const Icon = action.icon;
@@ -205,17 +207,17 @@ const Sidebar: React.FC = () => {
                 type="button"
                 onClick={() => handleOpenPanel(action.id, action.path)}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition-all duration-200',
+                  'flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-all duration-200',
                   active
-                    ? 'border-primary/35 bg-primary/12 text-foreground shadow-[0_10px_24px_-18px_rgba(45,212,191,0.4)]'
-                    : 'border-transparent text-muted-foreground hover:border-border/40 hover:bg-white/70 hover:text-foreground'
+                    ? 'border-primary/16 bg-primary/10 text-foreground'
+                    : 'border-transparent text-muted-foreground hover:bg-white/8 hover:text-foreground'
                 )}
               >
                 <span className={cn(
                   'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border',
                   active
-                    ? 'border-primary/20 bg-primary/15 text-primary'
-                    : 'border-border/50 bg-background/85'
+                    ? 'border-primary/14 bg-primary/12 text-primary'
+                    : 'border-border/30 bg-background/60'
                 )}>
                   <Icon className="h-4 w-4" />
                 </span>
