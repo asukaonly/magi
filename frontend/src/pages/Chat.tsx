@@ -2,7 +2,7 @@
  * Chat page - desktop-focused conversation workspace
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Send, Wrench, UserRound } from 'lucide-react';
+import { ArrowUp, Loader2, Wrench, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -10,7 +10,6 @@ import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Button } from '@/components/ui/button';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { messagesApi } from '@/api';
@@ -587,8 +586,8 @@ export const ChatPage: React.FC = () => {
   );
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col px-5 pb-5 pt-4">
-      <div className="desktop-panel-soft min-h-0 flex-1 overflow-y-auto rounded-[26px] px-6 py-5 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+    <div className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         {messages.map((msg) => (
           msg.kind === 'status' ? (
             renderStatusCard(msg)
@@ -642,8 +641,8 @@ export const ChatPage: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="desktop-panel-soft mt-3 shrink-0 rounded-[24px] px-4 pb-3 pt-3">
-        <div className="flex items-end gap-3 rounded-[20px] bg-background/52 px-2 py-2 ring-1 ring-border/12">
+      <div className="mt-2 shrink-0">
+        <div className="relative rounded-[28px] bg-background/52 px-3 py-3">
           <AutoResizeTextarea
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
@@ -656,15 +655,22 @@ export const ChatPage: React.FC = () => {
             placeholder={t('chat.inputPlaceholder')}
             onKeyDown={handleKeyPress}
             disabled={!connected}
-            minHeight={84}
-            className="max-h-64 resize-none rounded-[18px] border-0 bg-transparent px-4 py-3 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+            minHeight={120}
+            className="max-h-72 resize-none rounded-[22px] border-0 bg-transparent px-3 py-3 pr-20 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:ring-0 focus-visible:ring-offset-0"
           />
-          <Button onClick={handleSendMessage} disabled={!connected} className="h-11 rounded-[18px] bg-primary/92 px-5 text-primary-foreground shadow-none hover:bg-primary disabled:opacity-50">
-            <Send className="mr-1 h-4 w-4" />
-            {t('chat.send')}
-          </Button>
+          <button
+            type="button"
+            onClick={() => {
+              void handleSendMessage();
+            }}
+            disabled={!connected}
+            className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/88 disabled:cursor-not-allowed disabled:bg-foreground/20 disabled:text-muted-foreground"
+            aria-label={t('chat.send')}
+            title={t('chat.send')}
+          >
+            <ArrowUp className="h-5 w-5" />
+          </button>
         </div>
-        <div className="mt-2 text-center text-xs text-muted-foreground/60">{t('chat.tip')}</div>
       </div>
 
       <ToolchainDrawer
