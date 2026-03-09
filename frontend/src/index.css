@@ -100,13 +100,11 @@
   }
 
   .desktop-surface {
-    @apply border backdrop-blur-xl;
-    border-color: hsl(var(--border) / 0.36);
+    @apply backdrop-blur-xl;
     background:
       linear-gradient(180deg, hsl(var(--foreground) / 0.04), transparent 120px),
       hsl(var(--card) / 0.76);
     box-shadow:
-      0 0 0 1px hsl(var(--border) / 0.08),
       0 20px 72px -28px rgba(15, 23, 42, 0.3),
       inset 0 1px 0 hsl(var(--foreground) / 0.05);
   }
