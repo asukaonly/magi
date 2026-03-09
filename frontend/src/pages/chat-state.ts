@@ -84,6 +84,21 @@ export const normalizeTraceNode = (raw: ExecutionTraceNode): NormalizedExecution
   children: Array.isArray(raw.children) ? raw.children.map(normalizeTraceNode) : [],
 });
 
+export const flattenPlanningNodeForDisplay = (
+  root: NormalizedExecutionTraceNode,
+): NormalizedExecutionTraceNode => {
+  if (root.kind !== 'root' || !Array.isArray(root.children)) {
+    return root;
+  }
+
+  return {
+    ...root,
+    children: root.children.flatMap((child) => (
+      child.kind === 'planning' ? child.children : [child]
+    )),
+  };
+};
+
 export const normalizeTraceSnapshot = (raw: ExecutionTraceSnapshot | null | undefined): NormalizedExecutionTraceSnapshot | null => {
   if (!raw) return null;
   const summary = normalizeTraceSummary(raw.summary);

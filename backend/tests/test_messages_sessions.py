@@ -353,3 +353,58 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     worker = group["children"][0]
     assert worker["kind"] == "worker"
     assert worker["children"][0]["label"] == "grep"
+
+
+def test_trace_summary_counts_planning_as_active_before_workers_exist(tmp_path):
+    service = ChatTraceReadService()
+    service._events_db_path = tmp_path / "events.sqlite3"
+    service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    _init_event_store(service._events_db_path)
+
+    service._orchestrations_path.write_text(
+        json.dumps(
+            {
+                "orchestrations": {
+                    "orch_plan": {
+                        "orchestration_id": "orch_plan",
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "turn_id": "turn_plan",
+                        "status": "running",
+                        "planner": "task_agent",
+                        "allow_parallel": True,
+                        "subtasks": [],
+                    }
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    _insert_event(
+        service._events_db_path,
+        "USER_INPUT",
+        {"user_id": "u1", "session_id": "s1", "message": "plan this", "turn_id": "turn_plan"},
+        1000,
+    )
+    _insert_event(
+        service._events_db_path,
+        "WORKER_AGENT_PROGRESS",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "turn_id": "turn_plan",
+            "orchestration_id": "orch_plan",
+            "stage": "planning",
+        },
+        1005,
+    )
+
+    summary = service.get_trace_summary(user_id="u1", session_id="s1", turn_id="turn_plan")
+
+    assert summary is not None
+    assert summary["headline"] == "正在编排任务"
+    assert summary["active_steps"] == 1
+    assert summary["completed_steps"] == 0

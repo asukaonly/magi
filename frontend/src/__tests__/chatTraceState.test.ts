@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyAgentResponse,
   createPendingTurn,
+  flattenPlanningNodeForDisplay,
   normalizeHistoryMessages,
   normalizeTraceSummary,
   upsertTraceSummary,
@@ -106,5 +107,50 @@ describe('chat trace state helpers', () => {
     expect(normalized[0].kind).toBe('status');
     expect(normalized[0].traceSummary?.turnId).toBe('turn_2');
     expect(normalized[0].traceAvailable).toBe(true);
+  });
+
+  it('flattens the planning node out of the trace tree for drawer display', () => {
+    const root = flattenPlanningNodeForDisplay({
+      id: 'turn_1:root',
+      kind: 'root',
+      label: '工具链',
+      status: 'running',
+      startedAt: 1,
+      endedAt: null,
+      resultPreview: '',
+      error: null,
+      metadata: {},
+      children: [
+        {
+          id: 'turn_1:planning',
+          kind: 'planning',
+          label: '任务编排',
+          status: 'running',
+          startedAt: 1,
+          endedAt: null,
+          resultPreview: '',
+          error: null,
+          metadata: {},
+          children: [
+            {
+              id: 'turn_1:worker:1',
+              kind: 'worker',
+              label: 'scan backend',
+              status: 'running',
+              startedAt: 1,
+              endedAt: null,
+              resultPreview: '',
+              error: null,
+              metadata: {},
+              children: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('worker');
+    expect(root.children[0].label).toBe('scan backend');
   });
 });

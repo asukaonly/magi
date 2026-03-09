@@ -9,7 +9,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import TraceTree from './TraceTree';
-import type { NormalizedExecutionTraceNode, NormalizedExecutionTraceSnapshot } from '@/pages/chat-state';
+import { flattenPlanningNodeForDisplay, type NormalizedExecutionTraceNode, type NormalizedExecutionTraceSnapshot } from '@/pages/chat-state';
 
 interface ToolchainDrawerProps {
   open: boolean;
@@ -64,12 +64,16 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
 }) => {
   const { t, i18n } = useTranslation('app');
   const [selectedNode, setSelectedNode] = React.useState<NormalizedExecutionTraceNode | null>(null);
+  const displayRoot = React.useMemo(
+    () => (snapshot?.root ? flattenPlanningNodeForDisplay(snapshot.root) : null),
+    [snapshot],
+  );
 
   React.useEffect(() => {
-    if (snapshot?.root) {
-      setSelectedNode(snapshot.root.children[0] || snapshot.root);
+    if (displayRoot) {
+      setSelectedNode(displayRoot.children[0] || displayRoot);
     }
-  }, [snapshot]);
+  }, [displayRoot]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -129,7 +133,9 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                       {snapshot.summary.completedSteps + snapshot.summary.failedSteps} steps
                     </div>
                   </div>
-                  <TraceTree node={snapshot.root} selectedNodeId={selectedNode?.id || null} onSelectNode={setSelectedNode} />
+                  {displayRoot && (
+                    <TraceTree node={displayRoot} selectedNodeId={selectedNode?.id || null} onSelectNode={setSelectedNode} />
+                  )}
                 </div>
                 <div className="min-h-0 overflow-y-auto bg-white/76 px-8 py-6">
                   {selectedNode ? (

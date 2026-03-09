@@ -552,7 +552,11 @@ class ChatTraceReadService:
         completed = 0
         failed = 0
         for node in self._walk_nodes(root):
-            if node.kind in {"root", "planning", "parallel_group", "iteration"}:
+            if node.kind == "planning":
+                if node.status in {"running", "pending"}:
+                    active += 1
+                continue
+            if node.kind in {"root", "parallel_group", "iteration"}:
                 continue
             if node.status in {"running", "pending"}:
                 active += 1
@@ -575,8 +579,9 @@ class ChatTraceReadService:
             return "工具链已完成"
         if status == "failed":
             return "工具链执行失败"
-        if mode == "orchestration" and active_steps == 0 and completed_steps == 0:
-            if isinstance(orchestration_state, dict):
+        if mode == "orchestration" and completed_steps == 0:
+            subtasks = orchestration_state.get("subtasks") if isinstance(orchestration_state, dict) else None
+            if active_steps <= 1 and not subtasks:
                 return "正在编排任务"
         if active_steps > 0 or completed_steps > 0:
             return "正在执行工具链"
