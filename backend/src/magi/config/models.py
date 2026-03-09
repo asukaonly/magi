@@ -186,9 +186,10 @@ class WeatherToolSettings(BaseModel):
 class WebSearchToolSettings(BaseModel):
     """Web search tool configuration."""
     enabled: bool = Field(default=True)
-    default_provider: str = Field(default="brave")
+    default_provider: str = Field(default="duckduckgo")
     providers: Dict[str, ProviderConfig] = Field(
         default_factory=lambda: {
+            "duckduckgo": ProviderConfig(),
             "brave": ProviderConfig(),
             "perplexity": ProviderConfig(),
             "tavily": ProviderConfig(),

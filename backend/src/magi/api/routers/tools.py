@@ -340,6 +340,7 @@ def _is_multi_provider_tool(tool) -> bool:
 def _get_provider_display_name(provider_name: str) -> str:
     """Convert provider name to display name"""
     name_map = {
+        "duckduckgo": "DuckDuckGo",
         "brave": "Brave Search",
         "perplexity": "Perplexity AI",
         "tavily": "Tavily",
@@ -378,11 +379,12 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
         all_providers = tool.get_all_provider_names()
         available_providers = tool.get_available_providers()
         for provider_name in all_providers:
+            required_config = [] if provider_name == "duckduckgo" else [f"providers.{provider_name}.api_key"]
             providers.append(ToolProviderInfo(
                 name=provider_name,
                 display_name=_get_provider_display_name(provider_name),
                 is_ready=provider_name in available_providers,
-                required_config=[f"providers.{provider_name}.api_key"],
+                required_config=required_config,
             ))
 
     # Get current values (non-sensitive)

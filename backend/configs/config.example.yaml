@@ -92,8 +92,10 @@ tools:
 
   web_search:
     enabled: true
-    default_provider: "brave"  # Default provider: brave, perplexity, or tavily
+    default_provider: "duckduckgo"  # Default provider: duckduckgo, brave, perplexity, or tavily
     providers:
+      duckduckgo:
+        base_url: ""  # Optional: HTML endpoint override
       brave:
         api_key: ""  # Set your Brave Search API key here
       perplexity:

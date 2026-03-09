@@ -76,7 +76,7 @@ class WeatherToolConfigModel(BaseModel):
 
 class WebSearchToolConfigModel(BaseModel):
     enabled: bool = Field(default=True)
-    provider: str = Field(default="brave")
+    provider: str = Field(default="duckduckgo")
     apiKey: Optional[str] = Field(default=None)
 
 

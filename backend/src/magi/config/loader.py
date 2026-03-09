@@ -99,7 +99,7 @@ ENV_MAPPINGS: Dict[str, Tuple[str, Callable, Any]] = {
     "tools.weather.providers.qweather.base_url": ("QWEATHER_API_HOST", str, None),
 
     # Tools - Web Search
-    "tools.web_search.default_provider": ("WEB_SEARCH_DEFAULT_PROVIDER", str, "brave"),
+    "tools.web_search.default_provider": ("WEB_SEARCH_DEFAULT_PROVIDER", str, "duckduckgo"),
     "tools.web_search.providers.brave.api_key": ("BRAVE_API_KEY", str, None),
     "tools.web_search.providers.perplexity.api_key": ("PERPLEXITY_API_KEY", str, None),
     "tools.web_search.providers.tavily.api_key": ("TAVILY_API_KEY", str, None),

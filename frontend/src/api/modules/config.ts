@@ -70,7 +70,7 @@ export interface WeatherToolConfig {
 
 export interface WebSearchToolConfig {
   enabled: boolean;
-  provider: 'duckduckgo' | 'brave' | 'perplexity' | 'tavily' | 'google';
+  provider: 'duckduckgo' | 'brave' | 'perplexity' | 'tavily';
   apiKey?: string;
 }
 
@@ -165,7 +165,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   tools: {
     builtIn: {
       weather: { enabled: true, provider: 'qweather' },
-      webSearch: { enabled: true, provider: 'brave' },
+      webSearch: { enabled: true, provider: 'duckduckgo' },
       webFetch: { enabled: true, usePlaywright: false },
     },
     skills: [],

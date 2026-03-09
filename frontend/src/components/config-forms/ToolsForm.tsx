@@ -64,7 +64,6 @@ export const ToolsForm: React.FC = () => {
             { label: 'Brave', value: 'brave' },
             { label: 'Perplexity', value: 'perplexity' },
             { label: 'Tavily', value: 'tavily' },
-            { label: 'Google', value: 'google' },
           ]}
         />
       </Form.Item>

@@ -5,12 +5,13 @@ from typing import Dict, Any, List
 
 from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolConfigSpec, ToolErrorCode
 from ..providers.base import ProviderConfig
-from ..providers.web_search import BraveSearchProvider, PerplexitySearchProvider, TavilySearchProvider
+from ..providers.web_search import DuckDuckGoSearchProvider, BraveSearchProvider, PerplexitySearchProvider, TavilySearchProvider
 from ...config import get_config, save_config
 
 
 # Provider display info for messages
 PROVIDER_INFO = {
+    "duckduckgo": {"name": "DuckDuckGo"},
     "brave": {"name": "Brave Search", "env_var": "BRAVE_API_KEY"},
     "perplexity": {"name": "Perplexity AI", "env_var": "PERPLEXITY_API_KEY"},
     "tavily": {"name": "Tavily", "env_var": "TAVILY_API_KEY"},
@@ -30,7 +31,7 @@ class WebSearchTool(MultiProviderTool):
             name="web-search",
             description=(
                 "Search the web for information using configured providers.\n\n"
-                "Supported providers: brave, perplexity, tavily.\n"
+                "Supported providers: duckduckgo, brave, perplexity, tavily.\n"
                 "Configure provider settings via system-settings tool "
                 "(for example: tool.web-search.providers.brave.api_key)."
             ),
@@ -47,10 +48,10 @@ class WebSearchTool(MultiProviderTool):
                 ToolParameter(
                     name="provider",
                     type=ParameterType.STRING,
-                    description="Search provider: 'brave', 'perplexity', or 'tavily'",
+                    description="Search provider: 'duckduckgo', 'brave', 'perplexity', or 'tavily'",
                     required=False,
-                    default="brave",
-                    enum=["brave", "perplexity", "tavily"],
+                    default="duckduckgo",
+                    enum=["duckduckgo", "brave", "perplexity", "tavily"],
                 ),
                 ToolParameter(
                     name="num_results",
@@ -68,8 +69,8 @@ class WebSearchTool(MultiProviderTool):
                     "output": "Returns search results",
                 },
                 {
-                    "input": {"query": "OpenAI release notes", "provider": "brave", "num_results": 5},
-                    "output": "Returns search results from Brave",
+                    "input": {"query": "OpenAI release notes", "provider": "duckduckgo", "num_results": 5},
+                    "output": "Returns search results from DuckDuckGo",
                 },
             ],
             timeout=30,
@@ -81,6 +82,7 @@ class WebSearchTool(MultiProviderTool):
 
     def _register_providers(self) -> None:
         """Register all available web search providers."""
+        self.register_provider(DuckDuckGoSearchProvider())
         self.register_provider(BraveSearchProvider())
         self.register_provider(PerplexitySearchProvider())
         self.register_provider(TavilySearchProvider())
@@ -226,18 +228,18 @@ class WebSearchTool(MultiProviderTool):
                 data={
                     "next_action": "ask_user_to_configure_api_key",
                     "llm_guidance": (
-                        "Do not retry web search until one provider key is configured. "
-                        "Ask user to provide/confirm a key and set it using system-settings action=set."
+                        "Do not retry web search until at least one search provider is available. "
+                        "Ask the user to confirm tool configuration or restore a supported provider."
                     ),
                     "user_message_template": (
-                        "要继续联网搜索，请先配置任一搜索提供商的 API Key（如 brave）。"
-                        "配置后我会继续当前搜索。"
+                        "要继续联网搜索，请先确认网页搜索工具配置可用。"
+                        "恢复后我会继续当前搜索。"
                     ),
                     "config_tool": "system-settings",
                     "config_example": {
                         "action": "set",
-                        "path": "tool.web-search.providers.brave.api_key",
-                        "value": "<your-brave-api-key>",
+                        "path": "tool.web-search.default_provider",
+                        "value": "duckduckgo",
                     },
                     "supported_providers": list(PROVIDER_INFO.keys()),
                 },
