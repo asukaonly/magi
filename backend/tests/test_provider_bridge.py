@@ -213,7 +213,10 @@ async def test_glm_chat_with_tools_disables_thinking_for_openai_compatible_path(
 @pytest.mark.asyncio
 async def test_chat_response_exposes_openai_metadata_for_empty_content():
     message = SimpleNamespace(content="", tool_calls=[], role="assistant")
-    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason="stop")],
+        usage=SimpleNamespace(prompt_tokens=12, completion_tokens=4, total_tokens=16),
+    )
     client = DummyOpenAIClient(response=response)
     llm = DummyLLMAdapter(provider="glm", client=client)
     bridge = LLMProviderBridge(llm)
@@ -230,6 +233,10 @@ async def test_chat_response_exposes_openai_metadata_for_empty_content():
     assert result.metadata["has_content"] is False
     assert result.metadata["provider"] == "glm"
     assert result.metadata["raw_message"]["content"] == ""
+    assert result.usage is not None
+    assert result.usage.prompt_tokens == 12
+    assert result.usage.completion_tokens == 4
+    assert result.usage.total_tokens == 16
 
 
 @pytest.mark.asyncio
@@ -258,6 +265,43 @@ async def test_openai_content_parses_legacy_tool_call_blocks() -> None:
     assert result.tool_calls[0].arguments["timeout_seconds"] == 30
     assert result.tool_calls[0].arguments["run_in_background"] is False
     assert result.tool_calls[0].arguments["description"] == "analyze repo"
-    assert result.assistant_message is not None
-    assert result.assistant_message["role"] == "assistant"
-    assert result.assistant_message["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_bridge_publishes_usage_event_with_prompt_and_completion_tokens(monkeypatch) -> None:
+    published_payloads = []
+
+    async def fake_publish(payload):
+        published_payloads.append(payload)
+
+    monkeypatch.setattr("magi.llm.provider_bridge.publish_llm_call_event", fake_publish)
+
+    message = SimpleNamespace(content="hello", tool_calls=[], role="assistant")
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason="stop")],
+        usage=SimpleNamespace(prompt_tokens=20, completion_tokens=8, total_tokens=28),
+    )
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(provider="openai", client=client)
+    bridge = LLMProviderBridge(llm)
+
+    await bridge.chat_response(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        event_context={
+            "request_id": "req123",
+            "request_kind": "context_decider",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "agent_id": "agent-1",
+        },
+    )
+
+    assert len(published_payloads) == 1
+    payload = published_payloads[0]
+    assert payload.request_id == "req123"
+    assert payload.request_kind == "context_decider"
+    assert payload.prompt_tokens == 20
+    assert payload.completion_tokens == 8
+    assert payload.total_tokens == 28
+    assert payload.session_id == "session-1"

@@ -6,8 +6,9 @@ LLMAdaptermodule
 from .base import LLMAdapter
 from .openai import OpenAIAdapter
 from .anthropic import AnthropicAdapter
-from .provider_bridge import LLMProviderBridge, ProviderResponse, ProviderToolCall
+from .provider_bridge import LLMProviderBridge, ProviderResponse, ProviderToolCall, ProviderUsage
 from .factory import create_llm_adapter
+from .usage_store import LLMUsageStore, get_llm_usage_store
 
 __all__ = [
     "LLMAdapter",
@@ -16,5 +17,8 @@ __all__ = [
     "LLMProviderBridge",
     "ProviderResponse",
     "ProviderToolCall",
+    "ProviderUsage",
     "create_llm_adapter",
+    "LLMUsageStore",
+    "get_llm_usage_store",
 ]

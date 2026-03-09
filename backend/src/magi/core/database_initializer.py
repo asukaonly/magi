@@ -73,6 +73,7 @@ class DatabaseInitializer:
         await self._init_embeddings_db()
         await self._init_summaries_db()
         await self._init_capabilities_db()
+        await self._init_llm_usage_db()
 
         # 2. 执行注册的自定义初始化器
         for initializer in self._initializers:
@@ -392,6 +393,43 @@ class DatabaseInitializer:
 
             await db.commit()
         logger.debug(f"Initialized capabilities.db at {db_path}")
+
+    async def _init_llm_usage_db(self) -> None:
+        """初始化 LLM usage 统计数据库"""
+        db_path = self.memories_dir / "llm_usage.db"
+        async with aiosqlite.connect(str(db_path)) as db:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS llm_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    request_kind TEXT NOT NULL,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    usage_available INTEGER NOT NULL DEFAULT 0,
+                    latency_ms INTEGER NOT NULL DEFAULT 0,
+                    success INTEGER NOT NULL DEFAULT 1,
+                    error TEXT,
+                    correlation_id TEXT,
+                    session_id TEXT,
+                    turn_id TEXT,
+                    agent_id TEXT,
+                    created_at REAL NOT NULL
+                )
+            """)
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_llm_usage_provider_model ON llm_usage(provider, model)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_llm_usage_request_kind ON llm_usage(request_kind)"
+            )
+            await db.commit()
+        logger.debug(f"Initialized llm_usage.db at {db_path}")
 
     async def insert_default_data(self, persona_name: str = "default") -> None:
         """插入默认数据（仅初次启动时）"""

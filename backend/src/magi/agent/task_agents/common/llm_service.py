@@ -19,6 +19,7 @@ class TaskAgentLLMService:
     def __init__(self, *, llm_adapter, logger_name: str) -> None:
         self._llm = llm_adapter
         self._llm_logger = get_llm_logger(logger_name)
+        self._logger_name = logger_name
 
     async def call(
         self,
@@ -46,6 +47,11 @@ class TaskAgentLLMService:
                 max_tokens=self._llm_max_tokens(),
                 temperature=temperature,
                 disable_thinking=disable_thinking,
+                event_context={
+                    "request_id": request_id,
+                    "request_kind": f"task_agent:{self._logger_name}",
+                    "agent_id": self._logger_name,
+                },
             )
             response = provider_response.content
             duration_ms = int((time.time() - start_time) * 1000)

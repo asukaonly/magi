@@ -142,6 +142,7 @@
     "tabs": {
       "preferences": "偏好",
       "llm": "LLM",
+      "usage": "统计",
       "personality": "人格",
       "memory": "记忆",
       "tools": "工具",
@@ -149,6 +150,7 @@
     },
     "preferencesDesc": "配置界面语言和用户模式",
     "llmDesc": "配置大语言模型提供商和参数",
+    "usageDesc": "查看 LLM 调用次数、输入输出 token 使用量和趋势",
     "personalityDesc": "管理 AI 人格配置",
     "memoryDesc": "管理多层记忆系统和向量模型",
     "toolsDesc": "配置内置工具和技能",
@@ -239,6 +241,35 @@
       "ready": "已就绪",
       "notConfigured": "未配置"
     },
+    "usage": {
+      "loading": "加载统计中...",
+      "loadFailed": "加载统计失败: {{message}}",
+      "emptyTitle": "还没有可用的 LLM 调用统计",
+      "emptyDesc": "等产生几次模型调用后，这里会展示 token 使用量和调用趋势。",
+      "trendTitle": "Token 趋势",
+      "trendDesc": "按天查看总 token 消耗变化。",
+      "splitTitle": "输入 / 输出拆分",
+      "splitDesc": "输入 token 和输出 token 分开统计，便于后续接入价格计算。",
+      "providerTitle": "按提供商",
+      "modelTitle": "按模型",
+      "requestKindsTitle": "按调用场景",
+      "callsLabel": "{{count}} 次调用",
+      "windows": {
+        "7": "最近 7 天",
+        "30": "最近 30 天"
+      },
+      "cards": {
+        "totalTokens": "总 Token",
+        "totalCalls": "总调用次数",
+        "avgLatency": "平均耗时",
+        "outputShare": "输出占比",
+        "prompt": "输入",
+        "completion": "输出",
+        "successRate": "成功率 {{value}}%",
+        "withUsage": "带 usage 的调用 {{count}} 次",
+        "failedCalls": "失败 {{count}} 次"
+      }
+    },
     "saving": "保存中..."
   },
   "events": {
@@ -313,7 +344,7 @@
     "switchConfirm": "确认切换人格：{{from}} -> {{to}} ?",
     "deleteConfirm": "删除 {{name}} ?",
     "newNamePrompt": "新人格名称",
-    "title": "人格配置（shadcn 原生）",
+    "title": "人格配置",
     "current": "当前生效",
     "switching": "切换中...",
     "switch": "切换",

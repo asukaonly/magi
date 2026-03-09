@@ -3,11 +3,13 @@ metricmonitorAPIroute
 
 提供系统performance、AgentState等monitormetric
 """
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, Query
+from pydantic import BaseModel
+from typing import List
 import psutil
 import logging
+
+from ...llm import get_llm_usage_store
 
 logger = logging.getLogger(__name__)
 
@@ -183,5 +185,37 @@ async def get_health_status():
                     "value": memory.percent,
                 },
             },
+        },
+    }
+
+
+@metrics_router.get("/llm/usage/summary")
+async def get_llm_usage_summary(
+    days: int = Query(default=7, ge=1, le=365),
+    model_limit: int = Query(default=8, ge=1, le=50),
+):
+    """Get aggregated LLM usage summary."""
+    store = get_llm_usage_store()
+    summary = await store.get_summary(days=days, model_limit=model_limit)
+    return {
+        "success": True,
+        "message": "LLM usage summary loaded",
+        "data": summary,
+    }
+
+
+@metrics_router.get("/llm/usage/timeseries")
+async def get_llm_usage_timeseries(
+    days: int = Query(default=7, ge=1, le=365),
+):
+    """Get daily LLM usage trend."""
+    store = get_llm_usage_store()
+    series = await store.get_timeseries(days=days)
+    return {
+        "success": True,
+        "message": "LLM usage timeseries loaded",
+        "data": {
+            "window_days": days,
+            "points": series,
         },
     }

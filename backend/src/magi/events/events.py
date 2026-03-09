@@ -133,6 +133,7 @@ class EventTypes:
     # User messageevent
     USER_MESSAGE = "UserMessage"
     AI_RESPONSE = "AIResponse"
+    LLM_CALL_COMPLETED = "LLMCallCompleted"
 
 
 # 业务eventtypeConstant（L1 层storage使用）

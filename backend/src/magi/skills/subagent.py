@@ -279,6 +279,11 @@ class SkillSubagent:
             max_tokens=DEFAULT_SKILL_MAX_TOKENS,
             temperature=0.7,
             disable_thinking=True,
+            event_context={
+                "request_kind": "skill_subagent:direct",
+                "session_id": self.subagent_id,
+                "agent_id": self.subagent_id,
+            },
         )
 
     async def execute_script(

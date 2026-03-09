@@ -1,0 +1,55 @@
+"""Tests for LLM usage storage and aggregation."""
+from pathlib import Path
+
+import pytest
+
+from magi.llm.usage_store import LLMUsageStore
+
+
+@pytest.mark.asyncio
+async def test_llm_usage_store_summarizes_prompt_and_completion_tokens(tmp_path: Path) -> None:
+    store = LLMUsageStore(db_path=tmp_path / "llm_usage.db")
+
+    await store.record_call(
+        {
+            "request_id": "req-1",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "request_kind": "task_agent:chat",
+            "prompt_tokens": 100,
+            "completion_tokens": 40,
+            "total_tokens": 140,
+            "usage_available": True,
+            "latency_ms": 120,
+            "success": True,
+        }
+    )
+    await store.record_call(
+        {
+            "request_id": "req-2",
+            "provider": "anthropic",
+            "model": "claude-sonnet",
+            "request_kind": "function_calling:tools",
+            "prompt_tokens": 60,
+            "completion_tokens": 30,
+            "total_tokens": 90,
+            "usage_available": True,
+            "latency_ms": 180,
+            "success": False,
+            "error": "timeout",
+        }
+    )
+
+    summary = await store.get_summary(days=30)
+    timeseries = await store.get_timeseries(days=30)
+
+    assert summary["totals"]["total_calls"] == 2
+    assert summary["totals"]["successful_calls"] == 1
+    assert summary["totals"]["failed_calls"] == 1
+    assert summary["totals"]["prompt_tokens"] == 160
+    assert summary["totals"]["completion_tokens"] == 70
+    assert summary["totals"]["total_tokens"] == 230
+    assert summary["providers"][0]["provider"] == "openai"
+    assert len(timeseries) == 1
+    assert timeseries[0]["prompt_tokens"] == 160
+    assert timeseries[0]["completion_tokens"] == 70

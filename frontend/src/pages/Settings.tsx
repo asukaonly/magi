@@ -17,8 +17,10 @@ import {
   Sun,
   Moon,
   Monitor,
+  BarChart3,
 } from 'lucide-react';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
+import { LLMUsageSection } from '@/components/settings/LLMUsageSection';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -42,6 +44,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { id: 'preferences', icon: Settings2 },
   { id: 'llm', icon: Brain },
+  { id: 'usage', icon: BarChart3 },
   { id: 'personality', icon: User },
   { id: 'memory', icon: Database },
   { id: 'tools', icon: Wrench },
@@ -370,6 +373,9 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
         );
+
+      case 'usage':
+        return <LLMUsageSection />;
 
       case 'memory':
         return (

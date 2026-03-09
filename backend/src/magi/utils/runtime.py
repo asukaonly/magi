@@ -101,6 +101,11 @@ class Runtimepaths:
         """event database path"""
         return self.data_dir / "events.db"
 
+    @property
+    def llm_usage_db_path(self) -> Path:
+        """LLM usage statistics database path."""
+        return self.memories_dir / "llm_usage.db"
+
     def other_file(self, user_id: str) -> Path:
         """
         Get others' memory file path

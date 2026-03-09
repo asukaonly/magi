@@ -29,7 +29,8 @@ from ..memory.other_memory import OtherMemory
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationModule, MemoryIntegrationConfig
 from ..memory.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
-from ..llm import create_llm_adapter
+from ..llm import create_llm_adapter, get_llm_usage_store
+from ..llm.usage_events import configure_llm_usage_event_publisher
 from ..utils.runtime import get_runtime_paths, Runtimepaths, init_runtime_data
 from ..core.logger import get_logger
 from ..core.database_initializer import DatabaseInitializer, set_database_initializer
@@ -42,6 +43,7 @@ _message_bus: SQLiteMessageBackend | None = None
 _agent_runtime: AgentRuntime | None = None
 _maintenance_daemon: MaintenanceDaemon | None = None
 _scenario_prompts_store: ScenarioPromptsStore | None = None
+_llm_usage_store = None
 
 
 @dataclass
@@ -120,7 +122,7 @@ def _create_llm_adapter(config: AppConfig):
 
 async def initialize_chat_agent():
     """Initialize agent runtime on application startup."""
-    global _memory_integration, _message_bus, _agent_runtime
+    global _memory_integration, _message_bus, _agent_runtime, _llm_usage_store
 
     if _agent_runtime is not None:
         logger.warning("Agent runtime already initialized")
@@ -176,6 +178,11 @@ async def initialize_chat_agent():
         )
         await _message_bus.start()
         logger.info("MessageBus started")
+
+        configure_llm_usage_event_publisher(_message_bus)
+        _llm_usage_store = get_llm_usage_store()
+        await _llm_usage_store.start(_message_bus)
+        logger.info("LLM usage store started")
 
         task_database = TaskDatabase(db_path=str(runtime_paths.data_dir / "tasks.db"))
 
@@ -309,13 +316,18 @@ async def initialize_chat_agent():
 
 async def shutdown_chat_agent():
     """Shutdown agent runtime."""
-    global _memory_integration, _message_bus, _agent_runtime, _maintenance_daemon
+    global _memory_integration, _message_bus, _agent_runtime, _maintenance_daemon, _llm_usage_store
 
     try:
         # Stop maintenance daemon first
         if _maintenance_daemon is not None:
             await _maintenance_daemon.stop()
             _maintenance_daemon = None
+
+        if _llm_usage_store is not None:
+            await _llm_usage_store.stop()
+            _llm_usage_store = None
+        configure_llm_usage_event_publisher(None)
 
         if _agent_runtime is not None:
             await _agent_runtime.stop()

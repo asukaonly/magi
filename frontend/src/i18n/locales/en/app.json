@@ -142,6 +142,7 @@
     "tabs": {
       "preferences": "Preferences",
       "llm": "LLM",
+      "usage": "Usage",
       "personality": "Personality",
       "memory": "Memory",
       "tools": "Tools",
@@ -149,6 +150,7 @@
     },
     "preferencesDesc": "Configure interface language and user mode",
     "llmDesc": "Configure LLM provider and parameters",
+    "usageDesc": "Inspect LLM call volume, prompt/completion tokens, and usage trends",
     "personalityDesc": "Manage AI personality configuration",
     "memoryDesc": "Manage layered memory system and vector models",
     "toolsDesc": "Configure built-in tools and skills",
@@ -239,6 +241,35 @@
       "ready": "Ready",
       "notConfigured": "Not Configured"
     },
+    "usage": {
+      "loading": "Loading usage metrics...",
+      "loadFailed": "Failed to load usage metrics: {{message}}",
+      "emptyTitle": "No LLM usage metrics yet",
+      "emptyDesc": "Once the app makes a few model calls, this section will show token usage and trends.",
+      "trendTitle": "Token Trend",
+      "trendDesc": "Track total token consumption by day.",
+      "splitTitle": "Prompt / Completion Split",
+      "splitDesc": "Prompt and completion tokens stay separate so cost modeling can be added later.",
+      "providerTitle": "By Provider",
+      "modelTitle": "By Model",
+      "requestKindsTitle": "By Request Kind",
+      "callsLabel": "{{count}} calls",
+      "windows": {
+        "7": "Last 7 days",
+        "30": "Last 30 days"
+      },
+      "cards": {
+        "totalTokens": "Total Tokens",
+        "totalCalls": "Total Calls",
+        "avgLatency": "Avg Latency",
+        "outputShare": "Output Share",
+        "prompt": "Prompt",
+        "completion": "Completion",
+        "successRate": "Success rate {{value}}%",
+        "withUsage": "Calls with usage {{count}}",
+        "failedCalls": "Failed {{count}}"
+      }
+    },
     "saving": "Saving..."
   },
   "events": {
@@ -313,7 +344,7 @@
     "switchConfirm": "Switch personality from {{from}} to {{to}}?",
     "deleteConfirm": "Delete {{name}}?",
     "newNamePrompt": "New personality name",
-    "title": "Personality Config (shadcn native)",
+    "title": "Personality Config",
     "current": "Current",
     "switching": "Switching...",
     "switch": "Switch",

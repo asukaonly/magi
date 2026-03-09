@@ -209,6 +209,10 @@ class FunctionCallingExecutor:
                     messages=messages,
                     tools=tools,
                     disable_thinking=disable_thinking,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    intent=intent,
+                    execution_agent_id=execution_agent_id,
                 )
             except Exception as exc:
                 return ExecutionOutcome(
@@ -407,6 +411,10 @@ class FunctionCallingExecutor:
                 system_prompt=final_system_prompt,
                 messages=self._build_final_response_messages(messages),
                 disable_thinking=disable_thinking,
+                session_id=session_id,
+                turn_id=turn_id,
+                intent=intent,
+                execution_agent_id=execution_agent_id,
             )
         except Exception as exc:
             return ExecutionOutcome(
@@ -467,6 +475,10 @@ class FunctionCallingExecutor:
                     system_prompt=final_system_prompt,
                     messages=self._build_final_response_messages(messages, force_plain_text=True),
                     disable_thinking=disable_thinking,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    intent=intent,
+                    execution_agent_id=execution_agent_id,
                 )
             except Exception as exc:
                 return ExecutionOutcome(
@@ -499,6 +511,10 @@ class FunctionCallingExecutor:
                     ),
                     messages=self._build_final_response_messages(messages, force_plain_text=True),
                     disable_thinking=True,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    intent=intent,
+                    execution_agent_id=execution_agent_id,
                 )
             except Exception as exc:
                 return ExecutionOutcome(
@@ -677,6 +693,10 @@ class FunctionCallingExecutor:
         messages: List[Dict],
         tools: List[Dict],
         disable_thinking: bool = True,
+        session_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        intent: str = "unknown",
+        execution_agent_id: str = "chat_agent",
     ) -> Dict[str, Any]:
         """
         Call LLM with tools parameter
@@ -709,6 +729,15 @@ class FunctionCallingExecutor:
                 max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=0.7,
                 disable_thinking=disable_thinking,
+                event_context={
+                    "request_id": request_id,
+                    "request_kind": "function_calling:tools",
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "agent_id": execution_agent_id,
+                    "correlation_id": turn_id,
+                    "intent": intent,
+                },
             )
 
             result: Dict[str, Any] = {"content": provider_response.content}
@@ -752,6 +781,10 @@ class FunctionCallingExecutor:
         system_prompt: str,
         messages: List[Dict],
         disable_thinking: bool = True,
+        session_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        intent: str = "unknown",
+        execution_agent_id: str = "chat_agent",
     ) -> Dict[str, Any]:
         """Call LLM without tools for final response"""
         import time
@@ -776,6 +809,15 @@ class FunctionCallingExecutor:
                 max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=0.7,
                 disable_thinking=disable_thinking,
+                event_context={
+                    "request_id": request_id,
+                    "request_kind": "function_calling:final_response",
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "agent_id": execution_agent_id,
+                    "correlation_id": turn_id,
+                    "intent": intent,
+                },
             )
             content = provider_response.content
 

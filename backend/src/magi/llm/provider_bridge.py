@@ -5,12 +5,15 @@ This module centralizes API differences between OpenAI-compatible models
 (OpenAI/GLM) and Anthropic, so business layers can use one unified interface.
 """
 import json
+import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
 from .parsers import parse_legacy_tool_calls, sanitize_llm_text
+from .usage_events import LLMCallEventPayload, publish_llm_call_event
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 
 
@@ -29,12 +32,22 @@ class ProviderResponse:
     tool_calls: List[ProviderToolCall] = None
     assistant_message: Dict[str, Any] | None = None
     metadata: Dict[str, Any] | None = None
+    usage: "ProviderUsage | None" = None
 
     def __post_init__(self):
         if self.tool_calls is None:
             self.tool_calls = []
         if self.metadata is None:
             self.metadata = {}
+
+
+@dataclass
+class ProviderUsage:
+    """Normalized token usage returned by a provider."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 class LLMProviderBridge:
@@ -67,6 +80,7 @@ class LLMProviderBridge:
         max_tokens: int = DEFAULT_THINKING_TOKENS,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Unified notttn-tool chat call with system prompt.
@@ -77,6 +91,7 @@ class LLMProviderBridge:
             max_tokens=max_tokens,
             temperature=temperature,
             disable_thinking=disable_thinking,
+            event_context=event_context,
         )
         return response.content
 
@@ -87,40 +102,61 @@ class LLMProviderBridge:
         max_tokens: int = DEFAULT_THINKING_TOKENS,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> ProviderResponse:
         """
         Unified plain-chat call that still returns normalized ProviderResponse.
         """
-        if self.is_anthropic():
-            response = await self.llm._client.messages.create(
-                model=self.llm.model_name,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system_prompt,
-                messages=messages,
+        started_at = time.time()
+        try:
+            if self.is_anthropic():
+                response = await self.llm._client.messages.create(
+                    model=self.llm.model_name,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system_prompt,
+                    messages=messages,
+                )
+                if hasattr(response, "content"):
+                    provider_response = self._parse_anthropic_response(response)
+                else:
+                    provider_response = self._build_content_response("")
+            else:
+                full_messages = [{"role": "system", "content": system_prompt}] + messages
+                chat_kwargs: Dict[str, Any] = {
+                    "messages": full_messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                }
+                if self.is_glm():
+                    extra_body = self._disabled_thinking_extra_body(disable_thinking)
+                    if extra_body:
+                        chat_kwargs["extra_body"] = extra_body
+
+                if getattr(self.llm, "_client", None) is not None:
+                    chat_kwargs["model"] = self.llm.model_name
+                    response = await self.llm._client.chat.completions.create(**chat_kwargs)
+                    provider_response = self._parse_openai_response(response)
+                else:
+                    content = await self.llm.chat(**chat_kwargs)
+                    provider_response = self._build_content_response(content)
+
+            await self._emit_usage_event(
+                success=True,
+                latency_ms=int((time.time() - started_at) * 1000),
+                usage=provider_response.usage,
+                event_context=event_context,
             )
-            if hasattr(response, "content"):
-                return self._parse_anthropic_response(response)
-            return self._build_content_response("")
-
-        full_messages = [{"role": "system", "content": system_prompt}] + messages
-        chat_kwargs: Dict[str, Any] = {
-            "messages": full_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
-        if self.is_glm():
-            extra_body = self._disabled_thinking_extra_body(disable_thinking)
-            if extra_body:
-                chat_kwargs["extra_body"] = extra_body
-
-        if getattr(self.llm, "_client", None) is not None:
-            chat_kwargs["model"] = self.llm.model_name
-            response = await self.llm._client.chat.completions.create(**chat_kwargs)
-            return self._parse_openai_response(response)
-
-        content = await self.llm.chat(**chat_kwargs)
-        return self._build_content_response(content)
+            return provider_response
+        except Exception as exc:
+            await self._emit_usage_event(
+                success=False,
+                latency_ms=int((time.time() - started_at) * 1000),
+                usage=None,
+                event_context=event_context,
+                error=str(exc),
+            )
+            raise
 
     async def chat_with_tools(
         self,
@@ -130,49 +166,68 @@ class LLMProviderBridge:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> ProviderResponse:
         """
         Unified tool-calling chat call.
         """
-        if self.is_anthropic():
-            api_messages = self._convert_messages_to_anthropic(messages)
-            response = await self.llm._client.messages.create(
-                model=self.llm.model_name,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system_prompt,
-                messages=api_messages,
-                tools=tools if tools else None,
+        started_at = time.time()
+        try:
+            if self.is_anthropic():
+                api_messages = self._convert_messages_to_anthropic(messages)
+                response = await self.llm._client.messages.create(
+                    model=self.llm.model_name,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system_prompt,
+                    messages=api_messages,
+                    tools=tools if tools else None,
+                )
+                provider_response = self._parse_anthropic_response(response)
+            elif hasattr(self.llm, "_client"):
+                full_messages = [{"role": "system", "content": system_prompt}] + messages
+                kwargs: Dict[str, Any] = {
+                    "model": self.llm.model_name,
+                    "messages": full_messages,
+                    "tools": tools if tools else None,
+                    "tool_choice": "auto" if tools else None,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                }
+                if self.is_glm():
+                    extra_body = self._disabled_thinking_extra_body(disable_thinking)
+                    if extra_body:
+                        kwargs["extra_body"] = extra_body
+
+                response = await self.llm._client.chat.completions.create(**kwargs)
+                provider_response = self._parse_openai_response(response)
+            else:
+                provider_response = await self.chat_response(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    disable_thinking=disable_thinking,
+                    event_context=event_context,
+                )
+                return provider_response
+
+            await self._emit_usage_event(
+                success=True,
+                latency_ms=int((time.time() - started_at) * 1000),
+                usage=provider_response.usage,
+                event_context=event_context,
             )
-            return self._parse_anthropic_response(response)
-
-        if hasattr(self.llm, "_client"):
-            full_messages = [{"role": "system", "content": system_prompt}] + messages
-            kwargs: Dict[str, Any] = {
-                "model": self.llm.model_name,
-                "messages": full_messages,
-                "tools": tools if tools else None,
-                "tool_choice": "auto" if tools else None,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            }
-            if self.is_glm():
-                extra_body = self._disabled_thinking_extra_body(disable_thinking)
-                if extra_body:
-                    kwargs["extra_body"] = extra_body
-
-            response = await self.llm._client.chat.completions.create(**kwargs)
-            return self._parse_openai_response(response)
-
-        # Fallback to plain chat for adapters without native tool API client.
-        content = await self.chat(
-            system_prompt=system_prompt,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            disable_thinking=disable_thinking,
-        )
-        return self._build_content_response(content)
+            return provider_response
+        except Exception as exc:
+            await self._emit_usage_event(
+                success=False,
+                latency_ms=int((time.time() - started_at) * 1000),
+                usage=None,
+                event_context=event_context,
+                error=str(exc),
+            )
+            raise
 
     def _convert_messages_to_anthropic(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         converted = []
@@ -222,9 +277,11 @@ class LLMProviderBridge:
             return ProviderResponse(
                 tool_calls=tool_calls,
                 assistant_message={"role": "assistant", "content": assistant_blocks},
+                usage=self._extract_anthropic_usage(response),
             )
-
-        return self._build_content_response("".join(content_text_parts))
+        provider_response = self._build_content_response("".join(content_text_parts))
+        provider_response.usage = self._extract_anthropic_usage(response)
+        return provider_response
 
     def _parse_openai_response(self, response: Any) -> ProviderResponse:
         choice = response.choices[0]
@@ -264,11 +321,13 @@ class LLMProviderBridge:
                     "tool_calls": raw_tool_calls,
                 },
                 metadata=self._build_openai_metadata(choice, message, raw_tool_calls),
+                usage=self._extract_openai_usage(response),
             )
 
-        response = self._build_content_response(message.content or "")
-        response.metadata = self._build_openai_metadata(choice, message, raw_tool_calls)
-        return response
+        provider_response = self._build_content_response(message.content or "")
+        provider_response.metadata = self._build_openai_metadata(choice, message, raw_tool_calls)
+        provider_response.usage = self._extract_openai_usage(response)
+        return provider_response
 
     def _build_openai_metadata(
         self,
@@ -323,3 +382,56 @@ class LLMProviderBridge:
                 },
             )
         return ProviderResponse(content=normalized_content)
+
+    @staticmethod
+    def _extract_openai_usage(response: Any) -> ProviderUsage | None:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None
+        return ProviderUsage(
+            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+            total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+        )
+
+    @staticmethod
+    def _extract_anthropic_usage(response: Any) -> ProviderUsage | None:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None
+        prompt_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        return ProviderUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        )
+
+    async def _emit_usage_event(
+        self,
+        *,
+        success: bool,
+        latency_ms: int,
+        usage: ProviderUsage | None,
+        event_context: Optional[Dict[str, Any]],
+        error: str | None = None,
+    ) -> None:
+        context = dict(event_context or {})
+        payload = LLMCallEventPayload(
+            request_id=str(context.get("request_id") or uuid.uuid4().hex[:8]),
+            provider=self._provider_name() or type(self.llm).__name__,
+            model=str(getattr(self.llm, "model_name", "unknown")),
+            request_kind=str(context.get("request_kind") or "chat"),
+            prompt_tokens=int(usage.prompt_tokens if usage else 0),
+            completion_tokens=int(usage.completion_tokens if usage else 0),
+            total_tokens=int(usage.total_tokens if usage else 0),
+            usage_available=usage is not None,
+            latency_ms=int(latency_ms),
+            success=success,
+            error=error,
+            correlation_id=context.get("correlation_id"),
+            session_id=context.get("session_id"),
+            turn_id=context.get("turn_id"),
+            agent_id=context.get("agent_id"),
+        )
+        await publish_llm_call_event(payload)

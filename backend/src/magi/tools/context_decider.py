@@ -211,6 +211,11 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 temperature=0.3,
                 # ContextDecider is a fast router and should not enter reasoning mode.
                 disable_thinking=True,
+                event_context={
+                    "request_id": request_id,
+                    "request_kind": "context_decider",
+                    "agent_id": "context_decider",
+                },
             )
 
             # Check if response is empty or incomplete
