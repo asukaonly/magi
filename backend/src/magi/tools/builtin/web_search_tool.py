@@ -283,6 +283,14 @@ class WebSearchTool(MultiProviderTool):
             }
         )
 
+        if not result.success and self._is_duckduckgo_challenge_error(provider_name, result):
+            return self._build_duckduckgo_challenge_guidance(
+                query=query,
+                requested_provider=requested_provider,
+                actual_provider=provider_name,
+                date_range_applied=date_range_applied,
+            )
+
         if result.success:
             result.data["query"] = query
             result.data["executed_query"] = executed_query
@@ -294,6 +302,69 @@ class WebSearchTool(MultiProviderTool):
                 result.data["date_range_applied"] = date_range_applied
 
         return result
+
+    def _is_duckduckgo_challenge_error(self, provider_name: str, result: ToolResult) -> bool:
+        if provider_name != "duckduckgo":
+            return False
+        if result.error_code not in {ToolErrorCode.PROVIDER_ERROR.value, ToolErrorCode.PROVIDER_CHALLENGE.value}:
+            return False
+        error_text = str(result.error or "").lower()
+        return any(
+            marker in error_text
+            for marker in [
+                "duckduckgo search challenge triggered",
+                "anti-bot verification",
+                "bots use duckduckgo too",
+                "challenge",
+                "captcha",
+            ]
+        )
+
+    def _build_duckduckgo_challenge_guidance(
+        self,
+        *,
+        query: str,
+        requested_provider: str,
+        actual_provider: str,
+        date_range_applied: Dict[str, str] | None,
+    ) -> ToolResult:
+        alternative_providers = [name for name in self.get_all_provider_names() if name != "duckduckgo"]
+        guidance_data: Dict[str, Any] = {
+            "next_action": "ask_user_to_configure_search_provider",
+            "llm_guidance": (
+                "DuckDuckGo is currently blocked by an anti-bot challenge for this search. "
+                "Ask the user to configure Brave, Perplexity, or Tavily via system-settings before retrying. "
+                "Do not keep retrying DuckDuckGo for the same request."
+            ),
+            "user_message_template": (
+                "默认的 DuckDuckGo 搜索这次触发了反爬验证，暂时拿不到稳定结果。"
+                "请先配置 Brave、Perplexity 或 Tavily 其中一个搜索服务，我再继续帮你查。"
+            ),
+            "config_tool": "system-settings",
+            "requested_provider": requested_provider,
+            "actual_provider": actual_provider,
+            "fallback_reason": (
+                "DuckDuckGo returned an anti-bot verification challenge instead of usable search results."
+            ),
+            "query": query,
+            "supported_providers": alternative_providers,
+            "config_examples": [
+                {
+                    "action": "set",
+                    "path": f"tool.web-search.providers.{provider}.api_key",
+                    "value": f"YOUR_{provider.upper()}_API_KEY",
+                }
+                for provider in alternative_providers
+            ],
+        }
+        if date_range_applied is not None:
+            guidance_data["date_range_applied"] = date_range_applied
+        return ToolResult(
+            success=False,
+            error="DuckDuckGo search challenge triggered. Configure another web-search provider and retry.",
+            error_code=ToolErrorCode.PROVIDER_CHALLENGE.value,
+            data=guidance_data,
+        )
 
     def _normalize_date_range(self, start_date: Any, end_date: Any) -> Dict[str, str] | ToolResult | None:
         start = str(start_date or "").strip()

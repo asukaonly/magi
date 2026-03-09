@@ -136,11 +136,13 @@ class DuckDuckGoSearchProvider(Provider):
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data={"q": query}, headers=headers) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"DuckDuckGo API error: {response.status} - {error_text}")
-
                 html = await response.text()
+                if response.status != 200:
+                    if self._is_challenge_response(response.status, html):
+                        raise Exception(
+                            "DuckDuckGo search challenge triggered. The provider returned an anti-bot verification page instead of search results."
+                        )
+                    raise Exception(f"DuckDuckGo API error: {response.status} - {html}")
 
         results = self._normalize_results(html, num_results)
         return {
@@ -164,3 +166,18 @@ class DuckDuckGoSearchProvider(Provider):
         parser.feed(html)
         parser.close()
         return parser.results[:num_results]
+
+    def _is_challenge_response(self, status_code: int, html: str) -> bool:
+        if status_code not in {202, 403, 429}:
+            return False
+        lowered = html.lower()
+        return any(
+            marker in lowered
+            for marker in [
+                "anomaly.js",
+                "bots use duckduckgo too",
+                "confirm this search was made by a human",
+                "challenge-form",
+                "select all squares containing a duck",
+            ]
+        )

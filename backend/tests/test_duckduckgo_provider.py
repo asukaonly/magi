@@ -48,3 +48,18 @@ def test_duckduckgo_normalizes_html_results() -> None:
             "source": "duckduckgo",
         },
     ]
+
+
+def test_duckduckgo_detects_challenge_response() -> None:
+    provider = DuckDuckGoSearchProvider()
+    html = """
+    <html>
+      <body>
+        <div>Unfortunately, bots use DuckDuckGo too.</div>
+        <form id="challenge-form"></form>
+        <script src="/anomaly.js"></script>
+      </body>
+    </html>
+    """
+
+    assert provider._is_challenge_response(202, html) is True

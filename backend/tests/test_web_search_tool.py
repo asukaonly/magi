@@ -6,7 +6,7 @@ from types import MethodType
 import pytest
 
 from magi.tools.builtin.web_search_tool import WebSearchTool
-from magi.tools.schema import ToolExecutionContext, ToolResult
+from magi.tools.schema import ToolExecutionContext, ToolResult, ToolErrorCode
 
 
 def _context() -> ToolExecutionContext:
@@ -86,3 +86,37 @@ async def test_web_search_applies_explicit_date_range_metadata() -> None:
         "end_date": "2026-03-09",
     }
     assert "after:2026-03-03 before:2026-03-09" in result.data["executed_query"]
+
+
+@pytest.mark.asyncio
+async def test_web_search_duckduckgo_challenge_returns_configuration_guidance() -> None:
+    tool = WebSearchTool()
+
+    tool.get_available_providers = MethodType(lambda self: ["duckduckgo"], tool)
+
+    async def fake_execute_with_provider(self, provider_name, params):  # type: ignore[no-untyped-def]
+        _ = params
+        return ToolResult(
+            success=False,
+            error=(
+                "DuckDuckGo search challenge triggered. "
+                "The provider returned an anti-bot verification page instead of search results."
+            ),
+            error_code=ToolErrorCode.PROVIDER_ERROR.value,
+        )
+
+    tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
+
+    result = await tool.execute(
+        {"query": "Hangzhou news", "provider": "duckduckgo"},
+        _context(),
+    )
+
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.PROVIDER_CHALLENGE.value
+    assert result.data["next_action"] == "ask_user_to_configure_search_provider"
+    assert result.data["requested_provider"] == "duckduckgo"
+    assert result.data["actual_provider"] == "duckduckgo"
+    assert "tool.web-search.providers.brave.api_key" in {
+        item["path"] for item in result.data["config_examples"]
+    }
