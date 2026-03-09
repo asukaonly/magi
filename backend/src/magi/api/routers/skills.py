@@ -90,6 +90,28 @@ def _get_enabled_skill_names() -> set[str]:
     return set()
 
 
+def _register_enabled_skills(skills: Dict[str, Any]) -> Dict[str, Any]:
+    """Register only enabled skills into the shared tool registry."""
+    from ...tools.registry import tool_registry
+
+    enabled_skills = _get_enabled_skill_names()
+    filtered_skills = (
+        {name: metadata for name, metadata in skills.items() if name in enabled_skills}
+        if enabled_skills
+        else {}
+    )
+    if _skill_indexer is not None:
+        tool_registry.bind_skill_indexer(_skill_indexer)
+    tool_registry.register_skill_index(filtered_skills)
+    logger.info(
+        "Registered enabled skills into tool registry | indexed=%s enabled=%s registered=%s",
+        len(skills),
+        len(enabled_skills),
+        len(filtered_skills),
+    )
+    return filtered_skills
+
+
 def init_skills_module(llm_adapter=None):
     """
     initialize Skills module
@@ -109,7 +131,12 @@ def init_skills_module(llm_adapter=None):
 
     # 初始扫描
     skills = _skill_indexer.scan_all()
-    logger.info(f"Skills module initialized with {len(skills)} skills")
+    registered_skills = _register_enabled_skills(skills)
+    logger.info(
+        "Skills module initialized | indexed=%s registered=%s",
+        len(skills),
+        len(registered_skills),
+    )
 
 
 def get_skill_executor():
@@ -168,11 +195,8 @@ async def refresh_skills():
         )
 
     skills = _skill_indexer.refresh()
+    _register_enabled_skills(skills)
     enabled_skills = _get_enabled_skill_names()
-
-    # 同时update tool_registry
-    from ...tools.registry import tool_registry
-    tool_registry.refresh_skills()
 
     return [
         SkillMetadataResponse(

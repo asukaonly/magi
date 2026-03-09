@@ -251,8 +251,12 @@ class ToolRegistry:
         Args:
             skills: {name: SkillMetadata} dictionary
         """
-        self._skills.update(skills)
+        self._skills = dict(skills)
         logger.info(f"Registered {len(skills)} skills to registry")
+
+    def bind_skill_indexer(self, skill_indexer) -> None:
+        """Bind the skill indexer used for refresh operations."""
+        self._skill_indexer = skill_indexer
 
     def get_skill_names(self) -> List[str]:
         """
