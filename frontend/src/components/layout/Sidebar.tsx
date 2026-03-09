@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Database, MessageSquarePlus, Settings2, UserRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { messagesApi, type ChatSessionListItem } from '@/api';
 import { useChatShellStore } from '@/stores';
@@ -133,23 +132,24 @@ const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-[linear-gradient(180deg,hsl(var(--foreground)/0.05),transparent_140px),hsl(var(--card)/0.3)] pt-[4.25rem]"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/30 pt-[4.25rem]"
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[radial-gradient(110%_90%_at_0%_0%,rgba(45,212,191,0.12),transparent_72%)]" />
-
-      <div className="shrink-0 px-3 pb-3">
-        <Button
-          onClick={handleCreateSession}
-          className="w-full justify-start gap-2 rounded-2xl border border-primary/14 bg-primary/10 text-primary hover:bg-primary/16"
-        >
-          <MessageSquarePlus className="h-4 w-4" />
-          <span>{t('shell.newChat')}</span>
-        </Button>
-      </div>
-
       <div className="px-4 py-3">
-        <div className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground/70">
-          {t('nav.chat')}
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-medium text-muted-foreground/85">
+            {t('nav.chat')}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void handleCreateSession();
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-transparent text-muted-foreground transition-colors hover:border-border/24 hover:bg-white/8 hover:text-foreground"
+            aria-label={t('shell.newChat')}
+            title={t('shell.newChat')}
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
