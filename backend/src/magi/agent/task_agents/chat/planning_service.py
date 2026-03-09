@@ -420,6 +420,7 @@ class ChatPlanningService:
                 "Success criteria:",
                 "- Stay strictly within this subtask scope.",
                 "- Prefer web-search for discovery and only use web-fetch when the task explicitly requires article details or verification.",
+                "- When a normalized date range is available, pass it to web-search via `start_date` and `end_date` instead of relying on a fuzzy year in the query.",
                 "- Preserve concrete evidence for each usable result: title, date, source, canonical link, and a short summary when available.",
                 "- In findings, use `title` for the headline, `detail` for `DATE | SOURCE | SUMMARY`, and `path` for the canonical article URL.",
                 "- If the available evidence is thin or conflicting, record it in gaps instead of guessing.",

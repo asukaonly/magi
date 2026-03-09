@@ -1,6 +1,7 @@
 """
 Web Search Tool - Search web using multiple providers
 """
+from datetime import date
 from typing import Dict, Any, List
 
 from ..schema import MultiProviderTool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolConfigSpec, ToolErrorCode
@@ -61,6 +62,18 @@ class WebSearchTool(MultiProviderTool):
                     default=10,
                     min_value=1,
                     max_value=50,
+                ),
+                ToolParameter(
+                    name="start_date",
+                    type=ParameterType.STRING,
+                    description="Optional inclusive start date in YYYY-MM-DD format for time-bounded search",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="end_date",
+                    type=ParameterType.STRING,
+                    description="Optional inclusive end date in YYYY-MM-DD format for time-bounded search",
+                    required=False,
                 ),
             ],
             examples=[
@@ -213,7 +226,15 @@ class WebSearchTool(MultiProviderTool):
             )
 
         # Use specified provider or default from config
-        provider_name = parameters.get("provider") or self._get_default_provider()
+        requested_provider = str(parameters.get("provider") or self._get_default_provider()).strip()
+        provider_name = requested_provider
+        date_range_applied = self._normalize_date_range(
+            parameters.get("start_date"),
+            parameters.get("end_date"),
+        )
+        if isinstance(date_range_applied, ToolResult):
+            return date_range_applied
+        executed_query = self._apply_date_range_to_query(query, date_range_applied)
 
         # Check if any provider is available
         available_providers = self.get_available_providers()
@@ -246,18 +267,68 @@ class WebSearchTool(MultiProviderTool):
             )
 
         # Fall back to first available if requested provider not available
+        fallback_reason = None
         if provider_name not in available_providers:
+            fallback_reason = (
+                f"Requested provider '{requested_provider}' is unavailable; "
+                f"used '{available_providers[0]}' instead."
+            )
             provider_name = available_providers[0]
 
         result = await self.execute_with_provider(
             provider_name,
             {
-                "query": query,
+                "query": executed_query,
                 "num_results": parameters.get("num_results", 10),
             }
         )
 
         if result.success:
             result.data["query"] = query
+            result.data["executed_query"] = executed_query
+            result.data["requested_provider"] = requested_provider
+            result.data["actual_provider"] = provider_name
+            if fallback_reason:
+                result.data["fallback_reason"] = fallback_reason
+            if date_range_applied is not None:
+                result.data["date_range_applied"] = date_range_applied
 
         return result
+
+    def _normalize_date_range(self, start_date: Any, end_date: Any) -> Dict[str, str] | ToolResult | None:
+        start = str(start_date or "").strip()
+        end = str(end_date or "").strip()
+        if not start and not end:
+            return None
+        if not start or not end:
+            return ToolResult(
+                success=False,
+                error="Both 'start_date' and 'end_date' must be provided together in YYYY-MM-DD format.",
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+            )
+        try:
+            normalized_start = date.fromisoformat(start)
+            normalized_end = date.fromisoformat(end)
+        except ValueError:
+            return ToolResult(
+                success=False,
+                error="Invalid date range. Use YYYY-MM-DD for both 'start_date' and 'end_date'.",
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+            )
+        if normalized_start > normalized_end:
+            return ToolResult(
+                success=False,
+                error="'start_date' must be on or before 'end_date'.",
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+            )
+        return {
+            "start_date": normalized_start.isoformat(),
+            "end_date": normalized_end.isoformat(),
+        }
+
+    def _apply_date_range_to_query(self, query: str, date_range: Dict[str, str] | None) -> str:
+        if not date_range:
+            return query
+        return (
+            f"{query} after:{date_range['start_date']} before:{date_range['end_date']}"
+        )
