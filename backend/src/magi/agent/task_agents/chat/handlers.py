@@ -66,13 +66,19 @@ class DirectLLMHandler(BaseExecutionHandler):
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
         )
+        system_prompt = self._deps.prompt_service.render_system_prompt(prompt_context)
+        recent_tool_errors_block = self._deps.prompt_service.build_recent_tool_errors_block(
+            request.context.recent_tool_errors
+        )
+        if recent_tool_errors_block:
+            system_prompt = f"{system_prompt}\n\n{recent_tool_errors_block}"
         return DirectLLMRequest(
             mode=request.mode,
             context=request.context,
             intent=request.intent,
             tool_selection=request.tool_selection,
             prompt_context=prompt_context,
-            system_prompt=self._deps.prompt_service.render_system_prompt(prompt_context),
+            system_prompt=system_prompt,
             messages=request.context.history[-10:] + [
                 {"role": "user", "content": request.context.latest_user_message}
             ],
@@ -103,13 +109,19 @@ class FunctionCallingHandler(BaseExecutionHandler):
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
         )
+        system_prompt = self._deps.prompt_service.render_system_prompt(prompt_context)
+        recent_tool_errors_block = self._deps.prompt_service.build_recent_tool_errors_block(
+            request.context.recent_tool_errors
+        )
+        if recent_tool_errors_block:
+            system_prompt = f"{system_prompt}\n\n{recent_tool_errors_block}"
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,
             intent=request.intent,
             tool_selection=request.tool_selection,
             prompt_context=prompt_context,
-            system_prompt=self._deps.prompt_service.render_system_prompt(prompt_context),
+            system_prompt=system_prompt,
             selected_tools=list(request.tool_selection.tools),
             disable_thinking=not request.intent.deep_thinking,
         )

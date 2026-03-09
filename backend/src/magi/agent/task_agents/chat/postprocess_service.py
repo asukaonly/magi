@@ -146,6 +146,7 @@ class ChatPostProcessService:
                 "error_code": str(payload.get("error_code") or ""),
                 "error_message": str(payload.get("error") or ""),
                 "result_summary": str(payload.get("data") or ""),
+                "result_data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
                 "turn_id": turn_id,
             },
         )

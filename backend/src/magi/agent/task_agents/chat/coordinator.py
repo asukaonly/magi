@@ -73,6 +73,7 @@ class ChatExecutionCoordinator:
             "os_version": platform.release(),
             "current_user": "unknown",
             "recent_messages": recent_messages,
+            "recent_tool_errors": list(context.recent_tool_errors),
         }
         decision = await self._context_decider.decide(context.latest_user_message, decision_context)
         orchestration_plan = self._normalize_orchestration_plan(

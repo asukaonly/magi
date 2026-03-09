@@ -174,6 +174,9 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         )
         session_id = self._session_service.resolve_session_id(classified.user_id, classified.session_id)
         history = await self._session_service.get_or_load_history(classified.user_id, session_id)
+        recent_tool_errors = self._session_service.get_recent_tool_errors(
+            self._session_service.history_key(classified.user_id, session_id)
+        )
         active_orchestrations = await self._orchestration_store.list_orchestrations(
             user_id=classified.user_id,
             session_id=session_id,
@@ -192,6 +195,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             history=history,
             conversation_history=history,
             active_orchestrations=[item.to_dict() for item in active_orchestrations],
+            recent_tool_errors=recent_tool_errors,
             latest_user_message=classified.user_message,
             incoming_fact_kind=classified.kind,
             latest_payload=classified.payload,

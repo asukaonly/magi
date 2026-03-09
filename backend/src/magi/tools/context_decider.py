@@ -323,7 +323,14 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                     tool_name = str(item.get("tool_name", "unknown"))
                     error_code = str(item.get("error_code", "UNKNOWN"))
                     error_message = str(item.get("error_message", ""))
-                    prompt += f"- {tool_name}: {error_code} | {error_message}\n"
+                    config_path = str(item.get("config_path") or "").strip()
+                    next_action = str(item.get("next_action") or "").strip()
+                    line = f"- {tool_name}: {error_code} | {error_message}"
+                    if config_path:
+                        line += f" | config_path={config_path}"
+                    if next_action:
+                        line += f" | next_action={next_action}"
+                    prompt += f"{line}\n"
         else:
             prompt += "- No environment info\n"
 

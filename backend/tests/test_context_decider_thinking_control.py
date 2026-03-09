@@ -118,3 +118,27 @@ def test_context_decider_parses_decompose_orchestration_strategy() -> None:
     assert decision.orchestration_strategy["planner"] == "task_agent"
     assert decision.orchestration_strategy["default_leaf_type"] == "Explore"
     assert decision.orchestration_strategy["allow_parallel"] is True
+
+
+def test_context_decider_prompt_includes_recent_tool_error_config_path() -> None:
+    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+
+    prompt = decider._build_prompt(
+        "要配什么key",
+        [{"name": "weather", "description": "Weather tool", "type": "tool"}],
+        {
+            "os": "Darwin",
+            "recent_tool_errors": [
+                {
+                    "tool_name": "weather",
+                    "error_code": "PROVIDER_NOT_CONFIGURED",
+                    "error_message": "Missing API key",
+                    "config_path": "tool.weather.providers.qweather.api_key",
+                    "next_action": "configure_qweather_api_key",
+                }
+            ],
+        },
+    )
+
+    assert "config_path=tool.weather.providers.qweather.api_key" in prompt
+    assert "next_action=configure_qweather_api_key" in prompt

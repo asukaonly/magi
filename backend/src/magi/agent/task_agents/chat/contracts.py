@@ -13,6 +13,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
 
     conversation_history: list[dict[str, Any]]
     active_orchestrations: list[dict[str, Any]]
+    recent_tool_errors: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True, kw_only=True)

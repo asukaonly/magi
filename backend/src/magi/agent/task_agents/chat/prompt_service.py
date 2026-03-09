@@ -84,6 +84,34 @@ class ChatPromptService:
     def render_system_prompt(self, prompt_context: dict[str, Any]) -> str:
         return self._prompt_context_renderer.render_system_prompt(prompt_context)
 
+    def build_recent_tool_errors_block(self, recent_tool_errors: list[dict[str, Any]]) -> str:
+        lines: list[str] = []
+        for item in recent_tool_errors[:3]:
+            if not isinstance(item, dict):
+                continue
+            tool_name = str(item.get("tool_name") or "unknown")
+            error_code = str(item.get("error_code") or "UNKNOWN")
+            error_message = str(item.get("error_message") or "").strip()
+            config_path = str(item.get("config_path") or "").strip()
+            next_action = str(item.get("next_action") or "").strip()
+            line = f"- {tool_name}: {error_code}"
+            if error_message:
+                line += f" | {error_message}"
+            if config_path:
+                line += f" | config_path={config_path}"
+            if next_action:
+                line += f" | next_action={next_action}"
+            lines.append(line)
+        if not lines:
+            return ""
+        return "\n".join(
+            [
+                "# Recent Tool Errors",
+                "Use these concrete failures as the source of truth for follow-up answers. Do not invent alternative config paths or switch tools unless the user explicitly asks to do so.",
+                *lines,
+            ]
+        )
+
     async def call_llm(
         self,
         *,

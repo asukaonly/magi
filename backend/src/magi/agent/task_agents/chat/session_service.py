@@ -12,6 +12,7 @@ from ....core.logger import get_logger
 logger = get_logger(__name__)
 
 TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"
+TOOL_INVOKED_EVENT_TYPE = "TOOL_INVOKED"
 
 
 class ChatSessionService:
@@ -103,6 +104,35 @@ class ChatSessionService:
             self._tool_interactions[history_key] = records[-100:]
         self._update_lru_cache(history_key)
 
+    def get_recent_tool_errors(self, history_key: str, limit: int = 3) -> list[dict[str, Any]]:
+        records = self._tool_interactions.get(history_key, [])
+        results: list[dict[str, Any]] = []
+        for item in reversed(records):
+            if str(item.get("status") or "") != "error":
+                continue
+            result_data = item.get("result_data")
+            config_path = None
+            next_action = None
+            if isinstance(result_data, dict):
+                raw_path = result_data.get("config_path")
+                if raw_path is not None:
+                    config_path = str(raw_path).strip() or None
+                raw_action = result_data.get("next_action")
+                if raw_action is not None:
+                    next_action = str(raw_action).strip() or None
+            results.append(
+                {
+                    "tool_name": str(item.get("tool_name") or "unknown"),
+                    "error_code": str(item.get("error_code") or "UNKNOWN"),
+                    "error_message": str(item.get("error_message") or ""),
+                    "config_path": config_path,
+                    "next_action": next_action,
+                }
+            )
+            if len(results) >= max(1, limit):
+                break
+        return results
+
     def get_current_session_id(self, user_id: str) -> str:
         return self.resolve_session_id(user_id)
 
@@ -171,11 +201,11 @@ class ChatSessionService:
                 """
                 SELECT type, data
                 FROM event_store
-                WHERE type IN ('USER_INPUT', 'AI_RESPONSE', ?)
+                WHERE type IN ('USER_INPUT', 'AI_RESPONSE', ?, ?)
                 ORDER BY timestamp ASC
                 LIMIT 5000
                 """,
-                (TOOL_INTERACTION_EVENT_TYPE,),
+                (TOOL_INTERACTION_EVENT_TYPE, TOOL_INVOKED_EVENT_TYPE),
             )
             rows = cur.fetchall()
             conn.close()
@@ -202,3 +232,23 @@ class ChatSessionService:
                 content = payload.get("response", "")
                 if content:
                     history.append({"role": "assistant", "content": str(content)})
+            elif event_type in {TOOL_INTERACTION_EVENT_TYPE, TOOL_INVOKED_EVENT_TYPE}:
+                tool_name = str(payload.get("tool_name") or payload.get("action_type") or "").strip()
+                if not tool_name:
+                    continue
+                error_text = str(payload.get("error") or "").strip()
+                status = "error" if error_text or str(payload.get("result") or "").strip() == "failed" else "success"
+                self.store_tool_interaction(
+                    key,
+                    {
+                        "timestamp": payload.get("timestamp"),
+                        "intent": payload.get("intent") or "unknown",
+                        "tool_name": tool_name,
+                        "status": status,
+                        "error_code": str(payload.get("error_code") or ""),
+                        "error_message": error_text,
+                        "result_summary": str(payload.get("result") or payload.get("data") or ""),
+                        "result_data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
+                        "turn_id": payload.get("turn_id"),
+                    },
+                )
