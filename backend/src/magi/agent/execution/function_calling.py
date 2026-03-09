@@ -746,6 +746,7 @@ class FunctionCallingExecutor:
             content = provider_response.content
 
             duration_ms = int((time.time() - start_time) * 1000)
+            response_metadata = dict(provider_response.metadata or {})
             log_llm_response(
                 llm_logger,
                 request_id=request_id,
@@ -753,6 +754,7 @@ class FunctionCallingExecutor:
                 success=True,
                 duration_ms=duration_ms,
                 fallback_reason="function_calling_final_response_without_tools",
+                **response_metadata,
             )
             result: Dict[str, Any] = {"content": content}
             if provider_response.assistant_message:

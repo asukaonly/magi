@@ -7,7 +7,9 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.llm.base import LLMAdapter
+from magi.llm.provider_bridge import ProviderResponse
 from magi.agent.execution.function_calling_postprocessor import FunctionCallingPostprocessor
+from magi.agent.execution import function_calling as function_calling_module
 from magi.agent.execution.function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
 from magi.tools.schema import ToolResult
 
@@ -572,3 +574,43 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
     assert result.status == "failed"
     assert result.failure_reason == "ALL_TOOLS_FAILED"
     assert len(llm_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return ProviderResponse(
+            content="",
+            metadata={
+                "finish_reason": "length",
+                "has_content": False,
+                "raw_message": {"content": None, "reasoning_content": "partial"},
+            },
+        )
+
+    def _fake_log_llm_response(logger, request_id, response, success=True, error=None, duration_ms=None, truncate=True, response_max_length=3000, **metadata):  # type: ignore[no-untyped-def]
+        _ = (logger, request_id, response, success, error, duration_ms, truncate, response_max_length)
+        captured.update(metadata)
+
+    executor.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
+    monkeypatch.setattr(function_calling_module, "log_llm_response", _fake_log_llm_response)
+
+    result = await executor._call_llm_without_tools(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "why"}],
+        disable_thinking=False,
+    )
+
+    assert result["content"] == ""
+    assert captured["fallback_reason"] == "function_calling_final_response_without_tools"
+    assert captured["finish_reason"] == "length"
+    assert captured["has_content"] is False
+    assert captured["raw_message"]["reasoning_content"] == "partial"
