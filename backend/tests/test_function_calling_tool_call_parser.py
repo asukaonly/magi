@@ -280,6 +280,63 @@ async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
     ]
 
 
+@pytest.mark.asyncio
+async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_tool_calls() -> None:
+    registry = _RecordingToolRegistry()
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return {
+            "content": "",
+            "assistant_message": {"role": "assistant", "content": ""},
+            "tool_calls": [ToolCall(id="call_1", name="bash", arguments={"command": "echo one"})],
+        }
+
+    captured_calls: list[dict[str, Any]] = []
+
+    async def _fake_call_llm_without_tools(**kwargs):  # type: ignore[no-untyped-def]
+        captured_calls.append(kwargs)
+        call_index = len(captured_calls)
+        if call_index == 1:
+            return {
+                "content": "",
+                "tool_calls": [ToolCall(id="legacy_call_1", name="agent", arguments={"timeout_seconds": 5})],
+            }
+        if call_index == 2:
+            return {
+                "content": "",
+                "tool_calls": [ToolCall(id="legacy_call_2", name="grep", arguments={"pattern": "x", "path": "."})],
+            }
+        return {"content": "final explanation"}
+
+    executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
+    executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
+
+    result = await executor.execute_with_tools(
+        user_message="run tools",
+        system_prompt="sys\n# Tool Information\nuse tools",
+        selected_tools=["bash", "agent", "grep"],
+        user_id="u1",
+        max_iterations=1,
+    )
+
+    assert result.status == "completed"
+    assert result.content == "final explanation"
+    assert len(captured_calls) == 3
+    assert "Tool Information" not in captured_calls[0]["system_prompt"]
+    assert "Do not emit tool calls" in captured_calls[0]["system_prompt"]
+    assert captured_calls[2]["disable_thinking"] is True
+    assert "This is the final retry" in captured_calls[2]["messages"][-1]["content"]
+    assert registry.calls == [
+        ("bash", {"command": "echo one"}),
+        ("agent", {"timeout_seconds": 5, "run_in_background": True}),
+    ]
+
+
 def test_build_tool_message_payload_compacts_agent_run_state() -> None:
     postprocessor = FunctionCallingPostprocessor()
     payload = postprocessor.build_tool_message_payload(
@@ -384,6 +441,31 @@ def test_compact_message_history_preserves_protocol_for_multi_tool_blocks() -> N
     assert messages[-2]["role"] == "assistant"
     assert len(messages[-2]["tool_calls"]) == 2
     assert messages[-1]["role"] == "tool"
+
+
+def test_build_final_response_system_prompt_removes_tool_guidance() -> None:
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    system_prompt = (
+        "# System Information\n"
+        "* Time: now\n"
+        "# Tool Information\n"
+        "## Selected Tools\n"
+        "* grep\n"
+        "Tool recovery rules:\n"
+        "- use tools\n"
+    )
+
+    final_prompt = executor._build_final_response_system_prompt(system_prompt, strict_plain_text=True)
+
+    assert "# Tool Information" not in final_prompt
+    assert "Tool recovery rules" not in final_prompt
+    assert "Tools are no longer available in this step." in final_prompt
+    assert "Do not emit tool calls" in final_prompt
+    assert "This is the final retry" not in final_prompt
 
 
 @pytest.mark.asyncio

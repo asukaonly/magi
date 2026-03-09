@@ -11,6 +11,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
@@ -401,9 +402,10 @@ class FunctionCallingExecutor:
             }
         )
         try:
+            final_system_prompt = self._build_final_response_system_prompt(effective_system_prompt)
             final_response = await self._call_llm_without_tools(
-                system_prompt=effective_system_prompt,
-                messages=messages,
+                system_prompt=final_system_prompt,
+                messages=self._build_final_response_messages(messages),
                 disable_thinking=disable_thinking,
             )
         except Exception as exc:
@@ -462,9 +464,41 @@ class FunctionCallingExecutor:
                 )
             try:
                 final_response = await self._call_llm_without_tools(
-                    system_prompt=effective_system_prompt,
-                    messages=messages,
+                    system_prompt=final_system_prompt,
+                    messages=self._build_final_response_messages(messages, force_plain_text=True),
                     disable_thinking=disable_thinking,
+                )
+            except Exception as exc:
+                return ExecutionOutcome(
+                    status="failed",
+                    content="",
+                    failure_reason=self._classify_exception_failure(exc),
+                    tool_failures=tool_failures,
+                    iterations=iteration,
+                )
+
+        if final_response.get("tool_calls") and not str(final_response.get("content", "")).strip():
+            logger.warning(
+                "[FunctionCalling] Final no-tools response still returned tool calls; forcing plain-text retry"
+            )
+            await self._emit_loop_event(
+                {
+                    "stage": "fallback_forced_plain_text_retry",
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "intent": intent,
+                    "execution_agent_id": execution_agent_id,
+                }
+            )
+            try:
+                final_response = await self._call_llm_without_tools(
+                    system_prompt=self._build_final_response_system_prompt(
+                        effective_system_prompt,
+                        strict_plain_text=True,
+                    ),
+                    messages=self._build_final_response_messages(messages, force_plain_text=True),
+                    disable_thinking=True,
                 )
             except Exception as exc:
                 return ExecutionOutcome(
@@ -1107,6 +1141,51 @@ class FunctionCallingExecutor:
         if guidance.strip() in system_prompt:
             return system_prompt
         return f"{system_prompt}{guidance}"
+
+    def _build_final_response_system_prompt(
+        self,
+        system_prompt: str,
+        *,
+        strict_plain_text: bool = False,
+    ) -> str:
+        """Strip tool-oriented guidance and replace it with final-answer-only rules."""
+        prompt = re.split(r"\n# Tool Information\b", system_prompt, maxsplit=1)[0]
+        prompt = re.split(r"\nTool recovery rules:\n", prompt, maxsplit=1)[0].rstrip()
+        rules = [
+            "Final Response Rules:",
+            "- Tools are no longer available in this step.",
+            "- Do not emit tool calls, XML-like <tool_call> blocks, JSON tool payloads, or any protocol markup.",
+            "- Use the existing evidence in the conversation and write the final answer directly.",
+            "- Return natural language only.",
+        ]
+        if strict_plain_text:
+            rules.extend(
+                [
+                    "- Do not ask to keep searching or mention missing tools.",
+                    "- If evidence is incomplete, clearly state the limitation and still answer with the strongest grounded explanation you can.",
+                ]
+            )
+        return f"{prompt}\n\n" + "\n".join(rules)
+
+    def _build_final_response_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        force_plain_text: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Clone messages and append a final plain-text-only instruction."""
+        final_messages = [dict(message) for message in messages]
+        reminder = (
+            "Use the gathered evidence and write the final answer now. "
+            "Do not call tools or output any tool markup."
+        )
+        if force_plain_text:
+            reminder = (
+                "This is the final retry. Write the answer in plain natural language only. "
+                "Do not call tools, do not output <tool_call>, and do not output JSON."
+            )
+        final_messages.append({"role": "user", "content": reminder})
+        return final_messages
 
     def _should_allow_replan_after_failed_iteration(
         self,
