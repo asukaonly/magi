@@ -131,6 +131,58 @@ async def test_coordinator_routes_decompose_without_agent_tool_to_orchestration_
 
 
 @pytest.mark.asyncio
+async def test_coordinator_routes_complex_news_to_generic_orchestration_without_explore() -> None:
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            _FakeContextDecision(
+                intent="planning",
+                tools=["web-search", "web-fetch"],
+                deep_thinking=True,
+                reasoning="complex research",
+                orchestration_strategy={
+                    "mode": "decompose",
+                    "planner": "task_agent",
+                    "default_leaf_type": "general-purpose",
+                    "allow_parallel": True,
+                },
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "message": "搜一下最近7天杭州有什么重要的新闻，给我来10条"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="搜一下最近7天杭州有什么重要的新闻，给我来10条",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
+    assert decision.orchestration_plan is not None
+    assert decision.orchestration_plan.default_leaf_type == "general-purpose"
+    assert decision.orchestration_plan.route_to_explore_task_agent is False
+
+
+@pytest.mark.asyncio
 async def test_coordinator_passes_recent_tool_errors_to_context_decider() -> None:
     fake_decider = _FakeContextDecider(
         _FakeContextDecision(

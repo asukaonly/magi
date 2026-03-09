@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import platform
+from datetime import datetime
 from typing import Any
 
 from ....core.logger import get_logger
@@ -71,6 +72,7 @@ class ChatExecutionCoordinator:
         decision_context = {
             "os": platform.system(),
             "os_version": platform.release(),
+            "current_date": datetime.now().date().isoformat(),
             "current_user": "unknown",
             "recent_messages": recent_messages,
             "recent_tool_errors": list(context.recent_tool_errors),

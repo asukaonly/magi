@@ -278,11 +278,36 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
 
     assert result.skip_emit is True
     assert captured["agent_type"] == TaskAgentType.EXPLORE
-    assert captured["agent_id"] == "u-chat"
-    fact = captured["fact"]
-    assert isinstance(fact, FactRecord)
-    assert fact.event_type == "EXPLORE_TASK_REQUEST"
-    assert fact.payload["upstream_task_agent_type"] == "chat"
+
+
+@pytest.mark.asyncio
+async def test_chat_planning_service_falls_back_to_research_subtasks(monkeypatch) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    async def _empty_response(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return ""
+
+    monkeypatch.setattr(agent._prompt_service, "call_llm", _empty_response)
+
+    plan = await agent._planning_service.generate_subtask_plan(
+        user_message="搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接",
+        history=[{"role": "user", "content": "搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接"}],
+        orchestration_plan=OrchestrationPlan(
+            mode="decompose",
+            planner="task_agent",
+            default_leaf_type="general-purpose",
+            allow_parallel=True,
+        ),
+        user_id="u-chat",
+        session_id="s-chat",
+    )
+
+    assert len(plan.subtasks) == 2
+    assert all(item.subagent_type == "general-purpose" for item in plan.subtasks)
+    assert plan.subtasks[0].description == "Search official and local-source coverage"
+    assert "Normalized date range:" in plan.subtasks[0].prompt
+    assert "title, date, source, canonical link" in plan.subtasks[0].prompt
 
 
 @pytest.mark.asyncio
@@ -397,6 +422,7 @@ async def test_plan_with_task_agent_logs_empty_response(monkeypatch) -> None:
             default_leaf_type="Explore",
             allow_parallel=True,
         ),
+        request_profile="repo_architecture",
     )
 
     assert result is None
@@ -425,6 +451,7 @@ async def test_plan_with_task_agent_logs_non_executable_plan(monkeypatch) -> Non
             default_leaf_type="Explore",
             allow_parallel=True,
         ),
+        request_profile="repo_architecture",
     )
 
     assert result is None

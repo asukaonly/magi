@@ -75,6 +75,21 @@ class _DummyToolRegistry:
         return False
 
 
+class _ResearchToolRegistry:
+    def get_all_tools_info(self) -> List[Dict[str, Any]]:
+        return [
+            {"name": "web-search", "description": "Search the web", "type": "tool"},
+            {"name": "web-fetch", "description": "Fetch web pages", "type": "tool"},
+        ]
+
+    def list_tools(self) -> List[str]:
+        return ["web-search", "web-fetch"]
+
+    def is_skill(self, name: str) -> bool:
+        _ = name
+        return False
+
+
 @pytest.mark.asyncio
 async def test_context_decider_always_disables_thinking() -> None:
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
@@ -142,3 +157,16 @@ def test_context_decider_prompt_includes_recent_tool_error_config_path() -> None
 
     assert "config_path=tool.weather.providers.qweather.api_key" in prompt
     assert "next_action=configure_qweather_api_key" in prompt
+
+
+def test_context_decider_rule_fallback_routes_complex_news_to_generic_decompose() -> None:
+    decider = ContextDecider(tool_registry=_ResearchToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+
+    decision = decider._rule_based_fallback("搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接")
+
+    assert decision.intent == "planning"
+    assert decision.tools == ["web-search"]
+    assert decision.deep_thinking is True
+    assert decision.orchestration_strategy["mode"] == "decompose"
+    assert decision.orchestration_strategy["default_leaf_type"] == "general-purpose"
+    assert decision.orchestration_strategy["allow_parallel"] is True

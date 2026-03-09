@@ -165,35 +165,34 @@ class ChatPromptService:
 
     def build_aggregation_user_message(self, state, payload: dict[str, Any]) -> str:
         payload_json = json.dumps(payload, ensure_ascii=False)
+        research_requirements = self._build_research_aggregation_requirements(state.root_user_message)
         if self.prefers_chinese_response(state.root_user_message):
-            return "\n".join(
-                [
-                    f"用户原始请求：{state.root_user_message}",
-                    "你已经拿到了内部子任务的结构化结果。现在请直接面向用户回答原始请求。",
-                    "要求：",
-                    "- 使用自然、正常的聊天语气，不要暴露子任务、worker、编排、JSON 或内部流程。",
-                    "- 优先整合已经确认的信息，并在合适的时候引用关键文件路径作为依据。",
-                    "- 对失败的部分，只需要简短说明哪些方面还没完全确认，不要把失败列表原样抄给用户。",
-                    "- 如果已有信息不足以完整覆盖原问题，就先给出当前最可靠的结论，再明确缺口。",
-                    "- 回复语言跟随用户。",
-                    "",
-                    f"内部结果(JSON): {payload_json}",
-                ]
-            )
-        return "\n".join(
-            [
-                f"Original user request: {state.root_user_message}",
-                "You already have the structured results from internal leaf tasks. Now answer the original request directly to the user.",
-                "Requirements:",
-                "- Respond in a natural conversational style and do not mention subtasks, workers, orchestration, JSON, or internal process details.",
-                "- Prioritize confirmed information and cite key file paths naturally when they matter.",
-                "- For failed areas, briefly mention what remains unconfirmed instead of dumping an internal failure list.",
-                "- If the available evidence is incomplete, give the most reliable current conclusion first and then call out the remaining gaps.",
-                "- Mirror the user's language.",
-                "",
-                f"Internal results (JSON): {payload_json}",
+            lines = [
+                f"用户原始请求：{state.root_user_message}",
+                "你已经拿到了内部子任务的结构化结果。现在请直接面向用户回答原始请求。",
+                "要求：",
+                "- 使用自然、正常的聊天语气，不要暴露子任务、worker、编排、JSON 或内部流程。",
+                "- 优先整合已经确认的信息，并在合适的时候引用关键文件路径作为依据。",
+                "- 对失败的部分，只需要简短说明哪些方面还没完全确认，不要把失败列表原样抄给用户。",
+                "- 如果已有信息不足以完整覆盖原问题，就先给出当前最可靠的结论，再明确缺口。",
+                "- 回复语言跟随用户。",
             ]
-        )
+            lines.extend(research_requirements["zh"])
+            lines.extend(["", f"内部结果(JSON): {payload_json}"])
+            return "\n".join(lines)
+        lines = [
+            f"Original user request: {state.root_user_message}",
+            "You already have the structured results from internal leaf tasks. Now answer the original request directly to the user.",
+            "Requirements:",
+            "- Respond in a natural conversational style and do not mention subtasks, workers, orchestration, JSON, or internal process details.",
+            "- Prioritize confirmed information and cite key file paths naturally when they matter.",
+            "- For failed areas, briefly mention what remains unconfirmed instead of dumping an internal failure list.",
+            "- If the available evidence is incomplete, give the most reliable current conclusion first and then call out the remaining gaps.",
+            "- Mirror the user's language.",
+        ]
+        lines.extend(research_requirements["en"])
+        lines.extend(["", f"Internal results (JSON): {payload_json}"])
+        return "\n".join(lines)
 
     def build_explore_render_message(self, root_user_message: str, dossier: str) -> str:
         if self.prefers_chinese_response(root_user_message):
@@ -280,6 +279,26 @@ class ChatPromptService:
             for item in failed:
                 lines.append(f"- {item.description}")
         return "\n".join(lines).strip()
+
+    def _build_research_aggregation_requirements(self, user_message: str) -> dict[str, list[str]]:
+        lowered = user_message.lower()
+        if not any(
+            keyword in lowered
+            for keyword in ["news", "新闻", "资料", "信息", "来源", "链接", "source", "link", "核实", "verify"]
+        ):
+            return {"zh": [], "en": []}
+        return {
+            "zh": [
+                "- 如果这是新闻或资料汇总类请求，请优先按条列出结果，而不是压成一整段。",
+                "- 尽量保留每条结果的标题、日期、来源、链接和简短摘要；不要丢掉时间和来源。",
+                "- 如果用户要求条数，在证据足够时尽量满足该条数；不足时明确说明只确认了多少条。",
+            ],
+            "en": [
+                "- For news or research summaries, prefer a structured itemized list instead of one dense paragraph.",
+                "- Preserve each item's title, date, source, link, and a short summary whenever the evidence supports it.",
+                "- If the user requested a count, satisfy it when the evidence is sufficient; otherwise state how many items were confirmed.",
+            ],
+        }
 
     def prefers_chinese_response(self, text: str) -> bool:
         return any("\u4e00" <= char <= "\u9fff" for char in text)

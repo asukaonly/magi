@@ -130,6 +130,9 @@ JSON: {"intent": "code_execution", "tools": ["file_read", "file_write"], "deep_t
 User: "analyze this large repo and design a migration plan"
 JSON: {"intent": "planning", "tools": ["agent"], "deep_thinking": true, "reasoning": "Large repo analysis should be decomposed by the parent task agent into bounded workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "Explore", "allow_parallel": true}}
 
+User: "find the 10 most important Hangzhou news stories from the last 7 days and give me links"
+JSON: {"intent": "planning", "tools": ["web-search", "web-fetch"], "deep_thinking": true, "reasoning": "This is a bounded multi-source research request with a time window, result count, and source requirements, so it should be decomposed into generic research workers.", "orchestration_strategy": {"mode": "decompose", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": true}}
+
 User: "convert ~/tmp/logo.png to transparent background"
 JSON: {"intent": "file_operation", "tools": ["bash"], "deep_thinking": false, "reasoning": "Processing a binary image file requires external tools like ImageMagick, which must be executed via bash. Standard file_read/write cannot modify image contents.", "orchestration_strategy": {"mode": "direct", "planner": "task_agent", "default_leaf_type": "general-purpose", "allow_parallel": false}}
 
@@ -301,6 +304,8 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         if context:
             if "os" in context:
                 prompt += f"- OS: {context['os']}\n"
+            if "current_date" in context:
+                prompt += f"- Current date: {context['current_date']}\n"
             if "current_dir" in context:
                 prompt += f"- Current directory: {context['current_dir']}\n"
             if "home_dir" in context:
@@ -485,6 +490,22 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 orchestration_strategy=strategy,
             )
 
+        if self._is_complex_research_request(user_lower):
+            tools = []
+            if "web-search" in available_tools:
+                tools.append("web-search")
+            if self._needs_fetch_for_request(user_lower) and "web-fetch" in available_tools:
+                tools.append("web-fetch")
+            if not tools and "bash" in available_tools:
+                tools.append("bash")
+            return ContextDecision(
+                intent="planning",
+                tools=tools[: self.max_tools],
+                deep_thinking=True,
+                reasoning="Complex research request detected, routing to generic parent-task decomposition.",
+                orchestration_strategy=self._default_orchestration_strategy(tools[: self.max_tools], user_lower),
+            )
+
         # Web page fetch and extraction
         if any(
             kw in user_lower
@@ -557,6 +578,13 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         user_lower: str = "",
     ) -> Dict[str, Any]:
         selected_tools = tools or []
+        if self._is_complex_research_request(user_lower):
+            return {
+                "mode": "decompose",
+                "planner": "task_agent",
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": True,
+            }
         if "agent" in selected_tools:
             if any(kw in user_lower for kw in ["migration", "migrate", "实施方案", "design doc", "implementation plan"]):
                 return {
@@ -588,6 +616,71 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             "default_leaf_type": "general-purpose",
             "allow_parallel": False,
         }
+
+    def _is_complex_research_request(self, user_lower: str) -> bool:
+        has_research_domain = any(
+            kw in user_lower
+            for kw in [
+                "news",
+                "新闻",
+                "头条",
+                "最新动态",
+                "最近",
+                "过去",
+                "近",
+                "资料",
+                "信息汇总",
+                "source",
+                "来源",
+                "link",
+                "链接",
+                "核实",
+                "verify",
+                "compare",
+                "对比",
+            ]
+        )
+        has_complex_constraint = any(
+            kw in user_lower
+            for kw in [
+                "最近7天",
+                "最近 7 天",
+                "近7天",
+                "过去7天",
+                "最近一周",
+                "近一周",
+                "本月",
+                "这个月",
+                "top",
+                "前",
+                "条",
+                "sources",
+                "多来源",
+                "交叉验证",
+                "详情",
+                "展开",
+                "完整链接",
+                "排序",
+                "筛选",
+            ]
+        )
+        return has_research_domain and has_complex_constraint
+
+    def _needs_fetch_for_request(self, user_lower: str) -> bool:
+        return any(
+            kw in user_lower
+            for kw in [
+                "详情",
+                "展开",
+                "全文",
+                "原文",
+                "核实",
+                "verify",
+                "交叉验证",
+                "具体看",
+                "深挖",
+            ]
+        )
 
     def _normalize_orchestration_strategy(self, payload: Any) -> Dict[str, Any]:
         strategy = self._default_orchestration_strategy()

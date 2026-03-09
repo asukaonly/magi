@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from ....core.logger import get_logger
@@ -52,6 +54,10 @@ class ChatPlanningService:
                 default_leaf_type=str(orchestration_plan.get("default_leaf_type", "Explore") or "Explore"),
                 allow_parallel=bool(orchestration_plan.get("allow_parallel", True)),
             )
+        request_profile = self._classify_request_profile(
+            user_message=user_message,
+            default_leaf_type=orchestration_plan.default_leaf_type,
+        )
         raw_plan: Optional[SubtaskPlan] = None
         if orchestration_plan.planner == "plan_worker":
             raw_plan = await self._plan_with_plan_worker(
@@ -64,6 +70,7 @@ class ChatPlanningService:
                 user_message=user_message,
                 history=history,
                 orchestration_plan=orchestration_plan,
+                request_profile=request_profile,
             )
         if raw_plan is None:
             raw_plan = SubtaskPlan(
@@ -71,12 +78,14 @@ class ChatPlanningService:
                 subtasks=self._fallback_subtask_plan(
                     user_message=user_message,
                     default_leaf_type=orchestration_plan.default_leaf_type,
+                    request_profile=request_profile,
                 ),
             )
         return self._normalize_subtask_plan(
             user_message=user_message,
             raw_plan=raw_plan,
             default_leaf_type=orchestration_plan.default_leaf_type,
+            request_profile=request_profile,
         )
 
     async def aggregate_orchestration(self, state: TaskOrchestrationState) -> str:
@@ -123,6 +132,7 @@ class ChatPlanningService:
         user_message: str,
         history: list[dict[str, Any]],
         orchestration_plan: OrchestrationPlan,
+        request_profile: str,
     ) -> Optional[SubtaskPlan]:
         recent_history = [
             {
@@ -132,23 +142,50 @@ class ChatPlanningService:
             for item in history[-4:]
             if isinstance(item, dict) and str(item.get("content", "")).strip()
         ]
-        planning_prompt = {
-            "user_request": user_message,
-            "recent_history": recent_history,
-            "default_leaf_type": orchestration_plan.default_leaf_type,
-            "allow_parallel": orchestration_plan.allow_parallel,
-            "requirements": [
-                "Decompose into bounded leaf subtasks owned by the parent task agent.",
-                "Favor parallel subtasks when there are no strong dependencies.",
-                "For codebase architecture analysis, prefer separate subtasks for directory structure, tech stack, frontend, backend, and project progress when relevant.",
-            ],
-        }
-        system_prompt = (
-            "You are a parent task agent planning bounded leaf subtasks. "
-            "Return ONLY valid JSON with this schema: "
-            '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
-            "Do not answer the user request directly. Produce execution-ready leaf tasks only."
-        )
+        if request_profile == "research":
+            seed_subtasks = [item.to_dict() for item in self._build_research_seed_subtasks(user_message)]
+            planning_prompt = {
+                "planning_profile": "research",
+                "user_request": user_message,
+                "recent_history": recent_history,
+                "default_leaf_type": "general-purpose",
+                "allow_parallel": orchestration_plan.allow_parallel,
+                "date_range_hint": self._extract_date_range_hint(user_message),
+                "seed_subtasks": seed_subtasks,
+                "requirements": [
+                    "Decompose into bounded, independent research subtasks that a generic worker can complete without reading sibling outputs.",
+                    "Favor parallel subtasks that split by source family, verification responsibility, or retrieval angle.",
+                    "Only include web-fetch when the user requests details, verification, full text, or when source summaries are likely insufficient.",
+                    "Do not create a final synthesis worker that depends on sibling worker outputs; the parent task agent will aggregate.",
+                    "Each research subtask should collect evidence that preserves title, date, source, link, and a short summary when available.",
+                ],
+            }
+            system_prompt = (
+                "You are a parent task agent planning bounded generic research subtasks. "
+                "Return ONLY valid JSON with this schema: "
+                '{"summary":"string","subtasks":[{"description":"string","subagent_type":"general-purpose","prompt":"string","parallel_group":"string"}]}. '
+                "Produce execution-ready leaf tasks only. Do not answer the user request directly. "
+                "Never emit a worker whose only job is final synthesis across sibling results."
+            )
+        else:
+            planning_prompt = {
+                "planning_profile": request_profile,
+                "user_request": user_message,
+                "recent_history": recent_history,
+                "default_leaf_type": orchestration_plan.default_leaf_type,
+                "allow_parallel": orchestration_plan.allow_parallel,
+                "requirements": [
+                    "Decompose into bounded leaf subtasks owned by the parent task agent.",
+                    "Favor parallel subtasks when there are no strong dependencies.",
+                    "For codebase architecture analysis, prefer separate subtasks for directory structure, tech stack, frontend, backend, and project progress when relevant.",
+                ],
+            }
+            system_prompt = (
+                "You are a parent task agent planning bounded leaf subtasks. "
+                "Return ONLY valid JSON with this schema: "
+                '{"summary":"string","subtasks":[{"description":"string","subagent_type":"Explore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
+                "Do not answer the user request directly. Produce execution-ready leaf tasks only."
+            )
         try:
             response = await self._prompt_service.call_llm(
                 system_prompt=system_prompt,
@@ -243,17 +280,24 @@ class ChatPlanningService:
         user_message: str,
         raw_plan: SubtaskPlan,
         default_leaf_type: str,
+        request_profile: str,
     ) -> SubtaskPlan:
         raw_subtasks = list(raw_plan.subtasks)
         if not raw_subtasks:
-            raw_subtasks = self._fallback_subtask_plan(user_message, default_leaf_type)
+            raw_subtasks = self._fallback_subtask_plan(
+                user_message,
+                default_leaf_type,
+                request_profile=request_profile,
+            )
         normalized_subtasks: list[PlannedSubtask] = []
         for item in raw_subtasks:
             description = item.description
             subtask_prompt = item.prompt
             subagent_type = str(item.subagent_type or default_leaf_type).strip()
             if subagent_type not in {"Explore", "general-purpose"}:
-                subagent_type = "Explore"
+                subagent_type = default_leaf_type if default_leaf_type in {"Explore", "general-purpose"} else "Explore"
+            if request_profile == "research":
+                subagent_type = "general-purpose"
             normalized_subtasks.append(
                 PlannedSubtask(
                     description=description,
@@ -262,6 +306,7 @@ class ChatPlanningService:
                         root_user_message=user_message,
                         subtask_description=description,
                         subtask_prompt=subtask_prompt,
+                        request_profile=request_profile,
                     ),
                     parallel_group=item.parallel_group,
                 )
@@ -289,12 +334,20 @@ class ChatPlanningService:
             return None
         return normalized
 
-    def _fallback_subtask_plan(self, user_message: str, default_leaf_type: str) -> list[PlannedSubtask]:
+    def _fallback_subtask_plan(
+        self,
+        user_message: str,
+        default_leaf_type: str,
+        *,
+        request_profile: str,
+    ) -> list[PlannedSubtask]:
         is_repo_architecture = any(
             keyword in user_message.lower()
             for keyword in ["architecture", "codebase", "repo", "代码架构", "项目架构", "代码库", "目录结构"]
         )
         leaf_type = default_leaf_type if default_leaf_type in {"Explore", "general-purpose"} else "Explore"
+        if request_profile == "research":
+            return self._build_research_seed_subtasks(user_message)
         if is_repo_architecture:
             return [
                 PlannedSubtask(
@@ -355,7 +408,29 @@ class ChatPlanningService:
         root_user_message: str,
         subtask_description: str,
         subtask_prompt: str,
+        request_profile: str,
     ) -> str:
+        if request_profile == "research":
+            date_range_hint = self._extract_date_range_hint(root_user_message)
+            lines = [
+                f"Parent user request: {root_user_message}",
+                f"Assigned subtask: {subtask_description}",
+                "Task-specific instructions:",
+                subtask_prompt,
+                "Success criteria:",
+                "- Stay strictly within this subtask scope.",
+                "- Prefer web-search for discovery and only use web-fetch when the task explicitly requires article details or verification.",
+                "- Preserve concrete evidence for each usable result: title, date, source, canonical link, and a short summary when available.",
+                "- In findings, use `title` for the headline, `detail` for `DATE | SOURCE | SUMMARY`, and `path` for the canonical article URL.",
+                "- If the available evidence is thin or conflicting, record it in gaps instead of guessing.",
+                "- Do not fabricate publication dates, links, or sources.",
+            ]
+            if date_range_hint:
+                lines.insert(
+                    4,
+                    f"Normalized date range: {date_range_hint['start_date']} to {date_range_hint['end_date']} (inclusive).",
+                )
+            return "\n".join(lines)
         return "\n".join(
             [
                 f"Parent user request: {root_user_message}",
@@ -370,6 +445,144 @@ class ChatPlanningService:
                 "- Do not duplicate likely sibling subtasks unless it is necessary evidence.",
             ]
         )
+
+    def _classify_request_profile(self, *, user_message: str, default_leaf_type: str) -> str:
+        lowered = user_message.lower()
+        if default_leaf_type == "Explore" and any(
+            keyword in lowered
+            for keyword in ["architecture", "codebase", "repo", "代码架构", "项目架构", "代码库", "目录结构"]
+        ):
+            return "repo_architecture"
+        if self._is_complex_research_request(user_message):
+            return "research"
+        return "generic"
+
+    def _is_complex_research_request(self, user_message: str) -> bool:
+        lowered = user_message.lower()
+        has_information_domain = any(
+            keyword in lowered
+            for keyword in [
+                "news",
+                "新闻",
+                "头条",
+                "消息",
+                "最近",
+                "过去",
+                "近",
+                "本月",
+                "资料",
+                "信息",
+                "来源",
+                "链接",
+                "source",
+                "link",
+                "核实",
+                "verify",
+                "compare",
+                "对比",
+                "汇总",
+            ]
+        )
+        has_complex_constraint = any(
+            keyword in lowered
+            for keyword in [
+                "最近7天",
+                "最近 7 天",
+                "近7天",
+                "过去7天",
+                "最近一周",
+                "近一周",
+                "本月",
+                "这个月",
+                "给我",
+                "条",
+                "top",
+                "链接",
+                "来源",
+                "详情",
+                "展开",
+                "核实",
+                "verify",
+                "交叉验证",
+                "重要的",
+            ]
+        )
+        return has_information_domain and has_complex_constraint
+
+    def _needs_research_fetch(self, user_message: str) -> bool:
+        lowered = user_message.lower()
+        return any(
+            keyword in lowered
+            for keyword in ["详情", "展开", "全文", "原文", "核实", "verify", "交叉验证", "具体看", "深挖"]
+        )
+
+    def _build_research_seed_subtasks(self, user_message: str) -> list[PlannedSubtask]:
+        date_range_hint = self._extract_date_range_hint(user_message)
+        date_suffix = ""
+        if date_range_hint:
+            date_suffix = (
+                f" Keep the work inside {date_range_hint['start_date']} to {date_range_hint['end_date']} (inclusive)."
+            )
+        subtasks = [
+            PlannedSubtask(
+                description="Search official and local-source coverage",
+                subagent_type="general-purpose",
+                prompt=(
+                    "Search official, government, and local-source coverage that matches the user's request."
+                    " Collect the strongest candidate items with title, date, source, link, and a short summary."
+                    f"{date_suffix}"
+                ),
+                parallel_group="group_a",
+            ),
+            PlannedSubtask(
+                description="Search major media and commercial-source coverage",
+                subagent_type="general-purpose",
+                prompt=(
+                    "Search major media, commercial, or independent sources that match the user's request."
+                    " Collect the strongest candidate items with title, date, source, link, and a short summary."
+                    f"{date_suffix}"
+                ),
+                parallel_group="group_a",
+            ),
+        ]
+        if self._needs_research_fetch(user_message):
+            subtasks.append(
+                PlannedSubtask(
+                    description="Fetch and verify article details",
+                    subagent_type="general-purpose",
+                    prompt=(
+                        "For the most important candidate items, fetch article pages as needed to verify dates,"
+                        " titles, links, and summaries before the parent task aggregates the answer."
+                        f"{date_suffix}"
+                    ),
+                    parallel_group="group_b",
+                )
+            )
+        return subtasks
+
+    def _extract_date_range_hint(self, user_message: str) -> Optional[dict[str, str]]:
+        lowered = user_message.lower()
+        today = datetime.now().date()
+
+        relative_days_match = re.search(r"(最近|过去|近)\s*(\d+)\s*天", user_message)
+        if relative_days_match:
+            days = max(1, int(relative_days_match.group(2)))
+            start_date = today - timedelta(days=days - 1)
+            return {"start_date": start_date.isoformat(), "end_date": today.isoformat()}
+
+        if any(token in lowered for token in ["最近一周", "近一周", "过去一周", "last week"]):
+            start_date = today - timedelta(days=6)
+            return {"start_date": start_date.isoformat(), "end_date": today.isoformat()}
+
+        if any(token in lowered for token in ["本月", "这个月", "this month"]):
+            start_date = today.replace(day=1)
+            return {"start_date": start_date.isoformat(), "end_date": today.isoformat()}
+
+        if any(token in lowered for token in ["本周", "这周", "this week"]):
+            start_date = today - timedelta(days=today.weekday())
+            return {"start_date": start_date.isoformat(), "end_date": today.isoformat()}
+
+        return None
 
     def _build_agent_tool_context(self, user_id: str, session_id: str) -> ToolExecutionContext:
         return ToolExecutionContext(
