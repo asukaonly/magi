@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 USER_EVENT_TYPES = ("USER_INPUT", "UserMessage")
 AI_RESPONSE_EVENT_TYPES = ("AI_RESPONSE", "AIResponse")
 WORKER_EVENT_TYPES = ("WORKER_AGENT_PROGRESS", "WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED")
-TRACE_EVENT_TYPES = WORKER_EVENT_TYPES + ("CHAT_TOOL_LOOP_STEP", "TOOL_INTERACTION")
+TRACE_EVENT_TYPES = WORKER_EVENT_TYPES + ("CHAT_TOOL_LOOP_STEP", "TOOL_INTERACTION", "TOOL_INVOKED")
 DISPLAY_EVENT_TYPES = USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES + TRACE_EVENT_TYPES
 
 
@@ -187,7 +187,7 @@ class ChatTraceReadService:
         orchestration_id = self._extract_orchestration_id(events)
         orchestration_state = self._load_orchestration_state(orchestration_id) if orchestration_id else None
         has_worker_events = any(item["type"] in WORKER_EVENT_TYPES for item in events)
-        has_tool_events = any(item["type"] in {"CHAT_TOOL_LOOP_STEP", "TOOL_INTERACTION"} for item in events)
+        has_tool_events = any(item["type"] in {"CHAT_TOOL_LOOP_STEP", "TOOL_INTERACTION", "TOOL_INVOKED"} for item in events)
         mode = "orchestration" if orchestration_state or has_worker_events else "function_calling"
         started_at = float(user_event["timestamp"]) if user_event else float(events[0]["timestamp"])
         ended_at = float(response_event["timestamp"]) if response_event else float(events[-1]["timestamp"])
@@ -398,7 +398,7 @@ class ChatTraceReadService:
             metadata={"turn_id": turn_id},
         )
         iteration_nodes: dict[int, ExecutionTraceNode] = {}
-        tool_events = [item for item in events if item["type"] == "TOOL_INTERACTION"]
+        tool_events = [item for item in events if item["type"] in {"TOOL_INTERACTION", "TOOL_INVOKED"}]
         loop_events = [item for item in events if item["type"] == "CHAT_TOOL_LOOP_STEP"]
         for loop_event in loop_events:
             payload = loop_event.get("payload", {})
@@ -436,15 +436,15 @@ class ChatTraceReadService:
                     id=str(payload.get("tool_call_id") or f"{turn_id}:tool:{index}"),
                     kind="tool",
                     label=str(payload.get("tool_name") or f"Tool {index}"),
-                    status="completed" if bool(payload.get("success")) else "failed",
+                    status=self._tool_event_status(payload),
                     started_at=float(payload.get("timestamp") or started_at),
                     ended_at=float(payload.get("timestamp") or ended_at),
-                    result_preview=self._compact_value(payload.get("data")),
+                    result_preview=self._tool_event_result_preview(payload),
                     error=str(payload.get("error") or "").strip() or None,
                     metadata={
                         "tool_call_id": payload.get("tool_call_id"),
-                        "arguments": payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {},
-                        "execution_time": payload.get("execution_time"),
+                        "arguments": self._tool_event_arguments(payload),
+                        "execution_time": payload.get("execution_time") or payload.get("execution_time_ms"),
                         "iteration": iteration,
                     },
                 )
@@ -459,6 +459,27 @@ class ChatTraceReadService:
             iteration_node.ended_at = ended_at if iteration_node.status in {"completed", "failed"} else None
             root.children.append(iteration_node)
         return root
+
+    def _tool_event_status(self, payload: dict[str, Any]) -> str:
+        if "success" in payload:
+            return "completed" if bool(payload.get("success")) else "failed"
+        result = str(payload.get("result") or "").strip().lower()
+        return "completed" if result == "success" else "failed" if result == "failed" else "running"
+
+    def _tool_event_result_preview(self, payload: dict[str, Any]) -> str:
+        if "data" in payload:
+            return self._compact_value(payload.get("data"))
+        result = str(payload.get("result") or "").strip()
+        if result:
+            return result
+        return self._compact_value(payload.get("tool_params"))
+
+    def _tool_event_arguments(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if isinstance(payload.get("arguments"), dict):
+            return payload["arguments"]
+        if isinstance(payload.get("tool_params"), dict):
+            return payload["tool_params"]
+        return {}
 
     def _build_worker_tool_node(
         self,

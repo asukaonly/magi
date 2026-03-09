@@ -92,6 +92,42 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transformed.data["turn_id"], "turn_1")
         self.assertEqual(transformed.data["orchestration_id"], "orch_1")
 
+    async def test_tool_invoked_event_preserves_trace_identity(self):
+        integration = MemoryIntegrationModule(
+            unified_memory=_FakeUnifiedMemory(),
+            message_bus=_FakeBus(),
+            config=MemoryIntegrationConfig(),
+        )
+
+        event = Event(
+            type=EventTypes.ACTION_EXECUTED,
+            data={
+                "action_type": "grep",
+                "params": {"path": "/tmp/demo.py", "pattern": "qweather"},
+                "success": True,
+                "execution_time": 1.5,
+                "user_id": "u1",
+                "session_id": "s1",
+                "turn_id": "turn_1",
+                "orchestration_id": "orch_1",
+                "tool_call_id": "call_1",
+                "iteration": 2,
+            },
+            source="test",
+            level=EventLevel.INFO,
+            correlation_id="corr-2",
+        )
+
+        transformed = integration._transform_to_business_event(event)
+
+        self.assertEqual(transformed.type, BusinessEventTypes.TOOL_INVOKED)
+        self.assertEqual(transformed.data["user_id"], "u1")
+        self.assertEqual(transformed.data["session_id"], "s1")
+        self.assertEqual(transformed.data["turn_id"], "turn_1")
+        self.assertEqual(transformed.data["orchestration_id"], "orch_1")
+        self.assertEqual(transformed.data["tool_call_id"], "call_1")
+        self.assertEqual(transformed.data["iteration"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

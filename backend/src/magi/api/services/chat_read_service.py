@@ -197,7 +197,7 @@ class ChatReadService:
             WHERE type IN (
                 'USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse',
                 'WORKER_AGENT_PROGRESS', 'WORKER_AGENT_COMPLETED', 'WORKER_AGENT_FAILED',
-                'CHAT_TOOL_LOOP_STEP', 'TOOL_INTERACTION'
+                'CHAT_TOOL_LOOP_STEP', 'TOOL_INTERACTION', 'TOOL_INVOKED'
             )
               AND json_extract(data, '$.user_id') = ?
               AND json_extract(data, '$.session_id') = ?
@@ -309,7 +309,7 @@ class ChatReadService:
             WHERE type IN (
                 'USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse',
                 'WORKER_AGENT_PROGRESS', 'WORKER_AGENT_COMPLETED', 'WORKER_AGENT_FAILED',
-                'CHAT_TOOL_LOOP_STEP', 'TOOL_INTERACTION'
+                'CHAT_TOOL_LOOP_STEP', 'TOOL_INTERACTION', 'TOOL_INVOKED'
             )
               AND json_extract(data, '$.user_id') = ?
               AND json_extract(data, '$.session_id') = ?

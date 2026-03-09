@@ -82,7 +82,7 @@ class ChatExecutionCoordinator:
         )
         execution_mode = (
             ExecutionMode.ORCHESTRATION_LAUNCH
-            if orchestration_plan.mode == "decompose" and "agent" in decision.tools
+            if orchestration_plan.mode == "decompose"
             else ExecutionMode.FUNCTION_CALLING
             if decision.tools
             else ExecutionMode.DIRECT_LLM

@@ -200,6 +200,58 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
     assert messages[1]["trace_summary"]["headline"] == "正在执行工具链"
 
 
+def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
+    service = _build_service(tmp_path)
+    trace_service = ChatTraceReadService()
+    trace_service._events_db_path = service._events_db_path
+    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    monkeypatch.setattr(
+        "magi.api.services.chat_read_service.get_chat_trace_read_service",
+        lambda: trace_service,
+    )
+    _init_event_store(service._events_db_path)
+
+    _insert_event(
+        service._events_db_path,
+        "USER_INPUT",
+        {"user_id": "u1", "session_id": "s1", "message": "why", "turn_id": "turn_2"},
+        2000,
+    )
+    _insert_event(
+        service._events_db_path,
+        "TOOL_INVOKED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "turn_id": "turn_2",
+            "tool_name": "grep",
+            "tool_params": {"path": "/tmp/demo.py", "pattern": "qweather"},
+            "result": "success",
+            "execution_time_ms": 3.2,
+        },
+        2005,
+    )
+    _insert_event(
+        service._events_db_path,
+        "AI_RESPONSE",
+        {"user_id": "u1", "session_id": "s1", "turn_id": "turn_2", "response": "answer"},
+        2010,
+    )
+
+    messages = service.get_display_history("u1", "s1", limit=20)
+
+    assert [item["kind"] for item in messages] == ["user", "assistant"]
+    assert messages[1]["trace_available"] is True
+    assert messages[1]["trace_summary"]["mode"] == "function_calling"
+
+    snapshot = trace_service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_2")
+
+    assert snapshot is not None
+    assert snapshot["summary"]["trace_available"] is True
+    assert snapshot["root"]["children"][0]["children"][0]["label"] == "grep"
+    assert snapshot["root"]["children"][0]["children"][0]["metadata"]["arguments"]["pattern"] == "qweather"
+
+
 def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     service = ChatTraceReadService()
     service._events_db_path = tmp_path / "events.sqlite3"
