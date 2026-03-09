@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 DESKTOP_SESSION_HEADER = "X-Magi-Session-Token"
+QUIET_REQUEST_PATHS = {
+    "/api/health",
+    "/api/messages/sessions",
+}
 
 
 def get_required_desktop_session_token() -> str | None:
@@ -104,9 +108,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable):
         start_time = time.time()
+        should_log = request.url.path not in QUIET_REQUEST_PATHS
 
         # recordrequest
-        logger.info(f"Request: {request.method} {request.url.path}")
+        if should_log:
+            logger.info(f"Request: {request.method} {request.url.path}")
 
         # processrequest
         response = await call_next(request)
@@ -116,10 +122,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         response.headers["X-process-Time"] = str(process_time)
 
         # recordresponse
-        logger.info(
-            f"Response: {response.status_code} "
-            f"took {process_time:.3f}s"
-        )
+        if should_log:
+            logger.info(
+                f"Response: {response.status_code} "
+                f"took {process_time:.3f}s"
+            )
 
         return response
 

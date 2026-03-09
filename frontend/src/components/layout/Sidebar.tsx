@@ -53,16 +53,24 @@ const Sidebar: React.FC = () => {
 
   useEffect(() => {
     void refreshSessions();
-    const timer = window.setInterval(() => {
-      void refreshSessions();
-    }, 8000);
     const handleSync = () => {
       void refreshSessions();
     };
+    const handleFocus = () => {
+      void refreshSessions();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshSessions();
+      }
+    };
     window.addEventListener(SESSION_EVENT, handleSync as EventListener);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.clearInterval(timer);
       window.removeEventListener(SESSION_EVENT, handleSync as EventListener);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [refreshSessions]);
 

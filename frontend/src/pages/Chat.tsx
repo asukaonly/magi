@@ -41,6 +41,7 @@ interface WSMessage {
 
 const CONNECTION_EVENT = 'magi-chat-connection';
 const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
+const SESSION_EVENT = 'magi-session-sync';
 const USER_ID = 'web_user';
 
 const assistantMarkdownComponents: Components = {
@@ -287,6 +288,7 @@ export const ChatPage: React.FC = () => {
           traceAvailable: Boolean(payload?.trace_available || summary?.traceAvailable),
         })
       );
+      window.dispatchEvent(new Event(SESSION_EVENT));
       if (drawerOpen && activeTurnId === turnId) {
         void loadTrace(turnId);
       }
@@ -309,6 +311,7 @@ export const ChatPage: React.FC = () => {
             const nextSession = String(data.data.session_id);
             setCurrentSessionId(nextSession);
             localStorage.setItem(`chat_session_${USER_ID}`, nextSession);
+            window.dispatchEvent(new Event(SESSION_EVENT));
             requestHistory(nextSession);
           }
           return;
@@ -346,6 +349,7 @@ export const ChatPage: React.FC = () => {
           if (data.data?.session_id) {
             setCurrentSessionId(String(data.data.session_id));
           }
+          window.dispatchEvent(new Event(SESSION_EVENT));
           return;
         case 'error':
           toast.error(data.message || 'WebSocket error');
