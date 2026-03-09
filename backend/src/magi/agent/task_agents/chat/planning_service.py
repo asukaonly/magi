@@ -18,6 +18,8 @@ from .session_service import ChatSessionService
 
 logger = get_logger(__name__)
 
+STRUCTURED_PLANNING_TIMEOUT_SECONDS = 180.0
+
 
 class ChatPlanningService:
     """Owns parent-task planning and aggregation for generic chat orchestration."""
@@ -191,6 +193,8 @@ class ChatPlanningService:
                 system_prompt=system_prompt,
                 messages=[{"role": "user", "content": json.dumps(planning_prompt, ensure_ascii=False)}],
                 disable_thinking=False,
+                json_mode=True,
+                timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
             )
         except Exception as exc:
             logger.warning("Task-agent planning call failed | error=%s", exc)

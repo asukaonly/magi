@@ -17,10 +17,14 @@ class ExplorePromptService:
         messages: list[dict[str, str]],
         disable_thinking: bool,
         temperature: float = 0.3,
+        json_mode: bool = False,
+        timeout_seconds: float | None = None,
     ) -> str:
         return await self._llm_service.call(
             system_prompt=system_prompt,
             messages=messages,
             disable_thinking=disable_thinking,
             temperature=temperature,
+            json_mode=json_mode,
+            timeout_seconds=timeout_seconds,
         )

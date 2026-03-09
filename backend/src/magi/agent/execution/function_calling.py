@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 llm_logger = get_llm_logger('function_calling')
 
+THINKING_LLM_TIMEOUT_SECONDS = 180.0
+
 
 @dataclass
 class ToolMessageBlock:
@@ -158,6 +160,8 @@ class FunctionCallingExecutor:
         execution_agent_id: str = "chat_agent",
         execution_workspace: Optional[str] = None,
         orchestration_strategy: Optional[Dict[str, Any]] = None,
+        llm_timeout_seconds: Optional[float] = None,
+        final_response_json_mode: bool = False,
     ) -> ExecutionOutcome:
         """
         Execute with continuous tool calling
@@ -209,6 +213,7 @@ class FunctionCallingExecutor:
                     messages=messages,
                     tools=tools,
                     disable_thinking=disable_thinking,
+                    timeout_seconds=llm_timeout_seconds,
                     session_id=session_id,
                     turn_id=turn_id,
                     intent=intent,
@@ -411,6 +416,8 @@ class FunctionCallingExecutor:
                 system_prompt=final_system_prompt,
                 messages=self._build_final_response_messages(messages),
                 disable_thinking=disable_thinking,
+                json_mode=final_response_json_mode,
+                timeout_seconds=llm_timeout_seconds,
                 session_id=session_id,
                 turn_id=turn_id,
                 intent=intent,
@@ -475,6 +482,8 @@ class FunctionCallingExecutor:
                     system_prompt=final_system_prompt,
                     messages=self._build_final_response_messages(messages, force_plain_text=True),
                     disable_thinking=disable_thinking,
+                    json_mode=final_response_json_mode,
+                    timeout_seconds=llm_timeout_seconds,
                     session_id=session_id,
                     turn_id=turn_id,
                     intent=intent,
@@ -511,6 +520,8 @@ class FunctionCallingExecutor:
                     ),
                     messages=self._build_final_response_messages(messages, force_plain_text=True),
                     disable_thinking=True,
+                    json_mode=final_response_json_mode,
+                    timeout_seconds=llm_timeout_seconds,
                     session_id=session_id,
                     turn_id=turn_id,
                     intent=intent,
@@ -693,6 +704,7 @@ class FunctionCallingExecutor:
         messages: List[Dict],
         tools: List[Dict],
         disable_thinking: bool = True,
+        timeout_seconds: Optional[float] = None,
         session_id: Optional[str] = None,
         turn_id: Optional[str] = None,
         intent: str = "unknown",
@@ -729,6 +741,7 @@ class FunctionCallingExecutor:
                 max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=0.7,
                 disable_thinking=disable_thinking,
+                timeout_seconds=self._resolve_llm_timeout(timeout_seconds, disable_thinking=disable_thinking),
                 event_context={
                     "request_id": request_id,
                     "request_kind": "function_calling:tools",
@@ -781,6 +794,8 @@ class FunctionCallingExecutor:
         system_prompt: str,
         messages: List[Dict],
         disable_thinking: bool = True,
+        json_mode: bool = False,
+        timeout_seconds: Optional[float] = None,
         session_id: Optional[str] = None,
         turn_id: Optional[str] = None,
         intent: str = "unknown",
@@ -809,6 +824,8 @@ class FunctionCallingExecutor:
                 max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=0.7,
                 disable_thinking=disable_thinking,
+                json_mode=json_mode,
+                timeout_seconds=self._resolve_llm_timeout(timeout_seconds, disable_thinking=disable_thinking),
                 event_context={
                     "request_id": request_id,
                     "request_kind": "function_calling:final_response",
@@ -857,6 +874,14 @@ class FunctionCallingExecutor:
                 fallback_reason="function_calling_final_response_without_tools",
             )
             raise
+
+    @staticmethod
+    def _resolve_llm_timeout(timeout_seconds: Optional[float], *, disable_thinking: bool) -> Optional[float]:
+        if timeout_seconds is not None:
+            return timeout_seconds
+        if not disable_thinking:
+            return THINKING_LLM_TIMEOUT_SECONDS
+        return None
 
     async def _execute_tool_call(
         self,

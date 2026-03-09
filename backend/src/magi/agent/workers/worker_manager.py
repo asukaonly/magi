@@ -564,6 +564,8 @@ class WorkerAgentManager(Tool):
                 intent=f"worker_{run_state.subagent_type.lower()}",
                 execution_agent_id=run_state.worker_id,
                 execution_workspace=execution_workspace,
+                llm_timeout_seconds=180.0 if run_state.subagent_type == self.TYPE_PLAN else None,
+                final_response_json_mode=True,
             )
             run_state.completed_at = time.time()
             run_state.updated_at = run_state.completed_at

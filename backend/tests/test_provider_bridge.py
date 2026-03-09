@@ -211,6 +211,44 @@ async def test_glm_chat_with_tools_disables_thinking_for_openai_compatible_path(
 
 
 @pytest.mark.asyncio
+async def test_chat_response_passes_json_mode_and_timeout_to_openai_compatible_clients() -> None:
+    message = SimpleNamespace(content='{"summary":"ok"}', tool_calls=[], role="assistant")
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(provider="glm", client=client)
+    bridge = LLMProviderBridge(llm)
+
+    result = await bridge.chat_response(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        json_mode=True,
+        timeout_seconds=180.0,
+    )
+
+    assert result.content == '{"summary":"ok"}'
+    assert client.kwargs["response_format"] == {"type": "json_object"}
+    assert client.kwargs["timeout"] == 180.0
+
+
+@pytest.mark.asyncio
+async def test_chat_with_tools_passes_timeout_to_openai_compatible_clients() -> None:
+    message = SimpleNamespace(content="", tool_calls=[], role="assistant")
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(provider="openai", client=client)
+    bridge = LLMProviderBridge(llm)
+
+    await bridge.chat_with_tools(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        timeout_seconds=180.0,
+    )
+
+    assert client.kwargs["timeout"] == 180.0
+
+
+@pytest.mark.asyncio
 async def test_chat_response_exposes_openai_metadata_for_empty_content():
     message = SimpleNamespace(content="", tool_calls=[], role="assistant")
     response = SimpleNamespace(

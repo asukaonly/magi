@@ -39,9 +39,11 @@ async def test_explore_task_agent_repo_plan_falls_back_to_canonical_when_planner
 
 @pytest.mark.asyncio
 async def test_explore_planning_service_prefers_llm_plan_for_scoped_request() -> None:
+    captured: dict[str, object] = {}
+
     class _FakePromptService:
         async def call_llm(self, **kwargs):  # type: ignore[no-untyped-def]
-            _ = kwargs
+            captured.update(kwargs)
             return (
                 '{"summary":"Scoped backend analysis plan","subtasks":['
                 '{"description":"Map agent scope","subagent_type":"Explore","prompt":"Inspect backend/src/magi/agent boundaries","parallel_group":"g1"},'
@@ -67,6 +69,8 @@ async def test_explore_planning_service_prefers_llm_plan_for_scoped_request() ->
         "Trace task orchestration flow",
         "Summarize orchestration risks",
     ]
+    assert captured["json_mode"] is True
+    assert captured["timeout_seconds"] == 180.0
     assert all(item.subagent_type == "Explore" for item in plan.subtasks)
     assert all("Parent user request:" in item.prompt for item in plan.subtasks)
 

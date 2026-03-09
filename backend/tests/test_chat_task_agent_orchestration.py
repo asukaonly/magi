@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -335,6 +336,40 @@ async def test_chat_planning_service_adds_fetch_subtask_only_for_detail_requests
 
     assert len(plan.subtasks) == 3
     assert plan.subtasks[-1].description == "Fetch and verify article details"
+
+
+@pytest.mark.asyncio
+async def test_chat_planning_service_uses_json_mode_and_extended_timeout(monkeypatch) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    captured: dict[str, Any] = {}
+
+    async def _fake_call_llm(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return (
+            '{"summary":"planned","subtasks":['
+            '{"description":"Search official and local-source coverage","subagent_type":"general-purpose","prompt":"Search official sources","parallel_group":"group_a"},'
+            '{"description":"Search major media and commercial-source coverage","subagent_type":"general-purpose","prompt":"Search media sources","parallel_group":"group_a"}'
+            ']}'
+        )
+
+    monkeypatch.setattr(agent._prompt_service, "call_llm", _fake_call_llm)
+
+    plan = await agent._planning_service._plan_with_task_agent(
+        user_message="搜一下最近7天杭州有什么重要的新闻，给我来10条",
+        history=[],
+        orchestration_plan=OrchestrationPlan(
+            mode="decompose",
+            planner="task_agent",
+            default_leaf_type="general-purpose",
+            allow_parallel=True,
+        ),
+        request_profile="research",
+    )
+
+    assert plan is not None
+    assert captured["json_mode"] is True
+    assert captured["timeout_seconds"] == 180.0
+    assert captured["disable_thinking"] is False
 
 
 @pytest.mark.asyncio

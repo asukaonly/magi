@@ -696,3 +696,56 @@ async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest
     assert captured["finish_reason"] == "length"
     assert captured["has_content"] is False
     assert captured["raw_message"]["reasoning_content"] == "partial"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_without_tools_forwards_json_mode_and_timeout() -> None:
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return ProviderResponse(content='{"result_status":"success"}')
+
+    executor.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
+
+    result = await executor._call_llm_without_tools(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "why"}],
+        disable_thinking=False,
+        json_mode=True,
+        timeout_seconds=180.0,
+    )
+
+    assert result["content"] == '{"result_status":"success"}'
+    assert captured["json_mode"] is True
+    assert captured["timeout_seconds"] == 180.0
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_tools_uses_extended_timeout_when_thinking_enabled() -> None:
+    executor = FunctionCallingExecutor(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_chat_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return ProviderResponse(content="")
+
+    executor.provider_bridge.chat_with_tools = _fake_chat_with_tools  # type: ignore[method-assign]
+
+    await executor._call_llm_with_tools(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "plan"}],
+        tools=[],
+        disable_thinking=False,
+    )
+
+    assert captured["timeout_seconds"] == 180.0

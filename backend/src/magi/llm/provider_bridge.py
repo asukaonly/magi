@@ -80,6 +80,8 @@ class LLMProviderBridge:
         max_tokens: int = DEFAULT_THINKING_TOKENS,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
+        json_mode: bool = False,
+        timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
@@ -91,6 +93,8 @@ class LLMProviderBridge:
             max_tokens=max_tokens,
             temperature=temperature,
             disable_thinking=disable_thinking,
+            json_mode=json_mode,
+            timeout_seconds=timeout_seconds,
             event_context=event_context,
         )
         return response.content
@@ -102,6 +106,8 @@ class LLMProviderBridge:
         max_tokens: int = DEFAULT_THINKING_TOKENS,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
+        json_mode: bool = False,
+        timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
     ) -> ProviderResponse:
         """
@@ -110,13 +116,16 @@ class LLMProviderBridge:
         started_at = time.time()
         try:
             if self.is_anthropic():
-                response = await self.llm._client.messages.create(
-                    model=self.llm.model_name,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system=system_prompt,
-                    messages=messages,
-                )
+                anthropic_kwargs: Dict[str, Any] = {
+                    "model": self.llm.model_name,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "system": system_prompt,
+                    "messages": messages,
+                }
+                if timeout_seconds is not None:
+                    anthropic_kwargs["timeout"] = timeout_seconds
+                response = await self.llm._client.messages.create(**anthropic_kwargs)
                 if hasattr(response, "content"):
                     provider_response = self._parse_anthropic_response(response)
                 else:
@@ -128,6 +137,10 @@ class LLMProviderBridge:
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                 }
+                if json_mode:
+                    chat_kwargs["response_format"] = {"type": "json_object"}
+                if timeout_seconds is not None:
+                    chat_kwargs["timeout"] = timeout_seconds
                 if self.is_glm():
                     extra_body = self._disabled_thinking_extra_body(disable_thinking)
                     if extra_body:
@@ -166,6 +179,7 @@ class LLMProviderBridge:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
+        timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
     ) -> ProviderResponse:
         """
@@ -182,6 +196,7 @@ class LLMProviderBridge:
                     system=system_prompt,
                     messages=api_messages,
                     tools=tools if tools else None,
+                    timeout=timeout_seconds,
                 )
                 provider_response = self._parse_anthropic_response(response)
             elif hasattr(self.llm, "_client"):
@@ -194,6 +209,8 @@ class LLMProviderBridge:
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                 }
+                if timeout_seconds is not None:
+                    kwargs["timeout"] = timeout_seconds
                 if self.is_glm():
                     extra_body = self._disabled_thinking_extra_body(disable_thinking)
                     if extra_body:
@@ -208,6 +225,7 @@ class LLMProviderBridge:
                     max_tokens=max_tokens,
                     temperature=temperature,
                     disable_thinking=disable_thinking,
+                    timeout_seconds=timeout_seconds,
                     event_context=event_context,
                 )
                 return provider_response

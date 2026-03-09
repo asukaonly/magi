@@ -11,6 +11,8 @@ from .prompt_service import ExplorePromptService
 
 logger = get_logger(__name__)
 
+STRUCTURED_PLANNING_TIMEOUT_SECONDS = 180.0
+
 
 class ExplorePlanningService:
     """Owns LLM-first and fallback Explore subtask generation."""
@@ -90,6 +92,8 @@ class ExplorePlanningService:
                 system_prompt=system_prompt,
                 messages=[{"role": "user", "content": json.dumps(planning_prompt, ensure_ascii=False)}],
                 disable_thinking=False,
+                json_mode=True,
+                timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
             )
         except Exception as exc:
             logger.warning("ExploreTaskAgent planning call failed | error=%s", exc)

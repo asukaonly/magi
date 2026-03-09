@@ -28,6 +28,8 @@ class TaskAgentLLMService:
         messages: list[dict[str, str]],
         disable_thinking: bool = True,
         temperature: float = 0.7,
+        json_mode: bool = False,
+        timeout_seconds: float | None = None,
     ) -> str:
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
@@ -47,6 +49,8 @@ class TaskAgentLLMService:
                 max_tokens=self._llm_max_tokens(),
                 temperature=temperature,
                 disable_thinking=disable_thinking,
+                json_mode=json_mode,
+                timeout_seconds=timeout_seconds,
                 event_context={
                     "request_id": request_id,
                     "request_kind": f"task_agent:{self._logger_name}",

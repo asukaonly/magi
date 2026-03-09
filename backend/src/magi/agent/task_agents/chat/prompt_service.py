@@ -118,12 +118,16 @@ class ChatPromptService:
         system_prompt: str,
         messages: list[dict[str, str]],
         disable_thinking: bool = True,
+        json_mode: bool = False,
+        timeout_seconds: float | None = None,
     ) -> str:
         return await self._llm_service.call(
             system_prompt=system_prompt,
             messages=messages,
             disable_thinking=disable_thinking,
             temperature=0.7,
+            json_mode=json_mode,
+            timeout_seconds=timeout_seconds,
         )
 
     def filter_history_for_aggregation(self, history: list[dict[str, Any]]) -> list[dict[str, str]]:
