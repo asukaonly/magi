@@ -311,6 +311,33 @@ async def test_chat_planning_service_falls_back_to_research_subtasks(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_chat_planning_service_adds_fetch_subtask_only_for_detail_requests(monkeypatch) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+
+    async def _empty_response(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return ""
+
+    monkeypatch.setattr(agent._prompt_service, "call_llm", _empty_response)
+
+    plan = await agent._planning_service.generate_subtask_plan(
+        user_message="搜一下最近7天杭州有什么重要的新闻，给我来10条，并展开第3条详情",
+        history=[{"role": "user", "content": "搜一下最近7天杭州有什么重要的新闻，给我来10条，并展开第3条详情"}],
+        orchestration_plan=OrchestrationPlan(
+            mode="decompose",
+            planner="task_agent",
+            default_leaf_type="general-purpose",
+            allow_parallel=True,
+        ),
+        user_id="u-chat",
+        session_id="s-chat",
+    )
+
+    assert len(plan.subtasks) == 3
+    assert plan.subtasks[-1].description == "Fetch and verify article details"
+
+
+@pytest.mark.asyncio
 async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monkeypatch) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._conversation_history["u-chat::s-chat"] = [

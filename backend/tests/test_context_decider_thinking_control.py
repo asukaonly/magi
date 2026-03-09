@@ -170,3 +170,24 @@ def test_context_decider_rule_fallback_routes_complex_news_to_generic_decompose(
     assert decision.orchestration_strategy["mode"] == "decompose"
     assert decision.orchestration_strategy["default_leaf_type"] == "general-purpose"
     assert decision.orchestration_strategy["allow_parallel"] is True
+
+
+@pytest.mark.asyncio
+async def test_context_decider_overrides_llm_direct_news_with_research_guardrail() -> None:
+    decider = ContextDecider(tool_registry=_ResearchToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
+
+    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return (
+            '{"intent":"realtime_query","tools":["web-search"],"deep_thinking":false,'
+            '"reasoning":"simple search","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+        )
+
+    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+
+    decision = await decider.decide("搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接", {"os": "Darwin"})
+
+    assert decision.intent == "planning"
+    assert decision.deep_thinking is True
+    assert decision.orchestration_strategy["mode"] == "decompose"
+    assert decision.orchestration_strategy["default_leaf_type"] == "general-purpose"

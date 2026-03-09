@@ -235,6 +235,11 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
 
             # Parse response
             decision = self._parse_response(response)
+            decision = self._apply_research_guardrail(
+                user_message=user_message,
+                decision=decision,
+                available_tools=available_tools,
+            )
 
             logger.info(
                 f"[ContextDecider] Decision made | Intent: {decision.intent} | "
@@ -426,6 +431,32 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             deep_thinking=False,
             reasoning="Failed to parse LLM response",
             orchestration_strategy=self._default_orchestration_strategy(),
+        )
+
+    def _apply_research_guardrail(
+        self,
+        *,
+        user_message: str,
+        decision: ContextDecision,
+        available_tools: List[Dict[str, Any]],
+    ) -> ContextDecision:
+        user_lower = user_message.lower()
+        if not self._is_complex_research_request(user_lower):
+            return decision
+        available_names = {str(item.get("name", "")).strip() for item in available_tools}
+        tools: list[str] = []
+        if "web-search" in available_names:
+            tools.append("web-search")
+        if self._needs_fetch_for_request(user_lower) and "web-fetch" in available_names:
+            tools.append("web-fetch")
+        if not tools and "bash" in available_names:
+            tools.append("bash")
+        return ContextDecision(
+            intent="planning",
+            tools=tools[: self.max_tools],
+            deep_thinking=True,
+            reasoning="Complex research request guardrail: force bounded generic decomposition with explicit retrieval steps.",
+            orchestration_strategy=self._default_orchestration_strategy(tools[: self.max_tools], user_lower),
         )
 
     def _rule_based_fallback(
