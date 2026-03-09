@@ -11,6 +11,7 @@ import LLMForm from '../config-forms/LLMForm';
 import PersonalityForm from '../config-forms/PersonalityForm';
 import MemoryForm from '../config-forms/MemoryForm';
 import ToolsForm from '../config-forms/ToolsForm';
+import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import ModeSelection from './ModeSelection';
 import StepIndicator from './StepIndicator';
 import CompletionScreen from './CompletionScreen';
@@ -259,48 +260,39 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   };
 
   return (
-    <div className="w-full rounded-xl border border-violet-500/25 bg-background shadow-[0_20px_60px_-30px_rgba(124,58,237,0.45)]">
-      <div className="flex min-h-[clamp(560px,78vh,760px)]">
-        {/* Left sidebar - Step indicator */}
-        <div className="w-44 shrink-0 border-r border-violet-500/15 bg-violet-500/5 px-5 py-6">
-          <StepIndicator steps={steps} current={current} />
+    <GuidedConfigFrame
+      sidebarClassName="lg:w-44"
+      sidebar={<StepIndicator steps={steps} current={current} />}
+      footer={(
+        <div className="flex items-center justify-between gap-3">
+          <Button variant="outline" onClick={handlePrev} disabled={current === 0}>
+            {t('actions.previous')}
+          </Button>
+          <Button onClick={handleNext} disabled={saving}>
+            {saving ? t('actions.saving') : isLastStep ? t('actions.finish') : t('actions.next')}
+          </Button>
         </div>
-
-        {/* Right content area */}
-        <div className="flex flex-1 flex-col">
-          <Form
-            form={form}
-            layout="vertical"
-            initialValues={initialConfig}
-            onValuesChange={onValuesChange}
+      )}
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={initialConfig}
+        onValuesChange={onValuesChange}
+      >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`${renderLanguage}-${mode ?? 'none'}-${current}`}
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -24 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
           >
-            <div className="flex-1 overflow-y-auto p-6">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`${renderLanguage}-${mode ?? 'none'}-${current}`}
-                  initial={{ opacity: 0, x: 24 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -24 }}
-                  transition={{ duration: 0.22, ease: 'easeOut' }}
-                >
-                  {renderStepContent()}
-                </motion.div>
-              </AnimatePresence>
-            </div>
-          </Form>
-
-          {/* Footer buttons */}
-          <div className="flex items-center justify-between gap-3 border-t border-border/70 px-6 py-4">
-            <Button variant="outline" onClick={handlePrev} disabled={current === 0}>
-              {t('actions.previous')}
-            </Button>
-            <Button onClick={handleNext} disabled={saving}>
-              {saving ? t('actions.saving') : isLastStep ? t('actions.finish') : t('actions.next')}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+            {renderStepContent()}
+          </motion.div>
+        </AnimatePresence>
+      </Form>
+    </GuidedConfigFrame>
   );
 };
 

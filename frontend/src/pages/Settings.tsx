@@ -349,17 +349,22 @@ export const SettingsPage: React.FC = () => {
               <h2 className="text-xl font-semibold">{t('settings.tabs.personality')}</h2>
               <p className="text-sm text-muted-foreground">{t('settings.personalityDesc')}</p>
             </div>
-            <div className="rounded-md border p-4">
-              <div className="mb-3 flex items-center justify-between">
+            <div className="overflow-hidden rounded-3xl border border-violet-500/20 bg-[radial-gradient(120%_160%_at_0%_0%,rgba(124,58,237,0.12)_0%,rgba(124,58,237,0.03)_42%,transparent_72%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] p-5 shadow-[0_16px_40px_-28px_rgba(124,58,237,0.55)]">
+              <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-medium">{t('settings.fields.currentPersonality')}</h3>
+                  <h3 className="font-medium text-violet-700">{t('settings.fields.currentPersonality')}</h3>
                   <p className="text-sm text-muted-foreground">{config.personality?.persona_entity?.basic_profile?.name || 'Default'}</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => window.location.href = '/personality'}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl border-violet-500/20 bg-background/80"
+                  onClick={() => window.location.href = '/personality'}
+                >
                   {t('settings.actions.configure')}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs leading-6 text-muted-foreground">
                 {config.personality?.persona_entity?.basic_profile?.occupation || ''}
               </p>
             </div>
