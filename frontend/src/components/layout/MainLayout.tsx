@@ -4,8 +4,8 @@ import Sidebar from './Sidebar';
 
 const MainLayout: React.FC = () => {
   return (
-    <div className="h-screen w-screen overflow-hidden p-3">
-      <div className="desktop-surface relative grid h-full grid-cols-[320px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden rounded-[30px]">
+    <div className="h-screen w-screen overflow-hidden">
+      <div className="desktop-surface relative grid h-full w-full grid-cols-[320px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0))]" />
         {/* Keep an invisible drag strip for macOS overlay mode without rendering a detached title bar */}
         <div
