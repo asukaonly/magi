@@ -127,6 +127,7 @@
     "loadFailed": "Failed to load config: {{message}}",
     "saveSuccess": "Configuration saved",
     "saveFailed": "Failed to save config: {{message}}",
+    "errorUnknown": "Unknown error",
     "resetConfirm": "Reset all settings to defaults?",
     "resetSuccess": "Configuration reset to defaults",
     "resetFailed": "Failed to reset config: {{message}}",
@@ -155,6 +156,8 @@
     "memoryDesc": "Manage layered memory system and vector models",
     "toolsDesc": "Configure built-in tools and skills",
     "systemDesc": "Advanced system configuration parameters",
+    "llmSaveHint": "LLM settings require manual saving. Other settings apply automatically.",
+    "saveLLM": "Save LLM settings",
     "fields": {
       "language": "Interface Language",
       "theme": "Interface Theme",

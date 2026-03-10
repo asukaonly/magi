@@ -127,6 +127,7 @@
     "loadFailed": "加载配置失败: {{message}}",
     "saveSuccess": "配置保存成功",
     "saveFailed": "保存配置失败: {{message}}",
+    "errorUnknown": "未知错误",
     "resetConfirm": "确定要重置所有配置为默认值吗？",
     "resetSuccess": "配置已重置为默认值",
     "resetFailed": "重置配置失败: {{message}}",
@@ -155,6 +156,8 @@
     "memoryDesc": "管理多层记忆系统和向量模型",
     "toolsDesc": "配置内置工具和技能",
     "systemDesc": "高级系统配置参数",
+    "llmSaveHint": "LLM 配置需要手动保存，其他设置会自动生效。",
+    "saveLLM": "保存 LLM 配置",
     "fields": {
       "language": "界面语言",
       "theme": "界面主题",

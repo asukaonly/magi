@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import {
   Download,
-  RefreshCw,
   Save,
   Trash2,
   AlertTriangle,
@@ -91,13 +90,19 @@ const NumberField: React.FC<{
   </label>
 );
 
+const serializeConfigWithoutLlm = (config: SystemConfig) => {
+  const { llm: _llm, ...rest } = config;
+  return JSON.stringify(rest);
+};
+
 export const SettingsPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
   const themeMode = useThemeStore((state) => state.mode);
   const setThemeMode = useThemeStore((state) => state.setMode);
   const [config, setConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
+  const [llmDraft, setLlmDraft] = useState(DEFAULT_SYSTEM_CONFIG.llm);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingLlm, setSavingLlm] = useState(false);
   const [activeSection, setActiveSection] = useState('preferences');
   const [downloadModel, setDownloadModel] = useState('bge-m3');
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -105,6 +110,9 @@ export const SettingsPage: React.FC = () => {
   const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const hasLoadedConfigRef = useRef(false);
+  const lastSavedNonLlmSnapshotRef = useRef(serializeConfigWithoutLlm(DEFAULT_SYSTEM_CONFIG));
+  const autoSaveRequestIdRef = useRef(0);
 
   useEffect(() => {
     void fetchConfig();
@@ -123,7 +131,11 @@ export const SettingsPage: React.FC = () => {
     setLoading(true);
     try {
       const response = await configApi.get();
-      setConfig(response.data || DEFAULT_SYSTEM_CONFIG);
+      const nextConfig = response.data || DEFAULT_SYSTEM_CONFIG;
+      setConfig(nextConfig);
+      setLlmDraft(nextConfig.llm);
+      lastSavedNonLlmSnapshotRef.current = serializeConfigWithoutLlm(nextConfig);
+      hasLoadedConfigRef.current = true;
     } catch (error: any) {
       toast.error(t('settings.loadFailed', { message: error?.message || 'unknown' }));
     } finally {
@@ -140,33 +152,53 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
+  const handleSaveLlm = async () => {
     try {
-      setSaving(true);
-      await configApi.update(config);
+      setSavingLlm(true);
+      await configApi.update({
+        ...config,
+        llm: llmDraft,
+      });
+      setConfig((prev) => ({
+        ...prev,
+        llm: llmDraft,
+      }));
       toast.success(t('settings.saveSuccess'));
-      await fetchConfig();
     } catch (error: any) {
       toast.error(t('settings.saveFailed', { message: error?.message || 'unknown' }));
     } finally {
-      setSaving(false);
+      setSavingLlm(false);
     }
   };
 
-  const handleReset = async () => {
-    const confirmed = window.confirm(t('settings.resetConfirm'));
-    if (!confirmed) return;
-    try {
-      setLoading(true);
-      await configApi.reset();
-      toast.success(t('settings.resetSuccess'));
-      await fetchConfig();
-    } catch (error: any) {
-      toast.error(t('settings.resetFailed', { message: error?.message || 'unknown' }));
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (!hasLoadedConfigRef.current || loading) {
+      return;
     }
-  };
+
+    const snapshot = serializeConfigWithoutLlm(config);
+    if (snapshot === lastSavedNonLlmSnapshotRef.current) {
+      return;
+    }
+
+    const requestId = ++autoSaveRequestIdRef.current;
+    const timer = window.setTimeout(async () => {
+      try {
+        await configApi.update(config);
+        if (requestId === autoSaveRequestIdRef.current) {
+          lastSavedNonLlmSnapshotRef.current = snapshot;
+        }
+      } catch (error: any) {
+        toast.error(t('settings.saveFailed', { message: error?.message || 'unknown' }));
+      }
+    }, 600);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [config, loading, t]);
+
+  const llmDirty = JSON.stringify(llmDraft) !== JSON.stringify(config.llm);
 
   const startDownload = async () => {
     try {
@@ -303,12 +335,17 @@ export const SettingsPage: React.FC = () => {
             </div>
             <LLMForm
               quickMode={false}
-              value={config.llm}
+              value={llmDraft}
               showAdvancedByDefault
-              onChange={(nextLLM) => patchConfig((draft) => {
-                draft.llm = nextLLM;
-              })}
+              onChange={setLlmDraft}
             />
+            <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
+              <p className="text-sm text-muted-foreground">{t('settings.llmSaveHint')}</p>
+              <Button size="sm" onClick={handleSaveLlm} disabled={!llmDirty || savingLlm}>
+                <Save className="mr-2 h-4 w-4" />
+                {savingLlm ? t('settings.saving') : t('settings.saveLLM')}
+              </Button>
+            </div>
           </div>
         );
 
@@ -531,24 +568,9 @@ export const SettingsPage: React.FC = () => {
     <div className="flex h-full min-h-0 flex-col">
       {/* Header */}
       <div className="shrink-0 border-b bg-background/95 px-6 py-4 backdrop-blur">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">{t('settings.title')}</h1>
-            <p className="text-sm text-muted-foreground">{t('settings.subtitle')}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={fetchConfig}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              {t('settings.refresh')}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleReset}>
-              {t('settings.reset')}
-            </Button>
-            <Button size="sm" onClick={handleSave} disabled={saving}>
-              <Save className="mr-2 h-4 w-4" />
-              {saving ? t('settings.saving') : t('settings.saveAll')}
-            </Button>
-          </div>
+        <div>
+          <h1 className="text-xl font-semibold">{t('settings.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('settings.subtitle')}</p>
         </div>
       </div>
 

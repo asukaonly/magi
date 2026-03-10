@@ -18,7 +18,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField } from '@/components/config-forms/fields';
 import { toolsApi, type ToolConfig, ToolConfigSpec } from '@/api/modules/tools';
@@ -222,7 +221,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
  */
 interface ToolConfigCardProps {
   tool: ToolConfig;
-  onUpdateConfig: (toolName: string, updates: Record<string, any>) => void;
+  onUpdateConfig: (toolName: string, updates: Record<string, any>) => Promise<boolean>;
   onUpdateEnabled: (toolName: string, enabled: boolean) => void;
   saving?: boolean;
 }
@@ -253,14 +252,22 @@ interface ToolConfigCardProps {
     setPendingChanges((prev) => ({ ...prev, [path]: value }));
   };
 
-  const handleSave = () => {
-    if (Object.keys(pendingChanges).length > 0) {
-      onUpdateConfig(tool.name, pendingChanges);
-      setPendingChanges({});
+  useEffect(() => {
+    if (saving || Object.keys(pendingChanges).length === 0) {
+      return;
     }
-  };
 
-  const hasPendingChanges = Object.keys(pendingChanges).length > 0;
+    const timer = window.setTimeout(async () => {
+      const saved = await onUpdateConfig(tool.name, pendingChanges);
+      if (saved) {
+        setPendingChanges({});
+      }
+    }, 600);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [onUpdateConfig, pendingChanges, saving, tool.name]);
 
   // Separate template specs from regular specs
   const templateSpecs = tool.config_specs.filter((s) => s.is_template);
@@ -370,19 +377,6 @@ interface ToolConfigCardProps {
             </div>
           </div>
         )}
-
-        {/* Save button */}
-        {hasPendingChanges && (
-          <div className="mt-4 flex justify-end">
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? t('settings.saving') : t('settings.saveChanges')}
-            </Button>
-          </div>
-        )}
       </CardContent>
     </Card>
   );
@@ -421,11 +415,12 @@ export const DynamicToolsConfig: React.FC = () => {
     setSaving(true);
     try {
       await toolsApi.updateToolConfig(toolName, { updates });
-      toast.success(t('settings.toolConfigSaved', { tool: toolName }));
       // Refresh tools to get updated values
       await fetchTools();
+      return true;
     } catch (err: any) {
       toast.error(t('settings.toolConfigSaveFailed', { message: err?.message }));
+      return false;
     } finally {
       setSaving(false);
     }
