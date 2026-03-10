@@ -398,9 +398,6 @@ def _provider_current_values(
     values: dict[str, Any] = {}
 
     for spec in config_specs_raw:
-        if getattr(spec, "sensitive", False):
-            continue
-
         path = str(spec.path)
         supported_providers = getattr(spec, "providers", None) or list(provider_configs.keys())
         if path == "default_provider":

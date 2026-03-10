@@ -11,6 +11,7 @@ from magi.api.routers.tools import (
     tools_router,
     update_tool_config,
 )
+from magi.config.models import AppConfig
 from magi.tools.builtin.weather_tool import WeatherTool
 from magi.tools.builtin.web_search_tool import WebSearchTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
@@ -57,6 +58,17 @@ def test_web_search_config_response_exposes_provider_enum_and_targeted_specs():
     assert default_provider_spec.enum == ["duckduckgo", "brave", "perplexity", "tavily"]
     assert api_key_spec.providers == ["brave", "perplexity", "tavily"]
     assert base_url_spec.providers == ["duckduckgo"]
+
+
+def test_web_search_config_response_includes_sensitive_current_values(monkeypatch):
+    config = AppConfig()
+    config.tools.web_search.providers["brave"].api_key = "secret-key"
+
+    monkeypatch.setattr(config_module, "get_config", lambda: config)
+
+    response = _build_tool_config_response("web-search", WebSearchTool())
+
+    assert response.current_values["providers.brave.api_key"] == "secret-key"
 
 
 def test_weather_tool_requires_api_key_and_base_url_for_qweather():

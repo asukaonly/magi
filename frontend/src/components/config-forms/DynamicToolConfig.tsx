@@ -406,9 +406,13 @@ export const DynamicToolsConfig: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTools = async () => {
-    setLoading(true);
-    setError(null);
+  const fetchTools = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) {
+      setLoading(true);
+    }
+    if (!silent || !tools.length) {
+      setError(null);
+    }
     try {
       const response = await toolsApi.listWithConfig();
       setTools(response.tools || []);
@@ -417,20 +421,21 @@ export const DynamicToolsConfig: React.FC = () => {
       setError(t('settings.loadToolsFailed', { message: errorMessage }));
       toast.error(t('settings.loadToolsFailed', { message: errorMessage }));
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchTools();
+    void fetchTools();
   }, []);
 
   const handleUpdateConfig = async (toolName: string, updates: Record<string, any>) => {
     setSaving(true);
     try {
       await toolsApi.updateToolConfig(toolName, { updates });
-      // Refresh tools to get updated values
-      await fetchTools();
+      await fetchTools({ silent: true });
       return true;
     } catch (err: any) {
       toast.error(t('settings.toolConfigSaveFailed', { message: err?.message }));
@@ -455,6 +460,7 @@ export const DynamicToolsConfig: React.FC = () => {
           tool.name === toolName ? { ...tool, enabled } : tool
         )
       );
+      await fetchTools({ silent: true });
     } catch (err: any) {
       toast.error(t('settings.toolToggleFailed', { message: err?.message }));
     } finally {
