@@ -506,7 +506,11 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
         # Reload config to apply changes
         reload_config()
 
-        logger.info(f"Tool {tool_name} config updated", updates=list(request.updates.keys()))
+        logger.info(
+            "Tool %s config updated: %s",
+            tool_name,
+            list(request.updates.keys()),
+        )
 
         return {
             "success": True,

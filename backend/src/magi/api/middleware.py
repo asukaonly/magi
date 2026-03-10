@@ -43,7 +43,7 @@ class errorHandler(BaseHTTPMiddleware):
 
             # Return统一errorformat
             return JSONResponse(
-                status_code=status.HTTP_500_internal_server_error,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
                     "success": False,
                     "message": "Internal server error",

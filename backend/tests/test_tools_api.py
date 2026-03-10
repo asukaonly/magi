@@ -3,7 +3,14 @@
 import pytest
 from starlette.routing import Match
 
-from magi.api.routers.tools import _build_tool_config_response, list_tools_with_config, tools_router
+import magi.config as config_module
+from magi.api.routers.tools import (
+    ToolConfigUpdateRequest,
+    _build_tool_config_response,
+    list_tools_with_config,
+    tools_router,
+    update_tool_config,
+)
 from magi.tools.builtin.weather_tool import WeatherTool
 from magi.tools.builtin.web_search_tool import WebSearchTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
@@ -63,3 +70,17 @@ def test_weather_tool_requires_api_key_and_base_url_for_qweather():
     ]
     assert qweather_provider.is_ready(ProviderConfig(api_key="token", base_url="devapi.qweather.com")) is True
     assert qweather_provider.is_ready(ProviderConfig(api_key="token", base_url="")) is False
+
+
+@pytest.mark.asyncio
+async def test_update_tool_config_returns_success_without_logger_crash(monkeypatch):
+    monkeypatch.setattr(config_module, "save_config", lambda updates: True)
+    monkeypatch.setattr(config_module, "reload_config", lambda: None)
+
+    response = await update_tool_config(
+        "web-search",
+        ToolConfigUpdateRequest(updates={"default_provider": "duckduckgo"}),
+    )
+
+    assert response["success"] is True
+    assert response["updated_keys"] == ["default_provider"]
