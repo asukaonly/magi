@@ -31,6 +31,7 @@ interface DynamicConfigFieldProps {
   onChange: (value: any) => void;
   disabled?: boolean;
   providerName?: string;
+  selectOptions?: Array<{ label: string; value: string; disabled?: boolean }>;
 }
 
 export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
@@ -39,6 +40,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
   onChange,
   disabled = false,
   providerName,
+  selectOptions,
 }) => {
   const { t } = useTranslation('app');
   const [showPassword, setShowPassword] = useState(false);
@@ -85,7 +87,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
 
     // String with enum -> Select
     if (spec.type === 'string' && spec.enum && spec.enum.length > 0) {
-      const options = spec.enum.map((item) => ({
+      const options = selectOptions ?? spec.enum.map((item) => ({
         label: String(item),
         value: String(item),
       }));
@@ -99,6 +101,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
             options={options}
             placeholder={spec.placeholder || t('settings.selectPlaceholder')}
             disabled={disabled || spec.read_only}
+            allowEmpty={!spec.required}
           />
         </label>
       );
@@ -267,6 +270,7 @@ interface ToolConfigCardProps {
   // Separate template specs from regular specs
   const templateSpecs = tool.config_specs.filter((s) => s.is_template);
   const regularSpecs = tool.config_specs.filter((s) => !s.is_template);
+  const providerReadyMap = new Map(tool.providers.map((provider) => [provider.name, provider.is_ready]));
 
   return (
     <Card className="overflow-hidden">
@@ -310,6 +314,20 @@ interface ToolConfigCardProps {
                 value={pendingChanges[spec.path] ?? tool.current_values[spec.path]}
                 onChange={(value) => handleFieldChange(spec.path, value)}
                 disabled={saving}
+                selectOptions={
+                  spec.path === 'default_provider' && spec.enum
+                    ? spec.enum.map((item) => {
+                        const providerName = String(item);
+                        const isKnownProvider = providerReadyMap.has(providerName);
+                        const isReady = providerReadyMap.get(providerName);
+                        return {
+                          label: providerName,
+                          value: providerName,
+                          disabled: isKnownProvider ? !isReady : false,
+                        };
+                      })
+                    : undefined
+                }
               />
             ))}
           </div>

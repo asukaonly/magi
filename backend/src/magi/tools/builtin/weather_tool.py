@@ -134,6 +134,7 @@ class WeatherTool(MultiProviderTool):
                 path="default_provider",
                 type="string",
                 description="Default weather provider",
+                required=True,
                 enum=self.get_all_provider_names(),
             ),
             ToolConfigSpec(

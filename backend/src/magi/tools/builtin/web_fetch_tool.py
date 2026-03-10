@@ -130,6 +130,7 @@ class WebFetchTool(MultiProviderTool):
                 path="default_provider",
                 type="string",
                 description="Default web-fetch provider for direct mode (http/browser/curl)",
+                required=True,
                 enum=self.get_all_provider_names(),
             ),
         ]

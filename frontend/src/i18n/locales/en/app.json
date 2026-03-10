@@ -233,6 +233,7 @@
       "notConfigured": "Not Configured"
     },
     "toolProviders": "Providers",
+    "selectPlaceholder": "Please select",
     "loadingTools": "Loading tools...",
     "loadToolsFailed": "Failed to load tools: {{message}}",
     "toolConfigSaved": "Tool configuration saved",

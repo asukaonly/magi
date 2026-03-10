@@ -5,6 +5,7 @@ import { useState, useRef, useEffect } from 'react';
 interface OptionItem {
   label: string;
   value: string;
+  disabled?: boolean;
 }
 
 export function SelectField({
@@ -54,7 +55,7 @@ export function SelectField({
         disabled={disabled}
         className={cn(
           'flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600/60',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600/60',
           disabled && 'cursor-not-allowed opacity-50',
           !selectedOption && 'text-muted-foreground'
         )}
@@ -72,18 +73,28 @@ export function SelectField({
               className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/50"
             >
               <span className="text-muted-foreground">{placeholder}</span>
-              {!value && <Check className="h-4 w-4 text-violet-600" />}
+              {!value && <Check className="h-4 w-4 text-primary-600" />}
             </button>
           )}
           {options.map((opt) => (
             <button
               type="button"
               key={opt.value}
-              onClick={() => handleSelect(opt.value)}
-              className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/50"
+              onClick={() => {
+                if (!opt.disabled) {
+                  handleSelect(opt.value);
+                }
+              }}
+              disabled={opt.disabled}
+              className={cn(
+                'flex w-full items-center justify-between px-3 py-2 text-sm',
+                opt.disabled
+                  ? 'cursor-not-allowed text-muted-foreground/60'
+                  : 'hover:bg-muted/50'
+              )}
             >
               <span>{opt.label}</span>
-              {value === opt.value && <Check className="h-4 w-4 text-violet-600" />}
+              {value === opt.value && <Check className="h-4 w-4 text-primary-600" />}
             </button>
           ))}
         </div>

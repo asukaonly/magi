@@ -233,6 +233,7 @@
       "notConfigured": "未配置"
     },
     "toolProviders": "提供者",
+    "selectPlaceholder": "请选择",
     "loadingTools": "加载工具中...",
     "loadToolsFailed": "加载工具失败: {{message}}",
     "toolConfigSaved": "工具配置已保存",
