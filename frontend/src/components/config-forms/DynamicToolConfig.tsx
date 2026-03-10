@@ -62,8 +62,6 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
 
   // Render based on type
   const renderField = () => {
-    const commonClasses = 'h-9 w-full';
-
     // Boolean -> Switch
     if (spec.type === 'boolean') {
       return (
@@ -86,82 +84,75 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       }));
 
       return (
-        <div className={commonClasses}>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{getLabel()}</span>
-            <SelectField
-              value={String(value ?? spec.default ?? '')}
-              onChange={handleChange}
-              options={options}
-              placeholder={spec.placeholder || t('settings.selectPlaceholder')}
-              disabled={disabled || spec.read_only}
-            />
-          </label>
-        </div>
+        <label className="space-y-2">
+          <span className="text-sm font-medium">{getLabel()}</span>
+          <SelectField
+            value={String(value ?? spec.default ?? '')}
+            onChange={handleChange}
+            options={options}
+            placeholder={spec.placeholder || t('settings.selectPlaceholder')}
+            disabled={disabled || spec.read_only}
+          />
+        </label>
       );
     }
 
     // Sensitive string (API key, etc.) -> Password Input
     if (spec.type === 'string' && spec.sensitive) {
       return (
-        <div className={commonClasses}>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{getLabel()}</span>
-            <div className="relative">
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                value={value ?? ''}
-                onChange={(e) => handleChange(e.target.value)}
-                placeholder={spec.placeholder || '•••••••••'}
-                disabled={disabled || spec.read_only}
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2 top-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </label>
-        </div>
+        <label className="space-y-2">
+          <span className="text-sm font-medium">{getLabel()}</span>
+          <div className="relative">
+            <Input
+              type={showPassword ? 'text' : 'password'}
+              value={value ?? ''}
+              onChange={(e) => handleChange(e.target.value)}
+              placeholder={spec.placeholder || '•••••••••'}
+              disabled={disabled || spec.read_only}
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label={showPassword ? t('settings.hideSensitiveValue') : t('settings.showSensitiveValue')}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </label>
       );
     }
 
     // Integer/Float -> Number Input
     if (spec.type === 'integer' || spec.type === 'float') {
       return (
-        <div className={commonClasses}>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{getLabel()}</span>
-            <input
-              type="number"
-              value={value ?? spec.default ?? ''}
-              onChange={(e) => handleChange(spec.type === 'integer' ? parseInt(e.target.value) : parseFloat(e.target.value))}
-              placeholder={spec.placeholder}
-              disabled={disabled || spec.read_only}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-            />
-          </label>
-        </div>
+        <label className="space-y-2">
+          <span className="text-sm font-medium">{getLabel()}</span>
+          <input
+            type="number"
+            value={value ?? spec.default ?? ''}
+            onChange={(e) => handleChange(spec.type === 'integer' ? parseInt(e.target.value) : parseFloat(e.target.value))}
+            placeholder={spec.placeholder}
+            disabled={disabled || spec.read_only}
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+          />
+        </label>
       );
     }
 
     // Default string -> Text Input
     if (spec.type === 'string') {
       return (
-        <div className={commonClasses}>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{getLabel()}</span>
-            <Input
-              value={value ?? ''}
-              onChange={(e) => handleChange(e.target.value)}
-              placeholder={spec.placeholder}
-              disabled={disabled || spec.read_only}
-            />
-          </label>
-        </div>
+        <label className="space-y-2">
+          <span className="text-sm font-medium">{getLabel()}</span>
+          <Input
+            value={value ?? ''}
+            onChange={(e) => handleChange(e.target.value)}
+            placeholder={spec.placeholder}
+            disabled={disabled || spec.read_only}
+          />
+        </label>
       );
     }
 
@@ -169,47 +160,43 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     if (spec.type === 'array') {
       const arrayValue = Array.isArray(value) ? value.join(', ') : '';
       return (
-        <div className={commonClasses}>
-          <label className="space-y-2">
-            <span className="text-sm font-medium">{getLabel()}</span>
-            <textarea
-              value={arrayValue}
-              onChange={(e) => {
-                const arr = e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean);
-                handleChange(arr);
-              }}
-              placeholder={spec.placeholder || t('settings.arrayPlaceholder')}
-              disabled={disabled || spec.read_only}
-              rows={2}
-              className="h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-            />
-          </label>
-        </div>
+        <label className="space-y-2">
+          <span className="text-sm font-medium">{getLabel()}</span>
+          <textarea
+            value={arrayValue}
+            onChange={(e) => {
+              const arr = e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean);
+              handleChange(arr);
+            }}
+            placeholder={spec.placeholder || t('settings.arrayPlaceholder')}
+            disabled={disabled || spec.read_only}
+            rows={2}
+            className="h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+          />
+        </label>
       );
     }
 
     // Object or unknown type -> JSON Textarea
     return (
-      <div className={commonClasses}>
-        <label className="space-y-2">
-          <span className="text-sm font-medium">{getLabel()}</span>
-          <textarea
-            value={typeof value === 'object' ? JSON.stringify(value, null, 2) : ''}
-            onChange={(e) => {
-              try {
-                const parsed = JSON.parse(e.target.value);
-                handleChange(parsed);
-              } catch {
-                // Invalid JSON, don't update
-              }
-            }}
-            placeholder={spec.placeholder || '{}'}
-            disabled={disabled || spec.read_only}
-            rows={3}
-            className="h-20 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-          />
-        </label>
-      </div>
+      <label className="space-y-2">
+        <span className="text-sm font-medium">{getLabel()}</span>
+        <textarea
+          value={typeof value === 'object' ? JSON.stringify(value, null, 2) : ''}
+          onChange={(e) => {
+            try {
+              const parsed = JSON.parse(e.target.value);
+              handleChange(parsed);
+            } catch {
+              // Invalid JSON, don't update
+            }
+          }}
+          placeholder={spec.placeholder || '{}'}
+          disabled={disabled || spec.read_only}
+          rows={3}
+          className="h-20 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        />
+      </label>
     );
   };
 
@@ -292,9 +279,8 @@ interface ToolConfigCardProps {
                 </Badge>
               )}
             </div>
-            <CardDescription className="text-xs mt-1">
-              {tool.description.slice(0, 100)}
-              {tool.description.length > 100 ? '...' : ''}
+            <CardDescription className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+              {tool.description}
             </CardDescription>
           </div>
           <Switch

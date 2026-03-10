@@ -240,6 +240,8 @@
     "toolEnabled": "{{tool}} 已启用",
     "toolDisabled": "{{tool}} 已禁用",
     "toolToggleFailed": "切换工具状态失败: {{message}}",
+    "showSensitiveValue": "显示敏感信息",
+    "hideSensitiveValue": "隐藏敏感信息",
     "providerStatus": {
       "ready": "已就绪",
       "notConfigured": "未配置"

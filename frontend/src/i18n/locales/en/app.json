@@ -240,6 +240,8 @@
     "toolEnabled": "{{tool}} enabled",
     "toolDisabled": "{{tool}} disabled",
     "toolToggleFailed": "Failed to toggle tool: {{message}}",
+    "showSensitiveValue": "Show sensitive value",
+    "hideSensitiveValue": "Hide sensitive value",
     "providerStatus": {
       "ready": "Ready",
       "notConfigured": "Not Configured"
