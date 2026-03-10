@@ -405,8 +405,9 @@ export const DynamicToolsConfig: React.FC = () => {
       const response = await toolsApi.listWithConfig();
       setTools(response.data?.tools || []);
     } catch (err: any) {
-      setError(err?.message || t('settings.loadToolsFailed'));
-      toast.error(t('settings.loadToolsFailed'));
+      const errorMessage = err?.message || t('settings.errorUnknown');
+      setError(t('settings.loadToolsFailed', { message: errorMessage }));
+      toast.error(t('settings.loadToolsFailed', { message: errorMessage }));
     } finally {
       setLoading(false);
     }

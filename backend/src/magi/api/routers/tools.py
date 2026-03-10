@@ -173,58 +173,6 @@ async def list_tools(
     return tools
 
 
-@tools_router.get("/{tool_name}", response_model=ToolResponse)
-async def get_tool(tool_name: str):
-    """
-    Get tool details
-
-    Args:
-        tool_name: Tool name
-
-    Returns:
-        Tool details
-    """
-    if tool_name not in _tools_store:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_name} not found",
-        )
-
-    return _tools_store[tool_name]
-
-
-@tools_router.post("/{tool_name}/test")
-async def test_tool(tool_name: str, request: ToolTestRequest):
-    """
-    Test tool
-
-    Args:
-        tool_name: Tool name
-        request: Test request
-
-    Returns:
-        Test result
-    """
-    if tool_name not in _tools_store:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tool {tool_name} not found",
-        )
-
-    # TODO: Actual tool test execution
-    logger.info(f"Testing tool: {tool_name} with params: {request.parameters}")
-
-    return {
-        "success": True,
-        "message": f"Tool {tool_name} test executed",
-        "data": {
-            "tool_name": tool_name,
-            "parameters": request.parameters,
-            "result": "Test result (mock)",
-        },
-    }
-
-
 @tools_router.get("/categories/list")
 async def list_tool_categories():
     """
@@ -518,4 +466,56 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
     return {
         "success": False,
         "message": "Failed to save configuration",
+    }
+
+
+@tools_router.get("/{tool_name}", response_model=ToolResponse)
+async def get_tool(tool_name: str):
+    """
+    Get tool details
+
+    Args:
+        tool_name: Tool name
+
+    Returns:
+        Tool details
+    """
+    if tool_name not in _tools_store:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tool {tool_name} not found",
+        )
+
+    return _tools_store[tool_name]
+
+
+@tools_router.post("/{tool_name}/test")
+async def test_tool(tool_name: str, request: ToolTestRequest):
+    """
+    Test tool
+
+    Args:
+        tool_name: Tool name
+        request: Test request
+
+    Returns:
+        Test result
+    """
+    if tool_name not in _tools_store:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tool {tool_name} not found",
+        )
+
+    # TODO: Actual tool test execution
+    logger.info(f"Testing tool: {tool_name} with params: {request.parameters}")
+
+    return {
+        "success": True,
+        "message": f"Tool {tool_name} test executed",
+        "data": {
+            "tool_name": tool_name,
+            "parameters": request.parameters,
+            "result": "Test result (mock)",
+        },
     }

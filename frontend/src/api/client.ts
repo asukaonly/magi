@@ -14,6 +14,7 @@ export interface ApiResponse<T = any> {
 export interface ApiError {
   success: false;
   message: string;
+  detail?: string;
   error_code?: string;
   details?: any;
 }
@@ -70,6 +71,10 @@ const createApiClient = (): AxiosInstance => {
       if (error.response) {
         // 服务器返回错误响应
         const errorData = error.response.data;
+        const resolvedMessage =
+          errorData?.message ||
+          (typeof errorData?.detail === 'string' ? errorData.detail : undefined) ||
+          'An error occurred';
 
         // 特殊处理401未授权
         if (error.response.status === 401) {
@@ -78,7 +83,7 @@ const createApiClient = (): AxiosInstance => {
         }
 
         return Promise.reject({
-          message: errorData?.message || 'An error occurred',
+          message: resolvedMessage,
           code: errorData?.error_code || 'UNKNOWN_ERROR',
           status: error.response.status,
           details: errorData?.details,
