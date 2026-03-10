@@ -60,13 +60,20 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     return spec.description;
   };
 
+  const renderLabel = () => (
+    <span className="text-sm font-medium">
+      {getLabel()}
+      {spec.required ? <span className="ml-1 text-destructive">*</span> : null}
+    </span>
+  );
+
   // Render based on type
   const renderField = () => {
     // Boolean -> Switch
     if (spec.type === 'boolean') {
       return (
         <label className="flex items-center justify-between">
-          <span className="text-sm font-medium">{getLabel()}</span>
+          {renderLabel()}
           <Switch
             checked={!!value}
             onCheckedChange={handleChange}
@@ -85,7 +92,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
 
       return (
         <label className="space-y-2">
-          <span className="text-sm font-medium">{getLabel()}</span>
+          {renderLabel()}
           <SelectField
             value={String(value ?? spec.default ?? '')}
             onChange={handleChange}
@@ -99,15 +106,16 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
 
     // Sensitive string (API key, etc.) -> Password Input
     if (spec.type === 'string' && spec.sensitive) {
+      const sensitivePlaceholder = value ? '•••••••••' : undefined;
       return (
         <label className="space-y-2">
-          <span className="text-sm font-medium">{getLabel()}</span>
+          {renderLabel()}
           <div className="relative">
             <Input
               type={showPassword ? 'text' : 'password'}
               value={value ?? ''}
               onChange={(e) => handleChange(e.target.value)}
-              placeholder={spec.placeholder || '•••••••••'}
+              placeholder={spec.placeholder || sensitivePlaceholder}
               disabled={disabled || spec.read_only}
               className="pr-10"
             />
@@ -128,7 +136,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     if (spec.type === 'integer' || spec.type === 'float') {
       return (
         <label className="space-y-2">
-          <span className="text-sm font-medium">{getLabel()}</span>
+          {renderLabel()}
           <input
             type="number"
             value={value ?? spec.default ?? ''}
@@ -145,7 +153,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     if (spec.type === 'string') {
       return (
         <label className="space-y-2">
-          <span className="text-sm font-medium">{getLabel()}</span>
+          {renderLabel()}
           <Input
             value={value ?? ''}
             onChange={(e) => handleChange(e.target.value)}
@@ -161,7 +169,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       const arrayValue = Array.isArray(value) ? value.join(', ') : '';
       return (
         <label className="space-y-2">
-          <span className="text-sm font-medium">{getLabel()}</span>
+          {renderLabel()}
           <textarea
             value={arrayValue}
             onChange={(e) => {
@@ -180,7 +188,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     // Object or unknown type -> JSON Textarea
     return (
       <label className="space-y-2">
-        <span className="text-sm font-medium">{getLabel()}</span>
+        {renderLabel()}
         <textarea
           value={typeof value === 'object' ? JSON.stringify(value, null, 2) : ''}
           onChange={(e) => {
@@ -341,7 +349,9 @@ interface ToolConfigCardProps {
                   </button>
                   {expandedProviders.has(provider.name) && (
                     <div className="p-3 border-t space-y-3 bg-background">
-                      {templateSpecs.map((spec) => (
+                      {templateSpecs
+                        .filter((spec) => !spec.providers || spec.providers.includes(provider.name))
+                        .map((spec) => (
                         <DynamicConfigField
                           key={`${spec.path}-${provider.name}`}
                           spec={spec}

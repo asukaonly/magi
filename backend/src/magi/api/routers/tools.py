@@ -56,6 +56,7 @@ class ToolConfigSpecResponse(BaseModel):
     enum: Optional[List[Any]] = Field(default=None, description="Enum values for selection")
     placeholder: Optional[str] = Field(default=None, description="Input placeholder hint")
     is_template: bool = Field(default=False, description="Whether this is a template path (e.g., providers.{provider}.api_key)")
+    providers: Optional[List[str]] = Field(default=None, description="Providers that this spec applies to")
 
 
 class ToolConfigResponse(BaseModel):
@@ -318,6 +319,7 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
             enum=getattr(spec, 'enum', None),
             placeholder=getattr(spec, 'placeholder', None),
             is_template=is_template,
+            providers=getattr(spec, 'providers', None),
         ))
 
     # Build providers info for multi-provider tools
@@ -327,7 +329,7 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
         all_providers = tool.get_all_provider_names()
         available_providers = tool.get_available_providers()
         for provider_name in all_providers:
-            required_config = [] if provider_name == "duckduckgo" else [f"providers.{provider_name}.api_key"]
+            required_config = _required_provider_paths(config_specs_raw, provider_name)
             providers.append(ToolProviderInfo(
                 name=provider_name,
                 display_name=_get_provider_display_name(provider_name),
@@ -345,9 +347,11 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
     if tool_name == "weather":
         tool_enabled = config.tools.weather.enabled
         current_values["default_provider"] = config.tools.weather.default_provider
+        current_values.update(_provider_current_values(config.tools.weather.providers, config_specs_raw))
     elif tool_name == "web-search":
         tool_enabled = config.tools.web_search.enabled
         current_values["default_provider"] = config.tools.web_search.default_provider
+        current_values.update(_provider_current_values(config.tools.web_search.providers, config_specs_raw))
     elif tool_name == "web-fetch":
         tool_enabled = config.tools.web_fetch.enabled
         current_values["default_provider"] = config.tools.web_fetch.default_provider
@@ -365,6 +369,53 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
         config_specs=config_specs,
         current_values=current_values,
     )
+
+
+def _required_provider_paths(config_specs_raw: list[Any], provider_name: str) -> list[str]:
+    required_paths: list[str] = []
+
+    for spec in config_specs_raw:
+        if not getattr(spec, "required", False):
+            continue
+
+        supported_providers = getattr(spec, "providers", None)
+        if supported_providers and provider_name not in supported_providers:
+            continue
+
+        path = str(spec.path)
+        if "{provider}" in path:
+            required_paths.append(path.replace("{provider}", provider_name))
+        elif f"providers.{provider_name}." in path:
+            required_paths.append(path)
+
+    return required_paths
+
+
+def _provider_current_values(
+    provider_configs: dict[str, Any],
+    config_specs_raw: list[Any],
+) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+
+    for spec in config_specs_raw:
+        if getattr(spec, "sensitive", False):
+            continue
+
+        path = str(spec.path)
+        supported_providers = getattr(spec, "providers", None) or list(provider_configs.keys())
+        if path == "default_provider":
+            continue
+        if "{provider}" not in path:
+            continue
+
+        field_name = path.split(".")[-1]
+        for provider_name in supported_providers:
+            config = provider_configs.get(provider_name)
+            if config is None or not hasattr(config, field_name):
+                continue
+            values[path.replace("{provider}", provider_name)] = getattr(config, field_name)
+
+    return values
 
 
 @tools_router.get("/config", response_model=ToolsListResponse)

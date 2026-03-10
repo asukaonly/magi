@@ -26,6 +26,7 @@ export interface ToolConfigSpec {
   enum?: any[];
   placeholder?: string;
   is_template: boolean;
+  providers?: string[];
 }
 
 export interface ToolConfig {

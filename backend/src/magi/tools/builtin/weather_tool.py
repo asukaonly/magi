@@ -134,17 +134,22 @@ class WeatherTool(MultiProviderTool):
                 path="default_provider",
                 type="string",
                 description="Default weather provider",
+                enum=self.get_all_provider_names(),
             ),
             ToolConfigSpec(
                 path="providers.{provider}.api_key",
                 type="string",
                 description="Provider API key",
                 sensitive=True,
+                required=True,
+                providers=["qweather"],
             ),
             ToolConfigSpec(
                 path="providers.{provider}.base_url",
                 type="string",
-                description="Provider base URL (optional)",
+                description="Provider base URL",
+                required=True,
+                providers=["qweather"],
             ),
         ]
 

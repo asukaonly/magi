@@ -167,6 +167,7 @@ class ToolConfigSpec(BaseModel):
     default: Optional[Any] = Field(default=None, description="Default value")
     enum: Optional[List[Any]] = Field(default=None, description="Enum values for selection")
     placeholder: Optional[str] = Field(default=None, description="Input placeholder hint")
+    providers: Optional[List[str]] = Field(default=None, description="Providers that this spec applies to")
 
 
 class Tool(ABC):

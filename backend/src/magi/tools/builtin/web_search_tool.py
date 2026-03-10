@@ -125,17 +125,21 @@ class WebSearchTool(MultiProviderTool):
                 path="default_provider",
                 type="string",
                 description="Default web search provider",
+                enum=self.get_all_provider_names(),
             ),
             ToolConfigSpec(
                 path="providers.{provider}.api_key",
                 type="string",
                 description="Provider API key",
                 sensitive=True,
+                required=True,
+                providers=["brave", "perplexity", "tavily"],
             ),
             ToolConfigSpec(
                 path="providers.{provider}.base_url",
                 type="string",
-                description="Provider base URL (optional)",
+                description="DuckDuckGo HTML endpoint override (optional)",
+                providers=["duckduckgo"],
             ),
         ]
         return specs

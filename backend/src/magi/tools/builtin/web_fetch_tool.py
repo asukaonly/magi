@@ -130,11 +130,7 @@ class WebFetchTool(MultiProviderTool):
                 path="default_provider",
                 type="string",
                 description="Default web-fetch provider for direct mode (http/browser/curl)",
-            ),
-            ToolConfigSpec(
-                path="providers.{provider}.base_url",
-                type="string",
-                description="Provider base URL override (reserved for extension)",
+                enum=self.get_all_provider_names(),
             ),
         ]
 
