@@ -49,9 +49,12 @@ class WebSearchTool(MultiProviderTool):
                 ToolParameter(
                     name="provider",
                     type=ParameterType.STRING,
-                    description="Search provider: 'duckduckgo', 'brave', 'perplexity', or 'tavily'",
+                    description=(
+                        "Optional search provider override: 'duckduckgo', 'brave', "
+                        "'perplexity', or 'tavily'. Omit this field to use the current "
+                        "configured default provider."
+                    ),
                     required=False,
-                    default="duckduckgo",
                     enum=["duckduckgo", "brave", "perplexity", "tavily"],
                 ),
                 ToolParameter(
@@ -82,8 +85,8 @@ class WebSearchTool(MultiProviderTool):
                     "output": "Returns search results",
                 },
                 {
-                    "input": {"query": "OpenAI release notes", "provider": "duckduckgo", "num_results": 5},
-                    "output": "Returns search results from DuckDuckGo",
+                    "input": {"query": "OpenAI release notes", "num_results": 5},
+                    "output": "Returns search results using the configured default provider",
                 },
             ],
             timeout=30,

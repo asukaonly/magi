@@ -60,6 +60,14 @@ def test_web_search_config_response_exposes_provider_enum_and_targeted_specs():
     assert base_url_spec.providers == ["duckduckgo"]
 
 
+def test_web_search_provider_parameter_does_not_hardcode_duckduckgo_default():
+    schema = WebSearchTool().get_schema()
+    provider_param = next(param for param in schema.parameters if param.name == "provider")
+
+    assert provider_param.default is None
+    assert "configured default provider" in provider_param.description
+
+
 def test_web_search_config_response_includes_sensitive_current_values(monkeypatch):
     config = AppConfig()
     config.tools.web_search.providers["brave"].api_key = "secret-key"
