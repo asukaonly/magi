@@ -403,7 +403,7 @@ export const DynamicToolsConfig: React.FC = () => {
     setError(null);
     try {
       const response = await toolsApi.listWithConfig();
-      setTools(response.data?.tools || []);
+      setTools(response.tools || []);
     } catch (err: any) {
       const errorMessage = err?.message || t('settings.errorUnknown');
       setError(t('settings.loadToolsFailed', { message: errorMessage }));

@@ -2,6 +2,7 @@
  * Tools API - Tool configuration management
  */
 import { api } from '../client';
+import type { ApiResponse } from '../client';
 
 // ============ Types ============
 
@@ -57,7 +58,16 @@ export const toolsApi = {
   /**
    * Get all tools with configuration info
    */
-  listWithConfig: () => api.get<ToolsListResponse>('/tools/config'),
+  listWithConfig: async () => {
+    const response = await api.get<ToolsListResponse>('/tools/config');
+    const payload = response as ToolsListResponse | ApiResponse<ToolsListResponse>;
+
+    if (Array.isArray((payload as ToolsListResponse).tools)) {
+      return payload as ToolsListResponse;
+    }
+
+    return (payload as ApiResponse<ToolsListResponse>).data ?? { tools: [], total: 0 };
+  },
 
   /**
    * Get single tool configuration

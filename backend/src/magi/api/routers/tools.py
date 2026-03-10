@@ -350,7 +350,7 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
         current_values["default_provider"] = config.tools.web_search.default_provider
     elif tool_name == "web-fetch":
         tool_enabled = config.tools.web_fetch.enabled
-        current_values["use_playwright"] = config.tools.web_fetch.use_playwright
+        current_values["default_provider"] = config.tools.web_fetch.default_provider
 
     return ToolConfigResponse(
         name=tool_name,

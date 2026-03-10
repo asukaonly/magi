@@ -3,7 +3,8 @@
 import pytest
 from starlette.routing import Match
 
-from magi.api.routers.tools import list_tools_with_config, tools_router
+from magi.api.routers.tools import _build_tool_config_response, list_tools_with_config, tools_router
+from magi.tools.builtin.web_fetch_tool import WebFetchTool
 
 
 def test_tools_config_route_matches_static_endpoint_first():
@@ -26,3 +27,10 @@ def test_tools_config_route_matches_static_endpoint_first():
             return
 
     pytest.fail("Expected /config to match the static tool config endpoint")
+
+
+def test_web_fetch_config_response_uses_default_provider():
+    response = _build_tool_config_response("web-fetch", WebFetchTool())
+
+    assert response.enabled is True
+    assert response.current_values["default_provider"] == "http"
