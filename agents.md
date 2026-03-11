@@ -108,8 +108,7 @@ magi/
 ├── docs/
 │   ├── project-overview.md
 │   ├── product-configuration-guide.md
-│   ├── task-agent-runtime-architecture.md
-│   └── tauri-python-sidecar-migration-plan.md
+│   └── task-agent-runtime-architecture.md
 ├── README.md
 └── agents.md
 ```

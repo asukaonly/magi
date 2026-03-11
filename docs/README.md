@@ -15,10 +15,6 @@ This folder is the active documentation home for Magi.
 3. [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
    Read this if you are working on the backend agent runtime, task orchestration, worker execution, or internal event flow.
 
-4. Existing topic documents
-   - [Tauri Python Sidecar Migration Plan](/Users/asuka/code/magi/docs/tauri-python-sidecar-migration-plan.md)
-   - [Backend Code Review Report](/Users/asuka/code/magi/docs/backend-code-review-report.md)
-
 ## Audience Guide
 
 - Open source users

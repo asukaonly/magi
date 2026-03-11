@@ -191,4 +191,3 @@ magi/
 - [项目总览](./docs/project-overview.md)
 - [产品与配置指南](./docs/product-configuration-guide.md)
 - [Task-Agent Runtime 架构](./docs/task-agent-runtime-architecture.md)
-- [Tauri Python Sidecar Migration Plan](./docs/tauri-python-sidecar-migration-plan.md)
