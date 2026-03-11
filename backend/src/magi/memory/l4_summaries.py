@@ -78,6 +78,21 @@ class SummaryStore:
 
         Path(self.persist_path).parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self.persist_path) as db:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS summaries (
+                    summary_id TEXT PRIMARY KEY,
+                    summary_type TEXT NOT NULL,
+                    start_time REAL NOT NULL,
+                    end_time REAL NOT NULL,
+                    event_count INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    key_topics TEXT,
+                    created_at REAL NOT NULL
+                )
+                """
+            )
+            await db.commit()
             cursor = await db.execute(
                 "SELECT summary_id, summary_type, start_time, end_time, event_count, content, key_topics, created_at FROM summaries"
             )

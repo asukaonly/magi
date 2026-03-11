@@ -150,7 +150,8 @@ class UnifiedMemoryStore:
                         level=EventLevel(payload["level"]),
                         correlation_id=payload["correlation_id"],
                         metadata=payload["metadata"],
-                    )
+                    ),
+                    event_id=event_id,
                 )
 
                 if extract_relations:

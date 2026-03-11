@@ -79,6 +79,47 @@ class CapabilityMemory:
             return
 
         Path(self.persist_path).parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.persist_path)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS capabilities (
+                capability_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                category TEXT NOT NULL,
+                proficiency REAL NOT NULL DEFAULT 0,
+                usage_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                last_used REAL NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS capability_task_stats (
+                capability_id TEXT NOT NULL,
+                task_category TEXT NOT NULL,
+                usage_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                avg_satisfaction REAL NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (capability_id, task_category)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS capability_blacklist (
+                capability_id TEXT PRIMARY KEY,
+                reason TEXT,
+                blacklisted_at REAL NOT NULL
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
         self._load_caches()
         self._initialized = True
 
