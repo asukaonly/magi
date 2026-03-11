@@ -1,6 +1,7 @@
 """Unified APScheduler-backed runtime service."""
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
@@ -11,6 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy import create_engine, event
 
 from .contracts import (
     ScheduleDefinition,
@@ -56,8 +58,22 @@ class SchedulerService:
         self._runtime_dir = Path(runtime_dir).expanduser()
         self._repository = repository or ScheduleRepository(self._db_path)
         self._handlers: dict[ScheduledTargetType, ScheduleHandler] = {}
+        self._schedule_lock = asyncio.Lock()
+        self._jobstore_engine = create_engine(
+            f"sqlite:///{self._db_path}",
+            connect_args={"timeout": 30, "check_same_thread": False},
+        )
+
+        @event.listens_for(self._jobstore_engine, "connect")
+        def _configure_sqlite(dbapi_connection, _connection_record) -> None:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout = 30000")
+            cursor.close()
+
         self._scheduler = AsyncIOScheduler(
-            jobstores={"default": SQLAlchemyJobStore(url=f"sqlite:///{self._db_path}")},
+            jobstores={"default": SQLAlchemyJobStore(engine=self._jobstore_engine)},
             job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 120},
             timezone=ZoneInfo("UTC"),
         )
@@ -83,6 +99,7 @@ class SchedulerService:
         if not self._running:
             return
         self._scheduler.shutdown(wait=False)
+        self._jobstore_engine.dispose()
         self._running = False
         if _active_scheduler_service is self:
             _active_scheduler_service = None
@@ -91,12 +108,13 @@ class SchedulerService:
         self._handlers[target_type] = handler
 
     async def schedule(self, definition: ScheduleDefinition) -> ScheduleDefinition:
-        await self._repository.upsert_schedule(definition)
-        if definition.enabled:
-            await self._upsert_job(definition)
-        else:
-            await self.unschedule(definition.schedule_id)
-        persisted = await self._repository.get_schedule(definition.schedule_id)
+        async with self._schedule_lock:
+            await self._repository.upsert_schedule(definition)
+            if definition.enabled:
+                await self._upsert_job(definition)
+            else:
+                await self._unschedule_locked(definition.schedule_id)
+            persisted = await self._repository.get_schedule(definition.schedule_id)
         return persisted or definition
 
     async def schedule_once(
@@ -166,6 +184,10 @@ class SchedulerService:
         await self.execute_schedule(schedule_id, manual=True)
 
     async def unschedule(self, schedule_id: str) -> None:
+        async with self._schedule_lock:
+            await self._unschedule_locked(schedule_id)
+
+    async def _unschedule_locked(self, schedule_id: str) -> None:
         schedule = await self._repository.get_schedule(schedule_id)
         job_id = schedule.job_id if schedule is not None else schedule_id
         try:
@@ -229,8 +251,9 @@ class SchedulerService:
         return await self._repository.get_target_state(target_type, target_key)
 
     async def _restore_persisted_jobs(self) -> None:
-        for schedule in await self._repository.list_schedules(enabled_only=True):
-            await self._upsert_job(schedule)
+        async with self._schedule_lock:
+            for schedule in await self._repository.list_schedules(enabled_only=True):
+                await self._upsert_job(schedule)
 
     async def _upsert_job(self, schedule: ScheduleDefinition) -> None:
         trigger = self._build_trigger(schedule.trigger)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 
 import pytest
@@ -135,5 +136,40 @@ async def test_unschedule_clears_stale_target_errors(tmp_path):
     assert cleared_state.last_error is None
     assert cleared_state.scheduler_job_id is None
     assert cleared_state.next_run_at is None
+
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_service_serializes_concurrent_schedule_updates(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+
+    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+        return ScheduledExecutionResult(success=True, message=context.schedule.schedule_id)
+
+    service.register_handler(ScheduledTargetType.AGENT_TASK, handler)
+    await service.start()
+
+    await asyncio.gather(
+        *[
+            service.schedule_interval(
+                schedule_id="agent-task-shared",
+                target_type=ScheduledTargetType.AGENT_TASK,
+                target_key="chat:shared",
+                seconds=120.0,
+                target_payload={"agent_type": "chat", "agent_id": "shared", "event_type": "ScheduledAgentTask"},
+            )
+            for _ in range(4)
+        ]
+    )
+
+    schedule = await service.repository.get_schedule("agent-task-shared")
+
+    assert schedule is not None
+    assert schedule.job_id == "agent-task-shared"
+    assert service._scheduler.get_job("agent-task-shared") is not None
 
     await service.stop()

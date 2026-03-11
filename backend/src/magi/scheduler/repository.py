@@ -1,6 +1,7 @@
 """SQLite-backed persistence for the unified scheduler runtime."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import json
 import time
 from pathlib import Path
@@ -24,8 +25,19 @@ class ScheduleRepository:
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = str(Path(db_path).expanduser())
 
+    @asynccontextmanager
+    async def _connect(self):
+        db = await aiosqlite.connect(self._db_path, timeout=30.0)
+        try:
+            await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute("PRAGMA synchronous=NORMAL")
+            await db.execute("PRAGMA busy_timeout = 30000")
+            yield db
+        finally:
+            await db.close()
+
     async def initialize(self) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS schedules (
@@ -65,13 +77,13 @@ class ScheduleRepository:
             await db.commit()
 
     async def reset_running_flags(self) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute("UPDATE target_state SET running = 0")
             await db.commit()
 
     async def upsert_schedule(self, definition: ScheduleDefinition) -> None:
         now = time.time()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 INSERT INTO schedules (
@@ -115,7 +127,7 @@ class ScheduleRepository:
             await db.commit()
 
     async def get_schedule(self, schedule_id: str) -> Optional[ScheduleDefinition]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 """
                 SELECT schedule_id, target_type, target_key, trigger_type, trigger_config,
@@ -138,13 +150,13 @@ class ScheduleRepository:
         params: tuple[object, ...] = ()
         if enabled_only:
             query += " WHERE enabled = 1"
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(query, params)
             rows = await cursor.fetchall()
         return [self._row_to_schedule(row) for row in rows]
 
     async def delete_schedule(self, schedule_id: str) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute("DELETE FROM schedules WHERE schedule_id = ?", (schedule_id,))
             await db.commit()
 
@@ -159,7 +171,7 @@ class ScheduleRepository:
         if schedule is None:
             return
         now = time.time()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "UPDATE schedules SET job_id = ?, updated_at = ? WHERE schedule_id = ?",
                 (job_id, now, schedule_id),
@@ -190,7 +202,7 @@ class ScheduleRepository:
         target_type: ScheduledTargetType,
         target_key: str,
     ) -> ScheduledTargetState:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 """
                 SELECT running, last_run_at, last_success_at, last_error, last_cursor,
@@ -237,7 +249,7 @@ class ScheduleRepository:
         target_key: str,
     ) -> bool:
         now = time.time()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 INSERT INTO target_state (target_type, target_key, updated_at)
@@ -267,7 +279,7 @@ class ScheduleRepository:
         scheduler_job_id: Optional[str],
     ) -> None:
         now = time.time()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 UPDATE target_state
@@ -306,7 +318,7 @@ class ScheduleRepository:
         scheduler_job_id: Optional[str],
     ) -> None:
         now = time.time()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 UPDATE target_state
@@ -336,7 +348,7 @@ class ScheduleRepository:
         """Clear scheduler metadata and stale errors when a recurring schedule is removed."""
 
         now = time.time()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 UPDATE target_state
