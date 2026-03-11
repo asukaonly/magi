@@ -333,7 +333,7 @@ class ScheduleRepository:
         target_type: ScheduledTargetType,
         target_key: str,
     ) -> None:
-        """Clear next-run metadata when a recurring schedule is removed."""
+        """Clear scheduler metadata and stale errors when a recurring schedule is removed."""
 
         now = time.time()
         async with aiosqlite.connect(self._db_path) as db:
@@ -342,6 +342,8 @@ class ScheduleRepository:
                 UPDATE target_state
                 SET next_run_at = NULL,
                     scheduler_job_id = NULL,
+                    running = 0,
+                    last_error = NULL,
                     updated_at = ?
                 WHERE target_type = ? AND target_key = ?
                 """,

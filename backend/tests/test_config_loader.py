@@ -97,3 +97,38 @@ def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkey
     assert settings_data["sensors"]["browser_history"]["sync_interval_minutes"] == 90
     assert loader.load().plugins.packages["core-timeline"].enabled is False
     assert loader.load().plugins.packages["core-timeline"].settings["sensors"]["browser_history"]["sync_interval_minutes"] == 90
+
+
+def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+    config_dir = tmp_path / "config" / "plugins"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "agent.yaml").write_text("plugins:\n  scan_paths:\n    - plugins\n", encoding="utf-8")
+    (config_dir / "index.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "packages": {
+                    "chrome-history": {
+                        "enabled": False,
+                        "trusted": False,
+                        "source": "builtin",
+                        "manifest_path": "/Users/asuka/code/magi/plugins/chrome-history/plugin.toml",
+                    }
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (config_dir / "chrome-history.yaml").write_text("{}", encoding="utf-8")
+
+    loader = ConfigLoader()
+    config = loader.load()
+    index_data = yaml.safe_load((config_dir / "index.yaml").read_text(encoding="utf-8")) or {}
+    settings_data = yaml.safe_load((config_dir / "chrome-history.yaml").read_text(encoding="utf-8")) or {}
+
+    assert index_data["packages"]["chrome-history"]["enabled"] is True
+    assert index_data["packages"]["chrome-history"]["trusted"] is True
+    assert settings_data["sensors"]["chrome_history"]["enabled"] is False
+    assert config.plugins.packages["chrome-history"].enabled is True
+    assert config.plugins.packages["chrome-history"].settings["sensors"]["chrome_history"]["enabled"] is False

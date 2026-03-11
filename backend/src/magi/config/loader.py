@@ -265,6 +265,7 @@ class ConfigLoader:
                 "core-tools": {"enabled": True, "trusted": True, "source": "builtin"},
                 "core-timeline": {"enabled": True, "trusted": True, "source": "builtin"},
                 "core-actions": {"enabled": True, "trusted": True, "source": "builtin"},
+                "chrome-history": {"enabled": True, "trusted": True, "source": "builtin"},
             }
         }
 
@@ -327,7 +328,55 @@ class ConfigLoader:
                 "notifications": {"default_level": "info"},
                 "email": {"default_sender": "", "provider_mode": "simulated"},
             },
+            "chrome-history": {
+                "sensors": {
+                    "chrome_history": {
+                        "enabled": False,
+                        "sync_mode": "manual",
+                        "sync_interval_minutes": 30,
+                        "default_retention_mode": "analyze_only",
+                        "storage_mode": "managed",
+                        "source_path": "~/Library/Application Support/Google/Chrome",
+                        "profile": "Default",
+                        "lookback_hours": 24,
+                        "max_items_per_sync": 200,
+                        "fetch_page_content": False,
+                        "edge_whitelist": ["VISITED", "VIEWED"],
+                    }
+                }
+            },
         }
+
+    def _migrate_chrome_history_plugin_defaults(self, index_data: Dict[str, Any]) -> bool:
+        """Promote legacy chrome-history package state to the new builtin defaults."""
+
+        packages = index_data.setdefault("packages", {})
+        package_data = packages.setdefault(
+            "chrome-history",
+            {"enabled": True, "trusted": True, "source": "builtin"},
+        )
+        changed = False
+        settings_file = get_plugin_settings_file("chrome-history")
+        settings_data = self._load_yaml_file(settings_file)
+
+        if (
+            package_data.get("source") == "builtin"
+            and package_data.get("enabled") is False
+            and package_data.get("trusted") is False
+            and not settings_data
+        ):
+            package_data["enabled"] = True
+            package_data["trusted"] = True
+            changed = True
+
+        if not settings_data:
+            self._write_yaml_file(
+                settings_file,
+                self._default_plugin_settings_map()["chrome-history"],
+            )
+            changed = True
+
+        return changed
 
     def _ensure_split_plugin_config_layout(self) -> None:
         """Ensure plugin metadata and settings use split config files."""
@@ -335,6 +384,7 @@ class ConfigLoader:
         plugins_root = get_plugins_config_dir()
         plugins_root.mkdir(parents=True, exist_ok=True)
         index_data = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
+        index_changed = self._migrate_chrome_history_plugin_defaults(index_data)
         legacy_packages = (
             agent_data.get("plugins", {}).get("packages", {})
             if isinstance(agent_data.get("plugins"), dict)
@@ -364,6 +414,8 @@ class ConfigLoader:
             self._write_yaml_file(self._plugins_index_file, index_data)
 
         if not self._plugins_index_file.exists():
+            self._write_yaml_file(self._plugins_index_file, index_data)
+        elif index_changed:
             self._write_yaml_file(self._plugins_index_file, index_data)
 
         for plugin_id, defaults in self._default_plugin_settings_map().items():

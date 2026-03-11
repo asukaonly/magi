@@ -100,3 +100,40 @@ async def test_scheduler_service_supports_once_and_cron_and_replaces_existing_sc
     assert replaced_schedule.trigger.config["seconds"] == 120.0
 
     await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_unschedule_clears_stale_target_errors(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+
+    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+        raise RuntimeError("boom")
+
+    service.register_handler(ScheduledTargetType.AGENT_TASK, handler)
+    await service.start()
+
+    await service.schedule_interval(
+        schedule_id="agent-task-error",
+        target_type=ScheduledTargetType.AGENT_TASK,
+        target_key="chat:error",
+        seconds=300.0,
+        target_payload={"agent_type": "chat", "agent_id": "error", "event_type": "ScheduledAgentTask"},
+    )
+
+    with pytest.raises(RuntimeError):
+        await service.trigger_now("agent-task-error")
+
+    failed_state = await service.get_target_state(ScheduledTargetType.AGENT_TASK, "chat:error")
+    assert failed_state.last_error == "boom"
+
+    await service.unschedule("agent-task-error")
+    cleared_state = await service.get_target_state(ScheduledTargetType.AGENT_TASK, "chat:error")
+
+    assert cleared_state.last_error is None
+    assert cleared_state.scheduler_job_id is None
+    assert cleared_state.next_run_at is None
+
+    await service.stop()
