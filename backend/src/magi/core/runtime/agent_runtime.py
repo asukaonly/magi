@@ -55,3 +55,6 @@ class AgentRuntime:
 
     def get_task_agent_manager(self) -> TaskAgentManager:
         return self._task_agent_manager
+
+    def get_sensor_hub(self) -> SensorHub:
+        return self._sensor_hub

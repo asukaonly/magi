@@ -32,6 +32,14 @@ from ..memory.integration import MemoryIntegrationModule, MemoryIntegrationConfi
 from ..memory.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
 from ..llm import create_llm_adapter, get_llm_usage_store
 from ..llm.usage_events import configure_llm_usage_event_publisher
+from ..timeline.service import TimelineService
+from ..timeline.sensors import (
+    BrowserHistoryTimelineSensor,
+    ChatTimelineSensor,
+    ManualJournalTimelineSensor,
+    PhotoLibraryTimelineSensor,
+    TimelineSensorBase,
+)
 from ..utils.runtime import get_runtime_paths, Runtimepaths, init_runtime_data
 from ..core.logger import get_logger
 from ..core.database_initializer import DatabaseInitializer, set_database_initializer
@@ -47,9 +55,69 @@ _scenario_prompts_store: ScenarioPromptsStore | None = None
 _llm_usage_store = None
 
 
-async def _noop_timeline_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    """Temporary timeline handler until the timeline service is wired."""
-    return payload
+def _build_timeline_sensor_registry(config: AppConfig) -> dict[str, TimelineSensorBase]:
+    return {
+        "chat": ChatTimelineSensor(
+            retention_mode=config.timeline.sources.chat.default_retention_mode.value,
+        ),
+        "manual_journal": ManualJournalTimelineSensor(
+            retention_mode=config.timeline.sources.manual_journal.default_retention_mode.value,
+        ),
+        "browser_history": BrowserHistoryTimelineSensor(
+            retention_mode=config.timeline.sources.browser_history.default_retention_mode.value,
+            source_path=config.timeline.sources.browser_history.source_path,
+            fetch_page_content=config.timeline.sources.browser_history.fetch_page_content,
+        ),
+        "photo_library": PhotoLibraryTimelineSensor(
+            retention_mode=config.timeline.sources.photo_library.default_retention_mode.value,
+            source_path=config.timeline.sources.photo_library.source_path,
+        ),
+    }
+
+
+def _resolve_timeline_edge_whitelist(config: AppConfig, source_type: str) -> list[str]:
+    source_settings = getattr(config.timeline.sources, source_type, None)
+    edge_whitelist = getattr(source_settings, "edge_whitelist", [])
+    return [str(edge_type) for edge_type in edge_whitelist]
+
+
+def _build_timeline_handler(
+    config: AppConfig,
+    unified_memory: UnifiedMemoryStore,
+) -> Callable[[dict[str, Any]], Any]:
+    sensors = _build_timeline_sensor_registry(config)
+    service = TimelineService(unified_memory)
+
+    async def _handle_timeline_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        source_type = str(payload.get("source_type") or "").strip()
+        sensor = sensors.get(source_type)
+        if not config.timeline.enabled:
+            return {"handled": False, "reason": "timeline_disabled"}
+        if sensor is None:
+            return {"handled": False, "reason": "unsupported_source", "source_type": source_type}
+
+        source_settings = getattr(config.timeline.sources, source_type, None)
+        if source_settings is not None and not bool(getattr(source_settings, "enabled", True)):
+            return {"handled": False, "reason": "source_disabled", "source_type": source_type}
+
+        event = await sensor.build_timeline_event(payload)
+        extracted = await sensor.extract_candidates(payload)
+        event.entities = list(extracted.get("entities", []))
+        event.tags = list(dict.fromkeys([*event.tags, *list(extracted.get("tags", []))]))
+        event.provenance.update(
+            {
+                "correlation_id": str(payload.get("correlation_id") or ""),
+                "timeline_task_agent_id": str(payload.get("target_task_agent_id") or ""),
+            }
+        )
+        await service.upsert_event(
+            event,
+            relation_candidates=list(extracted.get("relation_candidates", [])),
+            allowed_edge_whitelist=_resolve_timeline_edge_whitelist(config, source_type),
+        )
+        return {"handled": True, "event_id": event.event_id, "source_type": source_type}
+
+    return _handle_timeline_payload
 
 
 @dataclass
@@ -260,7 +328,7 @@ async def initialize_chat_agent():
                 if agent_type == TaskAgentType.EXPLORE.value
                 else TimelineTaskAgent(
                     agent_id=agent_id,
-                    timeline_handler=_noop_timeline_handler,
+                    timeline_handler=_build_timeline_handler(config, unified_memory),
                     config=config,
                     unified_memory=unified_memory,
                 )

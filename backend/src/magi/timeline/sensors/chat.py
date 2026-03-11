@@ -15,15 +15,31 @@ class ChatTimelineSensor(TimelineSensorBase):
     relation_edge_whitelist = ("MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH")
 
     async def build_timeline_event(self, item: dict[str, object]) -> TimelineEvent:
-        message = str(item.get("message", ""))
+        user_message = str(item.get("user_message") or item.get("message") or "")
+        assistant_message = str(item.get("assistant_message") or item.get("response") or "")
         turn_id = str(item.get("turn_id") or item.get("message_id") or "chat")
+        content_blocks = []
+        if user_message:
+            content_blocks.append(TimelineContentBlock(kind="text", value=f"User: {user_message}"))
+        if assistant_message:
+            content_blocks.append(TimelineContentBlock(kind="text", value=f"Assistant: {assistant_message}"))
+        if not content_blocks:
+            content_blocks.append(TimelineContentBlock(kind="text", value=str(item.get("message", ""))))
+        summary_source = user_message or assistant_message or str(item.get("message", ""))
         return self._build_event(
             source_item_id=turn_id,
-            title="Chat message",
-            summary=message[:140],
+            title="Chat turn",
+            summary=summary_source[:140],
             occurred_at=float(item.get("timestamp") or 0.0),
-            content_blocks=[TimelineContentBlock(kind="text", value=message)],
+            content_blocks=content_blocks,
             tags=["chat"],
+            provenance={
+                "sensor_id": self.sensor_id,
+                "user_id": str(item.get("user_id") or ""),
+                "session_id": str(item.get("session_id") or ""),
+                "turn_id": turn_id,
+                "orchestration_id": str(item.get("orchestration_id") or ""),
+            },
         )
 
     async def extract_candidates(self, item: dict[str, object]) -> dict[str, object]:

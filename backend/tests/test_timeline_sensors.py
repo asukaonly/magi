@@ -26,6 +26,9 @@ async def test_chat_sensor_discover_fetch_and_build_round_trip():
     item = {
         "turn_id": "turn-1",
         "message": "I still like Asuka best.",
+        "assistant_message": "You really care about Asuka.",
+        "user_id": "web_user",
+        "session_id": "session-1",
         "timestamp": 1710000000.0,
     }
 
@@ -38,6 +41,11 @@ async def test_chat_sensor_discover_fetch_and_build_round_trip():
     assert event.source_type == "chat"
     assert event.source_item_id == "turn-1"
     assert event.retention_mode == "analyze_only"
+    assert [block.value for block in event.content_blocks] == [
+        "User: I still like Asuka best.",
+        "Assistant: You really care about Asuka.",
+    ]
+    assert event.provenance["session_id"] == "session-1"
 
 
 @pytest.mark.asyncio
