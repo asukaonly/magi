@@ -166,6 +166,103 @@ const timelineSourceFixture = {
   runtime_base_dir: '/tmp/magi-runtime',
 };
 
+const chromeTimelineSourceFixture = {
+  source_name: 'chrome_history',
+  plugin_id: 'chrome-history',
+  contribution_id: 'timeline.chrome_history',
+  display_name: 'Chrome History',
+  description: 'Local Google Chrome browsing history ingested into the user timeline.',
+  fields: [
+    {
+      key: 'sensors.chrome_history.enabled',
+      type: 'switch',
+      label: 'Enabled',
+      description: 'Whether this source is active.',
+      default: false,
+      required: false,
+      options: [],
+      section: 'general',
+      surface: 'timeline',
+      order: 10,
+    },
+    {
+      key: 'sensors.chrome_history.sync_interval_minutes',
+      type: 'number',
+      label: 'Sync Interval (minutes)',
+      description: 'Polling interval for interval-based sources.',
+      default: 30,
+      required: false,
+      options: [],
+      section: 'general',
+      surface: 'timeline',
+      order: 30,
+    },
+  ],
+  current_settings: {
+    'sensors.chrome_history.enabled': false,
+    'sensors.chrome_history.sync_interval_minutes': 30,
+    'sensors.chrome_history.initial_sync_configured': false,
+    'sensors.chrome_history.initial_sync_policy': 'lookback_days',
+    'sensors.chrome_history.initial_sync_lookback_days': 7,
+  },
+  enabled: false,
+  sync_mode: 'manual',
+  sync_interval_minutes: 30,
+  default_retention_mode: 'analyze_only',
+  storage_mode: 'managed',
+  source_path: '',
+  fetch_page_content: false,
+  edge_whitelist: ['VISITED', 'VIEWED'],
+  supports_pull_sync: true,
+  activation_required: true,
+  activation_flow: {
+    title: 'Enable Chrome History',
+    description: 'Choose how the first sync should seed the timeline.',
+    confirm_label: 'Enable source',
+    cancel_label: 'Not now',
+    enabled_key: 'sensors.chrome_history.enabled',
+    configured_key: 'sensors.chrome_history.initial_sync_configured',
+    fields: [
+      {
+        key: 'sensors.chrome_history.initial_sync_policy',
+        type: 'select',
+        label: 'First Sync Scope',
+        description: 'Decide how much history should be imported the first time.',
+        default: 'lookback_days',
+        required: false,
+        options: [
+          { label: 'Sync full history', value: 'full' },
+          { label: 'Sync recent days', value: 'lookback_days' },
+          { label: 'Only new records from now on', value: 'from_now' },
+        ],
+        section: 'activation',
+        surface: 'timeline',
+        order: 10,
+      },
+      {
+        key: 'sensors.chrome_history.initial_sync_lookback_days',
+        type: 'number',
+        label: 'Recent Days',
+        description: 'Used when the first-sync scope is set to recent days.',
+        default: 7,
+        required: false,
+        options: [],
+        section: 'activation',
+        surface: 'timeline',
+        order: 20,
+        depends_on_key: 'sensors.chrome_history.initial_sync_policy',
+        depends_on_values: ['lookback_days'],
+      },
+    ],
+  },
+  last_error: null,
+  last_success: null,
+  last_sync_at: null,
+  next_run_at: null,
+  scheduler_job_id: null,
+  runtime_base_dir: '/tmp/magi-runtime',
+};
+
 const pluginsListFixture = {
   plugins: [
     {
@@ -331,7 +428,7 @@ describe('settings page save behavior', () => {
       data: { models: [] },
     } as any);
     vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
-      sources: [timelineSourceFixture],
+      sources: [chromeTimelineSourceFixture, timelineSourceFixture],
     } as any);
     vi.mocked(timelineApi.requestSync).mockResolvedValue({
       queued: true,
@@ -452,6 +549,38 @@ describe('settings page save behavior', () => {
     );
     expect(within(browserPanel).getByLabelText('Source Path')).toHaveValue(
       '/tmp/browser-history'
+    );
+  });
+
+  it('opens activation flow before enabling chrome history', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await screen.findByText('settings.title');
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
+
+    const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
+    await user.click(
+      within(chromePanel).getByRole('switch', { name: 'settings.timeline.fields.enabled' })
+    );
+
+    expect(await screen.findByText('Enable Chrome History')).toBeInTheDocument();
+    expect(screen.getByLabelText('First Sync Scope')).toBeInTheDocument();
+    expect(screen.getByLabelText('Recent Days')).toHaveValue(7);
+
+    await user.click(screen.getByRole('button', { name: 'Enable source' }));
+
+    await waitFor(() =>
+      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
+        'chrome-history',
+        expect.objectContaining({
+          'sensors.chrome_history.enabled': true,
+          'sensors.chrome_history.initial_sync_configured': true,
+          'sensors.chrome_history.initial_sync_policy': 'lookback_days',
+          'sensors.chrome_history.initial_sync_lookback_days': 7,
+        })
+      )
     );
   });
 

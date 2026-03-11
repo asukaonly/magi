@@ -451,11 +451,15 @@
         "refresh": "Refresh status",
         "syncNow": "Sync now"
       },
+      "activation": {
+        "enabled": "{{source}} enabled"
+      },
       "syncQueued": "{{source}} sync queued",
       "errors": {
         "statusLoadFailed": "Failed to load source status: {{message}}",
         "syncFailed": "Failed to queue sync: {{message}}",
-        "settingsSaveFailed": "Failed to save source settings: {{message}}"
+        "settingsSaveFailed": "Failed to save source settings: {{message}}",
+        "activationFailed": "Failed to enable source: {{message}}"
       }
     },
     "extensions": {

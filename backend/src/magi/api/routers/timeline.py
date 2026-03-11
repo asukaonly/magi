@@ -55,6 +55,22 @@ def _get_nested_value(payload: dict[str, Any], path: str, default: Any) -> Any:
     return current
 
 
+def _collect_source_setting_defaults(item) -> dict[str, Any]:
+    defaults = {field.key: field.default for field in item.fields}
+    activation_flow = item.metadata.get("activation_flow")
+    if isinstance(activation_flow, dict):
+        for field in activation_flow.get("fields", []):
+            if isinstance(field, dict) and isinstance(field.get("key"), str):
+                defaults[field["key"]] = field.get("default")
+        for extra_key, extra_default in (
+            (activation_flow.get("enabled_key"), item.metadata.get("default_settings", {}).get("enabled")),
+            (activation_flow.get("configured_key"), False),
+        ):
+            if isinstance(extra_key, str):
+                defaults.setdefault(extra_key, extra_default)
+    return defaults
+
+
 @timeline_router.get("/events")
 async def list_timeline_events(
     limit: int = Query(default=50, ge=1, le=200),
@@ -141,12 +157,12 @@ async def get_timeline_source_status():
                 "description": item.description,
                 "fields": [field.model_dump() for field in item.fields],
                 "current_settings": {
-                    field.key: _get_nested_value(
+                    key: _get_nested_value(
                         current_settings,
-                        field.key,
-                        field.default,
+                        key,
+                        default,
                     )
-                    for field in item.fields
+                    for key, default in _collect_source_setting_defaults(item).items()
                 },
                 "enabled": bool(
                     _get_nested_value(
@@ -203,6 +219,24 @@ async def get_timeline_source_status():
                     )
                 ),
                 "supports_pull_sync": bool(getattr(sensor, "supports_pull_sync", False)),
+                "activation_flow": item.metadata.get("activation_flow"),
+                "activation_required": bool(
+                    isinstance(item.metadata.get("activation_flow"), dict)
+                    and not bool(
+                        _get_nested_value(
+                            current_settings,
+                            f"sensors.{source_name}.enabled",
+                            item.metadata.get("default_settings", {}).get("enabled", True),
+                        )
+                    )
+                    and not bool(
+                        _get_nested_value(
+                            current_settings,
+                            str(item.metadata.get("activation_flow", {}).get("configured_key") or ""),
+                            False,
+                        )
+                    )
+                ),
                 "last_error": state.last_error if state is not None else None,
                 "last_success": state.last_success_at if state is not None else None,
                 "last_sync_at": state.last_success_at if state is not None else None,

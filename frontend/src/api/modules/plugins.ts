@@ -21,6 +21,18 @@ export interface ExtensionFieldSpec {
   surface: ExtensionSurface;
   order: number;
   placeholder?: string | null;
+  depends_on_key?: string | null;
+  depends_on_values?: string[];
+}
+
+export interface ActivationFlowSpec {
+  title: string;
+  description: string;
+  confirm_label: string;
+  cancel_label: string;
+  enabled_key: string;
+  configured_key: string;
+  fields: ExtensionFieldSpec[];
 }
 
 export interface PluginManifest {

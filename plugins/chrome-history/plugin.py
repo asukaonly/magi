@@ -1,7 +1,7 @@
 """Chrome history timeline plugin."""
 from __future__ import annotations
 
-from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
+from magi.plugins import ActivationFlowSpec, ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
 
 from .chrome_reader import DEFAULT_MACOS_CHROME_ROOT
 from .sensor import ChromeHistoryTimelineSensor
@@ -19,7 +19,53 @@ DEFAULT_SETTINGS = {
     "max_items_per_sync": 200,
     "fetch_page_content": False,
     "edge_whitelist": ["VISITED", "VIEWED"],
+    "initial_sync_policy": "lookback_days",
+    "initial_sync_lookback_days": 7,
+    "initial_sync_configured": False,
 }
+
+
+def _activation_flow(prefix: str) -> ActivationFlowSpec:
+    return ActivationFlowSpec(
+        title="Enable Chrome History",
+        description=(
+            "Chrome history is sensitive local data. Choose how the first sync should seed the timeline before "
+            "this source starts running."
+        ),
+        confirm_label="Enable source",
+        cancel_label="Not now",
+        enabled_key=f"{prefix}.enabled",
+        configured_key=f"{prefix}.initial_sync_configured",
+        fields=[
+            ExtensionFieldSpec(
+                key=f"{prefix}.initial_sync_policy",
+                type="select",
+                label="First Sync Scope",
+                description="Decide how much history should be imported when this source is enabled for the first time.",
+                default="lookback_days",
+                options=[
+                    ExtensionFieldOption(label="Sync full history", value="full"),
+                    ExtensionFieldOption(label="Sync recent days", value="lookback_days"),
+                    ExtensionFieldOption(label="Only new records from now on", value="from_now"),
+                ],
+                section="activation",
+                surface="timeline",
+                order=10,
+            ),
+            ExtensionFieldSpec(
+                key=f"{prefix}.initial_sync_lookback_days",
+                type="number",
+                label="Recent Days",
+                description="Used when the first-sync scope is set to recent days.",
+                default=7,
+                section="activation",
+                surface="timeline",
+                order=20,
+                depends_on_key=f"{prefix}.initial_sync_policy",
+                depends_on_values=["lookback_days"],
+            ),
+        ],
+    )
 
 
 def _fields(prefix: str) -> list[ExtensionFieldSpec]:
@@ -153,6 +199,7 @@ class ChromeHistoryPlugin(Plugin):
                     metadata={
                         "source_type": "chrome_history",
                         "default_settings": dict(DEFAULT_SETTINGS),
+                        "activation_flow": _activation_flow("sensors.chrome_history").model_dump(),
                     },
                 ),
             )

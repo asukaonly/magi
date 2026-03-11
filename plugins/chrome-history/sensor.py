@@ -1,6 +1,7 @@
 """Timeline sensor for local Chrome history."""
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
@@ -62,12 +63,31 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
         source_path = str(sensor_settings.get("source_path") or self.source_path or DEFAULT_MACOS_CHROME_ROOT)
         profile = str(sensor_settings.get("profile") or self.profile or "Default")
         lookback_hours = int(sensor_settings.get("lookback_hours", self.lookback_hours))
+        initial_sync_policy = str(sensor_settings.get("initial_sync_policy") or "lookback_days")
+        initial_sync_lookback_days = max(1, int(sensor_settings.get("initial_sync_lookback_days", 7)))
+        initial_lookback_hours: int | None = max(1, initial_sync_lookback_days) * 24
+        if context.last_cursor is None:
+            if initial_sync_policy == "full":
+                initial_lookback_hours = None
+            elif initial_sync_policy == "from_now":
+                latest_visit_id = self._reader.get_latest_visit_id(source_path=source_path, profile=profile)
+                return SensorSyncResult(
+                    items=[],
+                    next_cursor=str(latest_visit_id) if latest_visit_id > 0 else None,
+                    watermark_ts=context.last_success_at or time.time(),
+                    stats={
+                        "count": 0,
+                        "profile": profile,
+                        "raw_count": 0,
+                        "initial_sync_policy": initial_sync_policy,
+                    },
+                )
         items = self._reader.read_visits(
             source_path=source_path,
             profile=profile,
             limit=max(1, context.limit),
             last_cursor=context.last_cursor,
-            lookback_hours=max(1, lookback_hours),
+            lookback_hours=max(1, lookback_hours) if context.last_cursor is not None else initial_lookback_hours,
         )
         next_cursor = context.last_cursor
         watermark_ts = context.last_success_at
@@ -86,6 +106,7 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
                 "count": len(items),
                 "profile": profile,
                 "raw_count": sum(int(item.get("merged_visit_count") or 1) for item in items),
+                "initial_sync_policy": initial_sync_policy if context.last_cursor is None else "incremental",
             },
         )
 

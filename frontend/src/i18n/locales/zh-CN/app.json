@@ -451,11 +451,15 @@
         "refresh": "刷新状态",
         "syncNow": "立即同步"
       },
+      "activation": {
+        "enabled": "{{source}} 已启用"
+      },
       "syncQueued": "{{source}} 已进入同步队列",
       "errors": {
         "statusLoadFailed": "来源状态加载失败：{{message}}",
         "syncFailed": "同步请求失败：{{message}}",
-        "settingsSaveFailed": "来源设置保存失败：{{message}}"
+        "settingsSaveFailed": "来源设置保存失败：{{message}}",
+        "activationFailed": "来源启用失败：{{message}}"
       }
     },
     "extensions": {

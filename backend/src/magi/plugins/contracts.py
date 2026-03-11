@@ -37,6 +37,20 @@ class ExtensionFieldSpec(BaseModel):
     surface: Literal["extensions", "tools", "timeline", "actions"] = "extensions"
     order: int = 0
     placeholder: Optional[str] = None
+    depends_on_key: Optional[str] = None
+    depends_on_values: list[str] = Field(default_factory=list)
+
+
+class ActivationFlowSpec(BaseModel):
+    """Declarative first-enable flow rendered by the host UI."""
+
+    title: str
+    description: str = ""
+    confirm_label: str = "Confirm"
+    cancel_label: str = "Cancel"
+    enabled_key: str
+    configured_key: str
+    fields: list[ExtensionFieldSpec] = Field(default_factory=list)
 
 
 class PluginManifest(BaseModel):

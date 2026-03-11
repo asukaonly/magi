@@ -199,6 +199,10 @@ def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_defa
     assert resolved is not None
     _, _, _, spec = resolved
     assert spec.metadata["default_settings"]["enabled"] is False
+    activation_flow = spec.metadata["activation_flow"]
+    assert activation_flow["enabled_key"] == "sensors.chrome_history.enabled"
+    assert activation_flow["configured_key"] == "sensors.chrome_history.initial_sync_configured"
+    assert activation_flow["fields"][0]["key"] == "sensors.chrome_history.initial_sync_policy"
 
 
 @pytest.mark.asyncio
@@ -356,3 +360,56 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
     assert lastfm_item["source_item_id"] == "204-205"
     assert lastfm_item["merged_visit_count"] == 2
     assert lastfm_item["url"] == "https://last.fm/music/Radiohead"
+
+
+@pytest.mark.asyncio
+async def test_chrome_history_sensor_from_now_skips_initial_backfill(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    chrome_root = _create_history_db(tmp_path / "chrome-from-now")
+    config = AppConfig()
+    config.plugins.packages["chrome-history"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="builtin",
+        settings={
+            "sensors": {
+                "chrome_history": {
+                    "enabled": True,
+                    "source_path": str(chrome_root),
+                    "profile": "Default",
+                    "sync_mode": "manual",
+                    "sync_interval_minutes": 30,
+                    "initial_sync_policy": "from_now",
+                    "initial_sync_lookback_days": 3,
+                    "initial_sync_configured": True,
+                    "max_items_per_sync": 50,
+                    "fetch_page_content": False,
+                    "edge_whitelist": ["VISITED", "VIEWED"],
+                }
+            }
+        },
+    )
+    manager, sensor_registry = _build_manager(monkeypatch, config)
+    manager.scan(persist_discovery=False)
+    manager.activate_enabled_plugins()
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    assert resolved is not None
+    _, _, sensor, _ = resolved
+
+    result = await sensor.collect_items(
+        SensorSyncContext(
+            source_type="chrome_history",
+            manual=True,
+            last_cursor=None,
+            last_success_at=None,
+            limit=50,
+            runtime_paths=Runtimepaths(tmp_path / "runtime-from-now"),
+            plugin_settings=config.plugins.packages["chrome-history"].settings,
+        )
+    )
+
+    assert result.items == []
+    assert result.next_cursor == "103"
+    assert result.stats["initial_sync_policy"] == "from_now"

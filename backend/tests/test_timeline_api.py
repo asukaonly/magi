@@ -123,7 +123,7 @@ def _build_client(monkeypatch):
             "current_settings": {
                 "sensors": {
                     "browser_history": {
-                        "enabled": True,
+                        "enabled": False,
                         "sync_mode": "interval",
                         "sync_interval_minutes": 30,
                         "default_retention_mode": "analyze_only",
@@ -176,6 +176,28 @@ def _build_client(monkeypatch):
                             "metadata": {
                                 "domain": "timeline",
                                 "source_type": "browser_history",
+                                "activation_flow": {
+                                    "title": "Enable Browser History",
+                                    "description": "Choose the initial sync scope.",
+                                    "confirm_label": "Enable source",
+                                    "cancel_label": "Cancel",
+                                    "enabled_key": "sensors.browser_history.enabled",
+                                    "configured_key": "sensors.browser_history.initial_sync_configured",
+                                    "fields": [
+                                        {
+                                            "key": "sensors.browser_history.initial_sync_policy",
+                                            "type": "select",
+                                            "label": "First Sync Scope",
+                                            "description": "",
+                                            "default": "lookback_days",
+                                            "required": False,
+                                            "options": [],
+                                            "section": "activation",
+                                            "surface": "timeline",
+                                            "order": 10,
+                                        }
+                                    ],
+                                },
                                 "default_settings": {
                                     "sync_mode": "interval",
                                     "sync_interval_minutes": 30,
@@ -257,6 +279,8 @@ def test_get_timeline_source_status(monkeypatch):
     assert body["sources"][0]["plugin_id"] == "core-timeline"
     assert body["sources"][0]["supports_pull_sync"] is True
     assert body["sources"][0]["scheduler_job_id"] == "timeline-sync:core-timeline:browser_history"
+    assert body["sources"][0]["activation_flow"]["enabled_key"] == "sensors.browser_history.enabled"
+    assert body["sources"][0]["activation_required"] is True
 
 
 def test_trigger_timeline_source_sync_returns_schedule_id(monkeypatch):

@@ -26,6 +26,13 @@ const sortFields = (fields: ExtensionFieldSpec[]) =>
     return left.order - right.order;
   });
 
+const isFieldVisible = (field: ExtensionFieldSpec, values: Record<string, any>) => {
+  if (!field.depends_on_key || !field.depends_on_values?.length) {
+    return true;
+  }
+  return field.depends_on_values.includes(String(values[field.depends_on_key] ?? ''));
+};
+
 export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
   fields,
   values,
@@ -33,6 +40,9 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
   disabled = false,
 }) => {
   const grouped = sortFields(fields).reduce<Record<string, ExtensionFieldSpec[]>>((acc, field) => {
+    if (!isFieldVisible(field, values)) {
+      return acc;
+    }
     const section = field.section || 'general';
     acc[section] = acc[section] || [];
     acc[section].push(field);

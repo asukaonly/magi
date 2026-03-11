@@ -1,5 +1,5 @@
 import { api } from '../client';
-import type { ExtensionFieldSpec } from './plugins';
+import type { ActivationFlowSpec, ExtensionFieldSpec } from './plugins';
 
 export interface TimelineContentBlock {
   kind: string;
@@ -80,6 +80,8 @@ export interface TimelineSourceStatusItem {
   fetch_page_content: boolean;
   edge_whitelist: string[];
   supports_pull_sync: boolean;
+  activation_flow?: ActivationFlowSpec | null;
+  activation_required?: boolean;
   last_error?: string | null;
   last_success?: string | null;
   last_sync_at?: number | string | null;

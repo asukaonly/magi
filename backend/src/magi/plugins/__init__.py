@@ -3,6 +3,7 @@
 from .actions import ActionExecutionContext, ActionRegistry, ActionSpec, BaseAction
 from .base import Plugin
 from .contracts import (
+    ActivationFlowSpec,
     ContributionType,
     ExtensionFieldOption,
     ExtensionFieldSpec,
@@ -24,6 +25,7 @@ __all__ = [
     "ActionExecutionContext",
     "ActionRegistry",
     "ActionSpec",
+    "ActivationFlowSpec",
     "BaseAction",
     "ContributionType",
     "ExtensionFieldOption",
