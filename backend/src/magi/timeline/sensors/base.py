@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional
 
 from ..contracts import TimelineContentBlock, TimelineEvent
+from ..sync import SensorSyncContext, SensorSyncResult
 
 
 class TimelineSensorBase(ABC):
@@ -23,6 +24,8 @@ class TimelineSensorBase(ABC):
     config_schema: dict[str, Any] = {}
     relation_edge_whitelist: tuple[str, ...] = ()
     capabilities: dict[str, Any] = {}
+    supports_pull_sync: bool = False
+    supports_watch_mode: bool = False
 
     def __init__(
         self,
@@ -57,6 +60,10 @@ class TimelineSensorBase(ABC):
 
     async def fetch_item(self, item: dict[str, Any]) -> dict[str, Any]:
         return dict(item)
+
+    async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:
+        _ = context
+        raise NotImplementedError(f"{self.sensor_id} does not implement pull sync")
 
     @abstractmethod
     async def build_timeline_event(self, item: dict[str, Any]) -> TimelineEvent:

@@ -130,6 +130,22 @@ Current responsibilities:
 
 Workers remain leaf executors and do not recursively create new workers.
 
+### 6. `SchedulerService`
+
+Persistent business-task scheduling now lives in:
+
+- [service.py](/Users/asuka/code/magi/backend/src/magi/scheduler/service.py)
+- [bootstrap.py](/Users/asuka/code/magi/backend/src/magi/scheduler/bootstrap.py)
+
+Current responsibilities:
+
+- Persist one-shot, interval, and cron-style schedules to a local SQLite-backed store
+- Restore recurring jobs on runtime startup
+- Track per-target runtime state such as `last_success_at`, `last_error`, cursor, and watermark
+- Dispatch scheduled work into runtime-owned handlers instead of scattered module-specific loops
+
+This scheduler is meant for user-facing or business-facing runtime work, not system housekeeping. `MaintenanceDaemon` remains a separate mechanism for now.
+
 ## Current Task-Agent Execution Framework
 
 The shared execution framework lives under:
@@ -258,6 +274,37 @@ Key payload DTOs:
 - `ExploreTaskRequestPayload`
 - `ExploreTaskCompletedPayload`
 - `GenericFactPayload`
+
+## Unified Scheduler Targets
+
+The scheduler runtime currently supports three target families:
+
+- `timeline_sensor_sync`
+  Pull-capable timeline sensors can collect source items on demand or on a recurring schedule, then normalize them through the existing timeline service
+
+- `agent_task`
+  The runtime can enqueue future work directly into a task agent without inventing a separate loop per feature
+
+- `action_dispatch`
+  Outbound actions can be delayed or repeated through the same scheduler contract while still remaining distinct from tools
+
+This keeps timer-based work attached to the runtime boundary rather than coupling it to individual domains.
+
+## Timeline Pull Sync Flow
+
+Timeline sensors may now expose an optional pull-sync contract:
+
+- [sync.py](/Users/asuka/code/magi/backend/src/magi/timeline/sync.py)
+
+The runtime flow is:
+
+1. Scheduler fires a `timeline_sensor_sync` target
+2. `SchedulerBootstrap` resolves the sensor from `SensorRegistry`
+3. A pull-capable sensor runs `collect_items(...)`
+4. Returned items are normalized through `build_timeline_event(...)` and `extract_candidates(...)`
+5. `TimelineService` writes L1 events and updates downstream relationship extraction
+
+This is the path that enables plugin-backed local sources such as browser history collectors to participate in timeline ingestion without adding custom background loops for each source.
 
 This lets internal code stop depending on large numbers of `payload.get(...)` calls.
 

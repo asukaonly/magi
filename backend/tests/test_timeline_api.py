@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from magi.api.routers import timeline as timeline_module
 from magi.api.routers.timeline import timeline_router
 from magi.plugins import ExtensionFieldSpec
+from magi.scheduler import ScheduledTargetState, ScheduledTargetType
 from magi.timeline import TimelineContentBlock, TimelineEvent
 
 
@@ -76,6 +77,31 @@ class _FakeTimelineService:
 
     async def reanalyze_event(self, event_id):
         return self.events.get(event_id)
+
+
+class _FakeSchedulerRepository:
+    async def get_schedule(self, schedule_id):
+        return type("Schedule", (), {"job_id": schedule_id})()
+
+
+class _FakeSchedulerService:
+    def __init__(self) -> None:
+        self.repository = _FakeSchedulerRepository()
+
+    async def get_target_state(self, target_type, target_key):
+        return ScheduledTargetState(
+            target_type=ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+            target_key=target_key,
+            last_success_at=1710000200.0,
+            last_error=None,
+            next_run_at=1710000500.0,
+            scheduler_job_id="timeline-sync:core-timeline:browser_history",
+        )
+
+
+class _FakeSchedulerBootstrap:
+    async def queue_manual_timeline_sync(self, source_name):
+        return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
 
 
 def _build_client(monkeypatch):
@@ -164,12 +190,27 @@ def _build_client(monkeypatch):
                     )()
                 ],
                 "resolve_domain_sensor": lambda self, domain, source_name: (
-                    ("core-timeline", "timeline.browser_history", object(), object())
+                    (
+                        "core-timeline",
+                        "timeline.browser_history",
+                        type("Sensor", (), {"supports_pull_sync": True})(),
+                        object(),
+                    )
                     if domain == "timeline" and source_name == "browser_history"
                     else None
                 ),
             },
         )(),
+    )
+    monkeypatch.setattr(
+        timeline_module,
+        "get_scheduler_service",
+        lambda: _FakeSchedulerService(),
+    )
+    monkeypatch.setattr(
+        timeline_module,
+        "get_scheduler_bootstrap",
+        lambda: _FakeSchedulerBootstrap(),
     )
     return TestClient(app), service
 
@@ -214,6 +255,18 @@ def test_get_timeline_source_status(monkeypatch):
     assert body["sources"][0]["source_name"] == "browser_history"
     assert body["sources"][0]["fetch_page_content"] is False
     assert body["sources"][0]["plugin_id"] == "core-timeline"
+    assert body["sources"][0]["supports_pull_sync"] is True
+    assert body["sources"][0]["scheduler_job_id"] == "timeline-sync:core-timeline:browser_history"
+
+
+def test_trigger_timeline_source_sync_returns_schedule_id(monkeypatch):
+    client, _ = _build_client(monkeypatch)
+
+    response = client.post("/api/timeline/sources/browser_history/sync")
+
+    assert response.status_code == 200
+    assert response.json()["queued"] is True
+    assert response.json()["schedule_id"] == "manual:browser_history"
 
 
 def test_reanalyze_timeline_event_returns_existing_event(monkeypatch):

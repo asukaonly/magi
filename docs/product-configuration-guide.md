@@ -226,6 +226,15 @@ This split is intentional:
 - global timeline state belongs to the product domain
 - source-specific runtime settings belong to the owning sensor contribution
 
+Timeline sync behavior is now backed by the unified scheduler runtime.
+
+Expected product behavior:
+
+- manual sync should enqueue a one-shot scheduler job for the selected source
+- interval sync should register a recurring schedule when the source is enabled
+- watch mode may be offered as a source capability, but a source without native watch support may fall back to interval semantics
+- timeline source status may expose scheduler-backed state such as last sync, next run, and last error
+
 ## Action Management
 
 Magi now exposes outbound actions as a distinct product surface.
@@ -236,6 +245,8 @@ Expected product behavior:
 - action settings should be rendered from backend metadata
 - actions remain conceptually distinct from tools even when a tool adapter exists
 - dangerous or permission-requiring actions should surface that metadata clearly to the user
+
+Action execution may also be scheduled by the backend runtime for delayed or recurring delivery, even when the product does not yet expose a full task-center UI.
 
 ## Cross-Cutting Product Rules
 

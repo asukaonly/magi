@@ -32,7 +32,8 @@ from ..memory.integration import MemoryIntegrationModule, MemoryIntegrationConfi
 from ..memory.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
 from ..llm import create_llm_adapter, get_llm_usage_store
 from ..llm.usage_events import configure_llm_usage_event_publisher
-from ..plugins import get_plugin_manager, get_sensor_registry, initialize_plugin_manager
+from ..plugins import get_action_registry, get_plugin_manager, get_sensor_registry, initialize_plugin_manager
+from ..scheduler import SchedulerBootstrap, SchedulerService, set_scheduler_runtime
 from ..timeline.service import TimelineService
 from ..utils.runtime import get_runtime_paths, Runtimepaths, init_runtime_data
 from ..core.logger import get_logger
@@ -47,6 +48,8 @@ _agent_runtime: AgentRuntime | None = None
 _maintenance_daemon: MaintenanceDaemon | None = None
 _scenario_prompts_store: ScenarioPromptsStore | None = None
 _llm_usage_store = None
+_scheduler_service: SchedulerService | None = None
+_scheduler_bootstrap: SchedulerBootstrap | None = None
 
 
 def _get_nested_setting(payload: dict[str, Any], path: str, default: Any) -> Any:
@@ -183,6 +186,14 @@ def get_agent_runtime() -> AgentRuntime:
     return _agent_runtime
 
 
+def get_scheduler_service() -> SchedulerService:
+    """Get the active scheduler service."""
+
+    if _scheduler_service is None:
+        raise RuntimeError("SchedulerService not initialized. Call initialize_chat_agent() first.")
+    return _scheduler_service
+
+
 def _create_llm_adapter(config: AppConfig):
     llm_adapter = create_llm_adapter(config)
     logger.info(
@@ -196,6 +207,7 @@ def _create_llm_adapter(config: AppConfig):
 async def initialize_chat_agent():
     """Initialize agent runtime on application startup."""
     global _memory_integration, _message_bus, _agent_runtime, _llm_usage_store
+    global _scheduler_service, _scheduler_bootstrap
 
     if _agent_runtime is not None:
         logger.warning("Agent runtime already initialized")
@@ -354,6 +366,28 @@ async def initialize_chat_agent():
 
         await _agent_runtime.start()
 
+        timeline_service = TimelineService(unified_memory)
+        _scheduler_service = SchedulerService(
+            db_path=runtime_paths.scheduler_db_path,
+            runtime_dir=runtime_paths.base_dir,
+        )
+        _scheduler_bootstrap = SchedulerBootstrap(
+            scheduler_service=_scheduler_service,
+            sensor_registry=get_sensor_registry(),
+            action_registry=get_action_registry(),
+            plugin_manager=get_plugin_manager(),
+            timeline_service=timeline_service,
+            runtime_paths=runtime_paths,
+            task_agent_manager=task_agent_manager,
+            action_executor=action_executor,
+            get_config=get_config,
+        )
+        _scheduler_bootstrap.register_handlers()
+        await _scheduler_service.start()
+        await _scheduler_bootstrap.sync_timeline_sensor_schedules()
+        set_scheduler_runtime(_scheduler_service, _scheduler_bootstrap)
+        logger.info("Scheduler service started")
+
         # Register services in the DI container
         container = get_container()
         container.message_bus.override(providers.Object(_message_bus))
@@ -398,8 +432,15 @@ async def initialize_chat_agent():
 async def shutdown_chat_agent():
     """Shutdown agent runtime."""
     global _memory_integration, _message_bus, _agent_runtime, _maintenance_daemon, _llm_usage_store
+    global _scheduler_service, _scheduler_bootstrap
 
     try:
+        if _scheduler_service is not None:
+            await _scheduler_service.stop()
+            _scheduler_service = None
+            _scheduler_bootstrap = None
+            set_scheduler_runtime(None, None)
+
         # Stop maintenance daemon first
         if _maintenance_daemon is not None:
             await _maintenance_daemon.stop()

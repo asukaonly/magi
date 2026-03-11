@@ -13,6 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from ..config import get_config, save_config
 from ..config.models import PluginSettings
+from ..scheduler.runtime import request_scheduler_refresh
 from ..tools.registry import ToolRegistry
 from .actions import ActionRegistry, BaseAction, build_action_tool_class
 from .base import Plugin
@@ -170,6 +171,7 @@ class PluginManager:
             state.last_error = None
             state.contributions = registered_contributions
             self._plugin_instances[plugin_id] = plugin_instance
+            request_scheduler_refresh()
             return state
         except Exception as exc:
             state.loaded = False
@@ -194,6 +196,7 @@ class PluginManager:
         if state is not None:
             state.loaded = False
             state.contributions = self._placeholder_contributions(state.manifest)
+        request_scheduler_refresh()
 
     def enable_plugin(self, plugin_id: str) -> PluginPackageState:
         """Persist enable/trust state and load the plugin."""
@@ -208,7 +211,9 @@ class PluginManager:
             }
         )
         self.scan(persist_discovery=False)
-        return self.load_plugin(plugin_id)
+        state = self.load_plugin(plugin_id)
+        request_scheduler_refresh()
+        return state
 
     def disable_plugin(self, plugin_id: str) -> PluginPackageState:
         """Persist disabled state and unregister plugin contributions."""
@@ -217,7 +222,9 @@ class PluginManager:
         self.unload_plugin(plugin_id)
         save_config({f"plugins.packages.{plugin_id}.enabled": False})
         self.scan(persist_discovery=False)
-        return self._require_package(plugin_id)
+        state = self._require_package(plugin_id)
+        request_scheduler_refresh()
+        return state
 
     def reload_plugin(self, plugin_id: str) -> PluginPackageState:
         """Reload a single plugin package."""
@@ -225,7 +232,8 @@ class PluginManager:
         state = self._require_package(plugin_id)
         self.unload_plugin(plugin_id)
         if state.enabled:
-            return self.load_plugin(plugin_id)
+            state = self.load_plugin(plugin_id)
+        request_scheduler_refresh()
         return state
 
     def update_plugin_settings(self, plugin_id: str, updates: dict[str, Any]) -> PluginPackageState:
@@ -242,6 +250,7 @@ class PluginManager:
         state = self._require_package(plugin_id)
         if state.enabled:
             state = self.reload_plugin(plugin_id)
+        request_scheduler_refresh()
         return state
 
     def _persist_new_packages(self, manifests: dict[str, PluginManifest]) -> None:

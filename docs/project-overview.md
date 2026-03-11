@@ -47,7 +47,7 @@ Magi uses a layered backend architecture:
   Event transport, logging, config loading, persistence helpers
 
 - Core runtime
-  Sensor hub, router agent, task agents, action execution, lifecycle management
+  Sensor hub, router agent, task agents, action execution, lifecycle management, scheduler runtime
 
 - Agent layer
   Task orchestration, worker management, execution loops, prompt assembly
@@ -86,6 +86,7 @@ magi/
 │   │   ├── plugins/        # Plugin interfaces and loading
 │   │   ├── processing/     # Processing modules
 │   │   ├── runtime/        # Runtime bootstrap and wiring
+│   │   ├── scheduler/      # Unified scheduled task runtime
 │   │   ├── skills/         # Skill loading and execution
 │   │   ├── tools/          # Builtin tools and provider tools
 │   │   └── websocket/      # Websocket server support
@@ -117,6 +118,16 @@ The most important specialized task agents today are:
 
 - `ExploreTaskAgent`
   A specialized task agent for large exploration-style requests such as codebase architecture analysis
+
+The runtime also now includes a unified scheduler layer:
+
+- `SchedulerService`
+  A persistent local scheduler used for one-shot, interval, and cron-style business jobs
+
+- `SchedulerBootstrap`
+  The runtime adapter that connects scheduled jobs to timeline sensor sync, task-agent dispatch, and outbound actions
+
+This scheduler is intentionally separate from housekeeping loops such as `MaintenanceDaemon`.
 
 ## Current Explore Flow
 

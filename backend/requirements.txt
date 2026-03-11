@@ -17,6 +17,8 @@ structlog>=24.1.0
 
 # 数据库
 aiosqlite>=0.19.0
+sqlalchemy>=2.0.0
+apscheduler>=3.10.0
 
 # 消息总线（可选Redis）
 redis>=5.0.1

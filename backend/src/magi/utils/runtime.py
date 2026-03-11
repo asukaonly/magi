@@ -106,6 +106,11 @@ class Runtimepaths:
         """LLM usage statistics database path."""
         return self.memories_dir / "llm_usage.db"
 
+    @property
+    def scheduler_db_path(self) -> Path:
+        """Unified scheduler database path."""
+        return self.data_dir / "scheduler.db"
+
     def other_file(self, user_id: str) -> Path:
         """
         Get others' memory file path
