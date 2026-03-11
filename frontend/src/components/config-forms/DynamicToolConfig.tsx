@@ -3,8 +3,7 @@
  *
  * Renders tool configuration forms dynamically based on API-provided specs.
  */
-import React, { useState, useEffect, useCallback } from 'react';
-import { toast } from 'sonner';
+import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronDown,
@@ -20,7 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField } from '@/components/config-forms/fields';
-import { toolsApi, type ToolConfig, ToolConfigSpec } from '@/api/modules/tools';
+import { type ToolConfig, ToolConfigSpec } from '@/api/modules/tools';
 import type { ExtensionFieldSpec } from '@/api/modules/plugins';
 
 export type DynamicConfigSpec = ToolConfigSpec | ExtensionFieldSpec;
@@ -114,9 +113,6 @@ const normalizeDynamicSpec = (
   };
 };
 
-/**
- * DynamicConfigField - Renders a single config field based on spec
- */
 interface DynamicConfigFieldProps {
   spec: DynamicConfigSpec;
   value: any;
@@ -140,10 +136,10 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
 
   const handleChange = useCallback(
     (newValue: any) => {
-    if (!disabled) {
-      onChange(newValue);
-    }
-  },
+      if (!disabled) {
+        onChange(newValue);
+      }
+    },
     [disabled, onChange]
   );
 
@@ -154,7 +150,6 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     </span>
   );
 
-  // Render based on type
   const renderField = () => {
     if (normalized.inputKind === 'boolean') {
       return (
@@ -277,7 +272,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
               const parsed = JSON.parse(e.target.value);
               handleChange(parsed);
             } catch {
-              // Invalid JSON, don't update
+              // Keep invalid JSON local until it becomes valid.
             }
           }}
           placeholder={normalized.placeholder || '{}'}
@@ -292,25 +287,25 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
   return <div className="space-y-1">{renderField()}</div>;
 };
 
-/**
- * ToolConfigCard - Renders a single tool's configuration card
- */
 interface ToolConfigCardProps {
   tool: ToolConfig;
-  onUpdateConfig: (toolName: string, updates: Record<string, any>) => Promise<boolean>;
+  values: Record<string, any>;
+  enabled: boolean;
+  onUpdateConfig: (toolName: string, path: string, value: any) => void;
   onUpdateEnabled: (toolName: string, enabled: boolean) => void;
-  saving?: boolean;
+  disabled?: boolean;
 }
 
- export const ToolConfigCard: React.FC<ToolConfigCardProps> = ({
+export const ToolConfigCard: React.FC<ToolConfigCardProps> = ({
   tool,
+  values,
+  enabled,
   onUpdateConfig,
   onUpdateEnabled,
-  saving = false,
+  disabled = false,
 }) => {
   const { t } = useTranslation('app');
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
-  const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
 
   const toggleProvider = (providerName: string) => {
     setExpandedProviders((prev) => {
@@ -322,32 +317,10 @@ interface ToolConfigCardProps {
       }
       return next;
     });
-  }
-
-  const handleFieldChange = (path: string, value: any) => {
-    setPendingChanges((prev) => ({ ...prev, [path]: value }));
   };
 
-  useEffect(() => {
-    if (saving || Object.keys(pendingChanges).length === 0) {
-      return;
-    }
-
-    const timer = window.setTimeout(async () => {
-      const saved = await onUpdateConfig(tool.name, pendingChanges);
-      if (saved) {
-        setPendingChanges({});
-      }
-    }, 600);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [onUpdateConfig, pendingChanges, saving, tool.name]);
-
-  // Separate template specs from regular specs
-  const templateSpecs = tool.config_specs.filter((s) => s.is_template);
-  const regularSpecs = tool.config_specs.filter((s) => !s.is_template);
+  const templateSpecs = tool.config_specs.filter((spec) => spec.is_template);
+  const regularSpecs = tool.config_specs.filter((spec) => !spec.is_template);
   const providerReadyMap = new Map(tool.providers.map((provider) => [provider.name, provider.is_ready]));
 
   return (
@@ -374,24 +347,23 @@ interface ToolConfigCardProps {
             </CardDescription>
           </div>
           <Switch
-            checked={tool.enabled}
+            checked={enabled}
             onCheckedChange={(checked) => onUpdateEnabled(tool.name, checked)}
-            disabled={saving}
+            disabled={disabled}
           />
         </div>
       </CardHeader>
 
       <CardContent className="pt-0">
-        {/* Regular config fields */}
-        {regularSpecs.length > 0 && (
-          <div className="space-y-3 mb-4">
+        {regularSpecs.length > 0 ? (
+          <div className="mb-4 space-y-3">
             {regularSpecs.map((spec) => (
               <DynamicConfigField
                 key={spec.path}
                 spec={spec}
-                value={pendingChanges[spec.path] ?? tool.current_values[spec.path]}
-                onChange={(value) => handleFieldChange(spec.path, value)}
-                disabled={saving}
+                value={values[spec.path] ?? tool.current_values[spec.path]}
+                onChange={(value) => onUpdateConfig(tool.name, spec.path, value)}
+                disabled={disabled}
                 selectOptions={
                   spec.path === 'default_provider' && spec.enum
                     ? spec.enum.map((item) => {
@@ -409,24 +381,23 @@ interface ToolConfigCardProps {
               />
             ))}
           </div>
-        )}
+        ) : null}
 
-        {/* Multi-provider config */}
-        {tool.is_multi_provider && templateSpecs.length > 0 && (
+        {tool.is_multi_provider && templateSpecs.length > 0 ? (
           <div className="mt-4 border-t pt-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-2 flex items-center justify-between">
               <h4 className="text-sm font-medium">{t('settings.toolProviders')}</h4>
             </div>
             <div className="space-y-2">
               {tool.providers.map((provider) => (
-                <div key={provider.name} className="border rounded-lg overflow-hidden">
+                <div key={provider.name} className="overflow-hidden rounded-lg border">
                   <button
                     type="button"
                     onClick={() => toggleProvider(provider.name)}
-                    className="flex w-full items-center justify-between p-3 bg-muted/30 hover:bg-muted/50 transition-colors"
+                    className="flex w-full items-center justify-between bg-muted/30 p-3 transition-colors hover:bg-muted/50"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{provider.display_name}</span>
+                      <span className="text-sm font-medium">{provider.display_name}</span>
                       {provider.is_ready ? (
                         <Badge variant="default" className="text-xs">
                           {t('settings.providerStatus.ready')}
@@ -443,108 +414,55 @@ interface ToolConfigCardProps {
                       <ChevronDown className="h-4 w-4 text-muted-foreground" />
                     )}
                   </button>
-                  {expandedProviders.has(provider.name) && (
-                    <div className="p-3 border-t space-y-3 bg-background">
+                  {expandedProviders.has(provider.name) ? (
+                    <div className="space-y-3 border-t bg-background p-3">
                       {templateSpecs
                         .filter((spec) => !spec.providers || spec.providers.includes(provider.name))
                         .map((spec) => (
-                        <DynamicConfigField
-                          key={`${spec.path}-${provider.name}`}
-                          spec={spec}
-                          value={
-                            pendingChanges[`${spec.path.replace('{provider}', provider.name)}`] ??
-                            tool.current_values[`${spec.path.replace('{provider}', provider.name)}`]
-                          }
-                          onChange={(value) =>
-                            handleFieldChange(spec.path.replace('{provider}', provider.name), value)
-                          }
-                          disabled={saving}
-                          providerName={provider.name}
-                        />
-                      ))}
+                          <DynamicConfigField
+                            key={`${spec.path}-${provider.name}`}
+                            spec={spec}
+                            value={
+                              values[spec.path.replace('{provider}', provider.name)] ??
+                              tool.current_values[spec.path.replace('{provider}', provider.name)]
+                            }
+                            onChange={(value) =>
+                              onUpdateConfig(tool.name, spec.path.replace('{provider}', provider.name), value)
+                            }
+                            disabled={disabled}
+                            providerName={provider.name}
+                          />
+                        ))}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               ))}
             </div>
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
 };
 
-/**
- * DynamicToolsConfig - Container component for all tool configurations
- */
-export const DynamicToolsConfig: React.FC = () => {
+interface DynamicToolsConfigProps {
+  tools: ToolConfig[];
+  loading?: boolean;
+  error?: string | null;
+  drafts: Record<string, { enabled: boolean; values: Record<string, any> }>;
+  onUpdateConfig: (toolName: string, path: string, value: any) => void;
+  onUpdateEnabled: (toolName: string, enabled: boolean) => void;
+}
+
+export const DynamicToolsConfig: React.FC<DynamicToolsConfigProps> = ({
+  tools,
+  loading = false,
+  error = null,
+  drafts,
+  onUpdateConfig,
+  onUpdateEnabled,
+}) => {
   const { t } = useTranslation('app');
-  const [tools, setTools] = useState<ToolConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchTools = async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (!silent) {
-      setLoading(true);
-    }
-    if (!silent || !tools.length) {
-      setError(null);
-    }
-    try {
-      const response = await toolsApi.listWithConfig();
-      setTools(response.tools || []);
-    } catch (err: any) {
-      const errorMessage = err?.message || t('settings.errorUnknown');
-      setError(t('settings.loadToolsFailed', { message: errorMessage }));
-      toast.error(t('settings.loadToolsFailed', { message: errorMessage }));
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-    }
-  };
-
-  useEffect(() => {
-    void fetchTools();
-  }, []);
-
-  const handleUpdateConfig = async (toolName: string, updates: Record<string, any>) => {
-    setSaving(true);
-    try {
-      await toolsApi.updateToolConfig(toolName, { updates });
-      await fetchTools({ silent: true });
-      return true;
-    } catch (err: any) {
-      toast.error(t('settings.toolConfigSaveFailed', { message: err?.message }));
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleUpdateEnabled = async (toolName: string, enabled: boolean) => {
-    setSaving(true);
-    try {
-      await toolsApi.updateToolConfig(toolName, { updates: {}, enabled });
-      toast.success(
-        enabled
-          ? t('settings.toolEnabled', { tool: toolName })
-          : t('settings.toolDisabled', { tool: toolName })
-      );
-      // Update local state immediately
-      setTools((prev) =>
-        prev.map((tool) =>
-          tool.name === toolName ? { ...tool, enabled } : tool
-        )
-      );
-      await fetchTools({ silent: true });
-    } catch (err: any) {
-      toast.error(t('settings.toolToggleFailed', { message: err?.message }));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -571,9 +489,10 @@ export const DynamicToolsConfig: React.FC = () => {
         <ToolConfigCard
           key={tool.name}
           tool={tool}
-          onUpdateConfig={handleUpdateConfig}
-          onUpdateEnabled={handleUpdateEnabled}
-          saving={saving}
+          values={drafts[tool.name]?.values || {}}
+          enabled={drafts[tool.name]?.enabled ?? tool.enabled}
+          onUpdateConfig={onUpdateConfig}
+          onUpdateEnabled={onUpdateEnabled}
         />
       ))}
     </div>

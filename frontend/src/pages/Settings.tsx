@@ -1,4 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useState,
+} from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import {
@@ -20,6 +25,8 @@ import {
   ScrollText,
   PlugZap,
   Send,
+  X,
+  RotateCcw,
 } from 'lucide-react';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
@@ -28,20 +35,26 @@ import ActionsSection from '@/components/settings/ActionsSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import { timelineApi, type TimelineSourceStatusItem } from '@/api/modules/timeline';
+import {
+  buildPluginFieldValueMap,
+  pluginsApi,
+  type PluginPackageState,
+} from '@/api/modules/plugins';
+import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField as BaseSelectField } from '@/components/config-forms/fields';
-import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig } from '../api/modules/config';
+import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig, type LanguageCode } from '../api/modules/config';
 import { memoryApi } from '../api/modules/memory';
 import { cn } from '@/lib/utils';
-import { useThemeStore } from '@/stores';
+import { useThemeStore, type ThemeMode } from '@/stores';
+import i18n from '@/i18n';
 
 type SelectOption = { label: string; value: string };
 
-// Navigation items
 type NavItem = {
   id: string;
   icon: React.ElementType;
@@ -60,7 +73,97 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'system', icon: Cpu },
 ];
 
-// Wrapper for SelectField with label
+const LANGUAGE_STORAGE_KEY = 'magi_language';
+
+const toI18nLanguage = (language: LanguageCode) => (language === 'zh' ? 'zh-CN' : 'en');
+
+const persistLanguageSelection = (language: LanguageCode) => {
+  const nextLanguage = toI18nLanguage(language);
+  localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+  document.documentElement.lang = nextLanguage;
+};
+
+const previewLanguageSelection = async (language: LanguageCode) => {
+  const nextLanguage = toI18nLanguage(language);
+  document.documentElement.lang = nextLanguage;
+  await i18n.changeLanguage(nextLanguage);
+};
+
+const serialize = (value: unknown) => JSON.stringify(value);
+
+const collectPluginSurfaceFields = (plugin: PluginPackageState, surfaces: string[]) =>
+  plugin.contributions
+    .flatMap((contribution) => contribution.fields)
+    .filter((field) => surfaces.includes(field.surface));
+
+const buildPluginDraftSnapshotFromPackages = (plugins: PluginPackageState[]) =>
+  Object.fromEntries(
+    plugins.map((plugin) => [
+      plugin.manifest.plugin_id,
+      buildPluginFieldValueMap(collectPluginSurfaceFields(plugin, ['extensions', 'actions']), plugin.current_settings),
+    ])
+  );
+
+const buildPluginDraftSnapshotFromTimeline = (statuses: TimelineSourceStatusItem[]) =>
+  statuses.reduce<Record<string, Record<string, any>>>((acc, source) => {
+    const current = acc[source.plugin_id] || {};
+    for (const field of source.fields) {
+      current[field.key] = source.current_settings[field.key] ?? field.default;
+    }
+    const activationFlow = source.activation_flow;
+    if (activationFlow) {
+      current[activationFlow.enabled_key] =
+        source.current_settings[activationFlow.enabled_key] ?? source.enabled;
+      current[activationFlow.configured_key] =
+        source.current_settings[activationFlow.configured_key] ?? false;
+      for (const field of activationFlow.fields) {
+        current[field.key] = source.current_settings[field.key] ?? field.default;
+      }
+    }
+    acc[source.plugin_id] = current;
+    return acc;
+  }, {});
+
+const mergeDraftMaps = (
+  current: Record<string, Record<string, any>>,
+  incoming: Record<string, Record<string, any>>,
+  { preserveExisting }: { preserveExisting: boolean }
+) => {
+  const next = structuredClone(current);
+  for (const [pluginId, values] of Object.entries(incoming)) {
+    next[pluginId] = next[pluginId] || {};
+    for (const [key, value] of Object.entries(values)) {
+      if (preserveExisting && key in next[pluginId]) {
+        continue;
+      }
+      next[pluginId][key] = value;
+    }
+  }
+  return next;
+};
+
+const buildToolDraftSnapshot = (tools: ToolConfig[]) =>
+  Object.fromEntries(
+    tools.map((tool) => [
+      tool.name,
+      {
+        enabled: tool.enabled,
+        values: structuredClone(tool.current_values || {}),
+      },
+    ])
+  );
+
+const diffFlatMaps = (saved: Record<string, any>, draft: Record<string, any>) => {
+  const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
+  const updates: Record<string, any> = {};
+  for (const key of keys) {
+    if (serialize(saved[key] ?? null) !== serialize(draft[key] ?? null)) {
+      updates[key] = draft[key];
+    }
+  }
+  return updates;
+};
+
 const LabeledSelectField: React.FC<{
   label: string;
   value: string;
@@ -69,12 +172,7 @@ const LabeledSelectField: React.FC<{
 }> = ({ label, value, options, onChange }) => (
   <label className="space-y-2">
     <span className="text-sm font-medium">{label}</span>
-    <BaseSelectField
-      value={value}
-      onChange={onChange}
-      options={options}
-      allowEmpty={false}
-    />
+    <BaseSelectField value={value} onChange={onChange} options={options} allowEmpty={false} />
   </label>
 );
 
@@ -100,19 +198,25 @@ const NumberField: React.FC<{
   </label>
 );
 
-const serializeConfigWithoutLlm = (config: SystemConfig) => {
-  const { llm: _llm, ...rest } = config;
-  return JSON.stringify(rest);
-};
+export interface SettingsPageHandle {
+  hasUnsavedChanges: () => boolean;
+  discardChanges: () => Promise<void>;
+}
 
-export const SettingsPage: React.FC = () => {
-  const { t, i18n } = useTranslation('app');
+interface SettingsPageProps {
+  onRequestClose?: () => void;
+}
+
+export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
+  const { t } = useTranslation('app');
   const themeMode = useThemeStore((state) => state.mode);
   const setThemeMode = useThemeStore((state) => state.setMode);
-  const [config, setConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
-  const [llmDraft, setLlmDraft] = useState(DEFAULT_SYSTEM_CONFIG.llm);
+  const [savedConfig, setSavedConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
+  const [draftConfig, setDraftConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
+  const [savedThemeMode, setSavedThemeMode] = useState<ThemeMode>(themeMode);
+  const [draftThemeMode, setDraftThemeMode] = useState<ThemeMode>(themeMode);
   const [loading, setLoading] = useState(true);
-  const [savingLlm, setSavingLlm] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('preferences');
   const [downloadModel, setDownloadModel] = useState('bge-m3');
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -123,37 +227,81 @@ export const SettingsPage: React.FC = () => {
   const [timelineStatuses, setTimelineStatuses] = useState<TimelineSourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
-  const hasLoadedConfigRef = useRef(false);
-  const lastSavedNonLlmSnapshotRef = useRef(serializeConfigWithoutLlm(DEFAULT_SYSTEM_CONFIG));
-  const autoSaveRequestIdRef = useRef(0);
+  const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
+  const [pluginProcessingIds, setPluginProcessingIds] = useState<Record<string, string>>({});
+  const [savedPluginDrafts, setSavedPluginDrafts] = useState<Record<string, Record<string, any>>>({});
+  const [draftPluginDrafts, setDraftPluginDrafts] = useState<Record<string, Record<string, any>>>({});
+  const [tools, setTools] = useState<ToolConfig[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(false);
+  const [toolsError, setToolsError] = useState<string | null>(null);
+  const [savedToolDrafts, setSavedToolDrafts] = useState<Record<string, { enabled: boolean; values: Record<string, any> }>>({});
+  const [draftToolDrafts, setDraftToolDrafts] = useState<Record<string, { enabled: boolean; values: Record<string, any> }>>({});
+  const [reloadingActionPlugins, setReloadingActionPlugins] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    void fetchConfig();
-    void fetchInstalledModels();
-    void fetchTimelineStatuses();
-  }, []);
-
-  const patchConfig = (updater: (draft: SystemConfig) => void) => {
-    setConfig((prev) => {
+  const patchDraftConfig = (updater: (draft: SystemConfig) => void) => {
+    setDraftConfig((prev) => {
       const next = structuredClone(prev);
       updater(next);
       return next;
     });
   };
 
-  const fetchConfig = async () => {
-    setLoading(true);
+  const loadPlugins = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) {
+      setPluginsLoading(true);
+    }
     try {
-      const response = await configApi.get();
-      const nextConfig = response.data || DEFAULT_SYSTEM_CONFIG;
-      setConfig(nextConfig);
-      setLlmDraft(nextConfig.llm);
-      lastSavedNonLlmSnapshotRef.current = serializeConfigWithoutLlm(nextConfig);
-      hasLoadedConfigRef.current = true;
+      const response = await pluginsApi.list();
+      const nextPlugins = response.plugins || [];
+      const nextSnapshot = buildPluginDraftSnapshotFromPackages(nextPlugins);
+      setPlugins(nextPlugins);
+      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
+      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));
     } catch (error: any) {
-      toast.error(t('settings.loadFailed', { message: error?.message || 'unknown' }));
+      toast.error(t('settings.extensions.errors.loadFailed', { message: error?.message || 'unknown' }));
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setPluginsLoading(false);
+      }
+    }
+  };
+
+  const loadTools = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) {
+      setToolsLoading(true);
+      setToolsError(null);
+    }
+    try {
+      const response = await toolsApi.listWithConfig();
+      const nextTools = response.tools || [];
+      const nextDrafts = buildToolDraftSnapshot(nextTools);
+      setTools(nextTools);
+      setSavedToolDrafts(nextDrafts);
+      setDraftToolDrafts((prev) => {
+        if (Object.keys(prev).length === 0) {
+          return nextDrafts;
+        }
+        const merged = structuredClone(prev);
+        for (const [toolName, snapshot] of Object.entries(nextDrafts)) {
+          merged[toolName] = {
+            enabled: merged[toolName]?.enabled ?? snapshot.enabled,
+            values: {
+              ...snapshot.values,
+              ...(merged[toolName]?.values || {}),
+            },
+          };
+        }
+        return merged;
+      });
+    } catch (error: any) {
+      const message = error?.message || t('settings.errorUnknown');
+      setToolsError(t('settings.loadToolsFailed', { message }));
+      toast.error(t('settings.loadToolsFailed', { message }));
+    } finally {
+      if (!silent) {
+        setToolsLoading(false);
+      }
     }
   };
 
@@ -170,7 +318,11 @@ export const SettingsPage: React.FC = () => {
     setTimelineStatusesLoading(true);
     try {
       const response = await timelineApi.getSourceStatus();
-      setTimelineStatuses(response.sources || []);
+      const nextStatuses = response.sources || [];
+      const nextSnapshot = buildPluginDraftSnapshotFromTimeline(nextStatuses);
+      setTimelineStatuses(nextStatuses);
+      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
+      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));
     } catch (error: any) {
       toast.error(t('settings.timeline.errors.statusLoadFailed', { message: error?.message || 'unknown' }));
       setTimelineStatuses([]);
@@ -178,6 +330,32 @@ export const SettingsPage: React.FC = () => {
       setTimelineStatusesLoading(false);
     }
   };
+
+  const fetchConfig = async () => {
+    setLoading(true);
+    try {
+      const response = await configApi.get();
+      const nextConfig = response.data || DEFAULT_SYSTEM_CONFIG;
+      setSavedConfig(nextConfig);
+      setDraftConfig(structuredClone(nextConfig));
+      setSavedThemeMode(themeMode);
+      setDraftThemeMode(themeMode);
+    } catch (error: any) {
+      toast.error(t('settings.loadFailed', { message: error?.message || 'unknown' }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void Promise.all([
+      fetchConfig(),
+      fetchInstalledModels(),
+      fetchTimelineStatuses(),
+      loadPlugins(),
+      loadTools(),
+    ]);
+  }, []);
 
   useEffect(() => {
     if (timelineSelection && !timelineStatuses.some((source) => source.source_name === timelineSelection)) {
@@ -192,58 +370,184 @@ export const SettingsPage: React.FC = () => {
     const timer = window.setInterval(() => {
       void fetchTimelineStatuses();
     }, 4000);
-    return () => {
-      window.clearInterval(timer);
-    };
+    return () => window.clearInterval(timer);
   }, [activeSection]);
 
-  const handleSaveLlm = async () => {
+  const configDirty = serialize(savedConfig) !== serialize(draftConfig);
+  const pluginsDirty = serialize(savedPluginDrafts) !== serialize(draftPluginDrafts);
+  const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
+  const themeDirty = savedThemeMode !== draftThemeMode;
+  const dirty = configDirty || pluginsDirty || toolsDirty || themeDirty;
+
+  const handleThemePreviewChange = (mode: ThemeMode) => {
+    setDraftThemeMode(mode);
+    setThemeMode(mode, { persist: false });
+  };
+
+  const handleLanguagePreviewChange = (value: string) => {
+    const nextLanguage = value as LanguageCode;
+    patchDraftConfig((draft) => {
+      draft.preferences.language = nextLanguage;
+    });
+    void previewLanguageSelection(nextLanguage);
+  };
+
+  const handlePluginDraftChange = (pluginId: string, key: string, value: any) => {
+    setDraftPluginDrafts((prev) => ({
+      ...prev,
+      [pluginId]: {
+        ...(prev[pluginId] || {}),
+        [key]: value,
+      },
+    }));
+  };
+
+  const handlePluginDraftChanges = (pluginId: string, updates: Record<string, any>) => {
+    setDraftPluginDrafts((prev) => ({
+      ...prev,
+      [pluginId]: {
+        ...(prev[pluginId] || {}),
+        ...updates,
+      },
+    }));
+  };
+
+  const handleToolDraftChange = (toolName: string, path: string, value: any) => {
+    setDraftToolDrafts((prev) => ({
+      ...prev,
+      [toolName]: {
+        enabled: prev[toolName]?.enabled ?? tools.find((tool) => tool.name === toolName)?.enabled ?? true,
+        values: {
+          ...(prev[toolName]?.values || {}),
+          [path]: value,
+        },
+      },
+    }));
+  };
+
+  const handleToolEnabledChange = (toolName: string, enabled: boolean) => {
+    setDraftToolDrafts((prev) => ({
+      ...prev,
+      [toolName]: {
+        enabled,
+        values: {
+          ...(prev[toolName]?.values || tools.find((tool) => tool.name === toolName)?.current_values || {}),
+        },
+      },
+    }));
+  };
+
+  const handlePluginAction = async (pluginId: string, action: 'enable' | 'disable' | 'reload') => {
+    setPluginProcessingIds((prev) => ({ ...prev, [pluginId]: action }));
     try {
-      setSavingLlm(true);
-      await configApi.update({
-        ...config,
-        llm: llmDraft,
+      const next =
+        action === 'enable'
+          ? await pluginsApi.enable(pluginId)
+          : action === 'disable'
+            ? await pluginsApi.disable(pluginId)
+            : await pluginsApi.reload(pluginId);
+      const nextSnapshot = buildPluginDraftSnapshotFromPackages([next]);
+      setPlugins((prev) => prev.map((item) => (item.manifest.plugin_id === next.manifest.plugin_id ? next : item)));
+      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
+      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
+      toast.success(t(`settings.extensions.feedback.${action}Success`, { name: next.manifest.name }));
+      await fetchTimelineStatuses();
+    } catch (error: any) {
+      toast.error(t('settings.extensions.errors.actionFailed', { message: error?.message || 'unknown' }));
+    } finally {
+      setPluginProcessingIds((prev) => {
+        const next = { ...prev };
+        delete next[pluginId];
+        return next;
       });
-      setConfig((prev) => ({
-        ...prev,
-        llm: llmDraft,
-      }));
+    }
+  };
+
+  const handleReloadActionPlugin = async (pluginId: string) => {
+    setReloadingActionPlugins((prev) => ({ ...prev, [pluginId]: true }));
+    try {
+      const next = await pluginsApi.reload(pluginId);
+      const nextSnapshot = buildPluginDraftSnapshotFromPackages([next]);
+      setPlugins((prev) => prev.map((item) => (item.manifest.plugin_id === next.manifest.plugin_id ? next : item)));
+      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
+      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
+      toast.success(t('settings.actionsConfig.feedback.reloadSuccess', { name: next.manifest.name }));
+      await fetchTimelineStatuses();
+    } catch (error: any) {
+      toast.error(t('settings.actionsConfig.errors.reloadFailed', { message: error?.message || 'unknown' }));
+    } finally {
+      setReloadingActionPlugins((prev) => ({ ...prev, [pluginId]: false }));
+    }
+  };
+
+  const handleSaveChanges = async () => {
+    setSaving(true);
+    try {
+      if (configDirty) {
+        await configApi.update(draftConfig);
+        setSavedConfig(structuredClone(draftConfig));
+      }
+
+      for (const tool of tools) {
+        const savedSnapshot = savedToolDrafts[tool.name] ?? { enabled: tool.enabled, values: tool.current_values };
+        const draftSnapshot = draftToolDrafts[tool.name] ?? savedSnapshot;
+        const updates = diffFlatMaps(savedSnapshot.values || {}, draftSnapshot.values || {});
+        const enabledChanged = savedSnapshot.enabled !== draftSnapshot.enabled;
+        if (Object.keys(updates).length === 0 && !enabledChanged) {
+          continue;
+        }
+        await toolsApi.updateToolConfig(tool.name, {
+          updates,
+          enabled: enabledChanged ? draftSnapshot.enabled : undefined,
+        });
+      }
+
+      for (const plugin of plugins) {
+        const pluginId = plugin.manifest.plugin_id;
+        const savedValues = savedPluginDrafts[pluginId] || {};
+        const draftValues = draftPluginDrafts[pluginId] || {};
+        const updates = diffFlatMaps(savedValues, draftValues);
+        if (Object.keys(updates).length === 0) {
+          continue;
+        }
+        await pluginsApi.updateSettings(pluginId, updates);
+      }
+
+      if (themeDirty) {
+        setThemeMode(draftThemeMode, { persist: true });
+        setSavedThemeMode(draftThemeMode);
+      }
+      persistLanguageSelection(draftConfig.preferences.language);
+
+      await Promise.all([
+        fetchTimelineStatuses(),
+        loadPlugins({ silent: true }),
+        loadTools({ silent: true }),
+      ]);
+
+      setSavedPluginDrafts(structuredClone(draftPluginDrafts));
+      setSavedToolDrafts(structuredClone(draftToolDrafts));
       toast.success(t('settings.saveSuccess'));
     } catch (error: any) {
       toast.error(t('settings.saveFailed', { message: error?.message || 'unknown' }));
     } finally {
-      setSavingLlm(false);
+      setSaving(false);
     }
   };
 
-  useEffect(() => {
-    if (!hasLoadedConfigRef.current || loading) {
-      return;
-    }
+  const handleDiscardChanges = async () => {
+    setDraftConfig(structuredClone(savedConfig));
+    setDraftPluginDrafts(structuredClone(savedPluginDrafts));
+    setDraftToolDrafts(structuredClone(savedToolDrafts));
+    setDraftThemeMode(savedThemeMode);
+    setThemeMode(savedThemeMode, { persist: true });
+    await previewLanguageSelection(savedConfig.preferences.language);
+  };
 
-    const snapshot = serializeConfigWithoutLlm(config);
-    if (snapshot === lastSavedNonLlmSnapshotRef.current) {
-      return;
-    }
-
-    const requestId = ++autoSaveRequestIdRef.current;
-    const timer = window.setTimeout(async () => {
-      try {
-        await configApi.update(config);
-        if (requestId === autoSaveRequestIdRef.current) {
-          lastSavedNonLlmSnapshotRef.current = snapshot;
-        }
-      } catch (error: any) {
-        toast.error(t('settings.saveFailed', { message: error?.message || 'unknown' }));
-      }
-    }, 600);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [config, loading, t]);
-
-  const llmDirty = JSON.stringify(llmDraft) !== JSON.stringify(config.llm);
+  useImperativeHandle(ref, () => ({
+    hasUnsavedChanges: () => dirty,
+    discardChanges: handleDiscardChanges,
+  }), [dirty, savedConfig, savedPluginDrafts, savedThemeMode, savedToolDrafts]);
 
   const startDownload = async () => {
     try {
@@ -275,18 +579,12 @@ export const SettingsPage: React.FC = () => {
     setClearing(true);
     try {
       const response = await memoryApi.clearAll();
-      // API client already unwraps res.data, so check response.success directly
       if (response.success) {
-        const results = response.results;
-        const totalCleared = Object.values(results).reduce(
-          (sum: number, r: any) => sum + (r.cleared ? r.count : 0),
+        const totalCleared = Object.values(response.results).reduce(
+          (sum: number, result: any) => sum + (result.cleared ? result.count : 0),
           0
         );
         toast.success(t('settings.memoryCleared', { count: totalCleared }));
-        if (response.warnings && response.warnings.length > 0) {
-          response.warnings.forEach((w) => console.warn(w));
-        }
-        // Notify Chat page to refresh sessions and history
         window.dispatchEvent(new CustomEvent('magi-memory-cleared'));
       }
     } catch (error: any) {
@@ -308,34 +606,23 @@ export const SettingsPage: React.FC = () => {
     );
   }
 
-  // Render section content
   const renderSectionContent = () => {
     switch (activeSection) {
       case 'preferences':
         return (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold">{t('settings.tabs.preferences')}</h2>
-              <p className="text-sm text-muted-foreground">{t('settings.preferencesDesc')}</p>
-            </div>
             <div className="grid gap-4 md:grid-cols-2">
               <LabeledSelectField
                 label={t('settings.fields.language')}
-                value={config.preferences.language}
+                value={draftConfig.preferences.language}
                 options={[
                   { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
                   { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
                 ]}
-                onChange={(value) => {
-                  patchConfig((draft) => {
-                    draft.preferences.language = value as SystemConfig['preferences']['language'];
-                  });
-                  i18n.changeLanguage(value);
-                }}
+                onChange={handleLanguagePreviewChange}
               />
             </div>
 
-            {/* Theme selector */}
             <div className="space-y-3">
               <h3 className="text-sm font-medium">{t('settings.fields.theme')}</h3>
               <div className="flex gap-3">
@@ -345,12 +632,12 @@ export const SettingsPage: React.FC = () => {
                   { value: 'system', icon: Monitor, label: t('settings.theme.system') },
                 ] as const).map((option) => {
                   const Icon = option.icon;
-                  const isActive = themeMode === option.value;
+                  const isActive = draftThemeMode === option.value;
                   return (
                     <button
                       key={option.value}
                       type="button"
-                      onClick={() => setThemeMode(option.value)}
+                      onClick={() => handleThemePreviewChange(option.value)}
                       aria-pressed={isActive}
                       aria-label={option.label}
                       className={cn(
@@ -374,50 +661,41 @@ export const SettingsPage: React.FC = () => {
       case 'llm':
         return (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold">{t('settings.tabs.llm')}</h2>
-              <p className="text-sm text-muted-foreground">{t('settings.llmDesc')}</p>
-            </div>
             <LLMForm
               quickMode={false}
-              value={llmDraft}
+              value={draftConfig.llm}
               showAdvancedByDefault
-              onChange={setLlmDraft}
+              onChange={(next) => patchDraftConfig((draft) => {
+                draft.llm = next;
+              })}
             />
-            <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
-              <p className="text-sm text-muted-foreground">{t('settings.llmSaveHint')}</p>
-              <Button size="sm" onClick={handleSaveLlm} disabled={!llmDirty || savingLlm}>
-                <Save className="mr-2 h-4 w-4" />
-                {savingLlm ? t('settings.saving') : t('settings.saveLLM')}
-              </Button>
-            </div>
           </div>
         );
 
       case 'personality':
         return (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold">{t('settings.tabs.personality')}</h2>
-              <p className="text-sm text-muted-foreground">{t('settings.personalityDesc')}</p>
-            </div>
             <div className="overflow-hidden rounded-3xl border border-primary/20 bg-muted/30 p-5">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <h3 className="font-medium text-primary">{t('settings.fields.currentPersonality')}</h3>
-                  <p className="text-sm text-muted-foreground">{config.personality?.persona_entity?.basic_profile?.name || 'Default'}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {draftConfig.personality?.persona_entity?.basic_profile?.name || 'Default'}
+                  </p>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
                   className="rounded-xl"
-                  onClick={() => window.location.href = '/personality'}
+                  onClick={() => {
+                    window.location.href = '/personality';
+                  }}
                 >
                   {t('settings.actions.configure')}
                 </Button>
               </div>
               <p className="text-xs leading-6 text-muted-foreground">
-                {config.personality?.persona_entity?.basic_profile?.occupation || ''}
+                {draftConfig.personality?.persona_entity?.basic_profile?.occupation || ''}
               </p>
             </div>
           </div>
@@ -429,12 +707,6 @@ export const SettingsPage: React.FC = () => {
       case 'memory':
         return (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold">{t('settings.tabs.memory')}</h2>
-              <p className="text-sm text-muted-foreground">{t('settings.memoryDesc')}</p>
-            </div>
-
-            {/* Clear memory card */}
             <Card className="border-destructive/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base text-destructive">
@@ -446,17 +718,13 @@ export const SettingsPage: React.FC = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button
-                  variant="destructive"
-                  onClick={() => setShowClearConfirm(true)}
-                >
+                <Button variant="destructive" onClick={() => setShowClearConfirm(true)}>
                   <Trash2 className="mr-2 h-4 w-4" />
                   {t('settings.actions.clearMemory')}
                 </Button>
               </CardContent>
             </Card>
 
-            {/* Memory layers */}
             <div className="space-y-3">
               <h3 className="font-medium">{t('settings.fields.memoryLayers')}</h3>
               <div className="grid gap-3 md:grid-cols-2">
@@ -467,17 +735,18 @@ export const SettingsPage: React.FC = () => {
                   >
                     <span className="text-sm font-medium">{t(`settings.fields.${layer.toLowerCase()}Enabled`)}</span>
                     <Switch
-                      checked={config.memory_layers[layer].enabled}
-                      onCheckedChange={(checked) => patchConfig((draft) => {
-                        draft.memory_layers[layer].enabled = checked;
-                      })}
+                      checked={draftConfig.memory_layers[layer].enabled}
+                      onCheckedChange={(checked) =>
+                        patchDraftConfig((draft) => {
+                          draft.memory_layers[layer].enabled = checked;
+                        })
+                      }
                     />
                   </label>
                 ))}
               </div>
             </div>
 
-            {/* Model download */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">{t('settings.fields.l3ModelDownload')}</CardTitle>
@@ -507,9 +776,9 @@ export const SettingsPage: React.FC = () => {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <span className="text-sm text-muted-foreground">{t('settings.fields.installedModels')}</span>
-                  {installedModels.length > 0 ? installedModels.map((model) => (
-                    <Badge key={model} variant="secondary">{model}</Badge>
-                  )) : <Badge variant="outline">{t('settings.fields.none')}</Badge>}
+                  {installedModels.length > 0
+                    ? installedModels.map((model) => <Badge key={model} variant="secondary">{model}</Badge>)
+                    : <Badge variant="outline">{t('settings.fields.none')}</Badge>}
                 </div>
               </CardContent>
             </Card>
@@ -519,110 +788,133 @@ export const SettingsPage: React.FC = () => {
       case 'timeline':
         return (
           <TimelineSourcesSection
-            value={config.timeline}
-            userMode={config.preferences.user_mode}
+            value={draftConfig.timeline}
+            userMode={draftConfig.preferences.user_mode}
             statuses={timelineStatuses}
             loadingStatus={timelineStatusesLoading}
             selectedSourceName={timelineSelection}
+            pluginDrafts={draftPluginDrafts}
             onSelectSource={setTimelineSelection}
             onRefreshSources={fetchTimelineStatuses}
-            onChange={(updater) => patchConfig((draft) => {
+            onChange={(updater) => patchDraftConfig((draft) => {
               updater(draft.timeline);
             })}
+            onPluginFieldChange={handlePluginDraftChange}
+            onPluginFieldsChange={handlePluginDraftChanges}
           />
         );
 
       case 'tools':
         return (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold">{t('settings.tabs.tools')}</h2>
-              <p className="text-sm text-muted-foreground">{t('settings.toolsDesc')}</p>
-            </div>
-            <DynamicToolsConfig />
+            <DynamicToolsConfig
+              tools={tools}
+              loading={toolsLoading}
+              error={toolsError}
+              drafts={draftToolDrafts}
+              onUpdateConfig={handleToolDraftChange}
+              onUpdateEnabled={handleToolEnabledChange}
+            />
           </div>
         );
 
       case 'extensions':
-        return <ExtensionsSection />;
+        return (
+          <ExtensionsSection
+            plugins={plugins}
+            loading={pluginsLoading}
+            drafts={draftPluginDrafts}
+            dirty={dirty}
+            onFieldChange={handlePluginDraftChange}
+            onRescan={async () => {
+              await loadPlugins();
+              toast.success(t('settings.extensions.feedback.rescanSuccess'));
+            }}
+            onPluginAction={handlePluginAction}
+            processingIds={pluginProcessingIds}
+          />
+        );
 
       case 'actions':
-        return <ActionsSection />;
+        return (
+          <ActionsSection
+            plugins={plugins}
+            drafts={draftPluginDrafts}
+            dirty={dirty}
+            onFieldChange={handlePluginDraftChange}
+            onReloadPlugin={handleReloadActionPlugin}
+            reloading={reloadingActionPlugins}
+          />
+        );
 
       case 'system':
         return (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold">{t('settings.tabs.system')}</h2>
-              <p className="text-sm text-muted-foreground">{t('settings.systemDesc')}</p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <LabeledSelectField
-                label={t('settings.fields.loopStrategy')}
-                value={config.loop.strategy}
-                options={[
-                  { label: 'STEP', value: 'step' },
-                  { label: 'WAVE', value: 'wave' },
-                  { label: 'CONTINUOUS', value: 'continuous' },
-                ]}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.loop.strategy = value as SystemConfig['loop']['strategy'];
-                })}
-              />
-              <NumberField
-                label={t('settings.fields.loopInterval')}
-                value={config.loop.interval}
-                min={0.1}
-                max={60}
-                step={0.1}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.loop.interval = value;
-                })}
-              />
-              <LabeledSelectField
-                label={t('settings.fields.busBackend')}
-                value={config.message_bus.backend}
-                options={[
-                  { label: 'memory', value: 'memory' },
-                  { label: 'sqlite', value: 'sqlite' },
-                  { label: 'redis', value: 'redis' },
-                ]}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.message_bus.backend = value as SystemConfig['message_bus']['backend'];
-                })}
-              />
-              <NumberField
-                label={t('settings.fields.busQueueSize')}
-                value={config.message_bus.max_size}
-                min={100}
-                max={50000}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.message_bus.max_size = value;
-                })}
-              />
-              <NumberField
-                label={t('settings.fields.wsPort')}
-                value={config.websocket.port}
-                min={1024}
-                max={65535}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.websocket.port = value;
-                })}
-              />
-              <LabeledSelectField
-                label={t('settings.fields.logLevel')}
-                value={config.log.level}
-                options={[
-                  { label: 'DEBUG', value: 'DEBUG' },
-                  { label: 'INFO', value: 'INFO' },
-                  { label: 'WARNING', value: 'WARNING' },
-                  { label: 'ERROR', value: 'ERROR' },
-                ]}
-                onChange={(value) => patchConfig((draft) => {
-                  draft.log.level = value as SystemConfig['log']['level'];
-                })}
-              />
-            </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <LabeledSelectField
+              label={t('settings.fields.loopStrategy')}
+              value={draftConfig.loop.strategy}
+              options={[
+                { label: 'STEP', value: 'step' },
+                { label: 'WAVE', value: 'wave' },
+                { label: 'CONTINUOUS', value: 'continuous' },
+              ]}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.loop.strategy = value as SystemConfig['loop']['strategy'];
+              })}
+            />
+            <NumberField
+              label={t('settings.fields.loopInterval')}
+              value={draftConfig.loop.interval}
+              min={0.1}
+              max={60}
+              step={0.1}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.loop.interval = value;
+              })}
+            />
+            <LabeledSelectField
+              label={t('settings.fields.busBackend')}
+              value={draftConfig.message_bus.backend}
+              options={[
+                { label: 'memory', value: 'memory' },
+                { label: 'sqlite', value: 'sqlite' },
+                { label: 'redis', value: 'redis' },
+              ]}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.message_bus.backend = value as SystemConfig['message_bus']['backend'];
+              })}
+            />
+            <NumberField
+              label={t('settings.fields.busQueueSize')}
+              value={draftConfig.message_bus.max_size}
+              min={100}
+              max={50000}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.message_bus.max_size = value;
+              })}
+            />
+            <NumberField
+              label={t('settings.fields.wsPort')}
+              value={draftConfig.websocket.port}
+              min={1024}
+              max={65535}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.websocket.port = value;
+              })}
+            />
+            <LabeledSelectField
+              label={t('settings.fields.logLevel')}
+              value={draftConfig.log.level}
+              options={[
+                { label: 'DEBUG', value: 'DEBUG' },
+                { label: 'INFO', value: 'INFO' },
+                { label: 'WARNING', value: 'WARNING' },
+                { label: 'ERROR', value: 'ERROR' },
+              ]}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.log.level = value as SystemConfig['log']['level'];
+              })}
+            />
           </div>
         );
 
@@ -633,18 +925,8 @@ export const SettingsPage: React.FC = () => {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Header */}
-      <div className="shrink-0 border-b bg-background/95 px-6 py-4 backdrop-blur">
-        <div>
-          <h1 className="text-xl font-semibold">{t('settings.title')}</h1>
-          <p className="text-sm text-muted-foreground">{t('settings.subtitle')}</p>
-        </div>
-      </div>
-
-      {/* Main content */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left navigation */}
-        <nav className="shrink-0 w-52 border-r bg-muted/30 p-3">
+        <nav className="w-52 shrink-0 border-r bg-muted/30 p-3">
           <div className="space-y-1">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
@@ -672,7 +954,7 @@ export const SettingsPage: React.FC = () => {
                       <Icon className="h-4 w-4" />
                       <span>{t(`settings.tabs.${item.id}`)}</span>
                     </div>
-                    {isActive && <ChevronRight className="h-4 w-4" />}
+                    {isActive ? <ChevronRight className="h-4 w-4" /> : null}
                   </button>
 
                   {item.id === 'timeline' && isActive ? (
@@ -723,14 +1005,34 @@ export const SettingsPage: React.FC = () => {
           </div>
         </nav>
 
-        {/* Right content */}
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto px-8 py-6">
           {renderSectionContent()}
         </main>
       </div>
 
-      {/* Confirm dialog */}
-      {showClearConfirm && (
+      <div className="shrink-0 border-t border-border/70 bg-background/96 px-6 py-4 backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground">
+            {dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved')}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="ghost" onClick={() => void onRequestClose?.()}>
+              <X className="mr-2 h-4 w-4" />
+              {t('settings.actions.close')}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void handleDiscardChanges()} disabled={!dirty || saving}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              {t('settings.actions.discard')}
+            </Button>
+            <Button type="button" onClick={() => void handleSaveChanges()} disabled={!dirty || saving}>
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? t('settings.saving') : t('settings.actions.save')}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {showClearConfirm ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <Card className="mx-4 max-w-md">
             <CardHeader>
@@ -755,25 +1057,19 @@ export const SettingsPage: React.FC = () => {
                 </p>
               </div>
               <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowClearConfirm(false)}
-                  disabled={clearing}
-                >
+                <Button variant="outline" onClick={() => setShowClearConfirm(false)} disabled={clearing}>
                   {t('settings.clearConfirm.cancel')}
                 </Button>
-                <Button
-                  variant="destructive"
-                  onClick={handleClearMemory}
-                  disabled={clearing}
-                >
+                <Button variant="destructive" onClick={handleClearMemory} disabled={clearing}>
                   {clearing ? t('settings.clearConfirm.clearing') : t('settings.clearConfirm.confirm')}
                 </Button>
               </div>
             </CardContent>
           </Card>
         </div>
-      )}
+      ) : null}
     </div>
   );
-};
+});
+
+SettingsPage.displayName = 'SettingsPage';

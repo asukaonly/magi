@@ -1,12 +1,31 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
 import { SettingsPage } from '@/pages/Settings';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { memoryApi } from '@/api/modules/memory';
 import { pluginsApi } from '@/api/modules/plugins';
 import { timelineApi } from '@/api/modules/timeline';
+import { toolsApi } from '@/api/modules/tools';
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, any>) => {
+      if (params?.message) {
+        return `${key}:${params.message}`;
+      }
+      return key;
+    },
+  }),
+}));
+
+vi.mock('@/i18n', () => ({
+  default: {
+    changeLanguage: vi.fn(),
+  },
+}));
 
 vi.mock('@/components/config-forms/LLMForm', () => ({
   default: ({ value, onChange }: { value: any; onChange: (next: any) => void }) => (
@@ -74,6 +93,18 @@ vi.mock('@/api/modules/plugins', async () => {
   };
 });
 
+vi.mock('@/api/modules/tools', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/tools')>('@/api/modules/tools');
+  return {
+    ...actual,
+    toolsApi: {
+      ...actual.toolsApi,
+      listWithConfig: vi.fn(),
+      updateToolConfig: vi.fn(),
+    },
+  };
+});
+
 const timelineSourceFixture = {
   source_name: 'browser_history',
   plugin_id: 'core-timeline',
@@ -117,37 +148,11 @@ const timelineSourceFixture = {
       surface: 'timeline',
       order: 55,
     },
-    {
-      key: 'sensors.browser_history.edge_whitelist',
-      type: 'tags',
-      label: 'Edge Whitelist',
-      description: 'Relationship edge types this source may write into the user graph.',
-      default: ['VIEWED'],
-      required: false,
-      options: [],
-      section: 'analysis',
-      surface: 'timeline',
-      order: 60,
-    },
-    {
-      key: 'sensors.browser_history.source_path',
-      type: 'path',
-      label: 'Source Path',
-      description: 'Optional local path or root directory for this source.',
-      default: '',
-      required: false,
-      options: [],
-      section: 'storage',
-      surface: 'timeline',
-      order: 45,
-    },
   ],
   current_settings: {
     'sensors.browser_history.enabled': true,
     'sensors.browser_history.sync_interval_minutes': 30,
     'sensors.browser_history.fetch_page_content': false,
-    'sensors.browser_history.edge_whitelist': ['VIEWED', 'VISITED', 'CARES_ABOUT', 'LIKES'],
-    'sensors.browser_history.source_path': '/tmp/browser-history',
   },
   enabled: true,
   sync_mode: 'interval',
@@ -156,13 +161,13 @@ const timelineSourceFixture = {
   storage_mode: 'managed',
   source_path: '/tmp/browser-history',
   fetch_page_content: false,
-  edge_whitelist: ['VIEWED', 'VISITED', 'CARES_ABOUT', 'LIKES'],
+  edge_whitelist: ['VIEWED', 'VISITED'],
   supports_pull_sync: true,
-  running: true,
+  running: false,
   last_run_at: '2026-03-11T08:58:00Z',
   last_result_count: 4,
   last_raw_result_count: 7,
-  last_error: 'Permission denied',
+  last_error: null,
   last_success: null,
   last_sync_at: '2026-03-11T09:00:00Z',
   next_run_at: '2026-03-11T09:30:00Z',
@@ -275,38 +280,6 @@ const pluginsListFixture = {
   plugins: [
     {
       manifest: {
-        plugin_id: 'core-tools',
-        name: 'Core Tools',
-        version: '1.0.0',
-        description: 'Built-in tools',
-        author: 'Magi Team',
-        official: true,
-        contribution_types: ['tool'],
-        source: 'builtin',
-        plugin_dir: '/tmp/plugins/core-tools',
-        manifest_path: '/tmp/plugins/core-tools/plugin.toml',
-      },
-      enabled: true,
-      trusted: true,
-      loaded: true,
-      healthy: true,
-      last_error: null,
-      current_settings: {},
-      contributions: [
-        {
-          plugin_id: 'core-tools',
-          contribution_id: 'weather',
-          contribution_type: 'tool',
-          display_name: 'weather',
-          description: 'Built-in weather tool',
-          surface: 'tools',
-          fields: [],
-          metadata: {},
-        },
-      ],
-    },
-    {
-      manifest: {
         plugin_id: 'core-timeline',
         name: 'Core Timeline',
         version: '1.0.0',
@@ -327,6 +300,8 @@ const pluginsListFixture = {
         sensors: {
           browser_history: {
             enabled: true,
+            sync_interval_minutes: 30,
+            fetch_page_content: false,
           },
         },
       },
@@ -337,6 +312,47 @@ const pluginsListFixture = {
           contribution_type: 'sensor',
           display_name: 'Browser History',
           description: 'Visited URLs and optional page content snapshots.',
+          surface: 'timeline',
+          fields: [],
+          metadata: { domain: 'timeline' },
+        },
+      ],
+    },
+    {
+      manifest: {
+        plugin_id: 'chrome-history',
+        name: 'Chrome History',
+        version: '1.0.0',
+        description: 'Chrome history plugin',
+        author: 'Magi Team',
+        official: true,
+        contribution_types: ['sensor'],
+        source: 'builtin',
+        plugin_dir: '/tmp/plugins/chrome-history',
+        manifest_path: '/tmp/plugins/chrome-history/plugin.toml',
+      },
+      enabled: true,
+      trusted: true,
+      loaded: true,
+      healthy: true,
+      last_error: null,
+      current_settings: {
+        sensors: {
+          chrome_history: {
+            enabled: false,
+            initial_sync_configured: false,
+            initial_sync_policy: 'lookback_days',
+            initial_sync_lookback_days: 7,
+          },
+        },
+      },
+      contributions: [
+        {
+          plugin_id: 'chrome-history',
+          contribution_id: 'timeline.chrome_history',
+          contribution_type: 'sensor',
+          display_name: 'Chrome History',
+          description: 'Local Google Chrome browsing history ingested into the user timeline.',
           surface: 'timeline',
           fields: [],
           metadata: { domain: 'timeline' },
@@ -364,10 +380,6 @@ const pluginsListFixture = {
       current_settings: {
         notifications: {
           default_level: 'info',
-        },
-        email: {
-          default_sender: 'bot@example.com',
-          provider_mode: 'simulated',
         },
       },
       contributions: [
@@ -401,27 +413,34 @@ const pluginsListFixture = {
             tool_adapter_name: 'notify-user',
           },
         },
-        {
-          plugin_id: 'core-actions',
-          contribution_id: 'send-email',
-          contribution_type: 'action',
-          display_name: 'Send Email',
-          description: 'Send an outbound email through the configured action provider.',
-          surface: 'actions',
-          fields: [],
-          metadata: {
-            dangerous: false,
-            required_permissions: [],
-            tool_adapter_name: 'send-email',
-          },
-        },
       ],
     },
   ],
   total: 3,
 };
 
-describe('settings page save behavior', () => {
+const toolsFixture = {
+  tools: [
+    {
+      name: 'weather',
+      display_name: 'Weather',
+      description: 'Weather tool',
+      category: 'builtin',
+      version: '1.0.0',
+      enabled: true,
+      is_ready: true,
+      is_multi_provider: false,
+      providers: [],
+      config_specs: [],
+      current_values: {
+        api_key: '',
+      },
+    },
+  ],
+  total: 1,
+};
+
+describe('settings page draft saving', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -458,60 +477,42 @@ describe('settings page save behavior', () => {
       ...(pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]),
       current_settings: updates,
     }) as any);
+    vi.mocked(toolsApi.listWithConfig).mockResolvedValue(toolsFixture as any);
+    vi.mocked(toolsApi.updateToolConfig).mockResolvedValue({
+      success: true,
+      message: 'ok',
+    } as any);
   });
 
-  it('auto-saves non-llm settings after edits', async () => {
+  it('keeps regular config changes local until save', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByText('settings.title');
+    await screen.findByRole('button', { name: 'settings.tabs.system' });
     await user.click(screen.getByRole('button', { name: 'settings.tabs.system' }));
 
     const loopIntervalInput = screen.getAllByRole('spinbutton')[0];
     fireEvent.change(loopIntervalInput, { target: { value: '2' } });
 
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 700));
-    });
-
-    await waitFor(() => expect(configApi.update).toHaveBeenCalledTimes(1));
-    expect(configApi.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        loop: expect.objectContaining({ interval: 2 }),
-      })
-    );
-  });
-
-  it('keeps llm changes local until the llm save button is clicked', async () => {
-    const user = userEvent.setup();
-    render(<SettingsPage />);
-
-    await screen.findByText('settings.title');
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.llm' }));
-    await user.click(screen.getByRole('button', { name: 'change-llm' }));
-
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 700));
-    });
-
     expect(configApi.update).not.toHaveBeenCalled();
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'settings.saveLLM' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
-    await waitFor(() => expect(configApi.update).toHaveBeenCalledTimes(1));
-    expect(configApi.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        llm: expect.objectContaining({ model: 'gpt-5' }),
-      })
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          loop: expect.objectContaining({ interval: 2 }),
+        })
+      )
     );
   });
 
-  it('saves timeline source edits through plugins api', async () => {
+  it('keeps timeline source changes in draft until save', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByText('settings.title');
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     await screen.findByTestId('timeline-overview');
     await user.click(await screen.findByTestId('timeline-nav-source-browser_history'));
 
@@ -522,62 +523,37 @@ describe('settings page save behavior', () => {
     });
     await user.click(within(browserPanel).getByRole('switch', { name: 'Fetch Page Content' }));
 
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 500));
-    });
+    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
 
-    await waitFor(() => expect(pluginsApi.updateSettings).toHaveBeenCalled());
-    expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-      'core-timeline',
-      expect.objectContaining({
-        'sensors.browser_history.fetch_page_content': true,
-      })
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
+        'core-timeline',
+        expect.objectContaining({
+          'sensors.browser_history.sync_interval_minutes': 45,
+          'sensors.browser_history.fetch_page_content': true,
+        })
+      )
     );
   });
 
-  it('shows expert-only edge controls and source status metadata', async () => {
-    const user = userEvent.setup();
-    const expertConfig = structuredClone(DEFAULT_SYSTEM_CONFIG);
-    expertConfig.preferences.user_mode = 'expert';
-    vi.mocked(configApi.get).mockResolvedValueOnce({
-      data: expertConfig,
-    } as any);
-
-    render(<SettingsPage />);
-
-    await screen.findByText('settings.title');
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
-    await user.click(await screen.findByTestId('timeline-nav-source-browser_history'));
-
-    const browserPanel = await screen.findByTestId('timeline-source-detail-browser_history');
-
-    expect(await within(browserPanel).findAllByText('Permission denied')).toHaveLength(2);
-    expect(within(browserPanel).getByLabelText('Edge Whitelist')).toHaveValue(
-      'VIEWED, VISITED, CARES_ABOUT, LIKES'
-    );
-    expect(within(browserPanel).getByLabelText('Source Path')).toHaveValue(
-      '/tmp/browser-history'
-    );
-  });
-
-  it('opens activation flow before enabling chrome history', async () => {
+  it('keeps activation flow results local until save', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByText('settings.title');
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
 
     const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
-    await user.click(
-      within(chromePanel).getByRole('switch', { name: 'settings.timeline.fields.enabled' })
-    );
+    await user.click(within(chromePanel).getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
 
     expect(await screen.findByText('Enable Chrome History')).toBeInTheDocument();
-    expect(screen.getByLabelText('First Sync Scope')).toBeInTheDocument();
-    expect(screen.getByLabelText('Recent Days')).toHaveValue(7);
-
     await user.click(screen.getByRole('button', { name: 'Enable source' }));
+
+    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
     await waitFor(() =>
       expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
@@ -585,20 +561,32 @@ describe('settings page save behavior', () => {
         expect.objectContaining({
           'sensors.chrome_history.enabled': true,
           'sensors.chrome_history.initial_sync_configured': true,
-          'sensors.chrome_history.initial_sync_policy': 'lookback_days',
-          'sensors.chrome_history.initial_sync_lookback_days': 7,
         })
       )
     );
   });
 
-  it('uses activation flow before syncing chrome history', async () => {
+  it('discard restores draft values without saving', async () => {
     const user = userEvent.setup();
-
     render(<SettingsPage />);
 
-    await screen.findByText('settings.title');
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
+
+    const loopIntervalInput = screen.getAllByRole('spinbutton')[0];
+    fireEvent.change(loopIntervalInput, { target: { value: '2' } });
+    expect(loopIntervalInput).toHaveValue(2);
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.discard' }));
+
+    expect(configApi.update).not.toHaveBeenCalled();
+    expect(loopIntervalInput).toHaveValue(DEFAULT_SYSTEM_CONFIG.loop.interval);
+  });
+
+  it('hides sync controls for inactive timeline sources', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
 
     const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
@@ -610,90 +598,22 @@ describe('settings page save behavior', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('resets first-sync setup for activation-based sources', async () => {
+  it('prompts before closing when there are unsaved changes', async () => {
     const user = userEvent.setup();
-    vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
-      sources: [
-        {
-          ...chromeTimelineSourceFixture,
-          current_settings: {
-            ...chromeTimelineSourceFixture.current_settings,
-            'sensors.chrome_history.enabled': true,
-            'sensors.chrome_history.initial_sync_configured': true,
-          },
-          enabled: true,
-          activation_required: false,
-        },
-        timelineSourceFixture,
-      ],
-    } as any);
+    const onOpenChange = vi.fn();
 
-    render(<SettingsPage />);
+    render(<SettingsCenterDialog open onOpenChange={onOpenChange} />);
 
-    await screen.findByText('settings.title');
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
-    await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
+    fireEvent.change(screen.getAllByRole('spinbutton')[0], { target: { value: '2' } });
 
-    const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
-    await user.click(within(chromePanel).getByRole('button', { name: 'settings.timeline.actions.resetActivation' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.close' }));
 
-    await waitFor(() =>
-      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-        'chrome-history',
-        expect.objectContaining({
-          'sensors.chrome_history.enabled': false,
-          'sensors.chrome_history.initial_sync_configured': false,
-          'sensors.chrome_history.initial_sync_policy': 'lookback_days',
-          'sensors.chrome_history.initial_sync_lookback_days': 7,
-        })
-      )
-    );
-  });
+    expect(await screen.findByText('settings.closeConfirm.title')).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
 
-  it('shows sync activity details in timeline source status', async () => {
-    const user = userEvent.setup();
-    render(<SettingsPage />);
+    await user.click(screen.getByRole('button', { name: 'settings.closeConfirm.confirm' }));
 
-    await screen.findByText('settings.title');
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
-    await user.click(await screen.findByTestId('timeline-nav-source-browser_history'));
-
-    const browserPanel = await screen.findByTestId('timeline-source-detail-browser_history');
-
-    expect(within(browserPanel).getByText('settings.timeline.statuses.syncing')).toBeInTheDocument();
-    expect(within(browserPanel).getByText('7')).toBeInTheDocument();
-    expect(within(browserPanel).getByText('settings.timeline.workspace.lastBatch')).toBeInTheDocument();
-    expect(within(browserPanel).getByText('settings.timeline.workspace.nextRun')).toBeInTheDocument();
-    expect(within(browserPanel).queryByText(/\bAM\b|\bPM\b/)).not.toBeInTheDocument();
-  });
-
-  it('renders extensions page and can disable a plugin', async () => {
-    const user = userEvent.setup();
-    render(<SettingsPage />);
-
-    await screen.findByText('settings.title');
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.extensions' }));
-
-    expect(await screen.findByText('Core Tools')).toBeInTheDocument();
-    expect(await screen.findByText('Core Timeline')).toBeInTheDocument();
-
-    await user.click(screen.getAllByRole('button', { name: 'settings.extensions.actions.disable' })[0]);
-
-    await waitFor(() => expect(pluginsApi.disable).toHaveBeenCalledWith('core-tools'));
-  });
-
-  it('renders actions page and reloads action plugins', async () => {
-    const user = userEvent.setup();
-    render(<SettingsPage />);
-
-    await screen.findByText('settings.title');
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.actions' }));
-
-    expect(await screen.findByText('Notify User')).toBeInTheDocument();
-    expect(await screen.findByText('Send Email')).toBeInTheDocument();
-
-    await user.click(screen.getAllByRole('button', { name: 'settings.extensions.actions.reload' })[0]);
-
-    await waitFor(() => expect(pluginsApi.reload).toHaveBeenCalledWith('core-actions'));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 });

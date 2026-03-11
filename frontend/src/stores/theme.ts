@@ -5,7 +5,7 @@ export type ThemeMode = 'dark' | 'light' | 'system';
 export interface ThemeState {
   mode: ThemeMode;
   resolvedTheme: 'dark' | 'light';
-  setMode: (mode: ThemeMode) => void;
+  setMode: (mode: ThemeMode, options?: { persist?: boolean }) => void;
 }
 
 const STORAGE_KEY = 'magi-theme-mode';
@@ -73,9 +73,11 @@ export const useThemeStore = create<ThemeState>((set) => {
   return {
     mode: initialMode,
     resolvedTheme: initialResolved,
-    setMode: (mode) => {
+    setMode: (mode, options) => {
       const resolved = resolveTheme(mode);
-      safeSetItem(STORAGE_KEY, mode);
+      if (options?.persist !== false) {
+        safeSetItem(STORAGE_KEY, mode);
+      }
       applyTheme(resolved);
       set({ mode, resolvedTheme: resolved });
     },

@@ -211,6 +211,8 @@
     "loadFailed": "加载配置失败: {{message}}",
     "saveSuccess": "配置保存成功",
     "saveFailed": "保存配置失败: {{message}}",
+    "pendingChanges": "存在未保存的更改",
+    "allChangesSaved": "所有更改都已保存",
     "errorUnknown": "未知错误",
     "resetConfirm": "确定要重置所有配置为默认值吗？",
     "resetSuccess": "配置已重置为默认值",
@@ -292,7 +294,16 @@
     "themeDesc": "选择界面主题配色方案，浅色或深色模式",
     "actions": {
       "configure": "配置",
-      "clearMemory": "清除记忆"
+      "clearMemory": "清除记忆",
+      "close": "关闭",
+      "discard": "放弃更改",
+      "save": "保存"
+    },
+    "closeConfirm": {
+      "title": "确定要关闭吗？",
+      "description": "未保存的更改将丢失。",
+      "cancel": "继续编辑",
+      "confirm": "放弃并关闭"
     },
     "memoryCleared": "已清除 {{count}} 条记忆数据",
     "memoryClearFailed": "清除记忆失败",
@@ -473,6 +484,7 @@
       }
     },
     "extensions": {
+      "loading": "正在加载扩展...",
       "summary": "已发现 {{count}} 个插件包",
       "emptyDescription": "这个插件没有提供额外描述。",
       "emptySettings": "这个插件当前没有 extensions 面的声明式设置项。",

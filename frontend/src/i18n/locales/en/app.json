@@ -211,6 +211,8 @@
     "loadFailed": "Failed to load config: {{message}}",
     "saveSuccess": "Configuration saved",
     "saveFailed": "Failed to save config: {{message}}",
+    "pendingChanges": "There are unsaved changes",
+    "allChangesSaved": "All changes are saved",
     "errorUnknown": "Unknown error",
     "resetConfirm": "Reset all settings to defaults?",
     "resetSuccess": "Configuration reset to defaults",
@@ -292,7 +294,16 @@
     "themeDesc": "Choose interface color scheme, light or dark mode",
     "actions": {
       "configure": "Configure",
-      "clearMemory": "Clear Memory"
+      "clearMemory": "Clear Memory",
+      "close": "Close",
+      "discard": "Discard Changes",
+      "save": "Save"
+    },
+    "closeConfirm": {
+      "title": "Close settings?",
+      "description": "Unsaved changes will be lost.",
+      "cancel": "Keep Editing",
+      "confirm": "Discard and Close"
     },
     "memoryCleared": "Cleared {{count}} memory records",
     "memoryClearFailed": "Failed to clear memory",
@@ -473,6 +484,7 @@
       }
     },
     "extensions": {
+      "loading": "Loading extensions...",
       "summary": "{{count}} plugin packages discovered",
       "emptyDescription": "This plugin did not provide extra description text.",
       "emptySettings": "This plugin does not expose declarative settings on the extensions surface.",
