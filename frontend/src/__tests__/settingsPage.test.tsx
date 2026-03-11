@@ -446,7 +446,7 @@ describe('settings page save behavior', () => {
 
     const browserPanel = await screen.findByTestId('timeline-source-detail-browser_history');
 
-    expect(await within(browserPanel).findByText('Permission denied')).toBeInTheDocument();
+    expect(await within(browserPanel).findAllByText('Permission denied')).toHaveLength(2);
     expect(within(browserPanel).getByLabelText('Edge Whitelist')).toHaveValue(
       'VIEWED, VISITED, CARES_ABOUT, LIKES'
     );

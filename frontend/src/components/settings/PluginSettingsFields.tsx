@@ -12,8 +12,16 @@ interface PluginSettingsFieldsProps {
 
 const sortFields = (fields: ExtensionFieldSpec[]) =>
   [...fields].sort((left, right) => {
-    if (left.section !== right.section) {
-      return left.section.localeCompare(right.section);
+    const sectionOrder = ['general', 'storage', 'analysis', 'notifications', 'delivery'];
+    const leftSection = left.section || 'general';
+    const rightSection = right.section || 'general';
+    const leftIndex = sectionOrder.indexOf(leftSection);
+    const rightIndex = sectionOrder.indexOf(rightSection);
+    if (leftSection !== rightSection) {
+      if (leftIndex !== -1 || rightIndex !== -1) {
+        return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
+      }
+      return leftSection.localeCompare(rightSection);
     }
     return left.order - right.order;
   });

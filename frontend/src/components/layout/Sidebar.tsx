@@ -112,6 +112,12 @@ const Sidebar: React.FC = () => {
       path: '/personality',
     },
     {
+      id: 'timeline' as const,
+      label: t('shell.timeline'),
+      icon: ScrollText,
+      path: '/timeline',
+    },
+    {
       id: 'memory' as const,
       label: t('shell.memory'),
       icon: Database,
@@ -122,12 +128,6 @@ const Sidebar: React.FC = () => {
       label: t('shell.settings'),
       icon: Settings2,
       path: '/settings',
-    },
-    {
-      id: 'timeline' as const,
-      label: t('shell.timeline'),
-      icon: ScrollText,
-      path: '/timeline',
     },
   ];
 

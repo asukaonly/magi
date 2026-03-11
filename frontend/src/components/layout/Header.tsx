@@ -67,6 +67,15 @@ const Header: React.FC = () => {
           variant="ghost"
           size="icon"
           className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-muted/50"
+          onClick={() => openPanel('timeline')}
+          aria-label={t('shell.timeline')}
+        >
+          <ScrollText className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-muted/50"
           onClick={() => openPanel('memory')}
           aria-label={t('shell.memory')}
         >
@@ -80,15 +89,6 @@ const Header: React.FC = () => {
           aria-label={t('shell.settings')}
         >
           <Settings2 className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-muted/50"
-          onClick={() => openPanel('timeline')}
-          aria-label={t('shell.timeline')}
-        >
-          <ScrollText className="h-4 w-4" />
         </Button>
         <div className="ml-1 flex h-8 items-center rounded-xl border border-primary/20 bg-primary/5 px-2.5 text-[11px] text-primary">
           <Sparkles className="mr-1.5 h-3.5 w-3.5" />
