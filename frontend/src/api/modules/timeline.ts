@@ -82,6 +82,10 @@ export interface TimelineSourceStatusItem {
   supports_pull_sync: boolean;
   activation_flow?: ActivationFlowSpec | null;
   activation_required?: boolean;
+  running?: boolean;
+  last_run_at?: number | string | null;
+  last_result_count?: number;
+  last_raw_result_count?: number;
   last_error?: string | null;
   last_success?: string | null;
   last_sync_at?: number | string | null;

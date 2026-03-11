@@ -158,6 +158,10 @@ const timelineSourceFixture = {
   fetch_page_content: false,
   edge_whitelist: ['VIEWED', 'VISITED', 'CARES_ABOUT', 'LIKES'],
   supports_pull_sync: true,
+  running: true,
+  last_run_at: '2026-03-11T08:58:00Z',
+  last_result_count: 4,
+  last_raw_result_count: 7,
   last_error: 'Permission denied',
   last_success: null,
   last_sync_at: '2026-03-11T09:00:00Z',
@@ -258,6 +262,10 @@ const chromeTimelineSourceFixture = {
   last_error: null,
   last_success: null,
   last_sync_at: null,
+  last_run_at: null,
+  running: false,
+  last_result_count: 0,
+  last_raw_result_count: 0,
   next_run_at: null,
   scheduler_job_id: null,
   runtime_base_dir: '/tmp/magi-runtime',
@@ -582,6 +590,52 @@ describe('settings page save behavior', () => {
         })
       )
     );
+  });
+
+  it('uses activation flow before syncing chrome history', async () => {
+    const user = userEvent.setup();
+    vi.mocked(timelineApi.requestSync).mockResolvedValueOnce({
+      queued: true,
+      source_name: 'chrome_history',
+    } as any);
+
+    render(<SettingsPage />);
+
+    await screen.findByText('settings.title');
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
+
+    const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
+    await user.click(within(chromePanel).getByRole('button', { name: 'settings.timeline.actions.syncNow' }));
+
+    expect(await screen.findByText('Enable Chrome History')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Enable source' }));
+
+    await waitFor(() =>
+      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
+        'chrome-history',
+        expect.objectContaining({
+          'sensors.chrome_history.enabled': true,
+          'sensors.chrome_history.initial_sync_configured': true,
+        })
+      )
+    );
+    await waitFor(() => expect(timelineApi.requestSync).toHaveBeenCalledWith('chrome_history'));
+  });
+
+  it('shows sync activity details in timeline source status', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await screen.findByText('settings.title');
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-browser_history'));
+
+    const browserPanel = await screen.findByTestId('timeline-source-detail-browser_history');
+
+    expect(within(browserPanel).getByText('settings.timeline.statuses.syncing')).toBeInTheDocument();
+    expect(within(browserPanel).getByText('7')).toBeInTheDocument();
+    expect(within(browserPanel).getByText('settings.timeline.workspace.lastBatch')).toBeInTheDocument();
   });
 
   it('renders extensions page and can disable a plugin', async () => {

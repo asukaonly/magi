@@ -397,11 +397,15 @@
         "sourceStatusDesc": "Operational health, next run timing, and pull-sync capability for the selected source.",
         "sourceStateHint": "{{mode}}",
         "nextRun": "Next run",
+        "lastRun": "Last run",
         "lastSyncLabel": "Last sync",
+        "lastBatch": "Last batch",
         "triggerMode": "Trigger mode",
         "pullSupport": "Pull sync",
         "available": "Available",
         "notAvailable": "Not available",
+        "nextRunInline": "Next run: {{time}}",
+        "pullSupportInline": "Pull sync: {{status}}",
         "configurationTitle": "Source configuration",
         "configurationDesc": "These declarative fields are saved back to the plugin package and applied by the scheduler/runtime."
       },
@@ -445,6 +449,10 @@
         "healthy": "Healthy",
         "attention": "Needs attention",
         "ready": "No errors reported",
+        "idle": "Idle",
+        "queued": "Queued",
+        "syncing": "Syncing",
+        "awaitingSetup": "Awaiting setup",
         "loading": "Loading source status..."
       },
       "actions": {

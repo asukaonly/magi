@@ -397,11 +397,15 @@
         "sourceStatusDesc": "查看当前来源的运行健康度、下次执行时间和拉取同步能力。",
         "sourceStateHint": "{{mode}}",
         "nextRun": "下次执行",
+        "lastRun": "最近执行",
         "lastSyncLabel": "最近同步",
+        "lastBatch": "上次拉取",
         "triggerMode": "触发方式",
         "pullSupport": "拉取同步",
         "available": "可用",
         "notAvailable": "不可用",
+        "nextRunInline": "下次执行：{{time}}",
+        "pullSupportInline": "拉取同步：{{status}}",
         "configurationTitle": "来源配置",
         "configurationDesc": "这些声明式字段会回写到插件配置，并由调度器和运行时消费。"
       },
@@ -445,6 +449,10 @@
         "healthy": "状态正常",
         "attention": "需要处理",
         "ready": "暂未发现错误",
+        "idle": "空闲",
+        "queued": "已入队",
+        "syncing": "同步中",
+        "awaitingSetup": "等待首次配置",
         "loading": "正在加载来源状态..."
       },
       "actions": {

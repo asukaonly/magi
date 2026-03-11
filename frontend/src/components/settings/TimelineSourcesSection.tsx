@@ -138,11 +138,17 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const { t } = useTranslation('app');
   const [drafts, setDrafts] = useState<Record<string, Record<string, any>>>({});
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
+  const [queuedSource, setQueuedSource] = useState<{
+    sourceName: string;
+    lastRunAt: number | string | null | undefined;
+    lastSyncAt: number | string | null | undefined;
+  } | null>(null);
   const [activationDialog, setActivationDialog] = useState<{
     source: TimelineSourceStatusItem;
     flow: ActivationFlowSpec;
     values: Record<string, any>;
     saving: boolean;
+    intent: 'enable' | 'sync';
   } | null>(null);
   const saveTimersRef = useRef<Record<string, number>>({});
   const pendingUpdatesRef = useRef<Record<string, Record<string, any>>>({});
@@ -224,6 +230,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         flow,
         values: buildActivationValues(flow, source),
         saving: false,
+        intent: 'enable',
       });
       return;
     }
@@ -261,6 +268,9 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           [flow.enabled_key]: true,
         },
       }));
+      if (activationDialog.intent === 'sync') {
+        await performSync(source, { suppressQueuedToast: true });
+      }
       toast.success(t('settings.timeline.activation.enabled', { source: source.display_name }));
       setActivationDialog(null);
     } catch (error: any) {
@@ -269,17 +279,75 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
   };
 
-  const handleSync = async (source: TimelineSourceStatusItem) => {
+  const performSync = async (
+    source: TimelineSourceStatusItem,
+    options: { suppressQueuedToast?: boolean } = {}
+  ) => {
     setSyncingSource(source.source_name);
+    setQueuedSource({
+      sourceName: source.source_name,
+      lastRunAt: source.last_run_at,
+      lastSyncAt: source.last_sync_at,
+    });
     try {
       await timelineApi.requestSync(source.source_name);
-      toast.success(t('settings.timeline.syncQueued', { source: source.display_name }));
+      if (!options.suppressQueuedToast) {
+        toast.success(t('settings.timeline.syncQueued', { source: source.display_name }));
+      }
       await onRefreshSources();
     } catch (error: any) {
+      setQueuedSource(null);
       toast.error(t('settings.timeline.errors.syncFailed', { message: error?.message || 'unknown' }));
     } finally {
       setSyncingSource(null);
     }
+  };
+
+  const handleSync = async (source: TimelineSourceStatusItem) => {
+    const flow = source.activation_flow ?? null;
+    if (source.activation_required && flow) {
+      setActivationDialog({
+        source,
+        flow,
+        values: buildActivationValues(flow, source),
+        saving: false,
+        intent: 'sync',
+      });
+      return;
+    }
+    await performSync(source);
+  };
+
+  useEffect(() => {
+    if (!queuedSource) {
+      return;
+    }
+    const source = statuses.find((item) => item.source_name === queuedSource.sourceName);
+    if (!source) {
+      setQueuedSource(null);
+      return;
+    }
+    const runAdvanced = source.last_run_at !== queuedSource.lastRunAt;
+    const syncAdvanced = source.last_sync_at !== queuedSource.lastSyncAt;
+    if (source.running || runAdvanced || syncAdvanced || source.last_error) {
+      setQueuedSource(null);
+    }
+  }, [queuedSource, statuses]);
+
+  const getSyncActivityValue = (source: TimelineSourceStatusItem) => {
+    if (syncingSource === source.source_name || source.running) {
+      return t('settings.timeline.statuses.syncing');
+    }
+    if (queuedSource?.sourceName === source.source_name) {
+      return t('settings.timeline.statuses.queued');
+    }
+    if (source.activation_required) {
+      return t('settings.timeline.statuses.awaitingSetup');
+    }
+    if (source.last_error) {
+      return t('settings.timeline.statuses.attention');
+    }
+    return t('settings.timeline.statuses.idle');
   };
 
   if (!selectedSource) {
@@ -450,24 +518,29 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatusMetric
             label={t('settings.timeline.fields.status')}
-            value={loadingStatus ? t('settings.timeline.statuses.loading') : selectedSource.last_error || t('settings.timeline.statuses.ready')}
+            value={loadingStatus ? t('settings.timeline.statuses.loading') : getSyncActivityValue(selectedSource)}
           />
           <StatusMetric
-            label={t('settings.timeline.workspace.nextRun')}
-            value={formatTimestamp(selectedSource.next_run_at) || '—'}
+            label={t('settings.timeline.workspace.lastRun')}
+            value={formatTimestamp(selectedSource.last_run_at) || '—'}
           />
           <StatusMetric
             label={t('settings.timeline.workspace.lastSyncLabel')}
             value={formatTimestamp(selectedSource.last_sync_at) || '—'}
           />
           <StatusMetric
-            label={t('settings.timeline.workspace.pullSupport')}
-            value={
-              selectedSource.supports_pull_sync
-                ? t('settings.timeline.workspace.available')
-                : t('settings.timeline.workspace.notAvailable')
-            }
+            label={t('settings.timeline.workspace.lastBatch')}
+            value={String(selectedSource.last_raw_result_count || selectedSource.last_result_count || 0)}
           />
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <span>{t('settings.timeline.workspace.nextRunInline', { time: formatTimestamp(selectedSource.next_run_at) || '—' })}</span>
+          <span>{t('settings.timeline.workspace.pullSupportInline', { status: selectedSource.supports_pull_sync
+            ? t('settings.timeline.workspace.available')
+            : t('settings.timeline.workspace.notAvailable') })}</span>
+          {selectedSource.last_error ? (
+            <span className="text-destructive">{selectedSource.last_error}</span>
+          ) : null}
         </div>
       </SectionBlock>
 

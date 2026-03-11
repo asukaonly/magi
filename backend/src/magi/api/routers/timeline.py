@@ -237,6 +237,10 @@ async def get_timeline_source_status():
                         )
                     )
                 ),
+                "running": bool(state.running) if state is not None else False,
+                "last_run_at": state.last_run_at if state is not None else None,
+                "last_result_count": int((state.stats or {}).get("count", 0)) if state is not None else 0,
+                "last_raw_result_count": int((state.stats or {}).get("raw_count", 0)) if state is not None else 0,
                 "last_error": state.last_error if state is not None else None,
                 "last_success": state.last_success_at if state is not None else None,
                 "last_sync_at": state.last_success_at if state is not None else None,

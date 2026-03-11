@@ -92,10 +92,13 @@ class _FakeSchedulerService:
         return ScheduledTargetState(
             target_type=ScheduledTargetType.TIMELINE_SENSOR_SYNC,
             target_key=target_key,
+            running=True,
+            last_run_at=1710000190.0,
             last_success_at=1710000200.0,
             last_error=None,
             next_run_at=1710000500.0,
             scheduler_job_id="timeline-sync:core-timeline:browser_history",
+            stats={"count": 4, "raw_count": 7},
         )
 
 
@@ -281,6 +284,10 @@ def test_get_timeline_source_status(monkeypatch):
     assert body["sources"][0]["scheduler_job_id"] == "timeline-sync:core-timeline:browser_history"
     assert body["sources"][0]["activation_flow"]["enabled_key"] == "sensors.browser_history.enabled"
     assert body["sources"][0]["activation_required"] is True
+    assert body["sources"][0]["running"] is True
+    assert body["sources"][0]["last_run_at"] == 1710000190.0
+    assert body["sources"][0]["last_result_count"] == 4
+    assert body["sources"][0]["last_raw_result_count"] == 7
 
 
 def test_trigger_timeline_source_sync_returns_schedule_id(monkeypatch):
