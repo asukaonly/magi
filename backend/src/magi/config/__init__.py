@@ -3,13 +3,16 @@ Configuration Module - Runtime configuration management.
 
 Configuration Location:
     ~/.magi/config/agent.yaml
+    ~/.magi/config/plugins/index.yaml
+    ~/.magi/config/plugins/<plugin_id>.yaml
 
 First Run:
     If config file doesn't exist, it's copied from backend/configs/config.example.yaml
+    and plugin configuration is materialized into split files.
 
 Configuration Sources (priority order):
     1. Environment variables (highest priority)
-    2. Runtime config file: ~/.magi/config/agent.yaml
+    2. Runtime config files under ~/.magi/config/
     3. Default values (lowest priority)
 
 Usage:
@@ -19,7 +22,7 @@ Usage:
     config = get_config()
     api_key = config.tools.weather.api_key
 
-    # Save configuration (persists to ~/.magi/config/agent.yaml)
+    # Save configuration (persists to split runtime config files)
     save_config({"tools.weather.api_key": "your-key"})
 
 Environment Variables:
@@ -36,6 +39,9 @@ from .loader import (
     get_config_file_path,
     get_magi_home,
     get_config_dir,
+    get_plugins_config_dir,
+    get_plugins_index_file,
+    get_plugin_settings_file,
     get_data_dir,
     ENV_MAPPINGS,
 )
@@ -99,6 +105,9 @@ __all__ = [
     "get_config_file_path",
     "get_magi_home",
     "get_config_dir",
+    "get_plugins_config_dir",
+    "get_plugins_index_file",
+    "get_plugin_settings_file",
     "get_data_dir",
 
     # Loader class

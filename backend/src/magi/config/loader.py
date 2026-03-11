@@ -3,21 +3,28 @@ Configuration Loader - Runtime configuration management.
 
 Configuration Sources (priority order):
     1. Environment variables (highest priority)
-    2. Runtime config file: ~/.magi/config/agent.yaml
+    2. Runtime config files:
+       - ~/.magi/config/agent.yaml
+       - ~/.magi/config/plugins/index.yaml
+       - ~/.magi/config/plugins/<plugin_id>.yaml
     3. Default values (lowest priority)
 
 Directory Structure:
     ~/.magi/
     ├── config/
-    │   └── agent.yaml      # Runtime configuration
+    │   ├── agent.yaml           # Host/runtime configuration
+    │   └── plugins/
+    │       ├── index.yaml       # Plugin package state
+    │       └── <plugin>.yaml    # Per-plugin settings
     ├── data/
-    │   ├── memories/       # Memory storage
-    │   └── events.db       # Event database
-    └── personalities/      # Personality files
+    │   ├── memories/            # Memory storage
+    │   └── events.db            # Event database
+    └── personalities/           # Personality files
 
 First Run:
     If ~/.magi/config/agent.yaml doesn't exist,
-    it will be copied from backend/configs/config.example.yaml
+    it will be copied from backend/configs/config.example.yaml.
+    Plugin package metadata and settings are then materialized into split files.
 """
 import os
 import re
@@ -54,6 +61,21 @@ def get_config_dir() -> Path:
 def get_config_file() -> Path:
     """Get runtime config file path"""
     return get_config_dir() / "agent.yaml"
+
+
+def get_plugins_config_dir() -> Path:
+    """Get plugin config directory path."""
+    return get_config_dir() / "plugins"
+
+
+def get_plugins_index_file() -> Path:
+    """Get plugin index config file path."""
+    return get_plugins_config_dir() / "index.yaml"
+
+
+def get_plugin_settings_file(plugin_id: str) -> Path:
+    """Get per-plugin settings file path."""
+    return get_plugins_config_dir() / f"{plugin_id}.yaml"
 
 
 def get_example_config_file() -> Path:
@@ -133,6 +155,7 @@ class ConfigLoader:
         self._config: Optional[AppConfig] = None
         self._yaml_data: Dict[str, Any] = {}
         self._config_file: Path = get_config_file()
+        self._plugins_index_file: Path = get_plugins_index_file()
 
     def load(self) -> AppConfig:
         """
@@ -160,12 +183,17 @@ class ConfigLoader:
         """Create config directory and copy example config if needed."""
         config_dir = get_config_dir()
         config_file = get_config_file()
+        plugins_dir = get_plugins_config_dir()
         example_file = get_example_config_file()
 
         # Create directory if needed
         if not config_dir.exists():
             config_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created config directory: {config_dir}")
+
+        if not plugins_dir.exists():
+            plugins_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created plugin config directory: {plugins_dir}")
 
         # Copy example config if runtime config doesn't exist
         if not config_file.exists():
@@ -182,6 +210,8 @@ class ConfigLoader:
         if not data_dir.exists():
             data_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created data directory: {data_dir}")
+
+        self._ensure_split_plugin_config_layout()
 
     def _create_default_config_file(self, config_file: Path):
         """Create a minimal default config file."""
@@ -221,86 +251,172 @@ class ConfigLoader:
             },
             "plugins": {
                 "scan_paths": ["plugins", "~/.magi/plugins"],
-                "packages": {
-                    "core-tools": {"enabled": True, "trusted": True, "source": "builtin", "settings": {}},
-                    "core-timeline": {
-                        "enabled": True,
-                        "trusted": True,
-                        "source": "builtin",
-                        "settings": {
-                            "sensors": {
-                                "chat": {
-                                    "enabled": True,
-                                    "sync_mode": "watch",
-                                    "sync_interval_minutes": 1,
-                                    "default_retention_mode": "analyze_only",
-                                    "storage_mode": "managed",
-                                    "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH"],
-                                },
-                                "manual_journal": {
-                                    "enabled": True,
-                                    "sync_mode": "manual",
-                                    "sync_interval_minutes": 1,
-                                    "default_retention_mode": "retain_raw",
-                                    "storage_mode": "managed",
-                                    "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"],
-                                },
-                                "browser_history": {
-                                    "enabled": True,
-                                    "sync_mode": "interval",
-                                    "sync_interval_minutes": 30,
-                                    "default_retention_mode": "analyze_only",
-                                    "storage_mode": "managed",
-                                    "source_path": "",
-                                    "fetch_page_content": False,
-                                    "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
-                                },
-                                "photo_library": {
-                                    "enabled": True,
-                                    "sync_mode": "interval",
-                                    "sync_interval_minutes": 60,
-                                    "default_retention_mode": "retain_raw",
-                                    "storage_mode": "external_reference",
-                                    "source_path": "",
-                                    "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
-                                },
-                            }
-                        },
-                    },
-                    "core-actions": {
-                        "enabled": True,
-                        "trusted": True,
-                        "source": "builtin",
-                        "settings": {
-                            "notifications": {"default_level": "info"},
-                            "email": {"default_sender": "", "provider_mode": "simulated"},
-                        },
-                    },
-                },
             },
             "debug": False,
             "log_level": "INFO",
         }
 
-        with open(config_file, 'w') as f:
-            yaml.dump(default_config, f, default_flow_style=False, allow_unicode=True)
+        self._write_yaml_file(config_file, default_config)
 
-    def _load_yaml(self) -> Dict[str, Any]:
-        """Load and parse YAML configuration file."""
-        if not self._config_file.exists():
+    def _default_plugin_index_data(self) -> Dict[str, Any]:
+        """Return default plugin package metadata."""
+        return {
+            "packages": {
+                "core-tools": {"enabled": True, "trusted": True, "source": "builtin"},
+                "core-timeline": {"enabled": True, "trusted": True, "source": "builtin"},
+                "core-actions": {"enabled": True, "trusted": True, "source": "builtin"},
+            }
+        }
+
+    def _merge_plugin_index_defaults(self, index_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge missing builtin plugin metadata into the plugin index."""
+        merged = self._default_plugin_index_data()
+        merged_packages = merged.setdefault("packages", {})
+        raw_packages = index_data.get("packages", {}) if isinstance(index_data, dict) else {}
+        if isinstance(raw_packages, dict):
+            for plugin_id, package_data in raw_packages.items():
+                if isinstance(package_data, dict):
+                    merged_packages.setdefault(plugin_id, {})
+                    merged_packages[plugin_id].update(package_data)
+        return merged
+
+    def _default_plugin_settings_map(self) -> Dict[str, Dict[str, Any]]:
+        """Return default per-plugin settings."""
+        return {
+            "core-tools": {},
+            "core-timeline": {
+                "sensors": {
+                    "chat": {
+                        "enabled": True,
+                        "sync_mode": "watch",
+                        "sync_interval_minutes": 1,
+                        "default_retention_mode": "analyze_only",
+                        "storage_mode": "managed",
+                        "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH"],
+                    },
+                    "manual_journal": {
+                        "enabled": True,
+                        "sync_mode": "manual",
+                        "sync_interval_minutes": 1,
+                        "default_retention_mode": "retain_raw",
+                        "storage_mode": "managed",
+                        "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"],
+                    },
+                    "browser_history": {
+                        "enabled": True,
+                        "sync_mode": "interval",
+                        "sync_interval_minutes": 30,
+                        "default_retention_mode": "analyze_only",
+                        "storage_mode": "managed",
+                        "source_path": "",
+                        "fetch_page_content": False,
+                        "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
+                    },
+                    "photo_library": {
+                        "enabled": True,
+                        "sync_mode": "interval",
+                        "sync_interval_minutes": 60,
+                        "default_retention_mode": "retain_raw",
+                        "storage_mode": "external_reference",
+                        "source_path": "",
+                        "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
+                    },
+                }
+            },
+            "core-actions": {
+                "notifications": {"default_level": "info"},
+                "email": {"default_sender": "", "provider_mode": "simulated"},
+            },
+        }
+
+    def _ensure_split_plugin_config_layout(self) -> None:
+        """Ensure plugin metadata and settings use split config files."""
+        agent_data = self._load_yaml_file(self._config_file)
+        plugins_root = get_plugins_config_dir()
+        plugins_root.mkdir(parents=True, exist_ok=True)
+        index_data = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
+        legacy_packages = (
+            agent_data.get("plugins", {}).get("packages", {})
+            if isinstance(agent_data.get("plugins"), dict)
+            else {}
+        )
+
+        if legacy_packages:
+            packages_section = index_data.setdefault("packages", {})
+            for plugin_id, package_data in legacy_packages.items():
+                if not isinstance(package_data, dict):
+                    continue
+                package_meta = {
+                    key: package_data[key]
+                    for key in ("enabled", "trusted", "source", "manifest_path")
+                    if key in package_data
+                }
+                packages_section.setdefault(plugin_id, {})
+                packages_section[plugin_id].update(package_meta)
+                self._write_yaml_file(
+                    get_plugin_settings_file(plugin_id),
+                    dict(package_data.get("settings", {})),
+                )
+            agent_data.setdefault("plugins", {})
+            if isinstance(agent_data["plugins"], dict) and "packages" in agent_data["plugins"]:
+                del agent_data["plugins"]["packages"]
+            self._write_yaml_file(self._config_file, agent_data)
+            self._write_yaml_file(self._plugins_index_file, index_data)
+
+        if not self._plugins_index_file.exists():
+            self._write_yaml_file(self._plugins_index_file, index_data)
+
+        for plugin_id, defaults in self._default_plugin_settings_map().items():
+            plugin_file = get_plugin_settings_file(plugin_id)
+            if not plugin_file.exists():
+                self._write_yaml_file(plugin_file, defaults)
+
+    def _merge_split_plugin_config(self, agent_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge split plugin config files into a single config tree."""
+        merged = dict(agent_data)
+        plugins_node = merged.setdefault("plugins", {})
+        if not isinstance(plugins_node, dict):
+            plugins_node = {}
+            merged["plugins"] = plugins_node
+
+        index_data = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
+        packages = dict(index_data.get("packages", {})) if isinstance(index_data, dict) else {}
+        for plugin_file in sorted(get_plugins_config_dir().glob("*.yaml")):
+            if plugin_file.name == "index.yaml":
+                continue
+            plugin_id = plugin_file.stem
+            package_entry = dict(packages.get(plugin_id, {}))
+            package_entry["settings"] = self._load_yaml_file(plugin_file)
+            packages[plugin_id] = package_entry
+        if packages:
+            plugins_node["packages"] = packages
+        return merged
+
+    def _load_yaml_file(self, path: Path) -> Dict[str, Any]:
+        """Load and parse a YAML file, returning an empty dict on failure."""
+        if not path.exists():
             return {}
 
         try:
-            with open(self._config_file, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f) or {}
-
-            # Substitute ${VAR} and ${VAR:default} patterns
-            data = self._substitute_env_vars(data)
-            return data
-
+            return data if isinstance(data, dict) else {}
         except Exception as e:
-            logger.error(f"Failed to load config file: {e}")
+            logger.error(f"Failed to load config file {path}: {e}")
             return {}
+
+    def _write_yaml_file(self, path: Path, data: Dict[str, Any]) -> None:
+        """Write a YAML file with a normalized dict payload."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    def _load_yaml(self) -> Dict[str, Any]:
+        """Load and parse YAML configuration file."""
+        data = self._load_yaml_file(self._config_file)
+        data = self._merge_split_plugin_config(data)
+        data = self._substitute_env_vars(data)
+        return data
 
     def _substitute_env_vars(self, data: Any) -> Any:
         """Recursively substitute ${VAR} patterns."""
@@ -410,16 +526,43 @@ class ConfigLoader:
             update_keys = sorted(updates.keys())
             logger.info("Configuration save requested | update_paths=%s", update_keys)
 
-            # Reload current YAML data
-            self._yaml_data = self._load_yaml()
+            agent_yaml = self._load_yaml_file(self._config_file)
+            agent_yaml.setdefault("plugins", {})
+            if isinstance(agent_yaml.get("plugins"), dict) and "packages" in agent_yaml["plugins"]:
+                del agent_yaml["plugins"]["packages"]
+            plugins_index = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
+            plugin_settings_updates: Dict[str, Dict[str, Any]] = {}
 
-            # Apply updates
             for path, value in updates.items():
-                self._set_nested_yaml(self._yaml_data, path, value)
+                if path.startswith("plugins.packages."):
+                    parts = path.split(".")
+                    if len(parts) < 4:
+                        self._set_nested_yaml(agent_yaml, path, value)
+                        continue
+                    plugin_id = parts[2]
+                    if parts[3] == "settings":
+                        relative_path = ".".join(parts[4:])
+                        plugin_settings_updates.setdefault(plugin_id, {})
+                        plugin_settings_updates[plugin_id][relative_path] = value
+                    else:
+                        relative_path = ".".join(parts[2:])
+                        self._set_nested_yaml(plugins_index, f"packages.{relative_path}", value)
+                    continue
+                self._set_nested_yaml(agent_yaml, path, value)
 
-            # Write back to file
-            with open(self._config_file, 'w', encoding='utf-8') as f:
-                yaml.dump(self._yaml_data, f, default_flow_style=False, allow_unicode=True)
+            self._write_yaml_file(self._config_file, agent_yaml)
+            self._write_yaml_file(self._plugins_index_file, plugins_index)
+
+            for plugin_id, plugin_updates in plugin_settings_updates.items():
+                plugin_yaml = self._load_yaml_file(get_plugin_settings_file(plugin_id))
+                for relative_path, value in plugin_updates.items():
+                    if relative_path:
+                        self._set_nested_yaml(plugin_yaml, relative_path, value)
+                    elif isinstance(value, dict):
+                        plugin_yaml = dict(value)
+                    else:
+                        raise ValueError(f"Plugin settings root must be a dict for {plugin_id}")
+                self._write_yaml_file(get_plugin_settings_file(plugin_id), plugin_yaml)
 
             # Reload config
             self._config = None

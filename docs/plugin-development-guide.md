@@ -93,6 +93,12 @@ Or use the Settings page:
 
 New external plugins are discovered disabled by default.
 
+Plugin state is persisted in split config files:
+
+- host scan paths stay in `~/.magi/config/agent.yaml`
+- enable / trust / source metadata lives in `~/.magi/config/plugins/index.yaml`
+- plugin-owned settings live in `~/.magi/config/plugins/<plugin_id>.yaml`
+
 ## Tool Plugins
 
 Tool plugins return normal Magi tool classes from `get_tools()`.

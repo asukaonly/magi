@@ -33,7 +33,7 @@ A plugin package is discovered from disk, parsed from `plugin.toml`, loaded from
 At runtime the flow is:
 
 1. `PluginManager` scans plugin roots for `plugin.toml`
-2. discovered packages are persisted into `config.plugins.packages`
+2. discovered packages are persisted into split plugin config files under `~/.magi/config/plugins/`
 3. packages are disabled by default unless they are official built-in packages enabled by default config
 4. enabled packages are instantiated through the shared `Plugin` base class
 5. contributions are registered into dedicated registries:
@@ -215,18 +215,21 @@ Frontend surfaces:
 
 ## Configuration Persistence
 
-Plugin package runtime state is persisted inside the main config tree rather than in a separate plugin config file.
+Plugin configuration is split across host config and plugin-specific files.
 
 The persisted shape is:
 
-- `plugins.scan_paths`
-- `plugins.packages.<plugin_id>.enabled`
-- `plugins.packages.<plugin_id>.trusted`
-- `plugins.packages.<plugin_id>.settings`
-- `plugins.packages.<plugin_id>.source`
-- `plugins.packages.<plugin_id>.manifest_path`
+- `~/.magi/config/agent.yaml`
+  - `plugins.scan_paths`
+- `~/.magi/config/plugins/index.yaml`
+  - `packages.<plugin_id>.enabled`
+  - `packages.<plugin_id>.trusted`
+  - `packages.<plugin_id>.source`
+  - `packages.<plugin_id>.manifest_path`
+- `~/.magi/config/plugins/<plugin_id>.yaml`
+  - plugin-owned `settings`
 
-This keeps plugin enablement and settings in the same source of truth as other runtime configuration.
+This keeps host runtime configuration separate from plugin lifecycle state and reduces churn in the main config file as plugin surfaces grow.
 
 ## API Surface
 
