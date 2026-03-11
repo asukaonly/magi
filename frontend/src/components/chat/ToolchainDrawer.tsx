@@ -79,13 +79,13 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="!max-w-none w-full max-w-5xl rounded-l-3xl border-l border-border/60 bg-card p-0"
+        className="!max-w-none flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0"
       >
         <SheetHeader className="border-b border-border/50 bg-muted/30 px-8 py-6">
           <SheetTitle className="text-[28px] font-semibold tracking-[-0.04em] text-foreground">{title}</SheetTitle>
           <SheetDescription className="max-w-3xl pt-1 text-sm leading-6 text-muted-foreground">{subtitle}</SheetDescription>
         </SheetHeader>
-        <div className="flex flex-1 min-h-0 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {loading && (
             <div className="flex h-full items-center justify-center gap-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -122,7 +122,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                   <div className="mt-1.5 text-base font-semibold capitalize text-foreground">{snapshot.mode}</div>
                 </div>
               </div>
-              <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-[minmax(520px,0.92fr)_minmax(720px,1.08fr)]">
+              <div className="grid min-h-0 flex-1 gap-0 overflow-hidden xl:grid-cols-[minmax(520px,0.92fr)_minmax(720px,1.08fr)]">
                 <div className="min-h-0 overflow-y-auto border-r border-border/40 bg-muted/20 px-8 py-6">
                   <div className="mb-3 flex items-center justify-between rounded-2xl border border-border/40 bg-card px-4 py-2.5">
                     <div>
