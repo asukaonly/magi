@@ -168,7 +168,7 @@ async def get_timeline_source_status():
                     _get_nested_value(
                         current_settings,
                         f"sensors.{source_name}.enabled",
-                        True,
+                        item.metadata.get("default_settings", {}).get("enabled", True),
                     )
                 ),
                 "sync_mode": str(
