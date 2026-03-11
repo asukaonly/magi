@@ -127,8 +127,9 @@ class ChromeHistoryPlugin(Plugin):
 
     def get_sensors(self) -> list[tuple[str, object, SensorSpec]]:
         settings = {}
-        if isinstance(self.settings.get("sensors", {}), dict):
-            settings = dict(self.settings["sensors"].get("chrome_history", {}))
+        sensors_settings = self.settings.get("sensors", {})
+        if isinstance(sensors_settings, dict):
+            settings = dict(sensors_settings.get("chrome_history", {}))
         sensor = ChromeHistoryTimelineSensor(
             retention_mode=str(settings.get("default_retention_mode") or DEFAULT_SETTINGS["default_retention_mode"]),
             source_path=str(settings.get("source_path") or DEFAULT_SETTINGS["source_path"]),

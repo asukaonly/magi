@@ -17,7 +17,6 @@ from ...scheduler import (
 )
 from ...timeline.retention import RetentionService
 from ...timeline.service import TimelineService
-from ...timeline.sync import PullSyncSensor
 from ...utils.runtime import get_runtime_paths
 from ..routers.memory import get_unified_memory
 
@@ -203,7 +202,7 @@ async def get_timeline_source_status():
                         item.metadata.get("default_settings", {}).get("edge_whitelist", []),
                     )
                 ),
-                "supports_pull_sync": isinstance(sensor, PullSyncSensor) or bool(getattr(sensor, "supports_pull_sync", False)),
+                "supports_pull_sync": bool(getattr(sensor, "supports_pull_sync", False)),
                 "last_error": state.last_error if state is not None else None,
                 "last_success": state.last_success_at if state is not None else None,
                 "last_sync_at": state.last_success_at if state is not None else None,

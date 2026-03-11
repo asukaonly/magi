@@ -103,16 +103,22 @@ def _build_manager(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> tuple[
     return manager, sensor_registry
 
 
-def test_chrome_history_plugin_is_discovered_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     config = AppConfig()
-    manager, _ = _build_manager(monkeypatch, config)
+    manager, sensor_registry = _build_manager(monkeypatch, config)
 
-    packages = manager.scan(persist_discovery=False)
+    packages = manager.scan(persist_discovery=True)
     chrome_package = next(item for item in packages if item.manifest.plugin_id == "chrome-history")
 
-    assert chrome_package.enabled is False
+    assert chrome_package.enabled is True
     assert chrome_package.manifest.source == "builtin"
-    assert chrome_package.manifest.official is False
+    assert chrome_package.manifest.official is True
+
+    manager.activate_enabled_plugins()
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    assert resolved is not None
+    _, _, _, spec = resolved
+    assert spec.metadata["default_settings"]["enabled"] is False
 
 
 @pytest.mark.asyncio

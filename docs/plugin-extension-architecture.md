@@ -266,10 +266,10 @@ Magi currently ships three official built-in plugin packages:
 
 These packages are enabled by default through config defaults.
 
-Magi also ships one additional built-in but non-official sensor package:
+Magi also ships one additional sensitive built-in sensor package:
 
 - `chrome-history`
-  registers the local Chrome history timeline source and is discovered disabled by default because it reads sensitive local browser data
+  registers the local Chrome history timeline source, is enabled as a plugin by default so its settings surface is visible, but keeps the source itself disabled until the user explicitly turns it on
 
 ## Operational Rules
 

@@ -6,5 +6,5 @@ description = "Local Google Chrome browsing history ingestion for the timeline."
 author = "Magi Team"
 entry_module = "plugin"
 entry_class = "ChromeHistoryPlugin"
-official = false
+official = true
 contribution_types = ["sensor"]

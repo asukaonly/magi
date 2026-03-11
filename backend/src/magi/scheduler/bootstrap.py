@@ -9,7 +9,7 @@ from ..plugins.actions import ActionExecutionContext, ActionRegistry
 from ..plugins.sensors import SensorRegistry
 from ..timeline.contracts import TimelineEvent
 from ..timeline.service import TimelineService
-from ..timeline.sync import PullSyncSensor, SensorSyncContext
+from ..timeline.sync import SensorSyncContext
 from ..utils.runtime import Runtimepaths
 from .contracts import (
     ScheduleDefinition,
@@ -90,7 +90,7 @@ class SchedulerBootstrap:
             enabled = bool(source_settings.get("enabled", default_settings.get("enabled", True)))
             sync_mode = str(source_settings.get("sync_mode", default_settings.get("sync_mode", spec.sync_mode)))
             interval_minutes = float(source_settings.get("sync_interval_minutes", default_settings.get("sync_interval_minutes", 1)))
-            supports_pull_sync = isinstance(sensor, PullSyncSensor) or bool(getattr(sensor, "supports_pull_sync", False))
+            supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
             if (not config.timeline.enabled) or (not enabled) or (not supports_pull_sync) or sync_mode == "manual":
                 await self._scheduler_service.unschedule(schedule_id)
                 continue
@@ -114,7 +114,7 @@ class SchedulerBootstrap:
         if resolved is None:
             raise KeyError(source_type)
         plugin_id, _, sensor, _ = resolved
-        if not (isinstance(sensor, PullSyncSensor) or bool(getattr(sensor, "supports_pull_sync", False))):
+        if not bool(getattr(sensor, "supports_pull_sync", False)):
             raise ValueError(f"Timeline source does not support pull sync: {source_type}")
         schedule_id = f"timeline-sync-manual:{plugin_id}:{source_type}:{uuid.uuid4().hex}"
         return await self._scheduler_service.schedule_once(
@@ -139,7 +139,7 @@ class SchedulerBootstrap:
         if resolved is None:
             raise RuntimeError(f"Timeline source not found: {source_type}")
         plugin_id, _, sensor, spec = resolved
-        if not (isinstance(sensor, PullSyncSensor) or bool(getattr(sensor, "supports_pull_sync", False))):
+        if not bool(getattr(sensor, "supports_pull_sync", False)):
             raise RuntimeError(f"Timeline source does not support pull sync: {source_type}")
         package_state = self._plugin_manager.get_package(plugin_id)
         package_settings = package_state.current_settings if package_state is not None else {}
