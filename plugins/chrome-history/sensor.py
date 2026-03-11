@@ -1,0 +1,116 @@
+"""Timeline sensor for local Chrome history."""
+from __future__ import annotations
+
+from typing import Any
+
+from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
+from magi.timeline.sensors import TimelineSensorBase
+
+from .chrome_reader import ChromeHistoryReader, DEFAULT_MACOS_CHROME_ROOT
+from .normalizers import build_relation_candidates, normalize_domain
+
+
+class ChromeHistoryTimelineSensor(TimelineSensorBase):
+    """Pull-sync sensor backed by the local Chrome history SQLite database."""
+
+    sensor_id = "timeline.chrome_history"
+    display_name = "Chrome History"
+    source_type = "chrome_history"
+    polling_mode = "interval"
+    default_interval = 30
+    update_key_fields = ("visit_id",)
+    relation_edge_whitelist = ("VISITED", "VIEWED")
+    supports_pull_sync = True
+
+    def __init__(
+        self,
+        *,
+        retention_mode: str | None = None,
+        source_path: str | None = None,
+        fetch_page_content: bool = False,
+        profile: str = "Default",
+        lookback_hours: int = 24,
+        reader: ChromeHistoryReader | None = None,
+    ) -> None:
+        super().__init__(
+            retention_mode=retention_mode,
+            source_path=source_path,
+            fetch_page_content=fetch_page_content,
+        )
+        self.profile = profile
+        self.lookback_hours = lookback_hours
+        self._reader = reader or ChromeHistoryReader()
+
+    def source_item_identity(self, item: dict[str, Any]) -> str:
+        return str(item.get("visit_id") or "")
+
+    def source_item_version_fingerprint(self, item: dict[str, Any]) -> str:
+        return "|".join(
+            [
+                str(item.get("visit_id") or ""),
+                str(item.get("title") or ""),
+                str(item.get("visit_count") or 0),
+            ]
+        )
+
+    async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:
+        sensor_settings = (
+            context.plugin_settings.get("sensors", {}).get(self.source_type, {})
+            if isinstance(context.plugin_settings.get("sensors", {}), dict)
+            else {}
+        )
+        source_path = str(sensor_settings.get("source_path") or self.source_path or DEFAULT_MACOS_CHROME_ROOT)
+        profile = str(sensor_settings.get("profile") or self.profile or "Default")
+        lookback_hours = int(sensor_settings.get("lookback_hours", self.lookback_hours))
+        items = self._reader.read_visits(
+            source_path=source_path,
+            profile=profile,
+            limit=max(1, context.limit),
+            last_cursor=context.last_cursor,
+            lookback_hours=max(1, lookback_hours),
+        )
+        next_cursor = items[-1]["visit_id"] if items else context.last_cursor
+        watermark_ts = float(items[-1]["visit_time"]) if items else context.last_success_at
+        return SensorSyncResult(
+            items=items,
+            next_cursor=str(next_cursor) if next_cursor else None,
+            watermark_ts=watermark_ts,
+            stats={"count": len(items), "profile": profile},
+        )
+
+    async def build_timeline_event(self, item: dict[str, Any]) -> TimelineEvent:
+        url = str(item.get("url") or "")
+        title = str(item.get("title") or item.get("domain") or url or "Visited page")
+        domain = str(item.get("domain") or normalize_domain(url))
+        content_blocks = [
+            TimelineContentBlock(kind="text", value=url),
+        ]
+        if title:
+            content_blocks.append(TimelineContentBlock(kind="text", value=title))
+        if self.fetch_page_content and item.get("page_content"):
+            content_blocks.append(TimelineContentBlock(kind="text", value=str(item["page_content"])))
+        return self._build_event(
+            source_item_id=self.source_item_identity(item),
+            title=title,
+            summary=title,
+            occurred_at=float(item.get("visit_time") or 0.0),
+            content_blocks=content_blocks,
+            tags=[tag for tag in ("chrome_history", "browser_history", domain) if tag],
+            provenance={
+                "sensor_id": self.sensor_id,
+                "browser": "chrome",
+                "profile": str(item.get("profile") or self.profile),
+                "visit_id": str(item.get("visit_id") or ""),
+                "domain": domain,
+                "from_visit": str(item.get("from_visit") or ""),
+                "transition": str(item.get("transition") or ""),
+            },
+        )
+
+    async def extract_candidates(self, item: dict[str, Any]) -> dict[str, Any]:
+        domain = str(item.get("domain") or normalize_domain(str(item.get("url") or "")))
+        return {
+            "entities": [],
+            "tags": [tag for tag in ("chrome_history", "browser_history", domain) if tag],
+            "relation_candidates": build_relation_candidates(item),
+        }

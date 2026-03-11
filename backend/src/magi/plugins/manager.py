@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -288,10 +289,12 @@ class PluginManager:
         spec = importlib.util.spec_from_file_location(
             f"magi_plugin_{manifest.plugin_id.replace('-', '_')}",
             module_path,
+            submodule_search_locations=[str(Path(manifest.plugin_dir))],
         )
         if spec is None or spec.loader is None:
             raise RuntimeError(f"Unable to load plugin module for {manifest.plugin_id}")
         module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
         spec.loader.exec_module(module)
         plugin_class = getattr(module, manifest.entry_class)
         plugin_instance = plugin_class()

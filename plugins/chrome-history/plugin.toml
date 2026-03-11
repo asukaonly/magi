@@ -1,0 +1,10 @@
+[plugin]
+id = "chrome-history"
+name = "Chrome History"
+version = "0.1.0"
+description = "Local Google Chrome browsing history ingestion for the timeline."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "ChromeHistoryPlugin"
+official = false
+contribution_types = ["sensor"]
