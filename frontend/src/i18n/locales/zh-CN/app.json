@@ -43,13 +43,10 @@
     "filters": {
       "source": "来源",
       "range": "时间范围",
-      "viewMode": "视图模式",
       "allSources": "全部来源",
       "allTime": "全部时间",
       "last7Days": "最近 7 天",
       "last30Days": "最近 30 天",
-      "comfortable": "舒展",
-      "compact": "紧凑",
       "clear": "清空筛选"
     },
     "sources": {

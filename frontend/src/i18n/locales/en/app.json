@@ -43,13 +43,10 @@
     "filters": {
       "source": "Source",
       "range": "Range",
-      "viewMode": "View mode",
       "allSources": "All sources",
       "allTime": "All time",
       "last7Days": "Last 7 days",
       "last30Days": "Last 30 days",
-      "comfortable": "Comfortable",
-      "compact": "Compact",
       "clear": "Clear filters"
     },
     "sources": {

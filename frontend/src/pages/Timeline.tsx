@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Filter, LayoutList, PenSquare, RefreshCw } from 'lucide-react';
+import { CalendarRange, Filter, PenSquare, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
@@ -17,7 +17,6 @@ import { cn } from '@/lib/utils';
 import { useChatShellStore } from '@/stores';
 
 type RangeOption = 'all' | '7d' | '30d';
-type ViewMode = 'comfortable' | 'compact';
 
 const sortEvents = (events: TimelineEventRecord[]): TimelineEventRecord[] =>
   [...events].sort((left, right) => right.occurred_at - left.occurred_at);
@@ -45,7 +44,6 @@ export const TimelinePage: React.FC = () => {
   const [eventDetails, setEventDetails] = useState<Record<string, TimelineEventDetail | undefined>>({});
   const [selectedSource, setSelectedSource] = useState('all');
   const [selectedRange, setSelectedRange] = useState<RangeOption>('all');
-  const [viewMode, setViewMode] = useState<ViewMode>('comfortable');
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -251,22 +249,6 @@ export const TimelinePage: React.FC = () => {
                 </select>
               </label>
 
-              <label className="min-w-[156px] flex-1 space-y-1.5" htmlFor="timeline-view-mode">
-                <span className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  <LayoutList className="h-3.5 w-3.5" />
-                  {t('timeline.filters.viewMode')}
-                </span>
-                <select
-                  id="timeline-view-mode"
-                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
-                  value={viewMode}
-                  onChange={(event) => setViewMode(event.target.value as ViewMode)}
-                >
-                  <option value="comfortable">{t('timeline.filters.comfortable')}</option>
-                  <option value="compact">{t('timeline.filters.compact')}</option>
-                </select>
-              </label>
-
               <Button
                 type="button"
                 variant="ghost"
@@ -274,7 +256,6 @@ export const TimelinePage: React.FC = () => {
                 onClick={() => {
                   setSelectedSource('all');
                   setSelectedRange('all');
-                  setViewMode('comfortable');
                 }}
                 aria-label={t('timeline.filters.clear')}
               >
@@ -302,7 +283,6 @@ export const TimelinePage: React.FC = () => {
                 eventDetails={eventDetails}
                 loadingDetailId={loadingDetailId}
                 reanalyzingEventId={reanalyzingEventId}
-                viewMode={viewMode}
                 onToggleDetails={(eventId) => void handleToggleDetails(eventId)}
                 onReanalyze={handleReanalyze}
               />

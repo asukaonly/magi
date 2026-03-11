@@ -15,7 +15,6 @@ interface TimelineFeedProps {
   eventDetails: Record<string, TimelineEventDetail | undefined>;
   loadingDetailId: string | null;
   reanalyzingEventId: string | null;
-  viewMode: 'comfortable' | 'compact';
   onToggleDetails: (eventId: string) => void;
   onReanalyze: (eventId: string) => Promise<void> | void;
 }
@@ -77,7 +76,6 @@ export const TimelineFeed: React.FC<TimelineFeedProps> = ({
   eventDetails,
   loadingDetailId,
   reanalyzingEventId,
-  viewMode,
   onToggleDetails,
   onReanalyze,
 }) => {
@@ -101,62 +99,73 @@ export const TimelineFeed: React.FC<TimelineFeedProps> = ({
   }
 
   return (
-    <div className="space-y-3">
-      {events.map((event) => {
+    <div className="space-y-0">
+      {events.map((event, index) => {
         const isExpanded = expandedEventId === event.event_id;
         const detail = eventDetails[event.event_id];
-        const paddingClass = viewMode === 'compact' ? 'px-4 py-3' : 'px-5 py-4';
+        const timestampLabel = formatTimestamp(event.occurred_at, i18n.language);
 
         return (
-          <article
-            key={event.event_id}
-            className={cn(
-              'rounded-2xl border border-border/60 bg-background/82 transition-colors',
-              isExpanded && 'border-primary/28'
-            )}
-          >
-            <div className={paddingClass}>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className={cn('rounded-full border-0 text-xs', SOURCE_TONE[event.source_type] || 'bg-muted text-foreground')}>
-                  {getSourceLabel(event.source_type)}
-                </Badge>
-                <Badge variant="secondary" className="rounded-full text-xs">
-                  {t(getRetentionKey(event.retention?.mode || event.retention_mode))}
-                </Badge>
-                <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <article key={event.event_id} className="grid gap-3 border-b border-border/50 py-4 sm:grid-cols-[104px_minmax(0,1fr)] sm:py-5">
+            <div className="relative hidden sm:block">
+              <div className="pr-6 text-right">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {timestampLabel.split(' ').slice(0, 2).join(' ')}
+                </div>
+                <div className="mt-1 text-sm text-foreground/80">{timestampLabel.split(' ').slice(2).join(' ')}</div>
+              </div>
+              <span className="absolute right-0 top-1.5 h-2.5 w-2.5 translate-x-1/2 rounded-full border-2 border-background bg-primary" />
+              {index !== events.length - 1 ? (
+                <span className="absolute right-0 top-5 h-[calc(100%+1.5rem)] w-px bg-border/70" />
+              ) : null}
+            </div>
+
+            <div className="min-w-0 space-y-3">
+              <div className="flex flex-wrap items-center gap-2 sm:hidden">
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                   <Clock3 className="h-3.5 w-3.5" />
-                  {formatTimestamp(event.occurred_at, i18n.language)}
+                  {timestampLabel}
                 </span>
               </div>
 
-              <div className="mt-3 space-y-1.5">
-                <h2 className="text-lg font-semibold tracking-tight text-foreground">{event.title}</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={cn('rounded-full border-0 text-[11px]', SOURCE_TONE[event.source_type] || 'bg-muted text-foreground')}>
+                  {getSourceLabel(event.source_type)}
+                </Badge>
+                <Badge variant="secondary" className="rounded-full text-[11px]">
+                  {t(getRetentionKey(event.retention?.mode || event.retention_mode))}
+                </Badge>
+              </div>
+
+              <div className="space-y-1.5">
+                <h2 className="text-base font-semibold tracking-tight text-foreground sm:text-[1.05rem]">{event.title}</h2>
                 <p className="text-sm leading-6 text-muted-foreground">{event.summary}</p>
               </div>
 
-              {(event.tags.length > 0 || event.entities.length > 0) && (
-                <div className="mt-3 flex flex-wrap gap-2">
+              {(event.tags.length > 0 || event.entities.length > 0) ? (
+                <div className="flex flex-wrap gap-2">
                   {event.tags.map((tag) => (
-                    <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
                       #{tag}
                     </span>
                   ))}
                   {event.entities.map((entity) => (
                     <span
                       key={`${entity.id || entity.label || 'entity'}-${entity.type || 'unknown'}`}
-                      className="rounded-full border border-border/50 px-2 py-0.5 text-xs text-foreground/80"
+                      className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-foreground/80"
                     >
                       {entity.label || entity.id || t('timeline.feed.unknownEntity')}
                     </span>
                   ))}
                 </div>
-              )}
+              ) : null}
 
-              <div className="mt-4 flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
-                  variant={isExpanded ? 'secondary' : 'outline'}
+                  variant="ghost"
                   size="sm"
+                  className="h-8 px-2.5 text-muted-foreground hover:text-foreground"
                   onClick={() => onToggleDetails(event.event_id)}
                   aria-label={isExpanded ? t('timeline.feed.hideDetails') : t('timeline.feed.showDetails')}
                 >
@@ -166,6 +175,7 @@ export const TimelineFeed: React.FC<TimelineFeedProps> = ({
                   type="button"
                   variant="ghost"
                   size="sm"
+                  className="h-8 px-2.5 text-muted-foreground hover:text-foreground"
                   onClick={() => void onReanalyze(event.event_id)}
                   disabled={reanalyzingEventId === event.event_id}
                   aria-label={t('timeline.feed.reanalyze')}
@@ -176,14 +186,14 @@ export const TimelineFeed: React.FC<TimelineFeedProps> = ({
               </div>
 
               {isExpanded ? (
-                <div className="mt-4 border-t border-border/60 pt-4">
+                <div className="space-y-5 border-t border-border/50 pt-4">
                   {loadingDetailId === event.event_id && !detail ? (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <LoadingSpinner className="h-4 w-4" />
                       {t('timeline.feed.loadingDetails')}
                     </div>
                   ) : (
-                    <div className="space-y-5">
+                    <>
                       <section className="space-y-2">
                         <h3 className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                           {t('timeline.feed.detailTitle')}
@@ -232,7 +242,7 @@ export const TimelineFeed: React.FC<TimelineFeedProps> = ({
                           )}
                         </section>
                       </div>
-                    </div>
+                    </>
                   )}
                 </div>
               ) : null}
