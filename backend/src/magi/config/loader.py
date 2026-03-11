@@ -223,8 +223,59 @@ class ConfigLoader:
                 "scan_paths": ["plugins", "~/.magi/plugins"],
                 "packages": {
                     "core-tools": {"enabled": True, "trusted": True, "source": "builtin", "settings": {}},
-                    "core-timeline": {"enabled": True, "trusted": True, "source": "builtin", "settings": {}},
-                    "core-actions": {"enabled": True, "trusted": True, "source": "builtin", "settings": {}},
+                    "core-timeline": {
+                        "enabled": True,
+                        "trusted": True,
+                        "source": "builtin",
+                        "settings": {
+                            "sensors": {
+                                "chat": {
+                                    "enabled": True,
+                                    "sync_mode": "watch",
+                                    "sync_interval_minutes": 1,
+                                    "default_retention_mode": "analyze_only",
+                                    "storage_mode": "managed",
+                                    "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH"],
+                                },
+                                "manual_journal": {
+                                    "enabled": True,
+                                    "sync_mode": "manual",
+                                    "sync_interval_minutes": 1,
+                                    "default_retention_mode": "retain_raw",
+                                    "storage_mode": "managed",
+                                    "edge_whitelist": ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"],
+                                },
+                                "browser_history": {
+                                    "enabled": True,
+                                    "sync_mode": "interval",
+                                    "sync_interval_minutes": 30,
+                                    "default_retention_mode": "analyze_only",
+                                    "storage_mode": "managed",
+                                    "source_path": "",
+                                    "fetch_page_content": False,
+                                    "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
+                                },
+                                "photo_library": {
+                                    "enabled": True,
+                                    "sync_mode": "interval",
+                                    "sync_interval_minutes": 60,
+                                    "default_retention_mode": "retain_raw",
+                                    "storage_mode": "external_reference",
+                                    "source_path": "",
+                                    "edge_whitelist": ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
+                                },
+                            }
+                        },
+                    },
+                    "core-actions": {
+                        "enabled": True,
+                        "trusted": True,
+                        "source": "builtin",
+                        "settings": {
+                            "notifications": {"default_level": "info"},
+                            "email": {"default_sender": "", "provider_mode": "simulated"},
+                        },
+                    },
                 },
             },
             "debug": False,

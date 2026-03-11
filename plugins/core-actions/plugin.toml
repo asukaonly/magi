@@ -1,0 +1,10 @@
+[plugin]
+id = "core-actions"
+name = "Core Actions"
+version = "1.0.0"
+description = "Official outbound actions exposed through the unified plugin runtime."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "CoreActionsPlugin"
+official = true
+contribution_types = ["action"]

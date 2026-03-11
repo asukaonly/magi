@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ...config import get_config
+from ...plugins import get_plugin_manager, get_sensor_registry
 from ...timeline.retention import RetentionService
 from ...timeline.service import TimelineService
 from ...utils.runtime import get_runtime_paths
@@ -34,6 +35,21 @@ def get_timeline_service() -> TimelineService:
 
 def get_retention_service() -> RetentionService:
     return RetentionService()
+
+
+def _get_nested_value(payload: dict[str, Any], path: str, default: Any) -> Any:
+    current: Any = payload
+    for part in path.split("."):
+        if not isinstance(current, dict):
+            return default
+        if part not in current:
+            return default
+        current = current[part]
+    return current
+
+
+def _field_default_map(fields: list[dict[str, Any]]) -> dict[str, Any]:
+    return {str(field.get("key")): field.get("default") for field in fields}
 
 
 @timeline_router.get("/events")
@@ -84,28 +100,102 @@ async def create_manual_entry(request: TimelineManualEntryRequest):
 
 @timeline_router.get("/sources/status")
 async def get_timeline_source_status():
-    config = get_config()
+    get_config()
     runtime_paths = get_runtime_paths()
-    sources = config.timeline.sources.model_dump()
+    manager = get_plugin_manager()
+    sensor_registry = get_sensor_registry()
+    packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
+    contributions = [
+        contribution
+        for contribution in sensor_registry.list_contributions()
+        if contribution.metadata.get("domain") == "timeline"
+    ]
     return {
         "sources": [
             {
-                "source_name": source_name,
-                **source_config,
+                "source_name": str(item.metadata.get("source_type") or item.contribution_id.split(".")[-1]),
+                "plugin_id": item.plugin_id,
+                "contribution_id": item.contribution_id,
+                "display_name": item.display_name,
+                "description": item.description,
+                "fields": [field.model_dump() for field in item.fields],
+                "current_settings": {
+                    field.key: _get_nested_value(
+                        packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {},
+                        field.key,
+                        field.default,
+                    )
+                    for field in item.fields
+                },
+                "enabled": bool(
+                    _get_nested_value(
+                        packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {},
+                        f"sensors.{str(item.metadata.get('source_type') or item.contribution_id.split('.')[-1])}.enabled",
+                        True,
+                    )
+                ),
+                "sync_mode": str(
+                    _get_nested_value(
+                        packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {},
+                        f"sensors.{str(item.metadata.get('source_type') or item.contribution_id.split('.')[-1])}.sync_mode",
+                        item.metadata.get("default_settings", {}).get("sync_mode", item.metadata.get("sync_mode", "manual")),
+                    )
+                ),
+                "sync_interval_minutes": int(
+                    _get_nested_value(
+                        packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {},
+                        f"sensors.{str(item.metadata.get('source_type') or item.contribution_id.split('.')[-1])}.sync_interval_minutes",
+                        item.metadata.get("default_settings", {}).get("sync_interval_minutes", 1),
+                    )
+                ),
+                "default_retention_mode": str(
+                    _get_nested_value(
+                        packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {},
+                        f"sensors.{str(item.metadata.get('source_type') or item.contribution_id.split('.')[-1])}.default_retention_mode",
+                        item.metadata.get("default_settings", {}).get("default_retention_mode", "analyze_only"),
+                    )
+                ),
+                "storage_mode": str(
+                    _get_nested_value(
+                        packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {},
+                        f"sensors.{str(item.metadata.get('source_type') or item.contribution_id.split('.')[-1])}.storage_mode",
+                        item.metadata.get("default_settings", {}).get("storage_mode", "managed"),
+                    )
+                ),
+                "source_path": _get_nested_value(
+                    packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {},
+                    f"sensors.{str(item.metadata.get('source_type') or item.contribution_id.split('.')[-1])}.source_path",
+                    item.metadata.get("default_settings", {}).get("source_path"),
+                ),
+                "fetch_page_content": bool(
+                    _get_nested_value(
+                        packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {},
+                        f"sensors.{str(item.metadata.get('source_type') or item.contribution_id.split('.')[-1])}.fetch_page_content",
+                        item.metadata.get("default_settings", {}).get("fetch_page_content", False),
+                    )
+                ),
+                "edge_whitelist": list(
+                    _get_nested_value(
+                        packages.get(item.plugin_id).current_settings if packages.get(item.plugin_id) is not None else {},
+                        f"sensors.{str(item.metadata.get('source_type') or item.contribution_id.split('.')[-1])}.edge_whitelist",
+                        item.metadata.get("default_settings", {}).get("edge_whitelist", []),
+                    )
+                ),
                 "last_error": None,
                 "last_success": None,
                 "runtime_base_dir": str(runtime_paths.base_dir),
             }
-            for source_name, source_config in sources.items()
+            for item in contributions
         ]
     }
 
 
 @timeline_router.post("/sources/{source_name}/sync")
 async def trigger_timeline_source_sync(source_name: str):
-    config = get_config()
-    sources = config.timeline.sources.model_dump()
-    if source_name not in sources:
+    _ = get_config()
+    sensor_registry = get_sensor_registry()
+    resolved = sensor_registry.resolve_domain_sensor("timeline", source_name)
+    if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline source not found")
     return {"queued": True, "source_name": source_name}
 

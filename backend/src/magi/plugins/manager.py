@@ -14,7 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover
 from ..config import get_config, save_config
 from ..config.models import PluginSettings
 from ..tools.registry import ToolRegistry
-from .actions import ActionRegistry, BaseAction
+from .actions import ActionRegistry, BaseAction, build_action_tool_class
 from .base import Plugin
 from .contracts import ContributionType, PluginContribution, PluginManifest, PluginPackageState
 from .sensors import SensorRegistry, SensorSpec
@@ -42,6 +42,7 @@ class PluginManager:
         self._registered_tools: dict[str, list[str]] = {}
         self._registered_sensors: dict[str, list[str]] = {}
         self._registered_actions: dict[str, list[str]] = {}
+        self._registered_action_tools: dict[str, list[str]] = {}
 
     @property
     def search_paths(self) -> list[Path]:
@@ -147,12 +148,21 @@ class PluginManager:
             self._registered_sensors[plugin_id] = sensor_ids
 
             action_ids: list[str] = []
+            action_tool_names: list[str] = []
             for action in plugin_instance.get_actions():
                 if not isinstance(action, BaseAction):
                     continue
                 self._action_registry.register(plugin_id, action)
                 action_ids.append(action.spec.action_id)
+                tool_class = build_action_tool_class(action)
+                if tool_class is not None:
+                    tool_instance = tool_class()
+                    tool_name = tool_instance.get_schema().name
+                    setattr(tool_class, "_plugin_package_id", plugin_id)
+                    self._tool_registry.register(tool_class)
+                    action_tool_names.append(tool_name)
             self._registered_actions[plugin_id] = action_ids
+            self._registered_action_tools[plugin_id] = action_tool_names
             registered_contributions.extend(self._action_registry.list_contributions(plugin_id))
 
             state.loaded = True
@@ -172,6 +182,8 @@ class PluginManager:
         """Unload a plugin and unregister its contributions."""
 
         for tool_name in self._registered_tools.pop(plugin_id, []):
+            self._tool_registry.unregister(tool_name)
+        for tool_name in self._registered_action_tools.pop(plugin_id, []):
             self._tool_registry.unregister(tool_name)
         for sensor_id in self._registered_sensors.pop(plugin_id, []):
             self._sensor_registry.unregister(sensor_id)

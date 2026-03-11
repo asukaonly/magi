@@ -7,6 +7,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 from .contracts import ExtensionFieldSpec, PluginContribution
+from ..tools.schema import ParameterType, Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema
 
 
 class ActionSpec(BaseModel):
@@ -96,3 +97,67 @@ class ActionRegistry:
                 )
             )
         return contributions
+
+
+def build_action_tool_class(action: BaseAction) -> type[Tool] | None:
+    """Build a tool adapter for an action when declared."""
+
+    spec = action.spec
+    if not spec.tool_adapter_name:
+        return None
+
+    parameters = []
+    properties = dict(spec.input_schema.get("properties", {}))
+    required = set(spec.input_schema.get("required", []))
+    for name, schema in properties.items():
+        parameters.append(
+            ToolParameter(
+                name=name,
+                type=_json_schema_to_parameter_type(str(schema.get("type", "string"))),
+                description=str(schema.get("description", "")),
+                required=name in required,
+                default=schema.get("default"),
+                enum=schema.get("enum"),
+            )
+        )
+
+    class _ActionToolAdapter(Tool):
+        def _init_schema(self) -> None:
+            self.schema = ToolSchema(
+                name=str(spec.tool_adapter_name),
+                description=str(spec.tool_adapter_description or spec.description),
+                category="action",
+                parameters=parameters,
+                dangerous=spec.dangerous,
+                metadata={"action_id": spec.action_id},
+            )
+
+        async def execute(
+            self,
+            parameters: dict[str, Any],
+            context: ToolExecutionContext,
+        ) -> ToolResult:
+            result = await action.execute(
+                parameters,
+                ActionExecutionContext(
+                    user_id=context.agent_id,
+                    runtime_key=context.task_id,
+                    metadata={"permissions": list(context.permissions)},
+                ),
+            )
+            return ToolResult(success=True, data=result)
+
+    _ActionToolAdapter.__name__ = f"{spec.action_id.replace('-', '_').title()}ActionToolAdapter"
+    return _ActionToolAdapter
+
+
+def _json_schema_to_parameter_type(value: str) -> ParameterType:
+    mapping = {
+        "string": ParameterType.STRING,
+        "integer": ParameterType.INTEGER,
+        "number": ParameterType.FLOAT,
+        "boolean": ParameterType.BOOLEAN,
+        "array": ParameterType.ARRAY,
+        "object": ParameterType.OBJECT,
+    }
+    return mapping.get(value, ParameterType.STRING)

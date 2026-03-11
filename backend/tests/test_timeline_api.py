@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routers import timeline as timeline_module
 from magi.api.routers.timeline import timeline_router
+from magi.plugins import ExtensionFieldSpec
 from magi.timeline import TimelineContentBlock, TimelineEvent
 
 
@@ -82,46 +83,93 @@ def _build_client(monkeypatch):
     app.include_router(timeline_router, prefix="/api/timeline")
     service = _FakeTimelineService()
     monkeypatch.setattr(timeline_module, "get_timeline_service", lambda: service)
-    monkeypatch.setattr(
-        timeline_module,
-        "get_config",
-        lambda: type(
-            "Config",
-            (),
-            {
-                "timeline": type(
-                    "TimelineConfig",
-                    (),
-                    {
-                        "sources": type(
-                            "TimelineSources",
-                            (),
-                            {
-                                "model_dump": staticmethod(
-                                    lambda: {
-                                        "browser_history": {
-                                            "enabled": True,
-                                            "sync_mode": "interval",
-                                            "sync_interval_minutes": 30,
-                                            "default_retention_mode": "analyze_only",
-                                            "storage_mode": "managed",
-                                            "source_path": None,
-                                            "fetch_page_content": False,
-                                            "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
-                                        }
-                                    }
-                                )
-                            },
-                        )()
-                    },
-                )()
-            },
-        )(),
-    )
+    monkeypatch.setattr(timeline_module, "get_config", lambda: type("Config", (), {})())
     monkeypatch.setattr(
         timeline_module,
         "get_runtime_paths",
         lambda: type("Paths", (), {"base_dir": "/tmp/magi-runtime"})(),
+    )
+    plugin_state = type(
+        "PluginState",
+        (),
+        {
+            "manifest": type("Manifest", (), {"plugin_id": "core-timeline"})(),
+            "current_settings": {
+                "sensors": {
+                    "browser_history": {
+                        "enabled": True,
+                        "sync_mode": "interval",
+                        "sync_interval_minutes": 30,
+                        "default_retention_mode": "analyze_only",
+                        "storage_mode": "managed",
+                        "source_path": "",
+                        "fetch_page_content": False,
+                        "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
+                    }
+                }
+            },
+        },
+    )()
+    monkeypatch.setattr(
+        timeline_module,
+        "get_plugin_manager",
+        lambda: type("Manager", (), {"list_packages": lambda self: [plugin_state]})(),
+    )
+    monkeypatch.setattr(
+        timeline_module,
+        "get_sensor_registry",
+        lambda: type(
+            "Registry",
+            (),
+            {
+                "list_contributions": lambda self: [
+                    type(
+                        "Contribution",
+                        (),
+                        {
+                            "plugin_id": "core-timeline",
+                            "contribution_id": "timeline.browser_history",
+                            "display_name": "Browser History",
+                            "description": "Visited URLs",
+                            "fields": [
+                                ExtensionFieldSpec(
+                                    key="sensors.browser_history.enabled",
+                                    type="switch",
+                                    label="Enabled",
+                                    default=True,
+                                    surface="timeline",
+                                ),
+                                ExtensionFieldSpec(
+                                    key="sensors.browser_history.fetch_page_content",
+                                    type="switch",
+                                    label="Fetch Page Content",
+                                    default=False,
+                                    surface="timeline",
+                                ),
+                            ],
+                            "metadata": {
+                                "domain": "timeline",
+                                "source_type": "browser_history",
+                                "default_settings": {
+                                    "sync_mode": "interval",
+                                    "sync_interval_minutes": 30,
+                                    "default_retention_mode": "analyze_only",
+                                    "storage_mode": "managed",
+                                    "source_path": "",
+                                    "fetch_page_content": False,
+                                    "edge_whitelist": ["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
+                                },
+                            },
+                        },
+                    )()
+                ],
+                "resolve_domain_sensor": lambda self, domain, source_name: (
+                    ("core-timeline", "timeline.browser_history", object(), object())
+                    if domain == "timeline" and source_name == "browser_history"
+                    else None
+                ),
+            },
+        )(),
     )
     return TestClient(app), service
 
@@ -165,6 +213,7 @@ def test_get_timeline_source_status(monkeypatch):
     body = response.json()
     assert body["sources"][0]["source_name"] == "browser_history"
     assert body["sources"][0]["fetch_page_content"] is False
+    assert body["sources"][0]["plugin_id"] == "core-timeline"
 
 
 def test_reanalyze_timeline_event_returns_existing_event(monkeypatch):

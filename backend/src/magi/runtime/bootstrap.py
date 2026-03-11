@@ -32,15 +32,8 @@ from ..memory.integration import MemoryIntegrationModule, MemoryIntegrationConfi
 from ..memory.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
 from ..llm import create_llm_adapter, get_llm_usage_store
 from ..llm.usage_events import configure_llm_usage_event_publisher
-from ..plugins import initialize_plugin_manager
+from ..plugins import get_plugin_manager, get_sensor_registry, initialize_plugin_manager
 from ..timeline.service import TimelineService
-from ..timeline.sensors import (
-    BrowserHistoryTimelineSensor,
-    ChatTimelineSensor,
-    ManualJournalTimelineSensor,
-    PhotoLibraryTimelineSensor,
-    TimelineSensorBase,
-)
 from ..utils.runtime import get_runtime_paths, Runtimepaths, init_runtime_data
 from ..core.logger import get_logger
 from ..core.database_initializer import DatabaseInitializer, set_database_initializer
@@ -56,49 +49,47 @@ _scenario_prompts_store: ScenarioPromptsStore | None = None
 _llm_usage_store = None
 
 
-def _build_timeline_sensor_registry(config: AppConfig) -> dict[str, TimelineSensorBase]:
-    return {
-        "chat": ChatTimelineSensor(
-            retention_mode=config.timeline.sources.chat.default_retention_mode.value,
-        ),
-        "manual_journal": ManualJournalTimelineSensor(
-            retention_mode=config.timeline.sources.manual_journal.default_retention_mode.value,
-        ),
-        "browser_history": BrowserHistoryTimelineSensor(
-            retention_mode=config.timeline.sources.browser_history.default_retention_mode.value,
-            source_path=config.timeline.sources.browser_history.source_path,
-            fetch_page_content=config.timeline.sources.browser_history.fetch_page_content,
-        ),
-        "photo_library": PhotoLibraryTimelineSensor(
-            retention_mode=config.timeline.sources.photo_library.default_retention_mode.value,
-            source_path=config.timeline.sources.photo_library.source_path,
-        ),
-    }
+def _get_nested_setting(payload: dict[str, Any], path: str, default: Any) -> Any:
+    current: Any = payload
+    for part in path.split("."):
+        if not isinstance(current, dict):
+            return default
+        if part not in current:
+            return default
+        current = current[part]
+    return current
 
 
-def _resolve_timeline_edge_whitelist(config: AppConfig, source_type: str) -> list[str]:
-    source_settings = getattr(config.timeline.sources, source_type, None)
-    edge_whitelist = getattr(source_settings, "edge_whitelist", [])
-    return [str(edge_type) for edge_type in edge_whitelist]
+def _resolve_timeline_contribution(source_type: str):
+    registry = get_sensor_registry()
+    return registry.resolve_domain_sensor("timeline", source_type)
 
 
 def _build_timeline_handler(
     config: AppConfig,
     unified_memory: UnifiedMemoryStore,
 ) -> Callable[[dict[str, Any]], Any]:
-    sensors = _build_timeline_sensor_registry(config)
     service = TimelineService(unified_memory)
 
     async def _handle_timeline_payload(payload: dict[str, Any]) -> dict[str, Any]:
         source_type = str(payload.get("source_type") or "").strip()
-        sensor = sensors.get(source_type)
         if not config.timeline.enabled:
             return {"handled": False, "reason": "timeline_disabled"}
-        if sensor is None:
+        resolved = _resolve_timeline_contribution(source_type)
+        if resolved is None:
             return {"handled": False, "reason": "unsupported_source", "source_type": source_type}
-
-        source_settings = getattr(config.timeline.sources, source_type, None)
-        if source_settings is not None and not bool(getattr(source_settings, "enabled", True)):
+        plugin_id, sensor_id, sensor, spec = resolved
+        package_state = get_plugin_manager().get_package(plugin_id)
+        current_settings = package_state.current_settings if package_state is not None else {}
+        sensor_settings_path = f"sensors.{source_type}"
+        default_settings = dict(spec.metadata.get("default_settings", {}))
+        if not bool(
+            _get_nested_setting(
+                current_settings,
+                f"{sensor_settings_path}.enabled",
+                default_settings.get("enabled", True),
+            )
+        ):
             return {"handled": False, "reason": "source_disabled", "source_type": source_type}
 
         event = await sensor.build_timeline_event(payload)
@@ -114,7 +105,14 @@ def _build_timeline_handler(
         await service.upsert_event(
             event,
             relation_candidates=list(extracted.get("relation_candidates", [])),
-            allowed_edge_whitelist=_resolve_timeline_edge_whitelist(config, source_type),
+            allowed_edge_whitelist=[
+                str(edge_type)
+                for edge_type in _get_nested_setting(
+                    current_settings,
+                    f"{sensor_settings_path}.edge_whitelist",
+                    default_settings.get("edge_whitelist", []),
+                )
+            ],
         )
         return {"handled": True, "event_id": event.event_id, "source_type": source_type}
 
