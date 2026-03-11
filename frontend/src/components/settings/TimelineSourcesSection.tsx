@@ -56,6 +56,9 @@ const buildActivationValues = (flow: ActivationFlowSpec, source: TimelineSourceS
     flow.fields.map((field) => [field.key, source.current_settings[field.key] ?? field.default])
   );
 
+const buildActivationResetValues = (flow: ActivationFlowSpec) =>
+  Object.fromEntries(flow.fields.map((field) => [field.key, field.default]));
+
 const formatTimestamp = (value: number | string | null | undefined) => {
   if (value == null || value === '') {
     return null;
@@ -69,6 +72,7 @@ const formatTimestamp = (value: number | string | null | undefined) => {
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   }).format(new Date(normalized));
 };
 
@@ -116,7 +120,7 @@ const SectionBlock: React.FC<{
   description?: string;
   children: React.ReactNode;
 }> = ({ title, description, children }) => (
-  <section className="space-y-4 border-t border-border/60 pt-6">
+  <section className="space-y-4">
     <div className="space-y-1">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       {description ? <p className="max-w-3xl text-sm text-muted-foreground">{description}</p> : null}
@@ -152,6 +156,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   } | null>(null);
   const saveTimersRef = useRef<Record<string, number>>({});
   const pendingUpdatesRef = useRef<Record<string, Record<string, any>>>({});
+  const [resettingActivationSource, setResettingActivationSource] = useState<string | null>(null);
   const expertMode = userMode === 'expert';
 
   useEffect(() => {
@@ -350,6 +355,36 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     return t('settings.timeline.statuses.idle');
   };
 
+  const handleResetActivation = async (source: TimelineSourceStatusItem) => {
+    const flow = source.activation_flow ?? null;
+    if (!flow) {
+      return;
+    }
+    setResettingActivationSource(source.source_name);
+    try {
+      const resetValues = buildActivationResetValues(flow);
+      await flushPluginUpdates(source.plugin_id, {
+        ...resetValues,
+        [flow.enabled_key]: false,
+        [flow.configured_key]: false,
+      });
+      setDrafts((prev) => ({
+        ...prev,
+        [source.source_name]: {
+          ...(prev[source.source_name] || {}),
+          ...resetValues,
+          [flow.enabled_key]: false,
+          [flow.configured_key]: false,
+        },
+      }));
+      toast.success(t('settings.timeline.activation.resetSuccess', { source: source.display_name }));
+    } catch (error: any) {
+      toast.error(t('settings.timeline.errors.activationResetFailed', { message: error?.message || 'unknown' }));
+    } finally {
+      setResettingActivationSource(null);
+    }
+  };
+
   if (!selectedSource) {
     return (
       <div className="mx-auto max-w-5xl space-y-8" data-testid="timeline-overview">
@@ -430,6 +465,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     drafts[selectedSource.source_name]?.[sourceEnabledKey] ??
     selectedSource.current_settings[sourceEnabledKey] ??
     selectedSource.enabled;
+  const activationFlow = selectedSource.activation_flow ?? null;
+  const activationConfigured = Boolean(
+    activationFlow &&
+      (drafts[selectedSource.source_name]?.[activationFlow.configured_key] ??
+        selectedSource.current_settings[activationFlow.configured_key] ??
+        false)
+  );
   const detailFields = selectedSource.fields.filter((field) => {
     if (field.key === sourceEnabledKey) {
       return false;
@@ -439,7 +481,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
 
   return (
     <div className="mx-auto max-w-5xl space-y-8" data-testid={`timeline-source-detail-${selectedSource.source_name}`}>
-      <header className="space-y-5 border-b border-border/60 pb-6">
+      <header className="space-y-4 pb-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
@@ -450,20 +492,45 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             {t('settings.timeline.workspace.backToOverview')}
           </button>
 
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshSources()}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              {t('settings.timeline.actions.refresh')}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => void handleSync(selectedSource)}
-              disabled={!selectedSource.supports_pull_sync || syncingSource === selectedSource.source_name}
-            >
-              <RefreshCw className={cn('mr-2 h-4 w-4', syncingSource === selectedSource.source_name && 'animate-spin')} />
-              {t('settings.timeline.actions.syncNow')}
-            </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            {activationFlow && activationConfigured ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void handleResetActivation(selectedSource)}
+                disabled={resettingActivationSource === selectedSource.source_name}
+              >
+                {t('settings.timeline.actions.resetActivation')}
+              </Button>
+            ) : null}
+            {sourceEnabled ? (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshSources()}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  {t('settings.timeline.actions.refresh')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void handleSync(selectedSource)}
+                  disabled={!selectedSource.supports_pull_sync || syncingSource === selectedSource.source_name}
+                >
+                  <RefreshCw
+                    className={cn('mr-2 h-4 w-4', syncingSource === selectedSource.source_name && 'animate-spin')}
+                  />
+                  {t('settings.timeline.actions.syncNow')}
+                </Button>
+              </>
+            ) : null}
+            <label className="inline-flex items-center gap-3 rounded-full border border-border/60 px-3 py-1.5 text-sm text-foreground">
+              <span>{t('settings.timeline.fields.enabled')}</span>
+              <Switch
+                checked={Boolean(sourceEnabled)}
+                onCheckedChange={(checked) => void handleSourceEnabledChange(selectedSource, checked)}
+                aria-label={t('settings.timeline.fields.enabled')}
+              />
+            </label>
           </div>
         </div>
 
@@ -488,34 +555,11 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             {selectedSource.description || t(`settings.timeline.sourceDesc.${selectedSource.source_name}`)}
           </p>
         </div>
-
-        <div className="grid gap-3 rounded-2xl border border-border/60 bg-background/70 px-4 py-4 md:grid-cols-[minmax(0,1.3fr)_auto_auto] md:items-center">
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">{t('settings.timeline.fields.enabled')}</p>
-            <p className="text-xs text-muted-foreground">
-              {selectedSource.last_error || t('settings.timeline.workspace.sourceStateHint', { mode: joinSourceMeta(selectedSource) })}
-            </p>
-          </div>
-          <div className="text-sm text-muted-foreground">
-            {t('settings.timeline.workspace.lastSyncInline', {
-              time: formatTimestamp(selectedSource.last_sync_at) || '—',
-            })}
-          </div>
-          <div className="flex items-center gap-3 md:justify-self-end">
-            <Switch
-              checked={Boolean(sourceEnabled)}
-              onCheckedChange={(checked) => void handleSourceEnabledChange(selectedSource, checked)}
-              aria-label={t('settings.timeline.fields.enabled')}
-            />
-          </div>
-        </div>
+        <div className="text-sm text-muted-foreground">{selectedSource.last_error || joinSourceMeta(selectedSource)}</div>
       </header>
 
-      <SectionBlock
-        title={t('settings.timeline.workspace.sourceStatusTitle')}
-        description={t('settings.timeline.workspace.sourceStatusDesc')}
-      >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <SectionBlock title={t('settings.timeline.workspace.sourceStatusTitle')}>
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           <StatusMetric
             label={t('settings.timeline.fields.status')}
             value={loadingStatus ? t('settings.timeline.statuses.loading') : getSyncActivityValue(selectedSource)}
@@ -525,19 +569,22 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             value={formatTimestamp(selectedSource.last_run_at) || '—'}
           />
           <StatusMetric
-            label={t('settings.timeline.workspace.lastSyncLabel')}
-            value={formatTimestamp(selectedSource.last_sync_at) || '—'}
+            label={t('settings.timeline.workspace.nextRun')}
+            value={formatTimestamp(selectedSource.next_run_at) || '—'}
           />
           <StatusMetric
             label={t('settings.timeline.workspace.lastBatch')}
             value={String(selectedSource.last_raw_result_count || selectedSource.last_result_count || 0)}
           />
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          <span>{t('settings.timeline.workspace.nextRunInline', { time: formatTimestamp(selectedSource.next_run_at) || '—' })}</span>
-          <span>{t('settings.timeline.workspace.pullSupportInline', { status: selectedSource.supports_pull_sync
-            ? t('settings.timeline.workspace.available')
-            : t('settings.timeline.workspace.notAvailable') })}</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+          <span>
+            {t('settings.timeline.workspace.pullSupportInline', {
+              status: selectedSource.supports_pull_sync
+                ? t('settings.timeline.workspace.available')
+                : t('settings.timeline.workspace.notAvailable'),
+            })}
+          </span>
           {selectedSource.last_error ? (
             <span className="text-destructive">{selectedSource.last_error}</span>
           ) : null}

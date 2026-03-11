@@ -394,7 +394,6 @@
         "lastSyncInline": "最近同步：{{time}}",
         "backToOverview": "返回总览",
         "sourceStatusTitle": "运行状态",
-        "sourceStatusDesc": "查看当前来源的运行健康度、下次执行时间和拉取同步能力。",
         "sourceStateHint": "{{mode}}",
         "nextRun": "下次执行",
         "lastRun": "最近执行",
@@ -457,17 +456,20 @@
       },
       "actions": {
         "refresh": "刷新状态",
-        "syncNow": "立即同步"
+        "syncNow": "立即同步",
+        "resetActivation": "重置首次同步设置"
       },
       "activation": {
-        "enabled": "{{source}} 已启用"
+        "enabled": "{{source}} 已启用",
+        "resetSuccess": "{{source}} 的首次同步设置已重置"
       },
       "syncQueued": "{{source}} 已进入同步队列",
       "errors": {
         "statusLoadFailed": "来源状态加载失败：{{message}}",
         "syncFailed": "同步请求失败：{{message}}",
         "settingsSaveFailed": "来源设置保存失败：{{message}}",
-        "activationFailed": "来源启用失败：{{message}}"
+        "activationFailed": "来源启用失败：{{message}}",
+        "activationResetFailed": "重置首次同步设置失败：{{message}}"
       }
     },
     "extensions": {

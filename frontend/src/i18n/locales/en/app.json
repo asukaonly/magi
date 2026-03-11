@@ -394,7 +394,6 @@
         "lastSyncInline": "Last sync: {{time}}",
         "backToOverview": "Back to overview",
         "sourceStatusTitle": "Runtime status",
-        "sourceStatusDesc": "Operational health, next run timing, and pull-sync capability for the selected source.",
         "sourceStateHint": "{{mode}}",
         "nextRun": "Next run",
         "lastRun": "Last run",
@@ -457,17 +456,20 @@
       },
       "actions": {
         "refresh": "Refresh status",
-        "syncNow": "Sync now"
+        "syncNow": "Sync now",
+        "resetActivation": "Reset first sync setup"
       },
       "activation": {
-        "enabled": "{{source}} enabled"
+        "enabled": "{{source}} enabled",
+        "resetSuccess": "{{source}} first-sync setup reset"
       },
       "syncQueued": "{{source}} sync queued",
       "errors": {
         "statusLoadFailed": "Failed to load source status: {{message}}",
         "syncFailed": "Failed to queue sync: {{message}}",
         "settingsSaveFailed": "Failed to save source settings: {{message}}",
-        "activationFailed": "Failed to enable source: {{message}}"
+        "activationFailed": "Failed to enable source: {{message}}",
+        "activationResetFailed": "Failed to reset first-sync setup: {{message}}"
       }
     },
     "extensions": {

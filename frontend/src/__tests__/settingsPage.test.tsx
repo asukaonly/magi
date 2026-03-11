@@ -594,9 +594,38 @@ describe('settings page save behavior', () => {
 
   it('uses activation flow before syncing chrome history', async () => {
     const user = userEvent.setup();
-    vi.mocked(timelineApi.requestSync).mockResolvedValueOnce({
-      queued: true,
-      source_name: 'chrome_history',
+
+    render(<SettingsPage />);
+
+    await screen.findByText('settings.title');
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
+
+    const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
+    expect(
+      within(chromePanel).queryByRole('button', { name: 'settings.timeline.actions.syncNow' })
+    ).not.toBeInTheDocument();
+    expect(
+      within(chromePanel).queryByRole('button', { name: 'settings.timeline.actions.refresh' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('resets first-sync setup for activation-based sources', async () => {
+    const user = userEvent.setup();
+    vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
+      sources: [
+        {
+          ...chromeTimelineSourceFixture,
+          current_settings: {
+            ...chromeTimelineSourceFixture.current_settings,
+            'sensors.chrome_history.enabled': true,
+            'sensors.chrome_history.initial_sync_configured': true,
+          },
+          enabled: true,
+          activation_required: false,
+        },
+        timelineSourceFixture,
+      ],
     } as any);
 
     render(<SettingsPage />);
@@ -606,21 +635,19 @@ describe('settings page save behavior', () => {
     await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
 
     const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
-    await user.click(within(chromePanel).getByRole('button', { name: 'settings.timeline.actions.syncNow' }));
-
-    expect(await screen.findByText('Enable Chrome History')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Enable source' }));
+    await user.click(within(chromePanel).getByRole('button', { name: 'settings.timeline.actions.resetActivation' }));
 
     await waitFor(() =>
       expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
         'chrome-history',
         expect.objectContaining({
-          'sensors.chrome_history.enabled': true,
-          'sensors.chrome_history.initial_sync_configured': true,
+          'sensors.chrome_history.enabled': false,
+          'sensors.chrome_history.initial_sync_configured': false,
+          'sensors.chrome_history.initial_sync_policy': 'lookback_days',
+          'sensors.chrome_history.initial_sync_lookback_days': 7,
         })
       )
     );
-    await waitFor(() => expect(timelineApi.requestSync).toHaveBeenCalledWith('chrome_history'));
   });
 
   it('shows sync activity details in timeline source status', async () => {
@@ -636,6 +663,8 @@ describe('settings page save behavior', () => {
     expect(within(browserPanel).getByText('settings.timeline.statuses.syncing')).toBeInTheDocument();
     expect(within(browserPanel).getByText('7')).toBeInTheDocument();
     expect(within(browserPanel).getByText('settings.timeline.workspace.lastBatch')).toBeInTheDocument();
+    expect(within(browserPanel).getByText('settings.timeline.workspace.nextRun')).toBeInTheDocument();
+    expect(within(browserPanel).queryByText(/\bAM\b|\bPM\b/)).not.toBeInTheDocument();
   });
 
   it('renders extensions page and can disable a plugin', async () => {
