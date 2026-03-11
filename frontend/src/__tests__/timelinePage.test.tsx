@@ -138,6 +138,7 @@ describe('timeline page', () => {
     const user = userEvent.setup();
     render(<TimelinePage />);
 
+    await user.click(await screen.findByRole('button', { name: 'timeline.actions.addEntry' }));
     await user.type(screen.getByLabelText('timeline.composer.title'), 'Night walk');
     await user.type(screen.getByLabelText('timeline.composer.summary'), 'Captured the walk home.');
     await user.type(screen.getByLabelText('timeline.composer.text'), 'The street was quiet.');

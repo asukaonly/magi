@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Filter, LayoutList, RefreshCw } from 'lucide-react';
+import { CalendarRange, Filter, LayoutList, PenSquare, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
@@ -11,7 +11,6 @@ import {
 } from '@/api/modules/timeline';
 import TimelineComposer from '@/components/timeline/TimelineComposer';
 import TimelineFeed from '@/components/timeline/TimelineFeed';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
@@ -53,6 +52,7 @@ export const TimelinePage: React.FC = () => {
   const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [reanalyzingEventId, setReanalyzingEventId] = useState<string | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
 
   const sourceOptions = ['all', ...Array.from(new Set(events.map((event) => event.source_type)))];
 
@@ -76,6 +76,10 @@ export const TimelinePage: React.FC = () => {
     .filter((entry) => entry.count > 0);
 
   const totalDerivedEdges = Object.values(eventDetails).reduce((sum, detail) => sum + (detail?.graph_evidence.length || 0), 0);
+  const sourceMixSummary = sourceBreakdown
+    .slice(0, 3)
+    .map((entry) => `${getSourceLabel(entry.source)} ${entry.count}`)
+    .join(' · ');
 
   const filteredSummary = useMemo(() => {
     if (filteredEvents.length === events.length) {
@@ -135,6 +139,7 @@ export const TimelinePage: React.FC = () => {
       const created = await timelineApi.createManualEntry(payload);
       setEvents((current) => sortEvents([created, ...current]));
       setExpandedEventId(created.event_id);
+      setComposerOpen(false);
       toast.success(t('timeline.composer.created'));
     } catch (error: any) {
       toast.error(t('timeline.errors.createFailed', { message: error?.message || 'unknown' }));
@@ -175,9 +180,15 @@ export const TimelinePage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="rounded-full px-3 py-1 text-xs">
-              {events.length} {t('timeline.summary.totalEvents')}
-            </Badge>
+            <Button
+              variant={composerOpen ? 'secondary' : 'outline'}
+              size="sm"
+              onClick={() => setComposerOpen((current) => !current)}
+              aria-label={composerOpen ? t('timeline.actions.closeEntry') : t('timeline.actions.addEntry')}
+            >
+              <PenSquare className="mr-2 h-4 w-4" />
+              {composerOpen ? t('timeline.actions.closeEntry') : t('timeline.actions.addEntry')}
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -192,9 +203,16 @@ export const TimelinePage: React.FC = () => {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 gap-8 overflow-hidden px-6 py-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         <section className="flex min-h-0 flex-col overflow-hidden">
-          <div className="border-b border-border/60 pb-4">
+          <div className="space-y-4 border-b border-border/60 pb-4">
+            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
+              <span>{events.length} {t('timeline.summary.totalEvents')}</span>
+              <span>{totalDerivedEdges} {t('timeline.summary.derivedEdges')}</span>
+              {sourceMixSummary ? <span>{sourceMixSummary}</span> : null}
+              <span>{filteredSummary}</span>
+            </div>
+
             <div className="flex flex-wrap items-end gap-3">
               <label className="min-w-[172px] flex-1 space-y-1.5" htmlFor="timeline-source-filter">
                 <span className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -265,7 +283,13 @@ export const TimelinePage: React.FC = () => {
             </div>
           </div>
 
-          <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+          {composerOpen ? (
+            <div className="border-b border-border/60 py-5">
+              <TimelineComposer submitting={submitting} onSubmit={handleManualEntrySubmit} />
+            </div>
+          ) : null}
+
+          <div className="mt-4 min-h-0 flex-1 pr-1">
             {loading ? (
               <div className="flex h-full min-h-[220px] items-center justify-center gap-3 text-sm text-muted-foreground">
                 <LoadingSpinner className="h-4 w-4" />
@@ -285,47 +309,6 @@ export const TimelinePage: React.FC = () => {
             )}
           </div>
         </section>
-
-        <aside className="min-h-0 overflow-y-auto border-l border-border/60 pl-6 pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-          <div className="space-y-8">
-            <section className="space-y-4">
-              <div className="space-y-1">
-                <h2 className="text-sm font-semibold text-foreground">{t('timeline.summary.title')}</h2>
-                <p className="text-sm text-muted-foreground">{filteredSummary}</p>
-              </div>
-
-              <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                <div className="flex items-baseline justify-between border-b border-border/60 pb-2">
-                  <dt className="text-sm text-muted-foreground">{t('timeline.summary.totalEvents')}</dt>
-                  <dd className="text-lg font-semibold text-foreground">{events.length}</dd>
-                </div>
-                <div className="flex items-baseline justify-between border-b border-border/60 pb-2">
-                  <dt className="text-sm text-muted-foreground">{t('timeline.summary.derivedEdges')}</dt>
-                  <dd className="text-lg font-semibold text-foreground">{totalDerivedEdges}</dd>
-                </div>
-              </dl>
-
-              <div className="space-y-2">
-                <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                  {t('timeline.summary.sourceMix')}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {sourceBreakdown.length > 0 ? (
-                    sourceBreakdown.map((entry) => (
-                      <Badge key={entry.source} variant="secondary" className="rounded-full px-2.5 py-1 text-xs">
-                        {getSourceLabel(entry.source)} · {entry.count}
-                      </Badge>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">{t('timeline.summary.noSources')}</span>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            <TimelineComposer submitting={submitting} onSubmit={handleManualEntrySubmit} />
-          </div>
-        </aside>
       </div>
     </div>
   );

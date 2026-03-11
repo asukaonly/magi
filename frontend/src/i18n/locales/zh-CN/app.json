@@ -36,7 +36,9 @@
       "eyebrow": "个人知识视图"
     },
     "actions": {
-      "refresh": "刷新时间线"
+      "refresh": "刷新时间线",
+      "addEntry": "新增记录",
+      "closeEntry": "收起记录"
     },
     "filters": {
       "source": "来源",

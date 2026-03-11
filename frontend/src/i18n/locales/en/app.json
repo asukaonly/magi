@@ -36,7 +36,9 @@
       "eyebrow": "Personal knowledge surface"
     },
     "actions": {
-      "refresh": "Refresh timeline"
+      "refresh": "Refresh timeline",
+      "addEntry": "Add entry",
+      "closeEntry": "Close entry"
     },
     "filters": {
       "source": "Source",
