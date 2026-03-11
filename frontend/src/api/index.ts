@@ -56,3 +56,17 @@ export type { SkillItem } from './modules/skills';
 
 export { memoryApi } from './modules/memory';
 export type { ModelDownloadStatus } from './modules/memory';
+
+export { timelineApi } from './modules/timeline';
+export type {
+  TimelineContentBlock,
+  TimelineEntity,
+  TimelineEventDetail,
+  TimelineEventRecord,
+  TimelineGraphEvidence,
+  TimelineListResponse,
+  TimelineManualEntryRequest,
+  TimelineRetentionInfo,
+  TimelineSourceStatusItem,
+  TimelineSourceStatusResponse,
+} from './modules/timeline';

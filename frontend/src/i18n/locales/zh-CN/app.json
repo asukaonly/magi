@@ -29,7 +29,85 @@
   },
   "timeline": {
     "title": "时间线",
-    "shellPlaceholder": "时间线页面入口已经接入主壳层，完整的信息流和日记录入器会在下一步实现。"
+    "subtitle": "用统一的信息流承接用户可观察行为，支持来源过滤、证据展开和手动补录。",
+    "loading": "时间线加载中...",
+    "shellPlaceholder": "时间线页面入口已经接入主壳层，完整的信息流和日记录入器会在下一步实现。",
+    "hero": {
+      "eyebrow": "个人知识视图"
+    },
+    "actions": {
+      "refresh": "刷新时间线"
+    },
+    "filters": {
+      "source": "来源",
+      "range": "时间范围",
+      "viewMode": "视图模式",
+      "allSources": "全部来源",
+      "allTime": "全部时间",
+      "last7Days": "最近 7 天",
+      "last30Days": "最近 30 天",
+      "comfortable": "舒展",
+      "compact": "紧凑",
+      "clear": "清空筛选"
+    },
+    "sources": {
+      "browser_history": "浏览记录",
+      "manual_journal": "手动记录",
+      "chat": "对话",
+      "photo_library": "照片库"
+    },
+    "feed": {
+      "showDetails": "查看详情",
+      "hideDetails": "收起详情",
+      "reanalyze": "重新分析",
+      "reanalyzeQueued": "已发起重新分析",
+      "loadingDetails": "正在加载事件详情...",
+      "detailTitle": "捕获内容",
+      "retentionTitle": "留存状态",
+      "derivedTitle": "衍生知识",
+      "noRawPayload": "未保留原始载荷",
+      "noDerivedEvidence": "暂未提取到衍生关系证据。",
+      "unknownEntity": "未知实体",
+      "evidenceCount": "{{count}} 条证据关联",
+      "emptyTitle": "还没有时间线事件",
+      "emptyBody": "连接来源或新增一条手动记录后，这里会开始形成时间线。"
+    },
+    "composer": {
+      "titleCard": "新增手动记录",
+      "subtitle": "补充一段文字，并可附加图片引用，让它进入同一条时间线处理链路。",
+      "title": "标题",
+      "titlePlaceholder": "给这个时刻起个标题",
+      "summary": "摘要",
+      "summaryPlaceholder": "用于信息流卡片的简短摘要",
+      "text": "正文",
+      "textPlaceholder": "记录发生了什么、为什么重要，以及值得记住的上下文。",
+      "imageRef": "图片引用",
+      "imagePlaceholder": "/absolute/path/to/photo.png",
+      "addImage": "添加图片",
+      "removeImage": "移除图片",
+      "submit": "保存到时间线",
+      "created": "手动记录已加入时间线"
+    },
+    "retention": {
+      "retainRaw": "保留原始数据",
+      "analyzeOnly": "仅分析归纳"
+    },
+    "summary": {
+      "title": "信号概览",
+      "totalEvents": "事件总数",
+      "derivedEdges": "衍生关系边",
+      "sourceMix": "来源分布",
+      "noSources": "暂无来源数据",
+      "feedState": "当前信息流状态",
+      "showingAll": "当前展示完整时间线。",
+      "showingFiltered": "当前展示 {{count}} 条筛选后的事件。"
+    },
+    "errors": {
+      "loadFailed": "时间线加载失败：{{message}}",
+      "detailFailed": "事件详情加载失败：{{message}}",
+      "createFailed": "手动记录创建失败：{{message}}",
+      "reanalyzeFailed": "重新分析请求失败：{{message}}"
+    }
   },
   "dashboard": {
     "welcomeTitle": "欢迎使用 Magi AI Framework",

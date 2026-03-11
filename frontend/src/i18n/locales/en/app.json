@@ -29,7 +29,85 @@
   },
   "timeline": {
     "title": "Timeline",
-    "shellPlaceholder": "The timeline workspace is ready in the shell. The full feed and journal composer land in the next implementation step."
+    "subtitle": "A first-pass, source-aware timeline of the user's observable activity, with inline evidence and manual journal entries.",
+    "loading": "Loading timeline...",
+    "shellPlaceholder": "The timeline workspace is ready in the shell. The full feed and journal composer land in the next implementation step.",
+    "hero": {
+      "eyebrow": "Personal knowledge surface"
+    },
+    "actions": {
+      "refresh": "Refresh timeline"
+    },
+    "filters": {
+      "source": "Source",
+      "range": "Range",
+      "viewMode": "View mode",
+      "allSources": "All sources",
+      "allTime": "All time",
+      "last7Days": "Last 7 days",
+      "last30Days": "Last 30 days",
+      "comfortable": "Comfortable",
+      "compact": "Compact",
+      "clear": "Clear filters"
+    },
+    "sources": {
+      "browser_history": "Browser history",
+      "manual_journal": "Manual journal",
+      "chat": "Chat",
+      "photo_library": "Photo library"
+    },
+    "feed": {
+      "showDetails": "Show details",
+      "hideDetails": "Hide details",
+      "reanalyze": "Reanalyze",
+      "reanalyzeQueued": "Reanalysis queued",
+      "loadingDetails": "Loading event details...",
+      "detailTitle": "Captured detail",
+      "retentionTitle": "Retention state",
+      "derivedTitle": "Derived knowledge",
+      "noRawPayload": "No raw payload retained",
+      "noDerivedEvidence": "No derived relationship evidence yet.",
+      "unknownEntity": "Unknown entity",
+      "evidenceCount": "{{count}} evidence link",
+      "emptyTitle": "No timeline events yet",
+      "emptyBody": "Connect a source or create a manual entry to start building the timeline."
+    },
+    "composer": {
+      "titleCard": "Add a manual entry",
+      "subtitle": "Write a quick note and optionally attach image references so it enters the same timeline pipeline.",
+      "title": "Title",
+      "titlePlaceholder": "Name the moment",
+      "summary": "Summary",
+      "summaryPlaceholder": "Short summary for the feed card",
+      "text": "Entry",
+      "textPlaceholder": "Describe what happened, what mattered, and any context worth remembering.",
+      "imageRef": "Image reference",
+      "imagePlaceholder": "/absolute/path/to/photo.png",
+      "addImage": "Attach image",
+      "removeImage": "Remove image",
+      "submit": "Save to timeline",
+      "created": "Manual entry added to timeline"
+    },
+    "retention": {
+      "retainRaw": "Raw retained",
+      "analyzeOnly": "Analyze only"
+    },
+    "summary": {
+      "title": "Signal summary",
+      "totalEvents": "Total events",
+      "derivedEdges": "Derived edges",
+      "sourceMix": "Source mix",
+      "noSources": "No source data yet",
+      "feedState": "Current feed view",
+      "showingAll": "Showing the full timeline feed.",
+      "showingFiltered": "Showing {{count}} filtered events."
+    },
+    "errors": {
+      "loadFailed": "Failed to load timeline: {{message}}",
+      "detailFailed": "Failed to load event detail: {{message}}",
+      "createFailed": "Failed to create manual entry: {{message}}",
+      "reanalyzeFailed": "Failed to request reanalysis: {{message}}"
+    }
   },
   "dashboard": {
     "welcomeTitle": "Welcome to Magi AI Framework",
