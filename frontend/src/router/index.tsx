@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import MainLayout from '../components/layout/MainLayout';
 import { configApi } from '../api/modules/config';
 import { LoadingSpinner } from '../components/ui/loading-spinner';
+import { useChatShellStore } from '../stores';
 
 const ChatPage = React.lazy(() =>
   import('../pages/Chat').then((m) => ({ default: m.ChatPage }))
@@ -27,6 +28,26 @@ const LoadingFallbackInner = () => {
       <div className="flex items-center gap-3">
         <LoadingSpinner className="h-6 w-6" />
         <span className="text-sm">{t('common.loading')}</span>
+      </div>
+    </div>
+  );
+};
+
+const TimelineShellRoute: React.FC = () => {
+  const { t } = useTranslation('app');
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+
+  React.useEffect(() => {
+    setActivePanel('timeline');
+  }, [setActivePanel]);
+
+  return (
+    <div className="flex h-full min-h-0 items-center justify-center bg-background/40 px-6 py-10">
+      <div className="max-w-2xl rounded-3xl border border-border/30 bg-card/70 p-8 shadow-sm backdrop-blur">
+        <h1 className="text-2xl font-semibold text-foreground">{t('timeline.title')}</h1>
+        <p className="mt-3 text-sm leading-7 text-muted-foreground">
+          {t('timeline.shellPlaceholder')}
+        </p>
       </div>
     </div>
   );
@@ -115,6 +136,10 @@ const router = createBrowserRouter([
             <ChatPage />
           </React.Suspense>
         ),
+      },
+      {
+        path: 'timeline',
+        element: <TimelineShellRoute />,
       },
     ],
   },

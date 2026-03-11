@@ -33,6 +33,7 @@ describe('chat shell state', () => {
     expect(panelByPathname('/settings')).toBe('settings');
     expect(panelByPathname('/personality')).toBe('personality');
     expect(panelByPathname('/events')).toBe('memory');
+    expect(panelByPathname('/timeline')).toBe('timeline');
     expect(panelByPathname('/chat')).toBe('none');
   });
 

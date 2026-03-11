@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Database, Settings2, Sparkles, UserRound } from 'lucide-react';
+import { Database, ScrollText, Settings2, Sparkles, UserRound } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,7 @@ const Header: React.FC = () => {
     };
   }, []);
 
-  const openPanel = (panel: 'settings' | 'personality' | 'memory') => {
+  const openPanel = (panel: 'settings' | 'personality' | 'memory' | 'timeline') => {
     setActivePanel(panel);
     if (panel === 'settings') {
       navigate('/settings');
@@ -33,6 +33,10 @@ const Header: React.FC = () => {
     }
     if (panel === 'personality') {
       navigate('/personality');
+      return;
+    }
+    if (panel === 'timeline') {
+      navigate('/timeline');
       return;
     }
     navigate('/events');
@@ -77,6 +81,15 @@ const Header: React.FC = () => {
         >
           <Settings2 className="h-4 w-4" />
         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-muted/50"
+          onClick={() => openPanel('timeline')}
+          aria-label={t('shell.timeline')}
+        >
+          <ScrollText className="h-4 w-4" />
+        </Button>
         <div className="ml-1 flex h-8 items-center rounded-xl border border-primary/20 bg-primary/5 px-2.5 text-[11px] text-primary">
           <Sparkles className="mr-1.5 h-3.5 w-3.5" />
           {t('shell.desktopMode')}
@@ -87,4 +100,3 @@ const Header: React.FC = () => {
 };
 
 export default Header;
-

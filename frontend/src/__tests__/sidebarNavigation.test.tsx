@@ -1,5 +1,6 @@
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { messagesApi } from '@/api';
 import Sidebar from '@/components/layout/Sidebar';
@@ -16,6 +17,11 @@ vi.mock('@/api', () => ({
 }));
 
 describe('sidebar navigation', () => {
+  const LocationProbe = () => {
+    const location = useLocation();
+    return <div data-testid="location">{location.pathname}</div>;
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     useChatShellStore.setState({
@@ -25,7 +31,7 @@ describe('sidebar navigation', () => {
     });
   });
 
-  it('renders personality, memory, and settings actions', async () => {
+  it('renders personality, memory, settings, and timeline actions', async () => {
     render(
       <MemoryRouter initialEntries={['/chat']}>
         <Sidebar />
@@ -35,6 +41,7 @@ describe('sidebar navigation', () => {
     expect(await screen.findByRole('button', { name: 'shell.personality' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.memory' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.settings' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'shell.timeline' })).toBeInTheDocument();
   });
 
   it('refreshes sessions on sync events', async () => {
@@ -51,5 +58,21 @@ describe('sidebar navigation', () => {
     });
 
     await waitFor(() => expect(messagesApi.listSessions).toHaveBeenCalledTimes(2));
+  });
+
+  it('navigates to the timeline route and updates shell state', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.timeline' }));
+
+    expect(screen.getByTestId('location')).toHaveTextContent('/timeline');
+    expect(useChatShellStore.getState().activePanel).toBe('timeline');
   });
 });

@@ -7,6 +7,7 @@
     "chat": "Chat",
     "personality": "Personality",
     "events": "Memory",
+    "timeline": "Timeline",
     "settings": "Settings"
   },
   "header": {
@@ -23,7 +24,12 @@
     "noPreview": "No preview",
     "personality": "Personality",
     "memory": "Memory",
+    "timeline": "Timeline",
     "settings": "Settings"
+  },
+  "timeline": {
+    "title": "Timeline",
+    "shellPlaceholder": "The timeline workspace is ready in the shell. The full feed and journal composer land in the next implementation step."
   },
   "dashboard": {
     "welcomeTitle": "Welcome to Magi AI Framework",

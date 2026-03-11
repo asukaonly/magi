@@ -7,6 +7,7 @@
     "chat": "AI 对话",
     "personality": "人格配置",
     "events": "记忆查看",
+    "timeline": "时间线",
     "settings": "系统设置"
   },
   "header": {
@@ -23,7 +24,12 @@
     "noPreview": "暂无预览",
     "personality": "人格",
     "memory": "记忆",
+    "timeline": "时间线",
     "settings": "设置"
+  },
+  "timeline": {
+    "title": "时间线",
+    "shellPlaceholder": "时间线页面入口已经接入主壳层，完整的信息流和日记录入器会在下一步实现。"
   },
   "dashboard": {
     "welcomeTitle": "欢迎使用 Magi AI Framework",

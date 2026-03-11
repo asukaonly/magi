@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ChatPanelType = 'settings' | 'personality' | 'memory' | 'none';
+export type ChatPanelType = 'settings' | 'personality' | 'memory' | 'timeline' | 'none';
 
 export interface DesktopShellState {
   currentSessionId: string | null;
