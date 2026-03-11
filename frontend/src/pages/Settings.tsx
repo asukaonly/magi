@@ -17,10 +17,12 @@ import {
   Moon,
   Monitor,
   BarChart3,
+  ScrollText,
 } from 'lucide-react';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
 import { LLMUsageSection } from '@/components/settings/LLMUsageSection';
+import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -46,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'usage', icon: BarChart3 },
   { id: 'personality', icon: User },
   { id: 'memory', icon: Database },
+  { id: 'timeline', icon: ScrollText },
   { id: 'tools', icon: Wrench },
   { id: 'system', icon: Cpu },
 ];
@@ -469,6 +472,17 @@ export const SettingsPage: React.FC = () => {
               </CardContent>
             </Card>
           </div>
+        );
+
+      case 'timeline':
+        return (
+          <TimelineSourcesSection
+            value={config.timeline}
+            userMode={config.preferences.user_mode}
+            onChange={(updater) => patchConfig((draft) => {
+              updater(draft.timeline);
+            })}
+          />
         );
 
       case 'tools':

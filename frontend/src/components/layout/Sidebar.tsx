@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Database, MessageSquarePlus, Settings2, UserRound } from 'lucide-react';
+import { Database, MessageSquarePlus, ScrollText, Settings2, UserRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -123,9 +123,15 @@ const Sidebar: React.FC = () => {
       icon: Settings2,
       path: '/settings',
     },
+    {
+      id: 'timeline' as const,
+      label: t('shell.timeline'),
+      icon: ScrollText,
+      path: '/timeline',
+    },
   ];
 
-  const handleOpenPanel = (panel: 'personality' | 'memory' | 'settings', path: string) => {
+  const handleOpenPanel = (panel: 'personality' | 'memory' | 'settings' | 'timeline', path: string) => {
     setActivePanel(panel);
     navigate(path);
   };

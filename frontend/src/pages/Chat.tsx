@@ -76,6 +76,7 @@ export const panelByPathname = (pathname: string): ChatPanelType => {
   if (pathname === '/settings') return 'settings';
   if (pathname === '/personality') return 'personality';
   if (pathname === '/events') return 'memory';
+  if (pathname === '/timeline') return 'timeline';
   return 'none';
 };
 

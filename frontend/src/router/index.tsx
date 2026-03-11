@@ -11,6 +11,9 @@ import { LoadingSpinner } from '../components/ui/loading-spinner';
 const ChatPage = React.lazy(() =>
   import('../pages/Chat').then((m) => ({ default: m.ChatPage }))
 );
+const TimelinePage = React.lazy(() =>
+  import('../pages/Timeline').then((m) => ({ default: m.TimelinePage }))
+);
 const OnboardingPage = React.lazy(() =>
   import('../pages/Onboarding').then((m) => ({ default: m.default }))
 );
@@ -113,6 +116,14 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<LoadingFallback />}>
             <ChatPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'timeline',
+        element: (
+          <React.Suspense fallback={<LoadingFallback />}>
+            <TimelinePage />
           </React.Suspense>
         ),
       },

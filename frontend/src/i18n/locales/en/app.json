@@ -7,6 +7,7 @@
     "chat": "Chat",
     "personality": "Personality",
     "events": "Memory",
+    "timeline": "Timeline",
     "settings": "Settings"
   },
   "header": {
@@ -23,7 +24,90 @@
     "noPreview": "No preview",
     "personality": "Personality",
     "memory": "Memory",
+    "timeline": "Timeline",
     "settings": "Settings"
+  },
+  "timeline": {
+    "title": "Timeline",
+    "subtitle": "A first-pass, source-aware timeline of the user's observable activity, with inline evidence and manual journal entries.",
+    "loading": "Loading timeline...",
+    "shellPlaceholder": "The timeline workspace is ready in the shell. The full feed and journal composer land in the next implementation step.",
+    "hero": {
+      "eyebrow": "Personal knowledge surface"
+    },
+    "actions": {
+      "refresh": "Refresh timeline"
+    },
+    "filters": {
+      "source": "Source",
+      "range": "Range",
+      "viewMode": "View mode",
+      "allSources": "All sources",
+      "allTime": "All time",
+      "last7Days": "Last 7 days",
+      "last30Days": "Last 30 days",
+      "comfortable": "Comfortable",
+      "compact": "Compact",
+      "clear": "Clear filters"
+    },
+    "sources": {
+      "browser_history": "Browser history",
+      "manual_journal": "Manual journal",
+      "chat": "Chat",
+      "photo_library": "Photo library"
+    },
+    "feed": {
+      "showDetails": "Show details",
+      "hideDetails": "Hide details",
+      "reanalyze": "Reanalyze",
+      "reanalyzeQueued": "Reanalysis queued",
+      "loadingDetails": "Loading event details...",
+      "detailTitle": "Captured detail",
+      "retentionTitle": "Retention state",
+      "derivedTitle": "Derived knowledge",
+      "noRawPayload": "No raw payload retained",
+      "noDerivedEvidence": "No derived relationship evidence yet.",
+      "unknownEntity": "Unknown entity",
+      "evidenceCount": "{{count}} evidence link",
+      "emptyTitle": "No timeline events yet",
+      "emptyBody": "Connect a source or create a manual entry to start building the timeline."
+    },
+    "composer": {
+      "titleCard": "Add a manual entry",
+      "subtitle": "Write a quick note and optionally attach image references so it enters the same timeline pipeline.",
+      "title": "Title",
+      "titlePlaceholder": "Name the moment",
+      "summary": "Summary",
+      "summaryPlaceholder": "Short summary for the feed card",
+      "text": "Entry",
+      "textPlaceholder": "Describe what happened, what mattered, and any context worth remembering.",
+      "imageRef": "Image reference",
+      "imagePlaceholder": "/absolute/path/to/photo.png",
+      "addImage": "Attach image",
+      "removeImage": "Remove image",
+      "submit": "Save to timeline",
+      "created": "Manual entry added to timeline"
+    },
+    "retention": {
+      "retainRaw": "Raw retained",
+      "analyzeOnly": "Analyze only"
+    },
+    "summary": {
+      "title": "Signal summary",
+      "totalEvents": "Total events",
+      "derivedEdges": "Derived edges",
+      "sourceMix": "Source mix",
+      "noSources": "No source data yet",
+      "feedState": "Current feed view",
+      "showingAll": "Showing the full timeline feed.",
+      "showingFiltered": "Showing {{count}} filtered events."
+    },
+    "errors": {
+      "loadFailed": "Failed to load timeline: {{message}}",
+      "detailFailed": "Failed to load event detail: {{message}}",
+      "createFailed": "Failed to create manual entry: {{message}}",
+      "reanalyzeFailed": "Failed to request reanalysis: {{message}}"
+    }
   },
   "dashboard": {
     "welcomeTitle": "Welcome to Magi AI Framework",
@@ -146,6 +230,7 @@
       "usage": "Usage",
       "personality": "Personality",
       "memory": "Memory",
+      "timeline": "Timeline & Sources",
       "tools": "Tools",
       "system": "System"
     },
@@ -154,6 +239,7 @@
     "usageDesc": "Inspect LLM call volume, prompt/completion tokens, and usage trends",
     "personalityDesc": "Manage AI personality configuration",
     "memoryDesc": "Manage layered memory system and vector models",
+    "timelineDesc": "Configure timeline ingestion defaults and tune each source independently",
     "toolsDesc": "Configure built-in tools and skills",
     "systemDesc": "Advanced system configuration parameters",
     "llmSaveHint": "LLM settings require manual saving. Other settings apply automatically.",
@@ -274,6 +360,64 @@
         "successRate": "Success rate {{value}}%",
         "withUsage": "Calls with usage {{count}}",
         "failedCalls": "Failed {{count}}"
+      }
+    },
+    "timeline": {
+      "title": "Timeline & Sources",
+      "desc": "Control which sources feed the timeline and how much raw context Magi keeps for each one.",
+      "overview": {
+        "title": "Timeline runtime",
+        "desc": "Set global ingestion behavior first, then tune each source card below."
+      },
+      "fields": {
+        "timelineEnabled": "Timeline enabled",
+        "timelineEnabledHint": "Pause timeline ingestion without deleting existing facts.",
+        "edgeOverride": "Expert edge override",
+        "edgeOverrideHint": "Allow expert-mode users to edit source edge whitelists directly.",
+        "enabled": "Source enabled",
+        "enabledHint": "Whether this source should keep producing new timeline events.",
+        "status": "Source status",
+        "retentionMode": "Default retention mode",
+        "syncInterval": "Sync interval (minutes)",
+        "syncMode": "Sync mode",
+        "storageMode": "Storage mode",
+        "fetchPageContent": "Fetch page content",
+        "fetchPageContentHint": "After reading a browser-history entry, also fetch the page body for richer analysis.",
+        "sourcePath": "Source path",
+        "sourcePathPlaceholder": "/path/to/source/or/library",
+        "edgeWhitelist": "Edge whitelist",
+        "edgeWhitelistPlaceholder": "LIKES, CARES_ABOUT, VIEWED"
+      },
+      "sourceDesc": {
+        "chat": "Use chat turns as direct evidence for preferences, relationships, and recurring concerns.",
+        "manual_journal": "Let the user append timeline events with text and image references.",
+        "browser_history": "Analyze browsing behavior while controlling whether page bodies are fetched.",
+        "photo_library": "Reference a photo library or exported folder and decide how much raw media is retained."
+      },
+      "syncModes": {
+        "manual": "Manual",
+        "interval": "Interval",
+        "watch": "Watch"
+      },
+      "storageModes": {
+        "managed": "Managed storage",
+        "external_reference": "External reference"
+      },
+      "statuses": {
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "healthy": "Healthy",
+        "attention": "Needs attention",
+        "ready": "No errors reported",
+        "loading": "Loading source status..."
+      },
+      "actions": {
+        "syncNow": "Sync now"
+      },
+      "syncQueued": "{{source}} sync queued",
+      "errors": {
+        "statusLoadFailed": "Failed to load source status: {{message}}",
+        "syncFailed": "Failed to queue sync: {{message}}"
       }
     },
     "saving": "Saving..."

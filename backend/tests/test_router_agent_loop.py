@@ -15,6 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from magi.core.runtime import (
     RouterAgent,
+    SensorEvent,
     SensorHub,
     TaskAgent,
     TaskAgentManager,
@@ -69,4 +70,50 @@ async def test_router_agent_loop_dispatches_batch_to_targets():
     await sensor_hub.stop()
     await message_bus.stop()
 
+    assert router_stats["facts_written"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_router_agent_loop_routes_targeted_timeline_events():
+    message_bus = MemoryMessageBackend()
+    await message_bus.start()
+
+    sensor_hub = SensorHub(message_bus=message_bus)
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.CHAT, agent_id),
+        create_default_agent=lambda agent_type, agent_id: _NoopTaskAgent(agent_type, agent_id),
+    )
+    await manager.start_all(action_executor=None)
+    router_agent = RouterAgent(
+        sensor_hub=sensor_hub,
+        task_agent_manager=manager,
+        batch_size=8,
+        poll_timeout_seconds=0.1,
+    )
+
+    await sensor_hub.start()
+    await router_agent.start()
+    await sensor_hub.push_sensor_event(
+        SensorEvent(
+            sensor_name="timeline_sensor",
+            event_type="TimelineSourceDetected",
+            payload={
+                "target_task_agent_type": TaskAgentType.TIMELINE.value,
+                "target_task_agent_id": "timeline-main",
+                "source_type": "browser_history",
+            },
+        )
+    )
+
+    await asyncio.sleep(0.5)
+    router_stats = router_agent.get_stats()
+    timeline_agent = manager.get_agent(TaskAgentType.TIMELINE, "timeline-main")
+
+    await router_agent.stop()
+    await manager.stop_all()
+    await sensor_hub.stop()
+    await message_bus.stop()
+
+    assert timeline_agent is not None
+    assert timeline_agent.get_stats()["processed"] >= 1
     assert router_stats["facts_written"] >= 1

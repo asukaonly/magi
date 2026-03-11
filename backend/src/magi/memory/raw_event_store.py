@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import aiosqlite
 
 from ..events.events import Event, EventLevel
+from ..timeline.contracts import TimelineEvent
 
 logger = logging.getLogger(__name__)
 
@@ -59,19 +60,20 @@ class RawEventStore:
             await db.execute("CREATE INDEX IF NOT EXISTS idx_event_store_correlation ON event_store(correlation_id)")
             await db.commit()
 
-    async def store(self, event: Event) -> str:
+    async def store(self, event: Event, event_id: Optional[str] = None, replace_existing: bool = False) -> str:
         media_path = None
         if getattr(event, "media", None):
             media_path = await self._save_media(event.media)
 
-        event_id = str(uuid.uuid4())
+        event_id = str(event_id or uuid.uuid4())
         level_value = event.level.value if hasattr(event.level, "value") else int(event.level)
         payload = event.data if isinstance(event.data, (dict, list, str, int, float, bool)) else str(event.data)
+        insert_keyword = "INSERT OR REPLACE" if replace_existing else "INSERT"
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
-                """
-                INSERT INTO event_store(
+                f"""
+                {insert_keyword} INTO event_store(
                     id, type, data, media_path, timestamp, source,
                     level, correlation_id, metadata, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -92,6 +94,29 @@ class RawEventStore:
             await db.commit()
 
         return event_id
+
+    async def store_timeline_event(self, event: TimelineEvent) -> str:
+        timeline_payload = event.to_dict()
+        l1_event = Event(
+            type="TIMELINE_EVENT",
+            data={
+                "title": event.title,
+                "summary": event.summary,
+                "content_blocks": timeline_payload["content_blocks"],
+                "entities": event.entities,
+                "tags": event.tags,
+            },
+            timestamp=event.occurred_at,
+            source=event.source_type,
+            level=EventLevel.INFO,
+            correlation_id=event.event_id,
+            metadata={
+                "timeline": timeline_payload,
+                "processing_status": event.processing_status,
+                "raw_payload_ref": event.raw_payload_ref,
+            },
+        )
+        return await self.store(l1_event, event_id=event.event_id, replace_existing=True)
 
     async def delete_event(self, event_id: str) -> bool:
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -129,22 +154,37 @@ class RawEventStore:
             cursor = await db.execute(query, tuple(args))
             rows = await cursor.fetchall()
 
-        events = []
-        for row in rows:
-            events.append(
-                {
-                    "id": row[0],
-                    "type": row[1],
-                    "data": json.loads(row[2]) if row[2] else {},
-                    "timestamp": float(row[3]),
-                    "source": row[4],
-                    "level": int(row[5]),
-                    "correlation_id": row[6],
-                    "metadata": json.loads(row[7]) if row[7] else {},
-                    "created_at": float(row[8]),
-                }
+        return [self._row_to_dict(row) for row in rows]
+
+    async def get_timeline_event(self, event_id: str) -> Optional[Dict[str, Any]]:
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, type, data, timestamp, source, level, correlation_id, metadata, created_at
+                FROM event_store
+                WHERE id = ?
+                """,
+                (event_id,),
             )
-        return events
+            row = await cursor.fetchone()
+
+        if not row:
+            return None
+        payload = self._row_to_dict(row)
+        timeline = payload.get("metadata", {}).get("timeline")
+        return timeline if isinstance(timeline, dict) else None
+
+    async def list_timeline_events(self, limit: int = 100, source_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        events = await self.list_events(limit=limit, event_type="TIMELINE_EVENT")
+        timeline_events: List[Dict[str, Any]] = []
+        for event in events:
+            timeline = event.get("metadata", {}).get("timeline")
+            if not isinstance(timeline, dict):
+                continue
+            if source_type and timeline.get("source_type") != source_type:
+                continue
+            timeline_events.append(timeline)
+        return timeline_events
 
     async def get_events_by_type(self, event_type: str, limit: int = 100) -> List[Event]:
         events = await self.list_events(limit=limit, event_type=event_type)
@@ -339,6 +379,19 @@ class RawEventStore:
             correlation_id=payload.get("correlation_id"),
             metadata=dict(payload.get("metadata", {})),
         )
+
+    def _row_to_dict(self, row: tuple) -> Dict[str, Any]:
+        return {
+            "id": row[0],
+            "type": row[1],
+            "data": json.loads(row[2]) if row[2] else {},
+            "timestamp": float(row[3]),
+            "source": row[4],
+            "level": int(row[5]),
+            "correlation_id": row[6],
+            "metadata": json.loads(row[7]) if row[7] else {},
+            "created_at": float(row[8]),
+        }
 
 
 async def _async_sleep(seconds: float) -> None:

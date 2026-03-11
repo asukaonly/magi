@@ -1,0 +1,127 @@
+import { api } from '../client';
+
+export interface TimelineContentBlock {
+  kind: string;
+  value: string;
+  mime_type?: string | null;
+}
+
+export interface TimelineRetentionInfo {
+  mode: string;
+  retained: boolean;
+  raw_payload_ref?: string | null;
+  content_block_count: number;
+}
+
+export interface TimelineEntity {
+  id?: string;
+  label?: string;
+  type?: string;
+}
+
+export interface TimelineGraphEvidence {
+  subject_id: string;
+  predicate: string;
+  object_id: string;
+  confidence: number;
+  evidence_event_ids: string[];
+}
+
+export interface TimelineEventRecord {
+  event_id: string;
+  source_type: string;
+  source_item_id: string;
+  occurred_at: number;
+  captured_at: number;
+  title: string;
+  summary: string;
+  retention_mode: string;
+  raw_payload_ref?: string | null;
+  content_blocks: TimelineContentBlock[];
+  entities: TimelineEntity[];
+  tags: string[];
+  privacy_labels: string[];
+  processing_status: Record<string, any>;
+  provenance: Record<string, any>;
+  retention?: TimelineRetentionInfo;
+}
+
+export interface TimelineEventDetail extends TimelineEventRecord {
+  graph_evidence: TimelineGraphEvidence[];
+}
+
+export interface TimelineListResponse {
+  events: TimelineEventRecord[];
+  count: number;
+}
+
+export interface TimelineManualEntryRequest {
+  title: string;
+  summary: string;
+  text: string;
+  image_refs: string[];
+}
+
+export interface TimelineSourceStatusItem {
+  source_name: string;
+  enabled: boolean;
+  sync_mode: string;
+  sync_interval_minutes: number;
+  default_retention_mode: string;
+  storage_mode: string;
+  source_path?: string | null;
+  fetch_page_content: boolean;
+  edge_whitelist: string[];
+  last_error?: string | null;
+  last_success?: string | null;
+  runtime_base_dir?: string | null;
+}
+
+export interface TimelineSourceStatusResponse {
+  sources: TimelineSourceStatusItem[];
+}
+
+export const timelineApi = {
+  listEvents: async (
+    options: { limit?: number; sourceType?: string } = {}
+  ): Promise<TimelineListResponse> => {
+    const response = await api.get<TimelineListResponse>('/timeline/events', {
+      params: {
+        limit: options.limit ?? 80,
+        source_type: options.sourceType || undefined,
+      },
+    });
+    return (response.data || response) as TimelineListResponse;
+  },
+
+  getEvent: async (eventId: string): Promise<TimelineEventDetail> => {
+    const response = await api.get<TimelineEventDetail>(`/timeline/events/${eventId}`);
+    return (response.data || response) as TimelineEventDetail;
+  },
+
+  createManualEntry: async (payload: TimelineManualEntryRequest): Promise<TimelineEventRecord> => {
+    const response = await api.post<TimelineEventRecord>('/timeline/manual', payload);
+    return (response.data || response) as TimelineEventRecord;
+  },
+
+  getSourceStatus: async (): Promise<TimelineSourceStatusResponse> => {
+    const response = await api.get<TimelineSourceStatusResponse>('/timeline/sources/status');
+    return (response.data || response) as TimelineSourceStatusResponse;
+  },
+
+  requestSync: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
+    const response = await api.post<{ queued: boolean; source_name: string }>(`/timeline/sources/${sourceName}/sync`, {});
+    return (response.data || response) as { queued: boolean; source_name: string };
+  },
+
+  requestReanalysis: async (
+    eventId: string
+  ): Promise<{ queued: boolean; event_id: string; event: TimelineEventDetail }> => {
+    const response = await api.post<{ queued: boolean; event_id: string; event: TimelineEventDetail }>(
+      `/timeline/events/${eventId}/reanalyze`,
+      {}
+    );
+    return (response.data || response) as { queued: boolean; event_id: string; event: TimelineEventDetail };
+  },
+};
+

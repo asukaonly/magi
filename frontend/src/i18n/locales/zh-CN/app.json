@@ -7,6 +7,7 @@
     "chat": "AI 对话",
     "personality": "人格配置",
     "events": "记忆查看",
+    "timeline": "时间线",
     "settings": "系统设置"
   },
   "header": {
@@ -23,7 +24,90 @@
     "noPreview": "暂无预览",
     "personality": "人格",
     "memory": "记忆",
+    "timeline": "时间线",
     "settings": "设置"
+  },
+  "timeline": {
+    "title": "时间线",
+    "subtitle": "用统一的信息流承接用户可观察行为，支持来源过滤、证据展开和手动补录。",
+    "loading": "时间线加载中...",
+    "shellPlaceholder": "时间线页面入口已经接入主壳层，完整的信息流和日记录入器会在下一步实现。",
+    "hero": {
+      "eyebrow": "个人知识视图"
+    },
+    "actions": {
+      "refresh": "刷新时间线"
+    },
+    "filters": {
+      "source": "来源",
+      "range": "时间范围",
+      "viewMode": "视图模式",
+      "allSources": "全部来源",
+      "allTime": "全部时间",
+      "last7Days": "最近 7 天",
+      "last30Days": "最近 30 天",
+      "comfortable": "舒展",
+      "compact": "紧凑",
+      "clear": "清空筛选"
+    },
+    "sources": {
+      "browser_history": "浏览记录",
+      "manual_journal": "手动记录",
+      "chat": "对话",
+      "photo_library": "照片库"
+    },
+    "feed": {
+      "showDetails": "查看详情",
+      "hideDetails": "收起详情",
+      "reanalyze": "重新分析",
+      "reanalyzeQueued": "已发起重新分析",
+      "loadingDetails": "正在加载事件详情...",
+      "detailTitle": "捕获内容",
+      "retentionTitle": "留存状态",
+      "derivedTitle": "衍生知识",
+      "noRawPayload": "未保留原始载荷",
+      "noDerivedEvidence": "暂未提取到衍生关系证据。",
+      "unknownEntity": "未知实体",
+      "evidenceCount": "{{count}} 条证据关联",
+      "emptyTitle": "还没有时间线事件",
+      "emptyBody": "连接来源或新增一条手动记录后，这里会开始形成时间线。"
+    },
+    "composer": {
+      "titleCard": "新增手动记录",
+      "subtitle": "补充一段文字，并可附加图片引用，让它进入同一条时间线处理链路。",
+      "title": "标题",
+      "titlePlaceholder": "给这个时刻起个标题",
+      "summary": "摘要",
+      "summaryPlaceholder": "用于信息流卡片的简短摘要",
+      "text": "正文",
+      "textPlaceholder": "记录发生了什么、为什么重要，以及值得记住的上下文。",
+      "imageRef": "图片引用",
+      "imagePlaceholder": "/absolute/path/to/photo.png",
+      "addImage": "添加图片",
+      "removeImage": "移除图片",
+      "submit": "保存到时间线",
+      "created": "手动记录已加入时间线"
+    },
+    "retention": {
+      "retainRaw": "保留原始数据",
+      "analyzeOnly": "仅分析归纳"
+    },
+    "summary": {
+      "title": "信号概览",
+      "totalEvents": "事件总数",
+      "derivedEdges": "衍生关系边",
+      "sourceMix": "来源分布",
+      "noSources": "暂无来源数据",
+      "feedState": "当前信息流状态",
+      "showingAll": "当前展示完整时间线。",
+      "showingFiltered": "当前展示 {{count}} 条筛选后的事件。"
+    },
+    "errors": {
+      "loadFailed": "时间线加载失败：{{message}}",
+      "detailFailed": "事件详情加载失败：{{message}}",
+      "createFailed": "手动记录创建失败：{{message}}",
+      "reanalyzeFailed": "重新分析请求失败：{{message}}"
+    }
   },
   "dashboard": {
     "welcomeTitle": "欢迎使用 Magi AI Framework",
@@ -146,6 +230,7 @@
       "usage": "统计",
       "personality": "人格",
       "memory": "记忆",
+      "timeline": "时间线与来源",
       "tools": "工具",
       "system": "系统"
     },
@@ -154,6 +239,7 @@
     "usageDesc": "查看 LLM 调用次数、输入输出 token 使用量和趋势",
     "personalityDesc": "管理 AI 人格配置",
     "memoryDesc": "管理多层记忆系统和向量模型",
+    "timelineDesc": "配置时间线接入默认策略，并分别调整每个来源的行为",
     "toolsDesc": "配置内置工具和技能",
     "systemDesc": "高级系统配置参数",
     "llmSaveHint": "LLM 配置需要手动保存，其他设置会自动生效。",
@@ -274,6 +360,64 @@
         "successRate": "成功率 {{value}}%",
         "withUsage": "带 usage 的调用 {{count}} 次",
         "failedCalls": "失败 {{count}} 次"
+      }
+    },
+    "timeline": {
+      "title": "时间线与来源",
+      "desc": "控制哪些来源参与时间线，以及 Magi 为每类来源保留多少原始上下文。",
+      "overview": {
+        "title": "时间线运行配置",
+        "desc": "先确定全局接入行为，再逐个调整下方的来源卡片。"
+      },
+      "fields": {
+        "timelineEnabled": "启用时间线",
+        "timelineEnabledHint": "暂停新的时间线接入，但不删除已存在的事实。",
+        "edgeOverride": "专家边关系覆写",
+        "edgeOverrideHint": "允许专家模式直接编辑来源的边白名单。",
+        "enabled": "来源启用",
+        "enabledHint": "控制该来源是否继续产生新的时间线事件。",
+        "status": "来源状态",
+        "retentionMode": "默认留存模式",
+        "syncInterval": "同步间隔（分钟）",
+        "syncMode": "同步方式",
+        "storageMode": "存储方式",
+        "fetchPageContent": "抓取页面正文",
+        "fetchPageContentHint": "读取浏览记录命中项后，再额外抓取页面正文用于更丰富的分析。",
+        "sourcePath": "来源路径",
+        "sourcePathPlaceholder": "/path/to/source/or/library",
+        "edgeWhitelist": "边白名单",
+        "edgeWhitelistPlaceholder": "LIKES, CARES_ABOUT, VIEWED"
+      },
+      "sourceDesc": {
+        "chat": "把对话轮次作为偏好、关系和持续关注点的直接证据。",
+        "manual_journal": "允许用户主动补录文字和图片引用，进入同一条时间线链路。",
+        "browser_history": "分析浏览行为，并控制是否继续抓取页面正文。",
+        "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。"
+      },
+      "syncModes": {
+        "manual": "手动",
+        "interval": "定时",
+        "watch": "监听"
+      },
+      "storageModes": {
+        "managed": "托管存储",
+        "external_reference": "外部引用"
+      },
+      "statuses": {
+        "enabled": "已启用",
+        "disabled": "已关闭",
+        "healthy": "状态正常",
+        "attention": "需要处理",
+        "ready": "暂未发现错误",
+        "loading": "正在加载来源状态..."
+      },
+      "actions": {
+        "syncNow": "立即同步"
+      },
+      "syncQueued": "{{source}} 已进入同步队列",
+      "errors": {
+        "statusLoadFailed": "来源状态加载失败：{{message}}",
+        "syncFailed": "同步请求失败：{{message}}"
       }
     },
     "saving": "保存中..."

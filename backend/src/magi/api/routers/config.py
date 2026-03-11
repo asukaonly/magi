@@ -145,6 +145,59 @@ class MemoryLayersConfigModel(BaseModel):
     L5: L5ConfigModel = Field(default_factory=L5ConfigModel)
 
 
+class TimelineSourceConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    sync_mode: str = Field(default="interval")
+    sync_interval_minutes: int = Field(default=15, ge=1)
+    default_retention_mode: str = Field(default="analyze_only")
+    storage_mode: str = Field(default="managed")
+    source_path: Optional[str] = Field(default=None)
+    fetch_page_content: bool = Field(default=False)
+    edge_whitelist: List[str] = Field(default_factory=list)
+
+
+class TimelineSourcesConfigModel(BaseModel):
+    chat: TimelineSourceConfigModel = Field(
+        default_factory=lambda: TimelineSourceConfigModel(
+            sync_mode="watch",
+            sync_interval_minutes=1,
+            default_retention_mode="analyze_only",
+            edge_whitelist=["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH"],
+        )
+    )
+    manual_journal: TimelineSourceConfigModel = Field(
+        default_factory=lambda: TimelineSourceConfigModel(
+            sync_mode="manual",
+            sync_interval_minutes=1,
+            default_retention_mode="retain_raw",
+            edge_whitelist=["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"],
+        )
+    )
+    browser_history: TimelineSourceConfigModel = Field(
+        default_factory=lambda: TimelineSourceConfigModel(
+            sync_mode="interval",
+            sync_interval_minutes=30,
+            default_retention_mode="analyze_only",
+            edge_whitelist=["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
+        )
+    )
+    photo_library: TimelineSourceConfigModel = Field(
+        default_factory=lambda: TimelineSourceConfigModel(
+            sync_mode="interval",
+            sync_interval_minutes=60,
+            default_retention_mode="retain_raw",
+            storage_mode="external_reference",
+            edge_whitelist=["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
+        )
+    )
+
+
+class TimelineConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    expert_mode_edge_override: bool = Field(default=True)
+    sources: TimelineSourcesConfigModel = Field(default_factory=TimelineSourcesConfigModel)
+
+
 class SystemConfigModel(BaseModel):
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
@@ -157,6 +210,7 @@ class SystemConfigModel(BaseModel):
     personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
     tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
     memory_layers: MemoryLayersConfigModel = Field(default_factory=MemoryLayersConfigModel)
+    timeline: TimelineConfigModel = Field(default_factory=TimelineConfigModel)
 
 
 class ConfigResponse(BaseModel):
@@ -481,6 +535,9 @@ def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
         personality=_load_full_personality(),
         tools=_build_tools(raw, runtime_config),
         memory_layers=_build_memory_layers(raw, runtime_config),
+        timeline=TimelineConfigModel(
+            **(raw.get("timeline", {}) if isinstance(raw.get("timeline"), dict) else {})
+        ),
     )
 
 
@@ -513,6 +570,7 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.personality.path": "~/.magi/personalities",
         "agent.personality.enable_evolution": True,
         "memory_layers": config.memory_layers.model_dump(),
+        "timeline": config.timeline.model_dump(),
         "tools.builtIn": config.tools.builtIn.model_dump(),
         "tools.skills": config.tools.skills,
         "tools.weather.enabled": config.tools.builtIn.weather.enabled,

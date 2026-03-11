@@ -12,6 +12,8 @@ from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
 from magi.memory import UnifiedMemoryStore
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
+from magi.timeline import TimelineContentBlock, TimelineEvent
+from magi.timeline.service import TimelineService
 
 
 class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
@@ -84,6 +86,56 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             threshold=0.1,
         )
         self.assertIsNotNone(found)
+
+    async def test_timeline_events_round_trip_through_l1(self):
+        service = TimelineService(self.store)
+        event = TimelineEvent(
+            event_id="timeline-1",
+            source_type="manual_journal",
+            source_item_id="manual-1",
+            occurred_at=time.time() - 5,
+            captured_at=time.time(),
+            title="Evening note",
+            summary="Wrote about the day",
+            retention_mode="retain_raw",
+            raw_payload_ref="/tmp/day-note.md",
+            content_blocks=[TimelineContentBlock(kind="text", value="Today was full and calm.")],
+            processing_status={"stored": True, "embedded": False},
+            provenance={"sensor_id": "manual_journal"},
+        )
+
+        stored_id = await service.upsert_event(event)
+        self.assertEqual(stored_id, "timeline-1")
+
+        fetched = await self.store.l1_raw.get_timeline_event("timeline-1")
+        self.assertIsNotNone(fetched)
+        assert fetched is not None
+        self.assertEqual(fetched["occurred_at"], event.occurred_at)
+        self.assertEqual(fetched["captured_at"], event.captured_at)
+        self.assertEqual(fetched["retention_mode"], "retain_raw")
+        self.assertEqual(fetched["raw_payload_ref"], "/tmp/day-note.md")
+        self.assertEqual(fetched["content_blocks"][0]["kind"], "text")
+        self.assertEqual(fetched["processing_status"]["stored"], True)
+
+        listed = await self.store.l1_raw.list_events(limit=10, event_type="TIMELINE_EVENT")
+        self.assertEqual(listed[0]["id"], "timeline-1")
+        self.assertEqual(listed[0]["metadata"]["timeline"]["title"], "Evening note")
+
+        self.store.upsert_user_graph_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="character:asuka",
+            object_type="person",
+            evidence_event_ids=["timeline-1"],
+            confidence=0.85,
+            observed_at=event.occurred_at,
+            source_type="manual_journal",
+            object_attributes={"name": "Asuka"},
+        )
+        graph_stats = self.store.l2_user_graph.get_statistics()
+        self.assertEqual(graph_stats["total_nodes"], 2)
+        self.assertEqual(graph_stats["total_edges"], 1)
 
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):

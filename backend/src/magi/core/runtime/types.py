@@ -12,6 +12,7 @@ class TaskAgentType(str, Enum):
 
     CHAT = "chat"
     EXPLORE = "explore"
+    TIMELINE = "timeline"
 
 
 def get_task_agent_type_value(agent_type: TaskAgentType | str) -> str:

@@ -22,6 +22,23 @@ def test_build_update_paths_contains_new_sections():
     assert "llm.capabilities" in updates
     assert "llm.limits" in updates
     assert "llm.provider_options" in updates
+    assert "timeline" in updates
+
+
+def test_timeline_defaults_include_source_retention_and_edge_whitelists():
+    config = SystemConfigModel()
+
+    assert config.timeline.sources.chat.default_retention_mode == "analyze_only"
+    assert config.timeline.sources.photo_library.default_retention_mode == "retain_raw"
+    assert "LIKES" in config.timeline.sources.browser_history.edge_whitelist
+    assert "DISLIKES" not in config.timeline.sources.browser_history.edge_whitelist
+
+
+def test_onboarding_template_includes_timeline_defaults():
+    template = _build_onboarding_template()
+
+    assert template.timeline.sources.browser_history.fetch_page_content is False
+    assert template.timeline.sources.manual_journal.default_retention_mode == "retain_raw"
 
 
 def test_build_update_paths_skip_masked_api_key():

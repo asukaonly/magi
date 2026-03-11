@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .l2_event_relations import EventRelation, EventRelationStore
+from .l2_user_graph import L2UserGraphStore
 from .l3_semantic_embeddings import (
     EmbeddingBackend,
     EventEmbedding,
@@ -63,6 +64,7 @@ class UnifiedMemoryStore:
 
         self.l1_raw = RawEventStore(db_path=events_db, media_dir=str(runtime_paths.data_dir / "events"))
         self.l2_relations = EventRelationStore(persist_path=str(memories_dir / "relations.pkl"))
+        self.l2_user_graph = L2UserGraphStore(persist_path=str(memories_dir / "user_graph.pkl"))
 
         self.l3_embeddings: Optional[eventEmbeddingStore] = None
         self.l3_hybrid_search: Optional[HybrideventSearch] = None
@@ -150,7 +152,8 @@ class UnifiedMemoryStore:
                         level=EventLevel(payload["level"]),
                         correlation_id=payload["correlation_id"],
                         metadata=payload["metadata"],
-                    )
+                    ),
+                    event_id=event_id,
                 )
 
                 if extract_relations:
@@ -224,6 +227,7 @@ class UnifiedMemoryStore:
         stats: Dict[str, Any] = {
             "l1_raw": {"db_path": self.l1_raw.db_path},
             "l2_relations": self.l2_relations.get_statistics(),
+            "l2_user_graph": self.l2_user_graph.get_statistics(),
         }
         if self.l3_embeddings:
             stats["l3_embeddings"] = self.l3_embeddings.get_statistics()
@@ -243,6 +247,33 @@ class UnifiedMemoryStore:
             "l3_removed": removed_l3,
             "l4_removed": removed_l4,
         }
+
+    def upsert_user_graph_edge(
+        self,
+        *,
+        subject_id: str,
+        subject_type: str,
+        predicate: str,
+        object_id: str,
+        object_type: str,
+        evidence_event_ids: list[str],
+        confidence: float,
+        observed_at: float,
+        source_type: str,
+        subject_attributes: Optional[Dict[str, Any]] = None,
+        object_attributes: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.l2_user_graph.upsert_node(subject_id, subject_type, subject_attributes)
+        self.l2_user_graph.upsert_node(object_id, object_type, object_attributes)
+        self.l2_user_graph.upsert_edge(
+            subject_id=subject_id,
+            predicate=predicate,
+            object_id=object_id,
+            evidence_event_ids=evidence_event_ids,
+            confidence=confidence,
+            observed_at=observed_at,
+            source_type=source_type,
+        )
 
     async def run_maintenance(self, retention_days: int = 30) -> Dict[str, int]:
         """Executes retention/cleanup jobs for all layers."""

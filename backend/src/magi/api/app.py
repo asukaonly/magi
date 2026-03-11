@@ -167,6 +167,7 @@ def _register_routes(app: FastAPI):
         personality_presets_router,
         others_router,
         skills_router,
+        timeline_router,
     )
 
     # registerAgent管理route
@@ -242,4 +243,10 @@ def _register_routes(app: FastAPI):
     app.include_router(
         skills_router,
         tags=["Skills"],
+    )
+
+    app.include_router(
+        timeline_router,
+        prefix="/api/timeline",
+        tags=["Timeline"],
     )
