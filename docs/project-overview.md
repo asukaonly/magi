@@ -53,13 +53,21 @@ Magi uses a layered backend architecture:
   Task orchestration, worker management, execution loops, prompt assembly
 
 - Extension layer
-  Tools, providers, memory backends, plugins, skills, LLM adapters
+  Tools, providers, memory backends, unified plugins, skills, LLM adapters
 
 - API layer
   FastAPI routers, websocket bridges, read services
 
 - UI layer
   React app, settings, chat, task and memory-related views
+
+The extension layer now uses a unified plugin runtime for three contribution families:
+
+- tools
+- sensors
+- actions
+
+This means official built-ins and external packages follow the same discovery, enablement, and registry flow instead of separate hardcoded registration paths.
 
 ## Repository Structure
 
@@ -173,3 +181,6 @@ This keeps worker scope bounded while preserving a user-facing conversational en
 
 - If you want to work on the runtime:
   Read [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md) next.
+
+- If you want to work on extensions or plugin-backed settings:
+  Read [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md) and [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md) next.

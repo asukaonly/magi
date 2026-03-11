@@ -20,6 +20,9 @@ Magi currently exposes these major configuration areas:
 - AI personality and tone
 - memory mode
 - tool management
+- plugin and extension management
+- timeline source management
+- outbound action management
 - settings page structure
 
 These areas are closely related. Onboarding determines the first-run experience, while the settings page is the long-term place where users revisit the same configuration families.
@@ -93,7 +96,10 @@ It should provide a stable place where users can revisit and update:
 - LLM settings
 - personality settings
 - memory settings
+- timeline settings
+- extension settings
 - tool settings
+- action settings
 - relevant system/runtime settings
 
 Expected behavior:
@@ -174,17 +180,26 @@ Important behavioral rule:
 - L1 is foundational
 - higher memory layers depend on it
 
-## Tool Management
+## Tool And Extension Management
 
 Tool management covers:
 
 - builtin tools
 - provider-backed tools
 - external skills
+- plugin-contributed tools
+- plugin package lifecycle
 
 Expected product behavior:
 
-- users can enable or disable supported builtin tools
+- users can inspect discovered plugin packages in a dedicated Extensions area
+- users can enable, disable, reload, and rescan plugin packages
+- plugin-provided settings are rendered from backend field metadata rather than custom plugin frontend code
+- tool surfaces should continue to reflect runtime-registered tools rather than hardcoded frontend lists
+
+Tool-specific expectations:
+
+- users can enable or disable supported builtin or plugin-provided tools
 - tool-specific configuration is shown only when relevant
 - external skills are discoverable from the backend rather than hardcoded
 - expert mode exposes more of this surface than quick mode
@@ -194,6 +209,33 @@ The exact tool list may change over time, but the product should preserve these 
 - clear enable/disable state
 - explicit provider configuration where required
 - separation between builtin tools and externally loaded skills
+
+## Timeline Source Management
+
+Timeline source management is now plugin-backed.
+
+Expected product behavior:
+
+- the Timeline settings surface should render sources from backend-registered timeline sensors
+- the frontend should not assume a fixed source list when the backend can provide dynamic sensor contributions
+- top-level timeline domain controls may remain in root config
+- per-source behavior such as sync mode, retention, and source-specific fields should be persisted through plugin settings
+
+This split is intentional:
+
+- global timeline state belongs to the product domain
+- source-specific runtime settings belong to the owning sensor contribution
+
+## Action Management
+
+Magi now exposes outbound actions as a distinct product surface.
+
+Expected product behavior:
+
+- actions should appear as a dedicated settings category
+- action settings should be rendered from backend metadata
+- actions remain conceptually distinct from tools even when a tool adapter exists
+- dangerous or permission-requiring actions should surface that metadata clearly to the user
 
 ## Cross-Cutting Product Rules
 
@@ -213,6 +255,11 @@ This document is product-facing.
 For internal runtime implementation details, read:
 
 - [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
+
+For unified extension loading, plugin-backed sensors, and action/tool registration, read:
+
+- [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
+- [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
 
 For a high-level repository and architecture introduction, read:
 

@@ -15,6 +15,12 @@ This folder is the active documentation home for Magi.
 3. [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
    Read this if you are working on the backend agent runtime, task orchestration, worker execution, or internal event flow.
 
+4. [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
+   Read this if you are working on plugin loading, extension registration, timeline sensor registration, or action/tool integration.
+
+5. [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
+   Read this if you want to build a new built-in or external plugin package.
+
 ## Audience Guide
 
 - Open source users
@@ -25,6 +31,9 @@ This folder is the active documentation home for Magi.
 
 - Runtime and orchestration maintainers
   Use [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md) as the primary implementation guide.
+
+- Extension and plugin maintainers
+  Read [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md) first, then [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md).
 
 - Product and settings contributors
   Use [Product Configuration Guide](/Users/asuka/code/magi/docs/product-configuration-guide.md) as the primary guide.
