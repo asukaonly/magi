@@ -60,7 +60,8 @@ async def list_timeline_events(
 async def get_timeline_event(event_id: str):
     service = get_timeline_service()
     retention = get_retention_service()
-    event = await service.get_event(event_id)
+    detail_loader = getattr(service, "get_event_detail", None)
+    event = await detail_loader(event_id) if callable(detail_loader) else await service.get_event(event_id)
     if event is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline event not found")
     return {

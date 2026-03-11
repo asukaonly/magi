@@ -25,3 +25,10 @@ class ChatTimelineSensor(TimelineSensorBase):
             content_blocks=[TimelineContentBlock(kind="text", value=message)],
             tags=["chat"],
         )
+
+    async def extract_candidates(self, item: dict[str, object]) -> dict[str, object]:
+        return {
+            "entities": list(item.get("entities", [])),
+            "tags": ["chat"],
+            "relation_candidates": list(item.get("relation_candidates", [])),
+        }

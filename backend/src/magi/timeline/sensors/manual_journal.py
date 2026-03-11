@@ -33,3 +33,10 @@ class ManualJournalTimelineSensor(TimelineSensorBase):
             content_blocks=content_blocks,
             tags=["manual_journal"],
         )
+
+    async def extract_candidates(self, item: dict[str, object]) -> dict[str, object]:
+        return {
+            "entities": list(item.get("entities", [])),
+            "tags": ["manual_journal"],
+            "relation_candidates": list(item.get("relation_candidates", [])),
+        }

@@ -9,6 +9,15 @@ from magi.timeline.sensors import (
     ManualJournalTimelineSensor,
     PhotoLibraryTimelineSensor,
 )
+from magi.timeline.insight_pipeline import TimelineInsightPipeline
+
+
+class _FakeUnifiedMemory:
+    def __init__(self):
+        self.edges = []
+
+    def upsert_user_graph_edge(self, **kwargs):
+        self.edges.append(kwargs)
 
 
 @pytest.mark.asyncio
@@ -105,3 +114,43 @@ async def test_photo_library_sensor_rejects_paths_outside_allowed_scope(tmp_path
                 "analysis_scope": "full",
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_insight_pipeline_enforces_source_edge_whitelist():
+    sensor = BrowserHistoryTimelineSensor(fetch_page_content=False)
+    item = {
+        "url": "https://example.com/articles/asuka",
+        "title": "Asuka article",
+        "visit_time": 1710000000.0,
+        "visit_count": 4,
+        "relation_candidates": [
+            {
+                "subject_id": "user:self",
+                "subject_type": "user",
+                "predicate": "LIKES",
+                "object_id": "topic:asuka",
+                "object_type": "topic",
+                "confidence": 0.9,
+            },
+            {
+                "subject_id": "user:self",
+                "subject_type": "user",
+                "predicate": "DISLIKES",
+                "object_id": "topic:asuka",
+                "object_type": "topic",
+                "confidence": 0.2,
+            },
+        ],
+    }
+
+    event = await sensor.build_timeline_event(item)
+    candidates = await sensor.extract_candidates(item)
+    memory = _FakeUnifiedMemory()
+    pipeline = TimelineInsightPipeline(memory)
+
+    persisted = await pipeline.process_event(event, candidates["relation_candidates"], ["LIKES", "FREEFORM"])
+
+    assert len(persisted) == 1
+    assert persisted[0]["predicate"] == "LIKES"
+    assert memory.edges[0]["predicate"] == "LIKES"

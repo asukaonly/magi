@@ -6,6 +6,7 @@ import uuid
 from typing import Optional
 
 from .contracts import TimelineContentBlock, TimelineEvent
+from .insight_pipeline import TimelineInsightPipeline
 
 
 class TimelineService:
@@ -13,13 +14,42 @@ class TimelineService:
 
     def __init__(self, unified_memory) -> None:
         self._unified_memory = unified_memory
+        self._insight_pipeline = TimelineInsightPipeline(unified_memory)
 
-    async def upsert_event(self, event: TimelineEvent) -> str:
+    async def upsert_event(
+        self,
+        event: TimelineEvent,
+        *,
+        relation_candidates: Optional[list[dict]] = None,
+        allowed_edge_whitelist: Optional[list[str]] = None,
+    ) -> str:
         await self._unified_memory.l1_raw.store_timeline_event(event)
+        event.processing_status["stored"] = True
+        if relation_candidates:
+            persisted = await self._insight_pipeline.process_event(
+                event,
+                relation_candidates,
+                allowed_edge_whitelist or [],
+            )
+            event.processing_status["analyzed"] = True
+            event.processing_status["persisted_relations"] = len(persisted)
         return event.event_id
 
     async def get_event(self, event_id: str) -> Optional[dict]:
         return await self._unified_memory.l1_raw.get_timeline_event(event_id)
+
+    async def get_event_detail(self, event_id: str) -> Optional[dict]:
+        event = await self.get_event(event_id)
+        if event is None:
+            return None
+        graph_evidence = [
+            edge.to_dict()
+            for edge in self._unified_memory.l2_user_graph.find_edges_by_event_id(event_id)
+        ]
+        return {
+            **event,
+            "graph_evidence": graph_evidence,
+        }
 
     async def list_events(self, limit: int = 100, source_type: Optional[str] = None) -> list[dict]:
         return await self._unified_memory.l1_raw.list_timeline_events(limit=limit, source_type=source_type)
@@ -56,4 +86,4 @@ class TimelineService:
         return event
 
     async def reanalyze_event(self, event_id: str) -> Optional[dict]:
-        return await self.get_event(event_id)
+        return await self.get_event_detail(event_id)

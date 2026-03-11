@@ -25,6 +25,18 @@ class UserGraphEdge:
     last_observed_at: float = 0.0
     source_type_distribution: Dict[str, int] = field(default_factory=dict)
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "subject_id": self.subject_id,
+            "predicate": self.predicate,
+            "object_id": self.object_id,
+            "evidence_event_ids": list(self.evidence_event_ids),
+            "confidence": self.confidence,
+            "first_observed_at": self.first_observed_at,
+            "last_observed_at": self.last_observed_at,
+            "source_type_distribution": dict(self.source_type_distribution),
+        }
+
 
 class L2UserGraphStore:
     """Stores user-centric graph nodes and edges with evidence aggregation."""
@@ -85,6 +97,9 @@ class L2UserGraphStore:
         if predicate:
             edges = [edge for edge in edges if edge.predicate == predicate]
         return edges
+
+    def find_edges_by_event_id(self, event_id: str) -> list[UserGraphEdge]:
+        return [edge for edge in self._edges.values() if event_id in edge.evidence_event_ids]
 
     def clear(self) -> int:
         total = len(self._edges)

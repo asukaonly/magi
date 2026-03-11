@@ -53,3 +53,10 @@ class PhotoLibraryTimelineSensor(TimelineSensorBase):
             content_blocks=[TimelineContentBlock(kind="image", value=path)],
             tags=["photo_library"],
         )
+
+    async def extract_candidates(self, item: dict[str, object]) -> dict[str, object]:
+        return {
+            "entities": list(item.get("entities", [])),
+            "tags": ["photo_library"],
+            "relation_candidates": list(item.get("relation_candidates", [])),
+        }

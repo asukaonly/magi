@@ -35,6 +35,23 @@ class _FakeTimelineService:
     async def get_event(self, event_id):
         return self.events.get(event_id)
 
+    async def get_event_detail(self, event_id):
+        event = self.events.get(event_id)
+        if event is None:
+            return None
+        return {
+            **event,
+            "graph_evidence": [
+                {
+                    "subject_id": "user:self",
+                    "predicate": "LIKES",
+                    "object_id": "topic:day",
+                    "evidence_event_ids": [event_id],
+                    "confidence": 0.8,
+                }
+            ],
+        }
+
     async def create_manual_journal(self, title, summary, text, image_refs):
         event = TimelineEvent(
             event_id="timeline-created",
@@ -158,3 +175,14 @@ def test_reanalyze_timeline_event_returns_existing_event(monkeypatch):
     assert response.status_code == 200
     assert response.json()["queued"] is True
     assert response.json()["event"]["event_id"] == "timeline-1"
+
+
+def test_get_timeline_event_detail_includes_graph_evidence(monkeypatch):
+    client, _ = _build_client(monkeypatch)
+
+    response = client.get("/api/timeline/events/timeline-1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["graph_evidence"][0]["predicate"] == "LIKES"
+    assert body["retention"]["mode"] == "retain_raw"

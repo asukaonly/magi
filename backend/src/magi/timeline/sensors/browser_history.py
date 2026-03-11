@@ -54,3 +54,11 @@ class BrowserHistoryTimelineSensor(TimelineSensorBase):
             content_blocks=content_blocks,
             tags=["browser_history", parsed.netloc] if parsed.netloc else ["browser_history"],
         )
+
+    async def extract_candidates(self, item: dict[str, object]) -> dict[str, object]:
+        parsed = urlparse(str(item.get("url", "")))
+        return {
+            "entities": list(item.get("entities", [])),
+            "tags": ["browser_history", parsed.netloc] if parsed.netloc else ["browser_history"],
+            "relation_candidates": list(item.get("relation_candidates", [])),
+        }
