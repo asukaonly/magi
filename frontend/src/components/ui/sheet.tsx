@@ -16,7 +16,7 @@ const SheetOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-slate-950/35 backdrop-blur-[2px]',
+      'fixed inset-0 z-50 bg-foreground/30 backdrop-blur-[2px]',
       'data-[state=open]:opacity-100 data-[state=closed]:opacity-0 transition-opacity',
       className
     )}
@@ -26,7 +26,7 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  'fixed z-50 border border-border/70 bg-card shadow-[0_24px_80px_-28px_rgba(15,23,42,0.45)] transition-transform duration-200',
+  'fixed z-50 border border-border/70 bg-card shadow-xl transition-transform duration-200',
   {
     variants: {
       side: {

@@ -144,7 +144,7 @@ const Sidebar: React.FC = () => {
             onClick={() => {
               void handleCreateSession();
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-transparent text-muted-foreground transition-colors hover:border-border/24 hover:bg-white/8 hover:text-foreground"
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-transparent text-muted-foreground transition-colors hover:border-border/24 hover:bg-muted/50 hover:text-foreground"
             aria-label={t('shell.newChat')}
             title={t('shell.newChat')}
           >
@@ -171,11 +171,13 @@ const Sidebar: React.FC = () => {
                   setCurrentSessionId(session.session_id);
                   navigate('/chat');
                 }}
+                aria-label={session.title || t('shell.newChatTitle')}
+                aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'w-full rounded-2xl px-3 py-2.5 text-left transition-all duration-200',
+                  'w-full rounded-2xl px-3 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
                   active
                     ? 'border border-primary/16 bg-primary/12 text-foreground'
-                    : 'border border-transparent hover:bg-white/6'
+                    : 'border border-transparent hover:bg-muted/50'
                 )}
                 title={session.title}
               >
@@ -206,11 +208,13 @@ const Sidebar: React.FC = () => {
                 key={action.id}
                 type="button"
                 onClick={() => handleOpenPanel(action.id, action.path)}
+                aria-label={action.label}
+                aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-all duration-200',
+                  'flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
                   active
                     ? 'border-primary/16 bg-primary/10 text-foreground'
-                    : 'border-transparent text-muted-foreground hover:bg-white/8 hover:text-foreground'
+                    : 'border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                 )}
               >
                 <span className={cn(

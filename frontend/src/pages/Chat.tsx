@@ -9,7 +9,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { messagesApi } from '@/api';
@@ -105,6 +105,7 @@ export const ChatPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
   const location = useLocation();
   const navigate = useNavigate();
+  const shouldReduceMotion = useReducedMotion();
   const currentSessionId = useChatShellStore((state) => state.currentSessionId);
   const setCurrentSessionId = useChatShellStore((state) => state.setCurrentSessionId);
   const activePanel = useChatShellStore((state) => state.activePanel);
@@ -490,7 +491,7 @@ export const ChatPage: React.FC = () => {
   const getAvatar = (role: 'user' | 'assistant') => {
     if (role === 'user') {
       return (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
           <UserRound className="h-4 w-4" />
         </div>
       );
@@ -504,13 +505,13 @@ export const ChatPage: React.FC = () => {
     }
     if (avatarSrc && avatarSrc.startsWith('http')) {
       return (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/80 eva-glow">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary">
           <img src={avatarSrc} alt={aiName} className="h-full w-full object-cover" />
         </div>
       );
     }
     return (
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/80 text-white eva-glow">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
         {aiAvatar || initial}
       </div>
     );
@@ -552,14 +553,14 @@ export const ChatPage: React.FC = () => {
   const renderStatusCard = (message: ChatTimelineMessage) => (
     <motion.div
       key={message.id}
-      initial={{ opacity: 0, y: 8 }}
+      initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2, ease: 'easeOut' }}
+      transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
       className="mb-4 flex justify-start"
     >
       <div className="flex max-w-[76%] gap-3">
         {getAvatar('assistant')}
-        <div className="rounded-[22px] rounded-tl-md border border-border/28 bg-background/72 px-4 py-3 backdrop-blur-sm">
+        <div className="rounded-2xl rounded-tl-md border border-border/30 bg-muted/50 px-4 py-3">
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
             <span className="text-sm font-medium text-foreground">{message.traceSummary?.headline || message.content}</span>
@@ -594,9 +595,9 @@ export const ChatPage: React.FC = () => {
           ) : (
             <motion.div
               key={msg.id}
-              initial={{ opacity: 0, y: 8 }}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
+              transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
               className={msg.role === 'user' ? 'mb-5 flex justify-end' : 'mb-5 flex justify-start'}
             >
               <div className={msg.role === 'user' ? 'flex max-w-[75%] flex-row-reverse gap-3' : 'flex max-w-[75%] gap-3'}>
@@ -612,8 +613,8 @@ export const ChatPage: React.FC = () => {
                   </div>
                   <div
                     className={msg.role === 'user'
-                      ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-white'
-                      : 'rounded-[22px] rounded-tl-md border border-border/24 bg-background/68 px-4 py-3 backdrop-blur-sm'}
+                      ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-accent-foreground'
+                      : 'rounded-2xl rounded-tl-md border border-border/30 bg-muted/50 px-4 py-3'}
                   >
                     {msg.role === 'assistant' ? (
                       <div className="max-w-none text-current">
@@ -633,7 +634,7 @@ export const ChatPage: React.FC = () => {
         ))}
         <AnimatePresence>
           {!connected && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center text-xs text-amber-700">
+            <motion.div initial={shouldReduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={shouldReduceMotion ? undefined : { opacity: 0 }} className="text-center text-xs text-amber-700">
               {t('chat.connectingHint')}
             </motion.div>
           )}
@@ -642,7 +643,7 @@ export const ChatPage: React.FC = () => {
       </div>
 
       <div className="mt-2 shrink-0">
-        <div className="relative rounded-[28px] bg-background/52 px-3 py-3">
+        <div className="relative rounded-2xl bg-muted/40 px-3 py-3">
           <AutoResizeTextarea
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
@@ -656,7 +657,7 @@ export const ChatPage: React.FC = () => {
             onKeyDown={handleKeyPress}
             disabled={!connected}
             minHeight={120}
-            className="max-h-72 resize-none rounded-[22px] border-0 bg-transparent px-3 py-3 pr-20 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="max-h-72 resize-none rounded-2xl border border-transparent bg-transparent px-3 py-3 pr-20 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           />
           <button
             type="button"
@@ -664,7 +665,7 @@ export const ChatPage: React.FC = () => {
               void handleSendMessage();
             }}
             disabled={!connected}
-            className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/88 disabled:cursor-not-allowed disabled:bg-foreground/20 disabled:text-muted-foreground"
+            className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
             aria-label={t('chat.send')}
             title={t('chat.send')}
           >

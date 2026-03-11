@@ -79,13 +79,13 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="!max-w-none w-[min(calc(100vw-24px),1820px)] rounded-l-[28px] border-l border-border/60 bg-[radial-gradient(circle_at_top,rgba(219,244,239,0.48),transparent_32%),linear-gradient(180deg,rgba(252,253,252,0.985),rgba(244,247,246,0.965))] p-0"
+        className="!max-w-none w-full max-w-5xl rounded-l-3xl border-l border-border/60 bg-card p-0"
       >
-        <SheetHeader className="border-b border-border/50 bg-white/82 px-8 py-6">
+        <SheetHeader className="border-b border-border/50 bg-muted/30 px-8 py-6">
           <SheetTitle className="text-[28px] font-semibold tracking-[-0.04em] text-foreground">{title}</SheetTitle>
           <SheetDescription className="max-w-3xl pt-1 text-sm leading-6 text-muted-foreground">{subtitle}</SheetDescription>
         </SheetHeader>
-        <div className="flex h-[calc(100%-116px)] min-h-0 flex-col">
+        <div className="flex flex-1 min-h-0 flex-col">
           {loading && (
             <div className="flex h-full items-center justify-center gap-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -99,16 +99,16 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
           )}
           {!loading && snapshot && (
             <>
-              <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border/40 bg-white/40 px-8 py-3 xl:grid-cols-4">
-                <div className="rounded-[20px] border border-border/50 bg-white/92 px-5 py-2.5 shadow-sm">
+              <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border/40 bg-muted/30 px-8 py-3 xl:grid-cols-4">
+                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryStatus')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">{snapshot.summary.headline}</div>
                 </div>
-                <div className="rounded-[20px] border border-border/50 bg-white/92 px-5 py-2.5 shadow-sm">
+                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryDuration')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">{formatDuration(snapshot.summary.durationSeconds)}</div>
                 </div>
-                <div className="rounded-[20px] border border-border/50 bg-white/92 px-5 py-2.5 shadow-sm">
+                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summarySteps')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">
                     {t('chat.trace.summaryStepsValue', {
@@ -117,14 +117,14 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                     })}
                   </div>
                 </div>
-                <div className="rounded-[20px] border border-border/50 bg-white/92 px-5 py-2.5 shadow-sm">
+                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryMode')}</div>
                   <div className="mt-1.5 text-base font-semibold capitalize text-foreground">{snapshot.mode}</div>
                 </div>
               </div>
               <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-[minmax(520px,0.92fr)_minmax(720px,1.08fr)]">
-                <div className="min-h-0 overflow-y-auto border-r border-border/40 bg-[linear-gradient(180deg,rgba(255,255,255,0.56),rgba(247,251,249,0.76))] px-8 py-6">
-                  <div className="mb-3 flex items-center justify-between rounded-2xl border border-border/40 bg-white/72 px-4 py-2.5">
+                <div className="min-h-0 overflow-y-auto border-r border-border/40 bg-muted/20 px-8 py-6">
+                  <div className="mb-3 flex items-center justify-between rounded-2xl border border-border/40 bg-card px-4 py-2.5">
                     <div>
                       <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">Execution Timeline</div>
                       <div className="mt-1 text-[13px] text-foreground/90">按执行顺序查看编排、分支和工具调用。</div>
@@ -137,10 +137,10 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                     <TraceTree node={displayRoot} selectedNodeId={selectedNode?.id || null} onSelectNode={setSelectedNode} />
                   )}
                 </div>
-                <div className="min-h-0 overflow-y-auto bg-white/76 px-8 py-6">
+                <div className="min-h-0 overflow-y-auto bg-muted/30 px-8 py-6">
                   {selectedNode ? (
                     <div className="space-y-4">
-                      <div className="rounded-[24px] border border-border/50 bg-white/94 px-6 py-5 shadow-sm">
+                      <div className="rounded-3xl border border-border/50 bg-card px-6 py-5 shadow-sm">
                         <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.selected')}</div>
                         <div className="mt-2 flex flex-wrap items-center gap-3">
                           <div className="text-[24px] font-semibold tracking-[-0.04em] text-foreground">{selectedNode.label}</div>
@@ -174,7 +174,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                       </div>
 
                       {selectedNode.resultPreview && (
-                        <div className="rounded-[24px] border border-border/50 bg-white/94 px-5 py-5 shadow-sm">
+                        <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
                           <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
                             <Hourglass className="h-3.5 w-3.5" />
                             {t('chat.trace.result')}
@@ -186,14 +186,14 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                       )}
 
                       {selectedNode.error && (
-                        <div className="rounded-[24px] border border-rose-200 bg-rose-50/90 px-5 py-5 shadow-sm">
+                        <div className="rounded-3xl border border-rose-200 bg-rose-50/90 px-5 py-5 shadow-sm">
                           <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-rose-600/80">{t('chat.trace.error')}</div>
-                          <div className="rounded-2xl border border-rose-200 bg-white/70 px-4 py-4 text-sm leading-7 text-rose-700">
+                          <div className="rounded-2xl border border-rose-200 bg-card px-4 py-4 text-sm leading-7 text-rose-700">
                             {selectedNode.error}
                           </div>
                         </div>
                       )}
-                      <div className="rounded-[24px] border border-border/50 bg-white/94 px-5 py-5 shadow-sm">
+                      <div className="rounded-3xl border border-border/50 bg-card px-5 py-5 shadow-sm">
                         <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
                           <Clock3 className="h-3.5 w-3.5" />
                           {t('chat.trace.metadata')}

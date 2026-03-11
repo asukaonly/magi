@@ -22,8 +22,8 @@ export const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, current }) 
               <div
                 className={cn(
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-sm font-medium transition-colors',
-                  done && 'border-violet-600 bg-violet-600 text-white',
-                  active && 'border-violet-600 bg-background text-violet-600',
+                  done && 'border-primary bg-primary text-primary-foreground',
+                  active && 'border-primary bg-background text-primary',
                   !done && !active && 'border-border bg-background text-muted-foreground'
                 )}
               >
@@ -34,7 +34,7 @@ export const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, current }) 
                 <div
                   className={cn(
                     'my-1 w-0.5 flex-1 min-h-4',
-                    done ? 'bg-violet-600' : 'bg-border'
+                    done ? 'bg-primary' : 'bg-border'
                   )}
                 />
               )}

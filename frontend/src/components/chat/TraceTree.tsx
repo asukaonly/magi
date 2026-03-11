@@ -55,17 +55,17 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
         }}
         className={cn(
           'w-full text-left transition-colors',
-          compact ? 'rounded-2xl px-2.5 py-1.5' : 'rounded-[20px] px-3 py-2',
+          compact ? 'rounded-xl px-2.5 py-1.5' : 'rounded-xl px-3 py-2',
           selected
-            ? 'bg-emerald-50/90 ring-1 ring-emerald-200'
-            : 'hover:bg-white/72',
+            ? 'bg-primary/10 ring-1 ring-primary/30'
+            : 'hover:bg-muted/50',
           compact
             ? selected
               ? 'shadow-none'
               : 'border-transparent bg-transparent'
             : selected
-              ? 'shadow-[0_18px_40px_-30px_rgba(45,151,140,0.35)]'
-              : 'bg-white/78'
+              ? 'shadow-md'
+              : 'bg-card'
         )}
         style={{ marginLeft: `${depth * 4}px` }}
       >
@@ -74,10 +74,10 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
             {hasChildren && (
               <ChevronRight className={cn('transition-transform', compact ? 'h-3.5 w-3.5' : 'h-4 w-4', open && 'rotate-90')} />
             )}
-            {!hasChildren && <span className={cn('inline-block rounded-full bg-emerald-200', compact ? 'h-1.5 w-1.5' : 'mt-1 h-2 w-2')} />}
+            {!hasChildren && <span className={cn('inline-block rounded-full bg-primary/30', compact ? 'h-1.5 w-1.5' : 'mt-1 h-2 w-2')} />}
             <span className={cn(
-              'flex items-center justify-center rounded-2xl border border-border/40 bg-white/92 text-muted-foreground',
-              compact ? 'h-7 w-7 rounded-xl' : 'h-8 w-8'
+              'flex items-center justify-center rounded-xl border border-border/40 bg-card text-muted-foreground',
+              compact ? 'h-7 w-7' : 'h-8 w-8'
             )}>
               {kindIcon(node.kind)}
             </span>
@@ -112,7 +112,7 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
       {hasChildren && open && (
         <div
           className={cn(
-            'space-y-0.5 border-l border-emerald-200/90 pl-3',
+            'space-y-0.5 border-l border-border/60 pl-3',
             compact && 'space-y-0.5 pl-3'
           )}
           style={{ marginLeft: `${depth * 4 + 18}px` }}

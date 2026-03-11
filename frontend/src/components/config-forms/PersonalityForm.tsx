@@ -273,15 +273,14 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                   <div
                     onClick={() => void handleSelectPreset(item, setFieldValue)}
                     className={cn(
-                      'group cursor-pointer rounded-2xl border bg-background/95 p-5 text-left transition',
+                      'group cursor-pointer rounded-2xl border bg-card p-5 text-left transition',
                       active
-                        ? 'border-violet-500/70 bg-violet-500/[0.08] shadow-[0_12px_30px_-20px_rgba(124,58,237,0.8)] ring-1 ring-violet-500/30'
-                        : 'border-border hover:-translate-y-0.5 hover:border-violet-500/40 hover:bg-muted/30'
+                        ? 'border-primary/60 bg-primary/10 ring-1 ring-primary/20'
+                        : 'border-border hover:border-primary/30 hover:bg-muted/50'
                     )}
                   >
-                    <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/80 to-transparent" />
                     <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-violet-500/20 bg-violet-500/10 text-xl">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-primary/10 text-xl">
                         {item.avatar && !brokenAvatarKeys[`list:${item.id}:${item.avatar}`] ? (
                           <img
                             src={resolveAvatarUrl(item.avatar)}
@@ -355,7 +354,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                         <div key={group}>
                           <h3 className={cn(
                             'mb-3 text-sm font-semibold',
-                            group === 'magi' ? 'text-violet-600' : 'text-muted-foreground'
+                            group === 'magi' ? 'text-primary' : 'text-muted-foreground'
                           )}>
                             {t(`personality.groups.${group}`, { defaultValue: group })}
                           </h3>
@@ -376,16 +375,15 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                             type="button"
                             onClick={() => handleSelectCustom(setFieldValue)}
                             className={cn(
-                              'group relative min-h-[168px] overflow-hidden rounded-2xl border border-dashed bg-background/95 p-5 text-left transition',
+                              'group relative min-h-[168px] overflow-hidden rounded-2xl border border-dashed bg-card p-5 text-left transition',
                               isCustomSelected
-                                ? 'border-violet-500/70 bg-violet-500/[0.08] shadow-[0_12px_30px_-20px_rgba(124,58,237,0.8)] ring-1 ring-violet-500/30'
-                                : 'border-border hover:-translate-y-0.5 hover:border-violet-500/40 hover:bg-muted/30'
+                                ? 'border-primary/60 bg-primary/10 ring-1 ring-primary/20'
+                                : 'border-border hover:border-primary/30 hover:bg-muted/50'
                             )}
                           >
-                            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/80 to-transparent" />
-                            <div className="mb-3 flex items-center gap-3">
-                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-violet-500/20 bg-violet-500/10 text-base">
-                                <Sparkles className="h-5 w-5 text-violet-600" />
+                                    <div className="mb-3 flex items-center gap-3">
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-base">
+                                <Sparkles className="h-5 w-5 text-primary" />
                               </div>
                               <div className="min-w-0">
                                 <p className="truncate text-base font-semibold">{t('personality.blankCardTitle')}</p>
@@ -406,9 +404,8 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                       transition={{ duration: 0.24, ease: 'easeOut' }}
                       className="mx-auto w-full max-w-5xl space-y-4"
                     >
-                      <div className="relative overflow-hidden rounded-2xl border border-violet-500/30 bg-gradient-to-br from-background/95 via-background/95 to-violet-500/[0.04] p-5 shadow-[0_14px_24px_-18px_rgba(124,58,237,0.55)]">
-                        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/80 to-transparent" />
-                        <AnimatePresence initial={false}>
+                      <div className="relative overflow-hidden rounded-2xl border border-primary/20 bg-card p-5">
+                            <AnimatePresence initial={false}>
                           {!showDetails && (
                             <motion.div
                               initial={{ height: 0, opacity: 0 }}
@@ -417,9 +414,9 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                               className="overflow-hidden"
                             >
                               <div className="flex flex-wrap items-start gap-4">
-                                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-violet-500/10 text-2xl">
+                                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary/10 text-2xl">
                                   {isCustomSelected ? (
-                                    <Sparkles className="h-7 w-7 text-violet-600" />
+                                    <Sparkles className="h-7 w-7 text-primary" />
                                   ) : focusAvatar && !brokenAvatarKeys[`focus:${focusAvatar}`] ? (
                                     <img
                                       src={resolveAvatarUrl(focusAvatar)}
@@ -435,7 +432,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="mb-2 flex items-center gap-2">
-                                    <span className="rounded-full border border-violet-500/35 bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700">
+                                    <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                                       {selectedPreset}
                                     </span>
                                   </div>
@@ -476,7 +473,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                         >
                           <div className="rounded-xl border border-border bg-muted/20 p-3">
                             <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                              <Sparkles className="h-4 w-4 text-violet-600" />
+                              <Sparkles className="h-4 w-4 text-primary" />
                               {t('personality.oneLinerLabel')}
                             </div>
                             <div className="flex flex-col gap-2 md:flex-row">
@@ -509,7 +506,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                           >
                             {loadingConfig || !configLoaded ? (
                               <div className="flex items-center justify-center p-8">
-                                <div className="h-5 w-5 animate-spin rounded-full border-2 border-violet-600 border-t-transparent" />
+                                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                               </div>
                             ) : (
                               <div className="max-h-[50vh] overflow-y-auto p-2.5">

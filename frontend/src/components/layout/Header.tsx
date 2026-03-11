@@ -53,24 +53,27 @@ const Header: React.FC = () => {
         <Button
           variant="ghost"
           size="icon"
-          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5"
+          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-muted/50"
           onClick={() => openPanel('personality')}
+          aria-label={t('shell.personality')}
         >
           <UserRound className="h-4 w-4" />
         </Button>
         <Button
           variant="ghost"
           size="icon"
-          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5"
+          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-muted/50"
           onClick={() => openPanel('memory')}
+          aria-label={t('shell.memory')}
         >
           <Database className="h-4 w-4" />
         </Button>
         <Button
           variant="ghost"
           size="icon"
-          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-white/5"
+          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-muted/50"
           onClick={() => openPanel('settings')}
+          aria-label={t('shell.settings')}
         >
           <Settings2 className="h-4 w-4" />
         </Button>

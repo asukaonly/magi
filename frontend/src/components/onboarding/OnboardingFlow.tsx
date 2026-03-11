@@ -15,7 +15,7 @@ import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import ModeSelection from './ModeSelection';
 import StepIndicator from './StepIndicator';
 import CompletionScreen from './CompletionScreen';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
 type Mode = 'quick' | 'expert' | null;
 
@@ -28,6 +28,7 @@ interface OnboardingFlowProps {
 
 export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig }) => {
   const { t, i18n } = useTranslation('onboarding');
+  const shouldReduceMotion = useReducedMotion();
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>(initialConfig.preferences.user_mode);
@@ -283,10 +284,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         <AnimatePresence mode="wait">
           <motion.div
             key={`${renderLanguage}-${mode ?? 'none'}-${current}`}
-            initial={{ opacity: 0, x: 24 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -24 }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
+            exit={shouldReduceMotion ? undefined : { opacity: 0, x: -24 }}
+            transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: 'easeOut' }}
           >
             {renderStepContent()}
           </motion.div>

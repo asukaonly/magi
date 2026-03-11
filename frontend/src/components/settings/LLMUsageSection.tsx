@@ -141,18 +141,24 @@ export const LLMUsageSection: React.FC = () => {
                   <AreaChart data={timeseries}>
                     <defs>
                       <linearGradient id="usage-total" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0f766e" stopOpacity={0.35} />
-                        <stop offset="95%" stopColor="#0f766e" stopOpacity={0.03} />
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.03} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="day" tickLine={false} axisLine={false} />
-                    <YAxis tickLine={false} axisLine={false} width={64} />
-                    <Tooltip />
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="day" tickLine={false} axisLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                    <YAxis tickLine={false} axisLine={false} width={64} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px',
+                      }}
+                    />
                     <Area
                       type="monotone"
                       dataKey="total_tokens"
-                      stroke="#0f766e"
+                      stroke="hsl(var(--primary))"
                       fill="url(#usage-total)"
                       strokeWidth={2}
                     />
@@ -172,9 +178,15 @@ export const LLMUsageSection: React.FC = () => {
                     <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis dataKey="day" tickLine={false} axisLine={false} />
                     <YAxis tickLine={false} axisLine={false} width={64} />
-                    <Tooltip />
-                    <Bar dataKey="prompt_tokens" stackId="usage" fill="#0f766e" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="completion_tokens" stackId="usage" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px',
+                      }}
+                    />
+                    <Bar dataKey="prompt_tokens" stackId="usage" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="completion_tokens" stackId="usage" fill="hsl(var(--accent))" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
