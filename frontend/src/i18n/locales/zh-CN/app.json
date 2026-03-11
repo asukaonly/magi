@@ -231,7 +231,9 @@
       "personality": "人格",
       "memory": "记忆",
       "timeline": "时间线与来源",
+      "extensions": "扩展",
       "tools": "工具",
+      "actions": "执行器",
       "system": "系统"
     },
     "preferencesDesc": "配置界面语言和用户模式",
@@ -240,7 +242,9 @@
     "personalityDesc": "管理 AI 人格配置",
     "memoryDesc": "管理多层记忆系统和向量模型",
     "timelineDesc": "配置时间线接入默认策略，并分别调整每个来源的行为",
+    "extensionsDesc": "统一查看、启停和重载插件包，并检查它们贡献的能力。",
     "toolsDesc": "配置内置工具和技能",
+    "actionsDesc": "配置 Agent 对外操作能力及其声明式参数。",
     "systemDesc": "高级系统配置参数",
     "llmSaveHint": "LLM 配置需要手动保存，其他设置会自动生效。",
     "saveLLM": "保存 LLM 配置",
@@ -417,7 +421,57 @@
       "syncQueued": "{{source}} 已进入同步队列",
       "errors": {
         "statusLoadFailed": "来源状态加载失败：{{message}}",
-        "syncFailed": "同步请求失败：{{message}}"
+        "syncFailed": "同步请求失败：{{message}}",
+        "settingsSaveFailed": "来源设置保存失败：{{message}}"
+      }
+    },
+    "extensions": {
+      "summary": "已发现 {{count}} 个插件包",
+      "emptyDescription": "这个插件没有提供额外描述。",
+      "emptySettings": "这个插件当前没有 extensions 面的声明式设置项。",
+      "emptyState": "还没有扫描到任何插件包。",
+      "actions": {
+        "rescan": "重新扫描",
+        "enable": "启用",
+        "disable": "停用",
+        "reload": "重载"
+      },
+      "status": {
+        "enabled": "已启用",
+        "disabled": "已停用",
+        "healthy": "健康",
+        "unhealthy": "异常",
+        "trusted": "已信任",
+        "untrusted": "未信任",
+        "lastError": "最近错误"
+      },
+      "feedback": {
+        "enableSuccess": "{{name}} 已启用",
+        "disableSuccess": "{{name}} 已停用",
+        "reloadSuccess": "{{name}} 已重载",
+        "rescanSuccess": "插件目录已重新扫描",
+        "settingsSaved": "{{name}} 设置已保存"
+      },
+      "errors": {
+        "loadFailed": "插件列表加载失败：{{message}}",
+        "actionFailed": "插件操作失败：{{message}}",
+        "settingsSaveFailed": "插件设置保存失败：{{message}}"
+      }
+    },
+    "actionsConfig": {
+      "emptyState": "当前没有可配置的执行器插件。",
+      "emptySettings": "这个执行器没有额外设置项。",
+      "status": {
+        "dangerous": "高风险"
+      },
+      "feedback": {
+        "settingsSaved": "{{name}} 执行器设置已保存",
+        "reloadSuccess": "{{name}} 已重载"
+      },
+      "errors": {
+        "loadFailed": "执行器插件加载失败：{{message}}",
+        "settingsSaveFailed": "执行器设置保存失败：{{message}}",
+        "reloadFailed": "执行器重载失败：{{message}}"
       }
     },
     "saving": "保存中..."

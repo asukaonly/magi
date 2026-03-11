@@ -21,12 +21,104 @@ import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField } from '@/components/config-forms/fields';
 import { toolsApi, type ToolConfig, ToolConfigSpec } from '@/api/modules/tools';
+import type { ExtensionFieldSpec } from '@/api/modules/plugins';
+
+export type DynamicConfigSpec = ToolConfigSpec | ExtensionFieldSpec;
+
+type NormalizedDynamicConfigSpec = {
+  inputKind: 'boolean' | 'select' | 'secret' | 'number' | 'string' | 'array' | 'json';
+  label: string;
+  description?: string;
+  required: boolean;
+  placeholder?: string;
+  readOnly: boolean;
+  sensitive: boolean;
+  defaultValue?: any;
+  enumValues?: any[];
+};
+
+const isExtensionFieldSpec = (spec: DynamicConfigSpec): spec is ExtensionFieldSpec => 'key' in spec;
+
+const normalizeDynamicSpec = (
+  spec: DynamicConfigSpec,
+  providerName?: string
+): NormalizedDynamicConfigSpec => {
+  if (isExtensionFieldSpec(spec)) {
+    const enumValues = spec.type === 'select' ? spec.options.map((option) => option.value) : undefined;
+    const inputKind = (() => {
+      switch (spec.type) {
+        case 'switch':
+          return 'boolean';
+        case 'select':
+          return 'select';
+        case 'secret':
+          return 'secret';
+        case 'number':
+          return 'number';
+        case 'tags':
+          return 'array';
+        case 'path':
+        case 'input':
+          return 'string';
+        default:
+          return 'string';
+      }
+    })();
+    return {
+      inputKind,
+      label: spec.label,
+      description: spec.description,
+      required: spec.required,
+      placeholder: spec.placeholder ?? undefined,
+      readOnly: false,
+      sensitive: spec.type === 'secret',
+      defaultValue: spec.default,
+      enumValues,
+    };
+  }
+
+  const label = spec.is_template && providerName
+    ? spec.description.replace('{provider}', providerName)
+    : spec.description;
+  const inputKind = (() => {
+    if (spec.type === 'boolean') {
+      return 'boolean';
+    }
+    if (spec.type === 'string' && spec.enum && spec.enum.length > 0) {
+      return 'select';
+    }
+    if (spec.type === 'string' && spec.sensitive) {
+      return 'secret';
+    }
+    if (spec.type === 'integer' || spec.type === 'float') {
+      return 'number';
+    }
+    if (spec.type === 'array') {
+      return 'array';
+    }
+    if (spec.type === 'object') {
+      return 'json';
+    }
+    return 'string';
+  })();
+
+  return {
+    inputKind,
+    label,
+    required: spec.required,
+    placeholder: spec.placeholder,
+    readOnly: spec.read_only,
+    sensitive: spec.sensitive,
+    defaultValue: spec.default,
+    enumValues: spec.enum,
+  };
+};
 
 /**
  * DynamicConfigField - Renders a single config field based on spec
  */
 interface DynamicConfigFieldProps {
-  spec: ToolConfigSpec;
+  spec: DynamicConfigSpec;
   value: any;
   onChange: (value: any) => void;
   disabled?: boolean;
@@ -44,6 +136,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
 }) => {
   const { t } = useTranslation('app');
   const [showPassword, setShowPassword] = useState(false);
+  const normalized = normalizeDynamicSpec(spec, providerName);
 
   const handleChange = useCallback(
     (newValue: any) => {
@@ -54,40 +147,30 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     [disabled, onChange]
   );
 
-  // Get display label
-  const getLabel = () => {
-    if (spec.is_template && providerName) {
-      return spec.description.replace('{provider}', providerName);
-    }
-    return spec.description;
-  };
-
   const renderLabel = () => (
     <span className="text-sm font-medium">
-      {getLabel()}
-      {spec.required ? <span className="ml-1 text-destructive">*</span> : null}
+      {normalized.label}
+      {normalized.required ? <span className="ml-1 text-destructive">*</span> : null}
     </span>
   );
 
   // Render based on type
   const renderField = () => {
-    // Boolean -> Switch
-    if (spec.type === 'boolean') {
+    if (normalized.inputKind === 'boolean') {
       return (
         <label className="flex items-center justify-between">
           {renderLabel()}
           <Switch
             checked={!!value}
             onCheckedChange={handleChange}
-            disabled={disabled || spec.read_only}
+            disabled={disabled || normalized.readOnly}
           />
         </label>
       );
     }
 
-    // String with enum -> Select
-    if (spec.type === 'string' && spec.enum && spec.enum.length > 0) {
-      const options = selectOptions ?? spec.enum.map((item) => ({
+    if (normalized.inputKind === 'select') {
+      const options = selectOptions ?? (normalized.enumValues || []).map((item) => ({
         label: String(item),
         value: String(item),
       }));
@@ -96,19 +179,18 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
         <label className="space-y-2">
           {renderLabel()}
           <SelectField
-            value={String(value ?? spec.default ?? '')}
+            value={String(value ?? normalized.defaultValue ?? '')}
             onChange={handleChange}
             options={options}
-            placeholder={spec.placeholder || t('settings.selectPlaceholder')}
-            disabled={disabled || spec.read_only}
-            allowEmpty={!spec.required}
+            placeholder={normalized.placeholder || t('settings.selectPlaceholder')}
+            disabled={disabled || normalized.readOnly}
+            allowEmpty={!normalized.required}
           />
         </label>
       );
     }
 
-    // Sensitive string (API key, etc.) -> Password Input
-    if (spec.type === 'string' && spec.sensitive) {
+    if (normalized.inputKind === 'secret') {
       const sensitivePlaceholder = value ? '•••••••••' : undefined;
       return (
         <label className="space-y-2">
@@ -118,8 +200,8 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
               type={showPassword ? 'text' : 'password'}
               value={value ?? ''}
               onChange={(e) => handleChange(e.target.value)}
-              placeholder={spec.placeholder || sensitivePlaceholder}
-              disabled={disabled || spec.read_only}
+              placeholder={normalized.placeholder || sensitivePlaceholder}
+              disabled={disabled || normalized.readOnly}
               className="pr-10"
             />
             <button
@@ -135,40 +217,37 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       );
     }
 
-    // Integer/Float -> Number Input
-    if (spec.type === 'integer' || spec.type === 'float') {
+    if (normalized.inputKind === 'number') {
       return (
         <label className="space-y-2">
           {renderLabel()}
           <input
             type="number"
-            value={value ?? spec.default ?? ''}
-            onChange={(e) => handleChange(spec.type === 'integer' ? parseInt(e.target.value) : parseFloat(e.target.value))}
-            placeholder={spec.placeholder}
-            disabled={disabled || spec.read_only}
+            value={value ?? normalized.defaultValue ?? ''}
+            onChange={(e) => handleChange(e.target.value === '' ? '' : Number(e.target.value))}
+            placeholder={normalized.placeholder}
+            disabled={disabled || normalized.readOnly}
             className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
           />
         </label>
       );
     }
 
-    // Default string -> Text Input
-    if (spec.type === 'string') {
+    if (normalized.inputKind === 'string') {
       return (
         <label className="space-y-2">
           {renderLabel()}
           <Input
             value={value ?? ''}
             onChange={(e) => handleChange(e.target.value)}
-            placeholder={spec.placeholder}
-            disabled={disabled || spec.read_only}
+            placeholder={normalized.placeholder}
+            disabled={disabled || normalized.readOnly}
           />
         </label>
       );
     }
 
-    // Array -> Textarea (comma-separated)
-    if (spec.type === 'array') {
+    if (normalized.inputKind === 'array') {
       const arrayValue = Array.isArray(value) ? value.join(', ') : '';
       return (
         <label className="space-y-2">
@@ -179,8 +258,8 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
               const arr = e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean);
               handleChange(arr);
             }}
-            placeholder={spec.placeholder || t('settings.arrayPlaceholder')}
-            disabled={disabled || spec.read_only}
+            placeholder={normalized.placeholder || t('settings.arrayPlaceholder')}
+            disabled={disabled || normalized.readOnly}
             rows={2}
             className="h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
           />
@@ -188,7 +267,6 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       );
     }
 
-    // Object or unknown type -> JSON Textarea
     return (
       <label className="space-y-2">
         {renderLabel()}
@@ -202,8 +280,8 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
               // Invalid JSON, don't update
             }
           }}
-          placeholder={spec.placeholder || '{}'}
-          disabled={disabled || spec.read_only}
+          placeholder={normalized.placeholder || '{}'}
+          disabled={disabled || normalized.readOnly}
           rows={3}
           className="h-20 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
         />

@@ -18,10 +18,14 @@ import {
   Monitor,
   BarChart3,
   ScrollText,
+  PlugZap,
+  Send,
 } from 'lucide-react';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
 import { LLMUsageSection } from '@/components/settings/LLMUsageSection';
+import ActionsSection from '@/components/settings/ActionsSection';
+import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,7 +53,9 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'personality', icon: User },
   { id: 'memory', icon: Database },
   { id: 'timeline', icon: ScrollText },
+  { id: 'extensions', icon: PlugZap },
   { id: 'tools', icon: Wrench },
+  { id: 'actions', icon: Send },
   { id: 'system', icon: Cpu },
 ];
 
@@ -495,6 +501,12 @@ export const SettingsPage: React.FC = () => {
             <DynamicToolsConfig />
           </div>
         );
+
+      case 'extensions':
+        return <ExtensionsSection />;
+
+      case 'actions':
+        return <ActionsSection />;
 
       case 'system':
         return (

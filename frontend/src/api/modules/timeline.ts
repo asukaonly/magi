@@ -1,4 +1,5 @@
 import { api } from '../client';
+import type { ExtensionFieldSpec } from './plugins';
 
 export interface TimelineContentBlock {
   kind: string;
@@ -64,6 +65,12 @@ export interface TimelineManualEntryRequest {
 
 export interface TimelineSourceStatusItem {
   source_name: string;
+  plugin_id: string;
+  contribution_id: string;
+  display_name: string;
+  description: string;
+  fields: ExtensionFieldSpec[];
+  current_settings: Record<string, any>;
   enabled: boolean;
   sync_mode: string;
   sync_interval_minutes: number;
@@ -124,4 +131,3 @@ export const timelineApi = {
     return (response.data || response) as { queued: boolean; event_id: string; event: TimelineEventDetail };
   },
 };
-

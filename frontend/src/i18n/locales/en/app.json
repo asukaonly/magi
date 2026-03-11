@@ -231,7 +231,9 @@
       "personality": "Personality",
       "memory": "Memory",
       "timeline": "Timeline & Sources",
+      "extensions": "Extensions",
       "tools": "Tools",
+      "actions": "Actions",
       "system": "System"
     },
     "preferencesDesc": "Configure interface language and user mode",
@@ -240,7 +242,9 @@
     "personalityDesc": "Manage AI personality configuration",
     "memoryDesc": "Manage layered memory system and vector models",
     "timelineDesc": "Configure timeline ingestion defaults and tune each source independently",
+    "extensionsDesc": "Inspect, enable, disable, and reload plugin packages from one place.",
     "toolsDesc": "Configure built-in tools and skills",
+    "actionsDesc": "Configure outbound action capabilities and their declarative settings.",
     "systemDesc": "Advanced system configuration parameters",
     "llmSaveHint": "LLM settings require manual saving. Other settings apply automatically.",
     "saveLLM": "Save LLM settings",
@@ -417,7 +421,57 @@
       "syncQueued": "{{source}} sync queued",
       "errors": {
         "statusLoadFailed": "Failed to load source status: {{message}}",
-        "syncFailed": "Failed to queue sync: {{message}}"
+        "syncFailed": "Failed to queue sync: {{message}}",
+        "settingsSaveFailed": "Failed to save source settings: {{message}}"
+      }
+    },
+    "extensions": {
+      "summary": "{{count}} plugin packages discovered",
+      "emptyDescription": "This plugin did not provide extra description text.",
+      "emptySettings": "This plugin does not expose declarative settings on the extensions surface.",
+      "emptyState": "No plugin packages have been discovered yet.",
+      "actions": {
+        "rescan": "Rescan",
+        "enable": "Enable",
+        "disable": "Disable",
+        "reload": "Reload"
+      },
+      "status": {
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "healthy": "Healthy",
+        "unhealthy": "Unhealthy",
+        "trusted": "Trusted",
+        "untrusted": "Untrusted",
+        "lastError": "Last error"
+      },
+      "feedback": {
+        "enableSuccess": "{{name}} enabled",
+        "disableSuccess": "{{name}} disabled",
+        "reloadSuccess": "{{name}} reloaded",
+        "rescanSuccess": "Plugin directories rescanned",
+        "settingsSaved": "{{name}} settings saved"
+      },
+      "errors": {
+        "loadFailed": "Failed to load plugins: {{message}}",
+        "actionFailed": "Plugin action failed: {{message}}",
+        "settingsSaveFailed": "Failed to save plugin settings: {{message}}"
+      }
+    },
+    "actionsConfig": {
+      "emptyState": "No configurable action plugins are available yet.",
+      "emptySettings": "This action does not expose additional settings.",
+      "status": {
+        "dangerous": "Dangerous"
+      },
+      "feedback": {
+        "settingsSaved": "{{name}} action settings saved",
+        "reloadSuccess": "{{name}} reloaded"
+      },
+      "errors": {
+        "loadFailed": "Failed to load action plugins: {{message}}",
+        "settingsSaveFailed": "Failed to save action settings: {{message}}",
+        "reloadFailed": "Failed to reload action plugin: {{message}}"
       }
     },
     "saving": "Saving..."
