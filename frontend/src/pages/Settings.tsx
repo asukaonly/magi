@@ -185,6 +185,18 @@ export const SettingsPage: React.FC = () => {
     }
   }, [timelineSelection, timelineStatuses]);
 
+  useEffect(() => {
+    if (activeSection !== 'timeline') {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void fetchTimelineStatuses();
+    }, 4000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [activeSection]);
+
   const handleSaveLlm = async () => {
     try {
       setSavingLlm(true);
