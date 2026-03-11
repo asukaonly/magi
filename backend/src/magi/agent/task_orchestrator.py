@@ -445,14 +445,14 @@ class TaskOrchestrator:
         cwd = Path(os.getcwd()).expanduser().resolve()
         if cwd.name == "backend":
             parent = cwd.parent
-            if (parent / "frontend").exists() or (parent / "doc").exists():
+            if (parent / "frontend").exists() or (parent / "docs").exists():
                 return str(parent)
         return str(cwd)
 
     def _extract_explicit_path_candidates(self, message: str, default_root: str) -> list[str]:
         candidates: list[str] = []
         tokens = message.replace("\n", " ").split()
-        relative_prefixes = ("backend/", "frontend/", "doc/", "docs/", "configs/", "scripts/")
+        relative_prefixes = ("backend/", "frontend/", "docs/", "configs/", "scripts/")
         for token in tokens:
             cleaned = token.strip("`'\"()[]{}<>,，。；：!?")
             if not cleaned:

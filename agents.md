@@ -9,7 +9,7 @@ This document defines mandatory implementation and delivery rules for coding age
 ## Quick Rules (Do / Don't)
 
 **Do**
-- Align major changes with the active `doc/` architecture and product guides before implementation.
+- Align major changes with the active `docs/` architecture and product guides before implementation.
 - Keep each task atomic and independently verifiable.
 - Commit immediately after each completed independent task.
 - Use Conventional Commits with clear English subjects.
@@ -20,7 +20,7 @@ This document defines mandatory implementation and delivery rules for coding age
 - Don't batch unrelated tasks in one commit.
 - Don't include `cursor` / `claude` / `chatgpt` / `copilot` in commit text.
 - Don't add AI identity signatures (for example, `Co-authored-by: AI Agent`).
-- Don't diverge from the active `doc/` guidance without documenting why and impact.
+- Don't diverge from the active `docs/` guidance without documenting why and impact.
 - Don't skip validation for core logic changes.
 - Don't enforce English-only for UI copy unless explicitly required.
 - Never add any compatibility code paths; this project is in active development mode.
@@ -29,11 +29,11 @@ This document defines mandatory implementation and delivery rules for coding age
 
 ## 1) Source Of Truth
 
-Before changing architecture, core flows, product behavior, or module boundaries, align with the active documentation in `doc/`:
+Before changing architecture, core flows, product behavior, or module boundaries, align with the active documentation in `docs/`:
 
-- `doc/project-overview.md`
-- `doc/product-configuration-guide.md`
-- `doc/task-agent-runtime-architecture.md`
+- `docs/project-overview.md`
+- `docs/product-configuration-guide.md`
+- `docs/task-agent-runtime-architecture.md`
 
 If implementation must deviate from the active documentation, explain in commit body:
 1. Why deviation is necessary
@@ -105,7 +105,7 @@ magi/
 │   ├── build-sidecar.ps1       # Build Python sidecar binary for Windows
 │   └── dev-hot.sh              # Start backend+frontend with hot reload
 ├── configs/
-├── doc/
+├── docs/
 │   ├── project-overview.md
 │   ├── product-configuration-guide.md
 │   ├── task-agent-runtime-architecture.md
@@ -273,7 +273,7 @@ Also prohibited:
 
 ## 9) Development Workflow
 
-1. Review the relevant document in `doc/`
+1. Review the relevant document in `docs/`
 2. Implement code changes
 3. Validate (tests or explicit verification)
 4. Commit immediately for the completed task
@@ -300,7 +300,7 @@ git push
 
 ## 11) Review Checklist
 
-- [ ] `doc/` alignment verified (or deviation documented)
+- [ ] `docs/` alignment verified (or deviation documented)
 - [ ] Code follows naming/type/async conventions
 - [ ] Validation completed (tests or explicit checks)
 - [ ] Task is atomic and independently reversible

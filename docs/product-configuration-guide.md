@@ -212,8 +212,8 @@ This document is product-facing.
 
 For internal runtime implementation details, read:
 
-- [Task-Agent Runtime Architecture](/Users/asuka/code/magi/doc/task-agent-runtime-architecture.md)
+- [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
 
 For a high-level repository and architecture introduction, read:
 
-- [Project Overview](/Users/asuka/code/magi/doc/project-overview.md)
+- [Project Overview](/Users/asuka/code/magi/docs/project-overview.md)

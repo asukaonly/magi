@@ -398,7 +398,7 @@ class ExplorePlanningService:
     def is_path_scoped_request(self, user_message: str) -> bool:
         return any(
             marker in user_message
-            for marker in ["~/", "/", "\\", "src/", "backend/", "frontend/", "doc/", "scripts/"]
+            for marker in ["~/", "/", "\\", "src/", "backend/", "frontend/", "docs/", "scripts/"]
         )
 
     def is_repo_architecture_request(self, user_message: str) -> bool:

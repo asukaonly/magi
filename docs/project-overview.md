@@ -85,7 +85,7 @@ magi/
 ├── frontend/
 │   ├── src/
 │   └── src-tauri/
-├── doc/
+├── docs/
 └── scripts/
 ```
 
@@ -169,7 +169,7 @@ This keeps worker scope bounded while preserving a user-facing conversational en
 ## Where To Go Next
 
 - If you want to use or evaluate the project:
-  Start from the root [README](/Users/asuka/code/magi/README.md), then read [Product Configuration Guide](/Users/asuka/code/magi/doc/product-configuration-guide.md) and [Task-Agent Runtime Architecture](/Users/asuka/code/magi/doc/task-agent-runtime-architecture.md) when you need more detail.
+  Start from the root [README](/Users/asuka/code/magi/README.md), then read [Product Configuration Guide](/Users/asuka/code/magi/docs/product-configuration-guide.md) and [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md) when you need more detail.
 
 - If you want to work on the runtime:
-  Read [Task-Agent Runtime Architecture](/Users/asuka/code/magi/doc/task-agent-runtime-architecture.md) next.
+  Read [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md) next.

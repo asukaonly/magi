@@ -66,6 +66,21 @@ def test_resolve_workspace_root_prefers_explicit_user_scope() -> None:
     assert resolved == "/Users/asuka/code/magi"
 
 
+def test_resolve_workspace_root_supports_docs_relative_scope() -> None:
+    orchestrator = TaskOrchestrator(
+        runtime_key="explore:user-1",
+        tool_registry=ToolRegistry(),
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="explore",
+    )
+
+    resolved = orchestrator._resolve_workspace_root("看下 docs/project-overview.md 的文档结构")
+
+    assert resolved.endswith("/docs")
+
+
 @pytest.mark.asyncio
 async def test_rate_limit_retry_uses_extended_budget_and_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     orchestrator = TaskOrchestrator(

@@ -101,6 +101,14 @@ async def test_explore_planning_service_uses_scope_fallback_for_backend_request(
     ]
 
 
+def test_explore_planning_service_treats_docs_path_as_scoped_request() -> None:
+    from magi.agent.task_agents.explore.planning_service import ExplorePlanningService
+
+    service = ExplorePlanningService(prompt_service=None)
+
+    assert service.is_path_scoped_request("分析 docs/task-agent-runtime-architecture.md 里的任务编排说明")
+
+
 @pytest.mark.asyncio
 async def test_explore_task_agent_builds_markdown_dossier_and_emits_upstream_fact(
     tmp_path: Path,

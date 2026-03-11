@@ -154,11 +154,11 @@ class MyPlugin(Plugin):
 
 ## 文档
 
-- [文档索引](./doc/README.md)
-- [项目总览](./doc/project-overview.md)
-- [产品与配置指南](./doc/product-configuration-guide.md)
-- [Task-Agent Runtime 架构](./doc/task-agent-runtime-architecture.md)
-- [Tauri Python Sidecar Migration Plan](./doc/tauri-python-sidecar-migration-plan.md)
+- [文档索引](./docs/README.md)
+- [项目总览](./docs/project-overview.md)
+- [产品与配置指南](./docs/product-configuration-guide.md)
+- [Task-Agent Runtime 架构](./docs/task-agent-runtime-architecture.md)
+- [Tauri Python Sidecar Migration Plan](./docs/tauri-python-sidecar-migration-plan.md)
 
 ## 许可证
 
