@@ -7,7 +7,13 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .normalizers import chrome_time_to_unix_seconds, normalize_domain
+from .normalizers import (
+    canonicalize_url,
+    chrome_time_to_unix_seconds,
+    normalize_domain,
+    normalize_title,
+    should_merge_visit,
+)
 
 DEFAULT_MACOS_CHROME_ROOT = "~/Library/Application Support/Google/Chrome"
 
@@ -124,7 +130,9 @@ class ChromeHistoryReader:
                 {
                     "visit_id": str(row["visit_id"]),
                     "url": url,
+                    "canonical_url": canonicalize_url(url),
                     "title": str(row["title"] or ""),
+                    "normalized_title": normalize_title(row["title"]),
                     "visit_time": visit_time,
                     "visit_count": int(row["visit_count"] or 0),
                     "from_visit": str(row["from_visit"] or ""),
@@ -133,4 +141,74 @@ class ChromeHistoryReader:
                     "domain": normalize_domain(url),
                 }
             )
-        return visits
+        return self._aggregate_visits(visits)
+
+    def _aggregate_visits(self, visits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not visits:
+            return []
+
+        aggregated: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+        for visit in visits:
+            if current is None:
+                current = self._new_group(visit)
+                continue
+            if should_merge_visit(current, visit):
+                current = self._merge_group(current, visit)
+                continue
+            aggregated.append(current)
+            current = self._new_group(visit)
+
+        if current is not None:
+            aggregated.append(current)
+        return aggregated
+
+    def _new_group(self, visit: dict[str, Any]) -> dict[str, Any]:
+        visit_id = str(visit.get("visit_id") or "")
+        item = dict(visit)
+        item.update(
+            {
+                "source_item_id": visit_id,
+                "first_visit_id": visit_id,
+                "last_visit_id": visit_id,
+                "merged_visit_count": 1,
+                "burst_start_time": float(visit.get("visit_time") or 0.0),
+                "burst_end_time": float(visit.get("visit_time") or 0.0),
+            }
+        )
+        if item.get("canonical_url"):
+            item["url"] = item["canonical_url"]
+        return item
+
+    def _merge_group(self, current: dict[str, Any], visit: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(current)
+        first_visit_id = str(current.get("first_visit_id") or current.get("visit_id") or "")
+        last_visit_id = str(visit.get("visit_id") or current.get("last_visit_id") or "")
+        merged_visit_count = int(current.get("merged_visit_count") or 1) + 1
+        visit_time = float(visit.get("visit_time") or current.get("visit_time") or 0.0)
+        merged.update(
+            {
+                "source_item_id": f"{first_visit_id}-{last_visit_id}",
+                "visit_id": last_visit_id,
+                "last_visit_id": last_visit_id,
+                "merged_visit_count": merged_visit_count,
+                "burst_end_time": visit_time,
+                "visit_time": visit_time,
+                "visit_count": max(
+                    int(current.get("visit_count") or 0),
+                    int(visit.get("visit_count") or 0),
+                ),
+                "from_visit": str(visit.get("from_visit") or current.get("from_visit") or ""),
+                "transition": str(visit.get("transition") or current.get("transition") or ""),
+                "title": str(visit.get("title") or current.get("title") or ""),
+                "normalized_title": str(
+                    visit.get("normalized_title")
+                    or current.get("normalized_title")
+                    or ""
+                ),
+                "canonical_url": str(visit.get("canonical_url") or current.get("canonical_url") or ""),
+            }
+        )
+        if merged.get("canonical_url"):
+            merged["url"] = merged["canonical_url"]
+        return merged

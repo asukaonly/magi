@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 WINDOWS_TO_UNIX_EPOCH_SECONDS = 11644473600
+BURST_WINDOW_SECONDS = 45.0
 NOISE_PATH_TOKENS = (
     "login",
     "signin",
@@ -35,6 +36,12 @@ def chrome_time_to_unix_seconds(value: int | float | str | None) -> float:
     return max(0.0, (numeric / 1_000_000.0) - WINDOWS_TO_UNIX_EPOCH_SECONDS)
 
 
+def normalize_title(value: str | None) -> str:
+    """Return a whitespace-normalized title string."""
+
+    return " ".join(str(value or "").split()).strip()
+
+
 def normalize_domain(url: str) -> str:
     """Return a normalized hostname for a URL."""
 
@@ -43,6 +50,24 @@ def normalize_domain(url: str) -> str:
     if hostname.startswith("www."):
         return hostname[4:]
     return hostname
+
+
+def canonicalize_url(url: str) -> str:
+    """Return a stable URL used for display and burst grouping.
+
+    The canonical form intentionally drops fragments so client-side state churn
+    does not create a new timeline item for every in-page update.
+    """
+
+    parsed = urlparse(str(url or "").strip())
+    hostname = normalize_domain(url)
+    if not hostname:
+        return str(url or "").strip()
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip("/") or "/"
+    query = parsed.query
+    return urlunparse(("https", hostname, path, "", query, ""))
 
 
 def site_node_id(domain: str) -> str:
@@ -68,9 +93,12 @@ def is_noise_visit(item: dict[str, Any]) -> bool:
 def should_mark_viewed(item: dict[str, Any]) -> bool:
     """Return whether a visit should be promoted from VISITED to VIEWED."""
 
-    url = str(item.get("url") or "")
-    title = str(item.get("title") or "").strip()
-    visit_count = int(item.get("visit_count") or 0)
+    url = str(item.get("canonical_url") or item.get("url") or "")
+    title = normalize_title(str(item.get("title") or ""))
+    visit_count = max(
+        int(item.get("visit_count") or 0),
+        int(item.get("merged_visit_count") or 0),
+    )
     parsed = urlparse(url)
     path = parsed.path.strip("/")
     if is_noise_visit(item):
@@ -119,3 +147,30 @@ def build_relation_candidates(item: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return candidates
+
+
+def should_merge_visit(
+    current: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    burst_window_seconds: float = BURST_WINDOW_SECONDS,
+) -> bool:
+    """Return whether two visits should collapse into one timeline item."""
+
+    current_key = str(current.get("canonical_url") or "")
+    candidate_key = str(candidate.get("canonical_url") or "")
+    if not current_key or current_key != candidate_key:
+        return False
+    current_domain = str(current.get("domain") or "")
+    candidate_domain = str(candidate.get("domain") or "")
+    if current_domain != candidate_domain:
+        return False
+    current_time = float(current.get("visit_time") or 0.0)
+    candidate_time = float(candidate.get("visit_time") or 0.0)
+    if candidate_time - current_time > burst_window_seconds:
+        return False
+    current_title = normalize_title(current.get("title"))
+    candidate_title = normalize_title(candidate.get("title"))
+    if current_title and candidate_title and current_title != candidate_title:
+        return False
+    return True

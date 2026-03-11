@@ -42,7 +42,7 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
         self._reader = reader or ChromeHistoryReader()
 
     def source_item_identity(self, item: dict[str, Any]) -> str:
-        return str(item.get("visit_id") or "")
+        return str(item.get("source_item_id") or item.get("visit_id") or "")
 
     def source_item_version_fingerprint(self, item: dict[str, Any]) -> str:
         return "|".join(
@@ -69,19 +69,32 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
             last_cursor=context.last_cursor,
             lookback_hours=max(1, lookback_hours),
         )
-        next_cursor = items[-1]["visit_id"] if items else context.last_cursor
-        watermark_ts = float(items[-1]["visit_time"]) if items else context.last_success_at
+        next_cursor = context.last_cursor
+        watermark_ts = context.last_success_at
+        if items:
+            raw_max_visit_id = max(
+                int(item.get("last_visit_id") or item.get("visit_id") or 0)
+                for item in items
+            )
+            next_cursor = str(raw_max_visit_id) if raw_max_visit_id > 0 else context.last_cursor
+            watermark_ts = max(float(item.get("visit_time") or 0.0) for item in items)
         return SensorSyncResult(
             items=items,
             next_cursor=str(next_cursor) if next_cursor else None,
             watermark_ts=watermark_ts,
-            stats={"count": len(items), "profile": profile},
+            stats={
+                "count": len(items),
+                "profile": profile,
+                "raw_count": sum(int(item.get("merged_visit_count") or 1) for item in items),
+            },
         )
 
     async def build_timeline_event(self, item: dict[str, Any]) -> TimelineEvent:
-        url = str(item.get("url") or "")
+        url = str(item.get("canonical_url") or item.get("url") or "")
         title = str(item.get("title") or item.get("domain") or url or "Visited page")
         domain = str(item.get("domain") or normalize_domain(url))
+        merged_visit_count = max(1, int(item.get("merged_visit_count") or 1))
+        summary = title if merged_visit_count == 1 else f"{title} ({merged_visit_count} visits)"
         content_blocks = [
             TimelineContentBlock(kind="text", value=url),
         ]
@@ -92,7 +105,7 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
         return self._build_event(
             source_item_id=self.source_item_identity(item),
             title=title,
-            summary=title,
+            summary=summary,
             occurred_at=float(item.get("visit_time") or 0.0),
             content_blocks=content_blocks,
             tags=[tag for tag in ("chrome_history", "browser_history", domain) if tag],
@@ -101,9 +114,13 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
                 "browser": "chrome",
                 "profile": str(item.get("profile") or self.profile),
                 "visit_id": str(item.get("visit_id") or ""),
+                "first_visit_id": str(item.get("first_visit_id") or item.get("visit_id") or ""),
+                "last_visit_id": str(item.get("last_visit_id") or item.get("visit_id") or ""),
+                "merged_visit_count": merged_visit_count,
                 "domain": domain,
                 "from_visit": str(item.get("from_visit") or ""),
                 "transition": str(item.get("transition") or ""),
+                "canonical_url": url,
             },
         )
 

@@ -86,6 +86,86 @@ def _create_history_db(root: Path) -> Path:
     return root
 
 
+def _create_bursty_history_db(root: Path) -> Path:
+    profile_dir = root / "Default"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    db_path = profile_dir / "History"
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE urls (
+                id INTEGER PRIMARY KEY,
+                url TEXT,
+                title TEXT,
+                visit_count INTEGER DEFAULT 0
+            );
+            CREATE TABLE visits (
+                id INTEGER PRIMARY KEY,
+                url INTEGER,
+                visit_time INTEGER,
+                from_visit INTEGER DEFAULT 0,
+                transition INTEGER DEFAULT 0
+            );
+            """
+        )
+        rows = [
+            (
+                1,
+                "https://mermaid.live/edit#pako:first",
+                "Online FlowChart & Diagrams Editor - Mermaid Live Editor",
+                8,
+                201,
+                13285468800000000,
+            ),
+            (
+                2,
+                "https://mermaid.live/edit#pako:second",
+                "Online FlowChart & Diagrams Editor - Mermaid Live Editor",
+                8,
+                202,
+                13285468815000000,
+            ),
+            (
+                3,
+                "https://mermaid.live/edit#pako:third",
+                "Online FlowChart & Diagrams Editor - Mermaid Live Editor",
+                8,
+                203,
+                13285468830000000,
+            ),
+            (
+                4,
+                "http://www.last.fm/music/Radiohead",
+                "Radiohead | Last.fm",
+                5,
+                204,
+                13285469400000000,
+            ),
+            (
+                5,
+                "https://last.fm/music/Radiohead/",
+                "Radiohead | Last.fm",
+                5,
+                205,
+                13285469420000000,
+            ),
+        ]
+        for url_id, url, title, visit_count, visit_id, visit_time in rows:
+            connection.execute(
+                "INSERT INTO urls (id, url, title, visit_count) VALUES (?, ?, ?, ?)",
+                (url_id, url, title, visit_count),
+            )
+            connection.execute(
+                "INSERT INTO visits (id, url, visit_time, from_visit, transition) VALUES (?, ?, ?, ?, ?)",
+                (visit_id, url_id, visit_time, max(0, visit_id - 1), 0),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+    return root
+
+
 def _plugin_root() -> Path:
     return Path(__file__).resolve().parents[2] / "plugins"
 
@@ -203,3 +283,76 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     assert [candidate["predicate"] for candidate in content_relations["relation_candidates"]] == ["VISITED", "VIEWED"]
     assert [candidate["predicate"] for candidate in noise_relations["relation_candidates"]] == ["VISITED"]
     assert all(candidate["object_id"] == "site:github.com" for candidate in content_relations["relation_candidates"])
+
+
+@pytest.mark.asyncio
+async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    chrome_root = _create_bursty_history_db(tmp_path / "chrome-bursty")
+    config = AppConfig()
+    config.plugins.packages["chrome-history"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="builtin",
+        settings={
+            "sensors": {
+                "chrome_history": {
+                    "enabled": True,
+                    "source_path": str(chrome_root),
+                    "profile": "Default",
+                    "sync_mode": "manual",
+                    "sync_interval_minutes": 30,
+                    "lookback_hours": 48,
+                    "max_items_per_sync": 50,
+                    "fetch_page_content": False,
+                    "edge_whitelist": ["VISITED", "VIEWED"],
+                }
+            }
+        },
+    )
+    manager, sensor_registry = _build_manager(monkeypatch, config)
+    manager.scan(persist_discovery=False)
+    manager.activate_enabled_plugins()
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    assert resolved is not None
+    _, _, sensor, _ = resolved
+
+    result = await sensor.collect_items(
+        SensorSyncContext(
+            source_type="chrome_history",
+            manual=True,
+            last_cursor=None,
+            last_success_at=None,
+            limit=50,
+            runtime_paths=Runtimepaths(tmp_path / "runtime-bursty"),
+            plugin_settings=config.plugins.packages["chrome-history"].settings,
+        )
+    )
+
+    assert len(result.items) == 2
+    assert result.next_cursor == "205"
+    assert result.stats["raw_count"] == 5
+
+    mermaid_item = result.items[0]
+    lastfm_item = result.items[1]
+
+    assert mermaid_item["source_item_id"] == "201-203"
+    assert mermaid_item["merged_visit_count"] == 3
+    assert mermaid_item["url"] == "https://mermaid.live/edit"
+    assert mermaid_item["canonical_url"] == "https://mermaid.live/edit"
+
+    mermaid_event = await sensor.build_timeline_event(mermaid_item)
+    assert mermaid_event.event_id == "chrome_history:201-203"
+    assert mermaid_event.summary.endswith("(3 visits)")
+    assert mermaid_event.provenance["merged_visit_count"] == 3
+    assert mermaid_event.provenance["canonical_url"] == "https://mermaid.live/edit"
+
+    mermaid_relations = await sensor.extract_candidates(mermaid_item)
+    assert [candidate["predicate"] for candidate in mermaid_relations["relation_candidates"]] == ["VISITED", "VIEWED"]
+    assert all(candidate["object_id"] == "site:mermaid.live" for candidate in mermaid_relations["relation_candidates"])
+
+    assert lastfm_item["source_item_id"] == "204-205"
+    assert lastfm_item["merged_visit_count"] == 2
+    assert lastfm_item["url"] == "https://last.fm/music/Radiohead"
