@@ -157,8 +157,12 @@ const timelineSourceFixture = {
   source_path: '/tmp/browser-history',
   fetch_page_content: false,
   edge_whitelist: ['VIEWED', 'VISITED', 'CARES_ABOUT', 'LIKES'],
+  supports_pull_sync: true,
   last_error: 'Permission denied',
   last_success: null,
+  last_sync_at: '2026-03-11T09:00:00Z',
+  next_run_at: '2026-03-11T09:30:00Z',
+  scheduler_job_id: 'timeline-browser-history',
   runtime_base_dir: '/tmp/magi-runtime',
 };
 
@@ -403,14 +407,15 @@ describe('settings page save behavior', () => {
 
     await screen.findByText('settings.title');
     await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
-    await screen.findByText('settings.timeline.title');
+    await screen.findByTestId('timeline-overview');
+    await user.click(await screen.findByTestId('timeline-nav-source-browser_history'));
 
-    const browserCard = await screen.findByTestId('timeline-source-browser_history');
+    const browserPanel = await screen.findByTestId('timeline-source-detail-browser_history');
 
-    fireEvent.change(within(browserCard).getByLabelText('Sync Interval (minutes)'), {
+    fireEvent.change(within(browserPanel).getByLabelText('Sync Interval (minutes)'), {
       target: { value: '45' },
     });
-    await user.click(within(browserCard).getByRole('switch', { name: 'Fetch Page Content' }));
+    await user.click(within(browserPanel).getByRole('switch', { name: 'Fetch Page Content' }));
 
     await act(async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 500));
@@ -437,14 +442,15 @@ describe('settings page save behavior', () => {
 
     await screen.findByText('settings.title');
     await user.click(screen.getByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-browser_history'));
 
-    const browserCard = await screen.findByTestId('timeline-source-browser_history');
+    const browserPanel = await screen.findByTestId('timeline-source-detail-browser_history');
 
-    expect(await within(browserCard).findByText('Permission denied')).toBeInTheDocument();
-    expect(within(browserCard).getByLabelText('Edge Whitelist')).toHaveValue(
+    expect(await within(browserPanel).findByText('Permission denied')).toBeInTheDocument();
+    expect(within(browserPanel).getByLabelText('Edge Whitelist')).toHaveValue(
       'VIEWED, VISITED, CARES_ABOUT, LIKES'
     );
-    expect(within(browserCard).getByLabelText('Source Path')).toHaveValue(
+    expect(within(browserPanel).getByLabelText('Source Path')).toHaveValue(
       '/tmp/browser-history'
     );
   });

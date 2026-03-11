@@ -369,9 +369,38 @@
     "timeline": {
       "title": "时间线与来源",
       "desc": "控制哪些来源参与时间线，以及 Magi 为每类来源保留多少原始上下文。",
+      "nav": {
+        "overview": "总览"
+      },
       "overview": {
         "title": "时间线运行配置",
         "desc": "先确定全局接入行为，再逐个调整下方的来源卡片。"
+      },
+      "workspace": {
+        "eyebrow": "时间线控制台",
+        "desc": "先在总览里把握整体接入状态，再只在需要时进入具体来源页面，不再让所有传感器字段挤在同一张长页面里。",
+        "metrics": {
+          "total": "来源总数",
+          "active": "当前启用",
+          "pull": "支持拉取同步"
+        },
+        "directoryTitle": "来源目录",
+        "directoryDesc": "打开单个来源查看它的运行状态、同步控制和声明式设置，不必再滚完整个来源列表。",
+        "healthTitle": "健康快照",
+        "healthDesc": "快速看清哪些来源状态正常，哪些来源需要处理。",
+        "empty": "当前还没有注册任何时间线来源。",
+        "lastSync": "最近同步于 {{time}}",
+        "backToOverview": "返回总览",
+        "sourceStatusTitle": "运行状态",
+        "sourceStatusDesc": "查看当前来源的运行健康度、下次执行时间和拉取同步能力。",
+        "nextRun": "下次执行",
+        "lastSyncLabel": "最近同步",
+        "triggerMode": "触发方式",
+        "pullSupport": "拉取同步",
+        "available": "可用",
+        "notAvailable": "不可用",
+        "configurationTitle": "来源配置",
+        "configurationDesc": "这些声明式字段会回写到插件配置，并由调度器和运行时消费。"
       },
       "fields": {
         "timelineEnabled": "启用时间线",
@@ -416,6 +445,7 @@
         "loading": "正在加载来源状态..."
       },
       "actions": {
+        "refresh": "刷新状态",
         "syncNow": "立即同步"
       },
       "syncQueued": "{{source}} 已进入同步队列",

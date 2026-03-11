@@ -369,9 +369,38 @@
     "timeline": {
       "title": "Timeline & Sources",
       "desc": "Control which sources feed the timeline and how much raw context Magi keeps for each one.",
+      "nav": {
+        "overview": "Overview"
+      },
       "overview": {
         "title": "Timeline runtime",
         "desc": "Set global ingestion behavior first, then tune each source card below."
+      },
+      "workspace": {
+        "eyebrow": "Timeline control room",
+        "desc": "Keep the overall ingestion posture visible at a glance, then drill into each sensor only when you need to adjust source-specific behavior.",
+        "metrics": {
+          "total": "Total sources",
+          "active": "Active now",
+          "pull": "Pull sync ready"
+        },
+        "directoryTitle": "Source directory",
+        "directoryDesc": "Open an individual source to inspect its runtime state, sync controls, and declarative settings without scrolling through every connector at once.",
+        "healthTitle": "Health snapshot",
+        "healthDesc": "A compact read on which sources are ready and which ones need attention.",
+        "empty": "No timeline sources are registered yet.",
+        "lastSync": "Last synced {{time}}",
+        "backToOverview": "Back to overview",
+        "sourceStatusTitle": "Runtime status",
+        "sourceStatusDesc": "Operational health, next run timing, and pull-sync capability for the selected source.",
+        "nextRun": "Next run",
+        "lastSyncLabel": "Last sync",
+        "triggerMode": "Trigger mode",
+        "pullSupport": "Pull sync",
+        "available": "Available",
+        "notAvailable": "Not available",
+        "configurationTitle": "Source configuration",
+        "configurationDesc": "These declarative fields are saved back to the plugin package and applied by the scheduler/runtime."
       },
       "fields": {
         "timelineEnabled": "Timeline enabled",
@@ -416,6 +445,7 @@
         "loading": "Loading source status..."
       },
       "actions": {
+        "refresh": "Refresh status",
         "syncNow": "Sync now"
       },
       "syncQueued": "{{source}} sync queued",

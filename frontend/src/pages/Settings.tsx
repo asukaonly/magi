@@ -27,6 +27,7 @@ import { LLMUsageSection } from '@/components/settings/LLMUsageSection';
 import ActionsSection from '@/components/settings/ActionsSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
+import { timelineApi, type TimelineSourceStatusItem } from '@/api/modules/timeline';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -119,6 +120,9 @@ export const SettingsPage: React.FC = () => {
   const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [timelineStatuses, setTimelineStatuses] = useState<TimelineSourceStatusItem[]>([]);
+  const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
+  const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
   const hasLoadedConfigRef = useRef(false);
   const lastSavedNonLlmSnapshotRef = useRef(serializeConfigWithoutLlm(DEFAULT_SYSTEM_CONFIG));
   const autoSaveRequestIdRef = useRef(0);
@@ -126,6 +130,7 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     void fetchConfig();
     void fetchInstalledModels();
+    void fetchTimelineStatuses();
   }, []);
 
   const patchConfig = (updater: (draft: SystemConfig) => void) => {
@@ -160,6 +165,25 @@ export const SettingsPage: React.FC = () => {
       setInstalledModels([]);
     }
   };
+
+  const fetchTimelineStatuses = async () => {
+    setTimelineStatusesLoading(true);
+    try {
+      const response = await timelineApi.getSourceStatus();
+      setTimelineStatuses(response.sources || []);
+    } catch (error: any) {
+      toast.error(t('settings.timeline.errors.statusLoadFailed', { message: error?.message || 'unknown' }));
+      setTimelineStatuses([]);
+    } finally {
+      setTimelineStatusesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (timelineSelection && !timelineStatuses.some((source) => source.source_name === timelineSelection)) {
+      setTimelineSelection(null);
+    }
+  }, [timelineSelection, timelineStatuses]);
 
   const handleSaveLlm = async () => {
     try {
@@ -485,6 +509,11 @@ export const SettingsPage: React.FC = () => {
           <TimelineSourcesSection
             value={config.timeline}
             userMode={config.preferences.user_mode}
+            statuses={timelineStatuses}
+            loadingStatus={timelineStatusesLoading}
+            selectedSourceName={timelineSelection}
+            onSelectSource={setTimelineSelection}
+            onRefreshSources={fetchTimelineStatuses}
             onChange={(updater) => patchConfig((draft) => {
               updater(draft.timeline);
             })}
@@ -609,24 +638,74 @@ export const SettingsPage: React.FC = () => {
               const Icon = item.icon;
               const isActive = activeSection === item.id;
               return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveSection(item.id)}
-                  aria-current={isActive ? 'page' : undefined}
-                  aria-label={t(`settings.tabs.${item.id}`)}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                    isActive
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  )}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Icon className="h-4 w-4" />
-                    <span>{t(`settings.tabs.${item.id}`)}</span>
-                  </div>
-                  {isActive && <ChevronRight className="h-4 w-4" />}
-                </button>
+                <div key={item.id} className="space-y-1">
+                  <button
+                    onClick={() => {
+                      setActiveSection(item.id);
+                      if (item.id === 'timeline') {
+                        setTimelineSelection(null);
+                        void fetchTimelineStatuses();
+                      }
+                    }}
+                    aria-current={isActive ? 'page' : undefined}
+                    aria-label={t(`settings.tabs.${item.id}`)}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                      isActive
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Icon className="h-4 w-4" />
+                      <span>{t(`settings.tabs.${item.id}`)}</span>
+                    </div>
+                    {isActive && <ChevronRight className="h-4 w-4" />}
+                  </button>
+
+                  {item.id === 'timeline' && isActive ? (
+                    <div className="space-y-1 pl-3">
+                      <button
+                        type="button"
+                        onClick={() => setTimelineSelection(null)}
+                        data-testid="timeline-nav-overview"
+                        aria-current={timelineSelection === null ? 'page' : undefined}
+                        className={cn(
+                          'flex w-full items-center rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                          timelineSelection === null
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+                        )}
+                      >
+                        {t('settings.timeline.nav.overview')}
+                      </button>
+
+                      {timelineStatuses.map((source) => {
+                        const isSelected = timelineSelection === source.source_name;
+                        return (
+                          <button
+                            key={source.source_name}
+                            type="button"
+                            onClick={() => setTimelineSelection(source.source_name)}
+                            data-testid={`timeline-nav-source-${source.source_name}`}
+                            aria-current={isSelected ? 'page' : undefined}
+                            className={cn(
+                              'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                              isSelected
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+                            )}
+                          >
+                            <span className="truncate">{source.display_name}</span>
+                            {source.last_error ? (
+                              <span className="ml-auto h-2 w-2 rounded-full bg-destructive" aria-hidden="true" />
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
           </div>

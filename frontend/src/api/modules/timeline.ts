@@ -79,8 +79,12 @@ export interface TimelineSourceStatusItem {
   source_path?: string | null;
   fetch_page_content: boolean;
   edge_whitelist: string[];
+  supports_pull_sync: boolean;
   last_error?: string | null;
   last_success?: string | null;
+  last_sync_at?: number | string | null;
+  next_run_at?: number | string | null;
+  scheduler_job_id?: string | null;
   runtime_base_dir?: string | null;
 }
 
