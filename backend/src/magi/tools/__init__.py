@@ -42,29 +42,6 @@ from ..skills.loader import SkillLoader
 from ..skills.executor import SkillExecutor
 from ..skills.schema import SkillMetadata, SkillContent, SkillResult
 
-# Register all built-in tools
-_builtin_tools = [
-    BashTool,
-    FileReadTool,
-    FileWriteTool,
-    FileEditTool,
-    GrepTool,
-    GlobTool,
-    CapabilitiesTool,
-    WebSearchTool,
-    WebFetchTool,
-    WeatherTool,
-    SystemSettingsTool,
-    AgentTool,
-]
-
-for tool_class in _builtin_tools:
-    try:
-        tool_registry.register(tool_class)
-    except Exception as e:
-        import logging
-        logging.ERROR(f"Failed to register tool {tool_class.__name__}: {e}")
-
 __all__ = [
     # Base classes
     "Tool",

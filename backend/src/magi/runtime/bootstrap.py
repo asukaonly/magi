@@ -32,6 +32,7 @@ from ..memory.integration import MemoryIntegrationModule, MemoryIntegrationConfi
 from ..memory.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
 from ..llm import create_llm_adapter, get_llm_usage_store
 from ..llm.usage_events import configure_llm_usage_event_publisher
+from ..plugins import initialize_plugin_manager
 from ..timeline.service import TimelineService
 from ..timeline.sensors import (
     BrowserHistoryTimelineSensor,
@@ -232,6 +233,7 @@ async def initialize_chat_agent():
         logger.info("Database initialization completed")
 
         llm_adapter = _create_llm_adapter(config)
+        initialize_plugin_manager(force=True)
 
         # Ensure built-in tools are loaded and inject runtime dependencies for agent tool.
         from ..tools import tool_registry

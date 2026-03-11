@@ -71,6 +71,7 @@ from .models import (
     # Other settings
     PersonalitySettings,
     PluginSettings,
+    PluginsSettings,
 
     # Backward compatibility
     Config,
@@ -138,6 +139,7 @@ __all__ = [
     "WebSearchToolSettings",
     "PersonalitySettings",
     "PluginSettings",
+    "PluginsSettings",
 
     # Backward compatibility
     "Config",

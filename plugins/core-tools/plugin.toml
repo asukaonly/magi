@@ -1,0 +1,10 @@
+[plugin]
+id = "core-tools"
+name = "Core Tools"
+version = "1.0.0"
+description = "Official built-in tools packaged through the unified plugin runtime."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "CoreToolsPlugin"
+official = true
+contribution_types = ["tool"]

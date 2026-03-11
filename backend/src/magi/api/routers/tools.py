@@ -13,6 +13,12 @@ logger = logging.getLogger(__name__)
 tools_router = APIRouter()
 
 
+def _ensure_plugins_loaded() -> None:
+    from ...plugins import get_plugin_manager
+
+    get_plugin_manager()
+
+
 # ============ data Models ============
 
 class ToolResponse(BaseModel):
@@ -162,6 +168,7 @@ async def list_tools(
     Returns:
         Tool list
     """
+    _ensure_plugins_loaded()
     tools = list(_tools_store.values())
 
     # Filter
@@ -199,6 +206,7 @@ async def export_tools_claude_format():
         List of tool definitions in Claude tools API format
     """
     from ...tools import tool_registry
+    _ensure_plugins_loaded()
 
     claude_tools = tool_registry.export_to_claude_format()
 
@@ -222,6 +230,7 @@ async def import_tools_claude_format(tools: List[Dict[str, Any]]):
         Import result
     """
     from ...tools import tool_registry
+    _ensure_plugins_loaded()
 
     imported = []
     failed = []
@@ -424,6 +433,7 @@ async def list_tools_with_config():
         List of tools with config specs and current values
     """
     from ...tools import tool_registry
+    _ensure_plugins_loaded()
 
     tools_response = []
     tool_names = tool_registry.list_tools()
@@ -451,6 +461,7 @@ async def get_tool_config(tool_name: str):
         Tool config details
     """
     from ...tools import tool_registry
+    _ensure_plugins_loaded()
 
     tool = tool_registry.get_tool(tool_name)
     if not tool:
@@ -476,6 +487,7 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
     """
     from ...tools import tool_registry
     from ...config import save_config, reload_config
+    _ensure_plugins_loaded()
 
     tool = tool_registry.get_tool(tool_name)
     if not tool:

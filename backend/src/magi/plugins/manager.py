@@ -1,302 +1,320 @@
-"""
-plugin系统 - plugin管理器
-"""
-import asyncio
-import importlib
-import inspect
-from typing import List, Dict, Optional, Type, Any
+"""Unified plugin manager for tool, sensor, and action extensions."""
+from __future__ import annotations
+
+import importlib.util
+import logging
 from pathlib import Path
-from .base import Plugin, PluginType
+from typing import Any, Optional
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib  # type: ignore[no-redef]
+
+from ..config import get_config, save_config
+from ..config.models import PluginSettings
+from ..tools.registry import ToolRegistry
+from .actions import ActionRegistry, BaseAction
+from .base import Plugin
+from .contracts import ContributionType, PluginContribution, PluginManifest, PluginPackageState
+from .sensors import SensorRegistry, SensorSpec
+
+logger = logging.getLogger(__name__)
 
 
 class PluginManager:
-    """
-    plugin管理器
+    """Discovers plugin packages and registers enabled contributions."""
 
-    职责：
-    - loadplugin
-    - Enable/Disableplugin
-    - Execute生命period钩子
-    - 管理plugindependency
-    """
-
-    def __init__(self):
-        """initializeplugin管理器"""
-        self._plugins: Dict[str, Plugin] = {}
-        self._hooks = {
-            "before_sense": [],
-            "after_sense": [],
-            "before_plan": [],
-            "after_plan": [],
-            "before_act": [],
-            "after_act": [],
-        }
-
-    async def load_plugin(
+    def __init__(
         self,
-        plugin_class: type[Plugin],
-        config: Optional[Dict] = None,
-    ) -> Plugin:
-        """
-        loadplugin
+        *,
+        tool_registry: ToolRegistry,
+        sensor_registry: SensorRegistry,
+        action_registry: ActionRegistry,
+        search_paths: list[Path],
+    ) -> None:
+        self._tool_registry = tool_registry
+        self._sensor_registry = sensor_registry
+        self._action_registry = action_registry
+        self._search_paths = list(search_paths)
+        self._package_states: dict[str, PluginPackageState] = {}
+        self._plugin_instances: dict[str, Plugin] = {}
+        self._registered_tools: dict[str, list[str]] = {}
+        self._registered_sensors: dict[str, list[str]] = {}
+        self._registered_actions: dict[str, list[str]] = {}
 
-        Args:
-            plugin_class: pluginClass
-            config: pluginConfiguration
+    @property
+    def search_paths(self) -> list[Path]:
+        return list(self._search_paths)
 
-        Returns:
-            pluginInstance
-        """
-        # createpluginInstance
-        plugin = plugin_class()
+    def scan(self, *, persist_discovery: bool = True) -> list[PluginPackageState]:
+        """Discover plugin manifests in configured scan paths."""
 
-        # 应用Configuration
-        if config:
-            if "enabled" in config:
-                plugin.enabled = config["enabled"]
-            if "priority" in config:
-                plugin.priority = config["priority"]
+        config = get_config()
+        discovered: dict[str, PluginManifest] = {}
+        for root in self._search_paths:
+            if not root.exists():
+                continue
+            source = "builtin" if self._is_builtin_root(root) else "external"
+            for manifest_path in root.rglob("plugin.toml"):
+                manifest = self._load_manifest(manifest_path, source=source)
+                discovered[manifest.plugin_id] = manifest
 
-        # checkdependency
-        await self._check_dependencies(plugin)
+        if persist_discovery:
+            self._persist_new_packages(discovered)
+            config = get_config()
 
-        # registerplugin
-        self._plugins[plugin.name] = plugin
-
-        # register生命period钩子
-        self._register_hooks(plugin)
-
-        # 收集extension
-        await self._collect_extensions(plugin)
-
-        return plugin
-
-    async def load_plugin_from_module(
-        self,
-        module_path: str,
-        class_name: str,
-        config: Optional[Dict] = None,
-    ) -> Plugin:
-        """
-        从moduleloadplugin
-
-        Args:
-            module_path: modulepath（如 "my_plugin"）
-            class_name: Class名（如 "MyPlugin"）
-            config: pluginConfiguration
-
-        Returns:
-            pluginInstance
-        """
-        # dynamicimportmodule
-        module = importlib.import_module(module_path)
-
-        # getpluginClass
-        plugin_class = getattr(module, class_name)
-
-        # ValidateisPlugin子Class
-        if not issubclass(plugin_class, Plugin):
-            raise TypeError(f"{class_name} is not a subclass of Plugin")
-
-        # loadplugin
-        return await self.load_plugin(plugin_class, config)
-
-    async def unload_plugin(self, plugin_name: str) -> bool:
-        """
-        uninstallplugin
-
-        Args:
-            plugin_name: pluginName
-
-        Returns:
-            is notsuccessuninstall
-        """
-        if plugin_name not in self._plugins:
-            return False
-
-        plugin = self._plugins[plugin_name]
-
-        # checkdependency
-        dependent_plugins = self._get_dependents(plugin_name)
-        if dependent_plugins:
-            raise RuntimeError(
-                f"Cannot unload plugin {plugin_name}: "
-                f"required by {', '.join(dependent_plugins)}"
+        next_states: dict[str, PluginPackageState] = {}
+        for plugin_id, manifest in discovered.items():
+            package_cfg = self._coerce_package_settings(config.plugins.packages.get(plugin_id))
+            enabled = bool(package_cfg.enabled) if package_cfg is not None else False
+            trusted = bool(package_cfg.trusted) if package_cfg is not None else False
+            current_settings = dict(package_cfg.settings) if package_cfg is not None else {}
+            previous_state = self._package_states.get(plugin_id)
+            next_states[plugin_id] = PluginPackageState(
+                manifest=manifest,
+                enabled=enabled,
+                trusted=trusted,
+                loaded=bool(previous_state.loaded) if previous_state is not None else False,
+                healthy=bool(previous_state.healthy) if previous_state is not None else True,
+                last_error=previous_state.last_error if previous_state is not None else None,
+                contributions=list(previous_state.contributions) if previous_state is not None else self._placeholder_contributions(manifest),
+                current_settings=current_settings,
             )
+        self._package_states = next_states
+        return self.list_packages()
 
-        # deregister钩子
-        self._unregister_hooks(plugin)
+    def activate_enabled_plugins(self) -> None:
+        """Load every enabled and trusted plugin package."""
 
-        # Removeplugin
-        del self._plugins[plugin_name]
+        for state in self.list_packages():
+            if state.enabled:
+                self.load_plugin(state.manifest.plugin_id)
 
-        return True
+    def list_packages(self) -> list[PluginPackageState]:
+        return sorted(self._package_states.values(), key=lambda item: item.manifest.plugin_id)
 
-    def get_plugin(self, name: str) -> Optional[Plugin]:
-        """
-        getplugin
+    def get_package(self, plugin_id: str) -> Optional[PluginPackageState]:
+        return self._package_states.get(plugin_id)
 
-        Args:
-            name: pluginName
+    def load_plugin(self, plugin_id: str) -> PluginPackageState:
+        """Load a plugin and register all of its contributions."""
 
-        Returns:
-            pluginInstance或None
-        """
-        return self._plugins.get(name)
+        state = self._require_package(plugin_id)
+        if state.loaded:
+            return state
+        if not state.trusted and state.manifest.source != "builtin":
+            raise RuntimeError(f"Plugin {plugin_id} must be trusted before loading")
 
-    def list_plugins(self) -> List[Plugin]:
-        """
-        column出allplugin
+        plugin_instance = self._instantiate_plugin(state.manifest, state.current_settings)
+        registered_contributions: list[PluginContribution] = []
+        try:
+            tool_names: list[str] = []
+            for tool_class in plugin_instance.get_tools():
+                tool_instance = tool_class()
+                tool_name = tool_instance.get_schema().name
+                setattr(tool_class, "_plugin_package_id", plugin_id)
+                self._tool_registry.register(tool_class)
+                tool_names.append(tool_name)
+                registered_contributions.append(
+                    PluginContribution(
+                        plugin_id=plugin_id,
+                        contribution_id=tool_name,
+                        contribution_type=ContributionType.TOOL,
+                        display_name=tool_instance.get_schema().name,
+                        description=tool_instance.get_schema().description,
+                        surface="tools",
+                    )
+                )
+            self._registered_tools[plugin_id] = tool_names
 
-        Returns:
-            pluginlist（按prioritysort）
-        """
-        return sorted(
-            self._plugins.values(),
-            key=lambda p: p.priority,
-            reverse=True,
+            sensor_ids: list[str] = []
+            for sensor_id, sensor, spec in plugin_instance.get_sensors():
+                self._sensor_registry.register(plugin_id, sensor_id, sensor, spec)
+                sensor_ids.append(sensor_id)
+                registered_contributions.append(
+                    PluginContribution(
+                        plugin_id=plugin_id,
+                        contribution_id=sensor_id,
+                        contribution_type=ContributionType.SENSOR,
+                        display_name=spec.display_name,
+                        description=spec.description,
+                        surface=spec.surface if spec.surface in {"extensions", "tools", "timeline", "actions"} else "extensions",
+                        fields=list(spec.fields),
+                        metadata={"domain": spec.domain, **dict(spec.metadata)},
+                    )
+                )
+            self._registered_sensors[plugin_id] = sensor_ids
+
+            action_ids: list[str] = []
+            for action in plugin_instance.get_actions():
+                if not isinstance(action, BaseAction):
+                    continue
+                self._action_registry.register(plugin_id, action)
+                action_ids.append(action.spec.action_id)
+            self._registered_actions[plugin_id] = action_ids
+            registered_contributions.extend(self._action_registry.list_contributions(plugin_id))
+
+            state.loaded = True
+            state.healthy = True
+            state.last_error = None
+            state.contributions = registered_contributions
+            self._plugin_instances[plugin_id] = plugin_instance
+            return state
+        except Exception as exc:
+            state.loaded = False
+            state.healthy = False
+            state.last_error = str(exc)
+            self.unload_plugin(plugin_id)
+            raise
+
+    def unload_plugin(self, plugin_id: str) -> None:
+        """Unload a plugin and unregister its contributions."""
+
+        for tool_name in self._registered_tools.pop(plugin_id, []):
+            self._tool_registry.unregister(tool_name)
+        for sensor_id in self._registered_sensors.pop(plugin_id, []):
+            self._sensor_registry.unregister(sensor_id)
+        for action_id in self._registered_actions.pop(plugin_id, []):
+            self._action_registry.unregister(action_id)
+        self._plugin_instances.pop(plugin_id, None)
+        state = self._package_states.get(plugin_id)
+        if state is not None:
+            state.loaded = False
+            state.contributions = self._placeholder_contributions(state.manifest)
+
+    def enable_plugin(self, plugin_id: str) -> PluginPackageState:
+        """Persist enable/trust state and load the plugin."""
+
+        state = self._require_package(plugin_id)
+        save_config(
+            {
+                f"plugins.packages.{plugin_id}.enabled": True,
+                f"plugins.packages.{plugin_id}.trusted": True,
+                f"plugins.packages.{plugin_id}.source": state.manifest.source,
+                f"plugins.packages.{plugin_id}.manifest_path": state.manifest.manifest_path,
+            }
         )
+        self.scan(persist_discovery=False)
+        return self.load_plugin(plugin_id)
 
-    async def execute_hooks(
-        self,
-        hook_name: str,
-        *args,
-        **kwargs
-    ) -> Any:
-        """
-        Execute生命period钩子
+    def disable_plugin(self, plugin_id: str) -> PluginPackageState:
+        """Persist disabled state and unregister plugin contributions."""
 
-        Args:
-            hook_name: 钩子Name
-            *args: positionParameter
-            **kwargs: 关key字Parameter
+        state = self._require_package(plugin_id)
+        self.unload_plugin(plugin_id)
+        save_config({f"plugins.packages.{plugin_id}.enabled": False})
+        self.scan(persist_discovery=False)
+        return self._require_package(plugin_id)
 
-        Returns:
-            Execution result
-        """
-        if hook_name not in self._hooks:
-            raise ValueError(f"Unknotttwn hook: {hook_name}")
+    def reload_plugin(self, plugin_id: str) -> PluginPackageState:
+        """Reload a single plugin package."""
 
-        # chainpattern：顺序Execute
-        if hook_name.startswith("before_"):
-            return await self._execute_chain_hooks(hook_name, *args, **kwargs)
+        state = self._require_package(plugin_id)
+        self.unload_plugin(plugin_id)
+        if state.enabled:
+            return self.load_plugin(plugin_id)
+        return state
 
-        # Parallelpattern：concurrentExecute
-        elif hook_name.startswith("after_"):
-            return await self._execute_parallel_hooks(hook_name, *args, **kwargs)
+    def update_plugin_settings(self, plugin_id: str, updates: dict[str, Any]) -> PluginPackageState:
+        """Persist plugin settings using dot-notated keys relative to plugin settings root."""
 
-    async def _execute_chain_hooks(
-        self,
-        hook_name: str,
-        *args,
-        **kwargs
-    ) -> Any:
-        """Executechainpattern钩子（顺序）"""
-        hooks = self._hooks[hook_name]
-
-        # 按prioritysort
-        hooks = sorted(hooks, key=lambda h: h["plugin"].priority, reverse=True)
-
-        result = None
-        for hook_info in hooks:
-            plugin = hook_info["plugin"]
-            method = hook_info["method"]
-
-            if not plugin.enabled:
-                continue
-
-            try:
-                result = await method(*args, **kwargs)
-
-                # 如果ReturnNone，终止后续钩子
-                if result is None and hook_name != "after_sense":
-                    break
-
-                # updateParameter（前一个钩子的Output作为下一个的Input）
-                if len(args) > 0:
-                    args = (result,) + args[1:]
-
-            except Exception as e:
-                # error隔离：继续Executeother钩子
-                pass
-
-        return result
-
-    async def _execute_parallel_hooks(
-        self,
-        hook_name: str,
-        *args,
-        **kwargs
-    ) -> List[Any]:
-        """ExecuteParallelpattern钩子（concurrent）"""
-        hooks = self._hooks[hook_name]
-
-        # concurrentExecuteall钩子
-        tasks = []
-        for hook_info in hooks:
-            plugin = hook_info["plugin"]
-            method = hook_info["method"]
-
-            if not plugin.enabled:
-                continue
-
-            async def execute_hook():
-                try:
-                    return await method(*args, **kwargs)
-                except Exception:
-                    # error隔离
-                    return None
-
-            tasks.append(execute_hook())
-
-        # 等待all钩子complete
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        return [r for r in results if r is not None]
-
-    def _register_hooks(self, plugin: Plugin):
-        """registerplugin的生命period钩子"""
-        hook_methods = {
-            "before_sense": plugin.before_sense,
-            "after_sense": plugin.after_sense,
-            "before_plan": plugin.before_plan,
-            "after_plan": plugin.after_plan,
-            "before_act": plugin.before_act,
-            "after_act": plugin.after_act,
+        self._require_package(plugin_id)
+        save_payload = {
+            f"plugins.packages.{plugin_id}.settings.{path}": value
+            for path, value in updates.items()
         }
+        if save_payload:
+            save_config(save_payload)
+        self.scan(persist_discovery=False)
+        state = self._require_package(plugin_id)
+        if state.enabled:
+            state = self.reload_plugin(plugin_id)
+        return state
 
-        for hook_name, method in hook_methods.items():
-            # checkis not覆盖了defaultImplementation
-            if not self._is_default_implementation(method):
-                self._hooks[hook_name].append({
-                    "plugin": plugin,
-                    "method": method,
-                })
+    def _persist_new_packages(self, manifests: dict[str, PluginManifest]) -> None:
+        config = get_config()
+        updates: dict[str, Any] = {}
+        for plugin_id, manifest in manifests.items():
+            if plugin_id in config.plugins.packages:
+                continue
+            enabled = bool(manifest.official and manifest.source == "builtin")
+            trusted = enabled
+            updates[f"plugins.packages.{plugin_id}.enabled"] = enabled
+            updates[f"plugins.packages.{plugin_id}.trusted"] = trusted
+            updates[f"plugins.packages.{plugin_id}.source"] = manifest.source
+            updates[f"plugins.packages.{plugin_id}.manifest_path"] = manifest.manifest_path
+            updates[f"plugins.packages.{plugin_id}.settings"] = {}
+        if updates:
+            save_config(updates)
 
-    def _unregister_hooks(self, plugin: Plugin):
-        """deregisterplugin的生命period钩子"""
-        for hook_name in self._hooks:
-            self._hooks[hook_name] = [
-                h for h in self._hooks[hook_name]
-                if h["plugin"] != plugin
-            ]
+    def _load_manifest(self, manifest_path: Path, *, source: str) -> PluginManifest:
+        with manifest_path.open("rb") as fp:
+            raw = tomllib.load(fp)
+        plugin_block = raw.get("plugin", raw)
+        manifest = PluginManifest.model_validate(
+            {
+                **plugin_block,
+                "plugin_dir": str(manifest_path.parent),
+                "manifest_path": str(manifest_path),
+                "source": source,
+            }
+        )
+        return manifest
 
-    def _is_default_implementation(self, method) -> bool:
-        """checkis notisdefaultImplementation"""
-        # getPluginBase class的Method
-        base_method = getattr(Plugin, method.__name__)
-        return method.__func__ == base_method
+    def _instantiate_plugin(self, manifest: PluginManifest, settings: dict[str, Any]) -> Plugin:
+        module_path = Path(manifest.plugin_dir) / f"{manifest.entry_module}.py"
+        spec = importlib.util.spec_from_file_location(
+            f"magi_plugin_{manifest.plugin_id.replace('-', '_')}",
+            module_path,
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Unable to load plugin module for {manifest.plugin_id}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        plugin_class = getattr(module, manifest.entry_class)
+        plugin_instance = plugin_class()
+        if not isinstance(plugin_instance, Plugin):
+            raise TypeError(f"Plugin entrypoint {manifest.entry_class} must inherit Plugin")
+        plugin_instance.configure(manifest=manifest, settings=settings)
+        return plugin_instance
 
-    async def _check_dependencies(self, plugin: Plugin):
-        """checkplugindependency"""
-        # TODO: Implementationdependencycheck
-        pass
+    def _placeholder_contributions(self, manifest: PluginManifest) -> list[PluginContribution]:
+        return [
+            PluginContribution(
+                plugin_id=manifest.plugin_id,
+                contribution_id=f"{manifest.plugin_id}:{contribution_type.value}",
+                contribution_type=contribution_type,
+                display_name=manifest.name,
+                description=manifest.description,
+                surface={
+                    ContributionType.TOOL: "tools",
+                    ContributionType.SENSOR: "timeline",
+                    ContributionType.ACTION: "actions",
+                }[contribution_type],
+            )
+            for contribution_type in manifest.contribution_types
+        ]
 
-    def _get_dependents(self, plugin_name: str) -> List[str]:
-        """getdependency此plugin的otherplugin"""
-        # TODO: Implementationdependencyquery
-        return []
+    def _require_package(self, plugin_id: str) -> PluginPackageState:
+        state = self._package_states.get(plugin_id)
+        if state is None:
+            raise KeyError(f"Unknown plugin package: {plugin_id}")
+        return state
 
-    async def _collect_extensions(self, plugin: Plugin):
-        """收集plugin提供的extension"""
-        # TODO: 收集tools、storage、llm、sensors
-        pass
+    @staticmethod
+    def _coerce_package_settings(value: Any) -> PluginSettings | None:
+        if value is None:
+            return None
+        if isinstance(value, PluginSettings):
+            return value
+        if isinstance(value, dict):
+            return PluginSettings.model_validate(value)
+        return None
+
+    def _is_builtin_root(self, path: Path) -> bool:
+        return path == self._default_builtin_root()
+
+    @staticmethod
+    def _default_builtin_root() -> Path:
+        return Path(__file__).resolve().parents[4] / "plugins"

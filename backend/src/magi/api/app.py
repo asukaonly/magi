@@ -168,6 +168,7 @@ def _register_routes(app: FastAPI):
         others_router,
         skills_router,
         timeline_router,
+        plugins_router,
     )
 
     # registerAgent管理route
@@ -249,4 +250,10 @@ def _register_routes(app: FastAPI):
         timeline_router,
         prefix="/api/timeline",
         tags=["Timeline"],
+    )
+
+    app.include_router(
+        plugins_router,
+        prefix="/api/plugins",
+        tags=["Plugins"],
     )

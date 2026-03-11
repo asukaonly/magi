@@ -332,10 +332,38 @@ class ToolsSettings(BaseModel):
 # =============================================================================
 
 class PluginSettings(BaseModel):
-    """Plugin configuration."""
-    enabled: bool = Field(default=True)
-    priority: int = Field(default=0)
-    config: Optional[Dict[str, Any]] = Field(default=None)
+    """Per-plugin persisted runtime state."""
+
+    enabled: bool = Field(default=False)
+    trusted: bool = Field(default=False)
+    settings: Dict[str, Any] = Field(default_factory=dict)
+    source: Optional[str] = Field(default=None)
+    manifest_path: Optional[str] = Field(default=None)
+
+
+class PluginsSettings(BaseModel):
+    """Unified plugin runtime configuration."""
+
+    scan_paths: List[str] = Field(default_factory=lambda: ["plugins", "~/.magi/plugins"])
+    packages: Dict[str, PluginSettings] = Field(
+        default_factory=lambda: {
+            "core-tools": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
+            "core-timeline": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
+            "core-actions": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
+        }
+    )
 
 
 # =============================================================================
@@ -350,6 +378,7 @@ class AppConfig(BaseModel):
     features: FeatureFlags = Field(default_factory=FeatureFlags)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
     timeline: TimelineSettings = Field(default_factory=TimelineSettings)
+    plugins: PluginsSettings = Field(default_factory=PluginsSettings)
     debug: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 

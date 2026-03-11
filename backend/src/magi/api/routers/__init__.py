@@ -15,6 +15,7 @@ from .personality_presets import personality_presets_router
 from .others import others_router
 from .skills import skills_router
 from .timeline import timeline_router
+from .plugins import plugins_router
 
 __all__ = [
     "agents_router",
@@ -29,4 +30,5 @@ __all__ = [
     "others_router",
     "skills_router",
     "timeline_router",
+    "plugins_router",
 ]

@@ -126,6 +126,30 @@ tools:
         base_url: ""  # Reserved for extension
 
 # =============================================================================
+# Plugins
+# =============================================================================
+plugins:
+  scan_paths:
+    - "plugins"
+    - "~/.magi/plugins"
+  packages:
+    core-tools:
+      enabled: true
+      trusted: true
+      source: "builtin"
+      settings: {}
+    core-timeline:
+      enabled: true
+      trusted: true
+      source: "builtin"
+      settings: {}
+    core-actions:
+      enabled: true
+      trusted: true
+      source: "builtin"
+      settings: {}
+
+# =============================================================================
 # Global Settings
 # =============================================================================
 debug: false

@@ -219,6 +219,14 @@ class ConfigLoader:
                 "weather": {"enabled": True, "api_key": ""},
                 "web_search": {"enabled": True, "api_key": ""},
             },
+            "plugins": {
+                "scan_paths": ["plugins", "~/.magi/plugins"],
+                "packages": {
+                    "core-tools": {"enabled": True, "trusted": True, "source": "builtin", "settings": {}},
+                    "core-timeline": {"enabled": True, "trusted": True, "source": "builtin", "settings": {}},
+                    "core-actions": {"enabled": True, "trusted": True, "source": "builtin", "settings": {}},
+                },
+            },
             "debug": False,
             "log_level": "INFO",
         }
