@@ -5,10 +5,12 @@ from pathlib import Path
 
 import pytest
 
-# Add parent directory to sys.path to import plugins
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins"))
+# Add plugins directory to sys.path to import plugins
+_plugins_path = Path(__file__).resolve().parents[2] / "plugins"
+if str(_plugins_path) not in sys.path:
+    sys.path.insert(0, str(_plugins_path))
 
-from plugins.netease_music.normalizers import (
+from netease_music.normalizers import (
     build_netease_url,
     extract_track_info,
     parse_track_json,
@@ -17,14 +19,14 @@ from plugins.netease_music.normalizers import (
 
 def test_parse_track_json_valid_json() -> None:
     """Test parsing valid JSON string."""
-    json_str = '{"id": "123", "name": "Test Song", "duration": 180000, "ar": [{"id": "456", "name": "Test Artist"}], "al": {"id": "789", "name": "Test Album", "picUrl": "http://example.com/cover.jpg"}}'
+    json_str = '{"id": "123", "name": "Test Song", "duration": 180000, "artists": [{"id": "456", "name": "Test Artist"}], "album": {"id": "789", "name": "Test Album", "picUrl": "http://example.com/cover.jpg"}}'
     result = parse_track_json(json_str)
     assert result == {
         "id": "123",
         "name": "Test Song",
         "duration": 180000,
-        "ar": [{"id": "456", "name": "Test Artist"}],
-        "al": {"id": "789", "name": "Test Album", "picUrl": "http://example.com/cover.jpg"}
+        "artists": [{"id": "456", "name": "Test Artist"}],
+        "album": {"id": "789", "name": "Test Album", "picUrl": "http://example.com/cover.jpg"}
     }
 
 
@@ -52,8 +54,8 @@ def test_extract_track_info_full_info() -> None:
         "id": "123",
         "name": "Test Song",
         "duration": 180000,
-        "ar": [{"id": "456", "name": "Test Artist"}],
-        "al": {"id": "789", "name": "Test Album", "picUrl": "http://example.com/cover.jpg"}
+        "artists": [{"id": "456", "name": "Test Artist"}],
+        "album": {"id": "789", "name": "Test Album", "picUrl": "http://example.com/cover.jpg"}
     }
     result = extract_track_info(track_data)
     assert result == {
@@ -74,8 +76,8 @@ def test_extract_track_info_missing_artists() -> None:
         "id": "123",
         "name": "Test Song",
         "duration": 180000,
-        "ar": [],
-        "al": {"id": "789", "name": "Test Album"}
+        "artists": [],
+        "album": {"id": "789", "name": "Test Album"}
     }
     result = extract_track_info(track_data)
     assert result == {
@@ -96,8 +98,8 @@ def test_extract_track_info_missing_album() -> None:
         "id": "123",
         "name": "Test Song",
         "duration": 180000,
-        "ar": [{"id": "456", "name": "Test Artist"}],
-        "al": None
+        "artists": [{"id": "456", "name": "Test Artist"}],
+        "album": None
     }
     result = extract_track_info(track_data)
     assert result == {

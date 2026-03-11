@@ -29,13 +29,13 @@ def extract_track_info(track_data: dict[str, Any]) -> dict[str, Any]:
     }
 
     # Extract artist info
-    artists = track_data.get("ar", [])
+    artists = track_data.get("artists", [])
     if artists and len(artists) > 0:
         result["artist_id"] = artists[0].get("id")
         result["artist_name"] = artists[0].get("name")
 
     # Extract album info
-    album = track_data.get("al")
+    album = track_data.get("album")
     if album:
         result["album_id"] = album.get("id")
         result["album_name"] = album.get("name")
