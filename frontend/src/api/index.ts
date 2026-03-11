@@ -27,6 +27,7 @@ export type {
   PersonalityConfig as RuntimePersonalityConfig,
   ToolsConfig,
   MemoryLayersConfig,
+  TimelineConfig,
   OnboardingStep,
   OnboardingState,
 } from './modules/config';

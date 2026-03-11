@@ -138,6 +138,32 @@ export interface MemoryLayersConfig {
   L5: { enabled: boolean };
 }
 
+export type TimelineSyncMode = 'manual' | 'interval' | 'watch';
+export type TimelineRetentionMode = 'retain_raw' | 'analyze_only';
+export type TimelineStorageMode = 'managed' | 'external_reference';
+
+export interface TimelineSourceConfig {
+  enabled: boolean;
+  sync_mode: TimelineSyncMode;
+  sync_interval_minutes: number;
+  default_retention_mode: TimelineRetentionMode;
+  storage_mode: TimelineStorageMode;
+  source_path?: string | null;
+  fetch_page_content: boolean;
+  edge_whitelist: string[];
+}
+
+export interface TimelineConfig {
+  enabled: boolean;
+  expert_mode_edge_override: boolean;
+  sources: {
+    chat: TimelineSourceConfig;
+    manual_journal: TimelineSourceConfig;
+    browser_history: TimelineSourceConfig;
+    photo_library: TimelineSourceConfig;
+  };
+}
+
 export type OnboardingStep =
   | 'mode-selection'
   | 'language'
@@ -183,6 +209,7 @@ export interface SystemConfig {
   personality: PersonalityConfig;
   tools: ToolsConfig;
   memory_layers: MemoryLayersConfig;
+  timeline: TimelineConfig;
 }
 
 export const DEFAULT_LLM_CAPABILITIES: LLMCapabilities = {
@@ -229,6 +256,48 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     L3: { enabled: true, deployment: 'local', backend: 'sqlite_vec', modelStatus: 'not_downloaded' },
     L4: { enabled: true, summaryTypes: ['user_events'] },
     L5: { enabled: true },
+  },
+  timeline: {
+    enabled: true,
+    expert_mode_edge_override: true,
+    sources: {
+      chat: {
+        enabled: true,
+        sync_mode: 'watch',
+        sync_interval_minutes: 1,
+        default_retention_mode: 'analyze_only',
+        storage_mode: 'managed',
+        fetch_page_content: false,
+        edge_whitelist: ['MENTIONED', 'CARES_ABOUT', 'LIKES', 'DISLIKES', 'INTERACTED_WITH'],
+      },
+      manual_journal: {
+        enabled: true,
+        sync_mode: 'manual',
+        sync_interval_minutes: 1,
+        default_retention_mode: 'retain_raw',
+        storage_mode: 'managed',
+        fetch_page_content: false,
+        edge_whitelist: ['MENTIONED', 'CARES_ABOUT', 'LIKES', 'DISLIKES', 'CREATED', 'RELATED_TO'],
+      },
+      browser_history: {
+        enabled: true,
+        sync_mode: 'interval',
+        sync_interval_minutes: 30,
+        default_retention_mode: 'analyze_only',
+        storage_mode: 'managed',
+        fetch_page_content: false,
+        edge_whitelist: ['VIEWED', 'VISITED', 'CARES_ABOUT', 'LIKES'],
+      },
+      photo_library: {
+        enabled: true,
+        sync_mode: 'interval',
+        sync_interval_minutes: 60,
+        default_retention_mode: 'retain_raw',
+        storage_mode: 'external_reference',
+        fetch_page_content: false,
+        edge_whitelist: ['CAPTURED', 'RELATED_TO', 'INTERACTED_WITH', 'CREATED'],
+      },
+    },
   },
 };
 

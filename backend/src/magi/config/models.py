@@ -55,6 +55,28 @@ class EmbeddingBackend(str, Enum):
     OPENAI = "openai"
 
 
+class TimelineSyncMode(str, Enum):
+    """Timeline source sync mode."""
+
+    MANUAL = "manual"
+    INTERVAL = "interval"
+    WATCH = "watch"
+
+
+class TimelineRetentionMode(str, Enum):
+    """Timeline raw-data retention behavior."""
+
+    RETAIN_RAW = "retain_raw"
+    ANALYZE_ONLY = "analyze_only"
+
+
+class TimelineStorageMode(str, Enum):
+    """Timeline asset storage mode."""
+
+    MANAGED = "managed"
+    EXTERNAL_REFERENCE = "external_reference"
+
+
 # =============================================================================
 # LLM Configuration
 # =============================================================================
@@ -142,6 +164,65 @@ class RuntimeSettings(BaseModel):
     task_agent_manager_max_dynamic_instances: int = Field(default=100, ge=1)
     chat_history_cache_max_sessions: int = Field(default=500, ge=1)
     chat_history_fetch_limit: int = Field(default=200, ge=1)
+
+
+class TimelineSourceSettings(BaseModel):
+    """Per-source timeline ingestion settings."""
+
+    enabled: bool = Field(default=True)
+    sync_mode: TimelineSyncMode = Field(default=TimelineSyncMode.INTERVAL)
+    sync_interval_minutes: int = Field(default=15, ge=1)
+    default_retention_mode: TimelineRetentionMode = Field(default=TimelineRetentionMode.ANALYZE_ONLY)
+    storage_mode: TimelineStorageMode = Field(default=TimelineStorageMode.MANAGED)
+    source_path: Optional[str] = Field(default=None)
+    fetch_page_content: bool = Field(default=False)
+    edge_whitelist: List[str] = Field(default_factory=list)
+
+
+class TimelineSourcesSettings(BaseModel):
+    """Timeline source collection settings."""
+
+    chat: TimelineSourceSettings = Field(
+        default_factory=lambda: TimelineSourceSettings(
+            sync_mode=TimelineSyncMode.WATCH,
+            sync_interval_minutes=1,
+            default_retention_mode=TimelineRetentionMode.ANALYZE_ONLY,
+            edge_whitelist=["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "INTERACTED_WITH"],
+        )
+    )
+    manual_journal: TimelineSourceSettings = Field(
+        default_factory=lambda: TimelineSourceSettings(
+            sync_mode=TimelineSyncMode.MANUAL,
+            sync_interval_minutes=1,
+            default_retention_mode=TimelineRetentionMode.RETAIN_RAW,
+            edge_whitelist=["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"],
+        )
+    )
+    browser_history: TimelineSourceSettings = Field(
+        default_factory=lambda: TimelineSourceSettings(
+            sync_mode=TimelineSyncMode.INTERVAL,
+            sync_interval_minutes=30,
+            default_retention_mode=TimelineRetentionMode.ANALYZE_ONLY,
+            edge_whitelist=["VIEWED", "VISITED", "CARES_ABOUT", "LIKES"],
+        )
+    )
+    photo_library: TimelineSourceSettings = Field(
+        default_factory=lambda: TimelineSourceSettings(
+            sync_mode=TimelineSyncMode.INTERVAL,
+            sync_interval_minutes=60,
+            default_retention_mode=TimelineRetentionMode.RETAIN_RAW,
+            storage_mode=TimelineStorageMode.EXTERNAL_REFERENCE,
+            edge_whitelist=["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"],
+        )
+    )
+
+
+class TimelineSettings(BaseModel):
+    """Timeline domain settings."""
+
+    enabled: bool = Field(default=True)
+    expert_mode_edge_override: bool = Field(default=True)
+    sources: TimelineSourcesSettings = Field(default_factory=TimelineSourcesSettings)
 
 
 class AgentSettings(BaseModel):
@@ -268,6 +349,7 @@ class AppConfig(BaseModel):
     server: ServerSettings = Field(default_factory=ServerSettings)
     features: FeatureFlags = Field(default_factory=FeatureFlags)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
+    timeline: TimelineSettings = Field(default_factory=TimelineSettings)
     debug: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 
