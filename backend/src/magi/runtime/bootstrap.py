@@ -21,6 +21,7 @@ from ..agent.task_agents import (
     ChatTaskAgent,
     DefaultTaskAgent,
     ExploreTaskAgent,
+    TimelineTaskAgent,
 )
 from ..core.runtime.types import TaskAgentType
 from ..events.sqlite_backend import SQLiteMessageBackend
@@ -44,6 +45,11 @@ _agent_runtime: AgentRuntime | None = None
 _maintenance_daemon: MaintenanceDaemon | None = None
 _scenario_prompts_store: ScenarioPromptsStore | None = None
 _llm_usage_store = None
+
+
+async def _noop_timeline_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """Temporary timeline handler until the timeline service is wired."""
+    return payload
 
 
 @dataclass
@@ -252,6 +258,13 @@ async def initialize_chat_agent():
             create_default_agent=lambda agent_type, agent_id: (
                 ExploreTaskAgent(agent_id=agent_id, llm_adapter=llm_adapter)
                 if agent_type == TaskAgentType.EXPLORE.value
+                else TimelineTaskAgent(
+                    agent_id=agent_id,
+                    timeline_handler=_noop_timeline_handler,
+                    config=config,
+                    unified_memory=unified_memory,
+                )
+                if agent_type == TaskAgentType.TIMELINE.value
                 else DefaultTaskAgent(agent_type, agent_id)
             ),
             idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
