@@ -52,6 +52,7 @@
     },
     "sources": {
       "browser_history": "Browser history",
+      "chrome_history": "Chrome history",
       "manual_journal": "Manual journal",
       "chat": "Chat",
       "photo_library": "Photo library"

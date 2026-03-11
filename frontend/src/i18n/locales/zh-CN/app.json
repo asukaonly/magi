@@ -52,6 +52,7 @@
     },
     "sources": {
       "browser_history": "浏览记录",
+      "chrome_history": "Chrome 历史",
       "manual_journal": "手动记录",
       "chat": "对话",
       "photo_library": "照片库"

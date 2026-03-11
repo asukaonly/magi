@@ -1,15 +1,20 @@
-import React, { useEffect, useState } from 'react';
-import { CalendarRange, Filter, LayoutList, RefreshCw, ScrollText, Sparkles } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { CalendarRange, Filter, LayoutList, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
-import { timelineApi, type TimelineEventDetail, type TimelineEventRecord, type TimelineManualEntryRequest } from '@/api/modules/timeline';
+import {
+  timelineApi,
+  type TimelineEventDetail,
+  type TimelineEventRecord,
+  type TimelineManualEntryRequest,
+} from '@/api/modules/timeline';
 import TimelineComposer from '@/components/timeline/TimelineComposer';
 import TimelineFeed from '@/components/timeline/TimelineFeed';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { cn } from '@/lib/utils';
 import { useChatShellStore } from '@/stores';
 
 type RangeOption = 'all' | '7d' | '30d';
@@ -28,6 +33,12 @@ const filterEventsByRange = (events: TimelineEventRecord[], range: RangeOption):
   return events.filter((event) => event.occurred_at >= cutoff);
 };
 
+const fallbackSourceLabel = (source: string) =>
+  source
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+
 export const TimelinePage: React.FC = () => {
   const { t } = useTranslation('app');
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
@@ -45,6 +56,12 @@ export const TimelinePage: React.FC = () => {
 
   const sourceOptions = ['all', ...Array.from(new Set(events.map((event) => event.source_type)))];
 
+  const getSourceLabel = (source: string) => {
+    const key = `timeline.sources.${source}`;
+    const translated = t(key);
+    return translated === key ? fallbackSourceLabel(source) : translated;
+  };
+
   const filteredEvents = filterEventsByRange(
     selectedSource === 'all' ? events : events.filter((event) => event.source_type === selectedSource),
     selectedRange
@@ -59,6 +76,13 @@ export const TimelinePage: React.FC = () => {
     .filter((entry) => entry.count > 0);
 
   const totalDerivedEdges = Object.values(eventDetails).reduce((sum, detail) => sum + (detail?.graph_evidence.length || 0), 0);
+
+  const filteredSummary = useMemo(() => {
+    if (filteredEvents.length === events.length) {
+      return t('timeline.summary.showingAll');
+    }
+    return t('timeline.summary.showingFiltered', { count: filteredEvents.length });
+  }, [events.length, filteredEvents.length, t]);
 
   const loadEvents = async (mode: 'initial' | 'refresh' = 'initial') => {
     if (mode === 'initial') {
@@ -126,9 +150,7 @@ export const TimelinePage: React.FC = () => {
       const nextDetail = result.event;
       setEventDetails((current) => ({ ...current, [eventId]: nextDetail }));
       setEvents((current) =>
-        sortEvents(
-          current.map((event) => (event.event_id === eventId ? { ...event, ...nextDetail } : event))
-        )
+        sortEvents(current.map((event) => (event.event_id === eventId ? { ...event, ...nextDetail } : event)))
       );
       toast.success(t('timeline.feed.reanalyzeQueued'));
     } catch (error: any) {
@@ -139,56 +161,69 @@ export const TimelinePage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.08),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.08),_transparent_28%)]">
-      <div className="border-b border-border/30 px-6 py-5">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <header className="border-b border-border/60 px-6 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs text-primary">
-              <Sparkles className="h-3.5 w-3.5" />
-              {t('timeline.hero.eyebrow')}
+          <div className="space-y-2">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-primary">{t('timeline.hero.eyebrow')}</div>
+            <div className="space-y-1">
+              <h1 className="text-[clamp(1.75rem,2.6vw,2.2rem)] font-semibold tracking-tight text-foreground">
+                {t('timeline.title')}
+              </h1>
+              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('timeline.subtitle')}</p>
             </div>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">{t('timeline.title')}</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{t('timeline.subtitle')}</p>
           </div>
-          <Button variant="outline" onClick={() => void loadEvents('refresh')} disabled={refreshing} aria-label={t('timeline.actions.refresh')}>
-            <RefreshCw className={refreshing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-            {t('timeline.actions.refresh')}
-          </Button>
-        </div>
-      </div>
 
-      <div className="grid min-h-0 flex-1 gap-6 overflow-hidden px-6 py-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="rounded-full px-3 py-1 text-xs">
+              {events.length} {t('timeline.summary.totalEvents')}
+            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadEvents('refresh')}
+              disabled={refreshing}
+              aria-label={t('timeline.actions.refresh')}
+            >
+              <RefreshCw className={cn('mr-2 h-4 w-4', refreshing && 'animate-spin')} />
+              {t('timeline.actions.refresh')}
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <div className="grid min-h-0 flex-1 gap-8 overflow-hidden px-6 py-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <section className="flex min-h-0 flex-col overflow-hidden">
-          <Card className="border-border/35 bg-card/70 shadow-sm">
-            <CardContent className="flex flex-wrap items-end gap-3 p-5">
-              <label className="min-w-[180px] flex-1 space-y-2" htmlFor="timeline-source-filter">
-                <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Filter className="h-4 w-4 text-primary" />
+          <div className="border-b border-border/60 pb-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="min-w-[172px] flex-1 space-y-1.5" htmlFor="timeline-source-filter">
+                <span className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  <Filter className="h-3.5 w-3.5" />
                   {t('timeline.filters.source')}
                 </span>
                 <select
                   id="timeline-source-filter"
-                  className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
                   value={selectedSource}
                   onChange={(event) => setSelectedSource(event.target.value)}
                 >
                   <option value="all">{t('timeline.filters.allSources')}</option>
                   {sourceOptions.filter((source) => source !== 'all').map((source) => (
                     <option key={source} value={source}>
-                      {t(`timeline.sources.${source}`)}
+                      {getSourceLabel(source)}
                     </option>
                   ))}
                 </select>
               </label>
 
-              <label className="min-w-[160px] flex-1 space-y-2" htmlFor="timeline-range-filter">
-                <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                  <CalendarRange className="h-4 w-4 text-primary" />
+              <label className="min-w-[156px] flex-1 space-y-1.5" htmlFor="timeline-range-filter">
+                <span className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  <CalendarRange className="h-3.5 w-3.5" />
                   {t('timeline.filters.range')}
                 </span>
                 <select
                   id="timeline-range-filter"
-                  className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
                   value={selectedRange}
                   onChange={(event) => setSelectedRange(event.target.value as RangeOption)}
                 >
@@ -198,14 +233,14 @@ export const TimelinePage: React.FC = () => {
                 </select>
               </label>
 
-              <label className="min-w-[160px] flex-1 space-y-2" htmlFor="timeline-view-mode">
-                <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                  <LayoutList className="h-4 w-4 text-primary" />
+              <label className="min-w-[156px] flex-1 space-y-1.5" htmlFor="timeline-view-mode">
+                <span className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  <LayoutList className="h-3.5 w-3.5" />
                   {t('timeline.filters.viewMode')}
                 </span>
                 <select
                   id="timeline-view-mode"
-                  className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
                   value={viewMode}
                   onChange={(event) => setViewMode(event.target.value as ViewMode)}
                 >
@@ -217,6 +252,7 @@ export const TimelinePage: React.FC = () => {
               <Button
                 type="button"
                 variant="ghost"
+                size="sm"
                 onClick={() => {
                   setSelectedSource('all');
                   setSelectedRange('all');
@@ -226,13 +262,13 @@ export const TimelinePage: React.FC = () => {
               >
                 {t('timeline.filters.clear')}
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+          <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
             {loading ? (
-              <div className="flex h-full min-h-[280px] items-center justify-center gap-3 text-sm text-muted-foreground">
-                <LoadingSpinner className="h-5 w-5" />
+              <div className="flex h-full min-h-[220px] items-center justify-center gap-3 text-sm text-muted-foreground">
+                <LoadingSpinner className="h-4 w-4" />
                 {t('timeline.loading')}
               </div>
             ) : (
@@ -250,50 +286,42 @@ export const TimelinePage: React.FC = () => {
           </div>
         </section>
 
-        <aside className="min-h-0 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-          <div className="space-y-5">
-            <Card className="border-border/35 bg-card/75 shadow-sm">
-              <CardHeader className="pb-4">
-                <CardTitle>{t('timeline.summary.title')}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-border/40 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{t('timeline.summary.totalEvents')}</p>
-                    <p className="mt-2 text-2xl font-semibold text-foreground">{events.length}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border/40 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{t('timeline.summary.derivedEdges')}</p>
-                    <p className="mt-2 text-2xl font-semibold text-foreground">{totalDerivedEdges}</p>
-                  </div>
-                </div>
+        <aside className="min-h-0 overflow-y-auto border-l border-border/60 pl-6 pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+          <div className="space-y-8">
+            <section className="space-y-4">
+              <div className="space-y-1">
+                <h2 className="text-sm font-semibold text-foreground">{t('timeline.summary.title')}</h2>
+                <p className="text-sm text-muted-foreground">{filteredSummary}</p>
+              </div>
 
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{t('timeline.summary.sourceMix')}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {sourceBreakdown.length > 0 ? sourceBreakdown.map((entry) => (
-                      <Badge key={entry.source} variant="secondary" className="rounded-full px-3 py-1">
-                        {t(`timeline.sources.${entry.source}`)} · {entry.count}
+              <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <div className="flex items-baseline justify-between border-b border-border/60 pb-2">
+                  <dt className="text-sm text-muted-foreground">{t('timeline.summary.totalEvents')}</dt>
+                  <dd className="text-lg font-semibold text-foreground">{events.length}</dd>
+                </div>
+                <div className="flex items-baseline justify-between border-b border-border/60 pb-2">
+                  <dt className="text-sm text-muted-foreground">{t('timeline.summary.derivedEdges')}</dt>
+                  <dd className="text-lg font-semibold text-foreground">{totalDerivedEdges}</dd>
+                </div>
+              </dl>
+
+              <div className="space-y-2">
+                <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  {t('timeline.summary.sourceMix')}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {sourceBreakdown.length > 0 ? (
+                    sourceBreakdown.map((entry) => (
+                      <Badge key={entry.source} variant="secondary" className="rounded-full px-2.5 py-1 text-xs">
+                        {getSourceLabel(entry.source)} · {entry.count}
                       </Badge>
-                    )) : (
-                      <span className="text-sm text-muted-foreground">{t('timeline.summary.noSources')}</span>
-                    )}
-                  </div>
+                    ))
+                  ) : (
+                    <span className="text-sm text-muted-foreground">{t('timeline.summary.noSources')}</span>
+                  )}
                 </div>
-
-                <div className="rounded-3xl border border-border/40 bg-background/75 p-4">
-                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <ScrollText className="h-4 w-4 text-primary" />
-                    {t('timeline.summary.feedState')}
-                  </div>
-                  <p className="mt-2 text-sm leading-7 text-muted-foreground">
-                    {filteredEvents.length === events.length
-                      ? t('timeline.summary.showingAll')
-                      : t('timeline.summary.showingFiltered', { count: filteredEvents.length })}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+              </div>
+            </section>
 
             <TimelineComposer submitting={submitting} onSubmit={handleManualEntrySubmit} />
           </div>
