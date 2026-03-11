@@ -121,6 +121,22 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listed[0]["id"], "timeline-1")
         self.assertEqual(listed[0]["metadata"]["timeline"]["title"], "Evening note")
 
+        self.store.upsert_user_graph_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="character:asuka",
+            object_type="person",
+            evidence_event_ids=["timeline-1"],
+            confidence=0.85,
+            observed_at=event.occurred_at,
+            source_type="manual_journal",
+            object_attributes={"name": "Asuka"},
+        )
+        graph_stats = self.store.l2_user_graph.get_statistics()
+        self.assertEqual(graph_stats["total_nodes"], 2)
+        self.assertEqual(graph_stats["total_edges"], 1)
+
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
