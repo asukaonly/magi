@@ -230,6 +230,7 @@
       "usage": "Usage",
       "personality": "Personality",
       "memory": "Memory",
+      "timeline": "Timeline & Sources",
       "tools": "Tools",
       "system": "System"
     },
@@ -238,6 +239,7 @@
     "usageDesc": "Inspect LLM call volume, prompt/completion tokens, and usage trends",
     "personalityDesc": "Manage AI personality configuration",
     "memoryDesc": "Manage layered memory system and vector models",
+    "timelineDesc": "Configure timeline ingestion defaults and tune each source independently",
     "toolsDesc": "Configure built-in tools and skills",
     "systemDesc": "Advanced system configuration parameters",
     "llmSaveHint": "LLM settings require manual saving. Other settings apply automatically.",
@@ -358,6 +360,64 @@
         "successRate": "Success rate {{value}}%",
         "withUsage": "Calls with usage {{count}}",
         "failedCalls": "Failed {{count}}"
+      }
+    },
+    "timeline": {
+      "title": "Timeline & Sources",
+      "desc": "Control which sources feed the timeline and how much raw context Magi keeps for each one.",
+      "overview": {
+        "title": "Timeline runtime",
+        "desc": "Set global ingestion behavior first, then tune each source card below."
+      },
+      "fields": {
+        "timelineEnabled": "Timeline enabled",
+        "timelineEnabledHint": "Pause timeline ingestion without deleting existing facts.",
+        "edgeOverride": "Expert edge override",
+        "edgeOverrideHint": "Allow expert-mode users to edit source edge whitelists directly.",
+        "enabled": "Source enabled",
+        "enabledHint": "Whether this source should keep producing new timeline events.",
+        "status": "Source status",
+        "retentionMode": "Default retention mode",
+        "syncInterval": "Sync interval (minutes)",
+        "syncMode": "Sync mode",
+        "storageMode": "Storage mode",
+        "fetchPageContent": "Fetch page content",
+        "fetchPageContentHint": "After reading a browser-history entry, also fetch the page body for richer analysis.",
+        "sourcePath": "Source path",
+        "sourcePathPlaceholder": "/path/to/source/or/library",
+        "edgeWhitelist": "Edge whitelist",
+        "edgeWhitelistPlaceholder": "LIKES, CARES_ABOUT, VIEWED"
+      },
+      "sourceDesc": {
+        "chat": "Use chat turns as direct evidence for preferences, relationships, and recurring concerns.",
+        "manual_journal": "Let the user append timeline events with text and image references.",
+        "browser_history": "Analyze browsing behavior while controlling whether page bodies are fetched.",
+        "photo_library": "Reference a photo library or exported folder and decide how much raw media is retained."
+      },
+      "syncModes": {
+        "manual": "Manual",
+        "interval": "Interval",
+        "watch": "Watch"
+      },
+      "storageModes": {
+        "managed": "Managed storage",
+        "external_reference": "External reference"
+      },
+      "statuses": {
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "healthy": "Healthy",
+        "attention": "Needs attention",
+        "ready": "No errors reported",
+        "loading": "Loading source status..."
+      },
+      "actions": {
+        "syncNow": "Sync now"
+      },
+      "syncQueued": "{{source}} sync queued",
+      "errors": {
+        "statusLoadFailed": "Failed to load source status: {{message}}",
+        "syncFailed": "Failed to queue sync: {{message}}"
       }
     },
     "saving": "Saving..."

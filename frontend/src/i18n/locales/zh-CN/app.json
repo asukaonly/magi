@@ -230,6 +230,7 @@
       "usage": "统计",
       "personality": "人格",
       "memory": "记忆",
+      "timeline": "时间线与来源",
       "tools": "工具",
       "system": "系统"
     },
@@ -238,6 +239,7 @@
     "usageDesc": "查看 LLM 调用次数、输入输出 token 使用量和趋势",
     "personalityDesc": "管理 AI 人格配置",
     "memoryDesc": "管理多层记忆系统和向量模型",
+    "timelineDesc": "配置时间线接入默认策略，并分别调整每个来源的行为",
     "toolsDesc": "配置内置工具和技能",
     "systemDesc": "高级系统配置参数",
     "llmSaveHint": "LLM 配置需要手动保存，其他设置会自动生效。",
@@ -358,6 +360,64 @@
         "successRate": "成功率 {{value}}%",
         "withUsage": "带 usage 的调用 {{count}} 次",
         "failedCalls": "失败 {{count}} 次"
+      }
+    },
+    "timeline": {
+      "title": "时间线与来源",
+      "desc": "控制哪些来源参与时间线，以及 Magi 为每类来源保留多少原始上下文。",
+      "overview": {
+        "title": "时间线运行配置",
+        "desc": "先确定全局接入行为，再逐个调整下方的来源卡片。"
+      },
+      "fields": {
+        "timelineEnabled": "启用时间线",
+        "timelineEnabledHint": "暂停新的时间线接入，但不删除已存在的事实。",
+        "edgeOverride": "专家边关系覆写",
+        "edgeOverrideHint": "允许专家模式直接编辑来源的边白名单。",
+        "enabled": "来源启用",
+        "enabledHint": "控制该来源是否继续产生新的时间线事件。",
+        "status": "来源状态",
+        "retentionMode": "默认留存模式",
+        "syncInterval": "同步间隔（分钟）",
+        "syncMode": "同步方式",
+        "storageMode": "存储方式",
+        "fetchPageContent": "抓取页面正文",
+        "fetchPageContentHint": "读取浏览记录命中项后，再额外抓取页面正文用于更丰富的分析。",
+        "sourcePath": "来源路径",
+        "sourcePathPlaceholder": "/path/to/source/or/library",
+        "edgeWhitelist": "边白名单",
+        "edgeWhitelistPlaceholder": "LIKES, CARES_ABOUT, VIEWED"
+      },
+      "sourceDesc": {
+        "chat": "把对话轮次作为偏好、关系和持续关注点的直接证据。",
+        "manual_journal": "允许用户主动补录文字和图片引用，进入同一条时间线链路。",
+        "browser_history": "分析浏览行为，并控制是否继续抓取页面正文。",
+        "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。"
+      },
+      "syncModes": {
+        "manual": "手动",
+        "interval": "定时",
+        "watch": "监听"
+      },
+      "storageModes": {
+        "managed": "托管存储",
+        "external_reference": "外部引用"
+      },
+      "statuses": {
+        "enabled": "已启用",
+        "disabled": "已关闭",
+        "healthy": "状态正常",
+        "attention": "需要处理",
+        "ready": "暂未发现错误",
+        "loading": "正在加载来源状态..."
+      },
+      "actions": {
+        "syncNow": "立即同步"
+      },
+      "syncQueued": "{{source}} 已进入同步队列",
+      "errors": {
+        "statusLoadFailed": "来源状态加载失败：{{message}}",
+        "syncFailed": "同步请求失败：{{message}}"
       }
     },
     "saving": "保存中..."
