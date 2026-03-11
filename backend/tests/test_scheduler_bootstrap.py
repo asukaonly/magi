@@ -71,6 +71,28 @@ class _FakeActionExecutor:
         self.events.append((fact, success, error))
 
 
+class _StaleChatPluginManager:
+    def __init__(self) -> None:
+        self.package = type(
+            "Package",
+            (),
+            {
+                "current_settings": {
+                    "sensors": {
+                        "chat": {
+                            "enabled": True,
+                            "sync_mode": "watch",
+                            "sync_interval_minutes": 1,
+                        }
+                    }
+                }
+            },
+        )()
+
+    def get_package(self, plugin_id: str):
+        return self.package if plugin_id == "core-timeline" else None
+
+
 class _PullHistorySensor(TimelineSensorBase, PullSyncSensor):
     sensor_id = "timeline.pull_history"
     display_name = "Pull History"
@@ -130,6 +152,22 @@ class _NotifyAction(BaseAction):
     async def execute(self, parameters, context):
         self.calls.append({"parameters": parameters, "context": context})
         return {"status": "sent"}
+
+
+class _ChatSensor(TimelineSensorBase):
+    sensor_id = "timeline.chat"
+    display_name = "Chat"
+    source_type = "chat"
+    polling_mode = "watch"
+
+    async def build_timeline_event(self, item):
+        return self._build_event(
+            source_item_id="chat",
+            title="Chat",
+            summary="Chat",
+            occurred_at=1710000000.0,
+            content_blocks=[TimelineContentBlock(kind="text", value="Chat")],
+        )
 
 
 @pytest.mark.asyncio
@@ -251,5 +289,64 @@ async def test_scheduler_bootstrap_dispatches_action_and_agent_targets(tmp_path)
     assert len(task_agent_manager.calls) == 1
     assert task_agent_manager.calls[0][0] == "chat"
     assert task_agent_manager.calls[0][1] == "u1"
+
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_bootstrap_clears_stale_state_for_non_pull_timeline_sources(tmp_path):
+    runtime_paths = Runtimepaths(tmp_path / "runtime")
+    service = SchedulerService(db_path=runtime_paths.scheduler_db_path, runtime_dir=runtime_paths.base_dir)
+    sensor_registry = SensorRegistry()
+    sensor_registry.register(
+        "core-timeline",
+        "timeline.chat",
+        _ChatSensor(),
+        SensorSpec(
+            sensor_id="timeline.chat",
+            display_name="Chat",
+            description="Chat source",
+            domain="timeline",
+            surface="timeline",
+            sync_mode="watch",
+            metadata={
+                "source_type": "chat",
+                "default_settings": {
+                    "enabled": True,
+                    "sync_mode": "watch",
+                    "sync_interval_minutes": 1,
+                },
+            },
+        ),
+    )
+    bootstrap = SchedulerBootstrap(
+        scheduler_service=service,
+        sensor_registry=sensor_registry,
+        action_registry=ActionRegistry(),
+        plugin_manager=_StaleChatPluginManager(),
+        timeline_service=_FakeTimelineService(),
+        runtime_paths=runtime_paths,
+        task_agent_manager=_FakeTaskAgentManager(),
+        action_executor=_FakeActionExecutor(),
+        get_config=lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),
+    )
+    await service.start()
+    await service.repository.record_target_failure(
+        ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+        build_timeline_target_key("core-timeline", "chat"),
+        error="timeline.chat does not implement pull sync",
+        next_run_at=time.time() + 60.0,
+        scheduler_job_id="timeline-sync:core-timeline:chat",
+    )
+
+    await bootstrap.sync_timeline_sensor_schedules()
+
+    state = await service.get_target_state(
+        ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+        build_timeline_target_key("core-timeline", "chat"),
+    )
+    assert state.last_error is None
+    assert state.scheduler_job_id is None
+    assert state.next_run_at is None
 
     await service.stop()

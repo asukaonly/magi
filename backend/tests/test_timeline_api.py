@@ -291,6 +291,96 @@ def test_get_timeline_source_status(monkeypatch):
     assert body["sources"][0]["last_raw_result_count"] == 7
 
 
+def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monkeypatch):
+    app = FastAPI()
+    app.include_router(timeline_router, prefix="/api/timeline")
+    monkeypatch.setattr(timeline_module, "get_timeline_service", lambda: _FakeTimelineService())
+    monkeypatch.setattr(timeline_module, "get_config", lambda: type("Config", (), {})())
+    monkeypatch.setattr(
+        timeline_module,
+        "get_runtime_paths",
+        lambda: type("Paths", (), {"base_dir": "/tmp/magi-runtime"})(),
+    )
+    plugin_state = type(
+        "PluginState",
+        (),
+        {
+            "manifest": type("Manifest", (), {"plugin_id": "core-timeline"})(),
+            "current_settings": {"sensors": {"chat": {"enabled": True, "sync_mode": "watch"}}},
+        },
+    )()
+    monkeypatch.setattr(
+        timeline_module,
+        "get_plugin_manager",
+        lambda: type("Manager", (), {"list_packages": lambda self: [plugin_state]})(),
+    )
+    monkeypatch.setattr(
+        timeline_module,
+        "get_sensor_registry",
+        lambda: type(
+            "Registry",
+            (),
+            {
+                "list_contributions": lambda self: [
+                    type(
+                        "Contribution",
+                        (),
+                        {
+                            "plugin_id": "core-timeline",
+                            "contribution_id": "timeline.chat",
+                            "display_name": "Chat",
+                            "description": "Chat turns promoted into the user timeline.",
+                            "fields": [],
+                            "metadata": {
+                                "domain": "timeline",
+                                "source_type": "chat",
+                                "default_settings": {
+                                    "enabled": True,
+                                    "sync_mode": "watch",
+                                    "sync_interval_minutes": 1,
+                                },
+                            },
+                        },
+                    )()
+                ],
+                "resolve_domain_sensor": lambda self, domain, source_name: (
+                    ("core-timeline", "timeline.chat", type("Sensor", (), {"supports_pull_sync": False})(), object())
+                    if domain == "timeline" and source_name == "chat"
+                    else None
+                ),
+            },
+        )(),
+    )
+    class _NonPullSchedulerService:
+        repository = _FakeSchedulerRepository()
+
+        async def get_target_state(self, target_type, target_key):
+            return ScheduledTargetState(
+                target_type=target_type,
+                target_key=target_key,
+                running=False,
+                last_run_at=1710000190.0,
+                last_success_at=None,
+                last_error="timeline.chat does not implement pull sync",
+                next_run_at=None,
+                scheduler_job_id=None,
+                stats={},
+            )
+
+    monkeypatch.setattr(timeline_module, "get_scheduler_service", lambda: _NonPullSchedulerService())
+    monkeypatch.setattr(timeline_module, "get_scheduler_bootstrap", lambda: _FakeSchedulerBootstrap())
+
+    client = TestClient(app)
+
+    response = client.get("/api/timeline/sources/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sources"][0]["source_name"] == "chat"
+    assert body["sources"][0]["supports_pull_sync"] is False
+    assert body["sources"][0]["last_error"] is None
+
+
 def test_trigger_timeline_source_sync_returns_schedule_id(monkeypatch):
     client, _ = _build_client(monkeypatch)
 

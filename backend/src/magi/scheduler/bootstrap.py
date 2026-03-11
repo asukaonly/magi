@@ -92,7 +92,11 @@ class SchedulerBootstrap:
             interval_minutes = float(source_settings.get("sync_interval_minutes", default_settings.get("sync_interval_minutes", 1)))
             supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
             if (not config.timeline.enabled) or (not enabled) or (not supports_pull_sync) or sync_mode == "manual":
-                await self._scheduler_service.unschedule(schedule_id)
+                await self._scheduler_service.unschedule(
+                    schedule_id,
+                    target_type=ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+                    target_key=build_timeline_target_key(plugin_id, source_type),
+                )
                 continue
             if sync_mode == "watch" and not bool(getattr(sensor, "supports_watch_mode", False)):
                 interval_minutes = max(1.0, interval_minutes)

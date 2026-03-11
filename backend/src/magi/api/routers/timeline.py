@@ -148,6 +148,8 @@ async def get_timeline_source_status():
         else:
             state = None
             schedule = None
+        supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
+        visible_last_error = state.last_error if (state is not None and supports_pull_sync) else None
         sources.append(
             {
                 "source_name": source_name,
@@ -218,7 +220,7 @@ async def get_timeline_source_status():
                         item.metadata.get("default_settings", {}).get("edge_whitelist", []),
                     )
                 ),
-                "supports_pull_sync": bool(getattr(sensor, "supports_pull_sync", False)),
+                "supports_pull_sync": supports_pull_sync,
                 "activation_flow": item.metadata.get("activation_flow"),
                 "activation_required": bool(
                     isinstance(item.metadata.get("activation_flow"), dict)
@@ -241,7 +243,7 @@ async def get_timeline_source_status():
                 "last_run_at": state.last_run_at if state is not None else None,
                 "last_result_count": int((state.stats or {}).get("count", 0)) if state is not None else 0,
                 "last_raw_result_count": int((state.stats or {}).get("raw_count", 0)) if state is not None else 0,
-                "last_error": state.last_error if state is not None else None,
+                "last_error": visible_last_error,
                 "last_success": state.last_success_at if state is not None else None,
                 "last_sync_at": state.last_success_at if state is not None else None,
                 "next_run_at": state.next_run_at if state is not None else None,

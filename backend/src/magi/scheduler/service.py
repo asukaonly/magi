@@ -183,11 +183,27 @@ class SchedulerService:
     async def trigger_now(self, schedule_id: str) -> None:
         await self.execute_schedule(schedule_id, manual=True)
 
-    async def unschedule(self, schedule_id: str) -> None:
+    async def unschedule(
+        self,
+        schedule_id: str,
+        *,
+        target_type: ScheduledTargetType | None = None,
+        target_key: str | None = None,
+    ) -> None:
         async with self._schedule_lock:
-            await self._unschedule_locked(schedule_id)
+            await self._unschedule_locked(
+                schedule_id,
+                target_type=target_type,
+                target_key=target_key,
+            )
 
-    async def _unschedule_locked(self, schedule_id: str) -> None:
+    async def _unschedule_locked(
+        self,
+        schedule_id: str,
+        *,
+        target_type: ScheduledTargetType | None = None,
+        target_key: str | None = None,
+    ) -> None:
         schedule = await self._repository.get_schedule(schedule_id)
         job_id = schedule.job_id if schedule is not None else schedule_id
         try:
@@ -197,6 +213,9 @@ class SchedulerService:
         if schedule is not None:
             await self._repository.clear_target_schedule_binding(schedule.target_type, schedule.target_key)
             await self._repository.delete_schedule(schedule_id)
+            return
+        if target_type is not None and target_key is not None:
+            await self._repository.clear_target_schedule_binding(target_type, target_key)
 
     async def execute_schedule(self, schedule_id: str, *, manual: bool = False) -> ScheduledExecutionResult:
         schedule = await self._repository.get_schedule(schedule_id)
