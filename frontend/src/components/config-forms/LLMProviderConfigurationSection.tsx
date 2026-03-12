@@ -1,9 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus, X } from 'lucide-react';
+import { CheckCircle2, Loader2, Plus, PlugZap, X, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Switch } from '@/components/ui/switch';
-import type { LLMConfig, LLMProviderConfig, LLMProviderRegistry, LLMScenario } from '@/api/modules/config';
+import type {
+  LLMConfig,
+  LLMProviderConfig,
+  LLMProviderRegistry,
+  LLMScenario,
+  TestLLMProviderConnectionResponse,
+} from '@/api/modules/config';
 import { cn } from '@/lib/utils';
 
 interface LLMProviderConfigurationSectionProps {
@@ -20,6 +26,15 @@ interface LLMProviderConfigurationSectionProps {
   onProviderDefaultModelChange: (providerId: string, model: string) => void;
   onDiscoverProviderModels: (providerId: string) => void;
   providerDiscoveryState: Record<string, { loading: boolean; error: string | null }>;
+  onTestProviderConnection: (providerId: string) => void;
+  providerTestState: Record<
+    string,
+    {
+      loading: boolean;
+      error: string | null;
+      result: TestLLMProviderConnectionResponse | null;
+    }
+  >;
 }
 
 const badgeClassName =
@@ -39,6 +54,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   onProviderDefaultModelChange,
   onDiscoverProviderModels,
   providerDiscoveryState,
+  onTestProviderConnection,
+  providerTestState,
 }) => {
   const { t } = useTranslation('onboarding');
   const [modelDraft, setModelDraft] = useState('');
@@ -65,6 +82,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       : registry.providers.find((provider) => provider.id === activeProvider?.provider_type);
   const activeReferences = scenarioReferences[activeProviderId] || [];
   const activeDiscoveryState = providerDiscoveryState[activeProviderId] || { loading: false, error: null };
+  const activeTestState = providerTestState[activeProviderId] || { loading: false, error: null, result: null };
   const workbenchColumnsClassName = quickMode
     ? 'xl:grid-cols-[220px_minmax(0,1fr)]'
     : 'xl:grid-cols-[240px_minmax(0,1fr)]';
@@ -180,6 +198,58 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     }
                   />
                 </div>
+              </div>
+
+              <div className="rounded-[24px] border border-border/60 bg-muted/45 p-4 dark:bg-muted/30">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.testTitle')}</div>
+                    <p className="text-sm text-muted-foreground">{t('llm.providerConfiguration.testDesc')}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onTestProviderConnection(activeProviderId)}
+                    disabled={activeTestState.loading}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-border/70 bg-background px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {activeTestState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
+                    <span>
+                      {activeTestState.loading
+                        ? t('llm.actions.testingConnection')
+                        : t('llm.actions.testConnection')}
+                    </span>
+                  </button>
+                </div>
+
+                {activeTestState.error ? (
+                  <div className="mt-3 flex items-start gap-2 rounded-2xl border border-destructive/35 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="space-y-0.5">
+                      <div className="font-medium">{t('llm.providerConfiguration.testFailed')}</div>
+                      <p>{activeTestState.error}</p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeTestState.result ? (
+                  <div className="mt-3 flex items-start gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-900 dark:text-emerald-200">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="space-y-0.5">
+                      <div className="font-medium">{t('llm.providerConfiguration.testSuccess')}</div>
+                      <p>
+                        {t('llm.providerConfiguration.testSuccessMeta', {
+                          model: activeTestState.result.model,
+                          latency: activeTestState.result.latency_ms,
+                        })}
+                      </p>
+                      {activeTestState.result.preview ? (
+                        <p className="text-emerald-900/80 dark:text-emerald-100/80">
+                          {t('llm.providerConfiguration.testPreview', { preview: activeTestState.result.preview })}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {activeReferences.length > 0 ? (

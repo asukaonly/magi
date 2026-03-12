@@ -150,6 +150,13 @@ vi.mock('../api/modules/config', async () => {
           default_model: 'fetched-model-1',
         },
       }),
+      testLLMProviderConnection: vi.fn().mockResolvedValue({
+        data: {
+          model: 'gpt-5.2',
+          latency_ms: 42,
+          preview: 'hello',
+        },
+      }),
     },
   };
 });
@@ -486,6 +493,34 @@ describe('config forms', () => {
     });
     expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('fetched-model-1');
     expect(configApi.discoverLLMProviderModels).toHaveBeenCalled();
+  });
+
+  it('tests the active provider with current draft credentials', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.clear(await screen.findByLabelText('llm.fields.apiKey'));
+    await user.type(screen.getByLabelText('llm.fields.apiKey'), 'sk-draft-openai');
+    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
+
+    await waitFor(() => {
+      expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith({
+        provider_id: 'openai',
+        model: 'gpt-5.2',
+        provider: expect.objectContaining({
+          provider_type: 'openai',
+          api_key: 'sk-draft-openai',
+          base_url: 'https://api.openai.com/v1',
+        }),
+      });
+    });
+
+    expect(screen.getByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
   });
 
   it('memory form disables l2-l5 when l1 off', async () => {

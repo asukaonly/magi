@@ -62,6 +62,13 @@
     "providerConfiguration": {
       "title": "Provider Configuration",
       "desc": "Manage available providers and connection details here. Built-in providers show their model lists.",
+      "testTitle": "Connection Test",
+      "testDesc": "Send a direct hi request with the current draft settings to verify the API key and Base URL.",
+      "testSuccess": "Connection succeeded",
+      "testSuccessMeta": "Used model {{model}} in {{latency}}ms.",
+      "testPreview": "Reply: {{preview}}",
+      "testFailed": "Connection failed",
+      "testModelRequired": "Add a testable model for this provider first.",
       "availableModels": "Available Models",
       "defaultModelEmpty": "Add models first",
       "referencedBy": "Currently used by",
@@ -98,7 +105,9 @@
       "addCustomProvider": "Add Custom Provider",
       "addModel": "Add Model",
       "removeModel": "Remove Model",
-      "fetchModels": "Fetch Models"
+      "fetchModels": "Fetch Models",
+      "testConnection": "Test Connection",
+      "testingConnection": "Testing"
     },
     "badges": {
       "enabled": "Enabled",

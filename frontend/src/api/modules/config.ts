@@ -115,6 +115,18 @@ export interface DiscoverLLMProviderModelsResponse {
   default_model?: string | null;
 }
 
+export interface TestLLMProviderConnectionRequest {
+  provider_id: string;
+  provider: LLMProviderConfig;
+  model: string;
+}
+
+export interface TestLLMProviderConnectionResponse {
+  model: string;
+  latency_ms: number;
+  preview: string;
+}
+
 // Re-export PersonalityConfig from personality module
 export type { PersonalityConfig };
 
@@ -355,6 +367,8 @@ export const configApi = {
   getLLMProviders: () => api.get<LLMProviderRegistry>('/config/llm-providers'),
   discoverLLMProviderModels: (payload: DiscoverLLMProviderModelsRequest) =>
     api.post<DiscoverLLMProviderModelsResponse>('/config/llm/providers/discover-models', payload),
+  testLLMProviderConnection: (payload: TestLLMProviderConnectionRequest) =>
+    api.post<TestLLMProviderConnectionResponse>('/config/llm/providers/test', payload),
   getOnboardingTemplate: () => api.get<OnboardingTemplateData>('/config/onboarding-template'),
   completeOnboarding: (config: SystemConfig) => api.post<SystemConfig>('/config/onboarding-complete', config),
 };

@@ -62,6 +62,13 @@
     "providerConfiguration": {
       "title": "供应商配置",
       "desc": "在这里维护可用供应商和连接信息。内置供应商会展示可用模型列表。",
+      "testTitle": "连接测试",
+      "testDesc": "用当前草稿配置直接向上游模型发一条 hi，快速确认 API Key 和 Base URL 是否可用。",
+      "testSuccess": "连接成功",
+      "testSuccessMeta": "已使用模型 {{model}}，耗时 {{latency}}ms。",
+      "testPreview": "返回：{{preview}}",
+      "testFailed": "连接失败",
+      "testModelRequired": "请先为当前供应商补一个可测试的模型。",
       "availableModels": "可用模型",
       "defaultModelEmpty": "请先添加模型",
       "referencedBy": "当前被以下场景使用",
@@ -98,7 +105,9 @@
       "addCustomProvider": "添加自定义供应商",
       "addModel": "添加模型",
       "removeModel": "移除模型",
-      "fetchModels": "拉取模型"
+      "fetchModels": "拉取模型",
+      "testConnection": "测试连接",
+      "testingConnection": "测试中"
     },
     "badges": {
       "enabled": "已启用",

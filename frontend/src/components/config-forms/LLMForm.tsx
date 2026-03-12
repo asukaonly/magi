@@ -14,6 +14,7 @@ import {
   type LLMProviderRegistry,
   type LLMScenario,
   type LLMSelectionConfig,
+  type TestLLMProviderConnectionResponse,
 } from '@/api/modules/config';
 import { cn } from '@/lib/utils';
 
@@ -190,6 +191,9 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, view = 'all', valu
   const [error, setError] = useState<string | null>(null);
   const [activeProviderId, setActiveProviderId] = useState<string>('openai');
   const [providerDiscoveryState, setProviderDiscoveryState] = useState<Record<string, { loading: boolean; error: string | null }>>({});
+  const [providerTestState, setProviderTestState] = useState<
+    Record<string, { loading: boolean; error: string | null; result: TestLLMProviderConnectionResponse | null }>
+  >({});
 
   const currentValue = useMemo(() => {
     if (controlled) {
@@ -380,6 +384,73 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, view = 'all', valu
     }
   };
 
+  const resolveProviderProbeModel = (providerId: string): string => {
+    const referencedSelection = BUILTIN_SCENARIOS
+      .map((scenario) => currentValue.selections[scenario])
+      .find((selection) => selection.provider_id === providerId && selection.model);
+
+    if (referencedSelection?.model) {
+      return referencedSelection.model;
+    }
+
+    return resolveProviderDefaultModel(registry, currentValue.providers[providerId]);
+  };
+
+  const handleTestProviderConnection = async (providerId: string) => {
+    if (!registry) {
+      return;
+    }
+
+    const provider = currentValue.providers[providerId];
+    if (!provider) {
+      return;
+    }
+
+    const model = resolveProviderProbeModel(providerId);
+    if (!model) {
+      setProviderTestState((prev) => ({
+        ...prev,
+        [providerId]: {
+          loading: false,
+          error: t('llm.providerConfiguration.testModelRequired'),
+          result: null,
+        },
+      }));
+      return;
+    }
+
+    setProviderTestState((prev) => ({
+      ...prev,
+      [providerId]: { loading: true, error: null, result: null },
+    }));
+
+    try {
+      const response = await configApi.testLLMProviderConnection({
+        provider_id: providerId,
+        provider,
+        model,
+      });
+
+      setProviderTestState((prev) => ({
+        ...prev,
+        [providerId]: {
+          loading: false,
+          error: null,
+          result: response.data || null,
+        },
+      }));
+    } catch (error: any) {
+      setProviderTestState((prev) => ({
+        ...prev,
+        [providerId]: {
+          loading: false,
+          error: error?.message || t('llm.providerConfiguration.testFailed'),
+          result: null,
+        },
+      }));
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20">
@@ -415,6 +486,8 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, view = 'all', valu
           onProviderDefaultModelChange={handleProviderDefaultModelChange}
           onDiscoverProviderModels={handleDiscoverProviderModels}
           providerDiscoveryState={providerDiscoveryState}
+          onTestProviderConnection={handleTestProviderConnection}
+          providerTestState={providerTestState}
         />
       ) : null}
 
