@@ -1,14 +1,17 @@
 """Tests for config router extensions."""
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from magi.api.routers.config import (
     SystemConfigModel,
     _build_onboarding_template,
     _build_update_paths,
     _default_llm_provider_registry,
+    config_router,
 )
-from magi.config.models import LLMSelectionSettings, LLMSettings
+from magi.config.models import LLMProviderSettings, LLMSelectionSettings, LLMSettings
 from magi.config.llm_registry import LLMProviderRegistryModel, resolve_llm_profile
 
 
@@ -41,6 +44,28 @@ def test_llm_settings_require_context_decider_and_core_selections():
             selections={
                 "context_decider": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
             }
+        )
+
+
+def test_llm_provider_settings_support_custom_model_fields():
+    provider = LLMProviderSettings(
+        provider_type="custom",
+        display_name="Proxy",
+        custom_models=["foo-1", "foo-2"],
+        custom_default_model="foo-1",
+    )
+
+    assert provider.custom_models == ["foo-1", "foo-2"]
+    assert provider.custom_default_model == "foo-1"
+
+
+def test_custom_provider_default_model_must_be_in_model_list():
+    with pytest.raises(ValueError):
+        LLMProviderSettings(
+            provider_type="custom",
+            display_name="Proxy",
+            custom_models=["foo-1"],
+            custom_default_model="foo-2",
         )
 
 
@@ -136,3 +161,51 @@ def test_onboarding_template_includes_model_capability_defaults():
 
     assert template.llm.selections["core"].capabilities.tool_calling is True
     assert template.llm.selections["core"].limits.max_output_tokens is not None
+
+
+def test_discover_llm_models_returns_models_from_provider_endpoint(monkeypatch: pytest.MonkeyPatch):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    async def _fake_discover(_: str, __: str | None, ___: str | None):
+        return ["foo-1", "foo-2"]
+
+    monkeypatch.setattr(
+        "magi.api.routers.config._discover_openai_compatible_models",
+        _fake_discover,
+    )
+
+    response = client.post(
+        "/config/llm/providers/discover-models",
+        json={
+            "provider_type": "custom",
+            "base_url": "https://proxy.example.com/v1",
+            "api_key": "sk-test",
+            "api_format": "openai",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["data"]["models"] == ["foo-1", "foo-2"]
+    assert response.json()["data"]["default_model"] == "foo-1"
+
+
+def test_discover_llm_models_returns_clear_error_for_unsupported_format():
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    response = client.post(
+        "/config/llm/providers/discover-models",
+        json={
+            "provider_type": "custom",
+            "base_url": "https://proxy.example.com/v1",
+            "api_key": "sk-test",
+            "api_format": "custom",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported" in response.json()["detail"]

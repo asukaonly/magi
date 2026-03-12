@@ -45,7 +45,7 @@ export const GuidedConfigFrame: React.FC<GuidedConfigFrameProps> = ({
           {children}
         </div>
         {footer ? (
-          <div className={cn('border-t border-border/40 px-5 py-4 sm:px-6 lg:px-7', footerClassName)}>
+          <div className={cn('shrink-0 border-t border-border/40 px-5 py-4 sm:px-6 lg:px-7', footerClassName)}>
             {footer}
           </div>
         ) : null}

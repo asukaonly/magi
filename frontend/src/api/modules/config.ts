@@ -24,6 +24,8 @@ export interface LLMProviderConfig {
   api_key?: string;
   base_url?: string;
   api_format?: ApiFormat;
+  custom_models?: string[];
+  custom_default_model?: string;
 }
 
 export interface LLMSelectionConfig {
@@ -99,6 +101,18 @@ export interface LLMProviderRegistry {
 export interface OnboardingTemplateData {
   config: SystemConfig;
   llm_providers: LLMProviderRegistry;
+}
+
+export interface DiscoverLLMProviderModelsRequest {
+  provider_type: LLMProvider;
+  base_url: string;
+  api_key?: string;
+  api_format?: ApiFormat;
+}
+
+export interface DiscoverLLMProviderModelsResponse {
+  models: string[];
+  default_model?: string | null;
 }
 
 // Re-export PersonalityConfig from personality module
@@ -339,6 +353,8 @@ export const configApi = {
   getTemplate: () => api.get<SystemConfig>('/config/template'),
   test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
   getLLMProviders: () => api.get<LLMProviderRegistry>('/config/llm-providers'),
+  discoverLLMProviderModels: (payload: DiscoverLLMProviderModelsRequest) =>
+    api.post<DiscoverLLMProviderModelsResponse>('/config/llm/providers/discover-models', payload),
   getOnboardingTemplate: () => api.get<OnboardingTemplateData>('/config/onboarding-template'),
   completeOnboarding: (config: SystemConfig) => api.post<SystemConfig>('/config/onboarding-complete', config),
 };

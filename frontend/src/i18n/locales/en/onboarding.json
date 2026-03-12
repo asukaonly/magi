@@ -8,6 +8,8 @@
     "language": "Language",
     "mode": "Mode",
     "llm": "LLM",
+    "llmProviders": "Provider Configuration",
+    "llmModels": "Model Selection",
     "personality": "Personality",
     "memory": "Memory",
     "tools": "Tools",
@@ -60,7 +62,8 @@
       "desc": "Manage available providers and connection details here. Built-in providers show their model lists.",
       "availableModels": "Available Models",
       "referencedBy": "Currently used by",
-      "customProviderHint": "Custom providers use the endpoint and API format you configure here."
+      "customProviderHint": "Custom providers use the endpoint and API format you configure here.",
+      "fetchModelsFailed": "Failed to fetch models. Check the Base URL, API key, and API format."
     },
     "scenarios": {
       "context_decider": {
@@ -75,6 +78,8 @@
     "fields": {
       "provider": "Provider",
       "model": "Model",
+      "defaultModel": "Default Model",
+      "modelManualEntry": "Add Model",
       "apiKey": "API Key",
       "baseUrl": "Base URL",
       "displayName": "Display Name",
@@ -82,7 +87,10 @@
       "enabled": "Enabled"
     },
     "actions": {
-      "addCustomProvider": "Add Custom Provider"
+      "addCustomProvider": "Add Custom Provider",
+      "addModel": "Add Model",
+      "removeModel": "Remove Model",
+      "fetchModels": "Fetch Models"
     },
     "badges": {
       "enabled": "Enabled",

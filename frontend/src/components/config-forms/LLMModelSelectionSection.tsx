@@ -41,7 +41,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           const provider = value.providers[selection.provider_id];
           const isCustomProvider = provider?.provider_type === 'custom';
           const models = isCustomProvider
-            ? []
+            ? (provider?.custom_models || []).map((model) => ({ id: model, label: model }))
             : registry.providers.find((item) => item.id === provider?.provider_type)?.models || [];
 
           return (
