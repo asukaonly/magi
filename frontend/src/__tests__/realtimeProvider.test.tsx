@@ -3,6 +3,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AppShellProviders from '@/components/layout/AppShellProviders';
+import { useConversationStore } from '@/stores/conversation-store';
+import { useRealtimeStore } from '@/stores/realtime-store';
 
 vi.mock('@/runtime/config', () => ({
   getRuntimeConfig: () => ({
@@ -28,6 +30,12 @@ describe('realtime provider', () => {
     socketMock.readyState = 0;
     socketMock.send.mockReset();
     socketMock.close.mockReset();
+    socketMock.onopen = null;
+    socketMock.onmessage = null;
+    socketMock.onclose = null;
+    socketMock.onerror = null;
+    useConversationStore.getState().reset();
+    useRealtimeStore.getState().reset();
     vi.stubGlobal('WebSocket', vi.fn(() => socketMock));
   });
 
@@ -70,5 +78,42 @@ describe('realtime provider', () => {
 
     expect(globalThis.WebSocket).toHaveBeenCalledTimes(1);
     expect(socketMock.close).not.toHaveBeenCalled();
+  });
+
+  it('routes agent responses for inactive sessions into the conversation store', () => {
+    renderShell('/chat');
+    useConversationStore.getState().setCurrentSessionId('session-a');
+
+    socketMock.onmessage?.({
+      data: JSON.stringify({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-b',
+          response: 'hello',
+          timestamp: Date.now() / 1000,
+          turn_id: 'turn-b',
+        },
+      }),
+    } as MessageEvent);
+
+    expect(useConversationStore.getState().unreadBySession['session-b']).toBe(1);
+  });
+
+  it('records non-chat realtime events without touching unread counts', () => {
+    renderShell('/chat');
+    useConversationStore.getState().reset();
+    const unreadBefore = useConversationStore.getState().unreadBySession;
+
+    socketMock.onmessage?.({
+      data: JSON.stringify({
+        type: 'system_event',
+        data: {
+          source: 'runtime',
+        },
+      }),
+    } as MessageEvent);
+
+    expect(useConversationStore.getState().unreadBySession).toEqual(unreadBefore);
+    expect(useRealtimeStore.getState().lastEventType).toBe('system_event');
   });
 });

@@ -36,6 +36,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const orderedSessionIds = useConversationStore((state) => state.orderedSessionIds);
   const sessionsById = useConversationStore((state) => state.sessionsById);
   const hydrateSessions = useConversationStore((state) => state.hydrateSessions);
+  const unreadBySession = useConversationStore((state) => state.unreadBySession);
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
 
@@ -178,6 +179,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         <div className="space-y-2">
           {sessionRows.map((session) => {
             const active = currentSessionId === session.session_id;
+            const unreadCount = unreadBySession[session.session_id] || 0;
             return (
               <button
                 key={session.session_id}
@@ -197,10 +199,17 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                 title={session.title}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium">{session.title || t('shell.newChatTitle')}</span>
-                  <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {formatSessionTime(session.last_timestamp, i18n.language)}
-                  </span>
+                  <span className="min-w-0 truncate text-sm font-medium">{session.title || t('shell.newChatTitle')}</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {unreadCount > 0 ? (
+                      <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-medium text-primary-foreground">
+                        {Math.min(unreadCount, 99)}
+                      </span>
+                    ) : null}
+                    <span className="text-[11px] text-muted-foreground">
+                      {formatSessionTime(session.last_timestamp, i18n.language)}
+                    </span>
+                  </div>
                 </div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">
                   {session.last_message_preview || t('shell.noPreview')}

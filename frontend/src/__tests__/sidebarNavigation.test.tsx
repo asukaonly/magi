@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { messagesApi } from '@/api';
 import Sidebar from '@/components/layout/Sidebar';
-import { useChatShellStore } from '@/stores';
+import { useChatShellStore, useConversationStore } from '@/stores';
 
 vi.mock('@/api', () => ({
   messagesApi: {
@@ -29,6 +29,7 @@ describe('sidebar navigation', () => {
       sidebarCollapsed: false,
       activePanel: 'none',
     });
+    useConversationStore.getState().reset();
   });
 
   it('renders personality, memory, settings, and timeline actions', async () => {
@@ -74,5 +75,61 @@ describe('sidebar navigation', () => {
 
     expect(screen.getByTestId('location')).toHaveTextContent('/timeline');
     expect(useChatShellStore.getState().activePanel).toBe('timeline');
+  });
+
+  it('renders unread badges for inactive chat sessions', async () => {
+    vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
+      sessions: [
+        {
+          session_id: 'session-a',
+          title: 'Session A',
+          last_message_preview: 'hello',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+        {
+          session_id: 'session-b',
+          title: 'Session B',
+          last_message_preview: 'new message',
+          last_timestamp: 11,
+          message_count: 2,
+        },
+      ],
+      current_session_id: 'session-a',
+      user_id: 'web_user',
+      count: 2,
+    });
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a', 'session-b'],
+      sessionsById: {
+        'session-a': {
+          session_id: 'session-a',
+          title: 'Session A',
+          last_message_preview: 'hello',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+        'session-b': {
+          session_id: 'session-b',
+          title: 'Session B',
+          last_message_preview: 'new message',
+          last_timestamp: 11,
+          message_count: 2,
+        },
+      },
+      messagesBySession: {},
+      unreadBySession: {
+        'session-b': 3,
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('3')).toBeInTheDocument();
   });
 });

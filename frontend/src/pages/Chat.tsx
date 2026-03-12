@@ -17,7 +17,6 @@ import { useChatTraceStore, useConversationStore, useRealtimeStore } from '@/sto
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
-  normalizeHistoryMessages,
   normalizeTraceSnapshot,
   normalizeTraceSummary,
   type ChatTimelineMessage,
@@ -82,7 +81,6 @@ export const ChatPage: React.FC = () => {
   const messages = useConversationStore((state) =>
     state.currentSessionId ? (state.messagesBySession[state.currentSessionId] || []) : []
   );
-  const receiveHistory = useConversationStore((state) => state.receiveHistory);
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
   const receiveAgentResponse = useConversationStore((state) => state.receiveAgentResponse);
   const applyConversationTraceSummary = useConversationStore((state) => state.upsertTraceSummary);
@@ -93,7 +91,6 @@ export const ChatPage: React.FC = () => {
   const summaries = useChatTraceStore((state) => state.summaries);
   const snapshots = useChatTraceStore((state) => state.snapshots);
   const upsertSummary = useChatTraceStore((state) => state.upsertSummary);
-  const replaceSummaries = useChatTraceStore((state) => state.replaceSummaries);
   const setSnapshot = useChatTraceStore((state) => state.setSnapshot);
   const openDrawer = useChatTraceStore((state) => state.openDrawer);
   const closeDrawer = useChatTraceStore((state) => state.closeDrawer);
@@ -111,29 +108,6 @@ export const ChatPage: React.FC = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  const preloadTraceSummaries = useCallback(
-    (historyMessages: ChatTimelineMessage[]) => {
-      const nextSummaries = historyMessages.flatMap((message) =>
-        message.traceSummary
-          ? [{
-              turn_id: message.traceSummary.turnId,
-              mode: message.traceSummary.mode,
-              status: message.traceSummary.status,
-              headline: message.traceSummary.headline,
-              active_steps: message.traceSummary.activeSteps,
-              completed_steps: message.traceSummary.completedSteps,
-              failed_steps: message.traceSummary.failedSteps,
-              duration_seconds: message.traceSummary.durationSeconds,
-              trace_available: message.traceSummary.traceAvailable,
-              orchestration_id: message.traceSummary.orchestrationId || null,
-            }]
-          : []
-      );
-      replaceSummaries(nextSummaries);
-    },
-    [replaceSummaries]
-  );
 
   const loadTrace = useCallback(
     async (turnId: string) => {
@@ -191,10 +165,8 @@ export const ChatPage: React.FC = () => {
 
   const handleAgentResponseEvent = useCallback(
     (payload: any) => {
-      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
       const turnId = String(payload?.turn_id || '').trim();
       const summary = normalizeTraceSummary(payload?.trace_summary);
-      if (!sessionId) return;
       if (summary) {
         upsertSummary({
           turn_id: summary.turnId,
@@ -209,20 +181,12 @@ export const ChatPage: React.FC = () => {
           orchestration_id: summary.orchestrationId || null,
         });
       }
-      receiveAgentResponse({
-        sessionId,
-        response: String(payload?.response || ''),
-        timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
-        turnId,
-        traceSummary: summary,
-        traceAvailable: Boolean(payload?.trace_available || summary?.traceAvailable),
-      });
       window.dispatchEvent(new Event(SESSION_EVENT));
       if (drawerOpen && activeTurnId === turnId) {
         void loadTrace(turnId);
       }
     },
-    [activeTurnId, currentSessionId, drawerOpen, loadTrace, receiveAgentResponse, upsertSummary]
+    [activeTurnId, drawerOpen, loadTrace, upsertSummary]
   );
 
   const handleWSMessage = useCallback(
@@ -238,7 +202,6 @@ export const ChatPage: React.FC = () => {
         case 'current_session':
           if (data.data?.session_id) {
             const nextSession = String(data.data.session_id);
-            setCurrentSessionId(nextSession);
             localStorage.setItem(`chat_session_${USER_ID}`, nextSession);
             window.dispatchEvent(new Event(SESSION_EVENT));
             requestHistory(nextSession);
@@ -246,10 +209,6 @@ export const ChatPage: React.FC = () => {
           return;
         case 'history':
           if (data.data?.session_id) {
-            const resolvedSession = String(data.data.session_id);
-            const historyMessages = normalizeHistoryMessages(data.data.messages || []);
-            preloadTraceSummaries(historyMessages);
-            receiveHistory(resolvedSession, historyMessages);
             send({ type: 'get_personality' });
           }
           return;
@@ -295,12 +254,9 @@ export const ChatPage: React.FC = () => {
       handleAgentResponseEvent,
       handleExecutionTraceUpdate,
       messages.length,
-      preloadTraceSummaries,
       receiveAgentResponse,
-      receiveHistory,
       requestHistory,
       send,
-      setCurrentSessionId,
     ]
   );
 
