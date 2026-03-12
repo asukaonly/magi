@@ -136,3 +136,138 @@ def test_calendar_event_with_participants():
     assert len(event.participants) == 2
     assert event.is_recurring is True
     assert event.recurrence_rule == "FREQ=WEEKLY"
+
+
+class MockSensor:
+    """Mock sensor for testing."""
+    sensor_id = "timeline.calendar"
+
+
+def test_normalize_basic_event():
+    """Test normalizing a basic calendar event."""
+    from datetime import datetime
+    from calendar_plugin.types import CalendarEvent, Participant
+    from calendar_plugin.normalizers import normalize_calendar_event
+
+    event = CalendarEvent(
+        event_id="evt-001",
+        title="Team Standup",
+        start_time=datetime(2026, 3, 12, 9, 0),
+        end_time=datetime(2026, 3, 12, 9, 15),
+        is_all_day=False,
+        location="Room 101",
+        notes="Daily sync",
+        calendar_name="Work",
+        calendar_color="#FF5733",
+        participants=[],
+        is_recurring=True,
+        recurrence_rule="FREQ=DAILY",
+        url=None
+    )
+
+    sensor = MockSensor()
+    result = normalize_calendar_event(event, sensor)
+
+    assert result["event_id"] == "calendar_evt-001"
+    assert result["source_type"] == "calendar"
+    assert result["source_item_id"] == "calendar_evt-001"
+    assert "Team Standup" in result["title"]
+    assert result["occurred_at"] == datetime(2026, 3, 12, 9, 0).timestamp()
+    assert "calendar" in result["tags"]
+    assert "event" in result["tags"]
+
+
+def test_normalize_event_with_location():
+    """Test normalizing event with location."""
+    from datetime import datetime
+    from calendar_plugin.types import CalendarEvent, Participant
+    from calendar_plugin.normalizers import normalize_calendar_event
+
+    event = CalendarEvent(
+        event_id="evt-002",
+        title="Client Meeting",
+        start_time=datetime(2026, 3, 12, 14, 0),
+        end_time=datetime(2026, 3, 12, 15, 0),
+        is_all_day=False,
+        location="123 Main St",
+        notes=None,
+        calendar_name="Default",
+        calendar_color="#00FF00",
+        participants=[],
+        is_recurring=False,
+        recurrence_rule=None,
+        url=None
+    )
+
+    sensor = MockSensor()
+    result = normalize_calendar_event(event, sensor)
+
+    assert "123 Main St" in result["summary"]
+    assert any("地点" in block["value"] or "123 Main St" in block["value"]
+               for block in result["content_blocks"])
+
+
+def test_normalize_event_with_participants():
+    """Test normalizing event with participants."""
+    from datetime import datetime
+    from calendar_plugin.types import CalendarEvent, Participant
+    from calendar_plugin.normalizers import normalize_calendar_event
+
+    participants = [
+        Participant(name="Alice", email="alice@test.com", status="accepted"),
+        Participant(name="Bob", email="bob@test.com", status="pending"),
+    ]
+
+    event = CalendarEvent(
+        event_id="evt-003",
+        title="Project Review",
+        start_time=datetime(2026, 3, 12, 16, 0),
+        end_time=datetime(2026, 3, 12, 17, 0),
+        is_all_day=False,
+        location=None,
+        notes="Quarterly review",
+        calendar_name="Work",
+        calendar_color="#0000FF",
+        participants=participants,
+        is_recurring=False,
+        recurrence_rule=None,
+        url=None
+    )
+
+    sensor = MockSensor()
+    result = normalize_calendar_event(event, sensor)
+
+    # Check that participants are included in content blocks
+    participant_block = next(
+        (b for b in result["content_blocks"] if "Alice" in b["value"] or "Bob" in b["value"]),
+        None
+    )
+    assert participant_block is not None
+
+
+def test_normalize_all_day_event():
+    """Test normalizing an all-day event."""
+    from datetime import datetime
+    from calendar_plugin.types import CalendarEvent, Participant
+    from calendar_plugin.normalizers import normalize_calendar_event
+
+    event = CalendarEvent(
+        event_id="evt-004",
+        title="Holiday",
+        start_time=datetime(2026, 3, 12, 0, 0),
+        end_time=datetime(2026, 3, 12, 23, 59, 59),
+        is_all_day=True,
+        location=None,
+        notes=None,
+        calendar_name="Holidays",
+        calendar_color="#FFD700",
+        participants=[],
+        is_recurring=True,
+        recurrence_rule="FREQ=YEARLY",
+        url=None
+    )
+
+    sensor = MockSensor()
+    result = normalize_calendar_event(event, sensor)
+
+    assert "全天" in result["title"] or "all day" in result["title"].lower() or "Holiday" in result["title"]
