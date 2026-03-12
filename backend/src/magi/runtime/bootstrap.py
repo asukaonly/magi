@@ -30,7 +30,7 @@ from ..memory.other_memory import OtherMemory
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationModule, MemoryIntegrationConfig
 from ..memory.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
-from ..llm import create_llm_adapter, get_llm_usage_store
+from ..llm import LLMScenario, ScenarioLLMPool, create_llm_adapter, get_llm_usage_store
 from ..llm.usage_events import configure_llm_usage_event_publisher
 from ..plugins import get_action_registry, get_plugin_manager, get_sensor_registry, initialize_plugin_manager
 from ..scheduler import SchedulerBootstrap, SchedulerService, set_scheduler_runtime
@@ -47,6 +47,7 @@ _message_bus: SQLiteMessageBackend | None = None
 _agent_runtime: AgentRuntime | None = None
 _maintenance_daemon: MaintenanceDaemon | None = None
 _scenario_prompts_store: ScenarioPromptsStore | None = None
+_scenario_llm_pool: ScenarioLLMPool | None = None
 _llm_usage_store = None
 _scheduler_service: SchedulerService | None = None
 _scheduler_bootstrap: SchedulerBootstrap | None = None
@@ -194,8 +195,12 @@ def get_scheduler_service() -> SchedulerService:
     return _scheduler_service
 
 
-def _create_llm_adapter(config: AppConfig):
-    llm_adapter = create_llm_adapter(config)
+def _create_scenario_llm_pool(config: AppConfig) -> ScenarioLLMPool:
+    return ScenarioLLMPool(config=config, adapter_factory=create_llm_adapter)
+
+
+def _create_core_llm_adapter(llm_pool: ScenarioLLMPool):
+    llm_adapter = llm_pool.get(LLMScenario.CORE)
     logger.info(
         "Creating LLM adapter | Provider: %s | Model: %s",
         getattr(llm_adapter, "provider_name", "unknown"),
@@ -206,7 +211,7 @@ def _create_llm_adapter(config: AppConfig):
 
 async def initialize_chat_agent():
     """Initialize agent runtime on application startup."""
-    global _memory_integration, _message_bus, _agent_runtime, _llm_usage_store
+    global _memory_integration, _message_bus, _agent_runtime, _llm_usage_store, _scenario_llm_pool
     global _scheduler_service, _scheduler_bootstrap
 
     if _agent_runtime is not None:
@@ -214,11 +219,15 @@ async def initialize_chat_agent():
         return
 
     config = get_config()
-    if not config.llm.api_key:
+    try:
+        _scenario_llm_pool = _create_scenario_llm_pool(config)
+        _scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
+        llm_adapter = _create_core_llm_adapter(_scenario_llm_pool)
+    except Exception as exc:
         logger.warning("=" * 60)
-        logger.warning("LLM_API_KEY not set!")
+        logger.warning("LLM runtime configuration is incomplete: %s", exc)
         logger.warning("Agent runtime will NOT be initialized.")
-        logger.warning("Set LLM_API_KEY environment variable to enable AI responses.")
+        logger.warning("Configure an enabled core provider and model selection to enable AI responses.")
         logger.warning("=" * 60)
         return
 
@@ -242,7 +251,6 @@ async def initialize_chat_agent():
         set_database_initializer(db_initializer)
         logger.info("Database initialization completed")
 
-        llm_adapter = _create_llm_adapter(config)
         initialize_plugin_manager(force=True)
 
         # Ensure built-in tools are loaded and inject runtime dependencies for agent tool.
@@ -327,6 +335,7 @@ async def initialize_chat_agent():
             create_chat_agent=lambda agent_id: ChatTaskAgent(
                 agent_id=agent_id,
                 llm_adapter=llm_adapter,
+                llm_pool=_scenario_llm_pool,
                 memory=memory,
                 other_memory=other_memory,
                 unified_memory=unified_memory,
@@ -336,7 +345,7 @@ async def initialize_chat_agent():
                 scenario_prompts_store=_scenario_prompts_store,
             ),
             create_default_agent=lambda agent_type, agent_id: (
-                ExploreTaskAgent(agent_id=agent_id, llm_adapter=llm_adapter)
+                ExploreTaskAgent(agent_id=agent_id, llm_adapter=llm_adapter, llm_pool=_scenario_llm_pool)
                 if agent_type == TaskAgentType.EXPLORE.value
                 else TimelineTaskAgent(
                     agent_id=agent_id,
@@ -432,6 +441,7 @@ async def initialize_chat_agent():
 async def shutdown_chat_agent():
     """Shutdown agent runtime."""
     global _memory_integration, _message_bus, _agent_runtime, _maintenance_daemon, _llm_usage_store
+    global _scenario_llm_pool
     global _scheduler_service, _scheduler_bootstrap
 
     try:
@@ -462,6 +472,8 @@ async def shutdown_chat_agent():
         if _message_bus is not None:
             await _message_bus.stop()
             _message_bus = None
+
+        _scenario_llm_pool = None
 
         logger.info("Agent runtime stopped")
     except Exception as exc:

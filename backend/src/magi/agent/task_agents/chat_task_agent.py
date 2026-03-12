@@ -50,7 +50,8 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
     def __init__(
         self,
         agent_id: str,
-        llm_adapter,
+        llm_adapter=None,
+        llm_pool=None,
         memory=None,
         other_memory=None,
         unified_memory=None,
@@ -61,11 +62,16 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
+        self._llm_pool = llm_pool
         self.memory = memory
         self.other_memory = other_memory
         self.unified_memory = unified_memory
         self.memory_integration = memory_integration
-        self.context_decider = ContextDecider(tool_registry=tool_registry, llm_adapter=llm_adapter)
+        self.context_decider = ContextDecider(
+            tool_registry=tool_registry,
+            llm_adapter=llm_adapter,
+            llm_pool=llm_pool,
+        )
         self.prompt_context_assembler = PromptContextAssembler(
             tool_registry=tool_registry,
             scenario_prompts_store=scenario_prompts_store,
@@ -88,6 +94,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             agent_id=self.agent_id,
             agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
             llm_adapter=llm_adapter,
+            llm_pool=llm_pool,
             prompt_context_assembler=self.prompt_context_assembler,
             prompt_context_renderer=self.prompt_context_renderer,
             memory=memory,
@@ -120,6 +127,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         )
         self.function_calling_executor = FunctionCallingExecutor(
             llm_adapter=llm_adapter,
+            llm_pool=llm_pool,
             tool_registry=tool_registry,
             skill_executor=self._skill_executor,
             tool_result_callback=self._postprocess_service.record_tool_interaction,

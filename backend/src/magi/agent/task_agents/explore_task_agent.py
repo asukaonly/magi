@@ -37,13 +37,14 @@ from .explore.prompt_service import ExplorePromptService
 class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, ToolSelection, ExecutionRequest, ExecutionResult]):
     """Parent task agent for large Explore tasks composed of leaf Explore workers."""
 
-    def __init__(self, agent_id: str, llm_adapter) -> None:
+    def __init__(self, agent_id: str, llm_adapter=None, llm_pool=None) -> None:
         super().__init__(agent_type=TaskAgentType.EXPLORE, agent_id=agent_id)
         self.llm = llm_adapter
+        self._llm_pool = llm_pool
         self._last_batch_facts: list[FactRecord] = []
         self._session_service = ExploreSessionService()
         self._fact_classifier = ExploreFactClassifier()
-        self._prompt_service = ExplorePromptService(llm_adapter=llm_adapter)
+        self._prompt_service = ExplorePromptService(llm_adapter=llm_adapter, llm_pool=llm_pool)
         self._planning_service = ExplorePlanningService(prompt_service=self._prompt_service)
         self._aggregation_service = ExploreAggregationService()
         self._orchestration_store = get_orchestration_store()

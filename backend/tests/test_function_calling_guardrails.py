@@ -6,8 +6,9 @@ from __future__ import annotations
 import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from magi.llm.base import LLMAdapter
 from magi.agent.execution.function_calling import FunctionCallingExecutor
+from magi.config.models import LLMScenario
+from magi.llm.base import LLMAdapter
 
 
 class _DummyLLMAdapter(LLMAdapter):
@@ -71,11 +72,37 @@ class _DummyToolRegistry:
         return False
 
 
+class _RecordingLLMPool:
+    def __init__(self, adapter: LLMAdapter) -> None:
+        self._adapter = adapter
+        self.requested: list[LLMScenario] = []
+
+    def get(self, scenario: LLMScenario) -> LLMAdapter:
+        self.requested.append(scenario)
+        return self._adapter
+
+
 def _executor() -> FunctionCallingExecutor:
     return FunctionCallingExecutor(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_DummyToolRegistry(),  # type: ignore[arg-type]
     )
+
+
+async def test_function_calling_executor_uses_core_scenario_from_pool() -> None:
+    pool = _RecordingLLMPool(_DummyLLMAdapter())
+    executor = FunctionCallingExecutor(
+        llm_pool=pool,
+        tool_registry=_DummyToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    result = await executor._call_llm_without_tools(
+        system_prompt="You are helpful.",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert result["content"] == ""
+    assert pool.requested == [LLMScenario.CORE]
 
 
 def test_explore_guardrail_rewrites_broad_glob_to_safe_scan() -> None:

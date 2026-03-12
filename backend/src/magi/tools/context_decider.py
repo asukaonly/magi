@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, List as TypingList
 
+from ..config.models import LLMScenario
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
@@ -168,7 +169,8 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        llm_adapter: LLMAdapter,
+        llm_adapter: Optional[LLMAdapter] = None,
+        llm_pool=None,
         max_tools: int = 5,
     ):
         """
@@ -180,9 +182,15 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             max_tools: Maximum number of tools to select
         """
         self.tool_registry = tool_registry
-        self.llm = llm_adapter
-        self.provider_bridge = LLMProviderBridge(llm_adapter)
+        self._llm_pool = llm_pool
+        self.llm = llm_adapter or self._resolve_llm_from_pool()
+        self.provider_bridge = LLMProviderBridge(self.llm) if self.llm else None
         self.max_tools = max_tools
+
+    def _resolve_llm_from_pool(self) -> Optional[LLMAdapter]:
+        if self._llm_pool is None:
+            return None
+        return self._llm_pool.get(LLMScenario.CONTEXT_DECIDER)
 
     async def decide(
         self,
@@ -199,6 +207,11 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         Returns:
             ContextDecision with selected tools
         """
+        pooled_llm = self._resolve_llm_from_pool()
+        if pooled_llm is not None and pooled_llm is not self.llm:
+            self.llm = pooled_llm
+            self.provider_bridge = LLMProviderBridge(pooled_llm)
+
         if not self.llm:
             logger.warning("[ContextDecider] LLM not available")
             return ContextDecision(

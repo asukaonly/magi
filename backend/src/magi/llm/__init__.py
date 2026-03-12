@@ -8,7 +8,9 @@ from .openai import OpenAIAdapter
 from .anthropic import AnthropicAdapter
 from .provider_bridge import LLMProviderBridge, ProviderResponse, ProviderToolCall, ProviderUsage
 from .factory import create_llm_adapter
+from .scenario_pool import ScenarioLLMPool
 from .usage_store import LLMUsageStore, get_llm_usage_store
+from ..config.models import LLMScenario
 
 __all__ = [
     "LLMAdapter",
@@ -19,6 +21,8 @@ __all__ = [
     "ProviderToolCall",
     "ProviderUsage",
     "create_llm_adapter",
+    "LLMScenario",
+    "ScenarioLLMPool",
     "LLMUsageStore",
     "get_llm_usage_store",
 ]

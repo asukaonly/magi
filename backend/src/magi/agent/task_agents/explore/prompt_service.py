@@ -1,14 +1,20 @@
 """Prompt and plain LLM helpers for ExploreTaskAgent."""
 from __future__ import annotations
 
+from ....config.models import LLMScenario
 from ..common import TaskAgentLLMService
 
 
 class ExplorePromptService:
     """Owns ExploreTaskAgent plain LLM calls."""
 
-    def __init__(self, *, llm_adapter) -> None:
-        self._llm_service = TaskAgentLLMService(llm_adapter=llm_adapter, logger_name="explore-task")
+    def __init__(self, *, llm_adapter=None, llm_pool=None) -> None:
+        self._llm_service = TaskAgentLLMService(
+            llm_adapter=llm_adapter,
+            llm_pool=llm_pool,
+            scenario=LLMScenario.CORE,
+            logger_name="explore-task",
+        )
 
     async def call_llm(
         self,
