@@ -35,6 +35,7 @@ from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.agent_tool import AgentTool
+from .memory_query import MemoryQueryTool
 
 # import Skills module
 from ..skills.indexer import SkillIndexer
@@ -94,6 +95,7 @@ __all__ = [
     "WeatherTool",
     "SystemSettingsTool",
     "AgentTool",
+    "MemoryQueryTool",
 
     # Skills
     "SkillIndexer",
