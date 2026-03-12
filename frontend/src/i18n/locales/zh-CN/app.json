@@ -228,7 +228,9 @@
     "saving": "保存中...",
     "tabs": {
       "preferences": "偏好",
-      "llm": "LLM",
+      "llm": "大模型配置",
+      "llmProviders": "供应商配置",
+      "llmModels": "模型选择",
       "usage": "统计",
       "personality": "人格",
       "memory": "记忆",
@@ -239,7 +241,9 @@
       "system": "系统"
     },
     "preferencesDesc": "配置界面语言和用户模式",
-    "llmDesc": "配置大语言模型提供商和参数",
+    "llmDesc": "管理大模型的供应商和场景模型设置",
+    "llmProvidersDesc": "配置模型供应商的连接信息、启用状态和可用模型。",
+    "llmModelsDesc": "为不同运行场景分别选择供应商和模型。",
     "usageDesc": "查看 LLM 调用次数、输入输出 token 使用量和趋势",
     "personalityDesc": "管理 AI 人格配置",
     "memoryDesc": "管理多层记忆系统和向量模型",

@@ -228,7 +228,9 @@
     "saving": "Saving...",
     "tabs": {
       "preferences": "Preferences",
-      "llm": "LLM",
+      "llm": "Model Configuration",
+      "llmProviders": "Provider Configuration",
+      "llmModels": "Model Selection",
       "usage": "Usage",
       "personality": "Personality",
       "memory": "Memory",
@@ -239,7 +241,9 @@
       "system": "System"
     },
     "preferencesDesc": "Configure interface language and user mode",
-    "llmDesc": "Configure LLM provider and parameters",
+    "llmDesc": "Manage provider connections and scenario-specific model choices.",
+    "llmProvidersDesc": "Configure provider connection details, availability, and model sources.",
+    "llmModelsDesc": "Choose providers and models for each runtime scenario.",
     "usageDesc": "Inspect LLM call volume, prompt/completion tokens, and usage trends",
     "personalityDesc": "Manage AI personality configuration",
     "memoryDesc": "Manage layered memory system and vector models",

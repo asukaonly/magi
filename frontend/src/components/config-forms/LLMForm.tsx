@@ -28,6 +28,8 @@ interface LLMFormProps {
   value?: LLMConfig;
   onChange?: (nextValue: LLMConfig) => void;
   showAdvancedByDefault?: boolean;
+  surface?: 'onboarding' | 'settings';
+  showSectionIntro?: boolean;
 }
 
 const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core'];
@@ -194,7 +196,14 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
   return next;
 };
 
-const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, view = 'all', value, onChange }) => {
+const LLMForm: React.FC<LLMFormProps> = ({
+  quickMode = false,
+  view = 'all',
+  value,
+  onChange,
+  surface = 'onboarding',
+  showSectionIntro = true,
+}) => {
   const { t } = useTranslation('onboarding');
   const formCtx = useContext(FormContext);
   const controlled = value !== undefined && typeof onChange === 'function';
@@ -497,6 +506,8 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, view = 'all', valu
           value={currentValue}
           activeProviderId={activeProviderId}
           quickMode={quickMode}
+          surface={surface}
+          showSectionIntro={showSectionIntro}
           scenarioReferences={scenarioReferences}
           onActiveProviderChange={setActiveProviderId}
           onProviderChange={handleProviderChange}
@@ -516,6 +527,8 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, view = 'all', valu
           registry={registry}
           value={currentValue}
           quickMode={quickMode}
+          surface={surface}
+          showSectionIntro={showSectionIntro}
           onScenarioProviderChange={handleScenarioProviderChange}
           onScenarioModelChange={handleScenarioModelChange}
         />

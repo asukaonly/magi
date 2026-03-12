@@ -28,10 +28,21 @@ vi.mock('@/i18n', () => ({
 }));
 
 vi.mock('@/components/config-forms/LLMForm', () => ({
-  default: ({ value, onChange }: { value: any; onChange: (next: any) => void }) => (
-    <button type="button" onClick={() => onChange({ ...value, model: 'gpt-5' })}>
-      change-llm
-    </button>
+  default: ({
+    value,
+    onChange,
+    view,
+  }: {
+    value: any;
+    onChange: (next: any) => void;
+    view?: 'all' | 'providers' | 'models';
+  }) => (
+    <div>
+      <div>{`llm-view:${view || 'all'}`}</div>
+      <button type="button" onClick={() => onChange({ ...value, model: 'gpt-5' })}>
+        change-llm
+      </button>
+    </div>
   ),
 }));
 
@@ -506,6 +517,23 @@ describe('settings page draft saving', () => {
         })
       )
     );
+  });
+
+  it('shows grouped model configuration navigation with provider and model sub-sections', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await screen.findByRole('button', { name: 'settings.tabs.llmProviders' });
+
+    expect(screen.getByText('settings.tabs.llm')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.llmProviders' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.llmModels' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.llmProviders' }));
+    expect(screen.getByText('llm-view:providers')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.llmModels' }));
+    expect(screen.getByText('llm-view:models')).toBeInTheDocument();
   });
 
   it('keeps timeline source changes in draft until save', async () => {

@@ -56,14 +56,23 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 type SelectOption = { label: string; value: string };
 
-type NavItem = {
+type NavLeaf = {
   id: string;
   icon: React.ElementType;
+  children?: never;
 };
+
+type NavGroup = {
+  id: string;
+  icon: React.ElementType;
+  children: Array<{ id: string }>;
+};
+
+type NavItem = NavLeaf | NavGroup;
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'preferences', icon: Settings2 },
-  { id: 'llm', icon: Brain },
+  { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
   { id: 'usage', icon: BarChart3 },
   { id: 'personality', icon: User },
   { id: 'memory', icon: Database },
@@ -73,6 +82,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'actions', icon: Send },
   { id: 'system', icon: Cpu },
 ];
+
+const isNavGroup = (item: NavItem): item is NavGroup => Array.isArray((item as NavGroup).children);
 
 const LANGUAGE_STORAGE_KEY = 'magi_language';
 
@@ -239,6 +250,13 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const [savedToolDrafts, setSavedToolDrafts] = useState<Record<string, { enabled: boolean; values: Record<string, any> }>>({});
   const [draftToolDrafts, setDraftToolDrafts] = useState<Record<string, { enabled: boolean; values: Record<string, any> }>>({});
   const [reloadingActionPlugins, setReloadingActionPlugins] = useState<Record<string, boolean>>({});
+
+  const isNavGroupActive = (item: NavItem) => {
+    if (!isNavGroup(item)) {
+      return activeSection === item.id;
+    }
+    return item.children.some((child) => child.id === activeSection);
+  };
 
   const patchDraftConfig = (updater: (draft: SystemConfig) => void) => {
     setDraftConfig((prev) => {
@@ -659,11 +677,31 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         );
 
-      case 'llm':
+      case 'llmProviders':
         return (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <LLMForm
               quickMode={false}
+              view="providers"
+              surface="settings"
+              showSectionIntro={false}
+              value={draftConfig.llm}
+              showAdvancedByDefault
+              onChange={(next) => patchDraftConfig((draft) => {
+                draft.llm = next;
+              })}
+            />
+          </div>
+        );
+
+      case 'llmModels':
+        return (
+          <div className="space-y-4">
+            <LLMForm
+              quickMode={false}
+              view="models"
+              surface="settings"
+              showSectionIntro={false}
               value={draftConfig.llm}
               showAdvancedByDefault
               onChange={(next) => patchDraftConfig((draft) => {
@@ -975,13 +1013,14 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           <div className="space-y-1.5">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
-              const isActive = activeSection === item.id;
+              const isActive = isNavGroupActive(item);
               return (
                 <div key={item.id} className="space-y-1.5">
                   <button
                     onClick={() => {
-                      setActiveSection(item.id);
-                      if (item.id === 'timeline') {
+                      const nextSection = isNavGroup(item) ? item.children[0]?.id || item.id : item.id;
+                      setActiveSection(nextSection);
+                      if (nextSection === 'timeline') {
                         setTimelineSelection(null);
                         void fetchTimelineStatuses();
                       }
@@ -1006,9 +1045,39 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     </div>
                     <ChevronRight className={cn(
                       'h-4 w-4 transition-all duration-200',
-                      isActive ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0'
+                      isNavGroup(item)
+                        ? isActive
+                          ? 'opacity-100 translate-x-0 rotate-90'
+                          : 'opacity-60 -translate-x-0'
+                        : isActive
+                          ? 'opacity-100 translate-x-0'
+                          : 'opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0'
                     )} />
                   </button>
+
+                  {isNavGroup(item) ? (
+                    <div className="ml-3 space-y-1 border-l border-border/50 pl-3">
+                      {item.children.map((child) => {
+                        const isChildActive = activeSection === child.id;
+                        return (
+                          <button
+                            key={child.id}
+                            type="button"
+                            onClick={() => setActiveSection(child.id)}
+                            aria-current={isChildActive ? 'page' : undefined}
+                            className={cn(
+                              'flex w-full items-center rounded-md px-3 py-2 text-sm transition-all duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              isChildActive
+                                ? 'bg-background/80 text-foreground font-medium shadow-sm'
+                                : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
+                            )}
+                          >
+                            {t(`settings.tabs.${child.id}`)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
 
                   {item.id === 'timeline' && isActive ? (
                     <div className="ml-3 space-y-1 border-l border-border/50 pl-3">
@@ -1063,14 +1132,14 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         </nav>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl px-8 py-8">
+          <div className={cn('mx-auto w-full px-8 pb-8', activeSection === 'llmProviders' || activeSection === 'llmModels' ? 'max-w-6xl' : 'max-w-3xl')}>
             {/* Section Header */}
-            <header className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground">
+            <header className="mb-8 border-b border-border/50 pb-6 pt-10">
+              <h2 className="text-2xl font-semibold text-foreground">
                 {t(`settings.tabs.${activeSection}`)}
               </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t(`settings.tabs.${activeSection}Description`, { defaultValue: '' })}
+              <p className="mt-2 text-sm text-muted-foreground">
+                {t(`settings.${activeSection}Desc`, { defaultValue: '' })}
               </p>
             </header>
 

@@ -17,6 +17,8 @@ interface LLMProviderConfigurationSectionProps {
   value: LLMConfig;
   activeProviderId: string;
   quickMode?: boolean;
+  surface?: 'onboarding' | 'settings';
+  showSectionIntro?: boolean;
   scenarioReferences: Record<string, LLMScenario[]>;
   onActiveProviderChange: (providerId: string) => void;
   onProviderChange: (providerId: string, updater: (provider: LLMProviderConfig) => void) => void;
@@ -48,6 +50,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   value,
   activeProviderId,
   quickMode = false,
+  surface = 'onboarding',
+  showSectionIntro = true,
   scenarioReferences,
   onActiveProviderChange,
   onProviderChange,
@@ -62,6 +66,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 }) => {
   const { t } = useTranslation('onboarding');
   const [modelDraft, setModelDraft] = useState('');
+  const isSettingsSurface = surface === 'settings';
 
   const customProviderIds = Object.entries(value.providers)
     .filter(([, provider]) => provider.provider_type === 'custom')
@@ -95,33 +100,50 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   }, [activeProviderId]);
 
   return (
-    <section data-testid="llm-provider-configuration-section" className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1.5">
-          <h3 className="text-lg font-semibold text-foreground sm:text-xl">{t('llm.providerConfiguration.title')}</h3>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.providerConfiguration.desc')}</p>
+    <section data-testid="llm-provider-configuration-section" className={cn('space-y-4', isSettingsSurface && 'space-y-3')}>
+      {showSectionIntro ? (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1.5">
+            <h3 className="text-lg font-semibold text-foreground sm:text-xl">{t('llm.providerConfiguration.title')}</h3>
+            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.providerConfiguration.desc')}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onAddCustomProvider}
+            className="inline-flex items-center gap-2 self-start rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
+          >
+            <Plus className="h-4 w-4" />
+            <span>{t('llm.actions.addCustomProvider')}</span>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onAddCustomProvider}
-          className="inline-flex items-center gap-2 self-start rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
-        >
-          <Plus className="h-4 w-4" />
-          <span>{t('llm.actions.addCustomProvider')}</span>
-        </button>
-      </div>
+      ) : (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onAddCustomProvider}
+            className="inline-flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-accent"
+          >
+            <Plus className="h-4 w-4" />
+            <span>{t('llm.actions.addCustomProvider')}</span>
+          </button>
+        </div>
+      )}
 
       <div
         data-testid="llm-provider-workbench"
         className={cn(
           'grid min-h-0 gap-4 overflow-hidden rounded-[28px] bg-muted/35 p-3 sm:p-4',
           workbenchColumnsClassName,
-          'md:h-[clamp(440px,56vh,680px)] xl:items-stretch'
+          'md:h-[clamp(440px,56vh,680px)] xl:items-stretch',
+          isSettingsSurface && 'gap-5 rounded-none bg-transparent p-0 md:h-[min(62vh,720px)]'
         )}
       >
         <div
           data-testid="llm-provider-list-pane"
-          className="min-h-0 space-y-1.5 overflow-y-auto rounded-[24px] bg-background/55 p-2 sm:p-3"
+          className={cn(
+            'min-h-0 space-y-1.5 overflow-y-auto rounded-[24px] bg-background/55 p-2 sm:p-3',
+            isSettingsSurface && 'rounded-2xl bg-transparent p-0 pr-2'
+          )}
         >
           {providerItems.map(({ providerId, provider }) => {
             const providerMeta =
@@ -138,7 +160,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
                   providerId === activeProviderId
                     ? 'bg-background text-foreground'
-                    : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+                    : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
+                  isSettingsSurface && (providerId === activeProviderId
+                    ? 'rounded-xl ring-1 ring-inset ring-primary/35'
+                    : 'rounded-xl ring-1 ring-inset ring-border/45')
                 )}
               >
                 <div className="min-w-0 flex-1">
@@ -163,10 +188,13 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
         {activeProvider ? (
           <div
             data-testid="llm-provider-detail-pane"
-            className="min-h-0 overflow-y-auto rounded-[24px] bg-background/72 p-5 sm:p-6"
+            className={cn(
+              'min-h-0 overflow-y-auto rounded-[24px] bg-background/72 p-5 sm:p-6',
+              isSettingsSurface && 'rounded-none bg-transparent px-0 py-1'
+            )}
           >
-            <div className="space-y-6">
-              <div className="space-y-3">
+            <div className={cn('space-y-6', isSettingsSurface && 'space-y-5')}>
+              <div className={cn('space-y-3', isSettingsSurface && 'space-y-4 pt-2')}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={badgeClassName}>
                     {activeProvider.provider_type === 'custom'
@@ -183,10 +211,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="space-y-1.5">
-                    <h4 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
+                    <h4 className={cn('text-xl font-semibold tracking-[-0.01em] text-foreground', isSettingsSurface && 'text-lg')}>
                       {activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
                     </h4>
-                    <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                    <p className={cn('max-w-2xl text-sm leading-6 text-muted-foreground', isSettingsSurface && 'leading-5')}>
                       {activeProviderMeta?.description || t('llm.providerConfiguration.customProviderHint')}
                     </p>
                   </div>
@@ -257,7 +285,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
                       <input
                         aria-label={t('llm.fields.apiKey')}
-                        className={fieldClassName}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
                         type="password"
                         value={activeProvider.api_key || ''}
                         onChange={(event) =>
@@ -272,7 +300,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
                       <input
                         aria-label={t('llm.fields.baseUrl')}
-                        className={fieldClassName}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
                         value={activeProvider.base_url || ''}
                         onChange={(event) =>
                           onProviderChange(activeProviderId, (provider) => {
@@ -286,7 +314,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
                       <input
                         aria-label={t('llm.fields.displayName')}
-                        className={fieldClassName}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
                         value={activeProvider.display_name || ''}
                         onChange={(event) =>
                           onProviderChange(activeProviderId, (provider) => {
@@ -300,7 +328,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.apiFormat')}</span>
                       <select
                         aria-label={t('llm.fields.apiFormat')}
-                        className={fieldClassName}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
                         value={activeProvider.api_format || 'openai'}
                         onChange={(event) =>
                           onProviderChange(activeProviderId, (provider) => {
@@ -316,13 +344,13 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       </select>
                     </label>
 
-                    <div className="space-y-4 rounded-[20px] bg-muted/40 p-4 lg:col-span-2">
+                    <div className={cn('space-y-4 rounded-[20px] bg-muted/40 p-4 lg:col-span-2', isSettingsSurface && 'rounded-xl bg-muted/25 p-3.5')}>
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                         <label className="flex-1 space-y-2">
                           <span className="text-sm font-medium">{t('llm.fields.modelManualEntry')}</span>
                           <input
                             aria-label={t('llm.fields.modelManualEntry')}
-                            className={fieldClassName}
+                            className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
                             value={modelDraft}
                             onChange={(event) => setModelDraft(event.target.value)}
                           />
@@ -333,7 +361,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             onAddProviderModel(activeProviderId, modelDraft);
                             setModelDraft('');
                           }}
-                          className="inline-flex h-11 items-center justify-center rounded-xl bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent"
+                          className="inline-flex h-11 items-center justify-center rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent"
                         >
                           {t('llm.actions.addModel')}
                         </button>
@@ -363,7 +391,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           <span className="text-sm font-medium">{t('llm.fields.defaultModel')}</span>
                           <select
                             aria-label={t('llm.fields.defaultModel')}
-                            className={cn(fieldClassName, 'disabled:cursor-not-allowed disabled:opacity-60')}
+                            className={cn(fieldClassName, isSettingsSurface && 'rounded-lg', 'disabled:cursor-not-allowed disabled:opacity-60')}
                             value={activeProvider.custom_default_model || ''}
                             disabled={!activeProvider.custom_models?.length}
                             onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
@@ -382,7 +410,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           type="button"
                           onClick={() => onDiscoverProviderModels(activeProviderId)}
                           disabled={activeDiscoveryState.loading}
-                          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                           <span>{t('llm.actions.fetchModels')}</span>
@@ -402,7 +430,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
                       <input
                         aria-label={t('llm.fields.apiKey')}
-                        className={fieldClassName}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
                         type="password"
                         value={activeProvider.api_key || ''}
                         onChange={(event) =>
@@ -417,7 +445,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
                       <input
                         aria-label={t('llm.fields.baseUrl')}
-                        className={fieldClassName}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
                         placeholder={activeProviderMeta?.default_base_url || ''}
                         value={activeProvider.base_url || ''}
                         onChange={(event) =>
