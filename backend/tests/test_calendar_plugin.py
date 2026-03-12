@@ -49,3 +49,90 @@ def test_eventkit_query_error():
 
     error2 = EventKitQueryError("Query failed", query_type="events")
     assert "events" in str(error2)
+
+
+def test_participant_creation():
+    """Test Participant dataclass creation."""
+    from calendar_plugin.types import Participant
+
+    participant = Participant(
+        name="John Doe",
+        email="john@example.com",
+        status="accepted"
+    )
+    assert participant.name == "John Doe"
+    assert participant.email == "john@example.com"
+    assert participant.status == "accepted"
+
+
+def test_participant_optional_email():
+    """Test Participant with None email."""
+    from calendar_plugin.types import Participant
+
+    participant = Participant(
+        name="Jane Doe",
+        email=None,
+        status="pending"
+    )
+    assert participant.name == "Jane Doe"
+    assert participant.email is None
+    assert participant.status == "pending"
+
+
+def test_calendar_event_creation():
+    """Test CalendarEvent dataclass creation."""
+    from datetime import datetime
+    from calendar_plugin.types import CalendarEvent
+
+    event = CalendarEvent(
+        event_id="test-123",
+        title="Team Meeting",
+        start_time=datetime(2026, 3, 12, 10, 0),
+        end_time=datetime(2026, 3, 12, 11, 0),
+        is_all_day=False,
+        location="Conference Room A",
+        notes="Discuss project roadmap",
+        calendar_name="Work",
+        calendar_color="#FF0000",
+        participants=[],
+        is_recurring=False,
+        recurrence_rule=None,
+        url=None
+    )
+
+    assert event.event_id == "test-123"
+    assert event.title == "Team Meeting"
+    assert event.is_all_day is False
+    assert event.location == "Conference Room A"
+    assert event.calendar_name == "Work"
+
+
+def test_calendar_event_with_participants():
+    """Test CalendarEvent with participants."""
+    from datetime import datetime
+    from calendar_plugin.types import CalendarEvent, Participant
+
+    participants = [
+        Participant(name="Alice", email="alice@example.com", status="accepted"),
+        Participant(name="Bob", email="bob@example.com", status="declined"),
+    ]
+
+    event = CalendarEvent(
+        event_id="test-456",
+        title="Review Meeting",
+        start_time=datetime(2026, 3, 12, 14, 0),
+        end_time=datetime(2026, 3, 12, 15, 0),
+        is_all_day=False,
+        location=None,
+        notes=None,
+        calendar_name="Default",
+        calendar_color="#0000FF",
+        participants=participants,
+        is_recurring=True,
+        recurrence_rule="FREQ=WEEKLY",
+        url="https://example.com/event"
+    )
+
+    assert len(event.participants) == 2
+    assert event.is_recurring is True
+    assert event.recurrence_rule == "FREQ=WEEKLY"
