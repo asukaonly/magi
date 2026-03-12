@@ -37,10 +37,11 @@ describe('chat shell state', () => {
     expect(panelByPathname('/chat')).toBe('none');
   });
 
-  it('treats settings as a chat workspace host route', () => {
+  it('limits chat workspace host routes to chat-only paths', () => {
     expect(shouldRenderChatWorkspace('/')).toBe(true);
     expect(shouldRenderChatWorkspace('/chat')).toBe(true);
-    expect(shouldRenderChatWorkspace('/settings')).toBe(true);
+    expect(shouldRenderChatWorkspace('/settings')).toBe(false);
+    expect(shouldRenderChatWorkspace('/events')).toBe(false);
     expect(shouldRenderChatWorkspace('/personality')).toBe(false);
   });
 

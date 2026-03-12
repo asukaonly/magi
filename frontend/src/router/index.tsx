@@ -5,6 +5,7 @@ import React from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import MainLayout from '../components/layout/MainLayout';
+import ShellRouteHost from '../components/layout/ShellRouteHost';
 import { configApi } from '../api/modules/config';
 import { LoadingSpinner } from '../components/ui/loading-spinner';
 
@@ -13,6 +14,12 @@ const ChatPage = React.lazy(() =>
 );
 const TimelinePage = React.lazy(() =>
   import('../pages/Timeline').then((m) => ({ default: m.TimelinePage }))
+);
+const MemoryPage = React.lazy(() =>
+  import('../pages/Memory').then((m) => ({ default: m.MemoryPage }))
+);
+const PersonalityPage = React.lazy(() =>
+  import('../pages/Personality').then((m) => ({ default: m.PersonalityPage }))
 );
 const OnboardingPage = React.lazy(() =>
   import('../pages/Onboarding').then((m) => ({ default: m.default }))
@@ -81,11 +88,7 @@ const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: (
-          <React.Suspense fallback={<LoadingFallback />}>
-            <ChatPage />
-          </React.Suspense>
-        ),
+        element: <Navigate to="/chat" replace />,
       },
       {
         path: 'chat',
@@ -99,7 +102,7 @@ const router = createBrowserRouter([
         path: 'settings',
         element: (
           <React.Suspense fallback={<LoadingFallback />}>
-            <ChatPage />
+            <ShellRouteHost overlay="settings" />
           </React.Suspense>
         ),
       },
@@ -107,7 +110,7 @@ const router = createBrowserRouter([
         path: 'personality',
         element: (
           <React.Suspense fallback={<LoadingFallback />}>
-            <ChatPage />
+            <PersonalityPage />
           </React.Suspense>
         ),
       },
@@ -115,7 +118,7 @@ const router = createBrowserRouter([
         path: 'events',
         element: (
           <React.Suspense fallback={<LoadingFallback />}>
-            <ChatPage />
+            <MemoryPage />
           </React.Suspense>
         ),
       },

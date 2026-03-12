@@ -5,7 +5,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUp, Loader2, Wrench, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -15,10 +14,7 @@ import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useChatShellStore, useChatTraceStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
-import PersonalityModern from './PersonalityModern';
-import EventsPage from './Events';
-import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
-import { panelByPathname, shouldClosePanelToChat, shouldRenderChatWorkspace, shouldSubmitOnEnter } from './chat-route-helpers';
+import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
   applyAgentResponse,
   createPendingTurn,
@@ -81,18 +77,9 @@ const createClientTurnId = (): string => {
 
 export const ChatPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
-  const location = useLocation();
-  const navigate = useNavigate();
   const shouldReduceMotion = useReducedMotion();
   const currentSessionId = useChatShellStore((state) => state.currentSessionId);
   const setCurrentSessionId = useChatShellStore((state) => state.setCurrentSessionId);
-  const activePanel = useChatShellStore((state) => state.activePanel);
-  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
-
-  // Route detection variables
-  const isChatRoute = shouldRenderChatWorkspace(location.pathname);
-  const isPersonalityRoute = location.pathname === '/personality';
-  const isMemoryRoute = location.pathname === '/events';
 
   const drawerOpen = useChatTraceStore((state) => state.drawerOpen);
   const activeTurnId = useChatTraceStore((state) => state.activeTurnId);
@@ -126,23 +113,12 @@ export const ChatPage: React.FC = () => {
   };
 
   useEffect(() => {
-    setActivePanel(panelByPathname(location.pathname));
-  }, [location.pathname, setActivePanel]);
-
-  useEffect(() => {
     window.dispatchEvent(new CustomEvent(CONNECTION_EVENT, { detail: { connected } }));
   }, [connected]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  const closePanel = useCallback(() => {
-    setActivePanel('none');
-    if (shouldClosePanelToChat(location.pathname)) {
-      navigate('/chat');
-    }
-  }, [location.pathname, navigate, setActivePanel]);
 
   const preloadTraceSummaries = useCallback(
     (historyMessages: ChatTimelineMessage[]) => {
@@ -570,139 +546,108 @@ export const ChatPage: React.FC = () => {
   );
 
   return (
-    <AnimatePresence mode="wait">
-      {isPersonalityRoute && (
-        <motion.div
-          key="personality"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-          className="h-full overflow-y-auto"
-        >
-          <PersonalityModern />
-        </motion.div>
-      )}
-      {isMemoryRoute && (
-        <motion.div
-          key="memory"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-          className="h-full overflow-y-auto p-5"
-        >
-          <EventsPage />
-        </motion.div>
-      )}
-      {isChatRoute && (
-        <motion.div
-          key="chat"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-          className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
-        >
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-            {messages.map((msg) => (
-              msg.kind === 'status' ? (
-                renderStatusCard(msg)
-              ) : (
-                <motion.div
-                  key={msg.id}
-                  initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
-                  className={msg.role === 'user' ? 'mb-5 flex justify-end' : 'mb-5 flex justify-start'}
-                >
-                  <div className={msg.role === 'user' ? 'flex max-w-[75%] flex-row-reverse gap-3' : 'flex max-w-[75%] gap-3'}>
-                    {getAvatar(msg.role)}
-                    <div className={msg.role === 'user' ? 'items-end' : 'items-start'}>
-                      <div className="mb-1 flex items-center gap-2">
-                        <span className="text-xs font-medium text-muted-foreground">
-                          {msg.role === 'user' ? t('chat.you') : aiName}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {new Date(msg.timestamp).toLocaleTimeString(i18n.language === 'en' ? 'en-US' : 'zh-CN')}
-                        </span>
-                      </div>
-                      <div
-                        className={msg.role === 'user'
-                          ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-accent-foreground'
-                          : 'rounded-2xl rounded-tl-md border border-border/30 bg-muted/50 px-4 py-3'}
-                      >
-                        {msg.role === 'assistant' ? (
-                          <div className="max-w-none text-current">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
-                              {msg.content}
-                            </ReactMarkdown>
-                          </div>
-                        ) : (
-                          <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
-                        )}
-                        {msg.role === 'assistant' && renderTraceButton(msg)}
-                      </div>
-                    </div>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2"
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+        {messages.map((msg) => (
+          msg.kind === 'status' ? (
+            renderStatusCard(msg)
+          ) : (
+            <motion.div
+              key={msg.id}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+              className={msg.role === 'user' ? 'mb-5 flex justify-end' : 'mb-5 flex justify-start'}
+            >
+              <div className={msg.role === 'user' ? 'flex max-w-[75%] flex-row-reverse gap-3' : 'flex max-w-[75%] gap-3'}>
+                {getAvatar(msg.role)}
+                <div className={msg.role === 'user' ? 'items-end' : 'items-start'}>
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {msg.role === 'user' ? t('chat.you') : aiName}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {new Date(msg.timestamp).toLocaleTimeString(i18n.language === 'en' ? 'en-US' : 'zh-CN')}
+                    </span>
                   </div>
-                </motion.div>
-              )
-            ))}
-            <AnimatePresence>
-              {!connected && (
-                <motion.div initial={shouldReduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={shouldReduceMotion ? undefined : { opacity: 0 }} className="text-center text-xs text-amber-700">
-                  {t('chat.connectingHint')}
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <div ref={messagesEndRef} />
-          </div>
+                  <div
+                    className={msg.role === 'user'
+                      ? 'rounded-2xl rounded-tr-md bg-accent/90 px-4 py-3 text-accent-foreground'
+                      : 'rounded-2xl rounded-tl-md border border-border/30 bg-muted/50 px-4 py-3'}
+                  >
+                    {msg.role === 'assistant' ? (
+                      <div className="max-w-none text-current">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
+                    )}
+                    {msg.role === 'assistant' && renderTraceButton(msg)}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )
+        ))}
+        <AnimatePresence>
+          {!connected && (
+            <motion.div initial={shouldReduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={shouldReduceMotion ? undefined : { opacity: 0 }} className="text-center text-xs text-amber-700">
+              {t('chat.connectingHint')}
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <div ref={messagesEndRef} />
+      </div>
 
-          <div className="mt-2 shrink-0">
-            <div className="relative rounded-2xl bg-muted/40 px-3 py-3">
-              <AutoResizeTextarea
-                value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
-                onCompositionStart={() => {
-                  isComposingRef.current = true;
-                }}
-                onCompositionEnd={() => {
-                  isComposingRef.current = false;
-                }}
-                placeholder={t('chat.inputPlaceholder')}
-                onKeyDown={handleKeyPress}
-                disabled={!connected}
-                minHeight={120}
-                className="max-h-72 resize-none rounded-2xl border border-transparent bg-transparent px-3 py-3 pr-20 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  void handleSendMessage();
-                }}
-                disabled={!connected}
-                className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-                aria-label={t('chat.send')}
-                title={t('chat.send')}
-              >
-                <ArrowUp className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-
-          <ToolchainDrawer
-            open={drawerOpen}
-            onOpenChange={(open) => !open && closeDrawer()}
-            loading={loadingTrace}
-            snapshot={normalizeTraceSnapshot(snapshots[activeTurnId || ''] || null)}
-            title={t('chat.trace.title')}
-            subtitle={t('chat.trace.subtitle')}
+      <div className="mt-2 shrink-0">
+        <div className="relative rounded-2xl bg-muted/40 px-3 py-3">
+          <AutoResizeTextarea
+            value={inputValue}
+            onChange={(event) => setInputValue(event.target.value)}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false;
+            }}
+            placeholder={t('chat.inputPlaceholder')}
+            onKeyDown={handleKeyPress}
+            disabled={!connected}
+            minHeight={120}
+            className="max-h-72 resize-none rounded-2xl border border-transparent bg-transparent px-3 py-3 pr-20 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
           />
+          <button
+            type="button"
+            onClick={() => {
+              void handleSendMessage();
+            }}
+            disabled={!connected}
+            className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+            aria-label={t('chat.send')}
+            title={t('chat.send')}
+          >
+            <ArrowUp className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
 
-        </motion.div>
-      )}
-      <SettingsCenterDialog open={activePanel === 'settings'} onOpenChange={(open) => !open && closePanel()} />
-    </AnimatePresence>
+      <ToolchainDrawer
+        open={drawerOpen}
+        onOpenChange={(open) => !open && closeDrawer()}
+        loading={loadingTrace}
+        snapshot={normalizeTraceSnapshot(snapshots[activeTurnId || ''] || null)}
+        title={t('chat.trace.title')}
+        subtitle={t('chat.trace.subtitle')}
+      />
+    </motion.div>
   );
 
   };

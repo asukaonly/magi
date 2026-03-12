@@ -10,7 +10,7 @@ export const panelByPathname = (pathname: string): ChatPanelType => {
 };
 
 export const shouldRenderChatWorkspace = (pathname: string): boolean =>
-  pathname === '/' || pathname === '/chat' || pathname === '/settings';
+  pathname === '/' || pathname === '/chat';
 
 export const shouldClosePanelToChat = (pathname: string): boolean =>
   pathname === '/settings' || pathname === '/personality' || pathname === '/events';
