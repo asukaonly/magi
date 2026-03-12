@@ -1,5 +1,5 @@
-import React from 'react';
-import { Plus } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Loader2, Plus, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { LLMConfig, LLMProviderConfig, LLMProviderRegistry, LLMScenario } from '@/api/modules/config';
@@ -14,6 +14,11 @@ interface LLMProviderConfigurationSectionProps {
   onActiveProviderChange: (providerId: string) => void;
   onProviderChange: (providerId: string, updater: (provider: LLMProviderConfig) => void) => void;
   onAddCustomProvider: () => void;
+  onAddProviderModel: (providerId: string, model: string) => void;
+  onRemoveProviderModel: (providerId: string, model: string) => void;
+  onProviderDefaultModelChange: (providerId: string, model: string) => void;
+  onDiscoverProviderModels: (providerId: string) => void;
+  providerDiscoveryState: Record<string, { loading: boolean; error: string | null }>;
 }
 
 const badgeClassName =
@@ -28,8 +33,14 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   onActiveProviderChange,
   onProviderChange,
   onAddCustomProvider,
+  onAddProviderModel,
+  onRemoveProviderModel,
+  onProviderDefaultModelChange,
+  onDiscoverProviderModels,
+  providerDiscoveryState,
 }) => {
   const { t } = useTranslation('onboarding');
+  const [modelDraft, setModelDraft] = useState('');
   const customProviderIds = Object.entries(value.providers)
     .filter(([, provider]) => provider.provider_type === 'custom')
     .map(([providerId]) => providerId);
@@ -43,9 +54,14 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       ? undefined
       : registry.providers.find((provider) => provider.id === activeProvider?.provider_type);
   const activeReferences = scenarioReferences[activeProviderId] || [];
+  const activeDiscoveryState = providerDiscoveryState[activeProviderId] || { loading: false, error: null };
   const workbenchColumnsClassName = quickMode
     ? 'xl:grid-cols-[280px_minmax(0,1fr)]'
     : 'xl:grid-cols-[320px_minmax(0,1fr)]';
+
+  useEffect(() => {
+    setModelDraft('');
+  }, [activeProviderId]);
 
   return (
     <section
@@ -86,7 +102,9 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 ? undefined
                 : registry.providers.find((item) => item.id === provider.provider_type);
             const modelLabels =
-              providerMeta?.models?.map((model) => model.label || model.id) || [];
+              provider.provider_type === 'custom'
+                ? provider.custom_models || []
+                : providerMeta?.models?.map((model) => model.label || model.id) || [];
 
             return (
               <button
@@ -202,6 +220,89 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         ))}
                       </select>
                     </label>
+
+                    <div className="space-y-3 rounded-2xl border border-border/50 bg-muted/20 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <label className="flex-1 space-y-2">
+                          <span className="text-sm font-medium">{t('llm.fields.modelManualEntry')}</span>
+                          <input
+                            aria-label={t('llm.fields.modelManualEntry')}
+                            className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                            value={modelDraft}
+                            onChange={(event) => setModelDraft(event.target.value)}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onAddProviderModel(activeProviderId, modelDraft);
+                            setModelDraft('');
+                          }}
+                          className="inline-flex h-11 items-center justify-center rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5"
+                        >
+                          {t('llm.actions.addModel')}
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {(activeProvider.custom_models || []).map((model) => (
+                          <span
+                            key={model}
+                            className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs text-foreground"
+                          >
+                            <span>{model}</span>
+                            <button
+                              type="button"
+                              aria-label={`${t('llm.actions.removeModel')} ${model}`}
+                              className="text-muted-foreground transition hover:text-foreground"
+                              onClick={() => onRemoveProviderModel(activeProviderId, model)}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <label className="flex-1 space-y-2">
+                          <span className="text-sm font-medium">{t('llm.fields.defaultModel')}</span>
+                          {activeProvider.custom_models?.length ? (
+                            <select
+                              aria-label={t('llm.fields.defaultModel')}
+                              className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                              value={activeProvider.custom_default_model || ''}
+                              onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
+                            >
+                              {(activeProvider.custom_models || []).map((model) => (
+                                <option key={model} value={model}>
+                                  {model}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              aria-label={t('llm.fields.defaultModel')}
+                              className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                              value={activeProvider.custom_default_model || ''}
+                              onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
+                            />
+                          )}
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => onDiscoverProviderModels(activeProviderId)}
+                          disabled={activeDiscoveryState.loading}
+                          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                          <span>{t('llm.actions.fetchModels')}</span>
+                        </button>
+                      </div>
+
+                      {activeDiscoveryState.error ? (
+                        <p className="text-sm text-destructive">{activeDiscoveryState.error}</p>
+                      ) : null}
+                    </div>
                   </>
                 ) : null}
 

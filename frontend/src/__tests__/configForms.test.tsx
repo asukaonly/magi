@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
+import { configApi } from '../api/modules/config';
 import { SimpleForm as Form } from '../components/onboarding/simple-form';
 import LLMForm from '../components/config-forms/LLMForm';
 import MemoryForm from '../components/config-forms/MemoryForm';
@@ -143,6 +144,12 @@ vi.mock('../api/modules/config', async () => {
           },
         },
       }),
+      discoverLLMProviderModels: vi.fn().mockResolvedValue({
+        data: {
+          models: ['fetched-model-1', 'fetched-model-2'],
+          default_model: 'fetched-model-1',
+        },
+      }),
     },
   };
 });
@@ -276,6 +283,43 @@ describe('config forms', () => {
       expect(within(coreCard).getByLabelText('llm.fields.model')).toHaveValue('glm-5');
     });
     expect(screen.getByText('llm.warnings.coreVisionMissing')).toBeInTheDocument();
+  });
+
+  it('lets users add a custom provider model manually', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+    await user.type(screen.getByLabelText('llm.fields.modelManualEntry'), 'foo-1');
+    await user.click(screen.getByRole('button', { name: 'llm.actions.addModel' }));
+
+    expect(screen.getAllByText('foo-1').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('foo-1');
+  });
+
+  it('fetches custom provider models on demand', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+    await user.type(screen.getByLabelText('llm.fields.baseUrl'), 'https://proxy.example.com/v1');
+    await user.click(screen.getByRole('button', { name: 'llm.actions.fetchModels' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('fetched-model-1').length).toBeGreaterThan(0);
+    });
+    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('fetched-model-1');
+    expect(configApi.discoverLLMProviderModels).toHaveBeenCalled();
   });
 
   it('memory form disables l2-l5 when l1 off', async () => {

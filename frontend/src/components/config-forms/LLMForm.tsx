@@ -6,6 +6,7 @@ import {
   configApi,
   DEFAULT_LLM_CAPABILITIES,
   DEFAULT_LLM_LIMITS,
+  type DiscoverLLMProviderModelsResponse,
   type LLMCapabilities,
   type LLMConfig,
   type LLMLimits,
@@ -46,6 +47,8 @@ const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderConfig =>
   api_key: value?.api_key || '',
   base_url: value?.base_url || '',
   api_format: value?.api_format,
+  custom_models: [...(value?.custom_models || [])],
+  custom_default_model: value?.custom_default_model || '',
 });
 
 const cloneSelection = (value?: Partial<LLMSelectionConfig>): LLMSelectionConfig => ({
@@ -75,6 +78,8 @@ const getProviderMeta = (registry: LLMProviderRegistry, providerId?: string) =>
 const getProviderModels = (registry: LLMProviderRegistry, providerId?: string) =>
   getProviderMeta(registry, providerId)?.models || [];
 
+const getCustomProviderModels = (provider?: LLMProviderConfig): string[] => provider?.custom_models || [];
+
 const applySelectionDefaults = (
   selection: LLMSelectionConfig,
   registry: LLMProviderRegistry,
@@ -85,6 +90,8 @@ const applySelectionDefaults = (
   }
 
   if (provider.provider_type === 'custom') {
+    const fallbackModel = selection.model || provider.custom_default_model || provider.custom_models?.[0] || '';
+    selection.model = fallbackModel;
     if (!selection.capability_override_enabled) {
       selection.capabilities = cloneCapabilities(registry.custom_provider.capabilities);
       selection.limits = cloneLimits(registry.custom_provider.limits);
@@ -158,6 +165,7 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, value, onChange })
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeProviderId, setActiveProviderId] = useState<string>('openai');
+  const [providerDiscoveryState, setProviderDiscoveryState] = useState<Record<string, { loading: boolean; error: string | null }>>({});
 
   const currentValue = useMemo(() => {
     if (controlled) {
@@ -230,7 +238,7 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, value, onChange })
       selection.provider_id = providerId;
       const provider = draft.providers[providerId];
       if (provider?.provider_type === 'custom') {
-        selection.model = selection.model || '';
+        selection.model = provider.custom_default_model || getCustomProviderModels(provider)[0] || '';
       } else {
         const fallbackModel = getProviderMeta(registry, provider?.provider_type)?.default_model || getProviderModels(registry, providerId)[0]?.id || '';
         selection.model = fallbackModel;
@@ -270,9 +278,87 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, value, onChange })
         api_key: '',
         base_url: '',
         api_format: 'openai',
+        custom_models: [],
+        custom_default_model: '',
       };
     });
     setActiveProviderId(nextProviderId);
+  };
+
+  const handleAddProviderModel = (providerId: string, model: string) => {
+    const trimmedModel = model.trim();
+    if (!trimmedModel) {
+      return;
+    }
+    updateValue((draft) => {
+      const provider = cloneProvider(draft.providers[providerId]);
+      const nextModels = Array.from(new Set([...(provider.custom_models || []), trimmedModel]));
+      provider.custom_models = nextModels;
+      if (!provider.custom_default_model) {
+        provider.custom_default_model = trimmedModel;
+      }
+      draft.providers[providerId] = provider;
+    });
+  };
+
+  const handleRemoveProviderModel = (providerId: string, model: string) => {
+    updateValue((draft) => {
+      const provider = cloneProvider(draft.providers[providerId]);
+      const nextModels = (provider.custom_models || []).filter((item) => item !== model);
+      provider.custom_models = nextModels;
+      if (provider.custom_default_model === model) {
+        provider.custom_default_model = nextModels[0] || '';
+      }
+      draft.providers[providerId] = provider;
+    });
+  };
+
+  const handleProviderDefaultModelChange = (providerId: string, model: string) => {
+    updateValue((draft) => {
+      const provider = cloneProvider(draft.providers[providerId]);
+      provider.custom_default_model = model;
+      draft.providers[providerId] = provider;
+    });
+  };
+
+  const handleDiscoverProviderModels = async (providerId: string) => {
+    const provider = currentValue.providers[providerId];
+    if (!provider || provider.provider_type !== 'custom') {
+      return;
+    }
+
+    setProviderDiscoveryState((prev) => ({
+      ...prev,
+      [providerId]: { loading: true, error: null },
+    }));
+
+    try {
+      const response = await configApi.discoverLLMProviderModels({
+        provider_type: provider.provider_type,
+        base_url: provider.base_url || '',
+        api_key: provider.api_key,
+        api_format: provider.api_format,
+      });
+      const payload = response.data as DiscoverLLMProviderModelsResponse | undefined;
+      const nextModels = payload?.models || [];
+
+      updateValue((draft) => {
+        const draftProvider = cloneProvider(draft.providers[providerId]);
+        draftProvider.custom_models = nextModels;
+        draftProvider.custom_default_model = payload?.default_model || nextModels[0] || draftProvider.custom_default_model || '';
+        draft.providers[providerId] = draftProvider;
+      });
+
+      setProviderDiscoveryState((prev) => ({
+        ...prev,
+        [providerId]: { loading: false, error: null },
+      }));
+    } catch {
+      setProviderDiscoveryState((prev) => ({
+        ...prev,
+        [providerId]: { loading: false, error: t('llm.providerConfiguration.fetchModelsFailed') },
+      }));
+    }
   };
 
   if (loading) {
@@ -304,6 +390,11 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, value, onChange })
         onActiveProviderChange={setActiveProviderId}
         onProviderChange={handleProviderChange}
         onAddCustomProvider={handleAddCustomProvider}
+        onAddProviderModel={handleAddProviderModel}
+        onRemoveProviderModel={handleRemoveProviderModel}
+        onProviderDefaultModelChange={handleProviderDefaultModelChange}
+        onDiscoverProviderModels={handleDiscoverProviderModels}
+        providerDiscoveryState={providerDiscoveryState}
       />
 
       <LLMModelSelectionSection
