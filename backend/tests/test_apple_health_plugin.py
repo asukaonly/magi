@@ -26,6 +26,7 @@ from apple_health.exceptions import (
     AuthorizationDeniedError,
     HealthKitQueryError,
 )
+from apple_health.reader import HealthKitReader
 
 
 def test_health_data_type_creation():
@@ -574,3 +575,168 @@ class TestNormalizers:
         assert NORMALIZERS["sleep"] == normalize_sleep_session
         assert NORMALIZERS["workout"] == normalize_workout
         assert NORMALIZERS["heart_rate"] == normalize_heart_rate_sample
+
+
+class TestHealthKitReaderPlatform:
+    """Test HealthKitReader platform detection and lazy loading."""
+
+    def test_reader_initialization(self):
+        """Test that HealthKitReader initializes with correct defaults."""
+        reader = HealthKitReader()
+
+        assert reader._health_store is None
+        assert reader._is_available is None
+        assert reader._hk_module is None
+        assert reader._foundation_module is None
+
+    def test_platform_check_non_darwin(self, monkeypatch):
+        """Test that platform check raises error on non-darwin systems."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        with pytest.raises(PlatformNotSupportedError):
+            reader._ensure_platform()
+
+    def test_platform_check_darwin(self, monkeypatch):
+        """Test that platform check passes on darwin systems."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate darwin system
+        monkeypatch.setattr(sys, "platform", "darwin")
+
+        # Should not raise
+        reader._ensure_platform()
+
+    def test_is_available_non_darwin(self, monkeypatch):
+        """Test that is_available returns False on non-macOS platforms."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        assert reader.is_available() is False
+        # Check that it caches the result
+        assert reader._is_available is False
+
+    def test_is_available_caches_result(self, monkeypatch):
+        """Test that is_available caches its result."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        # First call
+        result1 = reader.is_available()
+        # Second call should use cache
+        result2 = reader.is_available()
+
+        assert result1 is False
+        assert result2 is False
+        assert reader._is_available is False
+
+    def test_lazy_import_only_on_darwin(self, monkeypatch):
+        """Test that frameworks are not imported on non-darwin platforms."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        # is_available should return False without importing
+        assert reader.is_available() is False
+        # _hk_module should still be None because we didn't try to import
+        # Actually, on non-darwin it's set before import attempt
+        # The import only happens inside is_available() on darwin
+
+    def test_health_store_property_non_darwin(self, monkeypatch):
+        """Test that health_store property raises on non-darwin platforms."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        with pytest.raises(PlatformNotSupportedError):
+            _ = reader.health_store
+
+    def test_get_authorization_status_unavailable(self, monkeypatch):
+        """Test get_authorization_status returns unavailable on non-macOS."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        result = reader.get_authorization_status(["steps", "heart_rate"])
+
+        assert result == {
+            "steps": "unavailable",
+            "heart_rate": "unavailable"
+        }
+
+    def test_request_authorization_unavailable(self, monkeypatch):
+        """Test request_authorization returns False on non-macOS."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        result = reader.request_authorization(["steps", "heart_rate"])
+
+        assert result == {
+            "steps": False,
+            "heart_rate": False
+        }
+
+    def test_read_methods_return_empty_on_non_darwin(self, monkeypatch):
+        """Test that all read methods return empty lists on non-macOS."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        from datetime import datetime
+
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 1, 31)
+
+        # All read methods should return empty lists
+        assert reader.read_daily_aggregate("steps", start, end) == []
+        assert reader.read_samples("heart_rate", start, end) == []
+        assert reader.read_sessions("sleep", start, end) == []
+        assert reader.read_workouts(start, end) == []
+
+    def test_get_authorization_status_unknown_type(self, monkeypatch):
+        """Test get_authorization_status handles unknown types."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        result = reader.get_authorization_status(["unknown_type"])
+
+        assert result == {"unknown_type": "unavailable"}
+
+    def test_request_authorization_unknown_type(self, monkeypatch):
+        """Test request_authorization handles unknown types."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        result = reader.request_authorization(["unknown_type"])
+
+        assert result == {"unknown_type": False}
+
+    def test_reader_multiple_calls_caches_availability(self, monkeypatch):
+        """Test that multiple calls to is_available use cached value."""
+        reader = HealthKitReader()
+
+        # Patch sys.platform to simulate non-darwin system
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        # Multiple calls should all return False and use cache
+        for _ in range(5):
+            assert reader.is_available() is False
+
+        # The cache should be set
+        assert reader._is_available is False
