@@ -261,6 +261,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     }
     return item.children.some((child) => child.id === activeSection);
   };
+  const isWideSection = activeSection === 'llmProviders' || activeSection === 'llmModels';
 
   const getGroupExpanded = (groupId: string) => expandedGroups[groupId] ?? false;
 
@@ -1170,7 +1171,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
         <main className="flex min-h-0 flex-1 flex-col">
           <header className="shrink-0 border-b border-border/60 bg-background/95 backdrop-blur-sm">
-            <div className={cn('mx-auto flex h-16 w-full items-center gap-4 px-8', activeSection === 'llmProviders' || activeSection === 'llmModels' ? 'max-w-6xl' : 'max-w-3xl')}>
+            <div className="flex h-16 w-full items-center gap-4 px-12">
               <h2 className="text-lg font-semibold tracking-[0.01em] text-foreground">
                 {t(`settings.tabs.${activeSection}`)}
               </h2>
@@ -1188,7 +1189,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </header>
 
           <div className="flex-1 overflow-y-auto">
-            <div className={cn('mx-auto w-full px-8 py-8', activeSection === 'llmProviders' || activeSection === 'llmModels' ? 'max-w-6xl' : 'max-w-3xl')}>
+            <div className="w-full px-12 py-8">
               <ErrorBoundary
                 fallback={
                   <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
@@ -1208,7 +1209,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               >
                 <div
                   key={activeSection}
-                  className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out"
+                  className={cn(
+                    'animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out',
+                    isWideSection ? 'w-full' : 'max-w-3xl'
+                  )}
                 >
                   {renderSectionContent()}
                 </div>
