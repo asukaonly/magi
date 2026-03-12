@@ -386,3 +386,58 @@ def test_sensor_collect_items_with_stub_reader():
 
     assert isinstance(result.items, list)
     assert len(result.items) == 0
+
+
+def test_default_settings():
+    """Test DEFAULT_SETTINGS has expected structure."""
+    from calendar_plugin.plugin import DEFAULT_SETTINGS
+    assert "enabled" in DEFAULT_SETTINGS
+    assert "sync_interval_minutes" in DEFAULT_SETTINGS
+    assert "lookback_days" in DEFAULT_SETTINGS
+    assert "recurring_expansion_days" in DEFAULT_SETTINGS
+    assert "default_retention_mode" in DEFAULT_SETTINGS
+
+    assert DEFAULT_SETTINGS["enabled"] is False
+    assert DEFAULT_SETTINGS["sync_interval_minutes"] == 30
+    assert DEFAULT_SETTINGS["lookback_days"] == 30
+    assert DEFAULT_SETTINGS["recurring_expansion_days"] == 30
+
+
+def test_fields_function():
+    """Test _fields returns list of ExtensionFieldSpec."""
+    from calendar_plugin.plugin import _fields
+    from magi.plugins import ExtensionFieldSpec
+
+    fields = _fields("sensors.calendar")
+
+    assert isinstance(fields, list)
+    assert len(fields) > 0
+    assert all(isinstance(f, ExtensionFieldSpec) for f in fields)
+
+    # Check that key fields exist
+    field_keys = [f.key for f in fields]
+    assert any("sync_interval" in k for k in field_keys)
+    assert any("lookback" in k for k in field_keys)
+
+
+def test_plugin_get_sensors_on_non_darwin():
+    """Test plugin returns empty sensors on non-darwin platform."""
+    from calendar_plugin.plugin import CalendarPlugin
+    plugin = CalendarPlugin()
+    plugin.configure(manifest=None, settings={})
+    with patch('sys.platform', 'win32'):
+        sensors = plugin.get_sensors()
+        assert sensors == []
+
+
+def test_plugin_get_sensors_with_disabled_setting():
+    """Test plugin returns empty sensors when disabled in settings."""
+    from calendar_plugin.plugin import CalendarPlugin
+
+    plugin = CalendarPlugin()
+    plugin.configure(manifest=None, settings={"sensors": {"calendar": {"enabled": False}}})
+
+    # Even on darwin, should return empty when disabled
+    with patch('sys.platform', 'darwin'):
+        sensors = plugin.get_sensors()
+        assert sensors == []
