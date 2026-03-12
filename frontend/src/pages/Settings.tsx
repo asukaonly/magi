@@ -1042,8 +1042,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <nav className="flex w-56 shrink-0 flex-col border-r border-border/50 bg-muted/40">
-          <div className="shrink-0 border-b border-border/60 bg-background/95 px-5 py-5 backdrop-blur-sm">
-            <p className="text-sm font-semibold tracking-[0.02em] text-foreground">
+          <div className="flex h-20 shrink-0 items-center border-b border-border/60 bg-background/95 px-5 backdrop-blur-sm">
+            <p className="text-base font-semibold tracking-[0.01em] text-foreground">
               {t('settings.shellTitle')}
             </p>
           </div>
@@ -1169,21 +1169,25 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         </nav>
 
         <main className="flex min-h-0 flex-1 flex-col">
-          <header className="shrink-0 border-b border-border/60 bg-background/95 px-8 py-5 backdrop-blur-sm">
+          <header className="shrink-0 border-b border-border/60 bg-background/95 backdrop-blur-sm">
             <div className={cn('mx-auto flex w-full items-center justify-between gap-4', activeSection === 'llmProviders' || activeSection === 'llmModels' ? 'max-w-6xl' : 'max-w-3xl')}>
-              <h2 className="text-[1.75rem] font-semibold tracking-[0.01em] text-foreground">
-                {t(`settings.tabs.${activeSection}`)}
-              </h2>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => void onRequestClose?.()}
-                className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
-                aria-label={t('settings.actions.close')}
-              >
-                <X className="h-5 w-5" />
-              </Button>
+              <div className="flex h-20 items-center px-8">
+                <h2 className="text-xl font-semibold tracking-[0.01em] text-foreground">
+                  {t(`settings.tabs.${activeSection}`)}
+                </h2>
+              </div>
+              <div className="flex h-20 items-center px-8">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void onRequestClose?.()}
+                  className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
+                  aria-label={t('settings.actions.close')}
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
             </div>
           </header>
 
@@ -1227,16 +1231,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             {dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved')}
           </p>
           <div className="flex flex-wrap items-center gap-2.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void onRequestClose?.()}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <X className="mr-1.5 h-4 w-4" />
-              {t('settings.actions.close')}
-            </Button>
             <Button
               type="button"
               variant="outline"

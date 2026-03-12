@@ -46,7 +46,7 @@ const SettingsCenterDialog: React.FC<SettingsCenterDialogProps> = ({ open, onOpe
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="h-[88vh] max-w-6xl overflow-hidden p-0">
+        <DialogContent hideClose className="h-[88vh] max-w-6xl overflow-hidden p-0">
           <DialogHeader className="sr-only">
             <DialogTitle>{t('settings.title')}</DialogTitle>
             <DialogDescription>{t('settings.subtitle')}</DialogDescription>

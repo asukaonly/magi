@@ -646,7 +646,7 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
     fireEvent.change(screen.getAllByRole('spinbutton')[0], { target: { value: '2' } });
 
-    await user.click(screen.getAllByRole('button', { name: 'settings.actions.close' })[1]);
+    await user.click(screen.getByRole('button', { name: 'settings.actions.close' }));
 
     expect(await screen.findByText('settings.closeConfirm.title')).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
