@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from plugins.apple_health.types import HEALTH_DATA_TYPES, HealthDataType
+from .types import HEALTH_DATA_TYPES, HealthDataType
 
 
 def normalize_daily_aggregate(item: dict[str, Any], sensor: Any) -> dict[str, Any]:

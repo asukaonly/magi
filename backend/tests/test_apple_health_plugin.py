@@ -849,8 +849,14 @@ class TestAppleHealthPlugin:
             with patch.object(HealthKitReader, 'is_available', return_value=True):
                 sensors = plugin.get_sensors()
 
-                # Should return empty list when no types enabled
-                assert len(sensors) == 0
+                # Should still return a sensor (falls back to default types)
+                assert len(sensors) == 1
+                # Default types should be ['steps', 'sleep']
+                sensor_id, sensor_instance, sensor_spec = sensors[0]
+                # The default_settings in metadata should contain the default types
+                default_settings = sensor_spec.metadata.get("default_settings", {})
+                assert default_settings.get("types", {}).get("steps") is True
+                assert default_settings.get("types", {}).get("sleep") is True
         finally:
             # Restore original platform
             sys.platform = self.original_platform

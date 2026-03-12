@@ -9,10 +9,11 @@ from typing import Any
 
 from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
 from magi.timeline.sensors.base import TimelineSensorBase
-from plugins.apple_health.exceptions import PlatformNotSupportedError
-from plugins.apple_health.reader import HealthKitReader
-from plugins.apple_health.types import get_default_enabled_types, HealthDataType
-from plugins.apple_health.normalizers import NORMALIZERS
+
+from .exceptions import PlatformNotSupportedError
+from .normalizers import NORMALIZERS
+from .reader import HealthKitReader
+from .types import HealthDataType, get_default_enabled_types
 
 
 class AppleHealthTimelineSensor(TimelineSensorBase):

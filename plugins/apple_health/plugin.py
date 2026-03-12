@@ -5,9 +5,10 @@ import sys
 from typing import Any, Dict, List
 
 from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
-from plugins.apple_health.reader import HealthKitReader
-from plugins.apple_health.sensor import AppleHealthTimelineSensor
-from plugins.apple_health.types import HEALTH_DATA_TYPES, get_default_enabled_types, get_enabled_types
+
+from .reader import HealthKitReader
+from .sensor import AppleHealthTimelineSensor
+from .types import HEALTH_DATA_TYPES, get_default_enabled_types, get_enabled_types
 
 DEFAULT_SETTINGS = {
     "enabled": False,
