@@ -10,7 +10,8 @@ This replaces the old ToolSelector for better tool selection.
 """
 import json
 import logging
-from typing import Dict, Any, Optional, List
+from dataclasses import dataclass
+from typing import Dict, Any, Optional, List, List as TypingList
 
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
@@ -40,6 +41,32 @@ class ContextDecision:
         self.reasoning = reasoning  # Why these tools were selected
         self.orchestration_strategy = orchestration_strategy or {}
         self.memory_layer = memory_layer  # Which memory layer to use (L1-L5)
+
+
+@dataclass
+class ToolRecommendation:
+    """Tool recommendation with suggested parameters."""
+    name: str
+    description: str
+    suggested_params: dict
+
+
+@dataclass
+class MemoryGuidance:
+    """Memory retrieval guidance from ContextDecider."""
+    inject_prompt: bool
+    system_prompt: str
+    recommended_tools: TypingList[ToolRecommendation]
+
+
+# Memory retrieval trigger keywords
+MEMORY_RETRIEVAL_TRIGGERS = [
+    "what did i", "what was i", "what have i",
+    "yesterday", "last week", "last month", "recently",
+    "browsing", "browse", "visited", "watched", "read",
+    "my history", "my activity", "my notes", "my chat",
+    "browse yesterday", "最近", "浏览", "看", "读",
+]
 
 
 class ContextDecider:
@@ -740,3 +767,82 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             "default_leaf_type": default_leaf_type,
             "allow_parallel": allow_parallel,
         }
+
+    def evaluate_memory_need(
+        self,
+        user_message: str,
+        context: dict
+    ) -> Optional[MemoryGuidance]:
+        """
+        Evaluate if memory retrieval would help answer the user's query.
+
+        Args:
+            user_message: User's message
+            context: Current context (date, etc.)
+
+        Returns:
+            MemoryGuidance if memory retrieval is recommended, None otherwise.
+        """
+        message_lower = user_message.lower()
+
+        # Check for memory-related triggers
+        trigger_matched = any(
+            trigger in message_lower
+            for trigger in MEMORY_RETRIEVAL_TRIGGERS
+        )
+
+        if not trigger_matched:
+            return None
+
+        # Infer time range from message
+        time_range = self._infer_time_range(message_lower)
+
+        # Build tool recommendation
+        suggested_params = {
+            "query": user_message,
+            "time_range": time_range,
+        }
+
+        # Infer data types from message
+        data_types = self._infer_memory_types(message_lower)
+        if data_types:
+            suggested_params["data_types"] = data_types
+
+        return MemoryGuidance(
+            inject_prompt=True,
+            system_prompt=(
+                "Based on the user's query, memory retrieval may be helpful. "
+                "Consider using the memory_query tool to access relevant historical data."
+            ),
+            recommended_tools=[
+                ToolRecommendation(
+                    name="memory_query",
+                    description="Retrieve memories from L1-L5 layers",
+                    suggested_params=suggested_params,
+                )
+            ]
+        )
+
+    def _infer_time_range(self, message_lower: str) -> dict:
+        """Infer time range from message content."""
+        if "yesterday" in message_lower or "昨天" in message_lower:
+            return {"relative": "1d"}
+        elif "last week" in message_lower or "上周" in message_lower:
+            return {"relative": "7d"}
+        elif "last month" in message_lower or "上个月" in message_lower:
+            return {"relative": "30d"}
+        elif "recently" in message_lower or "最近" in message_lower:
+            return {"relative": "7d"}
+        else:
+            return {"relative": "7d"}  # Default to last week
+
+    def _infer_memory_types(self, message_lower: str) -> Optional[list]:
+        """Infer memory types from message content."""
+        types = []
+        if any(kw in message_lower for kw in ["browse", "visit", "website", "浏览", "网页"]):
+            types.append("browser_history")
+        if any(kw in message_lower for kw in ["chat", "conversation", "对话", "聊天"]):
+            types.append("chat")
+        if any(kw in message_lower for kw in ["note", "笔记", "记录"]):
+            types.append("note")
+        return types if types else None
