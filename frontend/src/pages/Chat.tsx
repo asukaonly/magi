@@ -11,7 +11,13 @@ import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useChatShellStore, useChatTraceStore, type ChatPanelType } from '@/stores';
@@ -686,21 +692,35 @@ export const ChatPage: React.FC = () => {
 
       <SettingsCenterDialog open={activePanel === 'settings'} onOpenChange={(open) => !open && closePanel()} />
 
-      <Dialog open={activePanel === 'personality'} onOpenChange={(open) => !open && closePanel()}>
-        <DialogContent className="h-[88vh] max-w-5xl overflow-hidden p-0">
-          <div className="h-full overflow-y-auto p-4">
+      <Sheet open={activePanel === 'personality'} onOpenChange={(open) => !open && closePanel()}>
+        <SheetContent
+          side="right"
+          className="!max-w-none flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0"
+        >
+          <SheetHeader className="border-b border-border/50 bg-muted/30 px-6 py-5">
+            <SheetTitle className="text-xl font-semibold tracking-tight text-foreground">{t('settings.tabs.personality')}</SheetTitle>
+            <SheetDescription className="text-sm text-muted-foreground">{t('settings.personalityDesc')}</SheetDescription>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto">
             <PersonalityModern />
           </div>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
-      <Dialog open={activePanel === 'memory'} onOpenChange={(open) => !open && closePanel()}>
-        <DialogContent className="h-[88vh] max-w-5xl overflow-hidden p-0">
-          <div className="h-full overflow-y-auto p-4">
+      <Sheet open={activePanel === 'memory'} onOpenChange={(open) => !open && closePanel()}>
+        <SheetContent
+          side="right"
+          className="!max-w-none flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0"
+        >
+          <SheetHeader className="border-b border-border/50 bg-muted/30 px-6 py-5">
+            <SheetTitle className="text-xl font-semibold tracking-tight text-foreground">{t('events.title')}</SheetTitle>
+            <SheetDescription className="text-sm text-muted-foreground">{t('events.subtitle')}</SheetDescription>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto p-5">
             <EventsPage />
           </div>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };
