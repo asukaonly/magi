@@ -13,11 +13,12 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
-import { useChatShellStore, useChatTraceStore, type ChatPanelType } from '@/stores';
+import { useChatShellStore, useChatTraceStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import PersonalityModern from './PersonalityModern';
 import EventsPage from './Events';
 import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
+import { panelByPathname, shouldClosePanelToChat, shouldRenderChatWorkspace, shouldSubmitOnEnter } from './chat-route-helpers';
 import {
   applyAgentResponse,
   createPendingTurn,
@@ -71,29 +72,6 @@ const assistantMarkdownComponents: Components = {
   strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
 };
 
-export const panelByPathname = (pathname: string): ChatPanelType => {
-  if (pathname === '/settings') return 'settings';
-  if (pathname === '/personality') return 'personality';
-  if (pathname === '/events') return 'memory';
-  if (pathname === '/timeline') return 'timeline';
-  return 'none';
-};
-
-export const shouldSubmitOnEnter = (
-  event: Pick<React.KeyboardEvent<HTMLTextAreaElement>, 'key' | 'shiftKey' | 'nativeEvent'>,
-  isComposing: boolean,
-): boolean => {
-  const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number };
-  const keyCode = Number(nativeEvent?.keyCode || 0);
-  return (
-    event.key === 'Enter' &&
-    !event.shiftKey &&
-    !isComposing &&
-    !nativeEvent?.isComposing &&
-    keyCode !== 229
-  );
-};
-
 const createClientTurnId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `turn_${crypto.randomUUID()}`;
@@ -112,7 +90,7 @@ export const ChatPage: React.FC = () => {
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
 
   // Route detection variables
-  const isChatRoute = location.pathname === '/' || location.pathname === '/chat';
+  const isChatRoute = shouldRenderChatWorkspace(location.pathname);
   const isPersonalityRoute = location.pathname === '/personality';
   const isMemoryRoute = location.pathname === '/events';
 
@@ -161,10 +139,10 @@ export const ChatPage: React.FC = () => {
 
   const closePanel = useCallback(() => {
     setActivePanel('none');
-    if (isPersonalityRoute || isMemoryRoute) {
+    if (shouldClosePanelToChat(location.pathname)) {
       navigate('/chat');
     }
-  }, [isPersonalityRoute, isMemoryRoute, navigate, setActivePanel]);
+  }, [location.pathname, navigate, setActivePanel]);
 
   const preloadTraceSummaries = useCallback(
     (historyMessages: ChatTimelineMessage[]) => {
@@ -721,9 +699,9 @@ export const ChatPage: React.FC = () => {
             subtitle={t('chat.trace.subtitle')}
           />
 
-          <SettingsCenterDialog open={activePanel === 'settings'} onOpenChange={(open) => !open && closePanel()} />
         </motion.div>
       )}
+      <SettingsCenterDialog open={activePanel === 'settings'} onOpenChange={(open) => !open && closePanel()} />
     </AnimatePresence>
   );
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { panelByPathname, shouldSubmitOnEnter } from '@/pages/Chat';
+import { panelByPathname, shouldClosePanelToChat, shouldRenderChatWorkspace, shouldSubmitOnEnter } from '@/pages/chat-route-helpers';
 import { useChatShellStore } from '@/stores';
 
 describe('chat shell state', () => {
@@ -35,6 +35,21 @@ describe('chat shell state', () => {
     expect(panelByPathname('/events')).toBe('memory');
     expect(panelByPathname('/timeline')).toBe('timeline');
     expect(panelByPathname('/chat')).toBe('none');
+  });
+
+  it('treats settings as a chat workspace host route', () => {
+    expect(shouldRenderChatWorkspace('/')).toBe(true);
+    expect(shouldRenderChatWorkspace('/chat')).toBe(true);
+    expect(shouldRenderChatWorkspace('/settings')).toBe(true);
+    expect(shouldRenderChatWorkspace('/personality')).toBe(false);
+  });
+
+  it('returns settings, personality, and memory panels to chat when closed', () => {
+    expect(shouldClosePanelToChat('/settings')).toBe(true);
+    expect(shouldClosePanelToChat('/personality')).toBe(true);
+    expect(shouldClosePanelToChat('/events')).toBe(true);
+    expect(shouldClosePanelToChat('/timeline')).toBe(false);
+    expect(shouldClosePanelToChat('/chat')).toBe(false);
   });
 
   it('does not submit while IME composition is active', () => {
