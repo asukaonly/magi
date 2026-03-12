@@ -13,18 +13,15 @@ import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useRealtime } from '@/realtime/provider';
-import { useChatShellStore, useChatTraceStore, useRealtimeStore } from '@/stores';
+import { useChatTraceStore, useConversationStore, useRealtimeStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
-  applyAgentResponse,
-  createPendingTurn,
   normalizeHistoryMessages,
   normalizeTraceSnapshot,
   normalizeTraceSummary,
   type ChatTimelineMessage,
 } from './chat-state';
-import { upsertTraceSummary } from './chat-state';
 
 interface WSMessage {
   type?: string;
@@ -80,8 +77,16 @@ export const ChatPage: React.FC = () => {
   const shouldReduceMotion = useReducedMotion();
   const { send, subscribe } = useRealtime();
   const connected = useRealtimeStore((state) => state.connected);
-  const currentSessionId = useChatShellStore((state) => state.currentSessionId);
-  const setCurrentSessionId = useChatShellStore((state) => state.setCurrentSessionId);
+  const currentSessionId = useConversationStore((state) => state.currentSessionId);
+  const setCurrentSessionId = useConversationStore((state) => state.setCurrentSessionId);
+  const messages = useConversationStore((state) =>
+    state.currentSessionId ? (state.messagesBySession[state.currentSessionId] || []) : []
+  );
+  const receiveHistory = useConversationStore((state) => state.receiveHistory);
+  const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
+  const receiveAgentResponse = useConversationStore((state) => state.receiveAgentResponse);
+  const applyConversationTraceSummary = useConversationStore((state) => state.upsertTraceSummary);
+  const resetConversation = useConversationStore((state) => state.reset);
 
   const drawerOpen = useChatTraceStore((state) => state.drawerOpen);
   const activeTurnId = useChatTraceStore((state) => state.activeTurnId);
@@ -94,7 +99,6 @@ export const ChatPage: React.FC = () => {
   const closeDrawer = useChatTraceStore((state) => state.closeDrawer);
   const resetTraceStore = useChatTraceStore((state) => state.reset);
 
-  const [messages, setMessages] = useState<ChatTimelineMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [aiName, setAiName] = useState<string>('AI');
   const [aiAvatar, setAiAvatar] = useState<string>('');
@@ -161,9 +165,10 @@ export const ChatPage: React.FC = () => {
 
   const handleExecutionTraceUpdate = useCallback(
     (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
       const turnId = String(payload?.turn_id || '').trim();
       const summary = normalizeTraceSummary(payload?.trace_summary);
-      if (!turnId || !summary) return;
+      if (!sessionId || !turnId || !summary) return;
       upsertSummary({
         turn_id: summary.turnId,
         mode: summary.mode,
@@ -176,18 +181,20 @@ export const ChatPage: React.FC = () => {
         trace_available: summary.traceAvailable,
         orchestration_id: summary.orchestrationId || null,
       });
-      setMessages((prev) => upsertTraceSummary(prev, turnId, summary));
+      applyConversationTraceSummary(sessionId, turnId, summary);
       if (drawerOpen && activeTurnId === turnId) {
         void loadTrace(turnId);
       }
     },
-    [activeTurnId, drawerOpen, loadTrace, upsertSummary]
+    [activeTurnId, applyConversationTraceSummary, currentSessionId, drawerOpen, loadTrace, upsertSummary]
   );
 
   const handleAgentResponseEvent = useCallback(
     (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
       const turnId = String(payload?.turn_id || '').trim();
       const summary = normalizeTraceSummary(payload?.trace_summary);
+      if (!sessionId) return;
       if (summary) {
         upsertSummary({
           turn_id: summary.turnId,
@@ -202,21 +209,20 @@ export const ChatPage: React.FC = () => {
           orchestration_id: summary.orchestrationId || null,
         });
       }
-      setMessages((prev) =>
-        applyAgentResponse(prev, {
-          response: String(payload?.response || ''),
-          timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
-          turnId,
-          traceSummary: summary,
-          traceAvailable: Boolean(payload?.trace_available || summary?.traceAvailable),
-        })
-      );
+      receiveAgentResponse({
+        sessionId,
+        response: String(payload?.response || ''),
+        timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
+        turnId,
+        traceSummary: summary,
+        traceAvailable: Boolean(payload?.trace_available || summary?.traceAvailable),
+      });
       window.dispatchEvent(new Event(SESSION_EVENT));
       if (drawerOpen && activeTurnId === turnId) {
         void loadTrace(turnId);
       }
     },
-    [activeTurnId, drawerOpen, loadTrace, upsertSummary]
+    [activeTurnId, currentSessionId, drawerOpen, loadTrace, receiveAgentResponse, upsertSummary]
   );
 
   const handleWSMessage = useCallback(
@@ -241,10 +247,9 @@ export const ChatPage: React.FC = () => {
         case 'history':
           if (data.data?.session_id) {
             const resolvedSession = String(data.data.session_id);
-            setCurrentSessionId(resolvedSession);
             const historyMessages = normalizeHistoryMessages(data.data.messages || []);
             preloadTraceSummaries(historyMessages);
-            setMessages(historyMessages);
+            receiveHistory(resolvedSession, historyMessages);
             send({ type: 'get_personality' });
           }
           return;
@@ -252,20 +257,13 @@ export const ChatPage: React.FC = () => {
           if (data.data) {
             setAiName(data.data.name || 'AI');
             setAiAvatar(data.data.avatar || '');
-            setMessages((prev) => {
-              if (prev.length === 0 && data.data.greeting) {
-                return [
-                  {
-                    id: `welcome-${Date.now()}`,
-                    role: 'assistant',
-                    kind: 'assistant',
-                    content: data.data.greeting,
-                    timestamp: Date.now(),
-                  },
-                ];
-              }
-              return prev;
-            });
+            if (currentSessionId && messages.length === 0 && data.data.greeting) {
+              receiveAgentResponse({
+                sessionId: currentSessionId,
+                response: String(data.data.greeting),
+                timestamp: Date.now(),
+              });
+            }
           }
           return;
         case 'message_sent':
@@ -296,7 +294,10 @@ export const ChatPage: React.FC = () => {
       currentSessionId,
       handleAgentResponseEvent,
       handleExecutionTraceUpdate,
+      messages.length,
       preloadTraceSummaries,
+      receiveAgentResponse,
+      receiveHistory,
       requestHistory,
       send,
       setCurrentSessionId,
@@ -314,10 +315,10 @@ export const ChatPage: React.FC = () => {
 
   useEffect(() => {
     const handleMemoryCleared = () => {
-      setMessages([]);
       setCurrentSessionId(null);
       lastHistoryRequestRef.current = null;
       resetTraceStore();
+      resetConversation();
       if (connected) {
         send({ type: 'get_current_session' });
       }
@@ -325,7 +326,7 @@ export const ChatPage: React.FC = () => {
 
     window.addEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
     return () => window.removeEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
-  }, [connected, resetTraceStore, send, setCurrentSessionId]);
+  }, [connected, resetConversation, resetTraceStore, send, setCurrentSessionId]);
 
   const handleSendMessage = () => {
     if (!inputValue.trim()) {
@@ -340,7 +341,15 @@ export const ChatPage: React.FC = () => {
     const messageContent = inputValue.trim();
     const turnId = createClientTurnId();
     const now = Date.now();
-    setMessages((prev) => [...prev, ...createPendingTurn(messageContent, turnId, now, t('chat.trace.pending'))]);
+    if (currentSessionId) {
+      appendPendingTurn({
+        sessionId: currentSessionId,
+        input: messageContent,
+        turnId,
+        timestamp: now,
+        pendingLabel: t('chat.trace.pending'),
+      });
+    }
     setInputValue('');
     send({
       type: 'send_message',

@@ -1,0 +1,207 @@
+import { create } from 'zustand';
+import type { ChatSessionListItem } from '@/api';
+import {
+  applyAgentResponse,
+  createPendingTurn,
+  type ChatTimelineMessage,
+  type NormalizedExecutionTraceSummary,
+  upsertTraceSummary as applyTraceSummaryUpdate,
+} from '@/pages/chat-state';
+
+type AgentResponsePayload = {
+  sessionId: string;
+  response: string;
+  timestamp: number;
+  turnId?: string;
+  traceSummary?: NormalizedExecutionTraceSummary | null;
+  traceAvailable?: boolean;
+};
+
+type PendingTurnPayload = {
+  sessionId: string;
+  input: string;
+  turnId: string;
+  timestamp: number;
+  pendingLabel: string;
+};
+
+type ConversationState = {
+  currentSessionId: string | null;
+  orderedSessionIds: string[];
+  sessionsById: Record<string, ChatSessionListItem>;
+  messagesBySession: Record<string, ChatTimelineMessage[]>;
+  unreadBySession: Record<string, number>;
+  setCurrentSessionId: (sessionId: string | null) => void;
+  hydrateSessions: (sessions: ChatSessionListItem[], currentSessionId?: string | null) => void;
+  receiveHistory: (sessionId: string, messages: ChatTimelineMessage[]) => void;
+  appendPendingTurn: (payload: PendingTurnPayload) => void;
+  receiveAgentResponse: (payload: AgentResponsePayload) => void;
+  upsertTraceSummary: (sessionId: string, turnId: string, summary: NormalizedExecutionTraceSummary | null) => void;
+  reset: () => void;
+};
+
+const emptyState = {
+  currentSessionId: null,
+  orderedSessionIds: [] as string[],
+  sessionsById: {} as Record<string, ChatSessionListItem>,
+  messagesBySession: {} as Record<string, ChatTimelineMessage[]>,
+  unreadBySession: {} as Record<string, number>,
+};
+
+const ensureSession = (
+  sessionsById: Record<string, ChatSessionListItem>,
+  orderedSessionIds: string[],
+  sessionId: string,
+) => {
+  if (!sessionId) {
+    return { sessionsById, orderedSessionIds };
+  }
+  if (sessionsById[sessionId]) {
+    return { sessionsById, orderedSessionIds };
+  }
+  return {
+    sessionsById: {
+      ...sessionsById,
+      [sessionId]: {
+        session_id: sessionId,
+        title: 'New Chat',
+        last_message_preview: '',
+        last_timestamp: 0,
+        message_count: 0,
+      },
+    },
+    orderedSessionIds: [sessionId, ...orderedSessionIds],
+  };
+};
+
+const upsertSessionSummary = (
+  sessionsById: Record<string, ChatSessionListItem>,
+  orderedSessionIds: string[],
+  session: ChatSessionListItem,
+) => {
+  const nextOrder = orderedSessionIds.filter((sessionId) => sessionId !== session.session_id);
+  nextOrder.unshift(session.session_id);
+  return {
+    sessionsById: {
+      ...sessionsById,
+      [session.session_id]: session,
+    },
+    orderedSessionIds: nextOrder,
+  };
+};
+
+export const useConversationStore = create<ConversationState>((set) => ({
+  ...emptyState,
+  setCurrentSessionId: (sessionId) => set((state) => ({
+    currentSessionId: sessionId,
+    unreadBySession: sessionId
+      ? { ...state.unreadBySession, [sessionId]: 0 }
+      : state.unreadBySession,
+  })),
+  hydrateSessions: (sessions, currentSessionId) => set((state) => {
+    const nextSessionsById = { ...state.sessionsById };
+    const nextOrder: string[] = [];
+
+    for (const session of sessions) {
+      nextSessionsById[session.session_id] = session;
+      nextOrder.push(session.session_id);
+    }
+
+    return {
+      sessionsById: nextSessionsById,
+      orderedSessionIds: nextOrder,
+      currentSessionId: currentSessionId ?? state.currentSessionId,
+      unreadBySession:
+        currentSessionId
+          ? { ...state.unreadBySession, [currentSessionId]: 0 }
+          : state.unreadBySession,
+    };
+  }),
+  receiveHistory: (sessionId, messages) => set((state) => {
+    const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+    return {
+      currentSessionId: sessionId,
+      sessionsById: ensured.sessionsById,
+      orderedSessionIds: ensured.orderedSessionIds,
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: messages,
+      },
+      unreadBySession: {
+        ...state.unreadBySession,
+        [sessionId]: 0,
+      },
+    };
+  }),
+  appendPendingTurn: ({ sessionId, input, turnId, timestamp, pendingLabel }) => set((state) => {
+    const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+    const previousMessages = state.messagesBySession[sessionId] || [];
+    const nextMessages = [
+      ...previousMessages,
+      ...createPendingTurn(input, turnId, timestamp, pendingLabel),
+    ];
+    return {
+      currentSessionId: sessionId,
+      sessionsById: ensured.sessionsById,
+      orderedSessionIds: ensured.orderedSessionIds,
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: nextMessages,
+      },
+      unreadBySession: {
+        ...state.unreadBySession,
+        [sessionId]: 0,
+      },
+    };
+  }),
+  receiveAgentResponse: ({ sessionId, response, timestamp, turnId, traceSummary, traceAvailable }) => set((state) => {
+    const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+    const previousMessages = state.messagesBySession[sessionId] || [];
+    const nextMessages = applyAgentResponse(previousMessages, {
+      response,
+      timestamp,
+      turnId,
+      traceSummary,
+      traceAvailable,
+    });
+    const lastMessagePreview = response.trim() || ensured.sessionsById[sessionId]?.last_message_preview || '';
+    const sessionSummary: ChatSessionListItem = {
+      ...(ensured.sessionsById[sessionId] || {
+        session_id: sessionId,
+        title: 'New Chat',
+        last_message_preview: '',
+        last_timestamp: 0,
+        message_count: 0,
+      }),
+      session_id: sessionId,
+      last_message_preview: lastMessagePreview,
+      last_timestamp: Math.floor(timestamp / 1000),
+      message_count: nextMessages.length,
+    };
+    const nextSummaryState = upsertSessionSummary(ensured.sessionsById, ensured.orderedSessionIds, sessionSummary);
+    const shouldIncrementUnread = state.currentSessionId !== sessionId;
+    return {
+      sessionsById: nextSummaryState.sessionsById,
+      orderedSessionIds: nextSummaryState.orderedSessionIds,
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: nextMessages,
+      },
+      unreadBySession: {
+        ...state.unreadBySession,
+        [sessionId]: shouldIncrementUnread
+          ? (state.unreadBySession[sessionId] || 0) + 1
+          : 0,
+      },
+    };
+  }),
+  upsertTraceSummary: (sessionId, turnId, summary) => set((state) => ({
+    messagesBySession: {
+      ...state.messagesBySession,
+      [sessionId]: applyTraceSummaryUpdate(state.messagesBySession[sessionId] || [], turnId, summary),
+    },
+  })),
+  reset: () => ({
+    ...emptyState,
+  }),
+}));

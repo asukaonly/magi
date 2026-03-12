@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { messagesApi, type ChatSessionListItem } from '@/api';
-import { useChatShellStore } from '@/stores';
+import { useChatShellStore, useConversationStore } from '@/stores';
 
 const USER_ID = 'web_user';
 const SESSION_EVENT = 'magi-session-sync';
@@ -31,28 +31,27 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const { t, i18n } = useTranslation('app');
   const navigate = useNavigate();
   const location = useLocation();
-  const currentSessionId = useChatShellStore((state) => state.currentSessionId);
-  const setCurrentSessionId = useChatShellStore((state) => state.setCurrentSessionId);
+  const currentSessionId = useConversationStore((state) => state.currentSessionId);
+  const setCurrentSessionId = useConversationStore((state) => state.setCurrentSessionId);
+  const orderedSessionIds = useConversationStore((state) => state.orderedSessionIds);
+  const sessionsById = useConversationStore((state) => state.sessionsById);
+  const hydrateSessions = useConversationStore((state) => state.hydrateSessions);
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
 
-  const [sessions, setSessions] = useState<ChatSessionListItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   const refreshSessions = useCallback(async () => {
     setLoading(true);
     try {
       const response = await messagesApi.listSessions(USER_ID, 50);
-      setSessions(response.sessions || []);
-      if (!currentSessionId && response.current_session_id) {
-        setCurrentSessionId(response.current_session_id);
-      }
+      hydrateSessions(response.sessions || [], response.current_session_id);
     } catch {
-      setSessions([]);
+      hydrateSessions([], currentSessionId);
     } finally {
       setLoading(false);
     }
-  }, [currentSessionId, setCurrentSessionId]);
+  }, [currentSessionId, hydrateSessions]);
 
   useEffect(() => {
     void refreshSessions();
@@ -91,8 +90,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   };
 
   const sessionRows = useMemo(() => {
-    if (sessions.length > 0) {
-      return sessions;
+    if (orderedSessionIds.length > 0) {
+      return orderedSessionIds
+        .map((sessionId) => sessionsById[sessionId])
+        .filter(Boolean) as ChatSessionListItem[];
     }
     if (currentSessionId) {
       return [
@@ -106,7 +107,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       ];
     }
     return [];
-  }, [currentSessionId, sessions, t]);
+  }, [currentSessionId, orderedSessionIds, sessionsById, t]);
 
   const utilityActions = [
     {

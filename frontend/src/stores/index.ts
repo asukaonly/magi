@@ -4,6 +4,7 @@
 export { useChatShellStore } from './chat-shell';
 export type { ChatPanelType, DesktopShellState } from './chat-shell';
 export { useChatTraceStore } from './chat-trace';
+export { useConversationStore } from './conversation-store';
 export { useRealtimeStore } from './realtime-store';
 export type { RealtimeStoreState } from './realtime-store';
 
