@@ -168,7 +168,9 @@ export const personalityApi = {
 
   // AI生成人格配置
   generate: (request: AIGenerateRequest) =>
-    api.post<PersonalityResponse>('/personality/generate', request),
+    api.post<PersonalityResponse>('/personality/generate', request, {
+      timeout: 120000,
+    }),
 
   // 列出所有人格
   list: () => api.get<PersonalityResponse>('/personality'),
