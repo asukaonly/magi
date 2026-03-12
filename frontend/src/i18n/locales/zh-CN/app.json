@@ -54,7 +54,8 @@
       "chrome_history": "Chrome 历史",
       "manual_journal": "手动记录",
       "chat": "对话",
-      "photo_library": "照片库"
+      "photo_library": "照片库",
+      "apple_health": "Apple 健康"
     },
     "feed": {
       "showDetails": "查看详情",
@@ -442,7 +443,8 @@
         "chat": "把对话轮次作为偏好、关系和持续关注点的直接证据。",
         "manual_journal": "允许用户主动补录文字和图片引用，进入同一条时间线链路。",
         "browser_history": "分析浏览行为，并控制是否继续抓取页面正文。",
-        "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。"
+        "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。",
+        "apple_health": "从 Apple 健康应用同步您的健康数据，包括步数、睡眠、心率等。"
       },
       "syncModes": {
         "manual": "手动",
