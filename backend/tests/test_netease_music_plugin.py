@@ -15,7 +15,7 @@ from netease_music.normalizers import (
     extract_track_info,
     parse_track_json,
 )
-from netease_music.reader import NeteaseMusicReader
+from netease_music.reader import NeteaseMusicReader, DEFAULT_DB_PATH
 
 
 def test_parse_track_json_valid_json() -> None:
@@ -160,6 +160,13 @@ def test_build_netease_url_long_id() -> None:
 import sqlite3
 import tempfile
 from datetime import datetime
+
+# Tests for NeteaseMusicTimelineSensor
+from unittest.mock import AsyncMock, MagicMock, patch
+
+# Import after adding plugins to path
+from netease_music.reader import NeteaseMusicReader, DEFAULT_DB_PATH
+from netease_music.sensor import NeteaseMusicTimelineSensor
 
 
 @pytest.fixture
@@ -348,3 +355,184 @@ def test_read_play_records_with_cursor(sample_database):
 
     # Records should be sorted by updateTime
     assert records[0]['update_time'] < records[1]['update_time']
+
+
+# Tests for NeteaseMusicTimelineSensor
+def test_sensor_id():
+    """Test sensor ID."""
+    sensor = NeteaseMusicTimelineSensor()
+    assert sensor.sensor_id == "timeline.netease_music"
+    assert sensor.display_name == "NetEase Cloud Music"
+    assert sensor.source_type == "netease_music"
+    assert sensor.polling_mode == "interval"
+    assert sensor.default_interval == 30
+    assert sensor.update_key_fields == ("track_id", "update_time")
+    assert sensor.relation_edge_whitelist == ("LISTENED",)
+    assert sensor.supports_pull_sync is True
+
+
+def test_source_item_identity():
+    """Test source item identity generation."""
+    sensor = NeteaseMusicTimelineSensor()
+    item = {
+        "track_id": "123",
+        "update_time": 1641000000,
+        "track_name": "Test Song"
+    }
+    identity = sensor.source_item_identity(item)
+    assert identity == "netease_123_1641000000"
+
+
+def test_source_item_version_fingerprint():
+    """Test source item version fingerprint generation."""
+    sensor = NeteaseMusicTimelineSensor()
+    item = {
+        "resource_id": "123",
+        "update_time": 1641000000,
+        "play_duration_sec": 30
+    }
+    fingerprint = sensor.source_item_version_fingerprint(item)
+    # Should be consistent for same data
+    assert fingerprint == sensor.source_item_version_fingerprint(item)
+    # Should change with different data
+    different_item = {
+        "resource_id": "123",
+        "update_time": 1641000000,
+        "play_duration_sec": 45
+    }
+    assert fingerprint != sensor.source_item_version_fingerprint(different_item)
+
+
+@pytest.mark.asyncio
+async def test_collect_items_returns_records():
+    """Test that collect_items returns records from reader."""
+    sensor = NeteaseMusicTimelineSensor(min_play_duration=20)
+
+    # Mock the reader
+    mock_reader = AsyncMock(spec=NeteaseMusicReader)
+    mock_reader.read_play_records.return_value = [
+        {
+            "track_id": "123",
+            "track_name": "Test Song",
+            "artist_name": "Test Artist",
+            "album_name": "Test Album",
+            "play_duration_sec": 30,
+            "update_time": 1641000000,
+            "source": "local",
+            "is_liked": True,
+            "track_duration_ms": 180000
+        }
+    ]
+    sensor._reader = mock_reader
+
+    # Mock context
+    mock_context = MagicMock()
+    mock_context.plugin_settings = {"sensors": {"netease_music": {}}}
+    mock_context.last_cursor = None
+    mock_context.last_success_at = None
+    mock_context.limit = 100
+
+    # Call collect_items
+    result = await sensor.collect_items(mock_context)
+
+    # Verify result
+    assert len(result.items) == 1
+    assert result.items[0]["track_id"] == "123"
+    assert result.next_cursor is None
+
+    # Verify reader was called with correct parameters
+    mock_reader.read_play_records.assert_called_once_with(
+        source_path=DEFAULT_DB_PATH,
+        min_play_duration=20,
+        limit=100,
+        last_cursor=None
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_timeline_event():
+    """Test building timeline event from item."""
+    sensor = NeteaseMusicTimelineSensor()
+
+    item = {
+        "track_id": "123",
+        "track_name": "Test Song",
+        "artist_name": "Test Artist",
+        "album_name": "Test Album",
+        "play_duration_sec": 30,
+        "update_time": 1641000000,
+        "source": "local",
+        "is_liked": True,
+        "track_duration_ms": 180000
+    }
+
+    event = await sensor.build_timeline_event(item)
+
+    # Check event properties
+    assert event.event_id == "netease_music:netease_123_1641000000"
+    assert event.source_type == "netease_music"
+    assert event.title == "Test Song - Test Artist"
+    assert event.summary == "播放了 Test Song (30秒)"
+    assert event.occurred_at == 1641000000
+
+    # Check content blocks
+    assert len(event.content_blocks) == 3
+    assert event.content_blocks[0].kind == "text"
+    assert event.content_blocks[0].value == "Test Song"
+    assert event.content_blocks[1].kind == "text"
+    assert event.content_blocks[1].value == "Test Artist"
+    assert event.content_blocks[2].kind == "text"
+    assert event.content_blocks[2].value == "Test Album"
+
+    # Check tags
+    assert set(event.tags) == {"netease_music", "music", "listening", "liked"}
+
+    # Check provenance
+    provenance = event.provenance
+    assert provenance["sensor_id"] == "timeline.netease_music"
+    assert provenance["platform"] == "netease_music"
+    assert provenance["track_id"] == "123"
+    assert provenance["track_name"] == "Test Song"
+    assert provenance["track_duration_ms"] == 180000
+    assert provenance["artist_id"] is None  # Not in the item
+    assert provenance["artist_name"] == "Test Artist"
+    assert provenance["album_id"] is None  # Not in the item
+    assert provenance["album_name"] == "Test Album"
+    assert provenance["play_source"] == "local"
+    assert provenance["play_duration_sec"] == 30
+    assert "netease_url" in provenance
+    assert provenance["is_liked"] is True
+
+
+@pytest.mark.asyncio
+async def test_build_timeline_event_marks_liked():
+    """Test building timeline event marks liked tracks correctly."""
+    sensor = NeteaseMusicTimelineSensor()
+
+    liked_item = {
+        "track_id": "123",
+        "track_name": "Liked Song",
+        "artist_name": "Artist",
+        "album_name": "Album",
+        "play_duration_sec": 30,
+        "update_time": 1641000000,
+        "source": "local",
+        "is_liked": True
+    }
+
+    not_liked_item = {
+        "track_id": "456",
+        "track_name": "Not Liked Song",
+        "artist_name": "Artist",
+        "album_name": "Album",
+        "play_duration_sec": 30,
+        "update_time": 1641000001,
+        "source": "local",
+        "is_liked": False
+    }
+
+    liked_event = await sensor.build_timeline_event(liked_item)
+    not_liked_event = await sensor.build_timeline_event(not_liked_item)
+
+    assert "liked" in liked_event.tags
+    assert "liked" not in not_liked_event.tags
