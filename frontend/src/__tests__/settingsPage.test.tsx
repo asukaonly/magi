@@ -523,17 +523,28 @@ describe('settings page draft saving', () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByRole('button', { name: 'settings.tabs.llmProviders' });
+    const llmGroupButton = await screen.findByRole('button', { name: 'settings.tabs.llm' });
 
-    expect(screen.getByText('settings.tabs.llm')).toBeInTheDocument();
+    expect(screen.getByText('settings.shellTitle')).toBeInTheDocument();
+    expect(llmGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'settings.tabs.llmProviders' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.llmModels' })).not.toBeInTheDocument();
+
+    await user.click(llmGroupButton);
+
+    expect(llmGroupButton).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: 'settings.tabs.llmProviders' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'settings.tabs.llmModels' })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.llmProviders' }));
+    expect(screen.getByRole('heading', { name: 'settings.tabs.llmProviders' })).toBeInTheDocument();
     expect(screen.getByText('llm-view:providers')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.llmModels' }));
+    expect(screen.getByRole('heading', { name: 'settings.tabs.llmModels' })).toBeInTheDocument();
     expect(screen.getByText('llm-view:models')).toBeInTheDocument();
+
+    await user.click(llmGroupButton);
+    expect(llmGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'settings.tabs.llmProviders' })).not.toBeInTheDocument();
   });
 
   it('keeps timeline source changes in draft until save', async () => {
@@ -635,7 +646,7 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
     fireEvent.change(screen.getAllByRole('spinbutton')[0], { target: { value: '2' } });
 
-    await user.click(screen.getByRole('button', { name: 'settings.actions.close' }));
+    await user.click(screen.getAllByRole('button', { name: 'settings.actions.close' })[1]);
 
     expect(await screen.findByText('settings.closeConfirm.title')).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);

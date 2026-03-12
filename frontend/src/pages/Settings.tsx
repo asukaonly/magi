@@ -18,6 +18,7 @@ import {
   Wrench,
   Cpu,
   ChevronRight,
+  ChevronDown,
   Sun,
   Moon,
   Monitor,
@@ -230,6 +231,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('preferences');
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
+    llm: false,
+  });
   const [downloadModel, setDownloadModel] = useState('bge-m3');
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<'not_downloaded' | 'downloading' | 'ready'>('not_downloaded');
@@ -256,6 +260,34 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       return activeSection === item.id;
     }
     return item.children.some((child) => child.id === activeSection);
+  };
+
+  const getGroupExpanded = (groupId: string) => expandedGroups[groupId] ?? false;
+
+  const setGroupExpanded = (groupId: string, expanded: boolean) => {
+    setExpandedGroups((prev) => ({ ...prev, [groupId]: expanded }));
+  };
+
+  const handleSectionSelect = (sectionId: string) => {
+    setActiveSection(sectionId);
+    if (sectionId === 'timeline') {
+      setTimelineSelection(null);
+      void fetchTimelineStatuses();
+    }
+  };
+
+  const handleNavItemClick = (item: NavItem) => {
+    if (isNavGroup(item)) {
+      const isExpanded = getGroupExpanded(item.id);
+      if (isExpanded) {
+        setGroupExpanded(item.id, false);
+        return;
+      }
+      setGroupExpanded(item.id, true);
+      handleSectionSelect(item.children[0]?.id || item.id);
+      return;
+    }
+    handleSectionSelect(item.id);
   };
 
   const patchDraftConfig = (updater: (draft: SystemConfig) => void) => {
@@ -1009,23 +1041,25 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <nav className="w-56 shrink-0 border-r border-border/50 bg-muted/40 p-4">
-          <div className="space-y-1.5">
+        <nav className="flex w-56 shrink-0 flex-col border-r border-border/50 bg-muted/40">
+          <div className="shrink-0 border-b border-border/60 bg-background/95 px-5 py-5 backdrop-blur-sm">
+            <p className="text-sm font-semibold tracking-[0.02em] text-foreground">
+              {t('settings.shellTitle')}
+            </p>
+          </div>
+          <div className="flex-1 space-y-1.5 overflow-y-auto px-4 py-4">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = isNavGroupActive(item);
+              const isExpanded = isNavGroup(item) ? getGroupExpanded(item.id) : false;
+              const ParentChevron = isNavGroup(item) && isExpanded ? ChevronDown : ChevronRight;
               return (
                 <div key={item.id} className="space-y-1.5">
                   <button
-                    onClick={() => {
-                      const nextSection = isNavGroup(item) ? item.children[0]?.id || item.id : item.id;
-                      setActiveSection(nextSection);
-                      if (nextSection === 'timeline') {
-                        setTimelineSelection(null);
-                        void fetchTimelineStatuses();
-                      }
-                    }}
+                    type="button"
+                    onClick={() => handleNavItemClick(item)}
                     aria-current={isActive ? 'page' : undefined}
+                    aria-expanded={isNavGroup(item) ? isExpanded : undefined}
                     aria-label={t(`settings.tabs.${item.id}`)}
                     className={cn(
                       'group flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium',
@@ -1043,11 +1077,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                       )} />
                       <span className="transition-colors">{t(`settings.tabs.${item.id}`)}</span>
                     </div>
-                    <ChevronRight className={cn(
+                    <ParentChevron className={cn(
                       'h-4 w-4 transition-all duration-200',
                       isNavGroup(item)
-                        ? isActive
-                          ? 'opacity-100 translate-x-0 rotate-90'
+                        ? isExpanded
+                          ? 'opacity-100 translate-x-0'
                           : 'opacity-60 -translate-x-0'
                         : isActive
                           ? 'opacity-100 translate-x-0'
@@ -1055,7 +1089,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     )} />
                   </button>
 
-                  {isNavGroup(item) ? (
+                  {isNavGroup(item) && isExpanded ? (
                     <div className="ml-3 space-y-1 border-l border-border/50 pl-3">
                       {item.children.map((child) => {
                         const isChildActive = activeSection === child.id;
@@ -1063,7 +1097,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                           <button
                             key={child.id}
                             type="button"
-                            onClick={() => setActiveSection(child.id)}
+                            onClick={() => {
+                              setGroupExpanded(item.id, true);
+                              handleSectionSelect(child.id);
+                            }}
                             aria-current={isChildActive ? 'page' : undefined}
                             className={cn(
                               'flex w-full items-center rounded-md px-3 py-2 text-sm transition-all duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -1131,43 +1168,52 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         </nav>
 
-        <main className="flex-1 overflow-y-auto">
-          <div className={cn('mx-auto w-full px-8 pb-8', activeSection === 'llmProviders' || activeSection === 'llmModels' ? 'max-w-6xl' : 'max-w-3xl')}>
-            {/* Section Header */}
-            <header className="mb-8 border-b border-border/50 pb-6 pt-10">
-              <h2 className="text-2xl font-semibold text-foreground">
+        <main className="flex min-h-0 flex-1 flex-col">
+          <header className="shrink-0 border-b border-border/60 bg-background/95 px-8 py-5 backdrop-blur-sm">
+            <div className={cn('mx-auto flex w-full items-center justify-between gap-4', activeSection === 'llmProviders' || activeSection === 'llmModels' ? 'max-w-6xl' : 'max-w-3xl')}>
+              <h2 className="text-[1.75rem] font-semibold tracking-[0.01em] text-foreground">
                 {t(`settings.tabs.${activeSection}`)}
               </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t(`settings.${activeSection}Desc`, { defaultValue: '' })}
-              </p>
-            </header>
-
-            {/* Section Content with Error Boundary */}
-            <ErrorBoundary
-              fallback={
-                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-                  <p className="text-sm text-destructive">
-                    {t('settings.sectionError', { defaultValue: 'This section encountered an error. Please try refreshing.' })}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-3"
-                    onClick={() => window.location.reload()}
-                  >
-                    {t('settings.refresh', { defaultValue: 'Refresh' })}
-                  </Button>
-                </div>
-              }
-            >
-              <div
-                key={activeSection}
-                className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out"
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => void onRequestClose?.()}
+                className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
+                aria-label={t('settings.actions.close')}
               >
-                {renderSectionContent()}
-              </div>
-            </ErrorBoundary>
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-y-auto">
+            <div className={cn('mx-auto w-full px-8 py-8', activeSection === 'llmProviders' || activeSection === 'llmModels' ? 'max-w-6xl' : 'max-w-3xl')}>
+              <ErrorBoundary
+                fallback={
+                  <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+                    <p className="text-sm text-destructive">
+                      {t('settings.sectionError', { defaultValue: 'This section encountered an error. Please try refreshing.' })}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={() => window.location.reload()}
+                    >
+                      {t('settings.refresh', { defaultValue: 'Refresh' })}
+                    </Button>
+                  </div>
+                }
+              >
+                <div
+                  key={activeSection}
+                  className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out"
+                >
+                  {renderSectionContent()}
+                </div>
+              </ErrorBoundary>
+            </div>
           </div>
         </main>
       </div>
