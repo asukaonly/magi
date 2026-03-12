@@ -93,14 +93,14 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       <div
         data-testid="llm-provider-workbench"
         className={cn(
-          'grid min-h-0 gap-0 overflow-hidden rounded-[28px] border border-border/60 bg-[linear-gradient(180deg,rgba(248,244,240,0.94),rgba(244,238,231,0.82))] shadow-[0_20px_40px_-30px_rgba(120,76,36,0.42)]',
+          'grid min-h-0 gap-0 overflow-hidden rounded-[28px] border border-border/60 bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--muted)/0.92))] shadow-[0_20px_40px_-30px_hsl(var(--foreground)/0.16)] dark:bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--background)/0.96))] dark:shadow-[0_24px_48px_-34px_rgba(0,0,0,0.66)]',
           workbenchColumnsClassName,
           'md:h-[clamp(440px,56vh,680px)]'
         )}
       >
         <div
           data-testid="llm-provider-list-pane"
-          className="min-h-0 space-y-2 overflow-y-auto border-b border-border/40 bg-[rgba(255,252,247,0.78)] p-3 sm:p-4 xl:border-b-0 xl:border-r"
+          className="min-h-0 space-y-2 overflow-y-auto border-b border-border/40 bg-background/68 p-3 sm:p-4 xl:border-b-0 xl:border-r dark:bg-background/38"
         >
           {providerItems.map(({ providerId, provider }) => {
             const providerMeta =
@@ -116,7 +116,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 className={cn(
                   'flex w-full items-center gap-3 rounded-[18px] px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
                   providerId === activeProviderId
-                    ? 'bg-background/95 shadow-[0_10px_24px_-18px_rgba(120,76,36,0.55)]'
+                    ? 'bg-background/95 shadow-[0_10px_24px_-18px_hsl(var(--foreground)/0.22)] dark:shadow-[0_14px_28px_-20px_rgba(0,0,0,0.62)]'
                     : 'hover:bg-background/72'
                 )}
               >
@@ -149,7 +149,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
         {activeProvider ? (
           <div
             data-testid="llm-provider-detail-pane"
-            className="min-h-0 overflow-y-auto bg-[rgba(255,253,250,0.92)] p-5 sm:p-6"
+            className="min-h-0 overflow-y-auto bg-card/86 p-5 sm:p-6 dark:bg-card/78"
           >
             <div className="space-y-5">
               <div className="flex flex-col gap-4 border-b border-border/50 pb-5 sm:flex-row sm:items-start sm:justify-between">
@@ -183,7 +183,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
               </div>
 
               {activeReferences.length > 0 ? (
-                <div className="rounded-2xl border border-amber-300/60 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+                <div className="rounded-2xl border border-amber-400/45 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
                   {t('llm.providerConfiguration.referencedBy')}:{' '}
                   {activeReferences.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
                 </div>
@@ -255,7 +255,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       </select>
                     </label>
 
-                    <div className="space-y-3 rounded-[24px] border border-border/60 bg-[rgba(247,242,235,0.7)] p-4 lg:col-span-2">
+                    <div className="space-y-3 rounded-[24px] border border-border/60 bg-muted/55 p-4 lg:col-span-2 dark:bg-muted/40">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                         <label className="flex-1 space-y-2">
                           <span className="text-sm font-medium">{t('llm.fields.modelManualEntry')}</span>

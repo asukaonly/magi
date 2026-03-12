@@ -8,6 +8,9 @@ import './index.css';
 import './i18n';
 import { configureApiClient } from './api/client';
 import { initializeRuntime, resetRuntimeInitialization } from './runtime/config';
+import { initializeTheme } from './stores/theme';
+
+initializeTheme();
 
 const RuntimeBootstrap: React.FC = () => {
   const [ready, setReady] = useState(false);

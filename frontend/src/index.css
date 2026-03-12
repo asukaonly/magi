@@ -3,66 +3,46 @@
 @tailwind utilities;
 
 @layer base {
-  /* Dark theme (default) */
   :root,
-  .dark {
-    --background: 260 30% 8%;
-    --foreground: 260 20% 92%;
-    --card: 260 25% 12%;
-    --card-foreground: 260 20% 92%;
-    --primary: 175 70% 45%;
-    --primary-foreground: 260 30% 8%;
-    --secondary: 260 25% 18%;
-    --secondary-foreground: 260 20% 85%;
-    --muted: 260 20% 16%;
-    --muted-foreground: 260 15% 55%;
-    --accent: 310 65% 50%;
-    --accent-foreground: 260 30% 98%;
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 260 30% 98%;
-    --border: 260 20% 22%;
-    --input: 260 20% 22%;
-    --ring: 175 70% 45%;
+  .light {
+    --background: 30 25% 97%;
+    --foreground: 20 15% 18%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 15% 18%;
+    --primary: 18 90% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 25 15% 92%;
+    --secondary-foreground: 20 20% 28%;
+    --muted: 25 12% 94%;
+    --muted-foreground: 20 10% 45%;
+    --accent: 10 70% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 20 12% 86%;
+    --input: 20 12% 86%;
+    --ring: 18 90% 52%;
     --radius: 0.9rem;
   }
 
-  /* Light theme - EVA Asuka Orange */
-  .light {
-    /* Warm off-white background with subtle orange tint */
-    --background: 30 25% 97%;
-    --foreground: 20 15% 18%;
-
-    /* Pure white cards */
-    --card: 0 0% 100%;
-    --card-foreground: 20 15% 18%;
-
-    /* Asuka Orange - primary accent */
-    --primary: 18 90% 52%;
-    --primary-foreground: 0 0% 100%;
-
-    /* Warm gray secondary */
-    --secondary: 25 15% 92%;
-    --secondary-foreground: 20 20% 28%;
-
-    /* Subtle warm muted */
-    --muted: 25 12% 94%;
-    --muted-foreground: 20 10% 45%;
-
-    /* Deep red-brown accent */
-    --accent: 10 70% 45%;
-    --accent-foreground: 0 0% 100%;
-
-    /* Destructive - red */
-    --destructive: 0 72% 50%;
-    --destructive-foreground: 0 0% 100%;
-
-    /* Warm borders */
-    --border: 20 12% 86%;
-    --input: 20 12% 86%;
-
-    /* Orange ring for focus */
-    --ring: 18 90% 52%;
-
+  .dark {
+    --background: 220 28% 9%;
+    --foreground: 210 24% 94%;
+    --card: 222 22% 13%;
+    --card-foreground: 210 24% 94%;
+    --primary: 175 70% 45%;
+    --primary-foreground: 220 28% 9%;
+    --secondary: 220 18% 18%;
+    --secondary-foreground: 210 18% 84%;
+    --muted: 220 18% 16%;
+    --muted-foreground: 215 16% 64%;
+    --accent: 28 88% 58%;
+    --accent-foreground: 220 28% 9%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 210 24% 94%;
+    --border: 220 18% 22%;
+    --input: 220 18% 22%;
+    --ring: 175 70% 45%;
     --radius: 0.9rem;
   }
 
@@ -85,12 +65,14 @@
   }
 
   /* Dark theme background - clean, minimal */
-  .dark body,
-  :root body {
-    background: hsl(260 30% 7%);
+  .dark body {
+    background:
+      radial-gradient(circle at top, hsl(200 60% 14% / 0.26), transparent 32%),
+      linear-gradient(180deg, hsl(220 28% 10%) 0%, hsl(222 32% 8%) 100%);
   }
 
   /* Light theme background - clean, minimal */
+  :root body,
   .light body {
     background:
       linear-gradient(180deg, hsl(30 25% 97%) 0%, hsl(25 20% 95%) 100%);

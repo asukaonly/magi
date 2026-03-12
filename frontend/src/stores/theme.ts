@@ -34,7 +34,7 @@ const safeSetItem = (key: string, value: string): void => {
 
 const getSystemTheme = (): 'dark' | 'light' => {
   if (typeof window === 'undefined' || !window.matchMedia) {
-    return 'dark';
+    return 'light';
   }
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 };
@@ -47,32 +47,32 @@ const resolveTheme = (mode: ThemeMode): 'dark' | 'light' => {
 };
 
 const applyTheme = (theme: 'dark' | 'light'): void => {
+  if (typeof document === 'undefined') {
+    return;
+  }
   const root = document.documentElement;
   root.classList.remove('light', 'dark');
   root.classList.add(theme);
+};
 
-  // Update body background for light theme
-  if (theme === 'light') {
-    document.body.style.background = '';
-  } else {
-    document.body.style.background = '';
+export const initializeTheme = (): { mode: ThemeMode; resolvedTheme: 'dark' | 'light' } => {
+  const storedMode = safeGetItem(STORAGE_KEY) as ThemeMode | null;
+  const mode: ThemeMode = storedMode || 'system';
+  const resolvedTheme = resolveTheme(mode);
+
+  if (typeof window !== 'undefined') {
+    applyTheme(resolvedTheme);
   }
+
+  return { mode, resolvedTheme };
 };
 
 export const useThemeStore = create<ThemeState>((set) => {
-  // Initialize from localStorage
-  const storedMode = safeGetItem(STORAGE_KEY) as ThemeMode | null;
-  const initialMode: ThemeMode = storedMode || 'dark';
-  const initialResolved = resolveTheme(initialMode);
-
-  // Apply initial theme
-  if (typeof window !== 'undefined') {
-    applyTheme(initialResolved);
-  }
+  const initialTheme = initializeTheme();
 
   return {
-    mode: initialMode,
-    resolvedTheme: initialResolved,
+    mode: initialTheme.mode,
+    resolvedTheme: initialTheme.resolvedTheme,
     setMode: (mode, options) => {
       const resolved = resolveTheme(mode);
       if (options?.persist !== false) {
