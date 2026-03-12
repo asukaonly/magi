@@ -295,14 +295,6 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, value, onChange })
 
   return (
     <div className={cn('space-y-6', quickMode && 'space-y-5')}>
-      <LLMModelSelectionSection
-        registry={registry}
-        value={currentValue}
-        quickMode={quickMode}
-        onScenarioProviderChange={handleScenarioProviderChange}
-        onScenarioModelChange={handleScenarioModelChange}
-      />
-
       <LLMProviderConfigurationSection
         registry={registry}
         value={currentValue}
@@ -312,6 +304,14 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, value, onChange })
         onActiveProviderChange={setActiveProviderId}
         onProviderChange={handleProviderChange}
         onAddCustomProvider={handleAddCustomProvider}
+      />
+
+      <LLMModelSelectionSection
+        registry={registry}
+        value={currentValue}
+        quickMode={quickMode}
+        onScenarioProviderChange={handleScenarioProviderChange}
+        onScenarioModelChange={handleScenarioModelChange}
       />
     </div>
   );

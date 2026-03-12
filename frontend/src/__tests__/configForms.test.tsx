@@ -230,6 +230,20 @@ describe('config forms', () => {
     expect(screen.getByText('GLM-5')).toBeInTheDocument();
   });
 
+  it('renders provider configuration before model selection', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    const providerHeading = await screen.findByText('llm.providerConfiguration.title');
+    const modelHeading = screen.getByText('llm.modelSelection.title');
+    expect(
+      providerHeading.compareDocumentPosition(modelHeading) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('lets user switch the core scenario model and shows vision warning', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>
