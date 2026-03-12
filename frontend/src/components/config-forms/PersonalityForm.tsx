@@ -12,6 +12,7 @@ import {
   DEFAULT_PERSONALITY_CONFIG,
   personalityApi,
   personalitiesApi,
+  type LLMConfig,
   PersonalityPreset,
   PersonalityConfig,
   type StateTransitionProtocolItem,
@@ -210,13 +211,18 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     setOneLiner('');
   };
 
-  const handleGenerate = async (setFieldValue: (name: any, value: any) => void) => {
+  const handleGenerate = async (
+    setFieldValue: (name: any, value: any) => void,
+    getFieldValue: (name: any) => any,
+  ) => {
     if (!oneLiner.trim()) return;
     setGenerating(true);
     try {
+      const llmOverride = getFieldValue(['llm']) as LLMConfig | undefined;
       const generated = await personalityApi.generate({
         description: oneLiner.trim(),
         target_language: language === 'zh' ? 'Chinese' : 'English',
+        llm_override: llmOverride,
       });
       const data = (generated.data || {}) as Partial<PersonalityConfig>;
       const mergedConfig = mergeConfig(data);
@@ -487,7 +493,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                               <Button
                                 type="button"
                                 disabled={generating}
-                                onClick={() => void handleGenerate(setFieldValue)}
+                                onClick={() => void handleGenerate(setFieldValue, getFieldValue)}
                               >
                                 {generating ? t('personality.generating') : t('personality.generateAction')}
                               </Button>

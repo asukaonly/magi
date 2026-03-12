@@ -2,6 +2,7 @@
  * 人格配置API
  */
 import { api } from '../client';
+import type { LLMConfig } from './config';
 
 export interface BasicProfile {
   name: string;
@@ -64,6 +65,7 @@ export interface AIGenerateRequest {
   description: string;
   target_language?: string;
   current_config?: PersonalityConfig;
+  llm_override?: LLMConfig;
 }
 
 export interface PersonalityResponse {
