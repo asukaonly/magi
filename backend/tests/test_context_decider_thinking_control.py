@@ -5,6 +5,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.llm.base import LLMAdapter
+from magi.config.models import LLMScenario
 from magi.tools.context_decider import ContextDecider
 
 
@@ -90,6 +91,16 @@ class _ResearchToolRegistry:
         return False
 
 
+class _RecordingLLMPool:
+    def __init__(self, adapter: LLMAdapter | None) -> None:
+        self.adapter = adapter
+        self.requested: list[LLMScenario] = []
+
+    def get(self, scenario: LLMScenario) -> LLMAdapter | None:
+        self.requested.append(scenario)
+        return self.adapter
+
+
 @pytest.mark.asyncio
 async def test_context_decider_always_disables_thinking() -> None:
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
@@ -104,6 +115,24 @@ async def test_context_decider_always_disables_thinking() -> None:
     await decider.decide("hello", {"os": "Darwin"})
 
     assert seen["disable_thinking"] is True
+
+
+@pytest.mark.asyncio
+async def test_context_decider_requests_context_scenario_from_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = _RecordingLLMPool(_DummyLLMAdapter())
+    decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_pool=pool)  # type: ignore[arg-type]
+
+    class _FakeBridge:
+        async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+
+    monkeypatch.setattr(decider, "provider_bridge", _FakeBridge())
+
+    await decider.decide("hello")
+
+    assert pool.requested
+    assert all(item == LLMScenario.CONTEXT_DECIDER for item in pool.requested)
 
 
 @pytest.mark.asyncio

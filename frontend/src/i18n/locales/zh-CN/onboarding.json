@@ -51,6 +51,48 @@
     "selectMode": "先选择模式"
   },
   "llm": {
+    "modelSelection": {
+      "title": "模型选择",
+      "desc": "为不同场景挑选对应模型。当前先区分意图识别和核心对话。"
+    },
+    "providerConfiguration": {
+      "title": "供应商配置",
+      "desc": "在这里维护可用供应商和连接信息。内置供应商会展示可用模型列表。",
+      "availableModels": "可用模型",
+      "referencedBy": "当前被以下场景使用",
+      "customProviderHint": "自定义供应商会按你填写的 endpoint 和格式工作。"
+    },
+    "scenarios": {
+      "context_decider": {
+        "title": "意图识别模型",
+        "desc": "用于 ContextDecider 做任务意图和执行路径判断。"
+      },
+      "core": {
+        "title": "核心 LLM 模型",
+        "desc": "用于最终回答、工具调用和多模态输入。"
+      }
+    },
+    "fields": {
+      "provider": "供应商",
+      "model": "模型",
+      "apiKey": "API Key",
+      "baseUrl": "Base URL",
+      "displayName": "显示名称",
+      "apiFormat": "API 格式",
+      "enabled": "启用"
+    },
+    "actions": {
+      "addCustomProvider": "添加自定义供应商"
+    },
+    "badges": {
+      "enabled": "已启用",
+      "disabled": "未启用"
+    },
+    "warnings": {
+      "coreVisionMissing": "当前核心模型不支持图片输入。如果聊天中上传图片，会在运行时返回明确错误提示。"
+    },
+    "modelManualPlaceholder": "输入模型 ID，例如 gpt-4.1",
+    "customProviderDefaultName": "自定义供应商",
     "providerLabel": "模型提供商",
     "providerRequired": "请选择模型提供商",
     "loading": "加载中...",

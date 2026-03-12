@@ -18,6 +18,7 @@ from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
 from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge
+from ...config.models import LLMScenario
 from ...config.constants import DEFAULT_MAX_TOKENS
 from .function_calling_postprocessor import FunctionCallingPostprocessor
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
@@ -123,8 +124,9 @@ class FunctionCallingExecutor:
 
     def __init__(
         self,
-        llm_adapter: LLMAdapter,
         tool_registry: "ToolRegistry",
+        llm_adapter: Optional[LLMAdapter] = None,
+        llm_pool=None,
         skill_executor=None,
         tool_result_callback=None,
         loop_event_callback=None,
@@ -138,12 +140,23 @@ class FunctionCallingExecutor:
             skill_executor: Optional skill executor for skill-based tools
         """
         self.llm = llm_adapter
-        self.provider_bridge = LLMProviderBridge(llm_adapter)
+        self._llm_pool = llm_pool
+        self.provider_bridge = LLMProviderBridge(llm_adapter) if llm_adapter else None
         self.postprocessor = FunctionCallingPostprocessor()
         self.tool_registry = tool_registry
         self.skill_executor = skill_executor
         self.tool_result_callback = tool_result_callback
         self.loop_event_callback = loop_event_callback
+
+    def _resolve_llm(self) -> LLMAdapter:
+        if self._llm_pool is not None:
+            llm = self._llm_pool.get(LLMScenario.CORE)
+            if llm is not self.llm:
+                self.llm = llm
+                self.provider_bridge = LLMProviderBridge(llm)
+        if self.llm is None or self.provider_bridge is None:
+            raise ValueError("FunctionCallingExecutor requires an LLM adapter or llm_pool")
+        return self.llm
 
     async def execute_with_tools(
         self,
@@ -723,7 +736,8 @@ class FunctionCallingExecutor:
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
 
-        model_name = self.llm.model_name
+        llm = self._resolve_llm()
+        model_name = llm.model_name
 
         log_llm_request(
             llm_logger,
@@ -807,7 +821,8 @@ class FunctionCallingExecutor:
 
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
-        model_name = self.llm.model_name
+        llm = self._resolve_llm()
+        model_name = llm.model_name
 
         log_llm_request(
             llm_logger,

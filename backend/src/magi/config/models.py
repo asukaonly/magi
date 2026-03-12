@@ -4,7 +4,7 @@ Configuration Models - Pydantic model definitions for application configuration.
 These models match the structure in config.example.yaml.
 """
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 
 from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
@@ -16,6 +16,7 @@ class LLMProvider(str, Enum):
     ANTHROPIC = "anthropic"
     GLM = "glm"
     LOCAL = "local"
+    CUSTOM = "custom"
 
 
 class LLMCapabilitiesSettings(BaseModel):
@@ -81,19 +82,78 @@ class TimelineStorageMode(str, Enum):
 # LLM Configuration
 # =============================================================================
 
-class LLMSettings(BaseModel):
-    """LLM configuration."""
-    provider: LLMProvider = Field(default=LLMProvider.OPENAI)
-    model: str = Field(default="gpt-4o-mini")
+class LLMScenario(str, Enum):
+    """Supported runtime LLM scenarios."""
+
+    CONTEXT_DECIDER = "context_decider"
+    CORE = "core"
+
+
+class LLMProviderSettings(BaseModel):
+    """Reusable provider connection settings."""
+
+    enabled: bool = Field(default=True)
+    provider_type: LLMProvider = Field(default=LLMProvider.OPENAI)
+    display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=MIN_MAX_TOKENS)
-    timeout: int = Field(default=60, ge=1)
+    api_format: Optional[str] = Field(default=None)
+
+
+class LLMSelectionSettings(BaseModel):
+    """Per-scenario model selection."""
+
+    provider_id: str = Field(default="openai")
+    model: str = Field(default="gpt-4o-mini")
     capability_override_enabled: bool = Field(default=False)
     capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     provider_options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LLMSettings(BaseModel):
+    """Scenario-based LLM configuration."""
+
+    providers: Dict[str, LLMProviderSettings] = Field(
+        default_factory=lambda: {
+            "openai": LLMProviderSettings(
+                provider_type=LLMProvider.OPENAI,
+                display_name="OpenAI",
+            )
+        }
+    )
+    selections: Dict[str, LLMSelectionSettings] = Field(
+        default_factory=lambda: {
+            LLMScenario.CONTEXT_DECIDER.value: LLMSelectionSettings(),
+            LLMScenario.CORE.value: LLMSelectionSettings(),
+        }
+    )
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=MIN_MAX_TOKENS)
+    timeout: int = Field(default=60, ge=1)
+
+    @model_validator(mode="after")
+    def validate_builtin_provider_uniqueness(self) -> "LLMSettings":
+        required_scenarios = {
+            LLMScenario.CONTEXT_DECIDER.value,
+            LLMScenario.CORE.value,
+        }
+        missing_scenarios = required_scenarios.difference(self.selections.keys())
+        if missing_scenarios:
+            missing_names = ", ".join(sorted(missing_scenarios))
+            raise ValueError(f"Missing required LLM selections: {missing_names}")
+
+        seen_provider_types: set[str] = set()
+        for provider in self.providers.values():
+            provider_type = str(
+                getattr(provider.provider_type, "value", provider.provider_type)
+            )
+            if provider_type == LLMProvider.CUSTOM.value:
+                continue
+            if provider_type in seen_provider_types:
+                raise ValueError(f"Duplicate built-in LLM provider type: {provider_type}")
+            seen_provider_types.add(provider_type)
+        return self
 
 
 # =============================================================================

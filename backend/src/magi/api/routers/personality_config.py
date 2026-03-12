@@ -15,8 +15,10 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ...llm import create_llm_adapter
+from ...config import get_config
+from ...config.models import LLMScenario
 from ...core.runtime import TaskAgentType
+from ...llm import ScenarioLLMPool, create_llm_adapter
 from ...memory.personality_loader import PersonalityLoader
 from ...utils.runtime import get_runtime_paths
 from ...core.logger import get_logger
@@ -201,7 +203,8 @@ def _build_diffs(from_data: Dict[str, Any], to_data: Dict[str, Any]) -> List[Per
 
 async def ai_generate_personality(description: str, target_language: str = "Auto") -> PersonalityConfigModel:
     """Generate personality configuration from description using LLM."""
-    llm_adapter = create_llm_adapter()
+    llm_pool = ScenarioLLMPool(config=get_config(), adapter_factory=create_llm_adapter)
+    llm_adapter = llm_pool.get(LLMScenario.CORE)
     logger.info(
         "[AI Generate Personality] Using unified LLM adapter provider=%s model=%s",
         getattr(llm_adapter, "provider_name", "unknown"),
@@ -678,4 +681,3 @@ async def compare_personalities(from_name: str, to_name: str):
         raise HTTPException(status_code=404, detail=f"Personality not found: {exc}") from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-

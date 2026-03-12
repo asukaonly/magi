@@ -24,8 +24,11 @@ const OnboardingPage: React.FC = () => {
         const response = await configApi.getOnboardingTemplate();
         let template = response.data?.config || DEFAULT_SYSTEM_CONFIG;
 
-        // If LLM config is from env, clear cache to ensure fresh state
-        if (template.llm?.from_env) {
+        const coreProviderId = template.llm?.selections?.core?.provider_id;
+        const coreProvider = coreProviderId ? template.llm?.providers?.[coreProviderId] : undefined;
+
+        // If onboarding is seeded from masked environment credentials, clear cached local edits.
+        if (coreProvider?.api_key?.endsWith('****')) {
           localStorage.removeItem(STORAGE_KEY);
         }
 

@@ -32,18 +32,36 @@ class AgentConfigModel(BaseModel):
     description: Optional[str] = Field(default="Magi AI Agent Framework")
 
 
-class LLMConfigModel(BaseModel):
-    provider: str = Field(default="openai")
-    model: str = Field(default="gpt-4o-mini")
+class LLMProviderConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    provider_type: str = Field(default="openai")
+    display_name: str = Field(default="OpenAI")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
-    custom_name: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default=None)
-    from_env: bool = Field(default=False)
+
+
+class LLMSelectionConfigModel(BaseModel):
+    provider_id: str = Field(default="openai")
+    model: str = Field(default="gpt-4o-mini")
     capability_override_enabled: bool = Field(default=False)
     capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     provider_options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LLMConfigModel(BaseModel):
+    providers: Dict[str, LLMProviderConfigModel] = Field(
+        default_factory=lambda: {
+            "openai": LLMProviderConfigModel()
+        }
+    )
+    selections: Dict[str, LLMSelectionConfigModel] = Field(
+        default_factory=lambda: {
+            "context_decider": LLMSelectionConfigModel(),
+            "core": LLMSelectionConfigModel(),
+        }
+    )
 
 
 class LoopConfigModel(BaseModel):
@@ -473,23 +491,34 @@ def _build_llm_config_model(
     raw_llm: Dict[str, Any],
     registry: LLMProviderRegistryModel,
     mask_api_key: bool,
-    from_env: bool = False,
 ) -> LLMConfigModel:
-    api_key = runtime_config.llm.api_key
-    llm_api_key = "***" if (mask_api_key and api_key) else api_key
-    resolved = resolve_llm_profile(runtime_config.llm, registry)
+    providers: Dict[str, LLMProviderConfigModel] = {}
+    for provider_id, provider in getattr(runtime_config.llm, "providers", {}).items():
+        api_key = provider.api_key
+        providers[provider_id] = LLMProviderConfigModel(
+            enabled=provider.enabled,
+            provider_type=str(getattr(provider.provider_type, "value", provider.provider_type)),
+            display_name=provider.display_name,
+            api_key=(_mask_api_key(api_key) if (mask_api_key and api_key) else api_key),
+            base_url=provider.base_url,
+            api_format=provider.api_format,
+        )
+
+    selections: Dict[str, LLMSelectionConfigModel] = {}
+    for selection_id, selection in getattr(runtime_config.llm, "selections", {}).items():
+        resolved = resolve_llm_profile(selection, registry)
+        selections[selection_id] = LLMSelectionConfigModel(
+            provider_id=selection.provider_id,
+            model=selection.model,
+            capability_override_enabled=bool(selection.capability_override_enabled),
+            capabilities=resolved.capabilities,
+            limits=resolved.limits,
+            provider_options=resolved.provider_options,
+        )
+
     return LLMConfigModel(
-        provider=str(getattr(runtime_config.llm.provider, "value", runtime_config.llm.provider)),
-        model=runtime_config.llm.model,
-        api_key=llm_api_key,
-        base_url=runtime_config.llm.base_url,
-        custom_name=raw_llm.get("custom_name"),
-        api_format=raw_llm.get("api_format"),
-        from_env=from_env,
-        capability_override_enabled=bool(runtime_config.llm.capability_override_enabled),
-        capabilities=resolved.capabilities,
-        limits=resolved.limits,
-        provider_options=resolved.provider_options,
+        providers=providers,
+        selections=selections,
     )
 
 
@@ -542,18 +571,32 @@ def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
 
 
 def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    for selection_id, selection in config.llm.selections.items():
+        provider = config.llm.providers.get(selection.provider_id)
+        if provider is None:
+            raise ValueError(
+                f"LLM selection '{selection_id}' references unknown provider '{selection.provider_id}'"
+            )
+        if not provider.enabled:
+            raise ValueError(
+                f"LLM selection '{selection_id}' references disabled provider '{selection.provider_id}'"
+            )
+
+    llm_providers: Dict[str, Any] = {}
+    for provider_id, provider in config.llm.providers.items():
+        provider_payload = provider.model_dump()
+        if _is_masked_api_key(provider_payload.get("api_key")):
+            provider_payload["api_key"] = None
+        llm_providers[provider_id] = provider_payload
+
     updates: Dict[str, Any] = {
         "agent.name": config.agent.name,
         "agent.description": config.agent.description,
-        "llm.provider": config.llm.provider,
-        "llm.model": config.llm.model,
-        "llm.base_url": config.llm.base_url,
-        "llm.custom_name": config.llm.custom_name,
-        "llm.api_format": config.llm.api_format,
-        "llm.capability_override_enabled": config.llm.capability_override_enabled,
-        "llm.capabilities": config.llm.capabilities.model_dump(),
-        "llm.limits": config.llm.limits.model_dump(),
-        "llm.provider_options": config.llm.provider_options,
+        "llm.providers": llm_providers,
+        "llm.selections": {
+            selection_id: selection.model_dump()
+            for selection_id, selection in config.llm.selections.items()
+        },
         "loop.strategy": config.loop.strategy,
         "loop.interval": config.loop.interval,
         "agent.loop_interval": config.loop.interval,
@@ -580,10 +623,12 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
         "tools.web_fetch.default_provider": "browser" if config.tools.builtIn.webFetch.usePlaywright else "http",
     }
-    # Only update API keys if they are not masked values
-    if config.llm.api_key and not _is_masked_api_key(config.llm.api_key):
-        updates["llm.api_key"] = config.llm.api_key
-        os.environ["LLM_API_KEY"] = config.llm.api_key
+    # Keep the convenience env var aligned with the default core selection provider.
+    core_selection = config.llm.selections.get("core")
+    if core_selection:
+        core_provider = config.llm.providers.get(core_selection.provider_id)
+        if core_provider and core_provider.api_key and not _is_masked_api_key(core_provider.api_key):
+            os.environ["LLM_API_KEY"] = core_provider.api_key
     if config.tools.builtIn.weather.apiKey and not _is_masked_api_key(config.tools.builtIn.weather.apiKey):
         updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = config.tools.builtIn.weather.apiKey
     if config.tools.builtIn.weather.apiUrl:
@@ -631,36 +676,43 @@ def _build_onboarding_template() -> SystemConfigModel:
     from_env = bool(env_provider or env_model or env_api_key or env_base_url)
 
     if from_env:
-        # Use environment variables
-        if env_provider:
-            template.llm.provider = env_provider.lower()
-        if env_model:
-            template.llm.model = env_model
-        if env_api_key:
-            template.llm.api_key = _mask_api_key(env_api_key)
-        if env_base_url:
-            template.llm.base_url = env_base_url
-        template.llm = _build_llm_config_model(
-            runtime_config=type("RuntimeConfigProxy", (), {"llm": template.llm})(),
-            raw_llm={},
-            registry=registry,
-            mask_api_key=False,
-            from_env=True,
+        provider_id = (env_provider or "openai").lower()
+        provider_meta = next((item for item in registry.providers if item.id == provider_id), None)
+        template.llm.providers[provider_id] = LLMProviderConfigModel(
+            enabled=True,
+            provider_type=provider_id,
+            display_name=provider_meta.display_name if provider_meta and provider_meta.display_name else provider_id.title(),
+            api_key=_mask_api_key(env_api_key) if env_api_key else None,
+            base_url=env_base_url or (provider_meta.default_base_url if provider_meta else None),
         )
+        selected_model = env_model or (provider_meta.default_model if provider_meta and provider_meta.default_model else "gpt-4o-mini")
+        for selection_id in ("context_decider", "core"):
+            selection = template.llm.selections[selection_id]
+            selection.provider_id = provider_id
+            selection.model = selected_model
+            resolved = resolve_llm_profile(selection, registry)
+            selection.capabilities = resolved.capabilities
+            selection.limits = resolved.limits
+            selection.provider_options = resolved.provider_options
     elif registry.providers:
         primary = registry.providers[0]
-        template.llm.provider = primary.id
-        if primary.default_model:
-            template.llm.model = primary.default_model
-        if primary.default_base_url:
-            template.llm.base_url = primary.default_base_url
-        template.llm = _build_llm_config_model(
-            runtime_config=type("RuntimeConfigProxy", (), {"llm": template.llm})(),
-            raw_llm={},
-            registry=registry,
-            mask_api_key=False,
-            from_env=False,
-        )
+        template.llm.providers = {
+            primary.id: LLMProviderConfigModel(
+                enabled=True,
+                provider_type=primary.id,
+                display_name=primary.display_name or primary.id.title(),
+                base_url=primary.default_base_url,
+            )
+        }
+        default_model = primary.default_model or "gpt-4o-mini"
+        for selection_id in ("context_decider", "core"):
+            selection = template.llm.selections[selection_id]
+            selection.provider_id = primary.id
+            selection.model = default_model
+            resolved = resolve_llm_profile(selection, registry)
+            selection.capabilities = resolved.capabilities
+            selection.limits = resolved.limits
+            selection.provider_options = resolved.provider_options
 
     template.preferences.onboarding_completed = False
     template.preferences.user_mode = None

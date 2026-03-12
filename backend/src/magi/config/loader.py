@@ -96,10 +96,14 @@ def get_data_dir() -> Path:
 # Maps config path -> (env_var_name, type_converter, default_value)
 ENV_MAPPINGS: Dict[str, Tuple[str, Callable, Any]] = {
     # LLM Settings
-    "llm.provider": ("LLM_PROVIDER", lambda v: LLMProvider(v.lower()), LLMProvider.OPENAI),
-    "llm.model": ("LLM_MODEL", str, "gpt-4o-mini"),
-    "llm.api_key": ("LLM_API_KEY", str, None),
-    "llm.base_url": ("LLM_BASE_URL", str, None),
+    "llm.providers.openai.provider_type": ("LLM_PROVIDER", lambda v: LLMProvider(v.lower()), LLMProvider.OPENAI),
+    "llm.providers.openai.display_name": ("LLM_PROVIDER_NAME", str, "OpenAI"),
+    "llm.providers.openai.api_key": ("LLM_API_KEY", str, None),
+    "llm.providers.openai.base_url": ("LLM_BASE_URL", str, None),
+    "llm.selections.context_decider.provider_id": ("LLM_PROVIDER", lambda v: v.lower(), "openai"),
+    "llm.selections.context_decider.model": ("LLM_MODEL", str, "gpt-4o-mini"),
+    "llm.selections.core.provider_id": ("LLM_PROVIDER", lambda v: v.lower(), "openai"),
+    "llm.selections.core.model": ("LLM_MODEL", str, "gpt-4o-mini"),
     "llm.temperature": ("LLM_TEMPERATURE", float, 0.7),
     "llm.max_tokens": ("LLM_MAX_TOKENS", int, DEFAULT_MAX_TOKENS),
     "llm.timeout": ("LLM_TIMEOUT", int, 60),
@@ -217,25 +221,54 @@ class ConfigLoader:
         """Create a minimal default config file."""
         default_config = {
             "llm": {
-                "provider": "openai",
-                "model": "gpt-4o-mini",
-                "api_key": "",
+                "providers": {
+                    "openai": {
+                        "enabled": True,
+                        "provider_type": "openai",
+                        "display_name": "OpenAI",
+                        "api_key": "",
+                        "base_url": "https://api.openai.com/v1",
+                    }
+                },
+                "selections": {
+                    "context_decider": {
+                        "provider_id": "openai",
+                        "model": "gpt-4o-mini",
+                        "capability_override_enabled": False,
+                        "capabilities": {
+                            "vision": False,
+                            "image_output": False,
+                            "tool_calling": True,
+                            "reasoning": True,
+                            "embedding": False,
+                        },
+                        "limits": {
+                            "context_window": None,
+                            "max_output_tokens": None,
+                        },
+                        "provider_options": {},
+                    },
+                    "core": {
+                        "provider_id": "openai",
+                        "model": "gpt-4o-mini",
+                        "capability_override_enabled": False,
+                        "capabilities": {
+                            "vision": False,
+                            "image_output": False,
+                            "tool_calling": True,
+                            "reasoning": True,
+                            "embedding": False,
+                        },
+                        "limits": {
+                            "context_window": None,
+                            "max_output_tokens": None,
+                        },
+                        "provider_options": {},
+                    },
+                },
                 "temperature": 0.7,
                 "max_tokens": DEFAULT_MAX_TOKENS,
                 "timeout": 60,
-                "capability_override_enabled": False,
-                "capabilities": {
-                    "vision": False,
-                    "image_output": False,
-                    "tool_calling": True,
-                    "reasoning": True,
-                    "embedding": False,
-                },
-                "limits": {
-                    "context_window": None,
-                    "max_output_tokens": None,
-                },
-                "provider_options": {},
             },
             "agent": {
                 "name": "magi-agent",

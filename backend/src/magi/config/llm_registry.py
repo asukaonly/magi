@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-from .models import LLMCapabilitiesSettings, LLMLimitsSettings, LLMSettings
+from .models import LLMCapabilitiesSettings, LLMLimitsSettings, LLMSelectionSettings
 
 
 def _default_legacy_capabilities() -> LLMCapabilitiesSettings:
@@ -133,11 +133,11 @@ def find_model_meta(
 
 
 def resolve_llm_profile(
-    llm: LLMSettings,
+    llm: LLMSelectionSettings,
     registry: LLMProviderRegistryModel,
 ) -> ResolvedLLMProfile:
-    """Resolve effective capabilities for the active LLM configuration."""
-    provider_name = str(getattr(llm.provider, "value", llm.provider) or "").strip()
+    """Resolve effective capabilities for the active selection."""
+    provider_name = str(getattr(llm.provider_id, "value", llm.provider_id) or "").strip()
     model_name = str(llm.model or "").strip()
     model_meta = find_model_meta(registry, provider_name, model_name)
 

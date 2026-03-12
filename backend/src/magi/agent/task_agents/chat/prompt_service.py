@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from ....memory.context_builder import Scenario
+from ....config.models import LLMScenario
 from ...orchestration import WorkerResult
 from ....memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
 from ..common import TaskAgentLLMService
@@ -19,7 +20,8 @@ class ChatPromptService:
         *,
         agent_id: str,
         agent_type: str,
-        llm_adapter,
+        llm_adapter=None,
+        llm_pool=None,
         prompt_context_assembler: PromptContextAssembler,
         prompt_context_renderer: PromptContextRenderer,
         memory=None,
@@ -28,11 +30,17 @@ class ChatPromptService:
         self._agent_id = agent_id
         self._agent_type = agent_type
         self._llm = llm_adapter
+        self._llm_pool = llm_pool
         self._prompt_context_assembler = prompt_context_assembler
         self._prompt_context_renderer = prompt_context_renderer
         self._memory = memory
         self._other_memory = other_memory
-        self._llm_service = TaskAgentLLMService(llm_adapter=llm_adapter, logger_name="chat")
+        self._llm_service = TaskAgentLLMService(
+            llm_adapter=llm_adapter,
+            llm_pool=llm_pool,
+            scenario=LLMScenario.CORE,
+            logger_name="chat",
+        )
 
     async def build_prompt_context(
         self,

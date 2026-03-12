@@ -7,11 +7,27 @@ import pytest
 from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, TaskOrchestrationState, WorkerResult
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult
 from magi.agent.task_agents.explore_task_agent import ExploreTaskAgent, EXPLORE_TASK_COMPLETED
+from magi.config.models import LLMScenario
 from magi.core.runtime.contracts import FactRecord
 
 
 class _FakeLLMAdapter:
     model_name = "fake-model"
+    provider_name = "openai"
+
+    async def chat(self, **kwargs):
+        _ = kwargs
+        return "ok"
+
+
+class _RecordingLLMPool:
+    def __init__(self, adapter):
+        self._adapter = adapter
+        self.requested: list[LLMScenario] = []
+
+    def get(self, scenario: LLMScenario):
+        self.requested.append(scenario)
+        return self._adapter
 
 
 @pytest.mark.asyncio
@@ -35,6 +51,21 @@ async def test_explore_task_agent_repo_plan_falls_back_to_canonical_when_planner
         "Inspect project progress",
     ]
     assert all(item.subagent_type == "Explore" for item in plan.subtasks)
+
+
+@pytest.mark.asyncio
+async def test_explore_task_agent_uses_core_scenario_from_pool() -> None:
+    pool = _RecordingLLMPool(_FakeLLMAdapter())
+    agent = ExploreTaskAgent(agent_id="u-chat", llm_pool=pool)
+
+    response = await agent._prompt_service.call_llm(
+        system_prompt="You are helpful.",
+        messages=[{"role": "user", "content": "Analyze the repo"}],
+        disable_thinking=True,
+    )
+
+    assert response == "ok"
+    assert pool.requested == [LLMScenario.CORE]
 
 
 @pytest.mark.asyncio

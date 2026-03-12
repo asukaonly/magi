@@ -5,6 +5,7 @@ import time
 import uuid
 
 from ....config import get_config
+from ....config.models import LLMScenario
 from ....config.constants import DEFAULT_MAX_TOKENS
 from ....core.logger import get_logger
 from ....llm.provider_bridge import LLMProviderBridge
@@ -16,10 +17,21 @@ logger = get_logger(__name__)
 class TaskAgentLLMService:
     """Centralizes task-agent LLM calls and logging."""
 
-    def __init__(self, *, llm_adapter, logger_name: str) -> None:
+    def __init__(self, *, llm_adapter=None, llm_pool=None, scenario: LLMScenario = LLMScenario.CORE, logger_name: str) -> None:
         self._llm = llm_adapter
+        self._llm_pool = llm_pool
+        self._scenario = scenario
+        self._provider_bridge = LLMProviderBridge(llm_adapter) if llm_adapter else None
         self._llm_logger = get_llm_logger(logger_name)
         self._logger_name = logger_name
+
+    def _resolve_llm(self):
+        if self._llm_pool is not None:
+            llm = self._llm_pool.get(self._scenario)
+            if llm is not self._llm:
+                self._llm = llm
+                self._provider_bridge = LLMProviderBridge(llm)
+        return self._llm
 
     async def call(
         self,
@@ -33,7 +45,8 @@ class TaskAgentLLMService:
     ) -> str:
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
-        model_name = getattr(self._llm, "model_name", "unknown")
+        llm = self._resolve_llm()
+        model_name = getattr(llm, "model_name", "unknown")
         log_llm_request(
             self._llm_logger,
             request_id=request_id,
@@ -42,8 +55,7 @@ class TaskAgentLLMService:
             messages=messages,
         )
         try:
-            provider_bridge = LLMProviderBridge(self._llm)
-            provider_response = await provider_bridge.chat_response(
+            provider_response = await self._provider_bridge.chat_response(
                 system_prompt=system_prompt,
                 messages=messages,
                 max_tokens=self._llm_max_tokens(),
