@@ -11,6 +11,13 @@ if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 
 from apple_health.types import HealthDataType, HEALTH_DATA_TYPES, get_enabled_types, get_default_enabled_types
+from apple_health.exceptions import (
+    HealthKitError,
+    PlatformNotSupportedError,
+    HealthKitNotAvailableError,
+    AuthorizationDeniedError,
+    HealthKitQueryError,
+)
 
 
 def test_health_data_type_creation():
@@ -195,3 +202,66 @@ def test_health_data_type_values():
     assert workout.description == "Workout session data"
     assert workout.aggregation == "session"
     assert workout.unit is None
+
+
+class TestExceptions:
+    """Test all custom exception classes."""
+
+    def test_healthkit_error_is_base_exception(self):
+        """Test that HealthKitError is the base exception."""
+        exc = HealthKitError("Test error")
+        assert isinstance(exc, Exception)
+        assert isinstance(exc, HealthKitError)
+
+    def test_platform_not_supported_error(self):
+        """Test PlatformNotSupportedError properties."""
+        # Test default message
+        exc = PlatformNotSupportedError()
+        assert isinstance(exc, HealthKitError)
+        assert "macOS and iOS" in str(exc)
+
+        # Test custom message
+        exc = PlatformNotSupportedError("Custom message")
+        assert str(exc) == "Custom message"
+
+    def test_healthkit_not_available_error(self):
+        """Test HealthKitNotAvailableError properties."""
+        # Test default message
+        exc = HealthKitNotAvailableError()
+        assert isinstance(exc, HealthKitError)
+        assert "HealthKit framework is not available" in str(exc)
+
+        # Test custom message
+        exc = HealthKitNotAvailableError("Custom message")
+        assert str(exc) == "Custom message"
+
+    def test_authorization_denied_error(self):
+        """Test AuthorizationDeniedError properties."""
+        # Test with data type
+        data_type = "heart_rate"
+        exc = AuthorizationDeniedError(data_type)
+        assert isinstance(exc, HealthKitError)
+        assert data_type in str(exc)
+        assert exc.data_type == data_type
+        assert f"Authorization denied for data type: {data_type}" == str(exc)
+
+    def test_healthkit_query_error(self):
+        """Test HealthKitQueryError properties."""
+        # Test with message only
+        exc = HealthKitQueryError("Query failed")
+        assert isinstance(exc, HealthKitError)
+        assert str(exc) == "Query failed"
+        assert exc.query_type is None
+
+        # Test with message and query type
+        query_type = "HKStatisticsQuery"
+        exc = HealthKitQueryError("Query failed", query_type)
+        assert isinstance(exc, HealthKitError)
+        assert f"Query failed (Query type: {query_type})" == str(exc)
+        assert exc.query_type == query_type
+
+        # Test with message and None query type
+        exc = HealthKitQueryError("Query failed", None)
+        assert isinstance(exc, HealthKitError)
+        assert str(exc) == "Query failed"
+        assert exc.query_type is None
