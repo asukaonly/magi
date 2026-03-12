@@ -57,14 +57,18 @@
       "title": "模型选择",
       "desc": "为不同场景挑选对应模型。当前先区分意图识别和核心对话。"
     },
-    "providerConfiguration": {
-      "title": "供应商配置",
-      "desc": "在这里维护可用供应商和连接信息。内置供应商会展示可用模型列表。",
-      "availableModels": "可用模型",
-      "referencedBy": "当前被以下场景使用",
-      "customProviderHint": "自定义供应商会按你填写的 endpoint 和格式工作。",
-      "fetchModelsFailed": "拉取模型失败，请检查 Base URL、API Key 和接口格式。"
-    },
+  "providerConfiguration": {
+    "title": "供应商配置",
+    "desc": "在这里维护可用供应商和连接信息。内置供应商会展示可用模型列表。",
+    "availableModels": "可用模型",
+    "referencedBy": "当前被以下场景使用",
+    "customProviderHint": "自定义供应商会按你填写的 endpoint 和格式工作。",
+    "fetchModelsFailed": "拉取模型失败，请检查 Base URL、API Key 和接口格式。",
+    "providerKinds": {
+      "builtin": "内置供应商",
+      "custom": "自定义供应商"
+    }
+  },
     "scenarios": {
       "context_decider": {
         "title": "意图识别模型",

@@ -263,7 +263,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
   return (
     <GuidedConfigFrame
-      layoutClassName="min-h-[clamp(560px,78vh,760px)]"
+      className="h-[clamp(620px,82vh,840px)]"
+      layoutClassName="h-full"
       sidebarClassName="lg:w-44"
       sidebar={<StepIndicator steps={steps} current={current} />}
       footer={(

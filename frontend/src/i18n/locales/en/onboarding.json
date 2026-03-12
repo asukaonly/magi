@@ -57,14 +57,18 @@
       "title": "Model Selection",
       "desc": "Choose models per runtime scenario. For now we split intent detection and core conversation."
     },
-    "providerConfiguration": {
-      "title": "Provider Configuration",
-      "desc": "Manage available providers and connection details here. Built-in providers show their model lists.",
-      "availableModels": "Available Models",
-      "referencedBy": "Currently used by",
-      "customProviderHint": "Custom providers use the endpoint and API format you configure here.",
-      "fetchModelsFailed": "Failed to fetch models. Check the Base URL, API key, and API format."
-    },
+  "providerConfiguration": {
+    "title": "Provider Configuration",
+    "desc": "Manage available providers and connection details here. Built-in providers show their model lists.",
+    "availableModels": "Available Models",
+    "referencedBy": "Currently used by",
+    "customProviderHint": "Custom providers use the endpoint and API format you configure here.",
+    "fetchModelsFailed": "Failed to fetch models. Check the Base URL, API key, and API format.",
+    "providerKinds": {
+      "builtin": "Built-in Provider",
+      "custom": "Custom Provider"
+    }
+  },
     "scenarios": {
       "context_decider": {
         "title": "Intent Model",

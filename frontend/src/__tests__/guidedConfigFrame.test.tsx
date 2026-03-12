@@ -21,4 +21,18 @@ describe('GuidedConfigFrame', () => {
     expect(contentPane?.className).toContain('overflow-y-auto');
     expect(footerPane?.className).toContain('shrink-0');
   });
+
+  it('supports a stable viewport-filling shell without stretching the footer', () => {
+    render(
+      <GuidedConfigFrame className="h-[clamp(620px,82vh,840px)]" footer={<div>footer</div>}>
+        <div>content</div>
+      </GuidedConfigFrame>
+    );
+
+    const root = screen.getByText('content').closest('.rounded-3xl');
+    const footerPane = screen.getByText('footer').parentElement;
+
+    expect(root?.className).toContain('h-[clamp(620px,82vh,840px)]');
+    expect(footerPane?.className).toContain('shrink-0');
+  });
 });
