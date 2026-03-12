@@ -39,6 +39,7 @@
   },
   "mode": {
     "label": "User Mode",
+    "description": "Choose how much setup you want to handle during onboarding.",
     "placeholder": "Please choose a mode",
     "quick": "Quick Mode",
     "expert": "Expert Mode",

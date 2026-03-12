@@ -253,17 +253,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
     if (current === 1) {
       return (
-        <div className="flex min-h-[420px] items-center justify-center">
-          <ModeSelection
-            value={mode}
-            onChange={(nextMode) => {
-              setMode(nextMode);
-              form.setFieldValue(['preferences', 'user_mode'], nextMode);
-              saveProgress(form.getFieldsValue(true));
-              setCurrent(2);
-            }}
-          />
-        </div>
+        <ModeSelection
+          value={mode}
+          onChange={(nextMode) => {
+            setMode(nextMode);
+            form.setFieldValue(['preferences', 'user_mode'], nextMode);
+            saveProgress(form.getFieldsValue(true));
+            setCurrent(2);
+          }}
+        />
       );
     }
 

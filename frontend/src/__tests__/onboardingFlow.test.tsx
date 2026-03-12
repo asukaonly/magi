@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
@@ -68,5 +69,34 @@ describe('OnboardingFlow', () => {
 
     expect(screen.getByText('steps.llmProviders')).toBeInTheDocument();
     expect(screen.getByText('steps.llmModels')).toBeInTheDocument();
+  });
+
+  it('renders the mode step with the same heading structure as other onboarding steps', async () => {
+    const user = userEvent.setup();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+
+    render(
+      <OnboardingFlow
+        initialConfig={{
+          ...DEFAULT_SYSTEM_CONFIG,
+          preferences: {
+            ...DEFAULT_SYSTEM_CONFIG.preferences,
+            user_mode: null,
+          },
+        }}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    expect(await screen.findByText('mode.label')).toBeInTheDocument();
+    expect(screen.getByText('mode.description')).toBeInTheDocument();
+    expect(screen.getByText('mode.quick')).toBeInTheDocument();
+    expect(screen.getByText('mode.expert')).toBeInTheDocument();
   });
 });

@@ -39,6 +39,7 @@
   },
   "mode": {
     "label": "用户模式",
+    "description": "选择你希望在引导阶段配置到什么深度。",
     "placeholder": "请选择模式",
     "quick": "快速模式",
     "expert": "专家模式",
