@@ -103,7 +103,13 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   }, [activeProviderId]);
 
   return (
-    <section data-testid="llm-provider-configuration-section" className={cn('space-y-4', isSettingsSurface && 'space-y-3')}>
+    <section
+      data-testid="llm-provider-configuration-section"
+      className={cn(
+        'space-y-4',
+        isSettingsSurface && 'flex h-full min-h-0 flex-col space-y-0'
+      )}
+    >
       {showSectionIntro ? (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1.5">
@@ -119,9 +125,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             <span>{t('llm.actions.addCustomProvider')}</span>
           </button>
         </div>
-      ) : (
-        <div className="sr-only" aria-hidden="true" />
-      )}
+      ) : null}
 
       <div
         data-testid="llm-provider-workbench"
@@ -131,7 +135,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
           'md:h-[clamp(440px,56vh,680px)] xl:items-stretch',
           isSettingsSurface &&
             cn(
-              'gap-4 rounded-none bg-transparent p-0 md:h-[min(72vh,820px)]',
+              'h-full gap-4 rounded-none bg-transparent p-0 sm:p-0 md:h-full',
               settingsWorkbenchColumnsClassName
             )
         )}

@@ -222,6 +222,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }
     return cloneLLMConfig(formCtx?.values?.llm as LLMConfig | undefined);
   }, [controlled, formCtx?.values?.llm, value]);
+  const fillAvailableHeight = surface === 'settings' && view === 'providers';
 
   const updateValue = (updater: (draft: LLMConfig) => void) => {
     const next = cloneLLMConfig(currentValue);
@@ -499,7 +500,13 @@ const LLMForm: React.FC<LLMFormProps> = ({
   }
 
   return (
-    <div className={cn('space-y-6', quickMode && 'space-y-5')}>
+    <div
+      className={cn(
+        'space-y-6',
+        quickMode && 'space-y-5',
+        fillAvailableHeight && 'flex h-full min-h-0 flex-col'
+      )}
+    >
       {view !== 'models' ? (
         <LLMProviderConfigurationSection
           registry={registry}

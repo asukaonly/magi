@@ -262,6 +262,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     return item.children.some((child) => child.id === activeSection);
   };
   const isWideSection = activeSection === 'llmProviders' || activeSection === 'llmModels';
+  const usesInnerPaneScroll = activeSection === 'llmProviders';
 
   const getGroupExpanded = (groupId: string) => expandedGroups[groupId] ?? false;
 
@@ -712,7 +713,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'llmProviders':
         return (
-          <div className="space-y-4">
+          <div className="h-full min-h-0">
             <LLMForm
               quickMode={false}
               view="providers"
@@ -1188,8 +1189,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="w-full px-8 py-8">
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="h-full w-full px-8 py-8">
               <ErrorBoundary
                 fallback={
                   <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
@@ -1211,7 +1212,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   key={activeSection}
                   className={cn(
                     'animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out',
-                    isWideSection ? 'w-full' : 'max-w-3xl'
+                    usesInnerPaneScroll
+                      ? 'flex h-full min-h-0 w-full flex-col overflow-hidden'
+                      : isWideSection
+                        ? 'h-full overflow-y-auto pr-1'
+                        : 'h-full max-w-3xl overflow-y-auto pr-1'
                   )}
                 >
                   {renderSectionContent()}
