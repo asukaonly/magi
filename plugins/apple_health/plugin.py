@@ -143,19 +143,16 @@ class AppleHealthPlugin(Plugin):
         Returns:
             List of sensor tuples (sensor_id, sensor_instance, sensor_spec)
         """
-        # Debug output
-        print(f"get_sensors called with platform: {sys.platform}")
-        print(f"get_sensors called with settings: {self.settings}")
-
         # Check platform - only supported on Darwin
         if sys.platform != "darwin":
-            print("Platform is not darwin, returning []")
             return []
 
         # Check HealthKit availability
-        reader = HealthKitReader()
-        available = reader.is_available()
-        if not available:
+        try:
+            reader = HealthKitReader()
+            if not reader.is_available():
+                return []
+        except Exception:
             return []
 
         # Get settings
