@@ -28,7 +28,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   return (
     <section
       data-testid="llm-model-selection-section"
-      className="space-y-4 rounded-[24px] border border-border/50 bg-muted/20 p-4 sm:p-5"
+      className="space-y-4 border-t border-border/50 pt-6"
     >
       <div className="space-y-1">
         <h3 className="text-lg font-semibold text-foreground">{t('llm.modelSelection.title')}</h3>
@@ -48,12 +48,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             <article
               key={scenario}
               data-testid={`llm-scenario-${scenario}`}
-              className="space-y-4 rounded-2xl border border-border/60 bg-card p-5 shadow-sm"
+              className="space-y-4 rounded-[24px] border border-border/60 bg-[linear-gradient(180deg,rgba(255,252,248,0.94),rgba(245,239,231,0.72))] p-5 shadow-[0_16px_34px_-28px_rgba(120,76,36,0.4)]"
             >
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-3">
                   <h4 className="text-base font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>
-                  <span className="rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+                  <span className="rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground">
                     {provider?.display_name || selection.provider_id}
                   </span>
                 </div>
@@ -65,7 +65,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   <span className="text-sm font-medium">{t('llm.fields.provider')}</span>
                   <select
                     aria-label={t('llm.fields.provider')}
-                    className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                     value={selection.provider_id}
                     onChange={(event) => onScenarioProviderChange(scenario, event.target.value)}
                   >
@@ -82,7 +82,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   {models.length > 0 ? (
                     <select
                       aria-label={t('llm.fields.model')}
-                      className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                      className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                       value={selection.model}
                       onChange={(event) => onScenarioModelChange(scenario, event.target.value)}
                     >
@@ -95,7 +95,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   ) : (
                     <input
                       aria-label={t('llm.fields.model')}
-                      className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                      className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                       value={selection.model}
                       placeholder={t('llm.modelManualPlaceholder')}
                       onChange={(event) => onScenarioModelChange(scenario, event.target.value)}
@@ -110,7 +110,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   .map(([capability]) => (
                     <span
                       key={capability}
-                      className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs text-primary"
+                      className="rounded-full border border-primary/20 bg-background/85 px-2.5 py-1 text-xs text-primary"
                     >
                       {t(`llm.capabilities.${capability === 'image_output' ? 'imageOutput' : capability}`)}
                     </span>

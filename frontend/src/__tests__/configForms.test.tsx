@@ -221,7 +221,7 @@ describe('config forms', () => {
     },
   };
 
-  it('shows built-in provider model chips in provider configuration', async () => {
+  it('keeps the provider list compact and pushes details to the workbench pane', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>
         <LLMForm quickMode />
@@ -232,9 +232,12 @@ describe('config forms', () => {
       expect(screen.getByText('llm.providerConfiguration.title')).toBeInTheDocument();
     });
 
-    expect(screen.getAllByText('GPT-5.2').length).toBeGreaterThan(0);
-    expect(screen.getByText('Claude Sonnet 4.6')).toBeInTheDocument();
-    expect(screen.getByText('GLM-5')).toBeInTheDocument();
+    const providerList = screen.getByTestId('llm-provider-list-pane');
+
+    expect(within(providerList).getByText('OpenAI')).toBeInTheDocument();
+    expect(within(providerList).queryByText('General purpose')).not.toBeInTheDocument();
+    expect(within(providerList).queryByText('GPT-5.2')).not.toBeInTheDocument();
+    expect(screen.getByText('llm.providerConfiguration.availableModels')).toBeInTheDocument();
   });
 
   it('renders provider configuration before model selection', async () => {
@@ -262,9 +265,24 @@ describe('config forms', () => {
     const detailPane = screen.getByTestId('llm-provider-detail-pane');
     const modelSection = screen.getByTestId('llm-model-selection-section');
 
-    expect(workbench.className).toContain('xl:grid-cols-[280px_minmax(0,1fr)]');
+    expect(workbench.className).toContain('xl:grid-cols-[220px_minmax(0,1fr)]');
+    expect(workbench.className).toContain('md:h-[clamp(440px,56vh,680px)]');
     expect(detailPane.className).toContain('overflow-y-auto');
-    expect(modelSection.className).toContain('bg-muted/20');
+    expect(modelSection.className).toContain('border-t');
+  });
+
+  it('uses a switch control for provider enablement in the detail pane', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('llm-provider-detail-pane')).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('switch', { name: 'llm.fields.enabled' })).toBeInTheDocument();
   });
 
   it('lets user switch the core scenario model and shows vision warning', async () => {
