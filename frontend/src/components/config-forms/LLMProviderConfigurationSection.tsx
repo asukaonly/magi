@@ -38,7 +38,10 @@ interface LLMProviderConfigurationSectionProps {
 }
 
 const badgeClassName =
-  'inline-flex rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground';
+  'inline-flex rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground';
+
+const fieldClassName =
+  'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
 
 export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationSectionProps> = ({
   registry,
@@ -101,7 +104,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
         <button
           type="button"
           onClick={onAddCustomProvider}
-          className="inline-flex items-center gap-2 self-start rounded-2xl border border-border/80 bg-background px-3.5 py-2.5 text-sm font-medium text-foreground shadow-sm transition hover:border-primary/40 hover:bg-primary/5"
+          className="inline-flex items-center gap-2 self-start rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
         >
           <Plus className="h-4 w-4" />
           <span>{t('llm.actions.addCustomProvider')}</span>
@@ -111,14 +114,14 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       <div
         data-testid="llm-provider-workbench"
         className={cn(
-          'grid min-h-0 gap-0 overflow-hidden rounded-[28px] border border-border/60 bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--muted)/0.92))] shadow-[0_20px_40px_-30px_hsl(var(--foreground)/0.16)] dark:bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--background)/0.96))] dark:shadow-[0_24px_48px_-34px_rgba(0,0,0,0.66)]',
+          'grid min-h-0 gap-4 overflow-hidden rounded-[28px] bg-muted/35 p-3 sm:p-4',
           workbenchColumnsClassName,
-          'md:h-[clamp(440px,56vh,680px)]'
+          'md:h-[clamp(440px,56vh,680px)] xl:items-stretch'
         )}
       >
         <div
           data-testid="llm-provider-list-pane"
-          className="min-h-0 space-y-2 overflow-y-auto border-b border-border/40 bg-background/68 p-3 sm:p-4 xl:border-b-0 xl:border-r dark:bg-background/38"
+          className="min-h-0 space-y-1.5 overflow-y-auto rounded-[24px] bg-background/55 p-2 sm:p-3"
         >
           {providerItems.map(({ providerId, provider }) => {
             const providerMeta =
@@ -132,19 +135,12 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 type="button"
                 onClick={() => onActiveProviderChange(providerId)}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-[18px] px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+                  'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
                   providerId === activeProviderId
-                    ? 'bg-background/95 shadow-[0_10px_24px_-18px_hsl(var(--foreground)/0.22)] dark:shadow-[0_14px_28px_-20px_rgba(0,0,0,0.62)]'
-                    : 'hover:bg-background/72'
+                    ? 'bg-background text-foreground'
+                    : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
                 )}
               >
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    'h-10 w-1.5 rounded-full transition-colors',
-                    providerId === activeProviderId ? 'bg-primary/80' : 'bg-border/80'
-                  )}
-                />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold tracking-[0.01em] text-foreground sm:text-base">
                     {provider.display_name || providerMeta?.display_name || providerId}
@@ -167,95 +163,90 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
         {activeProvider ? (
           <div
             data-testid="llm-provider-detail-pane"
-            className="min-h-0 overflow-y-auto bg-card/86 p-5 sm:p-6 dark:bg-card/78"
+            className="min-h-0 overflow-y-auto rounded-[24px] bg-background/72 p-5 sm:p-6"
           >
-            <div className="space-y-5">
-              <div className="flex flex-col gap-4 border-b border-border/50 pb-5 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1.5">
-                  <p className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground/80">
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={badgeClassName}>
                     {activeProvider.provider_type === 'custom'
                       ? t('llm.providerConfiguration.providerKinds.custom')
                       : t('llm.providerConfiguration.providerKinds.builtin')}
-                  </p>
-                  <h4 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
-                    {activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
-                  </h4>
-                  <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                    {activeProviderMeta?.description || t('llm.providerConfiguration.customProviderHint')}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3 rounded-full border border-border/60 bg-background/86 px-3 py-2 shadow-sm">
-                  <span className="text-sm font-medium text-foreground">{t('llm.fields.enabled')}</span>
-                  <Switch
-                    aria-label={t('llm.fields.enabled')}
-                    checked={activeProvider.enabled}
-                    disabled={activeReferences.length > 0}
-                    onCheckedChange={(checked) =>
-                      onProviderChange(activeProviderId, (provider) => {
-                        provider.enabled = checked;
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-border/60 bg-muted/45 p-4 dark:bg-muted/30">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="space-y-1">
-                    <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.testTitle')}</div>
-                    <p className="text-sm text-muted-foreground">{t('llm.providerConfiguration.testDesc')}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onTestProviderConnection(activeProviderId)}
-                    disabled={activeTestState.loading}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-border/70 bg-background px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {activeTestState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
-                    <span>
-                      {activeTestState.loading
-                        ? t('llm.actions.testingConnection')
-                        : t('llm.actions.testConnection')}
+                  </span>
+                  {activeReferences.length > 0 ? (
+                    <span className={badgeClassName}>
+                      {t('llm.providerConfiguration.referencedBy')}:{' '}
+                      {activeReferences.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
                     </span>
-                  </button>
+                  ) : null}
                 </div>
 
-                {activeTestState.error ? (
-                  <div className="mt-3 flex items-start gap-2 rounded-2xl border border-destructive/35 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
-                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <div className="space-y-0.5">
-                      <div className="font-medium">{t('llm.providerConfiguration.testFailed')}</div>
-                      <p>{activeTestState.error}</p>
-                    </div>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-1.5">
+                    <h4 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
+                      {activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
+                    </h4>
+                    <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                      {activeProviderMeta?.description || t('llm.providerConfiguration.customProviderHint')}
+                    </p>
                   </div>
-                ) : null}
 
-                {activeTestState.result ? (
-                  <div className="mt-3 flex items-start gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-900 dark:text-emerald-200">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                    <div className="space-y-0.5">
-                      <div className="font-medium">{t('llm.providerConfiguration.testSuccess')}</div>
-                      <p>
-                        {t('llm.providerConfiguration.testSuccessMeta', {
-                          model: activeTestState.result.model,
-                          latency: activeTestState.result.latency_ms,
-                        })}
-                      </p>
-                      {activeTestState.result.preview ? (
-                        <p className="text-emerald-900/80 dark:text-emerald-100/80">
-                          {t('llm.providerConfiguration.testPreview', { preview: activeTestState.result.preview })}
-                        </p>
-                      ) : null}
+                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2">
+                      <span className="text-sm font-medium text-foreground">{t('llm.fields.enabled')}</span>
+                      <Switch
+                        aria-label={t('llm.fields.enabled')}
+                        checked={activeProvider.enabled}
+                        disabled={activeReferences.length > 0}
+                        onCheckedChange={(checked) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.enabled = checked;
+                          })
+                        }
+                      />
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => onTestProviderConnection(activeProviderId)}
+                      disabled={activeTestState.loading}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {activeTestState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
+                      <span>
+                        {activeTestState.loading
+                          ? t('llm.actions.testingConnection')
+                          : t('llm.actions.testConnection')}
+                      </span>
+                    </button>
                   </div>
-                ) : null}
+                </div>
               </div>
 
-              {activeReferences.length > 0 ? (
-                <div className="rounded-2xl border border-amber-400/45 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-                  {t('llm.providerConfiguration.referencedBy')}:{' '}
-                  {activeReferences.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
+              {activeTestState.error ? (
+                <div className="flex items-start gap-2 rounded-xl bg-destructive/8 px-3 py-2.5 text-sm text-destructive">
+                  <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="space-y-0.5">
+                    <div className="font-medium">{t('llm.providerConfiguration.testFailed')}</div>
+                    <p>{activeTestState.error}</p>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeTestState.result ? (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-900 dark:text-emerald-200">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span className="font-medium">{t('llm.providerConfiguration.testSuccess')}</span>
+                  <span>
+                    {t('llm.providerConfiguration.testSuccessMeta', {
+                      model: activeTestState.result.model,
+                      latency: activeTestState.result.latency_ms,
+                    })}
+                  </span>
+                  {activeTestState.result.preview ? (
+                    <span className="text-emerald-900/80 dark:text-emerald-100/80">
+                      {t('llm.providerConfiguration.testPreview', { preview: activeTestState.result.preview })}
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -266,7 +257,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
                       <input
                         aria-label={t('llm.fields.apiKey')}
-                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        className={fieldClassName}
                         type="password"
                         value={activeProvider.api_key || ''}
                         onChange={(event) =>
@@ -281,7 +272,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
                       <input
                         aria-label={t('llm.fields.baseUrl')}
-                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        className={fieldClassName}
                         value={activeProvider.base_url || ''}
                         onChange={(event) =>
                           onProviderChange(activeProviderId, (provider) => {
@@ -295,7 +286,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
                       <input
                         aria-label={t('llm.fields.displayName')}
-                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        className={fieldClassName}
                         value={activeProvider.display_name || ''}
                         onChange={(event) =>
                           onProviderChange(activeProviderId, (provider) => {
@@ -309,7 +300,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.apiFormat')}</span>
                       <select
                         aria-label={t('llm.fields.apiFormat')}
-                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        className={fieldClassName}
                         value={activeProvider.api_format || 'openai'}
                         onChange={(event) =>
                           onProviderChange(activeProviderId, (provider) => {
@@ -325,13 +316,13 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       </select>
                     </label>
 
-                    <div className="space-y-3 rounded-[24px] border border-border/60 bg-muted/55 p-4 lg:col-span-2 dark:bg-muted/40">
+                    <div className="space-y-4 rounded-[20px] bg-muted/40 p-4 lg:col-span-2">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                         <label className="flex-1 space-y-2">
                           <span className="text-sm font-medium">{t('llm.fields.modelManualEntry')}</span>
                           <input
                             aria-label={t('llm.fields.modelManualEntry')}
-                            className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                            className={fieldClassName}
                             value={modelDraft}
                             onChange={(event) => setModelDraft(event.target.value)}
                           />
@@ -342,7 +333,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             onAddProviderModel(activeProviderId, modelDraft);
                             setModelDraft('');
                           }}
-                          className="inline-flex h-11 items-center justify-center rounded-2xl border border-border/70 bg-background px-4 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5"
+                          className="inline-flex h-11 items-center justify-center rounded-xl bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent"
                         >
                           {t('llm.actions.addModel')}
                         </button>
@@ -352,7 +343,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         {(activeProvider.custom_models || []).map((model) => (
                           <span
                             key={model}
-                            className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background px-3 py-1 text-xs text-foreground"
+                            className="inline-flex items-center gap-1 rounded-full bg-background px-3 py-1 text-xs text-foreground"
                           >
                             <span>{model}</span>
                             <button
@@ -372,7 +363,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           <span className="text-sm font-medium">{t('llm.fields.defaultModel')}</span>
                           <select
                             aria-label={t('llm.fields.defaultModel')}
-                            className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-60"
+                            className={cn(fieldClassName, 'disabled:cursor-not-allowed disabled:opacity-60')}
                             value={activeProvider.custom_default_model || ''}
                             disabled={!activeProvider.custom_models?.length}
                             onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
@@ -391,7 +382,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           type="button"
                           onClick={() => onDiscoverProviderModels(activeProviderId)}
                           disabled={activeDiscoveryState.loading}
-                          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border/70 bg-background px-4 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                           <span>{t('llm.actions.fetchModels')}</span>
@@ -411,7 +402,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
                       <input
                         aria-label={t('llm.fields.apiKey')}
-                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        className={fieldClassName}
                         type="password"
                         value={activeProvider.api_key || ''}
                         onChange={(event) =>
@@ -426,7 +417,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
                       <input
                         aria-label={t('llm.fields.baseUrl')}
-                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        className={fieldClassName}
                         placeholder={activeProviderMeta?.default_base_url || ''}
                         value={activeProvider.base_url || ''}
                         onChange={(event) =>
@@ -440,7 +431,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 ) : null}
 
                 {activeProviderMeta?.models?.length ? (
-                  <div className="space-y-2 rounded-[24px] border border-border/60 bg-[rgba(247,242,235,0.7)] p-4 lg:col-span-2">
+                  <div className="space-y-2 pt-1 lg:col-span-2">
                     <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
                     <div className="flex flex-wrap gap-2">
                       {activeProviderMeta.models.map((model) => (

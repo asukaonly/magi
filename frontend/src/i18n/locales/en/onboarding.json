@@ -106,7 +106,7 @@
       "addModel": "Add Model",
       "removeModel": "Remove Model",
       "fetchModels": "Fetch Models",
-      "testConnection": "Test Connection",
+      "testConnection": "Test",
       "testingConnection": "Testing"
     },
     "badges": {

@@ -295,6 +295,22 @@ describe('config forms', () => {
     expect(screen.getByRole('switch', { name: 'llm.fields.enabled' })).toBeInTheDocument();
   });
 
+  it('keeps provider test actions compact without extra explanatory copy', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('llm-provider-detail-pane')).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: 'llm.actions.testConnection' })).toBeInTheDocument();
+    expect(screen.queryByText('llm.providerConfiguration.testTitle')).not.toBeInTheDocument();
+    expect(screen.queryByText('llm.providerConfiguration.testDesc')).not.toBeInTheDocument();
+  });
+
   it('does not prefill default base url for inactive built-in providers', async () => {
     const user = userEvent.setup();
     const valueWithoutAnthropicBaseUrl = {

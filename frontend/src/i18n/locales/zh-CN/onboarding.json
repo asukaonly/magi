@@ -106,7 +106,7 @@
       "addModel": "添加模型",
       "removeModel": "移除模型",
       "fetchModels": "拉取模型",
-      "testConnection": "测试连接",
+      "testConnection": "测试",
       "testingConnection": "测试中"
     },
     "badges": {
