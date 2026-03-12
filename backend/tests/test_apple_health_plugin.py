@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from datetime import datetime, date
 
 # Add plugins directory to sys.path to import plugins
 from pathlib import Path
@@ -11,6 +12,13 @@ if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 
 from apple_health.types import HealthDataType, HEALTH_DATA_TYPES, get_enabled_types, get_default_enabled_types
+from apple_health.normalizers import (
+    normalize_daily_aggregate,
+    normalize_sleep_session,
+    normalize_workout,
+    normalize_heart_rate_sample,
+    NORMALIZERS,
+)
 from apple_health.exceptions import (
     HealthKitError,
     PlatformNotSupportedError,
@@ -265,3 +273,304 @@ class TestExceptions:
         assert isinstance(exc, HealthKitError)
         assert str(exc) == "Query failed"
         assert exc.query_type is None
+
+
+class TestNormalizers:
+    """Test all normalizer functions."""
+
+    def test_normalize_daily_aggregate_steps(self):
+        """Test normalize_daily_aggregate for steps data."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        item = {
+            "data_type": "steps",
+            "value": 8234,
+            "date": "2024-03-12"
+        }
+        sensor = MockSensor()
+
+        result = normalize_daily_aggregate(item, sensor)
+
+        assert result["source_type"] == "apple_health"
+        assert result["title"] == "今日步数 8,234"
+        assert result["summary"] == "Steps：8234 count"
+        assert result["occurred_at"] == datetime.fromisoformat("2024-03-12").timestamp()
+        assert result["source_item_id"] == "health_steps_2024-03-12"
+        assert "steps" in result["tags"]
+        assert "daily" in result["tags"]
+
+        # Check provenance
+        assert result["provenance"]["data_type"] == "steps"
+        assert result["provenance"]["value"] == 8234
+        assert result["provenance"]["unit"] == "count"
+
+    def test_normalize_daily_aggregate_distance(self):
+        """Test normalize_daily_aggregate for distance data."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        item = {
+            "data_type": "distance",
+            "value": 5.2,
+            "date": "2024-03-12"
+        }
+        sensor = MockSensor()
+
+        result = normalize_daily_aggregate(item, sensor)
+
+        assert result["title"] == "今日行走 5.2 公里"
+        assert result["summary"] == "Distance：5.2 km"
+        assert result["source_item_id"] == "health_distance_2024-03-12"
+        assert "distance" in result["tags"]
+
+    def test_normalize_daily_aggregate_flights(self):
+        """Test normalize_daily_aggregate for flights data."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        item = {
+            "data_type": "flights",
+            "value": 12,
+            "date": "2024-03-12"
+        }
+        sensor = MockSensor()
+
+        result = normalize_daily_aggregate(item, sensor)
+
+        assert result["title"] == "今日爬升 12 段楼梯"
+        assert result["summary"] == "Flights Climbed：12 count"
+        assert result["source_item_id"] == "health_flights_2024-03-12"
+
+    def test_normalize_daily_aggregate_active_energy(self):
+        """Test normalize_daily_aggregate for active energy data."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        item = {
+            "data_type": "active_energy",
+            "value": 320.5,
+            "date": "2024-03-12"
+        }
+        sensor = MockSensor()
+
+        result = normalize_daily_aggregate(item, sensor)
+
+        assert result["title"] == "今日消耗 321 千卡"
+        assert result["summary"] == "Active Energy：321 kcal"
+        assert result["source_item_id"] == "health_active_energy_2024-03-12"
+
+    def test_normalize_daily_aggregate_no_date(self):
+        """Test normalize_daily_aggregate without date (uses today)."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        item = {
+            "data_type": "steps",
+            "value": 5000
+        }
+        sensor = MockSensor()
+
+        result = normalize_daily_aggregate(item, sensor)
+
+        assert result["source_item_id"].startswith("health_steps_")
+        assert date.today().isoformat() in result["source_item_id"]
+
+    def test_normalize_sleep_session(self):
+        """Test normalize_sleep_session."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        start_time = datetime(2024, 3, 11, 23, 0).timestamp()  # 11 PM
+        end_time = datetime(2024, 3, 12, 7, 0).timestamp()    # 7 AM
+
+        item = {
+            "start_time": start_time,
+            "end_time": end_time
+        }
+        sensor = MockSensor()
+
+        result = normalize_sleep_session(item, sensor)
+
+        assert result["source_type"] == "apple_health"
+        assert "睡眠 8.0 小时" in result["title"]
+        assert result["occurred_at"] == start_time
+        assert result["source_item_id"].startswith("health_sleep_20240311230000")
+        assert "sleep" in result["tags"]
+        assert "session" in result["tags"]
+
+        # Check content blocks
+        content_blocks = result["content_blocks"]
+        assert len(content_blocks) == 3
+        assert "23:00" in content_blocks[0]["value"]
+        assert "07:00" in content_blocks[1]["value"]
+        assert "8.0 小时" in content_blocks[2]["value"]
+
+    def test_normalize_workout_running(self):
+        """Test normalize_workout for running."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        start_time = datetime(2024, 3, 12, 7, 0).timestamp()    # 7 AM
+        end_time = datetime(2024, 3, 12, 7, 30).timestamp()   # 7:30 AM
+
+        item = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "workout_type": "HKWorkoutActivityTypeRunning",
+            "distance": 5000,  # 5km in meters
+            "energy_burned": 300
+        }
+        sensor = MockSensor()
+
+        result = normalize_workout(item, sensor)
+
+        assert result["source_type"] == "apple_health"
+        assert "跑步 30 分钟" == result["title"]
+        assert result["occurred_at"] == start_time
+        assert result["source_item_id"].startswith("health_workout_20240312070000")
+        assert "workout" in result["tags"]
+        assert "session" in result["tags"]
+
+        # Check summary
+        assert "跑步：30 分钟" in result["summary"]
+        assert "距离：5000.0 米" in result["summary"]
+        assert "消耗：300 千卡" in result["summary"]
+
+        # Check content blocks
+        content_blocks = result["content_blocks"]
+        assert "运动类型：跑步" in content_blocks[0]["value"]
+        assert "07:00" in content_blocks[1]["value"]
+
+    def test_normalize_workout_cycling(self):
+        """Test normalize_workout for cycling."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        start_time = datetime(2024, 3, 12, 17, 0).timestamp()  # 5 PM
+        end_time = datetime(2024, 3, 12, 18, 0).timestamp()    # 6 PM
+
+        item = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "workout_type": "HKWorkoutActivityTypeCycling",
+            "distance": 15000,  # 15km in meters
+            "energy_burned": 450
+        }
+        sensor = MockSensor()
+
+        result = normalize_workout(item, sensor)
+
+        assert "骑行 60 分钟" == result["title"]
+        assert "运动类型：骑行" in result["content_blocks"][0]["value"]
+        assert "距离：15000.0 米" in result["summary"]
+        assert "消耗：450 千卡" in result["summary"]
+
+    def test_normalize_workout_unknown_type(self):
+        """Test normalize_workout with unknown workout type."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        start_time = datetime(2024, 3, 12, 10, 0).timestamp()
+        end_time = datetime(2024, 3, 12, 10, 45).timestamp()
+
+        item = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "workout_type": "HKWorkoutActivityTypeYoga",
+            "distance": 0,
+            "energy_burned": 200
+        }
+        sensor = MockSensor()
+
+        result = normalize_workout(item, sensor)
+
+        assert "瑜伽 45 分钟" == result["title"]
+
+    def test_normalize_workout_no_distance_or_energy(self):
+        """Test normalize_workout without distance or energy."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        start_time = datetime(2024, 3, 12, 10, 0).timestamp()
+        end_time = datetime(2024, 3, 12, 11, 0).timestamp()
+
+        item = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "workout_type": "HKWorkoutActivityTypeWalking"
+        }
+        sensor = MockSensor()
+
+        result = normalize_workout(item, sensor)
+
+        assert "步行 60 分钟" == result["title"]
+        assert result["summary"] == "步行：60 分钟"
+        assert len([b for b in result["content_blocks"] if "距离：" in b["value"]]) == 0
+
+    def test_normalize_heart_rate_sample(self):
+        """Test normalize_heart_rate_sample."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        timestamp = datetime(2024, 3, 12, 14, 30, 0).timestamp()
+
+        item = {
+            "timestamp": timestamp,
+            "value": 72
+        }
+        sensor = MockSensor()
+
+        result = normalize_heart_rate_sample(item, sensor)
+
+        assert result["source_type"] == "apple_health"
+        assert "心率 72 bpm" == result["title"]
+        assert "心率测量：72 次/分钟" == result["summary"]
+        assert result["occurred_at"] == timestamp
+        assert result["source_item_id"].startswith("health_heart_rate_20240312143000")
+        assert "heart_rate" in result["tags"]
+        assert "sample" in result["tags"]
+
+        # Check content blocks
+        content_blocks = result["content_blocks"]
+        assert "心率：72 bpm" in content_blocks[0]["value"]
+        assert "14:30:00" in content_blocks[1]["value"]
+
+    def test_normalize_heart_rate_sample_with_decimals(self):
+        """Test normalize_heart_rate_sample with decimal values."""
+        class MockSensor:
+            sensor_id = "apple.health"
+
+        timestamp = datetime(2024, 3, 12, 15, 15, 0).timestamp()
+
+        item = {
+            "timestamp": timestamp,
+            "value": 68.5
+        }
+        sensor = MockSensor()
+
+        result = normalize_heart_rate_sample(item, sensor)
+
+        assert "心率 68 bpm" == result["title"]
+        assert result["provenance"]["heart_rate"] == 68.5
+
+    def test_normalizers_registry(self):
+        """Test that NORMALIZERS registry contains all expected normalizers."""
+        from apple_health.normalizers import NORMALIZERS
+
+        expected_types = ["steps", "distance", "flights", "active_energy",
+                         "sleep", "workout", "heart_rate"]
+
+        # Check all expected types are in registry
+        for data_type in expected_types:
+            assert data_type in NORMALIZERS
+
+            # Verify the normalizer functions are callable
+            assert callable(NORMALIZERS[data_type])
+
+        # Verify specific normalizers
+        assert NORMALIZERS["steps"] == normalize_daily_aggregate
+        assert NORMALIZERS["distance"] == normalize_daily_aggregate
+        assert NORMALIZERS["sleep"] == normalize_sleep_session
+        assert NORMALIZERS["workout"] == normalize_workout
+        assert NORMALIZERS["heart_rate"] == normalize_heart_rate_sample
