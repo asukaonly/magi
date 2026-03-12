@@ -1,9 +1,10 @@
 """Timeline sensor for Screen Time data."""
 from __future__ import annotations
 
+import hashlib
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Any
 
 from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
@@ -24,7 +25,7 @@ class ScreenTimeTimelineSensor(TimelineSensorBase):
     polling_mode = "interval"
     default_interval = 3600  # 1 hour
     update_key_fields = ("date",)
-    relation_edge_whitelist = ("TRACKED", "USED")
+    relation_edge_whitelist = ("TRACKed", "used")
     supports_pull_sync = True
 
     def __init__(self, *, retention_mode=None, reader=None):
@@ -43,6 +44,8 @@ class ScreenTimeTimelineSensor(TimelineSensorBase):
     def source_item_identity(self, item: dict) -> str:
         """Generate unique identity for a source item."""
         date_str = item.get("date", "")
+        if isinstance(date_str, date):
+            date_str = date_str.isoformat()
         return f"screen_time_{date_str}"
 
     def source_item_version_fingerprint(self, item: dict) -> str:
@@ -83,15 +86,15 @@ class ScreenTimeTimelineSensor(TimelineSensorBase):
         try:
             daily_data = self.reader.read_daily_screen_time(start_date, end_date)
         except Exception as e:
-                return SensorSyncResult(
-                    items=[],
-                    next_cursor=None,
-                    watermark_ts=time.time(),
-                    stats={
-                        "count": 0,
-                        "error": str(e),
-                    },
-                )
+            return SensorSyncResult(
+                items=[],
+                next_cursor=None,
+                watermark_ts=time.time(),
+                stats={
+                    "count": 0,
+                    "error": str(e),
+                },
+            )
 
         # Convert to items
         items = []
@@ -134,29 +137,21 @@ class ScreenTimeTimelineSensor(TimelineSensorBase):
 
     async def build_timeline_event(self, item: dict) -> TimelineEvent:
         """Build a TimelineEvent from a screen time item."""
-        # Reconstruct DailyScreenTime from item dict
-        daily = DailyScreenTime(
-            date=datetime.strptime(item.get("date")).date(),
-            total_duration=item.get("total_duration", 0),
-            app_usages=[
-                AppUsage(
-                    bundle_id=app.get("bundle_id", ""),
-                    app_name=app.get("app_name", ""),
-                    usage_seconds=app.get("usage_seconds", 0),
-                    category=app.get("category"),
-                )
-                for app in item.get("app_usages", [])
-            ],
-        )
+        # Normalize - pass item dict directly
+        normalized_data = normalize_daily_screen_time(item, self)
 
-        # Normalize
-        normalized_data = normalize_daily_screen_time(daily, self)
+        # Parse date for occurred_at
+        date_str = item.get("date", "")
+        if isinstance(date_str, str):
+            occurred_at = datetime.fromisoformat(date_str).timestamp()
+        else:
+            occurred_at = time.time()
 
         return TimelineEvent(
             event_id=normalized_data["event_id"],
             source_type=self.source_type,
             source_item_id=normalized_data["source_item_id"],
-            occurred_at=datetime.strptime(item.get("date")).timestamp(),
+            occurred_at=occurred_at,
             captured_at=time.time(),
             title=normalized_data["title"],
             summary=normalized_data["summary"],
