@@ -1,0 +1,11 @@
+[plugin]
+id = "calendar"
+name = "Calendar"
+version = "0.1.0"
+description = "Calendar event ingestion for the timeline."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "CalendarPlugin"
+official = true
+contribution_types = ["sensor"]
+platforms = ["macos", "ios"]
