@@ -1,29 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Database, ScrollText, Settings2, Sparkles, UserRound } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useChatShellStore } from '@/stores';
-
-const CONNECTION_EVENT = 'magi-chat-connection';
+import { useChatShellStore, useRealtimeStore } from '@/stores';
 
 const Header: React.FC = () => {
   const { t } = useTranslation('app');
   const navigate = useNavigate();
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
-  const [connected, setConnected] = useState(false);
-
-  useEffect(() => {
-    const handleConnection = (event: Event) => {
-      const customEvent = event as CustomEvent<{ connected: boolean }>;
-      setConnected(!!customEvent.detail?.connected);
-    };
-    window.addEventListener(CONNECTION_EVENT, handleConnection as EventListener);
-    return () => {
-      window.removeEventListener(CONNECTION_EVENT, handleConnection as EventListener);
-    };
-  }, []);
+  const connected = useRealtimeStore((state) => state.connected);
 
   const openPanel = (panel: 'settings' | 'personality' | 'memory' | 'timeline') => {
     setActivePanel(panel);

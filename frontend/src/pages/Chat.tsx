@@ -12,7 +12,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
-import { useChatShellStore, useChatTraceStore } from '@/stores';
+import { useRealtime } from '@/realtime/provider';
+import { useChatShellStore, useChatTraceStore, useRealtimeStore } from '@/stores';
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
@@ -34,7 +35,6 @@ interface WSMessage {
   message?: string;
 }
 
-const CONNECTION_EVENT = 'magi-chat-connection';
 const MEMORY_CLEARED_EVENT = 'magi-memory-cleared';
 const SESSION_EVENT = 'magi-session-sync';
 const USER_ID = 'web_user';
@@ -78,6 +78,8 @@ const createClientTurnId = (): string => {
 export const ChatPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
   const shouldReduceMotion = useReducedMotion();
+  const { send, subscribe } = useRealtime();
+  const connected = useRealtimeStore((state) => state.connected);
   const currentSessionId = useChatShellStore((state) => state.currentSessionId);
   const setCurrentSessionId = useChatShellStore((state) => state.setCurrentSessionId);
 
@@ -96,25 +98,11 @@ export const ChatPage: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [aiName, setAiName] = useState<string>('AI');
   const [aiAvatar, setAiAvatar] = useState<string>('');
-  const [connected, setConnected] = useState(false);
   const [loadingTrace, setLoadingTrace] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectCountRef = useRef(0);
   const lastHistoryRequestRef = useRef<string | null>(null);
   const isComposingRef = useRef(false);
-
-  const WS_CONFIG = {
-    maxReconnectAttempts: 10,
-    baseDelay: 1000,
-    maxDelay: 30000,
-  };
-
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent(CONNECTION_EVENT, { detail: { connected } }));
-  }, [connected]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -162,38 +150,14 @@ export const ChatPage: React.FC = () => {
     [currentSessionId, setSnapshot, t]
   );
 
-  const getReconnectDelay = useCallback(() => {
-    const delay = Math.min(
-      WS_CONFIG.baseDelay * Math.pow(2, reconnectCountRef.current),
-      WS_CONFIG.maxDelay
-    );
-    return delay + Math.random() * 1000;
-  }, []);
-
-  const sendWS = useCallback((type: string, data?: Record<string, unknown>) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type, ...data }));
-    }
-  }, []);
-
   const requestHistory = useCallback(
     (sessionId: string) => {
       if (!sessionId) return;
       lastHistoryRequestRef.current = sessionId;
-      sendWS('get_history', { session_id: sessionId });
+      send({ type: 'get_history', session_id: sessionId });
     },
-    [sendWS]
+    [send]
   );
-
-  const resolveWsUrl = useCallback(() => {
-    const runtime = getRuntimeConfig();
-    const base = `${runtime.wsBaseUrl}/ws`;
-    if (!runtime.sessionToken) {
-      return base;
-    }
-    const separator = base.includes('?') ? '&' : '?';
-    return `${base}${separator}token=${encodeURIComponent(runtime.sessionToken)}`;
-  }, []);
 
   const handleExecutionTraceUpdate = useCallback(
     (payload: any) => {
@@ -262,7 +226,7 @@ export const ChatPage: React.FC = () => {
           if (currentSessionId) {
             requestHistory(currentSessionId);
           } else {
-            sendWS('get_current_session');
+            send({ type: 'get_current_session' });
           }
           return;
         case 'current_session':
@@ -281,7 +245,7 @@ export const ChatPage: React.FC = () => {
             const historyMessages = normalizeHistoryMessages(data.data.messages || []);
             preloadTraceSummaries(historyMessages);
             setMessages(historyMessages);
-            sendWS('get_personality');
+            send({ type: 'get_personality' });
           }
           return;
         case 'personality_info':
@@ -334,73 +298,19 @@ export const ChatPage: React.FC = () => {
       handleExecutionTraceUpdate,
       preloadTraceSummaries,
       requestHistory,
-      sendWS,
+      send,
       setCurrentSessionId,
     ]
   );
 
-  const connectWebSocket = useCallback(() => {
-    const room = `user_${USER_ID}`;
-
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-    const websocket = new WebSocket(resolveWsUrl());
-
-    websocket.onopen = () => {
-      setConnected(true);
-      reconnectCountRef.current = 0;
-      websocket.send(JSON.stringify({ type: 'subscribe', channel: room }));
-    };
-
-    websocket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleWSMessage(data);
-      } catch {
-        // ignore malformed payload
-      }
-    };
-
-    websocket.onclose = (event) => {
-      setConnected(false);
-      if (event.code !== 1000 && reconnectCountRef.current < WS_CONFIG.maxReconnectAttempts) {
-        const delay = getReconnectDelay();
-        reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectCountRef.current++;
-          connectWebSocket();
-        }, delay);
-      } else if (reconnectCountRef.current >= WS_CONFIG.maxReconnectAttempts) {
-        toast.error(t('chat.reconnectFailed'));
-      }
-    };
-
-    websocket.onerror = () => {
-      setConnected(false);
-    };
-
-    wsRef.current = websocket;
-  }, [getReconnectDelay, handleWSMessage, resolveWsUrl, t]);
-
-  useEffect(() => {
-    connectWebSocket();
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close(1000, 'Component unmounting');
-      }
-    };
-  }, [connectWebSocket]);
+  useEffect(() => subscribe(handleWSMessage), [handleWSMessage, subscribe]);
 
   useEffect(() => {
     if (!connected || !currentSessionId) return;
     if (lastHistoryRequestRef.current === currentSessionId) return;
     requestHistory(currentSessionId);
-    sendWS('get_personality');
-  }, [connected, currentSessionId, requestHistory, sendWS]);
+    send({ type: 'get_personality' });
+  }, [connected, currentSessionId, requestHistory, send]);
 
   useEffect(() => {
     const handleMemoryCleared = () => {
@@ -408,21 +318,21 @@ export const ChatPage: React.FC = () => {
       setCurrentSessionId(null);
       lastHistoryRequestRef.current = null;
       resetTraceStore();
-      if (connected && wsRef.current?.readyState === WebSocket.OPEN) {
-        sendWS('get_current_session');
+      if (connected) {
+        send({ type: 'get_current_session' });
       }
     };
 
     window.addEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
     return () => window.removeEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
-  }, [connected, resetTraceStore, sendWS, setCurrentSessionId]);
+  }, [connected, resetTraceStore, send, setCurrentSessionId]);
 
   const handleSendMessage = () => {
     if (!inputValue.trim()) {
       toast.warning(t('chat.emptyInput'));
       return;
     }
-    if (!connected || wsRef.current?.readyState !== WebSocket.OPEN) {
+    if (!connected) {
       toast.error(t('chat.wsNotConnected'));
       return;
     }
@@ -432,7 +342,8 @@ export const ChatPage: React.FC = () => {
     const now = Date.now();
     setMessages((prev) => [...prev, ...createPendingTurn(messageContent, turnId, now, t('chat.trace.pending'))]);
     setInputValue('');
-    sendWS('send_message', {
+    send({
+      type: 'send_message',
       user_id: USER_ID,
       session_id: currentSessionId,
       message: messageContent,
