@@ -94,6 +94,9 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   const workbenchColumnsClassName = quickMode
     ? 'xl:grid-cols-[220px_minmax(0,1fr)]'
     : 'xl:grid-cols-[240px_minmax(0,1fr)]';
+  const settingsWorkbenchColumnsClassName = quickMode
+    ? 'xl:grid-cols-[320px_minmax(0,1fr)]'
+    : 'xl:grid-cols-[340px_minmax(0,1fr)]';
 
   useEffect(() => {
     setModelDraft('');
@@ -117,16 +120,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
           </button>
         </div>
       ) : (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={onAddCustomProvider}
-            className="inline-flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-accent"
-          >
-            <Plus className="h-4 w-4" />
-            <span>{t('llm.actions.addCustomProvider')}</span>
-          </button>
-        </div>
+        <div className="sr-only" aria-hidden="true" />
       )}
 
       <div
@@ -135,54 +129,74 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
           'grid min-h-0 gap-4 overflow-hidden rounded-[28px] bg-muted/35 p-3 sm:p-4',
           workbenchColumnsClassName,
           'md:h-[clamp(440px,56vh,680px)] xl:items-stretch',
-          isSettingsSurface && 'gap-5 rounded-none bg-transparent p-0 md:h-[min(62vh,720px)]'
+          isSettingsSurface &&
+            cn(
+              'gap-4 rounded-none bg-transparent p-0 md:h-[min(72vh,820px)]',
+              settingsWorkbenchColumnsClassName
+            )
         )}
       >
         <div
           data-testid="llm-provider-list-pane"
           className={cn(
             'min-h-0 space-y-1.5 overflow-y-auto rounded-[24px] bg-background/55 p-2 sm:p-3',
-            isSettingsSurface && 'rounded-2xl bg-transparent p-0 pr-2'
+            isSettingsSurface && 'flex min-h-0 flex-col rounded-2xl border border-border/60 bg-background p-4'
           )}
         >
-          {providerItems.map(({ providerId, provider }) => {
-            const providerMeta =
-              provider.provider_type === 'custom'
-                ? undefined
-                : registry.providers.find((item) => item.id === provider.provider_type);
+          <div className={cn('space-y-1.5', isSettingsSurface && 'flex-1 space-y-3 overflow-y-auto pr-1')}>
+            {providerItems.map(({ providerId, provider }) => {
+              const providerMeta =
+                provider.provider_type === 'custom'
+                  ? undefined
+                  : registry.providers.find((item) => item.id === provider.provider_type);
 
-            return (
-              <button
-                key={providerId}
-                type="button"
-                onClick={() => onActiveProviderChange(providerId)}
-                className={cn(
-                  'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
-                  providerId === activeProviderId
-                    ? 'bg-background text-foreground'
-                    : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
-                  isSettingsSurface && (providerId === activeProviderId
-                    ? 'rounded-xl ring-1 ring-inset ring-primary/35'
-                    : 'rounded-xl ring-1 ring-inset ring-border/45')
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold tracking-[0.01em] text-foreground sm:text-base">
-                    {provider.display_name || providerMeta?.display_name || providerId}
+              return (
+                <button
+                  key={providerId}
+                  type="button"
+                  onClick={() => onActiveProviderChange(providerId)}
+                  className={cn(
+                    'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+                    providerId === activeProviderId
+                      ? 'bg-background text-foreground'
+                      : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
+                    isSettingsSurface &&
+                      (providerId === activeProviderId
+                        ? 'rounded-xl ring-1 ring-inset ring-primary/35'
+                        : 'rounded-xl ring-1 ring-inset ring-border/55')
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold tracking-[0.01em] text-foreground sm:text-base">
+                      {provider.display_name || providerMeta?.display_name || providerId}
+                    </div>
                   </div>
-                </div>
-                <span className="flex items-center gap-2">
-                  <span
-                    aria-hidden="true"
-                    className={cn('h-2.5 w-2.5 rounded-full', provider.enabled ? 'bg-emerald-500' : 'bg-border')}
-                  />
-                  <span className="sr-only">
-                    {provider.enabled ? t('llm.badges.enabled') : t('llm.badges.disabled')}
+                  <span className="flex items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className={cn('h-2.5 w-2.5 rounded-full', provider.enabled ? 'bg-emerald-500' : 'bg-border')}
+                    />
+                    <span className="sr-only">
+                      {provider.enabled ? t('llm.badges.enabled') : t('llm.badges.disabled')}
+                    </span>
                   </span>
-                </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {isSettingsSurface ? (
+            <div className="mt-4 border-t border-border/60 pt-4">
+              <button
+                type="button"
+                onClick={onAddCustomProvider}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-background px-3.5 py-3 text-sm font-medium text-foreground transition hover:bg-accent"
+              >
+                <Plus className="h-4 w-4" />
+                <span>{t('llm.actions.addCustomProvider')}</span>
               </button>
-            );
-          })}
+            </div>
+          ) : null}
         </div>
 
         {activeProvider ? (
@@ -190,11 +204,11 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             data-testid="llm-provider-detail-pane"
             className={cn(
               'min-h-0 overflow-y-auto rounded-[24px] bg-background/72 p-5 sm:p-6',
-              isSettingsSurface && 'rounded-none bg-transparent px-0 py-1'
+              isSettingsSurface && 'rounded-2xl border border-border/60 bg-background p-6'
             )}
           >
             <div className={cn('space-y-6', isSettingsSurface && 'space-y-5')}>
-              <div className={cn('space-y-3', isSettingsSurface && 'space-y-4 pt-2')}>
+              <div className={cn('space-y-3', isSettingsSurface && 'space-y-4')}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={badgeClassName}>
                     {activeProvider.provider_type === 'custom'

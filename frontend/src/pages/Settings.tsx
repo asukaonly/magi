@@ -1171,7 +1171,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
         <main className="flex min-h-0 flex-1 flex-col">
           <header className="shrink-0 border-b border-border/60 bg-background/95 backdrop-blur-sm">
-            <div className="flex h-16 w-full items-center gap-4 px-12">
+            <div className="flex h-16 w-full items-center gap-4 px-8">
               <h2 className="text-lg font-semibold tracking-[0.01em] text-foreground">
                 {t(`settings.tabs.${activeSection}`)}
               </h2>
@@ -1189,7 +1189,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </header>
 
           <div className="flex-1 overflow-y-auto">
-            <div className="w-full px-12 py-8">
+            <div className="w-full px-8 py-8">
               <ErrorBoundary
                 fallback={
                   <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
