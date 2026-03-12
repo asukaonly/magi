@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
@@ -37,9 +37,82 @@ vi.mock('../api/modules/config', async () => {
                   },
                   provider_options_example: {},
                 },
+                {
+                  id: 'gpt-4.1-mini',
+                  label: 'GPT-4.1 Mini',
+                  capabilities: {
+                    vision: true,
+                    image_output: false,
+                    tool_calling: true,
+                    reasoning: true,
+                    embedding: false,
+                  },
+                  limits: {
+                    context_window: 128000,
+                    max_output_tokens: 32000,
+                  },
+                  provider_options_example: {},
+                },
               ],
               fields: {
-                model: { visible: true, required: true },
+                api_key: { visible: true, required: true },
+                base_url: { visible: true, required: false },
+              },
+            },
+            {
+              id: 'anthropic',
+              display_name: 'Anthropic',
+              description: 'Reasoning',
+              default_model: 'claude-sonnet-4-6',
+              models: [
+                {
+                  id: 'claude-sonnet-4-6',
+                  label: 'Claude Sonnet 4.6',
+                  capabilities: {
+                    vision: true,
+                    image_output: false,
+                    tool_calling: true,
+                    reasoning: true,
+                    embedding: false,
+                  },
+                  limits: {
+                    context_window: 200000,
+                    max_output_tokens: 64000,
+                  },
+                  provider_options_example: {},
+                },
+              ],
+              fields: {
+                api_key: { visible: true, required: true },
+                base_url: { visible: true, required: false },
+              },
+            },
+            {
+              id: 'glm',
+              display_name: 'GLM',
+              description: 'Fast',
+              default_model: 'glm-5',
+              models: [
+                {
+                  id: 'glm-5',
+                  label: 'GLM-5',
+                  capabilities: {
+                    vision: false,
+                    image_output: false,
+                    tool_calling: true,
+                    reasoning: true,
+                    embedding: false,
+                  },
+                  limits: {
+                    context_window: 128000,
+                    max_output_tokens: 32000,
+                  },
+                  provider_options_example: {
+                    thinking: { type: 'disabled' },
+                  },
+                },
+              ],
+              fields: {
                 api_key: { visible: true, required: true },
                 base_url: { visible: true, required: false },
               },
@@ -79,32 +152,100 @@ describe('config forms', () => {
     vi.clearAllMocks();
   });
 
-  it('quick mode should hide advanced llm fields until expanded', async () => {
+  const llmValue = {
+    providers: {
+      openai: {
+        enabled: true,
+        provider_type: 'openai',
+        display_name: 'OpenAI',
+        api_key: 'sk-openai',
+        base_url: 'https://api.openai.com/v1',
+      },
+      anthropic: {
+        enabled: false,
+        provider_type: 'anthropic',
+        display_name: 'Anthropic',
+        api_key: '',
+        base_url: 'https://api.anthropic.com/v1',
+      },
+      glm: {
+        enabled: true,
+        provider_type: 'glm',
+        display_name: 'GLM',
+        api_key: 'sk-glm',
+        base_url: 'https://open.bigmodel.cn/api/paas/v4',
+      },
+    },
+    selections: {
+      context_decider: {
+        provider_id: 'openai',
+        model: 'gpt-5.2',
+        capability_override_enabled: false,
+        capabilities: {
+          vision: true,
+          image_output: false,
+          tool_calling: true,
+          reasoning: true,
+          embedding: false,
+        },
+        limits: {
+          context_window: 400000,
+          max_output_tokens: 128000,
+        },
+        provider_options: {},
+      },
+      core: {
+        provider_id: 'openai',
+        model: 'gpt-5.2',
+        capability_override_enabled: false,
+        capabilities: {
+          vision: true,
+          image_output: false,
+          tool_calling: true,
+          reasoning: true,
+          embedding: false,
+        },
+        limits: {
+          context_window: 400000,
+          max_output_tokens: 128000,
+        },
+        provider_options: {},
+      },
+    },
+  };
+
+  it('shows built-in provider model chips in provider configuration', async () => {
     render(
-      <Form initialValues={{ llm: { provider: 'openai', model: 'gpt-5.2' } }}>
+      <Form initialValues={{ llm: llmValue }}>
         <LLMForm quickMode />
       </Form>
     );
 
     await waitFor(() => {
-      expect(screen.getByText('llm.summaryEyebrow')).toBeInTheDocument();
+      expect(screen.getByText('llm.providerConfiguration.title')).toBeInTheDocument();
     });
 
-    expect(screen.queryByText('llm.providerOptionsLabel')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /llm\.advancedTitle/i }));
-    expect(screen.getByText('llm.providerOptionsLabel')).toBeInTheDocument();
+    expect(screen.getAllByText('GPT-5.2').length).toBeGreaterThan(0);
+    expect(screen.getByText('Claude Sonnet 4.6')).toBeInTheDocument();
+    expect(screen.getByText('GLM-5')).toBeInTheDocument();
   });
 
-  it('shows capability summary from the selected model', async () => {
+  it('lets user switch the core scenario model and shows vision warning', async () => {
     render(
-      <Form initialValues={{ llm: { provider: 'openai', model: 'gpt-5.2' } }}>
+      <Form initialValues={{ llm: llmValue }}>
         <LLMForm quickMode />
       </Form>
     );
 
-    expect(await screen.findByText('llm.capabilities.vision')).toBeInTheDocument();
-    expect(screen.getAllByText('llm.capabilityEnabled').length).toBeGreaterThan(0);
-    expect(screen.getByText(/llm\.contextWindowLabelShort/)).toBeInTheDocument();
+    const coreCard = await screen.findByTestId('llm-scenario-core');
+    const providerSelect = within(coreCard).getByLabelText('llm.fields.provider');
+
+    fireEvent.change(providerSelect, { target: { value: 'glm' } });
+
+    await waitFor(() => {
+      expect(within(coreCard).getByLabelText('llm.fields.model')).toHaveValue('glm-5');
+    });
+    expect(screen.getByText('llm.warnings.coreVisionMissing')).toBeInTheDocument();
   });
 
   it('memory form disables l2-l5 when l1 off', async () => {

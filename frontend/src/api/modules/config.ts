@@ -9,6 +9,7 @@ export type UserMode = 'quick' | 'expert' | null;
 export type LanguageCode = 'zh' | 'en';
 export type LLMProvider = 'openai' | 'anthropic' | 'glm' | 'custom' | 'local';
 export type ApiFormat = 'openai' | 'anthropic' | 'custom';
+export type LLMScenario = 'context_decider' | 'core';
 
 export interface UserPreferences {
   onboarding_completed: boolean;
@@ -16,18 +17,27 @@ export interface UserPreferences {
   language: LanguageCode;
 }
 
-export interface LLMConfig {
-  provider: LLMProvider;
-  model: string;
+export interface LLMProviderConfig {
+  enabled: boolean;
+  provider_type: LLMProvider;
+  display_name: string;
   api_key?: string;
   base_url?: string;
-  custom_name?: string;
   api_format?: ApiFormat;
-  from_env?: boolean;
+}
+
+export interface LLMSelectionConfig {
+  provider_id: string;
+  model: string;
   capability_override_enabled: boolean;
   capabilities: LLMCapabilities;
   limits: LLMLimits;
   provider_options: Record<string, any>;
+}
+
+export interface LLMConfig {
+  providers: Record<string, LLMProviderConfig>;
+  selections: Record<LLMScenario, LLMSelectionConfig>;
 }
 
 export interface LLMCapabilities {
@@ -228,12 +238,33 @@ export const DEFAULT_LLM_LIMITS: LLMLimits = {
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   agent: { name: 'magi-agent', description: 'Magi AI Agent Framework' },
   llm: {
-    provider: 'openai',
-    model: 'gpt-4o-mini',
-    capability_override_enabled: false,
-    capabilities: DEFAULT_LLM_CAPABILITIES,
-    limits: DEFAULT_LLM_LIMITS,
-    provider_options: {},
+    providers: {
+      openai: {
+        enabled: true,
+        provider_type: 'openai',
+        display_name: 'OpenAI',
+        api_key: '',
+        base_url: 'https://api.openai.com/v1',
+      },
+    },
+    selections: {
+      context_decider: {
+        provider_id: 'openai',
+        model: 'gpt-4o-mini',
+        capability_override_enabled: false,
+        capabilities: DEFAULT_LLM_CAPABILITIES,
+        limits: DEFAULT_LLM_LIMITS,
+        provider_options: {},
+      },
+      core: {
+        provider_id: 'openai',
+        model: 'gpt-4o-mini',
+        capability_override_enabled: false,
+        capabilities: DEFAULT_LLM_CAPABILITIES,
+        limits: DEFAULT_LLM_LIMITS,
+        provider_options: {},
+      },
+    },
   },
   loop: { strategy: 'continuous', interval: 1 },
   message_bus: { backend: 'sqlite', max_size: 1000 },
