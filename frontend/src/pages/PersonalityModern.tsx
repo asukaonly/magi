@@ -256,11 +256,11 @@ const PersonalityModern: React.FC = () => {
   const diffPreview = useMemo(() => diffs.slice(0, 8), [diffs]);
 
   return (
-    <div className="mx-auto h-full w-full max-w-6xl">
+    <div className="h-full w-full">
       <GuidedConfigFrame
         className="min-h-full"
-        layoutClassName="min-h-[calc(88vh-4rem)]"
-        sidebarClassName="lg:w-72"
+        layoutClassName="min-h-[calc(100vh-8rem)]"
+        sidebarClassName="lg:w-64"
         sidebar={(
           <div className="space-y-5">
             <div className="space-y-2">

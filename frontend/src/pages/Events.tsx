@@ -187,7 +187,7 @@ const EventsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 text-sm">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{t('events.title')}</h1>
