@@ -175,7 +175,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
         except RuntimeError:
             return {
                 "type": "error",
-                "message": "AgentRuntime not initialized. Please set LLM_API_KEY.",
+                "message": "AgentRuntime not initialized. Please complete onboarding or check the saved configuration.",
             }
 
         read_service = get_chat_read_service()

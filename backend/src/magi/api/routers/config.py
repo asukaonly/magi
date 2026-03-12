@@ -668,12 +668,6 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
         "tools.web_fetch.default_provider": "browser" if config.tools.builtIn.webFetch.usePlaywright else "http",
     }
-    # Keep the convenience env var aligned with the default core selection provider.
-    core_selection = config.llm.selections.get("core")
-    if core_selection:
-        core_provider = config.llm.providers.get(core_selection.provider_id)
-        if core_provider and core_provider.api_key and not _is_masked_api_key(core_provider.api_key):
-            os.environ["LLM_API_KEY"] = core_provider.api_key
     if config.tools.builtIn.weather.apiKey and not _is_masked_api_key(config.tools.builtIn.weather.apiKey):
         updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = config.tools.builtIn.weather.apiKey
     if config.tools.builtIn.weather.apiUrl:

@@ -110,6 +110,24 @@ def test_build_update_paths_skip_masked_api_key():
     assert updates["llm.providers"]["openai"].get("api_key") in (None, "")
 
 
+def test_build_update_paths_does_not_depend_on_legacy_llm_env_vars(monkeypatch: pytest.MonkeyPatch):
+    config = SystemConfigModel()
+    config.llm.providers["glm"] = LLMProviderSettings(
+        enabled=True,
+        provider_type="glm",
+        display_name="GLM",
+        api_key="glm-key",
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+    )
+    config.llm.selections["core"] = LLMSelectionSettings(provider_id="glm", model="glm-4.7-flash")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    updates = _build_update_paths(config)
+
+    assert updates["llm.providers"]["glm"]["api_key"] == "glm-key"
+    assert "LLM_API_KEY" not in __import__("os").environ
+
+
 def test_build_update_paths_rejects_selection_pointing_to_disabled_provider():
     config = SystemConfigModel()
     config.llm.providers["openai"].enabled = False

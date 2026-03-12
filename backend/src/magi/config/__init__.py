@@ -26,7 +26,6 @@ Usage:
     save_config({"tools.weather.api_key": "your-key"})
 
 Environment Variables:
-    LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
     QWEATHER_API_KEY, SEARCH_API_KEY
     DEBUG, LOG_LEVEL
 """

@@ -134,13 +134,13 @@ async def send_user_message(
             # senderror message到 WebSocket
             await ws_manager.broadcast_to_user(request.user_id, {
                 "type": "error",
-                "content": "AI service未initialize。请Setting LLM_API_KEY 环境Variable后重启service。",
+                "content": "AI service 未初始化。请先完成引导配置或检查当前配置后重启服务。",
                 "timestamp": time.time(),
             })
 
             return MessageResponse(
                 success=False,
-                message="AgentRuntime not initialized. Please set LLM_API_KEY environment variable.",
+                message="AgentRuntime not initialized. Please complete onboarding or check the saved configuration.",
                 data={
                     "user_id": request.user_id,
                     "error": "AgentRuntime not initialized",
