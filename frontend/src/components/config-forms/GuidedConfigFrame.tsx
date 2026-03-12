@@ -24,15 +24,15 @@ export const GuidedConfigFrame: React.FC<GuidedConfigFrameProps> = ({
 }) => (
   <div
     className={cn(
-      'overflow-hidden rounded-3xl border border-border/50 bg-background shadow-lg',
+      'max-h-[calc(100vh-2rem)] overflow-hidden rounded-3xl border border-border/50 bg-background shadow-lg',
       className
     )}
   >
-    <div className={cn('flex min-h-[clamp(560px,78vh,760px)] flex-col lg:flex-row', layoutClassName)}>
+    <div className={cn('flex min-h-[clamp(560px,78vh,760px)] min-w-0 min-h-0 flex-col lg:flex-row', layoutClassName)}>
       {sidebar ? (
         <aside
           className={cn(
-            'shrink-0 border-b border-border/40 bg-muted/30 px-5 py-6 lg:w-52 lg:border-b-0 lg:border-r',
+            'shrink-0 overflow-y-auto border-b border-border/40 bg-muted/30 px-5 py-6 lg:w-52 lg:border-b-0 lg:border-r',
             sidebarClassName
           )}
         >
@@ -40,8 +40,8 @@ export const GuidedConfigFrame: React.FC<GuidedConfigFrameProps> = ({
         </aside>
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col bg-background">
-        <div className={cn('flex-1 overflow-y-auto p-5 sm:p-6 lg:p-7', contentClassName)}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+        <div className={cn('min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 lg:p-7', contentClassName)}>
           {children}
         </div>
         {footer ? (

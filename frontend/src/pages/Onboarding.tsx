@@ -64,7 +64,7 @@ const OnboardingPage: React.FC = () => {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-6 md:px-6 md:py-8">
+    <div className="flex min-h-screen items-start justify-center overflow-y-auto bg-background px-4 py-6 md:px-6 md:py-8">
       <div className="w-full max-w-6xl">
         <OnboardingFlow initialConfig={config} />
       </div>
