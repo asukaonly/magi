@@ -224,7 +224,8 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
         target_language: language === 'zh' ? 'Chinese' : 'English',
         llm_override: llmOverride,
       });
-      const data = (generated.data || {}) as Partial<PersonalityConfig>;
+      const payload = generated.data?.data;
+      const data = ((payload && !Array.isArray(payload) ? payload : generated.data) || {}) as Partial<PersonalityConfig>;
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
       // 将完整的人格配置设置到表单

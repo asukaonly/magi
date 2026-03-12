@@ -121,4 +121,49 @@ describe('PersonalityForm', () => {
 
     expect(personalitiesApi.list).toHaveBeenCalled();
   });
+
+  it('applies the generated personality payload from the api response envelope', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(personalityApi.generate).mockResolvedValueOnce({
+      data: {
+        success: true,
+        message: 'ok',
+        data: {
+          ...DEFAULT_PERSONALITY_CONFIG,
+          persona_entity: {
+            ...DEFAULT_PERSONALITY_CONFIG.persona_entity,
+            basic_profile: {
+              ...DEFAULT_PERSONALITY_CONFIG.persona_entity.basic_profile,
+              name: '向晚',
+              occupation: '虚拟偶像',
+              core_background: '一个努力又有点笨拙的虚拟偶像。',
+            },
+          },
+        },
+      },
+    } as any);
+
+    render(
+      <Form
+        initialValues={{
+          llm: {
+            providers: {},
+            selections: {},
+          },
+          personality: DEFAULT_PERSONALITY_CONFIG,
+        }}
+      >
+        <PersonalityForm language="zh" />
+      </Form>
+    );
+
+    await user.click((await screen.findByText('personality.blankCardTitle')).closest('button') as HTMLButtonElement);
+    await user.type(await screen.findByPlaceholderText('personality.oneLinerPlaceholder'), '一个有点笨拙但很努力的偶像');
+    await user.click(screen.getByRole('button', { name: 'personality.generateAction' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('向晚').length).toBeGreaterThan(0);
+    });
+  });
 });
