@@ -9,6 +9,10 @@ import { useChatShellStore } from '@/stores';
 const USER_ID = 'web_user';
 const SESSION_EVENT = 'magi-session-sync';
 
+interface SidebarProps {
+  collapsed?: boolean;
+}
+
 const formatSessionTime = (timestamp: number, locale: string): string => {
   if (!timestamp) {
     return '';
@@ -23,7 +27,7 @@ const formatSessionTime = (timestamp: number, locale: string): string => {
   }
 };
 
-const Sidebar: React.FC = () => {
+export default function Sidebar({ collapsed = false }: SidebarProps) {
   const { t, i18n } = useTranslation('app');
   const navigate = useNavigate();
   const location = useLocation();
@@ -136,6 +140,10 @@ const Sidebar: React.FC = () => {
     navigate(path);
   };
 
+  if (collapsed) {
+    return null;
+  }
+
   return (
     <aside
       className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/30 pt-[4.25rem]"
@@ -239,6 +247,4 @@ const Sidebar: React.FC = () => {
       </div>
     </aside>
   );
-};
-
-export default Sidebar;
+}
