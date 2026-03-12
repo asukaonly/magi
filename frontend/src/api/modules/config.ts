@@ -254,25 +254,25 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   llm: {
     providers: {
       openai: {
-        enabled: true,
+        enabled: false,
         provider_type: 'openai',
         display_name: 'OpenAI',
         api_key: '',
-        base_url: 'https://api.openai.com/v1',
+        base_url: '',
       },
     },
     selections: {
       context_decider: {
-        provider_id: 'openai',
-        model: 'gpt-4o-mini',
+        provider_id: '',
+        model: '',
         capability_override_enabled: false,
         capabilities: DEFAULT_LLM_CAPABILITIES,
         limits: DEFAULT_LLM_LIMITS,
         provider_options: {},
       },
       core: {
-        provider_id: 'openai',
-        model: 'gpt-4o-mini',
+        provider_id: '',
+        model: '',
         capability_override_enabled: false,
         capabilities: DEFAULT_LLM_CAPABILITIES,
         limits: DEFAULT_LLM_LIMITS,

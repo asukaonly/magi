@@ -188,6 +188,11 @@ def test_example_config_uses_scenario_llm_structure():
     assert "selections" in data["llm"]
     assert "provider" not in data["llm"]
     assert "model" not in data["llm"]
+    assert data["llm"]["providers"]["openai"]["enabled"] is False
+    assert data["llm"]["selections"]["context_decider"]["provider_id"] == ""
+    assert data["llm"]["selections"]["context_decider"]["model"] == ""
+    assert data["llm"]["selections"]["core"]["provider_id"] == ""
+    assert data["llm"]["selections"]["core"]["model"] == ""
 
 
 def test_discover_llm_models_returns_models_from_provider_endpoint(monkeypatch: pytest.MonkeyPatch):

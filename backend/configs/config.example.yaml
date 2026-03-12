@@ -12,7 +12,7 @@
 llm:
   providers:
     openai:
-      enabled: true
+      enabled: false
       provider_type: openai
       display_name: OpenAI
       api_key: ""
@@ -22,8 +22,8 @@ llm:
       custom_default_model: null
   selections:
     context_decider:
-      provider_id: openai
-      model: gpt-4o-mini
+      provider_id: ""
+      model: ""
       capability_override_enabled: false
       capabilities:
         vision: false
@@ -36,8 +36,8 @@ llm:
         max_output_tokens: null
       provider_options: {}
     core:
-      provider_id: openai
-      model: gpt-4o-mini
+      provider_id: ""
+      model: ""
       capability_override_enabled: false
       capabilities:
         vision: false

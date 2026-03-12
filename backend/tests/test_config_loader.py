@@ -144,8 +144,13 @@ def test_loader_creates_default_scenario_llm_config(tmp_path: Path, monkeypatch)
     assert "providers" in agent_data["llm"]
     assert "selections" in agent_data["llm"]
     assert "openai" in config.llm.providers
+    assert config.llm.providers["openai"].enabled is False
     assert "context_decider" in config.llm.selections
     assert "core" in config.llm.selections
+    assert config.llm.selections["context_decider"].provider_id == ""
+    assert config.llm.selections["context_decider"].model == ""
+    assert config.llm.selections["core"].provider_id == ""
+    assert config.llm.selections["core"].model == ""
 
 
 def test_loader_ignores_llm_environment_overrides(tmp_path: Path, monkeypatch) -> None:
@@ -158,7 +163,8 @@ def test_loader_ignores_llm_environment_overrides(tmp_path: Path, monkeypatch) -
     config = loader.load()
 
     assert config.llm.providers["openai"].api_key == ""
-    assert config.llm.selections["context_decider"].provider_id == "openai"
-    assert config.llm.selections["context_decider"].model == "gpt-4o-mini"
-    assert config.llm.selections["core"].provider_id == "openai"
-    assert config.llm.selections["core"].model == "gpt-4o-mini"
+    assert config.llm.providers["openai"].enabled is False
+    assert config.llm.selections["context_decider"].provider_id == ""
+    assert config.llm.selections["context_decider"].model == ""
+    assert config.llm.selections["core"].provider_id == ""
+    assert config.llm.selections["core"].model == ""
