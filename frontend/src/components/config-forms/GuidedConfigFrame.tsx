@@ -28,7 +28,7 @@ export const GuidedConfigFrame: React.FC<GuidedConfigFrameProps> = ({
       className
     )}
   >
-    <div className={cn('flex min-h-[clamp(560px,78vh,760px)] min-w-0 min-h-0 flex-col lg:flex-row', layoutClassName)}>
+    <div className={cn('flex min-h-0 min-w-0 flex-col lg:flex-row', layoutClassName)}>
       {sidebar ? (
         <aside
           className={cn(

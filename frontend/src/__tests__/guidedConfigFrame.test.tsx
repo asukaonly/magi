@@ -5,7 +5,7 @@ import GuidedConfigFrame from '@/components/config-forms/GuidedConfigFrame';
 
 describe('GuidedConfigFrame', () => {
   it('constrains height to viewport and keeps the content pane scrollable', () => {
-    render(
+    const { container } = render(
       <GuidedConfigFrame sidebar={<div>sidebar</div>} footer={<div>footer</div>}>
         <div>content</div>
       </GuidedConfigFrame>
@@ -15,6 +15,7 @@ describe('GuidedConfigFrame', () => {
     const contentPane = screen.getByText('content').parentElement;
 
     expect(root?.className).toContain('max-h-[calc(100vh-2rem)]');
+    expect(container.innerHTML).not.toContain('min-h-[clamp(560px,78vh,760px)]');
     expect(contentPane?.className).toContain('min-h-0');
     expect(contentPane?.className).toContain('overflow-y-auto');
   });
