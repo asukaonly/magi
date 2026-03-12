@@ -132,3 +132,17 @@ def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, m
     assert settings_data["sensors"]["chrome_history"]["enabled"] is False
     assert config.plugins.packages["chrome-history"].enabled is True
     assert config.plugins.packages["chrome-history"].settings["sensors"]["chrome_history"]["enabled"] is False
+
+
+def test_loader_creates_default_scenario_llm_config(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    loader = ConfigLoader()
+    config = loader.load()
+    agent_data = yaml.safe_load((tmp_path / "config" / "agent.yaml").read_text(encoding="utf-8")) or {}
+
+    assert "providers" in agent_data["llm"]
+    assert "selections" in agent_data["llm"]
+    assert "openai" in config.llm.providers
+    assert "context_decider" in config.llm.selections
+    assert "core" in config.llm.selections
