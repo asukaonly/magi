@@ -187,8 +187,9 @@ def test_discover_llm_models_returns_models_from_provider_endpoint(monkeypatch: 
     )
 
     assert response.status_code == 200
-    assert response.json()["models"] == ["foo-1", "foo-2"]
-    assert response.json()["default_model"] == "foo-1"
+    assert response.json()["success"] is True
+    assert response.json()["data"]["models"] == ["foo-1", "foo-2"]
+    assert response.json()["data"]["default_model"] == "foo-1"
 
 
 def test_discover_llm_models_returns_clear_error_for_unsupported_format():

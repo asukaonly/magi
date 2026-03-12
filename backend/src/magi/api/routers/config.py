@@ -258,6 +258,12 @@ class DiscoverLLMModelsResponseModel(BaseModel):
     default_model: Optional[str] = Field(default=None)
 
 
+class DiscoverLLMModelsApiResponseModel(BaseModel):
+    success: bool
+    message: str
+    data: Optional[DiscoverLLMModelsResponseModel] = None
+
+
 class OnboardingTemplateDataModel(BaseModel):
     config: SystemConfigModel
     llm_providers: LLMProviderRegistryModel
@@ -834,16 +840,20 @@ async def get_llm_provider_registry():
     )
 
 
-@config_router.post("/llm/providers/discover-models", response_model=DiscoverLLMModelsResponseModel)
+@config_router.post("/llm/providers/discover-models", response_model=DiscoverLLMModelsApiResponseModel)
 async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
     models = await _discover_openai_compatible_models(
         payload.base_url,
         payload.api_key,
         payload.api_format,
     )
-    return DiscoverLLMModelsResponseModel(
-        models=models,
-        default_model=models[0] if models else None,
+    return DiscoverLLMModelsApiResponseModel(
+        success=True,
+        message="LLM provider models discovered",
+        data=DiscoverLLMModelsResponseModel(
+            models=models,
+            default_model=models[0] if models else None,
+        ),
     )
 
 
