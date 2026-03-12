@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import sys
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 _plugins_path = Path(__file__).resolve().parents[2] / "plugins"
 if str(_plugins_path) not in sys.path:
@@ -15,6 +16,7 @@ from calendar_plugin.exceptions import (
     AuthorizationDeniedError,
     EventKitQueryError,
 )
+from calendar_plugin.reader import EventKitReader
 
 
 def test_calendar_error_base():
@@ -271,3 +273,41 @@ def test_normalize_all_day_event():
     result = normalize_calendar_event(event, sensor)
 
     assert "全天" in result["title"] or "all day" in result["title"].lower() or "Holiday" in result["title"]
+
+
+def test_reader_is_available_on_non_darwin():
+    """Test that reader handles non-darwin platforms gracefully."""
+    with patch('sys.platform', 'win32'):
+        reader = EventKitReader()
+        assert reader.is_available() is False
+
+
+def test_reader_get_authorization_status_unavailable():
+    """Test authorization status when EventKit not available."""
+    reader = EventKitReader()
+    reader._is_available = False
+
+    status = reader.get_authorization_status()
+    assert status == "unavailable"
+
+
+def test_reader_request_authorization_unavailable():
+    """Test authorization request when EventKit not available."""
+    reader = EventKitReader()
+    reader._is_available = False
+
+    result = reader.request_authorization()
+    assert result is False
+
+
+def test_reader_read_events_stub():
+    """Test that read_events returns empty list as stub."""
+    from datetime import datetime
+
+    reader = EventKitReader()
+    # Even if not available, should return empty list without error
+    events = reader.read_events(
+        start_date=datetime(2026, 3, 1),
+        end_date=datetime(2026, 3, 12)
+    )
+    assert isinstance(events, list)
