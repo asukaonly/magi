@@ -20,6 +20,9 @@ QUIET_REQUEST_PATHS = {
     "/api/health",
     "/api/messages/sessions",
 }
+EXEMPT_PATH_PREFIXES = (
+    "/static/",
+)
 
 
 def get_required_desktop_session_token() -> str | None:
@@ -78,7 +81,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.url.path in self.EXEMPT_pathS:
             return await call_next(request)
 
-        if request.url.path.startswith("/static/"):
+        if request.url.path.startswith(EXEMPT_PATH_PREFIXES):
             return await call_next(request)
 
         desktop_token = get_required_desktop_session_token()

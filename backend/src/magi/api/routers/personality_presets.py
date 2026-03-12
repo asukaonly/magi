@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import json
-import mimetypes
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+
+from ..avatar_paths import resolve_avatar_public_url, user_avatar_dir
 
 
 personality_presets_router = APIRouter()
@@ -83,26 +83,6 @@ def _parse_json_preset(file_path: Path) -> PersonalityPresetItem:
             name=file_path.stem,
         )
 
-
-def _user_avatar_dir() -> Path:
-    return Path.home() / ".magi" / "personalities" / "avatar"
-
-
-def _builtin_avatar_dir() -> Path:
-    return Path(__file__).resolve().parents[4] / "personalities" / "avatar"
-
-
-def _resolve_avatar_file(filename: str) -> Optional[Path]:
-    safe_name = Path(filename).name
-    if safe_name != filename or not safe_name:
-        return None
-    for candidate_dir in (_user_avatar_dir(), _builtin_avatar_dir()):
-        candidate = candidate_dir / safe_name
-        if candidate.exists() and candidate.is_file():
-            return candidate
-    return None
-
-
 @personality_presets_router.get(
     "/",
     response_model=PersonalitiesResponse,
@@ -113,7 +93,9 @@ async def list_personality_presets(lang: Optional[str] = Query(default="zh")):
     lang_dir = _resolve_language_dir(lang)
     presets: List[PersonalityPresetItem] = []
     for file_path in lang_dir.glob("*.json"):
-        presets.append(_parse_json_preset(file_path))
+        preset = _parse_json_preset(file_path)
+        preset.avatar = resolve_avatar_public_url(preset.avatar)
+        presets.append(preset)
     # Sort by order field
     presets.sort(key=lambda p: p.order)
     return PersonalitiesResponse(data=presets)
@@ -137,22 +119,11 @@ async def get_personality_preset(
     try:
         content = file_path.read_text(encoding="utf-8")
         data = json.loads(content)
+        basic_profile = data.get("persona_entity", {}).get("basic_profile", {})
+        basic_profile["avatar"] = resolve_avatar_public_url(basic_profile.get("avatar", ""))
         return PersonalityPresetDetailResponse(data=data)
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail=f"Failed to parse personality preset '{preset_id}'")
-
-
-@personality_presets_router.get(
-    "/avatar/{filename}",
-    summary="Get preset avatar file",
-    description="Resolve and serve a personality avatar image from user or built-in avatar directories.",
-)
-async def get_personality_avatar(filename: str):
-    avatar_file = _resolve_avatar_file(filename)
-    if not avatar_file:
-        raise HTTPException(status_code=404, detail="Avatar file not found")
-    media_type = mimetypes.guess_type(avatar_file.name)[0] or "application/octet-stream"
-    return FileResponse(avatar_file, media_type=media_type, filename=avatar_file.name)
 
 
 @personality_presets_router.post(
@@ -168,7 +139,7 @@ async def upload_personality_avatar(file: UploadFile = File(...)):
     if file.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise HTTPException(status_code=400, detail="Unsupported image content type")
 
-    avatar_dir = _user_avatar_dir()
+    avatar_dir = user_avatar_dir()
     avatar_dir.mkdir(parents=True, exist_ok=True)
 
     safe_stem = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in Path(file.filename or "").stem).strip("_")
@@ -182,5 +153,4 @@ async def upload_personality_avatar(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Empty file is not allowed")
     target.write_bytes(content)
 
-    return {"filename": filename}
-
+    return {"filename": filename, "url": resolve_avatar_public_url(filename)}

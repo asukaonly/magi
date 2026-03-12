@@ -21,10 +21,14 @@ interface PersonalityPresetDetailResponse {
 
 interface AvatarUploadResponse {
   filename: string;
+  url: string;
 }
 
 const resolveApiBase = (): string =>
   getRuntimeConfig().apiBaseUrl.replace(/\/$/, '');
+
+const resolveBackendOrigin = (): string =>
+  resolveApiBase().replace(/\/api$/, '');
 
 export const personalitiesApi = {
   list: (lang: 'zh' | 'en' = 'zh') =>
@@ -41,8 +45,16 @@ export const personalitiesApi = {
     });
   },
 
-  getAvatarUrl: (filename?: string) =>
-    filename ? `${resolveApiBase()}/personalities/avatar/${encodeURIComponent(filename)}` : '',
+  getAvatarUrl: (avatar?: string) => {
+    if (!avatar) return '';
+    if (avatar.startsWith('http://') || avatar.startsWith('https://') || avatar.startsWith('data:')) {
+      return avatar;
+    }
+    if (avatar.startsWith('/')) {
+      return `${resolveBackendOrigin()}${avatar}`;
+    }
+    return `${resolveBackendOrigin()}/static/avatars/${encodeURIComponent(avatar)}`;
+  },
 };
 
 export default personalitiesApi;

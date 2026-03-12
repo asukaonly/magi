@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ..avatar_paths import resolve_avatar_public_url
 from ...config import get_config
 from ...config.models import LLMScenario
 from ...core.runtime import TaskAgentType
@@ -197,6 +198,12 @@ def _build_diffs(from_data: Dict[str, Any], to_data: Dict[str, Any]) -> List[Per
                 )
             )
     return diffs
+
+
+def _normalize_avatar_in_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    basic_profile = payload.get("persona_entity", {}).get("basic_profile", {})
+    basic_profile["avatar"] = resolve_avatar_public_url(basic_profile.get("avatar", ""))
+    return payload
 
 
 # ============ LLM Parsing Functions ============
@@ -459,7 +466,7 @@ async def api_get_greeting():
             data={
                 "greeting": greeting,
                 "name": config.name,
-                "avatar": config.avatar or "",
+                "avatar": resolve_avatar_public_url(config.avatar or ""),
             },
         )
     except Exception as exc:
@@ -498,7 +505,7 @@ async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
                 return PersonalityResponse(
                     success=True,
                     message=f"Successfully retrieved built-in personality: {name}",
-                    data=config.model_dump(),
+                    data=_normalize_avatar_in_payload(config.model_dump()),
                 )
 
         # Fallback to runtime directory
@@ -506,14 +513,14 @@ async def get_personality(name: str = DEFAULT_PERSONALITY, lang: str = ""):
         return PersonalityResponse(
             success=True,
             message=f"Successfully retrieved personality configuration: {name}",
-            data=config.model_dump(),
+            data=_normalize_avatar_in_payload(config.model_dump()),
         )
     except FileNotFoundError:
         default_config = PersonalityConfigModel()
         return PersonalityResponse(
             success=True,
             message=f"Personality configuration not found, using default: {name}",
-            data=default_config.model_dump(),
+            data=_normalize_avatar_in_payload(default_config.model_dump()),
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -552,7 +559,10 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
         return PersonalityResponse(
             success=True,
             message=f"Personality configuration saved: {actual_name}",
-            data={"actual_name": actual_name, "config": config.model_dump()},
+            data={
+                "actual_name": actual_name,
+                "config": _normalize_avatar_in_payload(config.model_dump()),
+            },
         )
     except HTTPException:
         raise
@@ -573,7 +583,7 @@ async def generate_personality(request: AIGenerateRequest):
         return PersonalityResponse(
             success=True,
             message="AI personality configuration generated successfully",
-            data=config.model_dump(),
+            data=_normalize_avatar_in_payload(config.model_dump()),
         )
     except HTTPException:
         raise

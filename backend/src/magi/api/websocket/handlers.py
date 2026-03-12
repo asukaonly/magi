@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from fastapi import WebSocket
 
+from ..avatar_paths import resolve_avatar_public_url
 from ...core.logger import get_logger
 
 if TYPE_CHECKING:
@@ -137,13 +138,7 @@ async def handle_get_personality(ctx: WebSocketContext, data: dict) -> dict:
         greeting = random.choice(greetings) if greetings else f"Hello, I am {config.name}."
 
         # Handle avatar URL
-        avatar = config.avatar or ""
-        if avatar and not avatar.startswith(("http://", "https://", "/", "data:")):
-            # Check if it's an emoji (Unicode character)
-            if len(avatar) <= 4 and any(ord(c) > 127 for c in avatar):
-                pass  # Emoji, return as-is
-            else:
-                avatar = f"/static/avatars/{avatar}"
+        avatar = resolve_avatar_public_url(config.avatar or "")
 
         logger.info("Sent personality info", sid=ctx.sid, name=config.name)
         return {

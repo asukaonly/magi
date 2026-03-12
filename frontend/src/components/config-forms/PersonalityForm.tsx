@@ -153,6 +153,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   };
 
   const resolveAvatarUrl = (avatar?: string): string => personalitiesApi.getAvatarUrl(avatar || '');
+  const avatarLabel = (avatar?: string): string => (avatar || '').split('/').pop() || '';
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -160,12 +161,12 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     setUploadingAvatar(true);
     try {
       const response = await personalitiesApi.uploadAvatar(file);
-      const filename = response.data?.filename;
-      if (!filename) return;
+      const avatarValue = response.data?.url || response.data?.filename;
+      if (!avatarValue) return;
       patch((d) => {
-        d.persona_entity.basic_profile.avatar = filename;
+        d.persona_entity.basic_profile.avatar = avatarValue;
       });
-      resetAvatarBroken(`focus:${filename}`);
+      resetAvatarBroken(`focus:${avatarValue}`);
     } finally {
       setUploadingAvatar(false);
       event.target.value = '';
@@ -573,7 +574,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                     {uploadingAvatar ? t('personality.actions.uploadingAvatar') : t('personality.actions.uploadAvatar')}
                                   </Button>
                                   {config.persona_entity.basic_profile.avatar ? (
-                                    <span className="text-xs text-muted-foreground">{config.persona_entity.basic_profile.avatar}</span>
+                                    <span className="text-xs text-muted-foreground">{avatarLabel(config.persona_entity.basic_profile.avatar)}</span>
                                   ) : (
                                     <span className="text-xs text-muted-foreground">{t('personality.noAvatar')}</span>
                                   )}

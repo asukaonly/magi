@@ -9,6 +9,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
+from .avatar_paths import builtin_avatar_dir, user_avatar_dir
 from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, add_cors_middleware
 from .websocket import register_websocket
 from ..core.logger import configure_logging, get_logger
@@ -139,11 +140,16 @@ def create_app() -> FastAPI:
     # Register WebSocket endpoint
     register_websocket(app)
 
-    # 挂载静态文件目录（头像）
-    avatar_dir = Path(__file__).resolve().parents[3] / "personalities" / "avatar"
+    # 挂载静态头像目录
+    avatar_dir = builtin_avatar_dir()
     if avatar_dir.exists():
         app.mount("/static/avatars", StaticFiles(directory=str(avatar_dir)), name="avatars")
         logger.info(f"Avatar static files mounted: {avatar_dir}")
+
+    custom_avatar_dir = user_avatar_dir()
+    custom_avatar_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/static/user-avatars", StaticFiles(directory=str(custom_avatar_dir)), name="user-avatars")
+    logger.info(f"User avatar static files mounted: {custom_avatar_dir}")
 
     return app
 
