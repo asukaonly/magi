@@ -208,6 +208,18 @@ def _normalize_avatar_in_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
+def _normalize_generated_personality_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize common scalar mismatches from model-generated JSON."""
+    basic_profile = payload.setdefault("persona_entity", {}).setdefault("basic_profile", {})
+    for field in ("name", "age", "gender", "description", "avatar", "occupation", "core_background"):
+        value = basic_profile.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            basic_profile[field] = str(value)
+    return payload
+
+
 # ============ LLM Parsing Functions ============
 
 async def ai_generate_personality(
@@ -353,6 +365,7 @@ Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural an
         if json_start >= 0 and json_end > json_start:
             response_text = response_text[json_start : json_end + 1]
         data = json.loads(response_text)
+        data = _normalize_generated_personality_payload(data)
 
         persona_entity = data.setdefault("persona_entity", {})
         basic_profile = persona_entity.setdefault("basic_profile", {})

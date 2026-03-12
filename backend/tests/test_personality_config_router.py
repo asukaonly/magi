@@ -57,6 +57,55 @@ class _FakeLLMAdapter:
         """
 
 
+class _NumericAgeLLMAdapter(_FakeLLMAdapter):
+    async def generate(self, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return """
+        {
+          "persona_entity": {
+            "basic_profile": {
+              "name": "Asuka",
+              "age": 14,
+              "gender": "女",
+              "description": "Helpful",
+              "avatar": "",
+              "occupation": "Student",
+              "core_background": "A thoughtful assistant persona shaped by observation, duty, and a strong desire to protect the user through precise answers."
+            },
+            "psychological_traits": {
+              "communication_tone": "Calm and supportive",
+              "confidence_level": "Medium",
+              "empathy_threshold": "Shows care when user is stressed",
+              "high_frequency_keywords": ["steady", "clear"]
+            },
+            "social_responses": {
+              "praise_reaction": "Thanks.",
+              "criticism_reaction": "I will adjust.",
+              "obedience_strategy": "Cooperate when it is safe."
+            },
+            "behavioral_strategies": {
+              "error_handling": "Acknowledge and retry carefully.",
+              "refusal_style": "Brief and respectful."
+            }
+          },
+          "cached_phrases": {
+            "on_init": ["Hi"],
+            "on_wake": ["Back"],
+            "on_error_generic": ["Retrying"],
+            "on_success": ["Done"],
+            "on_switch_attempt": ["Stay here"]
+          },
+          "appearance_prompt": "simple",
+          "state_transition_protocol": [
+            {"trigger_type": "crisis", "trigger_condition": "danger", "target_state_name": "Guardian", "behavior_shift": "protective"},
+            {"trigger_type": "intimacy", "trigger_condition": "trust", "target_state_name": "Confidant", "behavior_shift": "gentle"},
+            {"trigger_type": "hostility", "trigger_condition": "insult", "target_state_name": "Boundary", "behavior_shift": "firm"},
+            {"trigger_type": "absurdity", "trigger_condition": "nonsense", "target_state_name": "Playful", "behavior_shift": "light"}
+          ]
+        }
+        """
+
+
 class _RecordingResolver:
     def __init__(self):
         self.requested: list[LLMScenario] = []
@@ -176,3 +225,19 @@ async def test_ai_generate_personality_uses_registry_default_base_url_for_builti
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "timeout": 60,
     }
+
+
+@pytest.mark.asyncio
+async def test_ai_generate_personality_coerces_numeric_basic_profile_fields(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    monkeypatch.setattr(
+        personality_config,
+        "resolve_adapter_for_scenario",
+        lambda *args, **kwargs: _NumericAgeLLMAdapter(),
+    )
+
+    result = await personality_config.ai_generate_personality("eva里的明日香", target_language="Chinese")
+
+    assert result.persona_entity.basic_profile.name == "Asuka"
+    assert result.persona_entity.basic_profile.age == "14"
