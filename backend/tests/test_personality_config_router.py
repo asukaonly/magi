@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.config.models import LLMScenario
+from magi.config.models import LLMProviderSettings, LLMScenario, LLMSelectionSettings, LLMSettings
 
 
 class _FakeLLMAdapter:
@@ -57,11 +57,12 @@ class _FakeLLMAdapter:
         """
 
 
-class _RecordingPool:
+class _RecordingResolver:
     def __init__(self):
         self.requested: list[LLMScenario] = []
 
-    def get(self, scenario: LLMScenario):
+    def __call__(self, scenario: LLMScenario, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
         self.requested.append(scenario)
         return _FakeLLMAdapter()
 
@@ -70,16 +71,62 @@ class _RecordingPool:
 async def test_ai_generate_personality_uses_core_scenario(monkeypatch) -> None:
     from magi.api.routers import personality_config
 
-    pool = _RecordingPool()
+    resolver = _RecordingResolver()
 
-    monkeypatch.setattr(personality_config, "get_config", lambda: object())
     monkeypatch.setattr(
         personality_config,
-        "ScenarioLLMPool",
-        lambda config, adapter_factory: pool,
+        "resolve_adapter_for_scenario",
+        resolver,
     )
 
     result = await personality_config.ai_generate_personality("一个冷静可靠的助手", target_language="Chinese")
 
     assert result.persona_entity.basic_profile.name == "Astra"
-    assert pool.requested == [LLMScenario.CORE]
+    assert resolver.requested == [LLMScenario.CORE]
+
+
+@pytest.mark.asyncio
+async def test_ai_generate_personality_prefers_llm_override(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    captured: dict[str, object] = {}
+
+    class _OverrideAdapter(_FakeLLMAdapter):
+        provider_name = "anthropic"
+        model_name = "claude-sonnet-4-6"
+
+    def _fake_create_llm_adapter(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return _OverrideAdapter()
+
+    monkeypatch.setattr(personality_config, "create_llm_adapter", _fake_create_llm_adapter)
+
+    result = await personality_config.ai_generate_personality(
+        "一个冷静可靠的助手",
+        target_language="Chinese",
+        llm_override=LLMSettings(
+            providers={
+                "draft-provider": LLMProviderSettings(
+                    enabled=True,
+                    provider_type="custom",
+                    api_format="anthropic",
+                    display_name="Draft Claude",
+                    api_key="draft-key",
+                    base_url="https://relay.example.com",
+                )
+            },
+            selections={
+                "context_decider": LLMSelectionSettings(provider_id="draft-provider", model="claude-sonnet-4-6"),
+                "core": LLMSelectionSettings(provider_id="draft-provider", model="claude-sonnet-4-6"),
+            },
+        ),
+    )
+
+    assert result.persona_entity.basic_profile.name == "Astra"
+    assert captured == {
+        "provider_type": "anthropic",
+        "api_key": "draft-key",
+        "model": "claude-sonnet-4-6",
+        "base_url": "https://relay.example.com",
+        "timeout": 60,
+    }

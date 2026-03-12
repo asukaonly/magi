@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -10,7 +11,9 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ..llm_draft import build_adapter_from_provider
 from ...config.loader import get_config, get_config_file_path, save_config
+from ...config.models import LLMProviderSettings
 from ...config.llm_registry import (
     LLMCustomProviderMetaModel,
     LLMModelMetaModel,
@@ -22,6 +25,7 @@ from ...config.llm_registry import (
 )
 from ...config.models import LLMCapabilitiesSettings, LLMLimitsSettings
 from ...core.logger import get_logger
+from ...llm import LLMProviderBridge, create_llm_adapter
 
 logger = get_logger(__name__)
 config_router = APIRouter()
@@ -261,6 +265,24 @@ class DiscoverLLMModelsApiResponseModel(BaseModel):
     success: bool
     message: str
     data: Optional[DiscoverLLMModelsResponseModel] = None
+
+
+class TestLLMProviderRequestModel(BaseModel):
+    provider_id: str = Field(default="openai")
+    provider: LLMProviderConfigModel
+    model: str = Field(default="")
+
+
+class TestLLMProviderResponseModel(BaseModel):
+    model: str
+    latency_ms: int
+    preview: str = Field(default="")
+
+
+class TestLLMProviderApiResponseModel(BaseModel):
+    success: bool
+    message: str
+    data: Optional[TestLLMProviderResponseModel] = None
 
 
 class OnboardingTemplateDataModel(BaseModel):
@@ -822,6 +844,58 @@ async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
             models=models,
             default_model=models[0] if models else None,
         ),
+    )
+
+
+async def _test_llm_provider_connection(
+    provider_id: str,
+    provider: LLMProviderConfigModel,
+    model: str,
+) -> Dict[str, Any]:
+    runtime_provider = LLMProviderSettings.model_validate(provider.model_dump())
+    adapter = build_adapter_from_provider(
+        runtime_provider,
+        model=model,
+        adapter_factory=create_llm_adapter,
+    )
+    bridge = LLMProviderBridge(adapter)
+    started_at = time.perf_counter()
+    preview = await bridge.chat(
+        system_prompt="You are a connection test assistant. Reply briefly.",
+        messages=[{"role": "user", "content": "hi"}],
+        max_tokens=32,
+        temperature=0.1,
+        disable_thinking=True,
+        event_context={
+            "surface": "config_provider_test",
+            "provider_id": provider_id,
+        },
+    )
+    return {
+        "model": model,
+        "latency_ms": int((time.perf_counter() - started_at) * 1000),
+        "preview": preview[:120].strip(),
+    }
+
+
+@config_router.post("/llm/providers/test", response_model=TestLLMProviderApiResponseModel)
+async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
+    try:
+        result = await _test_llm_provider_connection(
+            payload.provider_id,
+            payload.provider,
+            payload.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Failed to test LLM provider connection")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return TestLLMProviderApiResponseModel(
+        success=True,
+        message="LLM provider connection succeeded",
+        data=TestLLMProviderResponseModel(**result),
     )
 
 

@@ -15,11 +15,12 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ..llm_draft import resolve_adapter_for_scenario
 from ..avatar_paths import resolve_avatar_public_url
 from ...config import get_config
-from ...config.models import LLMScenario
+from ...config.models import LLMScenario, LLMSettings
 from ...core.runtime import TaskAgentType
-from ...llm import ScenarioLLMPool, create_llm_adapter
+from ...llm import create_llm_adapter
 from ...memory.personality_loader import PersonalityLoader
 from ...utils.runtime import get_runtime_paths
 from ...core.logger import get_logger
@@ -91,6 +92,7 @@ class AIGenerateRequest(BaseModel):
     description: str = Field(..., description="One-sentence description of AI personality")
     target_language: str = Field(default="Auto", description="Target language: Auto/Chinese/English etc.")
     current_config: Optional[PersonalityConfigModel] = Field(None, description="Current configuration (optional)")
+    llm_override: Optional[LLMSettings] = Field(None, description="Optional unsaved LLM configuration override")
 
 
 class PersonalityResponse(BaseModel):
@@ -208,10 +210,17 @@ def _normalize_avatar_in_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 # ============ LLM Parsing Functions ============
 
-async def ai_generate_personality(description: str, target_language: str = "Auto") -> PersonalityConfigModel:
+async def ai_generate_personality(
+    description: str,
+    target_language: str = "Auto",
+    llm_override: Optional[LLMSettings] = None,
+) -> PersonalityConfigModel:
     """Generate personality configuration from description using LLM."""
-    llm_pool = ScenarioLLMPool(config=get_config(), adapter_factory=create_llm_adapter)
-    llm_adapter = llm_pool.get(LLMScenario.CORE)
+    llm_adapter = resolve_adapter_for_scenario(
+        LLMScenario.CORE,
+        llm_settings=llm_override,
+        adapter_factory=create_llm_adapter,
+    )
     logger.info(
         "[AI Generate Personality] Using unified LLM adapter provider=%s model=%s",
         getattr(llm_adapter, "provider_name", "unknown"),
@@ -578,7 +587,11 @@ async def update_personality(name: str, config: PersonalityConfigModel, use_ai_n
 )
 async def generate_personality(request: AIGenerateRequest):
     try:
-        config = await ai_generate_personality(request.description, request.target_language)
+        config = await ai_generate_personality(
+            request.description,
+            request.target_language,
+            llm_override=request.llm_override,
+        )
         logger.info("AI generation successful: name=%s", config.persona_entity.basic_profile.name)
         return PersonalityResponse(
             success=True,

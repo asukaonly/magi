@@ -255,3 +255,51 @@ def test_config_test_endpoint_accepts_new_llm_structure():
 
     assert response.status_code == 200
     assert response.json()["success"] is True
+
+
+def test_llm_provider_test_endpoint_uses_request_provider_payload(monkeypatch: pytest.MonkeyPatch):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    captured: dict[str, object] = {}
+
+    async def _fake_probe(provider_id: str, provider, model: str):  # type: ignore[no-untyped-def]
+        captured["provider_id"] = provider_id
+        captured["provider_type"] = provider.provider_type
+        captured["api_key"] = provider.api_key
+        captured["base_url"] = provider.base_url
+        captured["model"] = model
+        return {"model": model, "latency_ms": 42, "preview": "hello"}
+
+    monkeypatch.setattr(
+        "magi.api.routers.config._test_llm_provider_connection",
+        _fake_probe,
+        raising=False,
+    )
+
+    response = client.post(
+        "/config/llm/providers/test",
+        json={
+            "provider_id": "openai",
+            "model": "gpt-5.2",
+            "provider": {
+                "enabled": True,
+                "provider_type": "openai",
+                "display_name": "OpenAI",
+                "api_key": "sk-live",
+                "base_url": "https://api.openai.com/v1",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["data"]["model"] == "gpt-5.2"
+    assert captured == {
+        "provider_id": "openai",
+        "provider_type": "openai",
+        "api_key": "sk-live",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-5.2",
+    }
