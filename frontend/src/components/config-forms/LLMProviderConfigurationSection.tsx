@@ -331,6 +331,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   <input
                     aria-label={t('llm.fields.baseUrl')}
                     className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    placeholder={activeProviderMeta?.default_base_url || ''}
                     value={activeProvider.base_url || ''}
                     onChange={(event) =>
                       onProviderChange(activeProviderId, (provider) => {

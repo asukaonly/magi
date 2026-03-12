@@ -1,6 +1,9 @@
 """Tests for config router extensions."""
 
+from pathlib import Path
+
 import pytest
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -163,6 +166,30 @@ def test_onboarding_template_includes_model_capability_defaults():
     assert template.llm.selections["core"].limits.max_output_tokens is not None
 
 
+def test_onboarding_template_ignores_llm_environment_variables(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("LLM_PROVIDER", "glm")
+    monkeypatch.setenv("LLM_MODEL", "glm-5")
+    monkeypatch.setenv("LLM_API_KEY", "env-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://env.example.com/v1")
+
+    template = _build_onboarding_template()
+
+    assert list(template.llm.providers.keys()) == ["openai"]
+    assert template.llm.providers["openai"].api_key in (None, "")
+    assert template.llm.selections["core"].provider_id == "openai"
+    assert template.llm.selections["core"].model == "gpt-5.2"
+
+
+def test_example_config_uses_scenario_llm_structure():
+    example_path = Path(__file__).resolve().parents[1] / "configs" / "config.example.yaml"
+    data = yaml.safe_load(example_path.read_text(encoding="utf-8"))
+
+    assert "providers" in data["llm"]
+    assert "selections" in data["llm"]
+    assert "provider" not in data["llm"]
+    assert "model" not in data["llm"]
+
+
 def test_discover_llm_models_returns_models_from_provider_endpoint(monkeypatch: pytest.MonkeyPatch):
     app = FastAPI()
     app.include_router(config_router, prefix="/config")
@@ -209,3 +236,17 @@ def test_discover_llm_models_returns_clear_error_for_unsupported_format():
 
     assert response.status_code == 400
     assert "Unsupported" in response.json()["detail"]
+
+
+def test_config_test_endpoint_accepts_new_llm_structure():
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    response = client.post(
+        "/config/test",
+        json=SystemConfigModel().model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True

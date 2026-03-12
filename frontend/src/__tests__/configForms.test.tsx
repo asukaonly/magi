@@ -285,6 +285,30 @@ describe('config forms', () => {
     expect(screen.getByRole('switch', { name: 'llm.fields.enabled' })).toBeInTheDocument();
   });
 
+  it('does not prefill default base url for inactive built-in providers', async () => {
+    const user = userEvent.setup();
+    const valueWithoutAnthropicBaseUrl = {
+      ...llmValue,
+      providers: {
+        ...llmValue.providers,
+        anthropic: {
+          ...llmValue.providers.anthropic,
+          base_url: '',
+        },
+      },
+    };
+
+    render(
+      <Form initialValues={{ llm: valueWithoutAnthropicBaseUrl }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.click((await screen.findByText('Anthropic')).closest('button') as HTMLButtonElement);
+
+    expect(screen.getByLabelText('llm.fields.baseUrl')).toHaveValue('');
+  });
+
   it('lets user switch the core scenario model and shows vision warning', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>

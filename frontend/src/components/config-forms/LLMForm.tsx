@@ -137,14 +137,13 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
         provider_type: providerMeta.id as LLMProviderConfig['provider_type'],
         display_name: providerMeta.display_name || providerMeta.id,
         api_key: '',
-        base_url: providerMeta.default_base_url || '',
+        base_url: '',
       };
     } else {
       next.providers[providerMeta.id] = {
         ...cloneProvider(next.providers[providerMeta.id]),
         provider_type: providerMeta.id as LLMProviderConfig['provider_type'],
         display_name: next.providers[providerMeta.id].display_name || providerMeta.display_name || providerMeta.id,
-        base_url: next.providers[providerMeta.id].base_url || providerMeta.default_base_url || '',
       };
     }
   }

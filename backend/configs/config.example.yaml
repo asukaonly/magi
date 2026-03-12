@@ -1,33 +1,57 @@
 # Magi Agent Configuration
 #
 # This is the example configuration file.
-# On first run, it will be copied to ~/.magi/config/agent.yaml
+# On first run, it will be copied to ~/.magi/config/agent.yaml.
 #
-# Environment variables can be used with ${VAR_NAME:default} syntax
-# They will override values in this file
+# Runtime LLM provider and model selection now come from the persisted config
+# below instead of LLM_* environment variables.
 
 # =============================================================================
 # LLM Configuration
 # =============================================================================
 llm:
-  provider: "${LLM_PROVIDER:openai}"
-  model: "${LLM_MODEL:gpt-4o-mini}"
-  api_key: "${LLM_API_KEY:}"
-  base_url: "${LLM_BASE_URL:}"
+  providers:
+    openai:
+      enabled: true
+      provider_type: openai
+      display_name: OpenAI
+      api_key: ""
+      base_url: ""
+      api_format: null
+      custom_models: []
+      custom_default_model: null
+  selections:
+    context_decider:
+      provider_id: openai
+      model: gpt-4o-mini
+      capability_override_enabled: false
+      capabilities:
+        vision: false
+        image_output: false
+        tool_calling: true
+        reasoning: true
+        embedding: false
+      limits:
+        context_window: null
+        max_output_tokens: null
+      provider_options: {}
+    core:
+      provider_id: openai
+      model: gpt-4o-mini
+      capability_override_enabled: false
+      capabilities:
+        vision: false
+        image_output: false
+        tool_calling: true
+        reasoning: true
+        embedding: false
+      limits:
+        context_window: null
+        max_output_tokens: null
+      provider_options: {}
   temperature: 0.7
   max_tokens: 4096
   timeout: 60
-  capability_override_enabled: false
-  capabilities:
-    vision: false
-    image_output: false
-    tool_calling: true
-    reasoning: true
-    embedding: false
-  limits:
-    context_window: null
-    max_output_tokens: null
-  provider_options: {}
 
 # =============================================================================
 # Agent Configuration
@@ -38,12 +62,9 @@ agent:
   loop_interval: 1.0
   enable_monitoring: true
 
-  # Memory Configuration
   memory:
     db_path: "~/.magi/data/memories"
     retention_days: 7
-
-    # L1-L5 Memory Layers
     enable_l1_raw: true
     enable_l2_relations: true
     enable_l3_embeddings: true
@@ -53,19 +74,16 @@ agent:
     auto_extract_relations: true
     summary_interval_minutes: 60
 
-    # Embedding settings
     embedding:
       backend: "sqlite_vec"
       local_model: "all-MiniLM-L6-v2"
       local_dimension: 384
 
-  # Personality Configuration
   personality:
     name: "default"
     path: "~/.magi/personalities"
     enable_evolution: true
 
-  # Message Bus Configuration
   message_bus:
     backend: "sqlite"
     max_queue_size: 1000
@@ -95,35 +113,35 @@ features:
 tools:
   weather:
     enabled: true
-    default_provider: "qweather"  # Default provider to use
+    default_provider: "qweather"
     providers:
       qweather:
-        api_key: ""  # Set your QWeather API key here
-        base_url: ""  # Optional: API host (default: devapi.qweather.com)
+        api_key: ""
+        base_url: ""
 
   web_search:
     enabled: true
-    default_provider: "duckduckgo"  # Default provider: duckduckgo, brave, perplexity, or tavily
+    default_provider: "duckduckgo"
     providers:
       duckduckgo:
-        base_url: ""  # Optional: HTML endpoint override
+        base_url: ""
       brave:
-        api_key: ""  # Set your Brave Search API key here
+        api_key: ""
       perplexity:
-        api_key: ""  # Set your Perplexity API key here
+        api_key: ""
       tavily:
-        api_key: ""  # Set your Tavily API key here
+        api_key: ""
 
   web_fetch:
     enabled: true
-    default_provider: "http"  # Default provider for non-auto mode
+    default_provider: "http"
     providers:
       http:
-        base_url: ""  # Reserved for custom endpoint
+        base_url: ""
       browser:
-        base_url: ""  # Reserved for remote browser endpoint
+        base_url: ""
       curl:
-        base_url: ""  # Reserved for extension
+        base_url: ""
 
 # =============================================================================
 # Plugins
