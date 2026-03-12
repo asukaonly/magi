@@ -1063,9 +1063,41 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl px-8 py-8">
-            <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out">
-              {renderSectionContent()}
-            </div>
+            {/* Section Header */}
+            <header className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground">
+                {t(`settings.tabs.${activeSection}`)}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t(`settings.tabs.${activeSection}Description`, { defaultValue: '' })}
+              </p>
+            </header>
+
+            {/* Section Content with Error Boundary */}
+            <ErrorBoundary
+              fallback={
+                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+                  <p className="text-sm text-destructive">
+                    {t('settings.sectionError', { defaultValue: 'This section encountered an error. Please try refreshing.' })}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => window.location.reload()}
+                  >
+                    {t('settings.refresh', { defaultValue: 'Refresh' })}
+                  </Button>
+                </div>
+              }
+            >
+              <div
+                key={activeSection}
+                className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out"
+              >
+                {renderSectionContent()}
+              </div>
+            </ErrorBoundary>
           </div>
         </main>
       </div>
@@ -1118,16 +1150,27 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       </footer>
 
       {showClearConfirm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="clear-confirm-title"
+          aria-describedby="clear-confirm-desc"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && !clearing) {
+              setShowClearConfirm(false);
+            }
+          }}
+        >
           <Card className="mx-4 max-w-md">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-destructive">
-                <AlertTriangle className="h-5 w-5" />
+              <CardTitle id="clear-confirm-title" className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
                 {t('settings.clearConfirm.title')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm">
+              <div id="clear-confirm-desc" className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm">
                 <p className="font-medium text-destructive">{t('settings.clearConfirm.warning')}</p>
                 <ul className="mt-2 list-inside list-disc space-y-1 text-destructive/80">
                   <li>{t('settings.clearConfirm.l1')}</li>
