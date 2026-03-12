@@ -1,7 +1,7 @@
 """
 Configuration Models - Pydantic model definitions for application configuration.
 
-These models match the structure in config.example.yaml.
+These models match the structure in backend/configs/config.example.yaml.
 """
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, model_validator
