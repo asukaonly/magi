@@ -1,7 +1,6 @@
 """System configuration API router."""
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -400,13 +399,13 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
         custom_provider=LLMCustomProviderMetaModel(
             enabled=True,
             display_name="Custom Provider",
-            description="Connect OpenAI-compatible or custom format endpoints",
+            description="Connect OpenAI-compatible or Anthropic-compatible endpoints",
             icon="wand",
             capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
             fields={
                 "custom_name": LLMProviderFieldModel(visible=True, required=True, placeholder="My Provider"),
                 "api_format": LLMProviderFieldModel(
-                    visible=True, required=True, options=["openai", "anthropic", "custom"]
+                    visible=True, required=True, options=["openai", "anthropic"]
                 ),
                 "model": LLMProviderFieldModel(visible=True, required=True),
                 "api_key": LLMProviderFieldModel(visible=True, required=True),
@@ -690,43 +689,14 @@ def _build_onboarding_template() -> SystemConfigModel:
     template = SystemConfigModel()
     registry = _load_llm_provider_registry()
 
-    # Check for environment variable configuration
-    env_provider = os.getenv("LLM_PROVIDER")
-    env_model = os.getenv("LLM_MODEL")
-    env_api_key = os.getenv("LLM_API_KEY")
-    env_base_url = os.getenv("LLM_BASE_URL")
-
-    from_env = bool(env_provider or env_model or env_api_key or env_base_url)
-
-    if from_env:
-        provider_id = (env_provider or "openai").lower()
-        provider_meta = next((item for item in registry.providers if item.id == provider_id), None)
-        template.llm.providers[provider_id] = LLMProviderConfigModel(
-            enabled=True,
-            provider_type=provider_id,
-            display_name=provider_meta.display_name if provider_meta and provider_meta.display_name else provider_id.title(),
-            api_key=_mask_api_key(env_api_key) if env_api_key else None,
-            base_url=env_base_url or (provider_meta.default_base_url if provider_meta else None),
-            custom_models=[],
-            custom_default_model=None,
-        )
-        selected_model = env_model or (provider_meta.default_model if provider_meta and provider_meta.default_model else "gpt-4o-mini")
-        for selection_id in ("context_decider", "core"):
-            selection = template.llm.selections[selection_id]
-            selection.provider_id = provider_id
-            selection.model = selected_model
-            resolved = resolve_llm_profile(selection, registry)
-            selection.capabilities = resolved.capabilities
-            selection.limits = resolved.limits
-            selection.provider_options = resolved.provider_options
-    elif registry.providers:
+    if registry.providers:
         primary = registry.providers[0]
         template.llm.providers = {
             primary.id: LLMProviderConfigModel(
                 enabled=True,
                 provider_type=primary.id,
                 display_name=primary.display_name or primary.id.title(),
-                base_url=primary.default_base_url,
+                base_url="",
                 custom_models=[],
                 custom_default_model=None,
             )
@@ -824,10 +794,12 @@ async def get_config_template():
 
 @config_router.post("/test", response_model=ConfigResponse)
 async def test_config(config: SystemConfigModel):
-    if not config.llm.provider:
+    core_selection = config.llm.selections.get("core")
+    context_selection = config.llm.selections.get("context_decider")
+    if not core_selection or not context_selection:
+        return ConfigResponse(success=False, message="LLM selections are required", data=None)
+    if not core_selection.provider_id or not core_selection.model:
         return ConfigResponse(success=False, message="LLM provider is required", data=None)
-    if not config.llm.model:
-        return ConfigResponse(success=False, message="LLM model is required", data=None)
     return ConfigResponse(success=True, message="Configuration valid", data=config)
 
 

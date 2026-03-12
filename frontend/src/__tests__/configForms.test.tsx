@@ -124,7 +124,7 @@ vi.mock('../api/modules/config', async () => {
             display_name: 'Custom Provider',
             fields: {
               custom_name: { visible: true, required: true },
-              api_format: { visible: true, required: true, options: ['openai', 'anthropic', 'custom'] },
+              api_format: { visible: true, required: true, options: ['openai', 'anthropic'] },
               model: { visible: true, required: true },
               api_key: { visible: true, required: true },
               base_url: { visible: true, required: false },
@@ -285,6 +285,30 @@ describe('config forms', () => {
     expect(screen.getByRole('switch', { name: 'llm.fields.enabled' })).toBeInTheDocument();
   });
 
+  it('does not prefill default base url for inactive built-in providers', async () => {
+    const user = userEvent.setup();
+    const valueWithoutAnthropicBaseUrl = {
+      ...llmValue,
+      providers: {
+        ...llmValue.providers,
+        anthropic: {
+          ...llmValue.providers.anthropic,
+          base_url: '',
+        },
+      },
+    };
+
+    render(
+      <Form initialValues={{ llm: valueWithoutAnthropicBaseUrl }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.click((await screen.findByText('Anthropic')).closest('button') as HTMLButtonElement);
+
+    expect(screen.getByLabelText('llm.fields.baseUrl')).toHaveValue('');
+  });
+
   it('lets user switch the core scenario model and shows vision warning', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>
@@ -318,6 +342,67 @@ describe('config forms', () => {
 
     expect(screen.getAllByText('foo-1').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('foo-1');
+  });
+
+  it('puts api connection fields before model management for custom providers', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+
+    const apiKeyField = screen.getByLabelText('llm.fields.apiKey');
+    const baseUrlField = screen.getByLabelText('llm.fields.baseUrl');
+    const modelEntryField = screen.getByLabelText('llm.fields.modelManualEntry');
+
+    expect(
+      apiKeyField.compareDocumentPosition(modelEntryField) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      baseUrlField.compareDocumentPosition(modelEntryField) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('uses a selectable default model instead of free text for custom providers', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+
+    const defaultModelField = screen.getByLabelText('llm.fields.defaultModel');
+    expect(defaultModelField.tagName).toBe('SELECT');
+    expect(defaultModelField).toBeDisabled();
+
+    await user.type(screen.getByLabelText('llm.fields.modelManualEntry'), 'foo-1');
+    await user.click(screen.getByRole('button', { name: 'llm.actions.addModel' }));
+
+    expect(screen.getByLabelText('llm.fields.defaultModel').tagName).toBe('SELECT');
+    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('foo-1');
+  });
+
+  it('removes the ambiguous custom api format option', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+
+    const apiFormatSelect = screen.getByLabelText('llm.fields.apiFormat');
+
+    expect(within(apiFormatSelect).queryByRole('option', { name: 'llm.apiFormatOptions.custom' })).not.toBeInTheDocument();
   });
 
   it('fetches custom provider models on demand', async () => {

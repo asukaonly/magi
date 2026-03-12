@@ -61,6 +61,7 @@
     "title": "Provider Configuration",
     "desc": "Manage available providers and connection details here. Built-in providers show their model lists.",
     "availableModels": "Available Models",
+    "defaultModelEmpty": "Add models first",
     "referencedBy": "Currently used by",
     "customProviderHint": "Custom providers use the endpoint and API format you configure here.",
     "fetchModelsFailed": "Failed to fetch models. Check the Base URL, API key, and API format.",
