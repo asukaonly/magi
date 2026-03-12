@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import aiohttp
 import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -39,6 +40,8 @@ class LLMProviderConfigModel(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default=None)
+    custom_models: List[str] = Field(default_factory=list)
+    custom_default_model: Optional[str] = Field(default=None)
 
 
 class LLMSelectionConfigModel(BaseModel):
@@ -241,6 +244,18 @@ class LLMProviderRegistryResponse(BaseModel):
     success: bool
     message: str
     data: Optional[LLMProviderRegistryModel] = None
+
+
+class DiscoverLLMModelsRequestModel(BaseModel):
+    provider_type: str = Field(default="custom")
+    base_url: str
+    api_key: Optional[str] = Field(default=None)
+    api_format: Optional[str] = Field(default="openai")
+
+
+class DiscoverLLMModelsResponseModel(BaseModel):
+    models: List[str] = Field(default_factory=list)
+    default_model: Optional[str] = Field(default=None)
 
 
 class OnboardingTemplateDataModel(BaseModel):
@@ -502,6 +517,8 @@ def _build_llm_config_model(
             api_key=(_mask_api_key(api_key) if (mask_api_key and api_key) else api_key),
             base_url=provider.base_url,
             api_format=provider.api_format,
+            custom_models=list(getattr(provider, "custom_models", []) or []),
+            custom_default_model=getattr(provider, "custom_default_model", None),
         )
 
     selections: Dict[str, LLMSelectionConfigModel] = {}
@@ -684,6 +701,8 @@ def _build_onboarding_template() -> SystemConfigModel:
             display_name=provider_meta.display_name if provider_meta and provider_meta.display_name else provider_id.title(),
             api_key=_mask_api_key(env_api_key) if env_api_key else None,
             base_url=env_base_url or (provider_meta.default_base_url if provider_meta else None),
+            custom_models=[],
+            custom_default_model=None,
         )
         selected_model = env_model or (provider_meta.default_model if provider_meta and provider_meta.default_model else "gpt-4o-mini")
         for selection_id in ("context_decider", "core"):
@@ -702,6 +721,8 @@ def _build_onboarding_template() -> SystemConfigModel:
                 provider_type=primary.id,
                 display_name=primary.display_name or primary.id.title(),
                 base_url=primary.default_base_url,
+                custom_models=[],
+                custom_default_model=None,
             )
         }
         default_model = primary.default_model or "gpt-4o-mini"
@@ -717,6 +738,44 @@ def _build_onboarding_template() -> SystemConfigModel:
     template.preferences.onboarding_completed = False
     template.preferences.user_mode = None
     return template
+
+
+async def _discover_openai_compatible_models(
+    base_url: str,
+    api_key: Optional[str],
+    api_format: Optional[str],
+) -> List[str]:
+    if api_format not in (None, "", "openai"):
+        raise HTTPException(status_code=400, detail="Unsupported model discovery format")
+
+    endpoint = base_url.rstrip("/") + "/models"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    timeout = aiohttp.ClientTimeout(total=15)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(endpoint, headers=headers) as response:
+                if response.status >= 400:
+                    raise HTTPException(status_code=502, detail=f"Model discovery request failed with status {response.status}")
+                payload = await response.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to discover models: {exc}") from exc
+
+    data = payload.get("data", [])
+    if not isinstance(data, list):
+        raise HTTPException(status_code=502, detail="Model discovery response payload is invalid")
+
+    models: List[str] = []
+    for item in data:
+        if isinstance(item, dict):
+            model_id = item.get("id")
+            if isinstance(model_id, str) and model_id:
+                models.append(model_id)
+    return models
 
 
 @config_router.get("/", response_model=ConfigResponse)
@@ -772,6 +831,19 @@ async def get_llm_provider_registry():
         success=True,
         message="LLM provider registry loaded",
         data=_load_llm_provider_registry(),
+    )
+
+
+@config_router.post("/llm/providers/discover-models", response_model=DiscoverLLMModelsResponseModel)
+async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
+    models = await _discover_openai_compatible_models(
+        payload.base_url,
+        payload.api_key,
+        payload.api_format,
+    )
+    return DiscoverLLMModelsResponseModel(
+        models=models,
+        default_model=models[0] if models else None,
     )
 
 

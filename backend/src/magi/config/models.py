@@ -98,6 +98,15 @@ class LLMProviderSettings(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default=None)
+    custom_models: List[str] = Field(default_factory=list)
+    custom_default_model: Optional[str] = Field(default=None)
+
+    @model_validator(mode="after")
+    def validate_custom_model_defaults(self) -> "LLMProviderSettings":
+        if self.provider_type == LLMProvider.CUSTOM:
+            if self.custom_default_model and self.custom_default_model not in self.custom_models:
+                raise ValueError("Custom default model must exist in custom_models")
+        return self
 
 
 class LLMSelectionSettings(BaseModel):
