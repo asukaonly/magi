@@ -11,13 +11,6 @@ import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import { messagesApi } from '@/api';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useChatShellStore, useChatTraceStore, type ChatPanelType } from '@/stores';
@@ -118,6 +111,11 @@ export const ChatPage: React.FC = () => {
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
 
+  // Route detection variables
+  const isChatRoute = location.pathname === '/' || location.pathname === '/chat';
+  const isPersonalityRoute = location.pathname === '/personality';
+  const isMemoryRoute = location.pathname === '/events';
+
   const drawerOpen = useChatTraceStore((state) => state.drawerOpen);
   const activeTurnId = useChatTraceStore((state) => state.activeTurnId);
   const summaries = useChatTraceStore((state) => state.summaries);
@@ -163,10 +161,10 @@ export const ChatPage: React.FC = () => {
 
   const closePanel = useCallback(() => {
     setActivePanel('none');
-    if (location.pathname !== '/' && location.pathname !== '/chat') {
+    if (isPersonalityRoute || isMemoryRoute) {
       navigate('/chat');
     }
-  }, [location.pathname, navigate, setActivePanel]);
+  }, [isPersonalityRoute, isMemoryRoute, navigate, setActivePanel]);
 
   const preloadTraceSummaries = useCallback(
     (historyMessages: ChatTimelineMessage[]) => {
@@ -593,6 +591,19 @@ export const ChatPage: React.FC = () => {
     </motion.div>
   );
 
+  // Conditional rendering based on route
+  if (isPersonalityRoute) {
+    return (
+      <PersonalityModern />
+    );
+  }
+
+  if (isMemoryRoute) {
+    return (
+      <EventsPage />
+    );
+  }
+
   return (
     <div className="relative flex h-full min-h-0 flex-col px-3 pb-3 pt-2">
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
@@ -691,36 +702,6 @@ export const ChatPage: React.FC = () => {
       />
 
       <SettingsCenterDialog open={activePanel === 'settings'} onOpenChange={(open) => !open && closePanel()} />
-
-      <Sheet open={activePanel === 'personality'} onOpenChange={(open) => !open && closePanel()}>
-        <SheetContent
-          side="right"
-          className="!max-w-none flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0"
-        >
-          <SheetHeader className="border-b border-border/50 bg-muted/30 px-6 py-5">
-            <SheetTitle className="text-xl font-semibold tracking-tight text-foreground">{t('settings.tabs.personality')}</SheetTitle>
-            <SheetDescription className="text-sm text-muted-foreground">{t('settings.personalityDesc')}</SheetDescription>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <PersonalityModern />
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      <Sheet open={activePanel === 'memory'} onOpenChange={(open) => !open && closePanel()}>
-        <SheetContent
-          side="right"
-          className="!max-w-none flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0"
-        >
-          <SheetHeader className="border-b border-border/50 bg-muted/30 px-6 py-5">
-            <SheetTitle className="text-xl font-semibold tracking-tight text-foreground">{t('events.title')}</SheetTitle>
-            <SheetDescription className="text-sm text-muted-foreground">{t('events.subtitle')}</SheetDescription>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto p-5">
-            <EventsPage />
-          </div>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 };
