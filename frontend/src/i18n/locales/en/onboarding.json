@@ -55,21 +55,23 @@
   "llm": {
     "modelSelection": {
       "title": "Model Selection",
-      "desc": "Choose models per runtime scenario. For now we split intent detection and core conversation."
+      "desc": "Choose models per runtime scenario. For now we split intent detection and core conversation.",
+      "empty": "Enable at least one provider first, then come back to assign models."
     },
-  "providerConfiguration": {
-    "title": "Provider Configuration",
-    "desc": "Manage available providers and connection details here. Built-in providers show their model lists.",
-    "availableModels": "Available Models",
-    "defaultModelEmpty": "Add models first",
-    "referencedBy": "Currently used by",
-    "customProviderHint": "Custom providers use the endpoint and API format you configure here.",
-    "fetchModelsFailed": "Failed to fetch models. Check the Base URL, API key, and API format.",
-    "providerKinds": {
-      "builtin": "Built-in Provider",
-      "custom": "Custom Provider"
-    }
-  },
+    "providerConfiguration": {
+      "title": "Provider Configuration",
+      "desc": "Manage available providers and connection details here. Built-in providers show their model lists.",
+      "availableModels": "Available Models",
+      "defaultModelEmpty": "Add models first",
+      "referencedBy": "Currently used by",
+      "customProviderHint": "Custom providers use the endpoint and API format you configure here.",
+      "fetchModelsFailed": "Failed to fetch models. Check the Base URL, API key, and API format.",
+      "enableProviderFirst": "Enable at least one provider before continuing.",
+      "providerKinds": {
+        "builtin": "Built-in Provider",
+        "custom": "Custom Provider"
+      }
+    },
     "scenarios": {
       "context_decider": {
         "title": "Intent Model",
@@ -104,6 +106,7 @@
     "warnings": {
       "coreVisionMissing": "The current core model does not support image input. If chat receives images, runtime will return a clear error."
     },
+    "completeSelections": "Choose an enabled provider and model for each scenario before continuing.",
     "modelManualPlaceholder": "Enter a model ID, for example gpt-4.1",
     "customProviderDefaultName": "Custom Provider",
     "providerLabel": "Model Provider",

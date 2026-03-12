@@ -25,6 +25,23 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const { t } = useTranslation('onboarding');
   const enabledProviders = Object.entries(value.providers).filter(([, provider]) => provider.enabled);
 
+  if (enabledProviders.length === 0) {
+    return (
+      <section
+        data-testid="llm-model-selection-section"
+        className="space-y-4 border-t border-border/50 pt-6"
+      >
+        <div className="space-y-1">
+          <h3 className="text-lg font-semibold text-foreground">{t('llm.modelSelection.title')}</h3>
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.modelSelection.desc')}</p>
+        </div>
+        <div className="rounded-[24px] border border-border/60 bg-muted/35 p-5 text-sm text-muted-foreground">
+          {t('llm.modelSelection.empty')}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       data-testid="llm-model-selection-section"
@@ -48,7 +65,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             <article
               key={scenario}
               data-testid={`llm-scenario-${scenario}`}
-              className="space-y-4 rounded-[24px] border border-border/60 bg-[linear-gradient(180deg,rgba(255,252,248,0.94),rgba(245,239,231,0.72))] p-5 shadow-[0_16px_34px_-28px_rgba(120,76,36,0.4)]"
+              className="space-y-4 rounded-[24px] border border-border/60 bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--muted)/0.9))] p-5 shadow-[0_16px_34px_-28px_hsl(var(--foreground)/0.14)] dark:bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--background)/0.92))] dark:shadow-[0_20px_36px_-28px_rgba(0,0,0,0.62)]"
             >
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-3">
@@ -118,7 +135,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               </div>
 
               {scenario === 'core' && !selection.capabilities.vision ? (
-                <div className="flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <div className="flex items-start gap-2 rounded-xl border border-amber-400/45 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{t('llm.warnings.coreVisionMissing')}</span>
                 </div>

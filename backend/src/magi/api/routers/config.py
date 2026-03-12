@@ -690,26 +690,22 @@ def _build_onboarding_template() -> SystemConfigModel:
     registry = _load_llm_provider_registry()
 
     if registry.providers:
-        primary = registry.providers[0]
         template.llm.providers = {
-            primary.id: LLMProviderConfigModel(
-                enabled=True,
-                provider_type=primary.id,
-                display_name=primary.display_name or primary.id.title(),
+            provider.id: LLMProviderConfigModel(
+                enabled=False,
+                provider_type=provider.id,
+                display_name=provider.display_name or provider.id.title(),
                 base_url="",
                 custom_models=[],
                 custom_default_model=None,
             )
+            for provider in registry.providers
         }
-        default_model = primary.default_model or "gpt-4o-mini"
         for selection_id in ("context_decider", "core"):
             selection = template.llm.selections[selection_id]
-            selection.provider_id = primary.id
-            selection.model = default_model
-            resolved = resolve_llm_profile(selection, registry)
-            selection.capabilities = resolved.capabilities
-            selection.limits = resolved.limits
-            selection.provider_options = resolved.provider_options
+            selection.provider_id = ""
+            selection.model = ""
+            selection.provider_options = {}
 
     template.preferences.onboarding_completed = False
     template.preferences.user_mode = None

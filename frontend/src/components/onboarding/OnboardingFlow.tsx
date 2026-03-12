@@ -20,6 +20,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 type Mode = 'quick' | 'expert' | null;
 
 const STORAGE_KEY = 'magi_onboarding_state';
+const BUILTIN_SCENARIOS = ['context_decider', 'core'] as const;
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
 
 interface OnboardingFlowProps {
@@ -36,6 +37,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [saving, setSaving] = useState(false);
   const [renderLanguage, setRenderLanguage] = useState(i18n.resolvedLanguage || i18n.language);
   const activeLanguage = i18n.resolvedLanguage || i18n.language;
+  const isQuickMode = mode === 'quick';
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
 
   useEffect(() => {
@@ -161,6 +163,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     navigate('/');
   };
 
+  const hasEnabledProvider = (): boolean => {
+    const llmConfig = form.getFieldValue(['llm']);
+    return Object.values(llmConfig?.providers || {}).some((provider: any) => provider?.enabled);
+  };
+
+  const hasValidSelections = (): boolean => {
+    const llmConfig = form.getFieldValue(['llm']);
+    return BUILTIN_SCENARIOS.every((scenario) => {
+      const selection = llmConfig?.selections?.[scenario];
+      return Boolean(
+        selection?.provider_id &&
+        selection?.model &&
+        llmConfig?.providers?.[selection.provider_id]?.enabled
+      );
+    });
+  };
+
   const handleNext = async () => {
     if (current === 0) {
       const selectedLanguage = form.getFieldValue(['preferences', 'language']) || 'zh';
@@ -198,6 +217,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     try {
       setSaving(true);
       await form.validateFields();
+
+      if (current === 2 && !hasEnabledProvider()) {
+        toast.warning(t('llm.providerConfiguration.enableProviderFirst'));
+        return;
+      }
+
+      if (!isQuickMode && current === 3 && !hasValidSelections()) {
+        toast.warning(t('llm.completeSelections'));
+        return;
+      }
 
       if (isLastStep) {
         await handleFinish();
@@ -242,21 +271,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       return <div className="text-muted-foreground">{t('messages.chooseModeFirst')}</div>;
     }
 
-    const quickMode = mode === 'quick';
     const language = form.getFieldValue(['preferences', 'language']) || 'zh';
     const quickSteps = [2, 3, 4];
     const expertSteps = [2, 3, 4, 5, 6, 7];
 
-    if (quickMode && current === quickSteps[0]) return <LLMForm quickMode view="providers" />;
-    if (quickMode && current === quickSteps[1]) return <PersonalityForm quickMode language={language} />;
-    if (quickMode && current === quickSteps[2]) return <CompletionScreen onFinish={handleFinish} />;
+    if (isQuickMode && current === quickSteps[0]) return <LLMForm quickMode view="providers" />;
+    if (isQuickMode && current === quickSteps[1]) return <PersonalityForm quickMode language={language} />;
+    if (isQuickMode && current === quickSteps[2]) return <CompletionScreen onFinish={handleFinish} />;
 
-    if (!quickMode && current === expertSteps[0]) return <LLMForm quickMode={false} view="providers" />;
-    if (!quickMode && current === expertSteps[1]) return <LLMForm quickMode={false} view="models" />;
-    if (!quickMode && current === expertSteps[2]) return <PersonalityForm quickMode={false} language={language} />;
-    if (!quickMode && current === expertSteps[3]) return <MemoryForm />;
-    if (!quickMode && current === expertSteps[4]) return <ToolsForm />;
-    if (!quickMode && current === expertSteps[5]) return <CompletionScreen onFinish={handleFinish} />;
+    if (!isQuickMode && current === expertSteps[0]) return <LLMForm quickMode={false} view="providers" />;
+    if (!isQuickMode && current === expertSteps[1]) return <LLMForm quickMode={false} view="models" />;
+    if (!isQuickMode && current === expertSteps[2]) return <PersonalityForm quickMode={false} language={language} />;
+    if (!isQuickMode && current === expertSteps[3]) return <MemoryForm />;
+    if (!isQuickMode && current === expertSteps[4]) return <ToolsForm />;
+    if (!isQuickMode && current === expertSteps[5]) return <CompletionScreen onFinish={handleFinish} />;
 
     return null;
   };

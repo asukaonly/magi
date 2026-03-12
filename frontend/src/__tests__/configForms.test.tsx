@@ -327,6 +327,69 @@ describe('config forms', () => {
     expect(screen.getByText('llm.warnings.coreVisionMissing')).toBeInTheDocument();
   });
 
+  it('does not auto-select a provider or model when onboarding starts with all providers disabled', async () => {
+    const onChange = vi.fn();
+    const blankValue = {
+      providers: {},
+      selections: {
+        context_decider: {
+          provider_id: '',
+          model: '',
+          capability_override_enabled: false,
+          capabilities: {
+            vision: false,
+            image_output: false,
+            tool_calling: true,
+            reasoning: true,
+            embedding: false,
+          },
+          limits: {
+            context_window: null,
+            max_output_tokens: null,
+          },
+          provider_options: {},
+        },
+        core: {
+          provider_id: '',
+          model: '',
+          capability_override_enabled: false,
+          capabilities: {
+            vision: false,
+            image_output: false,
+            tool_calling: true,
+            reasoning: true,
+            embedding: false,
+          },
+          limits: {
+            context_window: null,
+            max_output_tokens: null,
+          },
+          provider_options: {},
+        },
+      },
+    };
+
+    render(<LLMForm quickMode={false} value={blankValue} onChange={onChange} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('llm.providerConfiguration.title')).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+    });
+
+    const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+
+    expect(latest.providers.openai.enabled).toBe(false);
+    expect(latest.providers.anthropic.enabled).toBe(false);
+    expect(latest.providers.glm.enabled).toBe(false);
+    expect(latest.selections.context_decider.provider_id).toBe('');
+    expect(latest.selections.context_decider.model).toBe('');
+    expect(latest.selections.core.provider_id).toBe('');
+    expect(latest.selections.core.model).toBe('');
+  });
+
   it('lets users add a custom provider model manually', async () => {
     const user = userEvent.setup();
 

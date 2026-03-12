@@ -55,21 +55,23 @@
   "llm": {
     "modelSelection": {
       "title": "模型选择",
-      "desc": "为不同场景挑选对应模型。当前先区分意图识别和核心对话。"
+      "desc": "为不同场景挑选对应模型。当前先区分意图识别和核心对话。",
+      "empty": "请先启用至少一个供应商，再回来选择模型。"
     },
-  "providerConfiguration": {
-    "title": "供应商配置",
-    "desc": "在这里维护可用供应商和连接信息。内置供应商会展示可用模型列表。",
-    "availableModels": "可用模型",
-    "defaultModelEmpty": "请先添加模型",
-    "referencedBy": "当前被以下场景使用",
-    "customProviderHint": "自定义供应商会按你填写的 endpoint 和格式工作。",
-    "fetchModelsFailed": "拉取模型失败，请检查 Base URL、API Key 和接口格式。",
-    "providerKinds": {
-      "builtin": "内置供应商",
-      "custom": "自定义供应商"
-    }
-  },
+    "providerConfiguration": {
+      "title": "供应商配置",
+      "desc": "在这里维护可用供应商和连接信息。内置供应商会展示可用模型列表。",
+      "availableModels": "可用模型",
+      "defaultModelEmpty": "请先添加模型",
+      "referencedBy": "当前被以下场景使用",
+      "customProviderHint": "自定义供应商会按你填写的 endpoint 和格式工作。",
+      "fetchModelsFailed": "拉取模型失败，请检查 Base URL、API Key 和接口格式。",
+      "enableProviderFirst": "请至少启用一个供应商后再继续。",
+      "providerKinds": {
+        "builtin": "内置供应商",
+        "custom": "自定义供应商"
+      }
+    },
     "scenarios": {
       "context_decider": {
         "title": "意图识别模型",
@@ -104,6 +106,7 @@
     "warnings": {
       "coreVisionMissing": "当前核心模型不支持图片输入。如果聊天中上传图片，会在运行时返回明确错误提示。"
     },
+    "completeSelections": "请先为每个场景选择已启用的供应商和模型，再继续下一步。",
     "modelManualPlaceholder": "输入模型 ID，例如 gpt-4.1",
     "customProviderDefaultName": "自定义供应商",
     "providerLabel": "模型提供商",

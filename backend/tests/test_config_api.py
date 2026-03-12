@@ -100,7 +100,6 @@ def test_onboarding_template_includes_timeline_defaults():
 
     assert template.timeline.sources.browser_history.fetch_page_content is False
     assert template.timeline.sources.manual_journal.default_retention_mode == "retain_raw"
-    assert "openai" in template.llm.providers
     assert "core" in template.llm.selections
 
 
@@ -163,7 +162,7 @@ def test_onboarding_template_includes_model_capability_defaults():
     template = _build_onboarding_template()
 
     assert template.llm.selections["core"].capabilities.tool_calling is True
-    assert template.llm.selections["core"].limits.max_output_tokens is not None
+    assert template.llm.selections["core"].limits.max_output_tokens is None
 
 
 def test_onboarding_template_ignores_llm_environment_variables(monkeypatch: pytest.MonkeyPatch):
@@ -174,10 +173,11 @@ def test_onboarding_template_ignores_llm_environment_variables(monkeypatch: pyte
 
     template = _build_onboarding_template()
 
-    assert list(template.llm.providers.keys()) == ["openai"]
-    assert template.llm.providers["openai"].api_key in (None, "")
-    assert template.llm.selections["core"].provider_id == "openai"
-    assert template.llm.selections["core"].model == "gpt-5.2"
+    assert template.llm.providers
+    assert all(provider.enabled is False for provider in template.llm.providers.values())
+    assert all(provider.api_key in (None, "") for provider in template.llm.providers.values())
+    assert template.llm.selections["core"].provider_id == ""
+    assert template.llm.selections["core"].model == ""
 
 
 def test_example_config_uses_scenario_llm_structure():

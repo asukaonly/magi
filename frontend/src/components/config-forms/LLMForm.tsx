@@ -53,7 +53,7 @@ const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderConfig =>
 });
 
 const cloneSelection = (value?: Partial<LLMSelectionConfig>): LLMSelectionConfig => ({
-  provider_id: value?.provider_id || 'openai',
+  provider_id: value?.provider_id || '',
   model: value?.model || '',
   capability_override_enabled: Boolean(value?.capability_override_enabled),
   capabilities: cloneCapabilities(value?.capabilities),
@@ -148,20 +148,31 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
     }
   }
 
-  const firstEnabledProviderId =
-    Object.entries(next.providers).find(([, provider]) => provider.enabled)?.[0] || registry.providers[0]?.id || 'openai';
+  const firstEnabledProviderId = Object.entries(next.providers).find(([, provider]) => provider.enabled)?.[0] || '';
 
   for (const scenario of BUILTIN_SCENARIOS) {
     const selection = cloneSelection(next.selections[scenario]);
-    const selectedProvider =
-      next.providers[selection.provider_id] && next.providers[selection.provider_id].enabled
-        ? next.providers[selection.provider_id]
-        : next.providers[firstEnabledProviderId];
+    const hasEnabledSelection =
+      Boolean(selection.provider_id) &&
+      Boolean(next.providers[selection.provider_id]?.enabled);
 
-    selection.provider_id =
-      next.providers[selection.provider_id] && next.providers[selection.provider_id].enabled
-        ? selection.provider_id
-        : firstEnabledProviderId;
+    if (!firstEnabledProviderId) {
+      selection.provider_id = '';
+      selection.model = '';
+      if (!selection.capability_override_enabled) {
+        selection.capabilities = cloneCapabilities();
+        selection.limits = cloneLimits();
+        selection.provider_options = {};
+      }
+      next.selections[scenario] = selection;
+      continue;
+    }
+
+    const selectedProvider = hasEnabledSelection
+      ? next.providers[selection.provider_id]
+      : next.providers[firstEnabledProviderId];
+
+    selection.provider_id = hasEnabledSelection ? selection.provider_id : firstEnabledProviderId;
 
     applySelectionDefaults(selection, registry, selectedProvider);
     next.selections[scenario] = selection;
