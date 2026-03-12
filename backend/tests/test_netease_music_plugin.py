@@ -536,3 +536,97 @@ async def test_build_timeline_event_marks_liked():
 
     assert "liked" in liked_event.tags
     assert "liked" not in not_liked_event.tags
+
+
+# Tests for NeteaseMusicPlugin
+import sys
+from pathlib import Path
+
+# Add plugins directory to sys.path to import plugin
+_plugins_path = Path(__file__).resolve().parents[2] / "plugins"
+if str(_plugins_path) not in sys.path:
+    sys.path.insert(0, str(_plugins_path))
+
+from magi.config.models import AppConfig, PluginSettings
+from magi.plugins.actions import ActionRegistry
+from magi.plugins.manager import PluginManager
+from magi.plugins.sensors import SensorRegistry
+from magi.timeline import SensorSyncContext
+from magi.tools.registry import ToolRegistry
+from magi.utils.runtime import Runtimepaths
+from netease_music.plugin import NeteaseMusicPlugin, DEFAULT_SETTINGS
+
+
+def test_default_settings():
+    """Test that default settings are correctly defined."""
+    assert isinstance(DEFAULT_SETTINGS, dict)
+    assert "enabled" in DEFAULT_SETTINGS
+    assert "sync_mode" in DEFAULT_SETTINGS
+    assert "sync_interval_minutes" in DEFAULT_SETTINGS
+    assert "min_play_duration" in DEFAULT_SETTINGS
+    assert "db_path" in DEFAULT_SETTINGS
+    assert "default_retention_mode" in DEFAULT_SETTINGS
+    assert "storage_mode" in DEFAULT_SETTINGS
+    assert "initial_sync_policy" in DEFAULT_SETTINGS
+
+    # Check default values
+    assert DEFAULT_SETTINGS["enabled"] is False
+    assert DEFAULT_SETTINGS["sync_mode"] == "manual"
+    assert DEFAULT_SETTINGS["sync_interval_minutes"] == 30
+    assert DEFAULT_SETTINGS["min_play_duration"] == 20
+    assert DEFAULT_SETTINGS["default_retention_mode"] == "analyze_only"
+    assert DEFAULT_SETTINGS["storage_mode"] == "managed"
+    assert DEFAULT_SETTINGS["initial_sync_policy"] == "from_now"
+
+
+def test_plugin_get_sensors():
+    """Test that NeteaseMusicPlugin returns correct sensor specification."""
+    plugin = NeteaseMusicPlugin()
+
+    sensors = plugin.get_sensors()
+
+    # Should return one sensor
+    assert len(sensors) == 1
+
+    # Check sensor details
+    sensor_id, sensor_instance, sensor_spec = sensors[0]
+    assert sensor_id == "timeline.netease_music"
+    assert isinstance(sensor_instance, NeteaseMusicTimelineSensor)
+    assert sensor_spec.sensor_id == "timeline.netease_music"
+    assert sensor_spec.display_name == "NetEase Cloud Music"
+    assert sensor_spec.description == "Local NetEase Cloud Music play history ingestion for the timeline."
+    assert sensor_spec.domain == "timeline"
+    assert sensor_spec.surface == "timeline"
+    assert "default_settings" in sensor_spec.metadata
+    assert sensor_spec.metadata["default_settings"] == DEFAULT_SETTINGS
+
+
+def test_plugin_get_sensors_with_settings():
+    """Test that NeteaseMusicPlugin correctly applies settings from configuration."""
+    plugin = NeteaseMusicPlugin()
+
+    # Test with custom settings
+    test_settings = {
+        "sensors": {
+            "netease_music": {
+                "enabled": True,
+                "sync_mode": "interval",
+                "sync_interval_minutes": 60,
+                "min_play_duration": 30,
+                "db_path": "/custom/path.db",
+                "default_retention_mode": "full",
+                "storage_mode": "local",
+                "initial_sync_policy": "full"
+            }
+        }
+    }
+    plugin.settings = test_settings
+
+    sensors = plugin.get_sensors()
+    sensor_id, sensor_instance, sensor_spec = sensors[0]
+
+    # Check that settings were applied
+    assert sensor_spec.sync_mode == "interval"
+
+    # The sensor instance should have been created with custom settings
+    assert sensor_instance.min_play_duration == 30

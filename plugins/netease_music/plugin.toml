@@ -1,79 +1,10 @@
-plugin_id = "netease-music"
+[plugin]
+id = "netease-music"
 name = "NetEase Cloud Music"
 version = "0.1.0"
-description = "Read play history from local NetEase Cloud Music SQLite database"
-author = "Magi Contributors"
-homepage = "https://github.com/magi-project/magi"
-
-[activation]
-source = "builtin"
+description = "Local NetEase Cloud Music play history ingestion for the timeline."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "NeteaseMusicPlugin"
 official = true
-
-[[sensors]]
-id = "netease_music"
-name = "NetEase Cloud Music Play History"
-display_name = "NetEase Cloud Music"
-description = "Read your play history from local NetEase Cloud Music database"
-category = "media"
-source_type = "netease_music"
-
-[[sensors.fields]]
-key = "sensors.netease_music.enabled"
-name = "Enabled"
-type = "boolean"
-default = false
-
-[[sensors.fields]]
-key = "sensors.netease_music.db_path"
-name = "Database Path"
-type = "string"
-default = ""
-placeholder = "Path to local.db file"
-
-[[sensors.fields]]
-key = "sensors.netease_music.sync_interval_minutes"
-name = "Sync Interval"
-type = "number"
-default = 30
-min = 1
-max = 1440
-
-[[sensors.fields]]
-key = "sensors.netease_music.lookback_hours"
-name = "Lookback Hours"
-type = "number"
-default = 24
-min = 1
-max = 168
-
-[[sensors.fields]]
-key = "sensors.netease_music.max_items_per_sync"
-name = "Max Items per Sync"
-type = "number"
-default = 100
-min = 1
-max = 1000
-
-[sensors.activation_flow]
-enabled_key = "sensors.netease_music.enabled"
-configured_key = "sensors.netease_music.initial_sync_configured"
-initial_sync_policy = "backfill"
-initial_sync_lookback_days = 7
-
-[sensors.activation_flow.fields]
-key = "sensors.netease_music.initial_sync_policy"
-name = "Initial Sync Policy"
-type = "select"
-options = [
-    { value = "backfill", label = "Backfill all history" },
-    { value = "from_now", label = "Only new going forward" }
-]
-default = "backfill"
-
-[[sensors.activation_flow.fields]]
-key = "sensors.netease_music.initial_sync_lookback_days"
-name = "Initial Sync Lookback Days"
-type = "number"
-default = 7
-min = 1
-max = 365
+contribution_types = ["sensor"]
