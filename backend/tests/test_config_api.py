@@ -303,3 +303,48 @@ def test_llm_provider_test_endpoint_uses_request_provider_payload(monkeypatch: p
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-5.2",
     }
+
+
+def test_llm_provider_test_endpoint_falls_back_to_registry_default_base_url(monkeypatch: pytest.MonkeyPatch):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    captured: dict[str, object] = {}
+
+    async def _fake_probe(provider_id: str, provider, model: str):  # type: ignore[no-untyped-def]
+        captured["provider_id"] = provider_id
+        captured["provider_type"] = provider.provider_type
+        captured["base_url"] = provider.base_url
+        captured["model"] = model
+        return {"model": model, "latency_ms": 12, "preview": "hello"}
+
+    monkeypatch.setattr(
+        "magi.api.routers.config._test_llm_provider_connection",
+        _fake_probe,
+        raising=False,
+    )
+
+    response = client.post(
+        "/config/llm/providers/test",
+        json={
+            "provider_id": "glm",
+            "model": "glm-4.7-flash",
+            "provider": {
+                "enabled": True,
+                "provider_type": "glm",
+                "display_name": "GLM",
+                "api_key": "glm-key",
+                "base_url": "",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert captured == {
+        "provider_id": "glm",
+        "provider_type": "glm",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "glm-4.7-flash",
+    }

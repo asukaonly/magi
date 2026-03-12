@@ -10,6 +10,11 @@ from ..llm import create_llm_adapter
 
 
 AdapterFactory = Callable[..., object]
+BUILTIN_DEFAULT_BASE_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com/v1",
+    "glm": "https://open.bigmodel.cn/api/paas/v4",
+}
 
 
 def _resolve_runtime_provider_type(provider: LLMProviderSettings) -> str:
@@ -23,11 +28,19 @@ def _resolve_runtime_provider_type(provider: LLMProviderSettings) -> str:
     raise ValueError(f"Unsupported custom provider api_format: {provider.api_format}")
 
 
+def _resolve_default_base_url(provider: LLMProviderSettings, explicit_default: str | None = None) -> str | None:
+    provider_type = str(getattr(provider.provider_type, "value", provider.provider_type))
+    if explicit_default:
+        return explicit_default
+    return BUILTIN_DEFAULT_BASE_URLS.get(provider_type)
+
+
 def build_adapter_from_provider(
     provider: LLMProviderSettings,
     *,
     model: str,
     timeout: int = 60,
+    default_base_url: str | None = None,
     adapter_factory: AdapterFactory = create_llm_adapter,
 ) -> object:
     """Build a temporary adapter from provider settings."""
@@ -42,7 +55,7 @@ def build_adapter_from_provider(
         provider_type=_resolve_runtime_provider_type(provider),
         api_key=(provider.api_key or "").strip(),
         model=model.strip(),
-        base_url=(provider.base_url or "").strip() or None,
+        base_url=(provider.base_url or "").strip() or _resolve_default_base_url(provider, default_base_url) or None,
         timeout=timeout,
     )
 
@@ -51,6 +64,7 @@ def resolve_adapter_for_scenario(
     scenario: LLMScenario,
     *,
     llm_settings: LLMSettings | None = None,
+    default_base_url: str | None = None,
     adapter_factory: AdapterFactory = create_llm_adapter,
 ) -> object:
     """Resolve an adapter from draft settings or persisted config."""
@@ -71,5 +85,6 @@ def resolve_adapter_for_scenario(
         provider,
         model=selection.model,
         timeout=effective_settings.timeout,
+        default_base_url=default_base_url,
         adapter_factory=adapter_factory,
     )

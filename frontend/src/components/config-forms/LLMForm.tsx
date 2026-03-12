@@ -82,6 +82,18 @@ const getProviderModels = (registry: LLMProviderRegistry, providerId?: string) =
 
 const getCustomProviderModels = (provider?: LLMProviderConfig): string[] => provider?.custom_models || [];
 
+const resolveProviderActionBaseUrl = (
+  registry: LLMProviderRegistry,
+  providerId: string,
+  provider: LLMProviderConfig | undefined
+): string => {
+  const configured = (provider?.base_url || '').trim();
+  if (configured) {
+    return configured;
+  }
+  return getProviderMeta(registry, providerId)?.default_base_url || '';
+};
+
 const resolveProviderDefaultModel = (
   registry: LLMProviderRegistry,
   provider: LLMProviderConfig | undefined
@@ -429,9 +441,13 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, view = 'all', valu
     }));
 
     try {
+      const effectiveProvider = {
+        ...provider,
+        base_url: resolveProviderActionBaseUrl(registry, providerId, provider),
+      };
       const response = await configApi.testLLMProviderConnection({
         provider_id: providerId,
-        provider,
+        provider: effectiveProvider,
         model,
       });
 

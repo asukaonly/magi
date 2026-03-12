@@ -21,6 +21,7 @@ vi.mock('../api/modules/config', async () => {
               display_name: 'OpenAI',
               description: 'General purpose',
               default_model: 'gpt-5.2',
+              default_base_url: 'https://api.openai.com/v1',
               models: [
                 {
                   id: 'gpt-5.2',
@@ -65,6 +66,7 @@ vi.mock('../api/modules/config', async () => {
               display_name: 'Anthropic',
               description: 'Reasoning',
               default_model: 'claude-sonnet-4-6',
+              default_base_url: 'https://api.anthropic.com/v1',
               models: [
                 {
                   id: 'claude-sonnet-4-6',
@@ -93,6 +95,7 @@ vi.mock('../api/modules/config', async () => {
               display_name: 'GLM',
               description: 'Fast',
               default_model: 'glm-5',
+              default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
               models: [
                 {
                   id: 'glm-5',
@@ -521,6 +524,54 @@ describe('config forms', () => {
     });
 
     expect(screen.getByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
+  });
+
+  it('uses the registry default base url when testing a built-in provider with a blank field', async () => {
+    const user = userEvent.setup();
+    const glmWithoutBaseUrl = {
+      ...llmValue,
+      selections: {
+        ...llmValue.selections,
+        context_decider: {
+          ...llmValue.selections.context_decider,
+          provider_id: 'glm',
+          model: 'glm-5',
+        },
+        core: {
+          ...llmValue.selections.core,
+          provider_id: 'glm',
+          model: 'glm-5',
+        },
+      },
+      providers: {
+        ...llmValue.providers,
+        glm: {
+          ...llmValue.providers.glm,
+          base_url: '',
+        },
+      },
+    };
+
+    render(
+      <Form initialValues={{ llm: glmWithoutBaseUrl }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    const providerList = await screen.findByTestId('llm-provider-list-pane');
+    await user.click((within(providerList).getByText('GLM') as HTMLElement).closest('button') as HTMLButtonElement);
+    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
+
+    await waitFor(() => {
+      expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith({
+        provider_id: 'glm',
+        model: 'glm-5',
+        provider: expect.objectContaining({
+          provider_type: 'glm',
+          base_url: 'https://open.bigmodel.cn/api/paas/v4',
+        }),
+      });
+    });
   });
 
   it('memory form disables l2-l5 when l1 off', async () => {

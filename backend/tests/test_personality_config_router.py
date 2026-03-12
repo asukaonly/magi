@@ -130,3 +130,49 @@ async def test_ai_generate_personality_prefers_llm_override(monkeypatch) -> None
         "base_url": "https://relay.example.com",
         "timeout": 60,
     }
+
+
+@pytest.mark.asyncio
+async def test_ai_generate_personality_uses_registry_default_base_url_for_builtin_override(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    captured: dict[str, object] = {}
+
+    class _OverrideAdapter(_FakeLLMAdapter):
+        provider_name = "glm"
+        model_name = "glm-4.7-flash"
+
+    def _fake_create_llm_adapter(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return _OverrideAdapter()
+
+    monkeypatch.setattr(personality_config, "create_llm_adapter", _fake_create_llm_adapter)
+
+    result = await personality_config.ai_generate_personality(
+        "一个冷静可靠的助手",
+        target_language="Chinese",
+        llm_override=LLMSettings(
+            providers={
+                "glm": LLMProviderSettings(
+                    enabled=True,
+                    provider_type="glm",
+                    display_name="GLM",
+                    api_key="glm-key",
+                    base_url="",
+                )
+            },
+            selections={
+                "context_decider": LLMSelectionSettings(provider_id="glm", model="glm-4.7-flash"),
+                "core": LLMSelectionSettings(provider_id="glm", model="glm-4.7-flash"),
+            },
+        ),
+    )
+
+    assert result.persona_entity.basic_profile.name == "Astra"
+    assert captured == {
+        "provider_type": "glm",
+        "api_key": "glm-key",
+        "model": "glm-4.7-flash",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "timeout": 60,
+    }

@@ -20,6 +20,7 @@ from ...config.llm_registry import (
     LLMProviderFieldModel,
     LLMProviderMetaModel,
     LLMProviderRegistryModel,
+    find_provider_meta,
     load_llm_provider_registry,
     resolve_llm_profile,
 )
@@ -853,9 +854,11 @@ async def _test_llm_provider_connection(
     model: str,
 ) -> Dict[str, Any]:
     runtime_provider = LLMProviderSettings.model_validate(provider.model_dump())
+    registry_meta = find_provider_meta(_load_llm_provider_registry(), provider_id)
     adapter = build_adapter_from_provider(
         runtime_provider,
         model=model,
+        default_base_url=registry_meta.default_base_url if registry_meta else None,
         adapter_factory=create_llm_adapter,
     )
     bridge = LLMProviderBridge(adapter)
@@ -880,10 +883,14 @@ async def _test_llm_provider_connection(
 
 @config_router.post("/llm/providers/test", response_model=TestLLMProviderApiResponseModel)
 async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
+    registry_meta = find_provider_meta(_load_llm_provider_registry(), payload.provider_id)
+    provider_payload = payload.provider.model_copy(deep=True)
+    if not (provider_payload.base_url or "").strip() and registry_meta and registry_meta.default_base_url:
+        provider_payload.base_url = registry_meta.default_base_url
     try:
         result = await _test_llm_provider_connection(
             payload.provider_id,
-            payload.provider,
+            provider_payload,
             payload.model,
         )
     except ValueError as exc:
