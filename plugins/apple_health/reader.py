@@ -5,8 +5,8 @@ import sys
 from datetime import datetime
 from typing import Any, Optional
 
-from apple_health.exceptions import PlatformNotSupportedError
-from apple_health.types import HEALTH_DATA_TYPES, HealthDataType
+from plugins.apple_health.exceptions import PlatformNotSupportedError
+from plugins.apple_health.types import HEALTH_DATA_TYPES, HealthDataType
 
 
 class HealthKitReader:

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import pytest
+import sys
 from datetime import datetime, date
+from unittest.mock import MagicMock, patch
 
 # Add plugins directory to sys.path to import plugins
 from pathlib import Path
-import sys
 
 _plugins_path = Path(__file__).resolve().parents[2] / "plugins"
 if str(_plugins_path) not in sys.path:
@@ -27,6 +28,7 @@ from apple_health.exceptions import (
     HealthKitQueryError,
 )
 from apple_health.reader import HealthKitReader
+from apple_health.plugin import DEFAULT_SETTINGS, _fields, _get_enabled_types_from_settings, AppleHealthPlugin
 
 
 def test_health_data_type_creation():
@@ -740,3 +742,279 @@ class TestHealthKitReaderPlatform:
 
         # The cache should be set
         assert reader._is_available is False
+
+
+class TestAppleHealthPlugin:
+    """Test AppleHealthPlugin class."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        # Store original sys.platform
+        self.original_platform = sys.platform
+
+    def teardown_method(self):
+        """Clean up after tests."""
+        # Restore original platform
+        sys.platform = self.original_platform
+
+    def test_default_settings_structure(self):
+        """Test that DEFAULT_SETTINGS contains all required fields."""
+        assert isinstance(DEFAULT_SETTINGS, dict)
+
+        # Check required fields exist
+        required_fields = [
+            "enabled", "sync_mode", "sync_interval_hours", "lookback_days",
+            "types", "default_retention_mode", "storage_mode"
+        ]
+
+        for field in required_fields:
+            assert field in DEFAULT_SETTINGS
+
+        # Check types substructure
+        types_config = DEFAULT_SETTINGS["types"]
+        assert isinstance(types_config, dict)
+
+        expected_types = [
+            "steps", "sleep", "heart_rate", "distance",
+            "flights", "active_energy", "workout"
+        ]
+
+        for health_type in expected_types:
+            assert health_type in types_config
+            assert isinstance(types_config[health_type], bool)
+
+        # Check default values
+        assert DEFAULT_SETTINGS["enabled"] is False
+        assert DEFAULT_SETTINGS["sync_mode"] == "manual"
+        assert DEFAULT_SETTINGS["sync_interval_hours"] == 1
+        assert DEFAULT_SETTINGS["lookback_days"] == 7
+        assert DEFAULT_SETTINGS["default_retention_mode"] == "analyze_only"
+        assert DEFAULT_SETTINGS["storage_mode"] == "managed"
+
+    def test_default_enabled_types(self):
+        """Test that default enabled types are configured correctly."""
+        # Test with no settings (should use defaults)
+        enabled_types = _get_enabled_types_from_settings({})
+
+        # Should only have types that are True in DEFAULT_SETTINGS["types"]
+        default_enabled = [
+            "steps", "sleep"  # These are True in DEFAULT_SETTINGS["types"]
+        ]
+
+        assert set(enabled_types) == set(default_enabled)
+        assert len(enabled_types) == 2
+
+    def test_plugin_returns_empty_on_non_darwin(self):
+        """Test that plugin returns empty list on non-darwin platforms."""
+        # Set platform to non-darwin
+        sys.platform = 'linux'
+
+        try:
+            plugin = AppleHealthPlugin()
+
+            sensors = plugin.get_sensors()
+
+            # Should return empty list for non-darwin
+            assert len(sensors) == 0
+        finally:
+            # Restore original platform
+            sys.platform = self.original_platform
+
+    def test_plugin_returns_empty_when_healthkit_unavailable(self):
+        """Test that plugin returns empty list when HealthKit is not available."""
+        # Set platform to darwin
+        sys.platform = 'darwin'
+
+        try:
+            plugin = AppleHealthPlugin()
+
+            with patch.object(HealthKitReader, 'is_available', return_value=False):
+                sensors = plugin.get_sensors()
+
+                # Should return empty list when HealthKit not available
+                assert len(sensors) == 0
+        finally:
+            # Restore original platform
+            sys.platform = self.original_platform
+
+    def test_plugin_returns_empty_when_no_types_enabled(self):
+        """Test that plugin returns empty list when no types are enabled."""
+        # Set platform to darwin
+        sys.platform = 'darwin'
+
+        try:
+            plugin = AppleHealthPlugin()
+            plugin.settings = {"sensors": {"apple_health": {"types": {}}}}
+
+            with patch.object(HealthKitReader, 'is_available', return_value=True):
+                sensors = plugin.get_sensors()
+
+                # Should return empty list when no types enabled
+                assert len(sensors) == 0
+        finally:
+            # Restore original platform
+            sys.platform = self.original_platform
+
+    def test_plugin_returns_correct_sensor_spec_on_macos(self):
+        """Test that plugin returns correct sensor spec on macOS with mock reader."""
+        # Monkey patch the is_available method
+        original_is_available = HealthKitReader.is_available
+        HealthKitReader.is_available = lambda x: True
+
+        try:
+            # Set platform to darwin
+            sys.platform = 'darwin'
+
+            plugin = AppleHealthPlugin()
+            plugin.settings = {"sensors": {"apple_health": {}}}
+
+            sensors = plugin.get_sensors()
+
+            # Should return one sensor
+            assert len(sensors) == 1
+
+            sensor_id, sensor_instance, sensor_spec = sensors[0]
+
+            # Check sensor details
+            assert sensor_id == "timeline.apple_health"
+            assert hasattr(sensor_instance, 'sensor_id')
+            assert sensor_spec.sensor_id == "timeline.apple_health"
+            assert sensor_spec.display_name == "Apple Health"
+            assert sensor_spec.description == "Apple Health data ingestion for the timeline."
+            assert sensor_spec.domain == "timeline"
+            assert sensor_spec.surface == "timeline"
+            assert sensor_spec.sync_mode == "interval"  # default
+            assert sensor_spec.polling_mode == "interval"
+
+            # Check metadata
+            assert "default_settings" in sensor_spec.metadata
+            assert sensor_spec.metadata["default_settings"] == DEFAULT_SETTINGS
+        finally:
+            # Restore original method
+            HealthKitReader.is_available = original_is_available
+            # Restore original platform
+            sys.platform = self.original_platform
+
+    def test_plugin_applies_settings_correctly(self):
+        """Test that plugin correctly applies settings from configuration."""
+        # Set platform to darwin
+        sys.platform = 'darwin'
+
+        try:
+            plugin = AppleHealthPlugin()
+
+            # Test with custom settings
+            test_settings = {
+                "sensors": {
+                    "apple_health": {
+                        "enabled": True,
+                        "sync_mode": "interval",
+                        "sync_interval_hours": 2,
+                        "lookback_days": 14,
+                        "types": {
+                            "steps": True,
+                            "sleep": False,
+                            "heart_rate": True,
+                            "distance": False,
+                            "flights": False,
+                            "active_energy": False,
+                            "workout": False,
+                        },
+                        "default_retention_mode": "full",
+                        "storage_mode": "local"
+                    }
+                }
+            }
+            plugin.settings = test_settings
+
+            # Monkey patch the is_available method
+            original_is_available = HealthKitReader.is_available
+            HealthKitReader.is_available = lambda x: True
+
+            try:
+                sensors = plugin.get_sensors()
+
+                # Should return one sensor
+                assert len(sensors) == 1
+
+                sensor_id, sensor_instance, sensor_spec = sensors[0]
+
+                # Check that settings were applied
+                assert sensor_spec.sync_mode == "interval"
+                assert sensor_spec.metadata["default_settings"] == DEFAULT_SETTINGS
+            finally:
+                # Restore original method
+                HealthKitReader.is_available = original_is_available
+        finally:
+            # Restore original platform
+            sys.platform = self.original_platform
+
+    def test_fields_returns_correct_specs(self):
+        """Test that _fields returns correct ExtensionFieldSpec objects."""
+        fields = _fields("test_prefix")
+
+        # Should return a list of ExtensionFieldSpec objects
+        assert isinstance(fields, list)
+        assert len(fields) > 0
+
+        # Check first field is an ExtensionFieldSpec
+        first_field = fields[0]
+        assert hasattr(first_field, 'key')
+        assert hasattr(first_field, 'type')
+        assert hasattr(first_field, 'label')
+        assert hasattr(first_field, 'description')
+        assert hasattr(first_field, 'default')
+
+        # Check that all type toggles are present
+        type_fields = [f for f in fields if f.type == "switch" and f.key.endswith(('.steps', '.sleep', '.heart_rate', '.distance', '.flights', '.active_energy', '.workout'))]
+        expected_type_count = 7  # Number of health data types
+        assert len(type_fields) == expected_type_count
+
+    def test_get_enabled_types_from_settings_with_types_config(self):
+        """Test _get_enabled_types_from_settings with types configuration."""
+        settings = {
+            "sensors": {
+                "apple_health": {
+                    "types": {
+                        "steps": True,
+                        "sleep": True,
+                        "heart_rate": True,
+                        "distance": False,
+                        "flights": False,
+                        "active_energy": False,
+                        "workout": False,
+                    }
+                }
+            }
+        }
+
+        enabled_types = _get_enabled_types_from_settings(settings)
+
+        # Should return only enabled types
+        assert set(enabled_types) == {"steps", "sleep", "heart_rate"}
+        assert len(enabled_types) == 3
+
+    def test_get_enabled_types_from_settings_empty_types(self):
+        """Test _get_enabled_types_from_settings with empty types."""
+        settings = {
+            "sensors": {
+                "apple_health": {
+                    "types": {}
+                }
+            }
+        }
+
+        enabled_types = _get_enabled_types_from_settings(settings)
+
+        # Should return empty list
+        assert len(enabled_types) == 0
+
+    def test_get_enabled_types_from_settings_no_types_key(self):
+        """Test _get_enabled_types_from_settings when types key is missing."""
+        settings = {}
+
+        enabled_types = _get_enabled_types_from_settings(settings)
+
+        # Should return default enabled types
+        assert len(enabled_types) == 2  # steps and sleep are True by default
+        assert set(enabled_types) == {"steps", "sleep"}
