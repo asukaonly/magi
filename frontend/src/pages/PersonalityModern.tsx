@@ -259,6 +259,8 @@ const PersonalityModern: React.FC = () => {
   );
   const diffPreview = useMemo(() => diffs.slice(0, 8), [diffs]);
 
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="border-b border-border/40 bg-muted/20 px-6 py-5">
       {/* Title + Add button row */}
       <div className="mb-4 flex items-center justify-between">
