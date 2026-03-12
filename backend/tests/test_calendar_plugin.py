@@ -311,3 +311,78 @@ def test_reader_read_events_stub():
         end_date=datetime(2026, 3, 12)
     )
     assert isinstance(events, list)
+
+
+def test_sensor_properties():
+    """Test sensor class properties."""
+    from calendar_plugin.sensor import CalendarTimelineSensor
+    from magi.timeline import SensorSyncContext
+    from datetime import datetime, timedelta
+    import time
+
+    assert CalendarTimelineSensor.sensor_id == "timeline.calendar"
+    assert CalendarTimelineSensor.source_type == "calendar"
+    assert CalendarTimelineSensor.polling_mode == "interval"
+    assert CalendarTimelineSensor.supports_pull_sync is True
+
+
+def test_sensor_source_item_identity():
+    """Test source_item_identity generation."""
+    from calendar_plugin.sensor import CalendarTimelineSensor
+    from magi.timeline import SensorSyncContext
+    from datetime import datetime, timedelta
+    import time
+
+    sensor = CalendarTimelineSensor()
+    item = {"event_id": "test-123", "title": "Meeting"}
+
+    identity = sensor.source_item_identity(item)
+    assert identity == "calendar_test-123"
+
+
+def test_sensor_source_item_version_fingerprint():
+    """Test source_item_version_fingerprint generation."""
+    from calendar_plugin.sensor import CalendarTimelineSensor
+    from magi.timeline import SensorSyncContext
+    from datetime import datetime, timedelta
+    import time
+
+    sensor = CalendarTimelineSensor()
+    item1 = {"event_id": "test-123", "title": "Meeting", "start_time": 1000}
+    item2 = {"event_id": "test-123", "title": "Meeting", "start_time": 1000}
+    item3 = {"event_id": "test-123", "title": "Changed", "start_time": 1000}
+
+    fingerprint1 = sensor.source_item_version_fingerprint(item1)
+    fingerprint2 = sensor.source_item_version_fingerprint(item2)
+    fingerprint3 = sensor.source_item_version_fingerprint(item3)
+
+    assert fingerprint1 == fingerprint2
+    assert fingerprint1 != fingerprint3
+
+
+def test_sensor_collect_items_with_stub_reader():
+    """Test collect_items returns empty list with stub reader."""
+    from calendar_plugin.sensor import CalendarTimelineSensor
+    from magi.timeline import SensorSyncContext
+    from magi.utils.runtime import Runtimepaths
+    from datetime import datetime, timedelta
+    import time
+    import asyncio
+
+    sensor = CalendarTimelineSensor()
+    runtime_paths = Runtimepaths()
+    context = SensorSyncContext(
+        source_type="calendar",
+        manual=False,
+        last_cursor=None,
+        last_success_at=None,
+        limit=100,
+        runtime_paths=runtime_paths,
+        plugin_settings={}
+    )
+
+    # Since reader is stub and returns empty, collect_items should return empty
+    result = asyncio.run(sensor.collect_items(context))
+
+    assert isinstance(result.items, list)
+    assert len(result.items) == 0
