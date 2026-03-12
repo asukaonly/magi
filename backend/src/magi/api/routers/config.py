@@ -615,7 +615,46 @@ def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
     )
 
 
+def _apply_llm_registry_defaults(config: SystemConfigModel, registry: LLMProviderRegistryModel) -> None:
+    for provider_id, provider in config.llm.providers.items():
+        provider_meta = find_provider_meta(registry, provider_id)
+        if provider_meta is None:
+            continue
+
+        provider.provider_type = provider_id
+        if not provider.display_name:
+            provider.display_name = provider_meta.display_name or provider_id.upper()
+        if not (provider.base_url or "").strip():
+            provider.base_url = provider_meta.default_base_url
+
+    for selection_id, selection in config.llm.selections.items():
+        if not selection.provider_id:
+            continue
+
+        provider_meta = find_provider_meta(registry, selection.provider_id)
+        if provider_meta is None:
+            continue
+
+        if not selection.model:
+            selection.model = provider_meta.default_model or (
+                provider_meta.models[0].id if provider_meta.models else ""
+            )
+
+        if not selection.capability_override_enabled and selection.model:
+            resolved = resolve_llm_profile(selection, registry)
+            config.llm.selections[selection_id] = LLMSelectionConfigModel(
+                provider_id=selection.provider_id,
+                model=selection.model,
+                capability_override_enabled=False,
+                capabilities=resolved.capabilities,
+                limits=resolved.limits,
+                provider_options=resolved.provider_options,
+            )
+
+
 def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    _apply_llm_registry_defaults(config, _load_llm_provider_registry())
+
     for selection_id, selection in config.llm.selections.items():
         provider = config.llm.providers.get(selection.provider_id)
         if provider is None:
