@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from magi.api.routers import skills as skills_router_module
 from magi.tools.context_decider import ContextDecider
@@ -107,3 +108,14 @@ async def test_refresh_skills_syncs_enabled_subset_to_tool_registry(
     await skills_router_module.refresh_skills()
 
     assert set(tool_registry.get_skill_names()) == {"disabled-skill"}
+
+
+@pytest.mark.asyncio
+async def test_list_skills_returns_503_when_module_uninitialized(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(skills_router_module, "_skill_indexer", None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await skills_router_module.list_skills()
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "Skills module not initialized"
