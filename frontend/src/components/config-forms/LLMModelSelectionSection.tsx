@@ -26,10 +26,13 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const enabledProviders = Object.entries(value.providers).filter(([, provider]) => provider.enabled);
 
   return (
-    <section className="space-y-4">
+    <section
+      data-testid="llm-model-selection-section"
+      className="space-y-4 rounded-[24px] border border-border/50 bg-muted/20 p-4 sm:p-5"
+    >
       <div className="space-y-1">
         <h3 className="text-lg font-semibold text-foreground">{t('llm.modelSelection.title')}</h3>
-        <p className="text-sm text-muted-foreground">{t('llm.modelSelection.desc')}</p>
+        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.modelSelection.desc')}</p>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -45,24 +48,24 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             <article
               key={scenario}
               data-testid={`llm-scenario-${scenario}`}
-              className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm"
+              className="space-y-4 rounded-2xl border border-border/60 bg-card p-5 shadow-sm"
             >
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-3">
                   <h4 className="text-base font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                  <span className="rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
                     {provider?.display_name || selection.provider_id}
                   </span>
                 </div>
                 <p className="text-sm text-muted-foreground">{t(`llm.scenarios.${scenario}.desc`)}</p>
               </div>
 
-              <div className={cn('grid gap-4', quickMode ? 'md:grid-cols-1' : 'md:grid-cols-2')}>
+              <div className={cn('grid gap-4', quickMode ? 'lg:grid-cols-2' : 'md:grid-cols-2')}>
                 <label className="space-y-2">
                   <span className="text-sm font-medium">{t('llm.fields.provider')}</span>
                   <select
                     aria-label={t('llm.fields.provider')}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                     value={selection.provider_id}
                     onChange={(event) => onScenarioProviderChange(scenario, event.target.value)}
                   >
@@ -79,7 +82,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   {models.length > 0 ? (
                     <select
                       aria-label={t('llm.fields.model')}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                      className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                       value={selection.model}
                       onChange={(event) => onScenarioModelChange(scenario, event.target.value)}
                     >
@@ -92,7 +95,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   ) : (
                     <input
                       aria-label={t('llm.fields.model')}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                      className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                       value={selection.model}
                       placeholder={t('llm.modelManualPlaceholder')}
                       onChange={(event) => onScenarioModelChange(scenario, event.target.value)}

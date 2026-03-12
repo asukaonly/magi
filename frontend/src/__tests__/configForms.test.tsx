@@ -244,6 +244,22 @@ describe('config forms', () => {
     ).toBeTruthy();
   });
 
+  it('keeps the provider workbench split on desktop and gives the detail pane its own scroll container', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    const workbench = await screen.findByTestId('llm-provider-workbench');
+    const detailPane = screen.getByTestId('llm-provider-detail-pane');
+    const modelSection = screen.getByTestId('llm-model-selection-section');
+
+    expect(workbench.className).toContain('xl:grid-cols-[280px_minmax(0,1fr)]');
+    expect(detailPane.className).toContain('overflow-y-auto');
+    expect(modelSection.className).toContain('bg-muted/20');
+  });
+
   it('lets user switch the core scenario model and shows vision warning', async () => {
     render(
       <Form initialValues={{ llm: llmValue }}>

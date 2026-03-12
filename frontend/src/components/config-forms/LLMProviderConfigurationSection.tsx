@@ -43,26 +43,39 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
       ? undefined
       : registry.providers.find((provider) => provider.id === activeProvider?.provider_type);
   const activeReferences = scenarioReferences[activeProviderId] || [];
+  const workbenchColumnsClassName = quickMode
+    ? 'xl:grid-cols-[280px_minmax(0,1fr)]'
+    : 'xl:grid-cols-[320px_minmax(0,1fr)]';
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h3 className="text-lg font-semibold text-foreground">{t('llm.providerConfiguration.title')}</h3>
-          <p className="text-sm text-muted-foreground">{t('llm.providerConfiguration.desc')}</p>
+    <section
+      data-testid="llm-provider-configuration-section"
+      className="space-y-5 rounded-[28px] border border-border/60 bg-card/80 p-4 shadow-sm backdrop-blur-sm sm:p-5 lg:p-6"
+    >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <h3 className="text-lg font-semibold text-foreground sm:text-xl">{t('llm.providerConfiguration.title')}</h3>
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.providerConfiguration.desc')}</p>
         </div>
         <button
           type="button"
           onClick={onAddCustomProvider}
-          className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5"
+          className="inline-flex items-center gap-2 self-start rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm transition hover:border-primary/40 hover:bg-primary/5"
         >
           <Plus className="h-4 w-4" />
           <span>{t('llm.actions.addCustomProvider')}</span>
         </button>
       </div>
 
-      <div className={cn('grid gap-4', quickMode ? 'xl:grid-cols-1' : 'xl:grid-cols-[320px_minmax(0,1fr)]')}>
-        <div className="space-y-3">
+      <div
+        data-testid="llm-provider-workbench"
+        className={cn(
+          'grid gap-0 overflow-hidden rounded-[24px] border border-border/50 bg-muted/20 shadow-inner',
+          workbenchColumnsClassName,
+          'xl:h-[clamp(440px,58vh,680px)]'
+        )}
+      >
+        <div className="min-h-0 space-y-3 overflow-y-auto p-3 sm:p-4 xl:border-r xl:border-border/40 xl:bg-muted/35">
           {providerOrder.map((providerId) => {
             const provider = value.providers[providerId];
             if (!provider) {
@@ -83,16 +96,16 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 className={cn(
                   'w-full rounded-2xl border p-4 text-left transition',
                   providerId === activeProviderId
-                    ? 'border-primary bg-primary/5 shadow-sm'
-                    : 'border-border bg-card hover:border-primary/30'
+                    ? 'border-primary/70 bg-background shadow-sm ring-1 ring-primary/10'
+                    : 'border-border/70 bg-background/70 hover:border-primary/30 hover:bg-background'
                 )}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-foreground">
+                    <div className="text-sm font-semibold text-foreground sm:text-base">
                       {provider.display_name || providerMeta?.display_name || providerId}
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
                       {providerMeta?.description || t('llm.providerConfiguration.customProviderHint')}
                     </p>
                   </div>
@@ -116,117 +129,125 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
         </div>
 
         {activeProvider ? (
-          <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1">
-                <h4 className="text-base font-semibold text-foreground">
-                  {activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
-                </h4>
-                <p className="text-sm text-muted-foreground">
-                  {activeProviderMeta?.description || t('llm.providerConfiguration.customProviderHint')}
-                </p>
-              </div>
+          <div
+            data-testid="llm-provider-detail-pane"
+            className="min-h-0 overflow-y-auto bg-background p-5 sm:p-6"
+          >
+            <div className="space-y-5 rounded-[22px] border border-border/60 bg-card p-5 shadow-sm">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <h4 className="text-base font-semibold text-foreground sm:text-lg">
+                    {activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
+                  </h4>
+                  <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                    {activeProviderMeta?.description || t('llm.providerConfiguration.customProviderHint')}
+                  </p>
+                </div>
 
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={activeProvider.enabled}
-                  disabled={activeReferences.length > 0}
-                  onChange={(event) =>
-                    onProviderChange(activeProviderId, (provider) => {
-                      provider.enabled = event.target.checked;
-                    })
-                  }
-                />
-                <span>{t('llm.fields.enabled')}</span>
-              </label>
-            </div>
-
-            {activeReferences.length > 0 ? (
-              <div className="rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                {t('llm.providerConfiguration.referencedBy')}: {activeReferences.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
-              </div>
-            ) : null}
-
-            {activeProvider.provider_type === 'custom' ? (
-              <>
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
+                <label className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-2 text-sm text-foreground">
                   <input
-                    aria-label={t('llm.fields.displayName')}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                    value={activeProvider.display_name || ''}
+                    type="checkbox"
+                    checked={activeProvider.enabled}
+                    disabled={activeReferences.length > 0}
                     onChange={(event) =>
                       onProviderChange(activeProviderId, (provider) => {
-                        provider.display_name = event.target.value;
+                        provider.enabled = event.target.checked;
+                      })
+                    }
+                  />
+                  <span>{t('llm.fields.enabled')}</span>
+                </label>
+              </div>
+
+              {activeReferences.length > 0 ? (
+                <div className="rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  {t('llm.providerConfiguration.referencedBy')}:{' '}
+                  {activeReferences.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
+                </div>
+              ) : null}
+
+              <div className="grid gap-4">
+                {activeProvider.provider_type === 'custom' ? (
+                  <>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
+                      <input
+                        aria-label={t('llm.fields.displayName')}
+                        className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        value={activeProvider.display_name || ''}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.display_name = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.apiFormat')}</span>
+                      <select
+                        aria-label={t('llm.fields.apiFormat')}
+                        className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        value={activeProvider.api_format || 'openai'}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.api_format = event.target.value as LLMProviderConfig['api_format'];
+                          })
+                        }
+                      >
+                        {(registry.custom_provider.fields?.api_format?.options || ['openai', 'anthropic', 'custom']).map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                ) : null}
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
+                  <input
+                    aria-label={t('llm.fields.apiKey')}
+                    className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    type="password"
+                    value={activeProvider.api_key || ''}
+                    onChange={(event) =>
+                      onProviderChange(activeProviderId, (provider) => {
+                        provider.api_key = event.target.value;
                       })
                     }
                   />
                 </label>
 
                 <label className="space-y-2">
-                  <span className="text-sm font-medium">{t('llm.fields.apiFormat')}</span>
-                  <select
-                    aria-label={t('llm.fields.apiFormat')}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                    value={activeProvider.api_format || 'openai'}
+                  <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
+                  <input
+                    aria-label={t('llm.fields.baseUrl')}
+                    className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    value={activeProvider.base_url || ''}
                     onChange={(event) =>
                       onProviderChange(activeProviderId, (provider) => {
-                        provider.api_format = event.target.value as LLMProviderConfig['api_format'];
+                        provider.base_url = event.target.value;
                       })
                     }
-                  >
-                    {(registry.custom_provider.fields?.api_format?.options || ['openai', 'anthropic', 'custom']).map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </label>
-              </>
-            ) : null}
 
-            <label className="space-y-2">
-              <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
-              <input
-                aria-label={t('llm.fields.apiKey')}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                type="password"
-                value={activeProvider.api_key || ''}
-                onChange={(event) =>
-                  onProviderChange(activeProviderId, (provider) => {
-                    provider.api_key = event.target.value;
-                  })
-                }
-              />
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
-              <input
-                aria-label={t('llm.fields.baseUrl')}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                value={activeProvider.base_url || ''}
-                onChange={(event) =>
-                  onProviderChange(activeProviderId, (provider) => {
-                    provider.base_url = event.target.value;
-                  })
-                }
-              />
-            </label>
-
-            {activeProviderMeta?.models?.length ? (
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
-                <div className="flex flex-wrap gap-2">
-                  {activeProviderMeta.models.map((model) => (
-                    <span key={model.id} className={badgeClassName}>
-                      {model.label || model.id}
-                    </span>
-                  ))}
-                </div>
+                {activeProviderMeta?.models?.length ? (
+                  <div className="space-y-2 rounded-2xl border border-border/50 bg-muted/20 p-4">
+                    <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
+                    <div className="flex flex-wrap gap-2">
+                      {activeProviderMeta.models.map((model) => (
+                        <span key={model.id} className={badgeClassName}>
+                          {model.label || model.id}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </div>
           </div>
         ) : null}
       </div>
