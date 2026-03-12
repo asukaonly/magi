@@ -42,7 +42,7 @@ const MainLayout: React.FC = () => {
           } as React.CSSProperties}
           data-tauri-drag-region
         />
-        <Sidebar />
+        <Sidebar collapsed={sidebarCollapsed} />
         <div className="min-h-0 min-w-0">
           <main className="h-full overflow-hidden">
             <div className="page-enter h-full overflow-hidden">
