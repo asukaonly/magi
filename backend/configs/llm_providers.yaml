@@ -164,7 +164,7 @@ providers:
 custom_provider:
   enabled: true
   display_name: Custom Provider
-  description: Connect OpenAI-compatible or custom format endpoints
+  description: Connect OpenAI-compatible or Anthropic-compatible endpoints
   icon: wand
   capabilities:
     vision: false
@@ -184,7 +184,6 @@ custom_provider:
       options:
         - openai
         - anthropic
-        - custom
     model:
       visible: true
       required: true

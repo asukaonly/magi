@@ -399,13 +399,13 @@ def _default_llm_provider_registry() -> LLMProviderRegistryModel:
         custom_provider=LLMCustomProviderMetaModel(
             enabled=True,
             display_name="Custom Provider",
-            description="Connect OpenAI-compatible or custom format endpoints",
+            description="Connect OpenAI-compatible or Anthropic-compatible endpoints",
             icon="wand",
             capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
             fields={
                 "custom_name": LLMProviderFieldModel(visible=True, required=True, placeholder="My Provider"),
                 "api_format": LLMProviderFieldModel(
-                    visible=True, required=True, options=["openai", "anthropic", "custom"]
+                    visible=True, required=True, options=["openai", "anthropic"]
                 ),
                 "model": LLMProviderFieldModel(visible=True, required=True),
                 "api_key": LLMProviderFieldModel(visible=True, required=True),

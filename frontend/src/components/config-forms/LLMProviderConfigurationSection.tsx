@@ -193,6 +193,35 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 {activeProvider.provider_type === 'custom' ? (
                   <>
                     <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
+                      <input
+                        aria-label={t('llm.fields.apiKey')}
+                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        type="password"
+                        value={activeProvider.api_key || ''}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.api_key = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
+                      <input
+                        aria-label={t('llm.fields.baseUrl')}
+                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        value={activeProvider.base_url || ''}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.base_url = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+
+                    <label className="space-y-2">
                       <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
                       <input
                         aria-label={t('llm.fields.displayName')}
@@ -218,7 +247,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           })
                         }
                       >
-                        {(registry.custom_provider.fields?.api_format?.options || ['openai', 'anthropic', 'custom']).map((option) => (
+                        {(registry.custom_provider.fields?.api_format?.options || ['openai', 'anthropic']).map((option) => (
                           <option key={option} value={option}>
                             {t(`llm.apiFormatOptions.${option}`)}
                           </option>
@@ -271,27 +300,22 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                         <label className="flex-1 space-y-2">
                           <span className="text-sm font-medium">{t('llm.fields.defaultModel')}</span>
-                          {activeProvider.custom_models?.length ? (
-                            <select
-                              aria-label={t('llm.fields.defaultModel')}
-                              className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                              value={activeProvider.custom_default_model || ''}
-                              onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
-                            >
-                              {(activeProvider.custom_models || []).map((model) => (
-                                <option key={model} value={model}>
-                                  {model}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              aria-label={t('llm.fields.defaultModel')}
-                              className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                              value={activeProvider.custom_default_model || ''}
-                              onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
-                            />
-                          )}
+                          <select
+                            aria-label={t('llm.fields.defaultModel')}
+                            className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-60"
+                            value={activeProvider.custom_default_model || ''}
+                            disabled={!activeProvider.custom_models?.length}
+                            onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
+                          >
+                            {!activeProvider.custom_models?.length ? (
+                              <option value="">{t('llm.providerConfiguration.defaultModelEmpty')}</option>
+                            ) : null}
+                            {(activeProvider.custom_models || []).map((model) => (
+                              <option key={model} value={model}>
+                                {model}
+                              </option>
+                            ))}
+                          </select>
                         </label>
                         <button
                           type="button"
@@ -311,35 +335,39 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   </>
                 ) : null}
 
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
-                  <input
-                    aria-label={t('llm.fields.apiKey')}
-                    className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                    type="password"
-                    value={activeProvider.api_key || ''}
-                    onChange={(event) =>
-                      onProviderChange(activeProviderId, (provider) => {
-                        provider.api_key = event.target.value;
-                      })
-                    }
-                  />
-                </label>
+                {activeProvider.provider_type !== 'custom' ? (
+                  <>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
+                      <input
+                        aria-label={t('llm.fields.apiKey')}
+                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        type="password"
+                        value={activeProvider.api_key || ''}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.api_key = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
 
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
-                  <input
-                    aria-label={t('llm.fields.baseUrl')}
-                    className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                    placeholder={activeProviderMeta?.default_base_url || ''}
-                    value={activeProvider.base_url || ''}
-                    onChange={(event) =>
-                      onProviderChange(activeProviderId, (provider) => {
-                        provider.base_url = event.target.value;
-                      })
-                    }
-                  />
-                </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
+                      <input
+                        aria-label={t('llm.fields.baseUrl')}
+                        className="h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        placeholder={activeProviderMeta?.default_base_url || ''}
+                        value={activeProvider.base_url || ''}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.base_url = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                  </>
+                ) : null}
 
                 {activeProviderMeta?.models?.length ? (
                   <div className="space-y-2 rounded-[24px] border border-border/60 bg-[rgba(247,242,235,0.7)] p-4 lg:col-span-2">
