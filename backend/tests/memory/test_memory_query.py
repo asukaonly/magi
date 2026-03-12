@@ -186,3 +186,47 @@ class TestPrivacyGuard:
 
         assert result.allowed is False
         assert "password" in result.blocked_types
+
+
+class TestIntentRouter:
+    """Tests for IntentRouter query routing."""
+
+    def test_route_factual_query_to_l1(self):
+        """Should route factual queries to L1."""
+        from magi.memory.query.router import IntentRouter
+
+        router = IntentRouter()
+        plan = router.analyze("What time did I leave yesterday?", {"relative": "1d"})
+
+        assert plan.primary_layer == "L1"
+        assert plan.confidence > 0
+
+    def test_route_concept_query_to_l3(self):
+        """Should route concept/fuzzy queries to L3."""
+        from magi.memory.query.router import IntentRouter
+
+        router = IntentRouter()
+        plan = router.analyze("Find my scattered thoughts on AI agents", {"relative": "7d"})
+
+        # L3 is primary for concept retrieval
+        assert plan.primary_layer == "L3"
+
+    def test_route_trend_query_to_l4(self):
+        """Should route trend/summary queries to L4."""
+        from magi.memory.query.router import IntentRouter
+
+        router = IntentRouter()
+        plan = router.analyze("Summarize my job search over the past 6 months", {"relative": "180d"})
+
+        assert plan.primary_layer == "L4"
+
+    def test_low_confidence_includes_secondary_layers(self):
+        """Should include secondary layers when confidence is low."""
+        from magi.memory.query.router import IntentRouter
+
+        router = IntentRouter()
+        # Ambiguous query that might need multiple layers
+        plan = router.analyze("What was I working on recently?", {"relative": "7d"})
+
+        # Either confidence is low OR secondary layers are populated
+        assert plan.confidence < 0.8 or len(plan.secondary_layers) > 0
