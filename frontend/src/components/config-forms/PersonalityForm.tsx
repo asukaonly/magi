@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, ChevronRight, PencilLine, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -230,8 +231,8 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       setConfig(mergedConfig);
       // 将完整的人格配置设置到表单
       setFieldValue(['personality'], mergedConfig);
-    } catch {
-      // Ignore generate errors
+    } catch (error: any) {
+      toast.error(error?.message || t('personality.generateFailed'));
     } finally {
       setGenerating(false);
     }

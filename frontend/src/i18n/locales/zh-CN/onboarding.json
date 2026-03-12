@@ -206,6 +206,7 @@
     "oneLinerPlaceholder": "例如：像冷静可靠的技术合伙人，回答简洁但有判断",
     "generating": "生成中...",
     "generateAction": "智能生成",
+    "generateFailed": "人格生成失败",
     "expandTitle": "展开人格详情编辑",
     "customNameLabel": "人格名称",
     "customNamePlaceholder": "例如：理性工程顾问",

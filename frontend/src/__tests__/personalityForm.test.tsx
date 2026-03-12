@@ -1,11 +1,18 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from 'sonner';
 
 import { SimpleForm as Form } from '@/components/onboarding/simple-form';
 import { PersonalityForm } from '@/components/config-forms/PersonalityForm';
 import { DEFAULT_PERSONALITY_CONFIG } from '@/api/modules/personality';
 import { personalityApi, personalitiesApi } from '@/api';
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: vi.fn(),
+  },
+}));
 
 vi.mock('@/api', async () => {
   const actual = await vi.importActual<typeof import('@/api')>('@/api');
@@ -164,6 +171,36 @@ describe('PersonalityForm', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText('向晚').length).toBeGreaterThan(0);
+    });
+  });
+
+  it('surfaces generate failures to the user', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(personalityApi.generate).mockRejectedValueOnce({
+      message: 'GLM request failed',
+    });
+
+    render(
+      <Form
+        initialValues={{
+          llm: {
+            providers: {},
+            selections: {},
+          },
+          personality: DEFAULT_PERSONALITY_CONFIG,
+        }}
+      >
+        <PersonalityForm language="zh" />
+      </Form>
+    );
+
+    await user.click((await screen.findByText('personality.blankCardTitle')).closest('button') as HTMLButtonElement);
+    await user.type(await screen.findByPlaceholderText('personality.oneLinerPlaceholder'), 'asoul的向晚');
+    await user.click(screen.getByRole('button', { name: 'personality.generateAction' }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('GLM request failed');
     });
   });
 });

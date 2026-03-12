@@ -206,6 +206,7 @@
     "oneLinerPlaceholder": "e.g. A calm technical partner who responds briefly but with clear judgment",
     "generating": "Generating...",
     "generateAction": "Generate",
+    "generateFailed": "Failed to generate personality",
     "expandTitle": "Expand personality details",
     "customNameLabel": "Personality Name",
     "customNamePlaceholder": "e.g. Rational Engineering Advisor",
