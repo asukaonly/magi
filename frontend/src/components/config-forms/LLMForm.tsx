@@ -385,6 +385,10 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, view = 'all', valu
   };
 
   const resolveProviderProbeModel = (providerId: string): string => {
+    if (!registry) {
+      return '';
+    }
+
     const referencedSelection = BUILTIN_SCENARIOS
       .map((scenario) => currentValue.selections[scenario])
       .find((selection) => selection.provider_id === providerId && selection.model);
