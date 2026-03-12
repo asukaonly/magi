@@ -52,10 +52,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   }, [i18n, initialConfig.preferences?.language]);
 
   const steps = useMemo(() => {
-    const shared = [t('steps.language'), t('steps.mode'), t('steps.llm'), t('steps.personality')];
+    const shared = [t('steps.language'), t('steps.mode'), t('steps.llmProviders')];
     return mode === 'expert'
-      ? [...shared, t('steps.memory'), t('steps.tools'), t('steps.complete')]
-      : [...shared, t('steps.complete')];
+      ? [...shared, t('steps.llmModels'), t('steps.personality'), t('steps.memory'), t('steps.tools'), t('steps.complete')]
+      : [...shared, t('steps.personality'), t('steps.complete')];
   }, [mode, t, activeLanguage]);
 
   const isLastStep = current === steps.length - 1;
@@ -245,17 +245,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     const quickMode = mode === 'quick';
     const language = form.getFieldValue(['preferences', 'language']) || 'zh';
     const quickSteps = [2, 3, 4];
-    const expertSteps = [2, 3, 4, 5, 6];
+    const expertSteps = [2, 3, 4, 5, 6, 7];
 
-    if (quickMode && current === quickSteps[0]) return <LLMForm quickMode />;
+    if (quickMode && current === quickSteps[0]) return <LLMForm quickMode view="providers" />;
     if (quickMode && current === quickSteps[1]) return <PersonalityForm quickMode language={language} />;
     if (quickMode && current === quickSteps[2]) return <CompletionScreen onFinish={handleFinish} />;
 
-    if (!quickMode && current === expertSteps[0]) return <LLMForm quickMode={false} />;
-    if (!quickMode && current === expertSteps[1]) return <PersonalityForm quickMode={false} language={language} />;
-    if (!quickMode && current === expertSteps[2]) return <MemoryForm />;
-    if (!quickMode && current === expertSteps[3]) return <ToolsForm />;
-    if (!quickMode && current === expertSteps[4]) return <CompletionScreen onFinish={handleFinish} />;
+    if (!quickMode && current === expertSteps[0]) return <LLMForm quickMode={false} view="providers" />;
+    if (!quickMode && current === expertSteps[1]) return <LLMForm quickMode={false} view="models" />;
+    if (!quickMode && current === expertSteps[2]) return <PersonalityForm quickMode={false} language={language} />;
+    if (!quickMode && current === expertSteps[3]) return <MemoryForm />;
+    if (!quickMode && current === expertSteps[4]) return <ToolsForm />;
+    if (!quickMode && current === expertSteps[5]) return <CompletionScreen onFinish={handleFinish} />;
 
     return null;
   };

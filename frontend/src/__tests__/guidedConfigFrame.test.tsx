@@ -13,10 +13,12 @@ describe('GuidedConfigFrame', () => {
 
     const root = screen.getByText('content').closest('.rounded-3xl');
     const contentPane = screen.getByText('content').parentElement;
+    const footerPane = screen.getByText('footer').parentElement;
 
     expect(root?.className).toContain('max-h-[calc(100vh-2rem)]');
     expect(container.innerHTML).not.toContain('min-h-[clamp(560px,78vh,760px)]');
     expect(contentPane?.className).toContain('min-h-0');
     expect(contentPane?.className).toContain('overflow-y-auto');
+    expect(footerPane?.className).toContain('shrink-0');
   });
 });

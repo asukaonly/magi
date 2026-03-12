@@ -22,16 +22,51 @@ vi.mock('react-router-dom', () => ({
 }));
 
 describe('OnboardingFlow', () => {
-  it('uses a viewport-filling frame layout', () => {
+  it('uses a viewport-filling frame layout and keeps quick mode on provider configuration only', () => {
     vi.stubGlobal('localStorage', {
       getItem: vi.fn(() => null),
       setItem: vi.fn(),
       removeItem: vi.fn(),
     });
 
-    const { container } = render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    const { container } = render(
+      <OnboardingFlow
+        initialConfig={{
+          ...DEFAULT_SYSTEM_CONFIG,
+          preferences: {
+            ...DEFAULT_SYSTEM_CONFIG.preferences,
+            user_mode: 'quick',
+          },
+        }}
+      />
+    );
 
     expect(container.innerHTML).toContain('min-h-[clamp(560px,78vh,760px)]');
     expect(screen.getByText('steps.language')).toBeInTheDocument();
+    expect(screen.getByText('steps.llmProviders')).toBeInTheDocument();
+    expect(screen.queryByText('steps.llmModels')).not.toBeInTheDocument();
+  });
+
+  it('includes a dedicated model-selection step in expert mode', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+
+    render(
+      <OnboardingFlow
+        initialConfig={{
+          ...DEFAULT_SYSTEM_CONFIG,
+          preferences: {
+            ...DEFAULT_SYSTEM_CONFIG.preferences,
+            user_mode: 'expert',
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByText('steps.llmProviders')).toBeInTheDocument();
+    expect(screen.getByText('steps.llmModels')).toBeInTheDocument();
   });
 });

@@ -23,6 +23,7 @@ import { LLMProviderConfigurationSection } from './LLMProviderConfigurationSecti
 
 interface LLMFormProps {
   quickMode?: boolean;
+  view?: 'all' | 'providers' | 'models';
   value?: LLMConfig;
   onChange?: (nextValue: LLMConfig) => void;
   showAdvancedByDefault?: boolean;
@@ -80,6 +81,19 @@ const getProviderModels = (registry: LLMProviderRegistry, providerId?: string) =
 
 const getCustomProviderModels = (provider?: LLMProviderConfig): string[] => provider?.custom_models || [];
 
+const resolveProviderDefaultModel = (
+  registry: LLMProviderRegistry,
+  provider: LLMProviderConfig | undefined
+): string => {
+  if (!provider) {
+    return '';
+  }
+  if (provider.provider_type === 'custom') {
+    return provider.custom_default_model || getCustomProviderModels(provider)[0] || '';
+  }
+  return getProviderMeta(registry, provider.provider_type)?.default_model || getProviderModels(registry, provider.provider_type)[0]?.id || '';
+};
+
 const applySelectionDefaults = (
   selection: LLMSelectionConfig,
   registry: LLMProviderRegistry,
@@ -90,7 +104,7 @@ const applySelectionDefaults = (
   }
 
   if (provider.provider_type === 'custom') {
-    const fallbackModel = selection.model || provider.custom_default_model || provider.custom_models?.[0] || '';
+    const fallbackModel = selection.model || resolveProviderDefaultModel(registry, provider);
     selection.model = fallbackModel;
     if (!selection.capability_override_enabled) {
       selection.capabilities = cloneCapabilities(registry.custom_provider.capabilities);
@@ -157,7 +171,7 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
   return next;
 };
 
-const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, value, onChange }) => {
+const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, view = 'all', value, onChange }) => {
   const { t } = useTranslation('onboarding');
   const formCtx = useContext(FormContext);
   const controlled = value !== undefined && typeof onChange === 'function';
@@ -237,12 +251,7 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, value, onChange })
       const selection = cloneSelection(draft.selections[scenario]);
       selection.provider_id = providerId;
       const provider = draft.providers[providerId];
-      if (provider?.provider_type === 'custom') {
-        selection.model = provider.custom_default_model || getCustomProviderModels(provider)[0] || '';
-      } else {
-        const fallbackModel = getProviderMeta(registry, provider?.provider_type)?.default_model || getProviderModels(registry, providerId)[0]?.id || '';
-        selection.model = fallbackModel;
-      }
+      selection.model = resolveProviderDefaultModel(registry, provider);
       applySelectionDefaults(selection, registry, provider);
       draft.selections[scenario] = selection;
     });
@@ -381,29 +390,33 @@ const LLMForm: React.FC<LLMFormProps> = ({ quickMode = false, value, onChange })
 
   return (
     <div className={cn('space-y-6', quickMode && 'space-y-5')}>
-      <LLMProviderConfigurationSection
-        registry={registry}
-        value={currentValue}
-        activeProviderId={activeProviderId}
-        quickMode={quickMode}
-        scenarioReferences={scenarioReferences}
-        onActiveProviderChange={setActiveProviderId}
-        onProviderChange={handleProviderChange}
-        onAddCustomProvider={handleAddCustomProvider}
-        onAddProviderModel={handleAddProviderModel}
-        onRemoveProviderModel={handleRemoveProviderModel}
-        onProviderDefaultModelChange={handleProviderDefaultModelChange}
-        onDiscoverProviderModels={handleDiscoverProviderModels}
-        providerDiscoveryState={providerDiscoveryState}
-      />
+      {view !== 'models' ? (
+        <LLMProviderConfigurationSection
+          registry={registry}
+          value={currentValue}
+          activeProviderId={activeProviderId}
+          quickMode={quickMode}
+          scenarioReferences={scenarioReferences}
+          onActiveProviderChange={setActiveProviderId}
+          onProviderChange={handleProviderChange}
+          onAddCustomProvider={handleAddCustomProvider}
+          onAddProviderModel={handleAddProviderModel}
+          onRemoveProviderModel={handleRemoveProviderModel}
+          onProviderDefaultModelChange={handleProviderDefaultModelChange}
+          onDiscoverProviderModels={handleDiscoverProviderModels}
+          providerDiscoveryState={providerDiscoveryState}
+        />
+      ) : null}
 
-      <LLMModelSelectionSection
-        registry={registry}
-        value={currentValue}
-        quickMode={quickMode}
-        onScenarioProviderChange={handleScenarioProviderChange}
-        onScenarioModelChange={handleScenarioModelChange}
-      />
+      {view !== 'providers' ? (
+        <LLMModelSelectionSection
+          registry={registry}
+          value={currentValue}
+          quickMode={quickMode}
+          onScenarioProviderChange={handleScenarioProviderChange}
+          onScenarioModelChange={handleScenarioModelChange}
+        />
+      ) : null}
     </div>
   );
 };

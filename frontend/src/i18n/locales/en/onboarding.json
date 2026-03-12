@@ -8,6 +8,8 @@
     "language": "Language",
     "mode": "Mode",
     "llm": "LLM",
+    "llmProviders": "Provider Configuration",
+    "llmModels": "Model Selection",
     "personality": "Personality",
     "memory": "Memory",
     "tools": "Tools",

@@ -8,6 +8,8 @@
     "language": "语言",
     "mode": "模式选择",
     "llm": "LLM",
+    "llmProviders": "供应商配置",
+    "llmModels": "模型选择",
     "personality": "人格",
     "memory": "记忆",
     "tools": "工具",
