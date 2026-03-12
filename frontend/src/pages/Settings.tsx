@@ -706,34 +706,57 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'memory':
         return (
-          <div className="space-y-6">
-            <Card className="border-destructive/50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base text-destructive">
+          <div className="space-y-8">
+            {/* Danger Zone */}
+            <Card className="border-destructive/40 bg-destructive/5">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-destructive">
                   <Trash2 className="h-4 w-4" />
                   {t('settings.fields.clearMemory')}
                 </CardTitle>
-                <CardDescription>
+                <CardDescription className="text-xs">
                   {t('settings.fields.clearMemoryDesc')}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button variant="destructive" onClick={() => setShowClearConfirm(true)}>
-                  <Trash2 className="mr-2 h-4 w-4" />
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setShowClearConfirm(true)}
+                >
+                  <Trash2 className="mr-1.5 h-4 w-4" />
                   {t('settings.actions.clearMemory')}
                 </Button>
               </CardContent>
             </Card>
 
-            <div className="space-y-3">
-              <h3 className="font-medium">{t('settings.fields.memoryLayers')}</h3>
-              <div className="grid gap-3 md:grid-cols-2">
+            {/* Memory Layers */}
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-medium">{t('settings.fields.memoryLayers')}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('settings.fields.memoryLayersDesc')}
+                </p>
+              </div>
+              <div className="grid gap-2.5 sm:grid-cols-2">
                 {(['L1', 'L2', 'L3', 'L4', 'L5'] as const).map((layer) => (
                   <label
                     key={layer}
-                    className="flex items-center justify-between rounded-md border p-3"
+                    className={cn(
+                      'group flex items-center justify-between rounded-lg border px-4 py-3',
+                      'transition-colors duration-150',
+                      'hover:border-border/80 hover:bg-muted/30',
+                      'cursor-pointer'
+                    )}
                   >
-                    <span className="text-sm font-medium">{t(`settings.fields.${layer.toLowerCase()}Enabled`)}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+                        {layer}
+                      </span>
+                      <span className="text-sm font-medium">
+                        {t(`settings.fields.${layer.toLowerCase()}Enabled`)}
+                      </span>
+                    </div>
                     <Switch
                       checked={draftConfig.memory_layers[layer].enabled}
                       onCheckedChange={(checked) =>
@@ -747,11 +770,14 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               </div>
             </div>
 
+            {/* Model Download */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t('settings.fields.l3ModelDownload')}</CardTitle>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">
+                  {t('settings.fields.l3ModelDownload')}
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
                 <LabeledSelectField
                   label={t('settings.fields.model')}
                   value={downloadModel}
@@ -762,23 +788,41 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   ]}
                   onChange={setDownloadModel}
                 />
-                <Button variant="outline" onClick={startDownload}>
-                  <Download className="mr-2 h-4 w-4" />
+                <Button variant="outline" size="sm" onClick={startDownload}>
+                  <Download className="mr-1.5 h-4 w-4" />
                   {t('settings.fields.downloadModel')}
                 </Button>
-                <div className="space-y-1">
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full bg-primary transition-all" style={{ width: `${downloadProgress}%` }} />
+
+                {/* Progress */}
+                <div className="space-y-2">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+                      style={{ width: `${downloadProgress}%` }}
+                    />
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {downloadStatus} · {downloadProgress}%
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="capitalize">{downloadStatus}</span>
+                    <span className="tabular-nums">{downloadProgress}%</span>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="text-sm text-muted-foreground">{t('settings.fields.installedModels')}</span>
-                  {installedModels.length > 0
-                    ? installedModels.map((model) => <Badge key={model} variant="secondary">{model}</Badge>)
-                    : <Badge variant="outline">{t('settings.fields.none')}</Badge>}
+
+                {/* Installed Models */}
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <span className="text-xs text-muted-foreground">
+                    {t('settings.fields.installedModels')}:
+                  </span>
+                  {installedModels.length > 0 ? (
+                    installedModels.map((model) => (
+                      <Badge key={model} variant="secondary" className="text-xs">
+                        {model}
+                      </Badge>
+                    ))
+                  ) : (
+                    <Badge variant="outline" className="text-xs">
+                      {t('settings.fields.none')}
+                    </Badge>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -926,13 +970,13 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <nav className="w-52 shrink-0 border-r bg-muted/30 p-3">
-          <div className="space-y-1">
+        <nav className="w-56 shrink-0 border-r border-border/50 bg-muted/40 p-4">
+          <div className="space-y-1.5">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = activeSection === item.id;
               return (
-                <div key={item.id} className="space-y-1">
+                <div key={item.id} className="space-y-1.5">
                   <button
                     onClick={() => {
                       setActiveSection(item.id);
@@ -944,31 +988,41 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                     aria-current={isActive ? 'page' : undefined}
                     aria-label={t(`settings.tabs.${item.id}`)}
                     className={cn(
-                      'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                      'group flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium',
+                      'transition-all duration-200 ease-out',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                       isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
                     )}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <Icon className="h-4 w-4" />
-                      <span>{t(`settings.tabs.${item.id}`)}</span>
+                    <div className="flex items-center gap-3">
+                      <Icon className={cn(
+                        'h-4 w-4 transition-colors',
+                        isActive ? 'text-primary-foreground' : 'text-muted-foreground group-hover:text-foreground'
+                      )} />
+                      <span className="transition-colors">{t(`settings.tabs.${item.id}`)}</span>
                     </div>
-                    {isActive ? <ChevronRight className="h-4 w-4" /> : null}
+                    <ChevronRight className={cn(
+                      'h-4 w-4 transition-all duration-200',
+                      isActive ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0'
+                    )} />
                   </button>
 
                   {item.id === 'timeline' && isActive ? (
-                    <div className="space-y-1 pl-3">
+                    <div className="ml-3 space-y-1 border-l border-border/50 pl-3">
                       <button
                         type="button"
                         onClick={() => setTimelineSelection(null)}
                         data-testid="timeline-nav-overview"
                         aria-current={timelineSelection === null ? 'page' : undefined}
                         className={cn(
-                          'flex w-full items-center rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                          'flex w-full items-center rounded-md px-3 py-2 text-sm',
+                          'transition-all duration-150 ease-out',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                           timelineSelection === null
-                            ? 'bg-background text-foreground shadow-sm'
-                            : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+                            ? 'bg-background/80 text-foreground font-medium shadow-sm'
+                            : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
                         )}
                       >
                         {t('settings.timeline.nav.overview')}
@@ -984,15 +1038,17 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                             data-testid={`timeline-nav-source-${source.source_name}`}
                             aria-current={isSelected ? 'page' : undefined}
                             className={cn(
-                              'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                              'flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm',
+                              'transition-all duration-150 ease-out',
+                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                               isSelected
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+                                ? 'bg-background/80 text-foreground font-medium shadow-sm'
+                                : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
                             )}
                           >
                             <span className="truncate">{source.display_name}</span>
                             {source.last_error ? (
-                              <span className="ml-auto h-2 w-2 rounded-full bg-destructive" aria-hidden="true" />
+                              <span className="ml-auto h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
                             ) : null}
                           </button>
                         );
@@ -1005,32 +1061,61 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         </nav>
 
-        <main className="flex-1 overflow-y-auto px-8 py-6">
-          {renderSectionContent()}
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-3xl px-8 py-8">
+            <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out">
+              {renderSectionContent()}
+            </div>
+          </div>
         </main>
       </div>
 
-      <div className="shrink-0 border-t border-border/70 bg-background/96 px-6 py-4 backdrop-blur">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-muted-foreground">
+      <footer className="shrink-0 border-t border-border/60 bg-background/95 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-8 py-4">
+          <p className={cn(
+            'text-sm transition-colors duration-200',
+            dirty ? 'text-primary font-medium' : 'text-muted-foreground'
+          )}>
             {dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved')}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="ghost" onClick={() => void onRequestClose?.()}>
-              <X className="mr-2 h-4 w-4" />
+          </p>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void onRequestClose?.()}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="mr-1.5 h-4 w-4" />
               {t('settings.actions.close')}
             </Button>
-            <Button type="button" variant="outline" onClick={() => void handleDiscardChanges()} disabled={!dirty || saving}>
-              <RotateCcw className="mr-2 h-4 w-4" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleDiscardChanges()}
+              disabled={!dirty || saving}
+              className="disabled:opacity-40"
+            >
+              <RotateCcw className="mr-1.5 h-4 w-4" />
               {t('settings.actions.discard')}
             </Button>
-            <Button type="button" onClick={() => void handleSaveChanges()} disabled={!dirty || saving}>
-              <Save className="mr-2 h-4 w-4" />
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSaveChanges()}
+              disabled={!dirty || saving}
+              className={cn(
+                'transition-all duration-200',
+                dirty && 'animate-in pulse duration-300'
+              )}
+            >
+              <Save className="mr-1.5 h-4 w-4" />
               {saving ? t('settings.saving') : t('settings.actions.save')}
             </Button>
           </div>
         </div>
-      </div>
+      </footer>
 
       {showClearConfirm ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
