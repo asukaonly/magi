@@ -146,3 +146,19 @@ def test_loader_creates_default_scenario_llm_config(tmp_path: Path, monkeypatch)
     assert "openai" in config.llm.providers
     assert "context_decider" in config.llm.selections
     assert "core" in config.llm.selections
+
+
+def test_loader_ignores_llm_environment_overrides(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+    monkeypatch.setenv("LLM_API_KEY", "env-key")
+    monkeypatch.setenv("LLM_MODEL", "env-model")
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+
+    loader = ConfigLoader()
+    config = loader.load()
+
+    assert config.llm.providers["openai"].api_key == ""
+    assert config.llm.selections["context_decider"].provider_id == "openai"
+    assert config.llm.selections["context_decider"].model == "gpt-4o-mini"
+    assert config.llm.selections["core"].provider_id == "openai"
+    assert config.llm.selections["core"].model == "gpt-4o-mini"

@@ -2,7 +2,7 @@
 Configuration Loader - Runtime configuration management.
 
 Configuration Sources (priority order):
-    1. Environment variables (highest priority)
+    1. Selected environment variables (highest priority)
     2. Runtime config files:
        - ~/.magi/config/agent.yaml
        - ~/.magi/config/plugins/index.yaml
@@ -34,11 +34,7 @@ import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable, Tuple
 
-from .models import (
-    AppConfig, AgentSettings, ServerSettings, FeatureFlags, ToolsSettings,
-    LLMSettings, LLMProvider, MemorySettings, MessageBusSettings,
-    PersonalitySettings, WeatherToolSettings, WebSearchToolSettings,
-)
+from .models import AppConfig
 from .constants import DEFAULT_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
@@ -95,19 +91,6 @@ def get_data_dir() -> Path:
 
 # Maps config path -> (env_var_name, type_converter, default_value)
 ENV_MAPPINGS: Dict[str, Tuple[str, Callable, Any]] = {
-    # LLM Settings
-    "llm.providers.openai.provider_type": ("LLM_PROVIDER", lambda v: LLMProvider(v.lower()), LLMProvider.OPENAI),
-    "llm.providers.openai.display_name": ("LLM_PROVIDER_NAME", str, "OpenAI"),
-    "llm.providers.openai.api_key": ("LLM_API_KEY", str, None),
-    "llm.providers.openai.base_url": ("LLM_BASE_URL", str, None),
-    "llm.selections.context_decider.provider_id": ("LLM_PROVIDER", lambda v: v.lower(), "openai"),
-    "llm.selections.context_decider.model": ("LLM_MODEL", str, "gpt-4o-mini"),
-    "llm.selections.core.provider_id": ("LLM_PROVIDER", lambda v: v.lower(), "openai"),
-    "llm.selections.core.model": ("LLM_MODEL", str, "gpt-4o-mini"),
-    "llm.temperature": ("LLM_TEMPERATURE", float, 0.7),
-    "llm.max_tokens": ("LLM_MAX_TOKENS", int, DEFAULT_MAX_TOKENS),
-    "llm.timeout": ("LLM_TIMEOUT", int, 60),
-
     # Agent Settings
     "agent.name": ("AGENT_NAME", str, "magi-agent"),
     "agent.num_task_agents": ("NUM_TASK_AGENTS", int, 2),
@@ -151,7 +134,7 @@ class ConfigLoader:
 
     - Loads from ~/.magi/config/agent.yaml
     - Creates default config on first run
-    - Supports environment variable overrides
+    - Supports selected environment variable overrides
     - Can save changes back to config file
     """
 
@@ -177,7 +160,7 @@ class ConfigLoader:
         # Load YAML file
         self._yaml_data = self._load_yaml()
 
-        # Build config with env var overrides
+        # Build config with selected env var overrides
         self._config = self._build_config()
 
         logger.info(f"Configuration loaded from {self._config_file}")
@@ -527,7 +510,7 @@ class ConfigLoader:
         return data
 
     def _build_config(self) -> AppConfig:
-        """Build final config by merging YAML + env vars + defaults."""
+        """Build final config by merging YAML + selected env vars + defaults."""
         config_dict: Dict[str, Any] = {}
 
         # Apply YAML values
@@ -702,7 +685,7 @@ def get_config() -> AppConfig:
     """
     Get application configuration.
 
-    Loads from ~/.magi/config/agent.yaml with env var overrides.
+    Loads from ~/.magi/config/agent.yaml with selected env var overrides.
 
     Returns:
         AppConfig: Application configuration
