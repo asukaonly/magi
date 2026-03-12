@@ -140,3 +140,49 @@ class TestTypeHandler:
         assert handler is not None
         result = handler.extract({"value": "test"})
         assert result["custom_field"] == "test"
+
+
+class TestPrivacyGuard:
+    """Tests for PrivacyGuard sensitivity checks."""
+
+    def test_internal_data_allowed(self):
+        """Should allow internal data types without confirmation."""
+        from magi.memory.query.privacy import PrivacyGuard, PrivacyCheckResult
+
+        guard = PrivacyGuard()
+        result = guard.check(["browser_history", "chat"], {"query": "test"})
+
+        assert result.allowed is True
+        assert result.requires_confirmation is False
+        assert result.blocked_types == []
+
+    def test_sensitive_data_requires_confirmation(self):
+        """Should require confirmation for sensitive data."""
+        from magi.memory.query.privacy import PrivacyGuard
+
+        guard = PrivacyGuard()
+        result = guard.check(["private_diary"], {"query": "test"})
+
+        assert result.allowed is True
+        assert result.requires_confirmation is True
+        assert result.confirm_prompt is not None
+
+    def test_restricted_data_denied(self):
+        """Should deny access to restricted data types."""
+        from magi.memory.query.privacy import PrivacyGuard
+
+        guard = PrivacyGuard()
+        result = guard.check(["password"], {"query": "test"})
+
+        assert result.allowed is False
+        assert "password" in result.blocked_types
+
+    def test_mixed_data_partial_block(self):
+        """Should allow non-sensitive data while blocking restricted."""
+        from magi.memory.query.privacy import PrivacyGuard
+
+        guard = PrivacyGuard()
+        result = guard.check(["browser_history", "password"], {"query": "test"})
+
+        assert result.allowed is False
+        assert "password" in result.blocked_types
