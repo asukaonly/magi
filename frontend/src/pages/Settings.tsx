@@ -52,6 +52,7 @@ import { memoryApi } from '../api/modules/memory';
 import { cn } from '@/lib/utils';
 import { useThemeStore, type ThemeMode } from '@/stores';
 import i18n from '@/i18n';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 type SelectOption = { label: string; value: string };
 
