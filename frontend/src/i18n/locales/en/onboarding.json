@@ -103,6 +103,7 @@
     },
     "actions": {
       "addCustomProvider": "Add Custom Provider",
+      "removeProvider": "Remove Provider",
       "addModel": "Add Model",
       "removeModel": "Remove Model",
       "fetchModels": "Fetch Models",

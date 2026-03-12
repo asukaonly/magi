@@ -433,6 +433,28 @@ describe('config forms', () => {
     expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('foo-1');
   });
 
+  it('lets users remove a custom provider and falls back to builtin providers', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+    expect(screen.getByDisplayValue('llm.customProviderDefaultName')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'llm.actions.removeProvider' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'llm.actions.removeProvider' }));
+
+    await waitFor(() => {
+      expect(screen.queryByDisplayValue('llm.customProviderDefaultName')).not.toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('llm.fields.apiKey')).toHaveValue('sk-openai');
+    expect(screen.queryByRole('button', { name: 'llm.actions.removeProvider' })).not.toBeInTheDocument();
+  });
+
   it('puts api connection fields before model management for custom providers', async () => {
     const user = userEvent.setup();
 

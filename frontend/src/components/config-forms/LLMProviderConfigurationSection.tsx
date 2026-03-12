@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Loader2, Plus, PlugZap, X, XCircle } from 'lucide-react';
+import { CheckCircle2, Loader2, Plus, PlugZap, Trash2, X, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Switch } from '@/components/ui/switch';
@@ -23,6 +23,7 @@ interface LLMProviderConfigurationSectionProps {
   onActiveProviderChange: (providerId: string) => void;
   onProviderChange: (providerId: string, updater: (provider: LLMProviderConfig) => void) => void;
   onAddCustomProvider: () => void;
+  onRemoveCustomProvider: (providerId: string) => void;
   onAddProviderModel: (providerId: string, model: string) => void;
   onRemoveProviderModel: (providerId: string, model: string) => void;
   onProviderDefaultModelChange: (providerId: string, model: string) => void;
@@ -56,6 +57,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   onActiveProviderChange,
   onProviderChange,
   onAddCustomProvider,
+  onRemoveCustomProvider,
   onAddProviderModel,
   onRemoveProviderModel,
   onProviderDefaultModelChange,
@@ -238,6 +240,16 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                    {activeProvider.provider_type === 'custom' ? (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveCustomProvider(activeProviderId)}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        <span>{t('llm.actions.removeProvider')}</span>
+                      </button>
+                    ) : null}
                     <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2">
                       <span className="text-sm font-medium text-foreground">{t('llm.fields.enabled')}</span>
                       <Switch

@@ -330,6 +330,18 @@ const LLMForm: React.FC<LLMFormProps> = ({
     setActiveProviderId(nextProviderId);
   };
 
+  const handleRemoveCustomProvider = (providerId: string) => {
+    const provider = currentValue.providers[providerId];
+    if (!provider || provider.provider_type !== 'custom') {
+      return;
+    }
+
+    updateValue((draft) => {
+      delete draft.providers[providerId];
+    });
+    setActiveProviderId('openai');
+  };
+
   const handleAddProviderModel = (providerId: string, model: string) => {
     const trimmedModel = model.trim();
     if (!trimmedModel) {
@@ -519,6 +531,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
           onActiveProviderChange={setActiveProviderId}
           onProviderChange={handleProviderChange}
           onAddCustomProvider={handleAddCustomProvider}
+          onRemoveCustomProvider={handleRemoveCustomProvider}
           onAddProviderModel={handleAddProviderModel}
           onRemoveProviderModel={handleRemoveProviderModel}
           onProviderDefaultModelChange={handleProviderDefaultModelChange}

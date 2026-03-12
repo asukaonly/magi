@@ -103,6 +103,7 @@
     },
     "actions": {
       "addCustomProvider": "添加自定义供应商",
+      "removeProvider": "删除供应商",
       "addModel": "添加模型",
       "removeModel": "移除模型",
       "fetchModels": "拉取模型",
