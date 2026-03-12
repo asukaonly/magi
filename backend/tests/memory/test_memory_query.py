@@ -230,3 +230,78 @@ class TestIntentRouter:
 
         # Either confidence is low OR secondary layers are populated
         assert plan.confidence < 0.8 or len(plan.secondary_layers) > 0
+
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+
+class TestMemoryQueryService:
+    """Tests for MemoryQueryService orchestration."""
+
+    @pytest.fixture
+    def mock_layer_handlers(self):
+        """Create mock layer handlers."""
+        l1_handler = MagicMock()
+        l1_handler.query = AsyncMock(return_value=[
+            {"id": "1", "type": "browser_history", "timestamp": 1700000000.0, "data": {"url": "https://example.com"}}
+        ])
+
+        l3_handler = MagicMock()
+        l3_handler.query = AsyncMock(return_value=[
+            {"id": "2", "type": "chat", "timestamp": 1700001000.0, "data": {"content": "Hello"}}
+        ])
+
+        return {"L1": l1_handler, "L3": l3_handler}
+
+    def test_missing_time_range_requires_confirmation(self):
+        """Should return confirm_required when time_range is missing."""
+        from magi.memory.query.service import MemoryQueryService
+        from magi.memory.query.models import MemoryQueryRequest
+
+        service = MemoryQueryService()
+        request = MemoryQueryRequest(
+            query="test query",
+            time_range={}  # Empty time range
+        )
+
+        result = asyncio.get_event_loop().run_until_complete(service.query(request))
+
+        assert result.status == "confirm_required"
+        assert "time range" in result.confirm_prompt.lower()
+
+    def test_empty_results(self, mock_layer_handlers):
+        """Should return empty status when no results found."""
+        from magi.memory.query.service import MemoryQueryService
+        from magi.memory.query.models import MemoryQueryRequest
+
+        # Handlers return empty
+        for handler in mock_layer_handlers.values():
+            handler.query = AsyncMock(return_value=[])
+
+        service = MemoryQueryService(layer_handlers=mock_layer_handlers)
+        request = MemoryQueryRequest(
+            query="nonexistent",
+            time_range={"relative": "1d"}
+        )
+
+        result = asyncio.get_event_loop().run_until_complete(service.query(request))
+
+        assert result.status == "empty"
+
+    def test_successful_query(self, mock_layer_handlers):
+        """Should return success with processed results."""
+        from magi.memory.query.service import MemoryQueryService
+        from magi.memory.query.models import MemoryQueryRequest
+
+        service = MemoryQueryService(layer_handlers=mock_layer_handlers)
+        request = MemoryQueryRequest(
+            query="What did I browse yesterday?",
+            time_range={"relative": "1d"}
+        )
+
+        result = asyncio.get_event_loop().run_until_complete(service.query(request))
+
+        assert result.status == "success"
+        assert len(result.data) >= 1
+        assert result.query_meta is not None

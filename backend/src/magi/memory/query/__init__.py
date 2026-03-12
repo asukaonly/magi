@@ -3,6 +3,7 @@ from .models import MemoryQueryRequest, MemoryQueryResult
 from .handlers import TypeHandler, TypeHandlerRegistry
 from .privacy import PrivacyGuard, SensitivityLevel, PrivacyCheckResult
 from .router import IntentRouter, RoutingPlan
+from .service import MemoryQueryService
 
 __all__ = [
     "MemoryQueryRequest",
@@ -14,4 +15,5 @@ __all__ = [
     "PrivacyCheckResult",
     "IntentRouter",
     "RoutingPlan",
+    "MemoryQueryService",
 ]
