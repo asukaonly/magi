@@ -209,6 +209,18 @@ def _create_core_llm_adapter(llm_pool: ScenarioLLMPool):
     return llm_adapter
 
 
+def refresh_runtime_llm_config(config: AppConfig | None = None) -> None:
+    """Refresh cached runtime LLM adapters after configuration changes."""
+    global _scenario_llm_pool
+
+    if _scenario_llm_pool is None:
+        return
+
+    next_config = config or get_config()
+    _scenario_llm_pool.refresh(next_config)
+    logger.info("Runtime LLM pool refreshed after configuration update")
+
+
 async def initialize_chat_agent():
     """Initialize agent runtime on application startup."""
     global _memory_integration, _message_bus, _agent_runtime, _llm_usage_store, _scenario_llm_pool

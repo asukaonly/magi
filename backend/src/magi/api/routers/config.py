@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..llm_draft import build_adapter_from_provider
-from ...config.loader import get_config, get_config_file_path, save_config
+from ...config.loader import get_config, get_config_file_path, reload_config, save_config
 from ...config.models import LLMProviderSettings
 from ...config.llm_registry import (
     LLMCustomProviderMetaModel,
@@ -27,6 +27,7 @@ from ...config.llm_registry import (
 from ...config.models import LLMCapabilitiesSettings, LLMLimitsSettings
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, create_llm_adapter
+from ...runtime import refresh_runtime_llm_config
 
 logger = get_logger(__name__)
 config_router = APIRouter()
@@ -943,6 +944,8 @@ async def update_config(config: SystemConfigModel):
         updates = _build_update_paths(config)
         if not save_config(updates):
             raise HTTPException(status_code=500, detail="Failed to save config")
+        refreshed_config = reload_config()
+        refresh_runtime_llm_config(refreshed_config)
         return ConfigResponse(success=True, message="Configuration updated", data=_build_system_config())
     except HTTPException:
         raise
@@ -1160,6 +1163,8 @@ async def complete_onboarding(config: SystemConfigModel):
         updates = _build_update_paths(config)
         if not save_config(updates):
             raise HTTPException(status_code=500, detail="Failed to save onboarding configuration")
+        refreshed_config = reload_config()
+        refresh_runtime_llm_config(refreshed_config)
 
         # Save the full personality config to user storage and set as current
         if config.personality:

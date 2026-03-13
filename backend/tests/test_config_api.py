@@ -416,3 +416,86 @@ def test_llm_provider_test_endpoint_falls_back_to_registry_default_base_url(monk
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "model": "glm-4.7-flash",
     }
+
+
+def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(monkeypatch: pytest.MonkeyPatch):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    calls: list[str] = []
+    payload = SystemConfigModel()
+    payload.llm.providers["glm"] = LLMProviderConfigModel(
+        enabled=True,
+        provider_type="glm",
+        display_name="Z.ai",
+        api_key="glm-key",
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+    )
+    payload.llm.selections["context_decider"] = LLMSelectionConfigModel(
+        provider_id="glm",
+        model="glm-4.6",
+    )
+
+    def _fake_save_config(_: dict) -> bool:
+        calls.append("save")
+        return True
+
+    def _fake_reload_config():
+        calls.append("reload")
+        return get_config()
+
+    def _fake_refresh_runtime_llm_config(config) -> None:  # type: ignore[no-untyped-def]
+        assert config is get_config()
+        calls.append("refresh")
+
+    monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", _fake_reload_config)
+    monkeypatch.setattr(
+        "magi.api.routers.config.refresh_runtime_llm_config",
+        _fake_refresh_runtime_llm_config,
+    )
+
+    response = client.put("/config/", json=payload.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    assert calls == ["save", "reload", "refresh"]
+
+
+def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    calls: list[str] = []
+    payload = SystemConfigModel()
+
+    def _fake_save_config(_: dict) -> bool:
+        calls.append("save")
+        return True
+
+    def _fake_reload_config():
+        calls.append("reload")
+        return get_config()
+
+    def _fake_refresh_runtime_llm_config(config) -> None:  # type: ignore[no-untyped-def]
+        assert config is get_config()
+        calls.append("refresh")
+
+    monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", _fake_reload_config)
+    monkeypatch.setattr(
+        "magi.api.routers.config.refresh_runtime_llm_config",
+        _fake_refresh_runtime_llm_config,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.config._save_personality_to_user",
+        lambda _: True,
+    )
+
+    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    assert calls == ["save", "reload", "refresh"]
