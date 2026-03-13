@@ -1,7 +1,5 @@
 """
-APImiddle件
-
-containserrorprocess、authentication、CORS等middle件
+API middleware for error handling, authentication, CORS, and request logging.
 """
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
@@ -19,6 +17,12 @@ DESKTOP_SESSION_HEADER = "X-Magi-Session-Token"
 QUIET_REQUEST_PATHS = {
     "/api/health",
     "/api/messages/sessions",
+    "/api/config",
+    "/api/config/",
+    "/api/memory/models",
+    "/api/timeline/sources/status",
+    "/api/plugins",
+    "/api/tools/config",
 }
 EXEMPT_PATH_PREFIXES = (
     "/static/",
@@ -32,9 +36,9 @@ def get_required_desktop_session_token() -> str | None:
 
 class errorHandler(BaseHTTPMiddleware):
     """
-    globalerrorprocessing间件
+    Global error handling middleware.
 
-    allException并Return统一format的errorresponse
+    Catches unhandled exceptions and returns a standardized error response.
     """
 
     async def dispatch(self, request: Request, call_next: Callable):
@@ -58,13 +62,13 @@ class errorHandler(BaseHTTPMiddleware):
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """
-    authenticationmiddle件
+    Authentication middleware.
 
-    ValidateJWT token（optional，用于生产环境）
+    Validates JWT tokens (optional, mainly used in production).
     """
 
-    # 不需要authentication的path
-    EXEMPT_pathS = {
+    # Paths that do not require authentication
+    EXEMPT_PATHS = {
         "/api/docs",
         "/api/redoc",
         "/api/openapi.json",
@@ -77,8 +81,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method.upper() == "OPTIONS":
             return await call_next(request)
 
-        # checkis not豁免authentication
-        if request.url.path in self.EXEMPT_pathS:
+        # Skip authentication for exempt paths
+        if request.url.path in self.EXEMPT_PATHS:
             return await call_next(request)
 
         if request.url.path.startswith(EXEMPT_PATH_PREFIXES):
@@ -97,34 +101,34 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     },
                 )
 
-        # TODO: ImplementationJWT tokenValidate
-        # 目前暂时跳过authentication
+        # TODO: Implement JWT token validation
+        # Authentication is currently skipped
         return await call_next(request)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """
-    requestLogmiddle件
+    Request logging middleware.
 
-    recordallrequest的详细info
+    Records basic metadata and timing information for each request.
     """
 
     async def dispatch(self, request: Request, call_next: Callable):
         start_time = time.time()
         should_log = request.url.path not in QUIET_REQUEST_PATHS
 
-        # recordrequest
+        # Log request metadata
         if should_log:
             logger.info(f"Request: {request.method} {request.url.path}")
 
-        # processrequest
+        # Process request
         response = await call_next(request)
 
-        # calculateprocess时间
+        # Calculate processing time
         process_time = time.time() - start_time
         response.headers["X-process-Time"] = str(process_time)
 
-        # recordresponse
+        # Log response metadata
         if should_log:
             logger.info(
                 f"Response: {response.status_code} "
@@ -136,14 +140,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 def add_cors_middleware(app):
     """
-    addCORSmiddle件
+    Add CORS middleware to the FastAPI application.
 
     Args:
-        app: FastAPI应用Instance
+        app: FastAPI application instance
     """
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # 生产环境应limitation具体domain
+        allow_origins=["*"],  # In production, restrict to specific domains
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
