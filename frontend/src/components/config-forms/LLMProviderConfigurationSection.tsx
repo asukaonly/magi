@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Loader2, Plus, PlugZap, Trash2, X, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { SelectField } from '@/components/config-forms/fields';
 import { Switch } from '@/components/ui/switch';
 import type {
   LLMConfig,
@@ -44,7 +45,7 @@ const badgeClassName =
   'inline-flex rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground';
 
 const fieldClassName =
-  'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
+  'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
 
 export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationSectionProps> = ({
   registry,
@@ -97,8 +98,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     ? 'xl:grid-cols-[220px_minmax(0,1fr)]'
     : 'xl:grid-cols-[240px_minmax(0,1fr)]';
   const settingsWorkbenchColumnsClassName = quickMode
-    ? 'xl:grid-cols-[320px_minmax(0,1fr)]'
-    : 'xl:grid-cols-[340px_minmax(0,1fr)]';
+    ? 'xl:grid-cols-[250px_minmax(0,1fr)]'
+    : 'xl:grid-cols-[280px_minmax(0,1fr)]';
 
   useEffect(() => {
     setModelDraft('');
@@ -146,7 +147,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
           data-testid="llm-provider-list-pane"
           className={cn(
             'min-h-0 space-y-1.5 overflow-y-auto rounded-[24px] bg-background/55 p-2 sm:p-3',
-            isSettingsSurface && 'flex min-h-0 flex-col rounded-2xl border border-border/60 bg-background p-4'
+            isSettingsSurface &&
+              'flex min-h-0 flex-col rounded-2xl border border-border/70 bg-transparent p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
           )}
         >
           <div className={cn('space-y-1.5', isSettingsSurface && 'flex-1 space-y-3 overflow-y-auto pr-1')}>
@@ -168,8 +170,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
                     isSettingsSurface &&
                       (providerId === activeProviderId
-                        ? 'rounded-xl ring-1 ring-inset ring-primary/35'
-                        : 'rounded-xl ring-1 ring-inset ring-border/55')
+                        ? 'rounded-xl bg-background shadow-[0_1px_2px_rgba(15,23,42,0.04)] ring-1 ring-inset ring-primary/35'
+                        : 'rounded-xl bg-transparent shadow-[0_1px_2px_rgba(15,23,42,0.03)] ring-1 ring-inset ring-border/60')
                   )}
                 >
                   <div className="min-w-0 flex-1">
@@ -196,7 +198,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
               <button
                 type="button"
                 onClick={onAddCustomProvider}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-background px-3.5 py-3 text-sm font-medium text-foreground transition hover:bg-accent"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-transparent px-3.5 py-3 text-sm font-medium text-foreground transition hover:bg-accent/40"
               >
                 <Plus className="h-4 w-4" />
                 <span>{t('llm.actions.addCustomProvider')}</span>
@@ -210,7 +212,8 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
             data-testid="llm-provider-detail-pane"
             className={cn(
               'min-h-0 overflow-y-auto rounded-[24px] bg-background/72 p-5 sm:p-6',
-              isSettingsSurface && 'rounded-2xl border border-border/60 bg-background p-6'
+              isSettingsSurface &&
+                'rounded-2xl border border-border/70 bg-transparent p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
             )}
           >
             <div className={cn('space-y-6', isSettingsSurface && 'space-y-5')}>
@@ -240,13 +243,13 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <button
                         type="button"
                         onClick={() => onRemoveCustomProvider(activeProviderId)}
-                        className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
+                        className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted/70 px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent/60"
                       >
                         <Trash2 className="h-4 w-4" />
                         <span>{t('llm.actions.removeProvider')}</span>
                       </button>
                     ) : null}
-                    <div className="inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-full bg-muted px-3 py-2">
+                    <div className="inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-full bg-muted/70 px-3 py-2">
                       <span className="whitespace-nowrap text-sm font-medium text-foreground">{t('llm.fields.enabled')}</span>
                       <Switch
                         aria-label={t('llm.fields.enabled')}
@@ -263,7 +266,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       type="button"
                       onClick={() => onTestProviderConnection(activeProviderId)}
                       disabled={activeTestState.loading}
-                      className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted/70 px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {activeTestState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
                       <span>
@@ -323,22 +326,24 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
                     <label className="space-y-2">
                       <span className="text-sm font-medium">{t('llm.fields.apiFormat')}</span>
-                      <select
-                        aria-label={t('llm.fields.apiFormat')}
-                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                      <SelectField
+                        className="w-full"
+                        triggerClassName={cn(
+                          'h-11 rounded-xl border-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
+                          isSettingsSurface && 'rounded-lg'
+                        )}
                         value={activeProvider.api_format || 'openai'}
-                        onChange={(event) =>
+                        allowEmpty={false}
+                        options={(registry.custom_provider.fields?.api_format?.options || ['openai', 'anthropic']).map((option) => ({
+                          label: t(`llm.apiFormatOptions.${option}`),
+                          value: option,
+                        }))}
+                        onChange={(nextValue) =>
                           onProviderChange(activeProviderId, (provider) => {
-                            provider.api_format = event.target.value as LLMProviderConfig['api_format'];
+                            provider.api_format = nextValue as LLMProviderConfig['api_format'];
                           })
                         }
-                      >
-                        {(registry.custom_provider.fields?.api_format?.options || ['openai', 'anthropic']).map((option) => (
-                          <option key={option} value={option}>
-                            {t(`llm.apiFormatOptions.${option}`)}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </label>
 
                     <label className="space-y-2">
@@ -370,26 +375,34 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       />
                     </label>
 
-                    <div className={cn('space-y-4 rounded-[20px] bg-muted/40 p-4', !isSettingsSurface && 'lg:col-span-2', isSettingsSurface && 'rounded-xl bg-muted/25 p-3.5')}>
+                    <div
+                      className={cn(
+                        'space-y-4 rounded-[20px] bg-muted/40 p-4',
+                        !isSettingsSurface && 'lg:col-span-2',
+                        isSettingsSurface &&
+                          'rounded-xl border border-border/65 bg-transparent p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+                      )}
+                    >
                       <div className="space-y-2">
                         <label className="block space-y-2">
                           <span className="text-sm font-medium">{t('llm.fields.defaultModel')}</span>
-                          <select
-                            aria-label={t('llm.fields.defaultModel')}
-                            className={cn(fieldClassName, isSettingsSurface && 'rounded-lg', 'disabled:cursor-not-allowed disabled:opacity-60')}
+                          <SelectField
+                            className="w-full"
+                            triggerClassName={cn(
+                              'h-11 rounded-xl border-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
+                              isSettingsSurface && 'rounded-lg',
+                              'disabled:cursor-not-allowed disabled:opacity-60'
+                            )}
                             value={activeProvider.custom_default_model || ''}
                             disabled={!activeProvider.custom_models?.length}
-                            onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
-                          >
-                            {!activeProvider.custom_models?.length ? (
-                              <option value="">{t('llm.providerConfiguration.defaultModelEmpty')}</option>
-                            ) : null}
-                            {(activeProvider.custom_models || []).map((model) => (
-                              <option key={model} value={model}>
-                                {model}
-                              </option>
-                            ))}
-                          </select>
+                            placeholder={t('llm.providerConfiguration.defaultModelEmpty')}
+                            allowEmpty={false}
+                            options={(activeProvider.custom_models || []).map((model) => ({
+                              label: model,
+                              value: model,
+                            }))}
+                            onChange={(nextValue) => onProviderDefaultModelChange(activeProviderId, nextValue)}
+                          />
                         </label>
                       </div>
 

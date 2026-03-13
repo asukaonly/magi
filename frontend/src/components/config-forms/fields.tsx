@@ -16,6 +16,8 @@ export function SelectField({
   disabled = false,
   allowEmpty = true,
   className,
+  triggerClassName,
+  menuClassName,
 }: {
   value?: string;
   onChange?: (value: string) => void;
@@ -24,6 +26,8 @@ export function SelectField({
   disabled?: boolean;
   allowEmpty?: boolean;
   className?: string;
+  triggerClassName?: string;
+  menuClassName?: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -54,10 +58,11 @@ export function SelectField({
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
         className={cn(
-          'flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm',
+          'flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.05)]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600/60',
           disabled && 'cursor-not-allowed opacity-50',
-          !selectedOption && 'text-muted-foreground'
+          !selectedOption && 'text-muted-foreground',
+          triggerClassName
         )}
       >
         <span>{selectedOption?.label || placeholder}</span>
@@ -65,7 +70,12 @@ export function SelectField({
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border border-border bg-background shadow-md">
+        <div
+          className={cn(
+            'absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border border-border bg-background shadow-[0_12px_24px_rgba(15,23,42,0.08)]',
+            menuClassName
+          )}
+        >
           {allowEmpty && (
             <button
               type="button"

@@ -430,7 +430,7 @@ describe('config forms', () => {
     await user.click(screen.getByRole('button', { name: 'llm.actions.addModel' }));
 
     expect(screen.getAllByText('foo-1').length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('foo-1');
+    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveTextContent('foo-1');
   });
 
   it('lets users remove a custom provider and falls back to builtin providers', async () => {
@@ -514,14 +514,14 @@ describe('config forms', () => {
     await user.click(await screen.findByText('llm.actions.addCustomProvider'));
 
     const defaultModelField = screen.getByLabelText('llm.fields.defaultModel');
-    expect(defaultModelField.tagName).toBe('SELECT');
+    expect(defaultModelField.tagName).toBe('BUTTON');
     expect(defaultModelField).toBeDisabled();
 
     await user.type(screen.getByLabelText('llm.fields.modelManualEntry'), 'foo-1');
     await user.click(screen.getByRole('button', { name: 'llm.actions.addModel' }));
 
-    expect(screen.getByLabelText('llm.fields.defaultModel').tagName).toBe('SELECT');
-    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('foo-1');
+    expect(screen.getByLabelText('llm.fields.defaultModel').tagName).toBe('BUTTON');
+    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveTextContent('foo-1');
   });
 
   it('shows default model before model entry and adds a model id placeholder for custom providers', async () => {
@@ -561,6 +561,21 @@ describe('config forms', () => {
     expect(customModelSection?.className).not.toContain('lg:col-span-2');
   });
 
+  it('uses custom select controls for custom provider fields on the settings surface', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+
+    expect(screen.getByLabelText('llm.fields.apiFormat').tagName).toBe('BUTTON');
+    expect(screen.getByLabelText('llm.fields.defaultModel').tagName).toBe('BUTTON');
+  });
+
   it('removes the ambiguous custom api format option', async () => {
     const user = userEvent.setup();
 
@@ -573,8 +588,9 @@ describe('config forms', () => {
     await user.click(await screen.findByText('llm.actions.addCustomProvider'));
 
     const apiFormatSelect = screen.getByLabelText('llm.fields.apiFormat');
+    await user.click(apiFormatSelect);
 
-    expect(within(apiFormatSelect).queryByRole('option', { name: 'llm.apiFormatOptions.custom' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'llm.apiFormatOptions.custom' })).not.toBeInTheDocument();
   });
 
   it('fetches custom provider models on demand', async () => {
@@ -593,7 +609,7 @@ describe('config forms', () => {
     await waitFor(() => {
       expect(screen.getAllByText('fetched-model-1').length).toBeGreaterThan(0);
     });
-    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('fetched-model-1');
+    expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveTextContent('fetched-model-1');
     expect(configApi.discoverLLMProviderModels).toHaveBeenCalled();
   });
 
