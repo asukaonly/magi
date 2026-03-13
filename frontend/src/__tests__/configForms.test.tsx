@@ -478,6 +478,30 @@ describe('config forms', () => {
     ).toBeTruthy();
   });
 
+  it('puts custom provider identity fields before api connection fields', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+
+    const displayNameField = screen.getByLabelText('llm.fields.displayName');
+    const apiFormatField = screen.getByLabelText('llm.fields.apiFormat');
+    const apiKeyField = screen.getByLabelText('llm.fields.apiKey');
+    const baseUrlField = screen.getByLabelText('llm.fields.baseUrl');
+
+    expect(
+      displayNameField.compareDocumentPosition(apiKeyField) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      apiFormatField.compareDocumentPosition(baseUrlField) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('uses a selectable default model instead of free text for custom providers', async () => {
     const user = userEvent.setup();
 

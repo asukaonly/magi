@@ -305,36 +305,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
               ) : null}
 
               <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-2')}>
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
-                  <input
-                    aria-label={t('llm.fields.apiKey')}
-                    className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                    type="password"
-                    value={activeProvider.api_key || ''}
-                    onChange={(event) =>
-                      onProviderChange(activeProviderId, (provider) => {
-                        provider.api_key = event.target.value;
-                      })
-                    }
-                  />
-                </label>
-
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
-                  <input
-                    aria-label={t('llm.fields.baseUrl')}
-                    className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                    placeholder={activeProvider.provider_type === 'custom' ? '' : activeProviderMeta?.default_base_url || ''}
-                    value={activeProvider.base_url || ''}
-                    onChange={(event) =>
-                      onProviderChange(activeProviderId, (provider) => {
-                        provider.base_url = event.target.value;
-                      })
-                    }
-                  />
-                </label>
-
                 {activeProvider.provider_type === 'custom' ? (
                   <>
                     <label className="space-y-2">
@@ -369,6 +339,35 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           </option>
                         ))}
                       </select>
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
+                      <input
+                        aria-label={t('llm.fields.apiKey')}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                        type="password"
+                        value={activeProvider.api_key || ''}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.api_key = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
+                      <input
+                        aria-label={t('llm.fields.baseUrl')}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                        value={activeProvider.base_url || ''}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.base_url = event.target.value;
+                          })
+                        }
+                      />
                     </label>
 
                     <div className={cn('space-y-4 rounded-[20px] bg-muted/40 p-4', !isSettingsSurface && 'lg:col-span-2', isSettingsSurface && 'rounded-xl bg-muted/25 p-3.5')}>
@@ -450,7 +449,39 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       ) : null}
                     </div>
                   </>
-                ) : null}
+                ) : (
+                  <>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
+                      <input
+                        aria-label={t('llm.fields.apiKey')}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                        type="password"
+                        value={activeProvider.api_key || ''}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.api_key = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
+                      <input
+                        aria-label={t('llm.fields.baseUrl')}
+                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                        placeholder={activeProviderMeta?.default_base_url || ''}
+                        value={activeProvider.base_url || ''}
+                        onChange={(event) =>
+                          onProviderChange(activeProviderId, (provider) => {
+                            provider.base_url = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                  </>
+                )}
 
                 {activeProviderMeta?.models?.length ? (
                   <div className={cn('space-y-2 pt-1', !isSettingsSurface && 'lg:col-span-2')}>
