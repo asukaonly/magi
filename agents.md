@@ -230,6 +230,8 @@ Backend test naming convention:
 - File: `test_<module_name>.py`
 - Class: `Test<ClassName>`
 - Method: `test_<scenario>`
+- Place tests under the matching package area in `backend/tests/` (for example: API routes in `backend/tests/api/`, tools in `backend/tests/tools/`, memory logic in `backend/tests/memory/`).
+- Avoid adding new backend test files directly under `backend/tests/` root unless they are true cross-package integration tests and no package-specific folder fits.
 
 ---
 
