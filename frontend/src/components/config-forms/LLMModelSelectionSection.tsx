@@ -51,7 +51,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           className={cn(
             'rounded-[24px] border border-border/60 p-5 text-sm text-muted-foreground',
             isSettingsSurface
-              ? 'rounded-xl border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+              ? 'rounded-xl border-border/65 p-4'
               : 'bg-muted/35'
           )}
         >
@@ -89,7 +89,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               className={cn(
                 'space-y-4 rounded-[24px] border border-border/60 p-5',
                 isSettingsSurface
-                  ? 'rounded-xl border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+                  ? 'rounded-xl border-border/65 p-4'
                   : 'bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--muted)/0.9))] shadow-[0_16px_34px_-28px_hsl(var(--foreground)/0.14)] dark:bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--background)/0.92))] dark:shadow-[0_20px_36px_-28px_rgba(0,0,0,0.62)]'
               )}
             >
@@ -99,7 +99,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   <span
                     className={cn(
                       'rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground',
-                      isSettingsSurface && 'border border-border/60 bg-transparent px-2 py-0.5'
+                      isSettingsSurface && 'border-border/60 bg-transparent px-2 py-0.5'
                     )}
                   >
                     {provider?.display_name || selection.provider_id}
@@ -167,7 +167,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               </div>
 
               {scenario === 'core' && !selection.capabilities.vision ? (
-                <div className={cn('flex items-start gap-2 rounded-xl border border-amber-400/45 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200', isSettingsSurface && 'border-amber-300/35 bg-amber-500/8 text-xs')}>
+                <div
+                  className={cn(
+                    'flex items-start gap-2 rounded-xl border border-amber-400/45 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200',
+                    isSettingsSurface && 'border-amber-300/35 bg-transparent text-xs text-amber-800 dark:text-amber-200'
+                  )}
+                >
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{t('llm.warnings.coreVisionMissing')}</span>
                 </div>
