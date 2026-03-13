@@ -90,6 +90,7 @@ const PersonalityModern: React.FC = () => {
   const [switching, setSwitching] = useState(false);
   const [currentName, setCurrentName] = useState('default');
   const [selectedName, setSelectedName] = useState('default');
+  const [isNewMode, setIsNewMode] = useState(false);
   const [config, setConfig] = useState<PersonalityConfig>(DEFAULT_PERSONALITY_CONFIG);
   const [list, setList] = useState<PersonalityInfo[]>([
     { name: 'default', displayName: 'default', subtitle: 'System Default' },
@@ -187,16 +188,39 @@ const PersonalityModern: React.FC = () => {
   };
 
   const save = async () => {
+    // 新建模式下校验名称
+    if (isNewMode) {
+      const name = config.persona_entity.basic_profile.name?.trim();
+      if (!name) {
+        toast.warning(t('personality.nameRequired'));
+        return;
+      }
+    }
+
     setSaving(true);
     try {
-      if (currentName === 'default' || currentName !== config.persona_entity.basic_profile.name) {
+      if (isNewMode) {
+        // 新建模式：直接创建新人格
         await personalityApi.updateWithAIName(config);
+        toast.success(t('personality.createSuccess'));
+        setIsNewMode(false);
+        await loadList();
+        await loadCurrent();
+        // 选中新创建的人格
+        const newName = config.persona_entity.basic_profile.name;
+        setSelectedName(newName);
+        void loadOne(newName);
+      } else if (currentName === 'default' || currentName !== config.persona_entity.basic_profile.name) {
+        await personalityApi.updateWithAIName(config);
+        toast.success(t('personality.saveSuccess'));
+        await loadList();
+        await loadCurrent();
       } else {
         await personalityApi.update(currentName, config);
+        toast.success(t('personality.saveSuccess'));
+        await loadList();
+        await loadCurrent();
       }
-      toast.success(t('personality.saveSuccess'));
-      await loadList();
-      await loadCurrent();
     } catch {
       toast.error(t('personality.saveFailed'));
     } finally {
@@ -223,23 +247,17 @@ const PersonalityModern: React.FC = () => {
     }
   };
 
-  const createPersonality = () => {
-    const name = window.prompt(t('personality.newNamePrompt'));
-    if (!name) return;
-    void personalityApi
-      .updateWithAIName({
-        ...DEFAULT_PERSONALITY_CONFIG,
-        persona_entity: {
-          ...DEFAULT_PERSONALITY_CONFIG.persona_entity,
-          basic_profile: {
-            ...DEFAULT_PERSONALITY_CONFIG.persona_entity.basic_profile,
-            name,
-          },
-        },
-      })
-      .then(async () => {
-        await loadList();
-      });
+  const startNewPersonality = () => {
+    setIsNewMode(true);
+    setSelectedName('__new__');
+    setDiffs([]);
+    setConfig(structuredClone(DEFAULT_PERSONALITY_CONFIG));
+  };
+
+  const cancelNewPersonality = () => {
+    setIsNewMode(false);
+    setSelectedName(currentName);
+    void loadOne(currentName);
   };
 
   const deletePersonality = () => {
@@ -262,7 +280,7 @@ const PersonalityModern: React.FC = () => {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="border-b border-border/40 bg-muted/20 px-6 py-5">
-      {/* Title + Add button row */}
+      {/* Title row */}
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -272,25 +290,23 @@ const PersonalityModern: React.FC = () => {
             {t('settings.personalityDesc')}
           </p>
         </div>
-        <Button onClick={createPersonality} className="rounded-2xl">
-          <Plus className="mr-2 h-4 w-4" />
-          {t('personality.create')}
-        </Button>
       </div>
       {/* Avatar selector row */}
       <div className="flex gap-3 overflow-x-auto pb-2">
-          {/* Add Button */}
-          <button
-            onClick={createPersonality}
-            className="group flex shrink-0 flex-col items-center gap-2"
-          >
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-dashed border-border bg-muted/30 transition group-hover:border-primary group-hover:bg-primary/5">
-              <Plus className="h-6 w-6 text-muted-foreground transition group-hover:text-primary" />
-            </div>
-            <span className="text-xs font-medium text-muted-foreground transition group-hover:text-foreground">
-              {t('personality.create')}
-            </span>
-          </button>
+          {/* Add Button - 新建模式下隐藏 */}
+          {!isNewMode && (
+            <button
+              onClick={startNewPersonality}
+              className="group flex shrink-0 flex-col items-center gap-2"
+            >
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-dashed border-border bg-muted/30 transition group-hover:border-primary group-hover:bg-primary/5">
+                <Plus className="h-6 w-6 text-muted-foreground transition group-hover:text-primary" />
+              </div>
+              <span className="text-xs font-medium text-muted-foreground transition group-hover:text-foreground">
+                {t('personality.create')}
+              </span>
+            </button>
+          )}
 
           {/* Personality Avatars */}
           {list.map((item) => {
@@ -302,6 +318,9 @@ const PersonalityModern: React.FC = () => {
               <button
                 key={item.name}
                 onClick={() => {
+                  if (isNewMode) {
+                    setIsNewMode(false);
+                  }
                   setSelectedName(item.name);
                   setDiffs([]);
                   void loadOne(item.name);
@@ -355,52 +374,70 @@ const PersonalityModern: React.FC = () => {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="max-w-2xl">
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">
-                  {t('personality.current')}
+                  {isNewMode ? t('personality.creating') : t('personality.current')}
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
-                  {config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title')}
+                  {isNewMode
+                    ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
+                    : (config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title'))}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc')}
+                  {isNewMode
+                    ? t('personality.newPersonalityDesc')
+                    : (config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc'))}
                 </p>
               </div>
 
               {/* Action Buttons */}
               <div className="flex flex-wrap gap-2">
-                {selectedName !== currentName && (
+                {!isNewMode && selectedName !== currentName && (
                   <Button onClick={switchPersonality} disabled={switching} className="rounded-2xl">
                     <Check className="mr-2 h-4 w-4" />
                     {switching ? t('personality.switching') : t('personality.switch')}
                   </Button>
                 )}
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setDiffs([]);
-                    void loadOne(selectedName);
-                  }}
-                  className="rounded-2xl"
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {t('personality.reload')}
-                </Button>
+                {isNewMode ? (
+                  <Button
+                    variant="outline"
+                    onClick={cancelNewPersonality}
+                    className="rounded-2xl"
+                  >
+                    {t('personality.cancel')}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setDiffs([]);
+                      void loadOne(selectedName);
+                    }}
+                    className="rounded-2xl"
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    {t('personality.reload')}
+                  </Button>
+                )}
                 <Button
                   onClick={save}
                   disabled={saving || loading}
                   className="rounded-2xl"
                 >
                   <Check className="mr-2 h-4 w-4" />
-                  {saving ? t('personality.saving') : t('personality.save')}
+                  {isNewMode
+                    ? (saving ? t('personality.creating') : t('personality.create'))
+                    : (saving ? t('personality.saving') : t('personality.save'))}
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={deletePersonality}
-                  disabled={selectedName === 'default'}
-                  className="rounded-2xl border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  {t('personality.delete')}
-                </Button>
+                {!isNewMode && (
+                  <Button
+                    variant="outline"
+                    onClick={deletePersonality}
+                    disabled={selectedName === 'default'}
+                    className="rounded-2xl border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {t('personality.delete')}
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -424,7 +461,7 @@ const PersonalityModern: React.FC = () => {
             )}
 
             {/* AI Generate Section */}
-            <div className="mt-4 w-full max-w-2xl space-y-3 border-t border-border/30 pt-4">
+            <div className="w-full max-w-2xl space-y-3 border-t border-border/30 pt-4">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Sparkles className="h-4 w-4 text-primary" />
                 {t('personality.generate')}
@@ -557,11 +594,10 @@ const PersonalityModern: React.FC = () => {
                 </CardContent>
               </Card>
 
-              <div className="grid gap-5 xl:grid-cols-2">
-                <Card className={sectionCardClass}>
-                  <CardHeader>
-                    <CardTitle>{t('personality.sections.socialResponses')}</CardTitle>
-                  </CardHeader>
+              <Card className={sectionCardClass}>
+                <CardHeader>
+                  <CardTitle>{t('personality.sections.socialResponses')}</CardTitle>
+                </CardHeader>
                   <CardContent className="grid gap-4">
                     <label className="space-y-2">
                       <span className="text-sm font-medium">{t('personality.fields.praiseReaction')}</span>
@@ -589,34 +625,33 @@ const PersonalityModern: React.FC = () => {
                       />
                     </label>
                   </CardContent>
-                </Card>
+              </Card>
 
-                <Card className={sectionCardClass}>
-                  <CardHeader>
-                    <CardTitle>{t('personality.sections.behavioralStrategies')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="grid gap-4">
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('personality.fields.errorHandling')}</span>
-                      <Textarea
-                        rows={4}
-                        className="rounded-xl"
-                        value={config.persona_entity.behavioral_strategies.error_handling}
-                        onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.error_handling = event.target.value; })}
-                      />
-                    </label>
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('personality.fields.refusalStyle')}</span>
-                      <Textarea
-                        rows={4}
-                        className="rounded-xl"
-                        value={config.persona_entity.behavioral_strategies.refusal_style}
-                        onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.refusal_style = event.target.value; })}
-                      />
-                    </label>
-                  </CardContent>
-                </Card>
-              </div>
+              <Card className={sectionCardClass}>
+                <CardHeader>
+                  <CardTitle>{t('personality.sections.behavioralStrategies')}</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4">
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">{t('personality.fields.errorHandling')}</span>
+                    <Textarea
+                      rows={4}
+                      className="rounded-xl"
+                      value={config.persona_entity.behavioral_strategies.error_handling}
+                      onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.error_handling = event.target.value; })}
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">{t('personality.fields.refusalStyle')}</span>
+                    <Textarea
+                      rows={4}
+                      className="rounded-xl"
+                      value={config.persona_entity.behavioral_strategies.refusal_style}
+                      onChange={(event) => patch((d) => { d.persona_entity.behavioral_strategies.refusal_style = event.target.value; })}
+                    />
+                  </label>
+                </CardContent>
+              </Card>
 
               <Card className={sectionCardClass}>
                 <CardHeader>
@@ -671,28 +706,27 @@ const PersonalityModern: React.FC = () => {
                 </CardContent>
               </Card>
 
-              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-                <Card className={sectionCardClass}>
-                  <CardHeader>
-                    <CardTitle>{t('personality.sections.appearance')}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('personality.fields.appearancePrompt')}</span>
-                      <Textarea
-                        rows={8}
-                        className="rounded-xl"
-                        value={config.appearance_prompt}
-                        onChange={(event) => patch((d) => { d.appearance_prompt = event.target.value; })}
-                      />
-                    </label>
-                  </CardContent>
-                </Card>
+              <Card className={sectionCardClass}>
+                <CardHeader>
+                  <CardTitle>{t('personality.sections.appearance')}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">{t('personality.fields.appearancePrompt')}</span>
+                    <Textarea
+                      rows={8}
+                      className="rounded-xl"
+                      value={config.appearance_prompt}
+                      onChange={(event) => patch((d) => { d.appearance_prompt = event.target.value; })}
+                    />
+                  </label>
+                </CardContent>
+              </Card>
 
-                <Card className={sectionCardClass}>
-                  <CardHeader>
-                    <CardTitle>{t('personality.sections.stateTransitionProtocol')}</CardTitle>
-                  </CardHeader>
+              <Card className={sectionCardClass}>
+                <CardHeader>
+                  <CardTitle>{t('personality.sections.stateTransitionProtocol')}</CardTitle>
+                </CardHeader>
                   <CardContent className="space-y-3">
                     {config.state_transition_protocol.map((item, index) => (
                       <div
@@ -770,8 +804,7 @@ const PersonalityModern: React.FC = () => {
                       {t('personality.actions.addTransition')}
                     </Button>
                   </CardContent>
-                </Card>
-              </div>
+              </Card>
             </>
           )}
         </div>
