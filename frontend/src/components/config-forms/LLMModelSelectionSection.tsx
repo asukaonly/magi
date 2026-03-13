@@ -49,8 +49,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         ) : null}
         <div
           className={cn(
-            'rounded-[24px] border border-border/60 bg-muted/35 p-5 text-sm text-muted-foreground',
-            isSettingsSurface && 'rounded-xl border-border/65 bg-transparent p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+            'rounded-[24px] border border-border/60 p-5 text-sm text-muted-foreground',
+            isSettingsSurface
+              ? 'rounded-xl border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+              : 'bg-muted/35'
           )}
         >
           {t('llm.modelSelection.empty')}
@@ -85,9 +87,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               key={scenario}
               data-testid={`llm-scenario-${scenario}`}
               className={cn(
-                'space-y-4 rounded-[24px] border border-border/60 bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--muted)/0.9))] p-5 shadow-[0_16px_34px_-28px_hsl(var(--foreground)/0.14)] dark:bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--background)/0.92))] dark:shadow-[0_20px_36px_-28px_rgba(0,0,0,0.62)]',
-                isSettingsSurface &&
-                  'rounded-xl border-border/65 bg-transparent p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:bg-transparent'
+                'space-y-4 rounded-[24px] border border-border/60 p-5',
+                isSettingsSurface
+                  ? 'rounded-xl border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+                  : 'bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--muted)/0.9))] shadow-[0_16px_34px_-28px_hsl(var(--foreground)/0.14)] dark:bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--background)/0.92))] dark:shadow-[0_20px_36px_-28px_rgba(0,0,0,0.62)]'
               )}
             >
               <div className="space-y-1">

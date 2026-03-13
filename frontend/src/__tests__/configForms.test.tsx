@@ -369,7 +369,7 @@ describe('config forms', () => {
 
     expect(providerField.tagName).toBe('BUTTON');
     expect(modelField.tagName).toBe('BUTTON');
-    expect(coreCard.className).toContain('bg-transparent');
+    expect(coreCard.className).not.toContain('bg-[linear-gradient');
     expect(coreCard.className).not.toContain('bg-muted/18');
   });
 
