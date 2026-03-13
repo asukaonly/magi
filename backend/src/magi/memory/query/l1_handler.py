@@ -16,18 +16,33 @@ class L1EventQueryHandler:
 
     async def query(self, request, plan) -> List[Dict[str, Any]]:
         limit = int(getattr(request, "limit", 0) or 200)
-        events = await self._unified_memory.l1_raw.list_events(limit=limit)
+        start_time, end_time = self._time_range_bounds(plan.time_range)
+        events = await self._unified_memory.l1_raw.query_events(
+            sources=plan.source_filters or None,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+        )
         filtered: List[Dict[str, Any]] = []
         for event in events:
             if not self._matches_time_range(event, plan.time_range):
-                continue
-            if not self._matches_source(event, plan.source_filters):
                 continue
             if not self._matches_topic(event, plan.topic_query):
                 continue
             filtered.append(self._normalize_event(event))
         filtered.sort(key=lambda item: float(item.get("timestamp", 0.0)), reverse=True)
         return filtered[:limit]
+
+    def _time_range_bounds(self, time_range: Dict[str, Any]) -> tuple[float | None, float | None]:
+        start = time_range.get("start")
+        end = time_range.get("end")
+        relative = str(time_range.get("relative") or "").strip().lower()
+        if start is None and relative:
+            start = self._relative_cutoff(relative)
+        return (
+            float(start) if start is not None else None,
+            float(end) if end is not None else None,
+        )
 
     def _matches_time_range(self, event: Dict[str, Any], time_range: Dict[str, Any]) -> bool:
         if not time_range:
@@ -56,11 +71,6 @@ class L1EventQueryHandler:
         if relative.endswith("w"):
             return now - (int(relative[:-1]) * 7 * 86400)
         return None
-
-    def _matches_source(self, event: Dict[str, Any], source_filters: List[str]) -> bool:
-        if not source_filters:
-            return True
-        return str(event.get("source") or "") in set(source_filters)
 
     def _matches_topic(self, event: Dict[str, Any], topic_query: str) -> bool:
         if not topic_query:

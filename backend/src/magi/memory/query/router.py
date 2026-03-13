@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
@@ -34,7 +35,7 @@ EXPERIENCE_KEYWORDS = [
 ]
 
 EXPLICIT_SOURCE_RULES = {
-    "chrome_history": ["browse", "browsing", "website", "web", "search", "docs", "浏览", "网页", "搜索"],
+    "chrome_history": ["chrome", "browse", "browsing", "website", "web", "search", "docs", "浏览", "网页", "搜索"],
     "git": ["git", "commit", "branch", "repo", "pull request", "pr", "提交", "代码变更"],
     "terminal": ["terminal", "command", "shell", "bash", "script", "终端", "命令"],
     "chat": ["chat", "talked", "discussed", "said", "conversation", "聊天", "对话", "说过", "聊过"],
@@ -69,6 +70,30 @@ TOPIC_KEYWORDS = {
         "文档",
     ],
 }
+
+TOPIC_NOISE_PATTERNS = [
+    "chrome_history",
+    "browser_history",
+    "chrome history",
+    "chrome",
+    "浏览历史",
+    "历史记录",
+    "history",
+    "what did i",
+    "what was i",
+    "what have i",
+    "what am i",
+    "recently",
+    "最近",
+    "昨天",
+    "上周",
+    "看了什么",
+    "看什么",
+    "浏览了什么",
+    "在看什么",
+]
+
+TOPIC_STOPWORDS = {"我", "在", "最近", "刚刚", "the", "i", "my", "recent"}
 
 
 @dataclass
@@ -186,7 +211,15 @@ class IntentRouter:
         for topic, keywords in TOPIC_KEYWORDS.items():
             if any(keyword in query_lower for keyword in keywords):
                 return topic
-        return query_lower
+        normalized = query_lower
+        for pattern in TOPIC_NOISE_PATTERNS:
+            normalized = normalized.replace(pattern, " ")
+        normalized = re.sub(r"[^\w\u4e00-\u9fff]+", " ", normalized)
+        tokens = [token for token in normalized.split() if token and token not in TOPIC_STOPWORDS]
+        normalized = " ".join(tokens).strip()
+        if normalized == "":
+            return ""
+        return normalized
 
     def _infer_source_filters(self, query_lower: str, topic_query: str) -> List[str]:
         sources: List[str] = []

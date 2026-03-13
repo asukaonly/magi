@@ -2,6 +2,7 @@
 import pytest
 import time
 from datetime import datetime
+from pathlib import Path
 
 
 class TestMemoryQueryRequest:
@@ -324,6 +325,16 @@ class TestIntentRouter:
         assert plan.query_mode == "summary"
         assert "L1" in plan.layers
 
+    def test_source_only_history_query_keeps_empty_topic_filter(self):
+        """Should not turn source-only browsing queries into strict topic substrings."""
+        from magi.memory.query.router import IntentRouter
+
+        router = IntentRouter()
+        plan = router.analyze("我最近chrome在看什么", {"relative": "7d"})
+
+        assert "chrome_history" in plan.source_filters
+        assert plan.topic_query == ""
+
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
@@ -426,7 +437,7 @@ class TestL1EventQueryHandler:
 
         now = time.time()
         l1_raw = MagicMock()
-        l1_raw.list_events = AsyncMock(return_value=[
+        l1_raw.query_events = AsyncMock(return_value=[
             {
                 "id": "git-1",
                 "type": "TOOL_INVOKED",
@@ -477,7 +488,7 @@ class TestL1EventQueryHandler:
 
         now = time.time()
         l1_raw = MagicMock()
-        l1_raw.list_events = AsyncMock(return_value=[
+        l1_raw.query_events = AsyncMock(return_value=[
             {
                 "id": "term-1",
                 "type": "TOOL_INVOKED",
@@ -514,3 +525,92 @@ class TestL1EventQueryHandler:
         assert result[0]["summary"]
         assert "details" in result[0]
         assert "raw_ref" in result[0]
+
+    def test_source_only_history_query_does_not_filter_out_matching_source(self):
+        """Should return source-matched events when the query only asks for recent history."""
+        from magi.memory.query.l1_handler import L1EventQueryHandler
+        from magi.memory.query.models import MemoryQueryRequest, RetrievalPlan
+
+        now = time.time()
+        l1_raw = MagicMock()
+        l1_raw.query_events = AsyncMock(return_value=[
+            {
+                "id": "chrome-1",
+                "type": "TIMELINE_EVENT",
+                "timestamp": now - 600,
+                "source": "chrome_history",
+                "data": {"title": "SQLite docs", "summary": "SQLite docs"},
+                "metadata": {},
+            }
+        ])
+        unified_memory = MagicMock()
+        unified_memory.l1_raw = l1_raw
+
+        handler = L1EventQueryHandler(unified_memory)
+        request = MemoryQueryRequest(
+            query="我最近chrome在看什么",
+            time_range={"relative": "7d"},
+            sources=["chrome_history"],
+            query_mode="detail",
+            limit=10,
+        )
+        plan = RetrievalPlan(
+            layers=["L1"],
+            query_mode="detail",
+            source_filters=["chrome_history"],
+            time_range={"relative": "7d"},
+            topic_query="",
+            confidence=0.8,
+            reasoning="Need recent chrome history details.",
+        )
+
+        result = asyncio.run(handler.query(request, plan))
+
+        assert len(result) == 1
+        l1_raw.query_events.assert_awaited_once()
+        assert result[0]["source"] == "chrome_history"
+
+
+class TestRawEventStore:
+    """Tests for SQL-backed L1 filtering."""
+
+    @pytest.mark.asyncio
+    async def test_query_events_filters_before_limit(self, tmp_path: Path):
+        """Should find older matching source rows even when many newer unrelated rows exist."""
+        from magi.events.events import Event, EventLevel
+        from magi.memory.raw_event_store import RawEventStore
+
+        store = RawEventStore(db_path=str(tmp_path / "events.db"), media_dir=str(tmp_path / "media"))
+        await store.init()
+
+        now = time.time()
+        for index in range(10):
+            await store.store(
+                Event(
+                    type="AI_RESPONSE",
+                    data={"response": f"reply-{index}"},
+                    timestamp=now - index,
+                    source="memory_integration",
+                    level=EventLevel.INFO,
+                ),
+                event_id=f"chat-{index}",
+            )
+
+        await store.store(
+            Event(
+                type="TIMELINE_EVENT",
+                data={"title": "SQLite docs", "summary": "SQLite docs"},
+                timestamp=now - 3600,
+                source="chrome_history",
+                level=EventLevel.INFO,
+            ),
+            event_id="chrome-1",
+        )
+
+        rows = await store.query_events(
+            sources=["chrome_history"],
+            start_time=now - 7 * 86400,
+            limit=10,
+        )
+
+        assert [row["id"] for row in rows] == ["chrome-1"]

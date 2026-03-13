@@ -156,6 +156,48 @@ class RawEventStore:
 
         return [self._row_to_dict(row) for row in rows]
 
+    async def query_events(
+        self,
+        *,
+        sources: Optional[List[str]] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        event_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Query L1 events with SQL-level filters instead of post-filtering in Python."""
+        query = (
+            "SELECT id, type, data, timestamp, source, level, correlation_id, metadata, created_at "
+            "FROM event_store"
+        )
+        conditions: List[str] = []
+        args: List[Any] = []
+
+        if event_type:
+            conditions.append("type = ?")
+            args.append(event_type)
+        if sources:
+            placeholders = ", ".join("?" for _ in sources)
+            conditions.append(f"source IN ({placeholders})")
+            args.extend(str(source) for source in sources)
+        if start_time is not None:
+            conditions.append("timestamp >= ?")
+            args.append(float(start_time))
+        if end_time is not None:
+            conditions.append("timestamp <= ?")
+            args.append(float(end_time))
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        args.append(int(limit))
+
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            cursor = await db.execute(query, tuple(args))
+            rows = await cursor.fetchall()
+
+        return [self._row_to_dict(row) for row in rows]
+
     async def get_timeline_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
