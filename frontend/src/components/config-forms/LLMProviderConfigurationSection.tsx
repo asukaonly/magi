@@ -240,13 +240,13 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <button
                         type="button"
                         onClick={() => onRemoveCustomProvider(activeProviderId)}
-                        className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
+                        className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
                       >
                         <Trash2 className="h-4 w-4" />
                         <span>{t('llm.actions.removeProvider')}</span>
                       </button>
                     ) : null}
-                    <div className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-muted px-3 py-2">
+                    <div className="inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-full bg-muted px-3 py-2">
                       <span className="whitespace-nowrap text-sm font-medium text-foreground">{t('llm.fields.enabled')}</span>
                       <Switch
                         aria-label={t('llm.fields.enabled')}
@@ -263,7 +263,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       type="button"
                       onClick={() => onTestProviderConnection(activeProviderId)}
                       disabled={activeTestState.loading}
-                      className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {activeTestState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
                       <span>
@@ -452,7 +452,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 ) : null}
 
                 {activeProviderMeta?.models?.length ? (
-                  <div className="space-y-2 pt-1 lg:col-span-2">
+                  <div className={cn('space-y-2 pt-1', !isSettingsSurface && 'lg:col-span-2')}>
                     <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
                     <div className="flex flex-wrap gap-2">
                       {activeProviderMeta.models.map((model) => (

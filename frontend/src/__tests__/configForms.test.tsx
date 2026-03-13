@@ -612,6 +612,22 @@ describe('config forms', () => {
     });
   });
 
+  it('stacks provider detail fields in a single column on the settings surface', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    const apiKeyField = await screen.findByLabelText('llm.fields.apiKey');
+    const fieldGrid = apiKeyField.closest('div.grid');
+    const availableModels = screen.getByText('llm.providerConfiguration.availableModels').parentElement;
+
+    expect(fieldGrid).toHaveClass('grid');
+    expect(fieldGrid?.className).not.toContain('lg:grid-cols-2');
+    expect(availableModels?.className).not.toContain('lg:col-span-2');
+  });
+
   it('memory form disables l2-l5 when l1 off', async () => {
     const user = userEvent.setup();
     render(
