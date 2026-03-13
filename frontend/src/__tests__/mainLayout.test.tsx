@@ -51,7 +51,7 @@ describe('main layout', () => {
     const dragStrip = container.querySelector('div[data-tauri-drag-region]') as HTMLDivElement | null;
 
     expect(dragStrip).not.toBeNull();
-    expect(toggleButton).toHaveClass('h-7', 'w-7');
+    expect(toggleButton).toHaveClass('top-4', 'h-7', 'w-7');
     expect((toggleButton as HTMLButtonElement).style.left).toBe('112px');
     expect(dragStrip?.style.left).toBe('148px');
     expect(screen.getByText('chat page').closest('div.min-h-0.min-w-0')).toHaveClass('col-start-2');

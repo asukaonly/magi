@@ -34,7 +34,7 @@ const MainLayout: React.FC = () => {
           <button
             type="button"
             onClick={toggleSidebarCollapsed}
-            className="absolute top-2.5 z-[60] flex h-7 w-7 items-center justify-center rounded-md border border-border/30 bg-card/75 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+            className="absolute top-4 z-[60] flex h-7 w-7 items-center justify-center rounded-md border border-border/30 bg-card/75 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
             style={{
               left: SHELL_TOGGLE_LEFT,
               transition: 'left 0.2s ease'
