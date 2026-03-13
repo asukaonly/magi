@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from magi.plugins.actions import ActionRegistry
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins.manager import PluginManager
-from magi.plugins.runtime import get_action_registry, get_sensor_registry
+from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry
 
 
@@ -91,8 +92,8 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
 
     manager = PluginManager(
         tool_registry=tool_registry,
-        sensor_registry=get_sensor_registry(),
-        action_registry=get_action_registry(),
+        sensor_registry=SensorRegistry(),
+        action_registry=ActionRegistry(),
         search_paths=[tmp_path],
     )
 
@@ -119,8 +120,8 @@ def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
 
     manager = PluginManager(
         tool_registry=tool_registry,
-        sensor_registry=get_sensor_registry(),
-        action_registry=get_action_registry(),
+        sensor_registry=SensorRegistry(),
+        action_registry=ActionRegistry(),
         search_paths=[tmp_path],
     )
 
@@ -133,3 +134,32 @@ def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
     else:
         assert package_settings.enabled is False
         assert package_settings.trusted is False
+
+
+def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = AppConfig()
+    config.plugins.packages["core-tools"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="builtin",
+        settings={},
+    )
+    tool_registry = ToolRegistry()
+
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+
+    builtin_plugins_root = Path(__file__).resolve().parents[2] / "plugins"
+    manager = PluginManager(
+        tool_registry=tool_registry,
+        sensor_registry=SensorRegistry(),
+        action_registry=ActionRegistry(),
+        search_paths=[builtin_plugins_root],
+    )
+
+    packages = manager.scan(persist_discovery=False)
+    assert any(item.manifest.plugin_id == "core-tools" for item in packages)
+
+    manager.activate_enabled_plugins()
+
+    assert "memory_query" in tool_registry.list_tools()
