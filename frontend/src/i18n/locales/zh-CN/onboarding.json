@@ -95,6 +95,7 @@
       "model": "模型",
       "defaultModel": "默认模型",
       "modelManualEntry": "添加模型",
+      "modelManualEntryPlaceholder": "输入模型 ID",
       "apiKey": "API Key",
       "baseUrl": "Base URL",
       "displayName": "显示名称",

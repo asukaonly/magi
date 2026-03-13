@@ -372,12 +372,35 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     </label>
 
                     <div className={cn('space-y-4 rounded-[20px] bg-muted/40 p-4 lg:col-span-2', isSettingsSurface && 'rounded-xl bg-muted/25 p-3.5')}>
+                      <div className="space-y-2">
+                        <label className="block space-y-2">
+                          <span className="text-sm font-medium">{t('llm.fields.defaultModel')}</span>
+                          <select
+                            aria-label={t('llm.fields.defaultModel')}
+                            className={cn(fieldClassName, isSettingsSurface && 'rounded-lg', 'disabled:cursor-not-allowed disabled:opacity-60')}
+                            value={activeProvider.custom_default_model || ''}
+                            disabled={!activeProvider.custom_models?.length}
+                            onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
+                          >
+                            {!activeProvider.custom_models?.length ? (
+                              <option value="">{t('llm.providerConfiguration.defaultModelEmpty')}</option>
+                            ) : null}
+                            {(activeProvider.custom_models || []).map((model) => (
+                              <option key={model} value={model}>
+                                {model}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                         <label className="flex-1 space-y-2">
                           <span className="text-sm font-medium">{t('llm.fields.modelManualEntry')}</span>
                           <input
                             aria-label={t('llm.fields.modelManualEntry')}
                             className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
+                            placeholder={t('llm.fields.modelManualEntryPlaceholder')}
                             value={modelDraft}
                             onChange={(event) => setModelDraft(event.target.value)}
                           />
@@ -388,9 +411,18 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             onAddProviderModel(activeProviderId, modelDraft);
                             setModelDraft('');
                           }}
-                          className="inline-flex h-11 items-center justify-center rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent"
+                          className="inline-flex h-11 min-w-fit items-center justify-center whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent"
                         >
                           {t('llm.actions.addModel')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDiscoverProviderModels(activeProviderId)}
+                          disabled={activeDiscoveryState.loading}
+                          className="inline-flex h-11 min-w-fit items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                          <span>{t('llm.actions.fetchModels')}</span>
                         </button>
                       </div>
 
@@ -411,37 +443,6 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                             </button>
                           </span>
                         ))}
-                      </div>
-
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                        <label className="flex-1 space-y-2">
-                          <span className="text-sm font-medium">{t('llm.fields.defaultModel')}</span>
-                          <select
-                            aria-label={t('llm.fields.defaultModel')}
-                            className={cn(fieldClassName, isSettingsSurface && 'rounded-lg', 'disabled:cursor-not-allowed disabled:opacity-60')}
-                            value={activeProvider.custom_default_model || ''}
-                            disabled={!activeProvider.custom_models?.length}
-                            onChange={(event) => onProviderDefaultModelChange(activeProviderId, event.target.value)}
-                          >
-                            {!activeProvider.custom_models?.length ? (
-                              <option value="">{t('llm.providerConfiguration.defaultModelEmpty')}</option>
-                            ) : null}
-                            {(activeProvider.custom_models || []).map((model) => (
-                              <option key={model} value={model}>
-                                {model}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => onDiscoverProviderModels(activeProviderId)}
-                          disabled={activeDiscoveryState.loading}
-                          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-background px-4 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {activeDiscoveryState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                          <span>{t('llm.actions.fetchModels')}</span>
-                        </button>
                       </div>
 
                       {activeDiscoveryState.error ? (

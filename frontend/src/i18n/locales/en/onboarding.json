@@ -95,6 +95,7 @@
       "model": "Model",
       "defaultModel": "Default Model",
       "modelManualEntry": "Add Model",
+      "modelManualEntryPlaceholder": "Enter model ID",
       "apiKey": "API Key",
       "baseUrl": "Base URL",
       "displayName": "Display Name",

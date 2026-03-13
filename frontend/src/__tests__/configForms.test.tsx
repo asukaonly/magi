@@ -500,6 +500,26 @@ describe('config forms', () => {
     expect(screen.getByLabelText('llm.fields.defaultModel')).toHaveValue('foo-1');
   });
 
+  it('shows default model before model entry and adds a model id placeholder for custom providers', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+
+    const defaultModelField = screen.getByLabelText('llm.fields.defaultModel');
+    const modelEntryField = screen.getByLabelText('llm.fields.modelManualEntry');
+
+    expect(modelEntryField).toHaveAttribute('placeholder', 'llm.fields.modelManualEntryPlaceholder');
+    expect(
+      defaultModelField.compareDocumentPosition(modelEntryField) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('removes the ambiguous custom api format option', async () => {
     const user = userEvent.setup();
 
