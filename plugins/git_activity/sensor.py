@@ -212,10 +212,23 @@ class GitActivitySensor(TimelineSensorBase):
         repo_name = Path(repo_path).name if repo_path else "unknown"
         activity_type = item.get("activity_type", "other")
 
+        # Get translated activity type name
+        activity_type_name = self.t(
+            f"activity_types.{activity_type}",
+            fallback=activity_type,
+        )
+
         content_blocks = [
-            TimelineContentBlock(kind="text", value=f"仓库：{repo_path}"),
-            TimelineContentBlock(kind="text", value=f"操作：{activity_type}"),
-            TimelineContentBlock(kind="text", value=f"提交：{item.get('old_sha', '')[:8]}..{item.get('new_sha', '')[:8]}"),
+            TimelineContentBlock(kind="text", value=self.t("content_blocks.repo", repo_path=repo_path)),
+            TimelineContentBlock(kind="text", value=self.t("content_blocks.operation", operation_type=activity_type_name)),
+            TimelineContentBlock(
+                kind="text",
+                value=self.t(
+                    "content_blocks.commit",
+                    old_sha=item.get('old_sha', '')[:8],
+                    new_sha=item.get('new_sha', '')[:8],
+                ),
+            ),
         ]
 
         return TimelineEvent(

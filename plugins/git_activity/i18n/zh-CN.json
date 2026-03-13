@@ -1,0 +1,16 @@
+{
+  "git_activity": "Git 活动",
+  "description": "Git 仓库活动接入时间线",
+  "content_blocks": {
+    "repo": "仓库：{repo_path}",
+    "operation": "操作：{operation_type}",
+    "commit": "提交：{old_sha}..{new_sha}"
+  },
+  "activity_types": {
+    "checkout": "检出",
+    "commit": "提交",
+    "merge": "合并",
+    "rebase": "变基",
+    "other": "其他"
+  }
+}

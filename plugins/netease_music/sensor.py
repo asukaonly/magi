@@ -7,8 +7,8 @@ from typing import Any
 
 from magi.timeline import SensorSyncContext, SensorSyncResult, TimelineContentBlock, TimelineEvent
 from magi.timeline.sensors import TimelineSensorBase
-from netease_music.normalizers import build_netease_url
-from netease_music.reader import DEFAULT_DB_PATH, NeteaseMusicReader
+from .normalizers import build_netease_url
+from .reader import DEFAULT_DB_PATH, NeteaseMusicReader
 
 
 class NeteaseMusicTimelineSensor(TimelineSensorBase):
@@ -103,8 +103,13 @@ class NeteaseMusicTimelineSensor(TimelineSensorBase):
         # Build title
         title = f"{track_name} - {artist_name}" if artist_name else track_name
 
-        # Build summary
-        summary = f"播放了 {track_name} ({play_duration_sec}秒)"
+        # Build summary (using i18n)
+        summary = self.t(
+            "summary.played_track",
+            track_name=track_name,
+            play_duration_sec=play_duration_sec,
+            fallback=f"播放了 {track_name} ({play_duration_sec}秒)"
+        )
 
         # Build content blocks
         content_blocks = []

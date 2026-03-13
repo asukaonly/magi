@@ -1,0 +1,21 @@
+{
+  "chrome_history": {
+    "name": "Chrome History",
+    "description": "Local Google Chrome browsing history ingestion for the timeline"
+  },
+  "summary": {
+    "single_visit": "{title}",
+    "multiple_visits": "{title} ({count} visits)"
+  },
+  "activation": {
+    "title": "Enable Chrome History",
+    "description": "Chrome history contains sensitive local data. Choose how the first sync should seed the timeline before this source starts running.",
+    "confirm_label": "Enable source",
+    "cancel_label": "Not now"
+  },
+  "initial_sync_policy": {
+    "full": "Sync full history",
+    "lookback_days": "Sync recent days",
+    "from_now": "Only new records from now on"
+  }
+}

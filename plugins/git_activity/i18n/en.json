@@ -1,0 +1,18 @@
+{
+  "git_activity": {
+    "name": "Git Activity",
+    "description": "Git repository activity ingestion for the timeline"
+  },
+  "content_blocks": {
+    "repo": "Repository: {repo_path}",
+    "operation": "Operation: {operation_type}",
+    "commit": "Commit: {old_sha}..{new_sha}"
+  },
+  "activity_types": {
+    "checkout": "Checkout",
+    "commit": "Commit",
+    "merge": "Merge",
+    "rebase": "Rebase",
+    "other": "Other"
+  }
+}

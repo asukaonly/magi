@@ -115,7 +115,11 @@ class ChromeHistoryTimelineSensor(TimelineSensorBase):
         title = str(item.get("title") or item.get("domain") or url or "Visited page")
         domain = str(item.get("domain") or normalize_domain(url))
         merged_visit_count = max(1, int(item.get("merged_visit_count") or 1))
-        summary = title if merged_visit_count == 1 else f"{title} ({merged_visit_count} visits)"
+        # Use i18n for summary
+        if merged_visit_count == 1:
+            summary = self.t("summary.single_visit", title=title)
+        else:
+            summary = self.t("summary.multiple_visits", title=title, count=merged_visit_count)
         content_blocks = [
             TimelineContentBlock(kind="text", value=url),
         ]

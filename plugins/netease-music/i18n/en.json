@@ -1,0 +1,10 @@
+{
+  "netease_music": {
+    "name": "NetEase Cloud Music",
+    "description": "Play history from NetEase Cloud Music app"
+  },
+  "played_track": {
+    "title": "Played track",
+    "description": "Played a music track"
+  }
+}

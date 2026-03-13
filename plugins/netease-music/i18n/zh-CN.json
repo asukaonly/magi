@@ -1,0 +1,13 @@
+{
+  "netease_music": "网易云音乐",
+  "description": "网易云音乐播放记录接入时间线",
+  "played_track": {
+    "title": "播放了 {track_name}",
+    "description": "播放了 {track_name} ({play_duration_sec}秒)"
+  },
+  "content_blocks": {
+    "repo": "仓库：{repo_path}",
+    "operation": "操作：{operation_type}",
+    "commit": "提交：{old_sha}..{new_sha}"
+  }
+}

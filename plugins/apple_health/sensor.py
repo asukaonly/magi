@@ -212,7 +212,8 @@ class AppleHealthTimelineSensor(TimelineSensorBase):
             )
         else:
             # Fall back to generic event
-            title = f"Health Data: {data_type}"
+            data_type_display = self.t(f"data_types.{data_type}", fallback=data_type.replace("_", " ").title())
+            title = self.t("content_blocks.health_data", data_type=data_type_display)
             summary = str(item.get("value", "Unknown"))
 
             # Handle date conversion
