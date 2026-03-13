@@ -709,6 +709,25 @@ describe('config forms', () => {
     ).toBeTruthy();
   });
 
+  it('uses the custom provider initial as its icon glyph', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+
+    const displayNameField = screen.getByLabelText('llm.fields.displayName');
+    await user.clear(displayNameField);
+    await user.type(displayNameField, 'Nova Proxy');
+
+    const providerList = await screen.findByTestId('llm-provider-list-pane');
+    expect(within(providerList).getByTestId('llm-provider-icon-custom')).toHaveTextContent('N');
+  });
+
   it('does not reintroduce implicit two-column layout for custom providers on the settings surface', async () => {
     const user = userEvent.setup();
 

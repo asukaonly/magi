@@ -178,6 +178,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   <ProviderIcon
                     providerId={provider.provider_type}
                     iconName={providerMeta?.icon || (provider.provider_type === 'custom' ? 'custom' : undefined)}
+                    displayName={provider.display_name || providerMeta?.display_name || providerId}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold tracking-[0.01em] text-foreground sm:text-base">
@@ -229,6 +230,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <ProviderIcon
                         providerId={activeProvider.provider_type}
                         iconName={activeProviderMeta?.icon || (activeProvider.provider_type === 'custom' ? 'custom' : undefined)}
+                        displayName={activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
                         className="mt-0.5"
                       />
                       <div className="space-y-2">
