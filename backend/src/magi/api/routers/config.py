@@ -693,7 +693,7 @@ def _build_llm_config_model(
     )
 
 
-def _build_system_config(mask_api_key: bool = True) -> SystemConfigModel:
+def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
     runtime_config = get_config()
     raw = _read_raw_yaml()
     registry = _load_llm_provider_registry()

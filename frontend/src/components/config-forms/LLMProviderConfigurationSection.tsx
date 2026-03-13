@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Loader2, Plus, PlugZap, Trash2, X, XCircle } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, Loader2, Plus, PlugZap, Trash2, X, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { SelectField } from '@/components/config-forms/fields';
@@ -69,7 +69,9 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
   providerTestState,
 }) => {
   const { t } = useTranslation('onboarding');
+  const { t: appT } = useTranslation('app');
   const [modelDraft, setModelDraft] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
   const isSettingsSurface = surface === 'settings';
 
   const customProviderIds = Object.entries(value.providers)
@@ -104,7 +106,35 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
   useEffect(() => {
     setModelDraft('');
+    setShowApiKey(false);
   }, [activeProviderId]);
+
+  const renderApiKeyField = () => (
+    <label className="space-y-2">
+      <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
+      <div className="relative">
+        <input
+          aria-label={t('llm.fields.apiKey')}
+          className={cn(fieldClassName, 'pr-10', isSettingsSurface && 'rounded-lg')}
+          type={showApiKey ? 'text' : 'password'}
+          value={activeProvider?.api_key || ''}
+          onChange={(event) =>
+            onProviderChange(activeProviderId, (provider) => {
+              provider.api_key = event.target.value;
+            })
+          }
+        />
+        <button
+          type="button"
+          onClick={() => setShowApiKey((current) => !current)}
+          className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent/50 hover:text-foreground"
+          aria-label={showApiKey ? appT('settings.hideSensitiveValue') : appT('settings.showSensitiveValue')}
+        >
+          {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
+    </label>
+  );
 
   return (
     <section
@@ -362,20 +392,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       />
                     </label>
 
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
-                      <input
-                        aria-label={t('llm.fields.apiKey')}
-                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                        type="password"
-                        value={activeProvider.api_key || ''}
-                        onChange={(event) =>
-                          onProviderChange(activeProviderId, (provider) => {
-                            provider.api_key = event.target.value;
-                          })
-                        }
-                      />
-                    </label>
+                    {renderApiKeyField()}
 
                     <label className="space-y-2">
                       <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>
@@ -480,20 +497,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   </>
                 ) : (
                   <>
-                    <label className="space-y-2">
-                      <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
-                      <input
-                        aria-label={t('llm.fields.apiKey')}
-                        className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-                        type="password"
-                        value={activeProvider.api_key || ''}
-                        onChange={(event) =>
-                          onProviderChange(activeProviderId, (provider) => {
-                            provider.api_key = event.target.value;
-                          })
-                        }
-                      />
-                    </label>
+                    {renderApiKeyField()}
 
                     <label className="space-y-2">
                       <span className="text-sm font-medium">{t('llm.fields.baseUrl')}</span>

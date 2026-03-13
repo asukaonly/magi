@@ -11,11 +11,13 @@ from magi.api.routers.config import (
     LLMProviderConfigModel,
     LLMSelectionConfigModel,
     SystemConfigModel,
+    _build_system_config,
     _build_onboarding_template,
     _build_update_paths,
     _default_llm_provider_registry,
     config_router,
 )
+from magi.config.loader import get_config
 from magi.config.models import LLMProviderSettings, LLMSelectionSettings, LLMSettings
 from magi.config.llm_registry import LLMProviderRegistryModel, resolve_llm_profile
 
@@ -110,6 +112,18 @@ def test_build_update_paths_skip_masked_api_key():
     config.llm.providers["openai"].api_key = "***"
     updates = _build_update_paths(config)
     assert updates["llm.providers"]["openai"].get("api_key") in (None, "")
+
+
+def test_build_system_config_returns_real_llm_api_keys_by_default(monkeypatch: pytest.MonkeyPatch):
+    runtime_config = get_config()
+    original_api_key = runtime_config.llm.providers["openai"].api_key
+    runtime_config.llm.providers["openai"].api_key = "sk-visible-openai"
+
+    try:
+        config = _build_system_config()
+        assert config.llm.providers["openai"].api_key == "sk-visible-openai"
+    finally:
+        runtime_config.llm.providers["openai"].api_key = original_api_key
 
 
 def test_build_update_paths_applies_builtin_provider_defaults_before_save():

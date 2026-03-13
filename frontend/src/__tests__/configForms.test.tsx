@@ -825,6 +825,28 @@ describe('config forms', () => {
     expect(screen.getByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
   });
 
+  it('lets users reveal and hide provider api keys locally', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    const apiKeyField = await screen.findByLabelText('llm.fields.apiKey');
+    const fieldWrapper = apiKeyField.parentElement?.parentElement;
+
+    expect(apiKeyField).toHaveAttribute('type', 'password');
+
+    const toggleButton = within(fieldWrapper as HTMLElement).getByRole('button');
+    await user.click(toggleButton);
+    expect(apiKeyField).toHaveAttribute('type', 'text');
+
+    await user.click(toggleButton);
+    expect(apiKeyField).toHaveAttribute('type', 'password');
+  });
+
   it('uses the registry default base url when testing a built-in provider with a blank field', async () => {
     const user = userEvent.setup();
     const glmWithoutBaseUrl = {
