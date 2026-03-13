@@ -1,5 +1,4 @@
 """Memory query service for orchestrating retrieval across L1-L5 layers."""
-import asyncio
 from typing import Any, Dict, List, Optional
 
 from .models import MemoryQueryRequest, MemoryQueryResult
@@ -51,7 +50,7 @@ class MemoryQueryService:
             )
 
         # Step 2: Determine data types to query
-        data_types = request.data_types or self._infer_data_types(request.query)
+        data_types = request.data_types or self._infer_data_types(request.query, request.sources)
 
         # Step 3: Privacy check
         privacy_result = self.privacy_guard.check(data_types, {"query": request.query})
@@ -101,8 +100,13 @@ class MemoryQueryService:
 
         # Build query metadata
         query_meta = {
+            "layers": list(routing_plan.layers),
             "layer": routing_plan.primary_layer,
-            "secondary_layers": routing_plan.secondary_layers,
+            "secondary_layers": list(routing_plan.secondary_layers),
+            "query_mode": routing_plan.query_mode,
+            "source_filters": list(routing_plan.source_filters),
+            "time_range": dict(routing_plan.time_range),
+            "topic_query": routing_plan.topic_query,
             "confidence": routing_plan.confidence,
             "total_count": len(processed_results),
         }
@@ -123,8 +127,16 @@ class MemoryQueryService:
             time_range.get("relative")
         )
 
-    def _infer_data_types(self, query: str) -> List[str]:
+    def _infer_data_types(self, query: str, sources: Optional[List[str]] = None) -> List[str]:
         """Infer relevant data types from query context."""
+        if sources:
+            mapped = []
+            if "chrome_history" in sources:
+                mapped.append("browser_history")
+            if "chat" in sources:
+                mapped.append("chat")
+            if mapped:
+                return mapped
         query_lower = query.lower()
         types: List[str] = []
 

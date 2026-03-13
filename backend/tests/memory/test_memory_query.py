@@ -287,6 +287,42 @@ class TestIntentRouter:
         # Either confidence is low OR secondary layers are populated
         assert plan.confidence < 0.8 or len(plan.secondary_layers) > 0
 
+    def test_builds_event_detail_plan_for_yesterday_activity(self):
+        """Should build a detail retrieval plan for historical activity review."""
+        from magi.memory.query.router import IntentRouter
+
+        router = IntentRouter()
+        plan = router.analyze("What did I do yesterday?", {"relative": "1d"})
+
+        assert plan.layers == ["L1"]
+        assert plan.query_mode == "detail"
+        assert plan.time_range == {"relative": "1d"}
+
+    def test_infers_programming_sources_for_activity_review(self):
+        """Should infer programming-related source filters from the query."""
+        from magi.memory.query.router import IntentRouter
+
+        router = IntentRouter()
+        plan = router.analyze(
+            "Analyze what programming-related things I did yesterday",
+            {"relative": "1d"},
+        )
+
+        assert "git" in plan.source_filters
+        assert "terminal" in plan.source_filters
+        assert "chrome_history" in plan.source_filters
+        assert "chat" in plan.source_filters
+
+    def test_builds_summary_mode_for_last_week_review(self):
+        """Should infer summary mode for retrospective review requests."""
+        from magi.memory.query.router import IntentRouter
+
+        router = IntentRouter()
+        plan = router.analyze("Summarize what I was doing last week", {"relative": "7d"})
+
+        assert plan.query_mode == "summary"
+        assert "L1" in plan.layers
+
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
