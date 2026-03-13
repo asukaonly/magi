@@ -235,19 +235,19 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     ) : null}
                   </div>
 
-                  <div className="flex items-center gap-2 sm:flex-nowrap lg:justify-end">
+                  <div className="flex shrink-0 items-center gap-2 whitespace-nowrap lg:justify-end">
                     {activeProvider.provider_type === 'custom' ? (
                       <button
                         type="button"
                         onClick={() => onRemoveCustomProvider(activeProviderId)}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
+                        className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
                       >
                         <Trash2 className="h-4 w-4" />
                         <span>{t('llm.actions.removeProvider')}</span>
                       </button>
                     ) : null}
-                    <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2">
-                      <span className="text-sm font-medium text-foreground">{t('llm.fields.enabled')}</span>
+                    <div className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-muted px-3 py-2">
+                      <span className="whitespace-nowrap text-sm font-medium text-foreground">{t('llm.fields.enabled')}</span>
                       <Switch
                         aria-label={t('llm.fields.enabled')}
                         checked={activeProvider.enabled}
@@ -263,7 +263,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       type="button"
                       onClick={() => onTestProviderConnection(activeProviderId)}
                       disabled={activeTestState.loading}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-muted px-3.5 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {activeTestState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
                       <span>
@@ -304,7 +304,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 </div>
               ) : null}
 
-              <div className={cn('grid gap-4 lg:grid-cols-2', isSettingsSurface && 'grid-cols-1 lg:grid-cols-1')}>
+              <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-2')}>
                 <label className="space-y-2">
                   <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
                   <input
