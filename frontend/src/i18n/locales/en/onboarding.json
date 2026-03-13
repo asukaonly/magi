@@ -136,8 +136,8 @@
         "desc": "Stable for long context and reasoning-heavy tasks"
       },
       "glm": {
-        "name": "GLM",
-        "desc": "Friendly experience for Chinese-first scenarios"
+        "name": "Z.ai",
+        "desc": "Fast general-purpose models from Z.ai"
       },
       "custom": {
         "name": "Custom Provider",

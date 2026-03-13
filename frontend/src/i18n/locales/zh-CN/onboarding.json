@@ -136,8 +136,8 @@
         "desc": "长文本与复杂推理表现稳定"
       },
       "glm": {
-        "name": "GLM",
-        "desc": "本地中文场景体验更友好"
+        "name": "Z.ai",
+        "desc": "Z.ai 的通用模型，中文场景体验友好"
       },
       "custom": {
         "name": "自定义 Provider",

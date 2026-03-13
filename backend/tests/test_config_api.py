@@ -129,7 +129,7 @@ def test_build_update_paths_applies_builtin_provider_defaults_before_save():
     updates = _build_update_paths(config)
 
     assert updates["llm.providers"]["glm"]["provider_type"] == "glm"
-    assert updates["llm.providers"]["glm"]["display_name"] == "GLM"
+    assert updates["llm.providers"]["glm"]["display_name"] == "Z.ai"
     assert updates["llm.providers"]["glm"]["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
     assert updates["llm.selections"]["context_decider"]["model"] == "glm-5"
     assert updates["llm.selections"]["core"]["model"] == "glm-5"
@@ -140,7 +140,7 @@ def test_build_update_paths_does_not_depend_on_legacy_llm_env_vars(monkeypatch: 
     config.llm.providers["glm"] = LLMProviderSettings(
         enabled=True,
         provider_type="glm",
-        display_name="GLM",
+        display_name="Z.ai",
         api_key="glm-key",
         base_url="https://open.bigmodel.cn/api/paas/v4",
     )

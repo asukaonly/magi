@@ -205,7 +205,7 @@ async def test_ai_generate_personality_uses_registry_default_base_url_for_builti
                 "glm": LLMProviderSettings(
                     enabled=True,
                     provider_type="glm",
-                    display_name="GLM",
+                    display_name="Z.ai",
                     api_key="glm-key",
                     base_url="",
                 )

@@ -9,7 +9,7 @@ License:
 Included assets:
 - `openai.svg`
 - `anthropic.svg`
-- `chatglm-color.svg`
+- `zai.svg`
 - `gemini-color.svg`
 - `deepseek-color.svg`
 - `kimi.svg`

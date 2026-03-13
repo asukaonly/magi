@@ -1,10 +1,10 @@
 import anthropicIcon from '@/assets/provider-icons/anthropic.svg?raw';
-import chatglmIcon from '@/assets/provider-icons/chatglm-color.svg?raw';
 import deepseekIcon from '@/assets/provider-icons/deepseek-color.svg?raw';
 import geminiIcon from '@/assets/provider-icons/gemini-color.svg?raw';
 import kimiIcon from '@/assets/provider-icons/kimi.svg?raw';
 import minimaxIcon from '@/assets/provider-icons/minimax-color.svg?raw';
 import openaiIcon from '@/assets/provider-icons/openai.svg?raw';
+import zaiIcon from '@/assets/provider-icons/zai.svg?raw';
 import { cn } from '@/lib/utils';
 
 interface ProviderIconProps {
@@ -37,7 +37,8 @@ const CustomIcon = () => (
 const ICON_SVGS: Record<string, string> = {
   openai: openaiIcon,
   anthropic: anthropicIcon,
-  glm: chatglmIcon,
+  glm: zaiIcon,
+  zai: zaiIcon,
   gemini: geminiIcon,
   deepseek: deepseekIcon,
   kimi: kimiIcon,

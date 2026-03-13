@@ -94,9 +94,9 @@ vi.mock('../api/modules/config', async () => {
             },
             {
               id: 'glm',
-              display_name: 'GLM',
+              display_name: 'Z.ai',
               description: 'Fast',
-              icon: 'glm',
+              icon: 'zai',
               default_model: 'glm-5',
               default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
               models: [
@@ -311,7 +311,7 @@ describe('config forms', () => {
       glm: {
         enabled: true,
         provider_type: 'glm',
-        display_name: 'GLM',
+        display_name: 'Z.ai',
         api_key: 'sk-glm',
         base_url: 'https://open.bigmodel.cn/api/paas/v4',
       },
@@ -382,11 +382,13 @@ describe('config forms', () => {
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
 
+    expect(within(providerList).getByText('Z.ai')).toBeInTheDocument();
     expect(within(providerList).getByText('Google Gemini')).toBeInTheDocument();
     expect(within(providerList).getByText('DeepSeek')).toBeInTheDocument();
     expect(within(providerList).getByText('Kimi')).toBeInTheDocument();
     expect(within(providerList).getByText('MiniMax')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-openai')).toBeInTheDocument();
+    expect(within(providerList).getByTestId('llm-provider-icon-zai')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-gemini')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-deepseek')).toBeInTheDocument();
     expect(within(providerList).getByTestId('llm-provider-icon-kimi')).toBeInTheDocument();
@@ -491,7 +493,7 @@ describe('config forms', () => {
     const providerSelect = within(coreCard).getByLabelText('llm.fields.provider');
 
     await user.click(providerSelect);
-    await user.click(screen.getByRole('button', { name: 'GLM' }));
+    await user.click(screen.getByRole('button', { name: 'Z.ai' }));
 
     await waitFor(() => {
       expect(within(coreCard).getByLabelText('llm.fields.model')).toHaveTextContent('GLM-5');
@@ -837,7 +839,7 @@ describe('config forms', () => {
     );
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
-    await user.click((within(providerList).getByText('GLM') as HTMLElement).closest('button') as HTMLButtonElement);
+    await user.click((within(providerList).getByText('Z.ai') as HTMLElement).closest('button') as HTMLButtonElement);
     await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
 
     await waitFor(() => {
