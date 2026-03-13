@@ -15,6 +15,10 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GLM = "glm"
+    GEMINI = "gemini"
+    DEEPSEEK = "deepseek"
+    KIMI = "kimi"
+    MINIMAX = "minimax"
     LOCAL = "local"
     CUSTOM = "custom"
 

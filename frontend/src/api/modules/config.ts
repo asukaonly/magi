@@ -7,7 +7,16 @@ import { DEFAULT_PERSONALITY_CONFIG } from './personality';
 
 export type UserMode = 'quick' | 'expert' | null;
 export type LanguageCode = 'zh' | 'en';
-export type LLMProvider = 'openai' | 'anthropic' | 'glm' | 'custom' | 'local';
+export type LLMProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'glm'
+  | 'gemini'
+  | 'deepseek'
+  | 'kimi'
+  | 'minimax'
+  | 'custom'
+  | 'local';
 export type ApiFormat = 'openai' | 'anthropic';
 export type LLMScenario = 'context_decider' | 'core';
 

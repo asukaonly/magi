@@ -2,7 +2,7 @@ providers:
   - id: openai
     display_name: OpenAI
     description: General purpose, strongest ecosystem
-    icon: sparkles
+    icon: openai
     default_model: gpt-5.2
     default_base_url: https://api.openai.com/v1
     models:
@@ -53,7 +53,7 @@ providers:
   - id: anthropic
     display_name: Anthropic
     description: Stable for long context and reasoning-heavy tasks
-    icon: brain
+    icon: anthropic
     default_model: claude-sonnet-4-6
     default_base_url: https://api.anthropic.com/v1
     models:
@@ -104,7 +104,7 @@ providers:
   - id: glm
     display_name: GLM
     description: Friendly experience for Chinese-first scenarios
-    icon: zap
+    icon: glm
     default_model: glm-5
     default_base_url: https://open.bigmodel.cn/api/paas/v4
     models:
@@ -161,11 +161,204 @@ providers:
         visible: true
         required: false
 
+  - id: gemini
+    display_name: Google Gemini
+    description: Multimodal models from Google
+    icon: gemini
+    default_model: gemini-2.5-flash
+    default_base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    models:
+      - id: gemini-2.5-pro
+        label: Gemini 2.5 Pro
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 1048576
+          max_output_tokens: 65536
+      - id: gemini-2.5-flash
+        label: Gemini 2.5 Flash
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 1048576
+          max_output_tokens: 65536
+      - id: gemini-2.5-flash-lite
+        label: Gemini 2.5 Flash Lite
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 1048576
+          max_output_tokens: 32768
+    fields:
+      model:
+        visible: true
+        required: true
+      api_key:
+        visible: true
+        required: true
+      base_url:
+        visible: true
+        required: false
+
+  - id: deepseek
+    display_name: DeepSeek
+    description: Reasoning and coding models
+    icon: deepseek
+    default_model: deepseek-chat
+    default_base_url: https://api.deepseek.com
+    models:
+      - id: deepseek-chat
+        label: DeepSeek Chat
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 128000
+          max_output_tokens: 8192
+      - id: deepseek-reasoner
+        label: DeepSeek Reasoner
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 128000
+          max_output_tokens: 8192
+    fields:
+      model:
+        visible: true
+        required: true
+      api_key:
+        visible: true
+        required: true
+      base_url:
+        visible: true
+        required: false
+
+  - id: kimi
+    display_name: Kimi
+    description: Long-context models from Moonshot AI
+    icon: kimi
+    default_model: moonshot-v1-32k
+    default_base_url: https://api.moonshot.cn/v1
+    models:
+      - id: moonshot-v1-8k
+        label: Moonshot V1 8K
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 8192
+          max_output_tokens: 8192
+      - id: moonshot-v1-32k
+        label: Moonshot V1 32K
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 32768
+          max_output_tokens: 8192
+      - id: moonshot-v1-128k
+        label: Moonshot V1 128K
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 128000
+          max_output_tokens: 8192
+    fields:
+      model:
+        visible: true
+        required: true
+      api_key:
+        visible: true
+        required: true
+      base_url:
+        visible: true
+        required: false
+
+  - id: minimax
+    display_name: MiniMax
+    description: Multimodal models from MiniMax
+    icon: minimax
+    default_model: MiniMax-M1
+    default_base_url: https://api.minimax.chat/v1
+    models:
+      - id: MiniMax-M1
+        label: MiniMax M1
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 1000000
+          max_output_tokens: 8192
+      - id: MiniMax-Text-01
+        label: MiniMax Text 01
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 400000
+          max_output_tokens: 8192
+      - id: MiniMax-VL-01
+        label: MiniMax VL 01
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+          embedding: false
+        limits:
+          context_window: 262144
+          max_output_tokens: 8192
+    fields:
+      model:
+        visible: true
+        required: true
+      api_key:
+        visible: true
+        required: true
+      base_url:
+        visible: true
+        required: false
+
 custom_provider:
   enabled: true
   display_name: Custom Provider
   description: Connect OpenAI-compatible or Anthropic-compatible endpoints
-  icon: wand
+  icon: custom
   capabilities:
     vision: false
     image_output: false

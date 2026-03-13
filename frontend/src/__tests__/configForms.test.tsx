@@ -20,6 +20,7 @@ vi.mock('../api/modules/config', async () => {
               id: 'openai',
               display_name: 'OpenAI',
               description: 'General purpose',
+              icon: 'openai',
               default_model: 'gpt-5.2',
               default_base_url: 'https://api.openai.com/v1',
               models: [
@@ -65,6 +66,7 @@ vi.mock('../api/modules/config', async () => {
               id: 'anthropic',
               display_name: 'Anthropic',
               description: 'Reasoning',
+              icon: 'anthropic',
               default_model: 'claude-sonnet-4-6',
               default_base_url: 'https://api.anthropic.com/v1',
               models: [
@@ -94,6 +96,7 @@ vi.mock('../api/modules/config', async () => {
               id: 'glm',
               display_name: 'GLM',
               description: 'Fast',
+              icon: 'glm',
               default_model: 'glm-5',
               default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
               models: [
@@ -114,6 +117,126 @@ vi.mock('../api/modules/config', async () => {
                   provider_options_example: {
                     thinking: { type: 'disabled' },
                   },
+                },
+              ],
+              fields: {
+                api_key: { visible: true, required: true },
+                base_url: { visible: true, required: false },
+              },
+            },
+            {
+              id: 'gemini',
+              display_name: 'Google Gemini',
+              description: 'Multimodal models from Google',
+              icon: 'gemini',
+              default_model: 'gemini-2.5-flash',
+              default_base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
+              models: [
+                {
+                  id: 'gemini-2.5-flash',
+                  label: 'Gemini 2.5 Flash',
+                  capabilities: {
+                    vision: true,
+                    image_output: false,
+                    tool_calling: true,
+                    reasoning: true,
+                    embedding: false,
+                  },
+                  limits: {
+                    context_window: 1048576,
+                    max_output_tokens: 65536,
+                  },
+                  provider_options_example: {},
+                },
+              ],
+              fields: {
+                api_key: { visible: true, required: true },
+                base_url: { visible: true, required: false },
+              },
+            },
+            {
+              id: 'deepseek',
+              display_name: 'DeepSeek',
+              description: 'Reasoning and coding models',
+              icon: 'deepseek',
+              default_model: 'deepseek-chat',
+              default_base_url: 'https://api.deepseek.com',
+              models: [
+                {
+                  id: 'deepseek-chat',
+                  label: 'DeepSeek Chat',
+                  capabilities: {
+                    vision: false,
+                    image_output: false,
+                    tool_calling: true,
+                    reasoning: true,
+                    embedding: false,
+                  },
+                  limits: {
+                    context_window: 128000,
+                    max_output_tokens: 8192,
+                  },
+                  provider_options_example: {},
+                },
+              ],
+              fields: {
+                api_key: { visible: true, required: true },
+                base_url: { visible: true, required: false },
+              },
+            },
+            {
+              id: 'kimi',
+              display_name: 'Kimi',
+              description: 'Long context models from Moonshot AI',
+              icon: 'kimi',
+              default_model: 'moonshot-v1-32k',
+              default_base_url: 'https://api.moonshot.cn/v1',
+              models: [
+                {
+                  id: 'moonshot-v1-32k',
+                  label: 'Moonshot V1 32K',
+                  capabilities: {
+                    vision: false,
+                    image_output: false,
+                    tool_calling: true,
+                    reasoning: true,
+                    embedding: false,
+                  },
+                  limits: {
+                    context_window: 32768,
+                    max_output_tokens: 8192,
+                  },
+                  provider_options_example: {},
+                },
+              ],
+              fields: {
+                api_key: { visible: true, required: true },
+                base_url: { visible: true, required: false },
+              },
+            },
+            {
+              id: 'minimax',
+              display_name: 'MiniMax',
+              description: 'General multimodal models from MiniMax',
+              icon: 'minimax',
+              default_model: 'MiniMax-M1',
+              default_base_url: 'https://api.minimax.chat/v1',
+              models: [
+                {
+                  id: 'MiniMax-M1',
+                  label: 'MiniMax M1',
+                  capabilities: {
+                    vision: true,
+                    image_output: false,
+                    tool_calling: true,
+                    reasoning: true,
+                    embedding: false,
+                  },
+                  limits: {
+                    context_window: 1000000,
+                    max_output_tokens: 8192,
+                  },
+                  provider_options_example: {},
                 },
               ],
               fields: {
@@ -248,6 +371,26 @@ describe('config forms', () => {
     expect(within(providerList).queryByText('General purpose')).not.toBeInTheDocument();
     expect(within(providerList).queryByText('GPT-5.2')).not.toBeInTheDocument();
     expect(screen.getByText('llm.providerConfiguration.availableModels')).toBeInTheDocument();
+  });
+
+  it('renders the extended builtin providers with local icons in the provider list', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    const providerList = await screen.findByTestId('llm-provider-list-pane');
+
+    expect(within(providerList).getByText('Google Gemini')).toBeInTheDocument();
+    expect(within(providerList).getByText('DeepSeek')).toBeInTheDocument();
+    expect(within(providerList).getByText('Kimi')).toBeInTheDocument();
+    expect(within(providerList).getByText('MiniMax')).toBeInTheDocument();
+    expect(within(providerList).getByTestId('llm-provider-icon-openai')).toBeInTheDocument();
+    expect(within(providerList).getByTestId('llm-provider-icon-gemini')).toBeInTheDocument();
+    expect(within(providerList).getByTestId('llm-provider-icon-deepseek')).toBeInTheDocument();
+    expect(within(providerList).getByTestId('llm-provider-icon-kimi')).toBeInTheDocument();
+    expect(within(providerList).getByTestId('llm-provider-icon-minimax')).toBeInTheDocument();
   });
 
   it('renders provider configuration before model selection', async () => {

@@ -170,6 +170,17 @@ def test_default_registry_exposes_model_metadata():
     assert registry.providers[0].models[0].limits.max_output_tokens is not None
 
 
+def test_default_registry_includes_extended_builtin_providers():
+    registry = _default_llm_provider_registry()
+    providers_by_id = {provider.id: provider for provider in registry.providers}
+
+    assert {"openai", "anthropic", "glm", "gemini", "deepseek", "kimi", "minimax"} <= providers_by_id.keys()
+    assert providers_by_id["gemini"].default_base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
+    assert providers_by_id["deepseek"].default_base_url == "https://api.deepseek.com"
+    assert providers_by_id["kimi"].default_base_url == "https://api.moonshot.cn/v1"
+    assert providers_by_id["minimax"].default_base_url == "https://api.minimax.chat/v1"
+
+
 def test_registry_supports_legacy_model_options_shape():
     registry = LLMProviderRegistryModel(
         providers=[

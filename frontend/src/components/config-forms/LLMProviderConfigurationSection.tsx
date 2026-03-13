@@ -3,6 +3,7 @@ import { CheckCircle2, Loader2, Plus, PlugZap, Trash2, X, XCircle } from 'lucide
 import { useTranslation } from 'react-i18next';
 
 import { SelectField } from '@/components/config-forms/fields';
+import { ProviderIcon } from '@/components/config-forms/provider-icons';
 import { Switch } from '@/components/ui/switch';
 import type {
   LLMConfig,
@@ -174,6 +175,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         : 'rounded-xl bg-transparent shadow-[0_1px_2px_rgba(15,23,42,0.03)] ring-1 ring-inset ring-border/60')
                   )}
                 >
+                  <ProviderIcon
+                    providerId={provider.provider_type}
+                    iconName={providerMeta?.icon || (provider.provider_type === 'custom' ? 'custom' : undefined)}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold tracking-[0.01em] text-foreground sm:text-base">
                       {provider.display_name || providerMeta?.display_name || providerId}
@@ -220,15 +225,24 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
               <div className={cn('space-y-3', isSettingsSurface && 'space-y-4')}>
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="space-y-2">
-                    <h4 className={cn('text-xl font-semibold tracking-[-0.01em] text-foreground', isSettingsSurface && 'text-lg')}>
-                      {activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
-                    </h4>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={badgeClassName}>
-                        {activeProvider.provider_type === 'custom'
-                          ? t('llm.providerConfiguration.providerKinds.custom')
-                          : t('llm.providerConfiguration.providerKinds.builtin')}
-                      </span>
+                    <div className="flex items-start gap-3">
+                      <ProviderIcon
+                        providerId={activeProvider.provider_type}
+                        iconName={activeProviderMeta?.icon || (activeProvider.provider_type === 'custom' ? 'custom' : undefined)}
+                        className="mt-0.5"
+                      />
+                      <div className="space-y-2">
+                        <h4 className={cn('text-xl font-semibold tracking-[-0.01em] text-foreground', isSettingsSurface && 'text-lg')}>
+                          {activeProvider.display_name || activeProviderMeta?.display_name || activeProviderId}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={badgeClassName}>
+                            {activeProvider.provider_type === 'custom'
+                              ? t('llm.providerConfiguration.providerKinds.custom')
+                              : t('llm.providerConfiguration.providerKinds.builtin')}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                     {activeReferences.length > 0 ? (
                       <p className="text-xs leading-5 text-muted-foreground">
