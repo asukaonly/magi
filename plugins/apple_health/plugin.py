@@ -148,13 +148,14 @@ class AppleHealthPlugin(Plugin):
         if sys.platform != "darwin":
             return []
 
-        # Check HealthKit availability
+        # Check HealthKit availability (but still return sensor spec even if not available)
+        reader = None
         try:
             reader = HealthKitReader()
             if not reader.is_available():
-                return []
+                reader = None
         except Exception:
-            return []
+            reader = None
 
         # Get settings
         settings = {}
@@ -162,25 +163,19 @@ class AppleHealthPlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("apple_health", {}))
 
-        print(f"Settings for apple_health: {settings}")
-
-        # Get enabled types from settings
+        # Get enabled types from settings (use default enabled types if not configured)
         enabled_types = _get_enabled_types_from_settings(settings)
-        print(f"Enabled types: {enabled_types}")
         if not enabled_types:
-            return []
+            # Use default enabled types from DEFAULT_SETTINGS
+            enabled_types = get_default_enabled_types()
 
         # Get health data type objects
         enabled_health_types = [
             HEALTH_DATA_TYPES[type_key] for type_key in enabled_types
             if type_key in HEALTH_DATA_TYPES
         ]
-        print(f"Enabled health types count: {len(enabled_health_types)}")
 
-        if not enabled_health_types:
-            return []
-
-        # Create sensor
+        # Create sensor (enabled_health_types may be empty, reader may be None)
         sensor = AppleHealthTimelineSensor(
             retention_mode=str(settings.get("default_retention_mode", DEFAULT_SETTINGS["default_retention_mode"])),
             enabled_types=enabled_health_types,
@@ -192,7 +187,7 @@ class AppleHealthPlugin(Plugin):
         if sync_mode == "manual":
             sync_mode = "interval"
 
-        result = [
+        return [
             (
                 "timeline.apple_health",
                 sensor,
@@ -212,6 +207,3 @@ class AppleHealthPlugin(Plugin):
                 ),
             )
         ]
-
-        print(f"Returning sensors: {len(result)}")
-        return result

@@ -143,25 +143,14 @@ class GitActivityPlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("git_activity", {}))
 
-        # Check if enabled
-        if not settings.get("enabled", DEFAULT_SETTINGS["enabled"]):
-                return []
-
-        # Get configured repos
+        # Get configured repos (use empty list as default)
         repos = settings.get("repos", [])
-        if not repos:
-            return []
-
-        # Validate at least one valid repo
         valid_repos = []
         for repo in repos:
             if isinstance(repo, str) and repo.strip() and is_git_repo(repo):
                 valid_repos.append(repo.strip())
 
-        if not valid_repos:
-            return []
-
-        # Create sensor
+        # Create sensor with available repos (may be empty)
         sensor = GitActivitySensor(
             retention_mode=str(settings.get("default_retention_mode", DEFAULT_SETTINGS["default_retention_mode"])),
             repos=valid_repos,

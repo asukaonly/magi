@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec, Plugin, SensorSpec
-from netease_music.reader import DEFAULT_DB_PATH
-from netease_music.sensor import NeteaseMusicTimelineSensor
+from .reader import DEFAULT_DB_PATH
+from .sensor import NeteaseMusicTimelineSensor
 
 DEFAULT_SETTINGS = {
     "enabled": False,

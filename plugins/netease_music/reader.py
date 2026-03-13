@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from netease_music.normalizers import extract_track_info
+from .normalizers import extract_track_info
 
 DEFAULT_DB_PATH = "~/Library/Containers/com.netease.163music/Data/Documents/storage/sqlite_storage.sqlite3"
 
