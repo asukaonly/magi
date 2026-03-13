@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { SelectField } from '@/components/config-forms/fields';
 import type { LLMConfig, LLMProviderRegistry, LLMScenario } from '@/api/modules/config';
 import { cn } from '@/lib/utils';
 
@@ -30,8 +31,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const enabledProviders = Object.entries(value.providers).filter(([, provider]) => provider.enabled);
   const isSettingsSurface = surface === 'settings';
   const inputClassName = cn(
-    'h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
-    isSettingsSurface && 'rounded-lg border-border/60 bg-background'
+    'h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+    isSettingsSurface && 'rounded-lg border-border/65 bg-background'
   );
 
   if (enabledProviders.length === 0) {
@@ -46,7 +47,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.modelSelection.desc')}</p>
           </div>
         ) : null}
-        <div className={cn('rounded-[24px] border border-border/60 bg-muted/35 p-5 text-sm text-muted-foreground', isSettingsSurface && 'rounded-xl bg-muted/20 p-4')}>
+        <div
+          className={cn(
+            'rounded-[24px] border border-border/60 bg-muted/35 p-5 text-sm text-muted-foreground',
+            isSettingsSurface && 'rounded-xl border-border/65 bg-transparent p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
+          )}
+        >
           {t('llm.modelSelection.empty')}
         </div>
       </section>
@@ -80,13 +86,19 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               data-testid={`llm-scenario-${scenario}`}
               className={cn(
                 'space-y-4 rounded-[24px] border border-border/60 bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--muted)/0.9))] p-5 shadow-[0_16px_34px_-28px_hsl(var(--foreground)/0.14)] dark:bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--background)/0.92))] dark:shadow-[0_20px_36px_-28px_rgba(0,0,0,0.62)]',
-                isSettingsSurface && 'rounded-xl border-border/55 bg-muted/18 p-4 shadow-none dark:bg-muted/10'
+                isSettingsSurface &&
+                  'rounded-xl border-border/65 bg-transparent p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:bg-transparent'
               )}
             >
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-3">
                   <h4 className={cn('text-base font-semibold text-foreground', isSettingsSurface && 'text-sm')}>{t(`llm.scenarios.${scenario}.title`)}</h4>
-                  <span className={cn('rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground', isSettingsSurface && 'border-0 bg-muted px-2 py-0.5')}>
+                  <span
+                    className={cn(
+                      'rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground',
+                      isSettingsSurface && 'border border-border/60 bg-transparent px-2 py-0.5'
+                    )}
+                  >
                     {provider?.display_name || selection.provider_id}
                   </span>
                 </div>
@@ -96,35 +108,33 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               <div className={cn('grid gap-4', quickMode ? 'lg:grid-cols-2' : 'md:grid-cols-2')}>
                 <label className="space-y-2">
                   <span className="text-sm font-medium">{t('llm.fields.provider')}</span>
-                  <select
-                    aria-label={t('llm.fields.provider')}
-                    className={inputClassName}
+                  <SelectField
+                    className="w-full"
+                    triggerClassName={inputClassName}
                     value={selection.provider_id}
-                    onChange={(event) => onScenarioProviderChange(scenario, event.target.value)}
-                  >
-                    {enabledProviders.map(([providerId, enabledProvider]) => (
-                      <option key={providerId} value={providerId}>
-                        {enabledProvider.display_name || providerId}
-                      </option>
-                    ))}
-                  </select>
+                    allowEmpty={false}
+                    options={enabledProviders.map(([providerId, enabledProvider]) => ({
+                      label: enabledProvider.display_name || providerId,
+                      value: providerId,
+                    }))}
+                    onChange={(nextValue) => onScenarioProviderChange(scenario, nextValue)}
+                  />
                 </label>
 
                 <label className="space-y-2">
                   <span className="text-sm font-medium">{t('llm.fields.model')}</span>
                   {models.length > 0 ? (
-                    <select
-                      aria-label={t('llm.fields.model')}
-                      className={inputClassName}
+                    <SelectField
+                      className="w-full"
+                      triggerClassName={inputClassName}
                       value={selection.model}
-                      onChange={(event) => onScenarioModelChange(scenario, event.target.value)}
-                    >
-                      {models.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.label || model.id}
-                        </option>
-                      ))}
-                    </select>
+                      allowEmpty={false}
+                      options={models.map((model) => ({
+                        label: model.label || model.id,
+                        value: model.id,
+                      }))}
+                      onChange={(nextValue) => onScenarioModelChange(scenario, nextValue)}
+                    />
                   ) : (
                     <input
                       aria-label={t('llm.fields.model')}
@@ -143,7 +153,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                   .map(([capability]) => (
                     <span
                       key={capability}
-                      className={cn('rounded-full border border-primary/20 bg-background/85 px-2.5 py-1 text-xs text-primary', isSettingsSurface && 'border-0 bg-muted text-muted-foreground')}
+                      className={cn(
+                        'rounded-full border border-primary/20 bg-background/85 px-2.5 py-1 text-xs text-primary',
+                        isSettingsSurface && 'border-border/60 bg-transparent text-muted-foreground'
+                      )}
                     >
                       {t(`llm.capabilities.${capability === 'image_output' ? 'imageOutput' : capability}`)}
                     </span>

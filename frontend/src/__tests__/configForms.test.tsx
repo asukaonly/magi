@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
@@ -336,6 +336,8 @@ describe('config forms', () => {
   });
 
   it('lets user switch the core scenario model and shows vision warning', async () => {
+    const user = userEvent.setup();
+
     render(
       <Form initialValues={{ llm: llmValue }}>
         <LLMForm quickMode />
@@ -345,12 +347,30 @@ describe('config forms', () => {
     const coreCard = await screen.findByTestId('llm-scenario-core');
     const providerSelect = within(coreCard).getByLabelText('llm.fields.provider');
 
-    fireEvent.change(providerSelect, { target: { value: 'glm' } });
+    await user.click(providerSelect);
+    await user.click(screen.getByRole('button', { name: 'GLM' }));
 
     await waitFor(() => {
-      expect(within(coreCard).getByLabelText('llm.fields.model')).toHaveValue('glm-5');
+      expect(within(coreCard).getByLabelText('llm.fields.model')).toHaveTextContent('GLM-5');
     });
     expect(screen.getByText('llm.warnings.coreVisionMissing')).toBeInTheDocument();
+  });
+
+  it('uses custom select controls and flat cards for model selection on the settings surface', async () => {
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
+      </Form>
+    );
+
+    const coreCard = await screen.findByTestId('llm-scenario-core');
+    const providerField = within(coreCard).getByLabelText('llm.fields.provider');
+    const modelField = within(coreCard).getByLabelText('llm.fields.model');
+
+    expect(providerField.tagName).toBe('BUTTON');
+    expect(modelField.tagName).toBe('BUTTON');
+    expect(coreCard.className).toContain('bg-transparent');
+    expect(coreCard.className).not.toContain('bg-muted/18');
   });
 
   it('does not auto-select a provider or model when onboarding starts with all providers disabled', async () => {
