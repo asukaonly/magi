@@ -42,8 +42,9 @@ class MemoryQueryService:
         Returns:
             MemoryQueryResult with status and data
         """
-        # Step 1: Validate time range
-        if not self._validate_time_range(request.time_range):
+        # Step 1: Normalize and validate time range
+        normalized_time_range = self._normalize_time_range(request.query, request.time_range)
+        if not self._validate_time_range(normalized_time_range):
             return MemoryQueryResult(
                 status="confirm_required",
                 confirm_prompt="Please specify a time range for the search (e.g., 'yesterday', 'last week')."
@@ -66,6 +67,15 @@ class MemoryQueryService:
             )
 
         # Step 4: Intent routing
+        request = MemoryQueryRequest(
+            query=request.query,
+            time_range=normalized_time_range,
+            sources=request.sources,
+            query_mode=request.query_mode,
+            data_types=request.data_types,
+            limit=request.limit,
+        )
+
         routing_plan = self.router.analyze(request.query, request.time_range)
 
         # Step 5: Execute parallel queries
@@ -152,3 +162,17 @@ class MemoryQueryService:
             types = ["browser_history", "chat", "note"]
 
         return types
+
+    def _normalize_time_range(self, query: str, time_range: Dict[str, Any]) -> Dict[str, Any]:
+        if self._validate_time_range(time_range):
+            return dict(time_range)
+        query_lower = query.lower()
+        if "yesterday" in query_lower or "昨天" in query_lower:
+            return {"relative": "1d"}
+        if "last week" in query_lower or "上周" in query_lower:
+            return {"relative": "7d"}
+        if "last month" in query_lower or "上个月" in query_lower:
+            return {"relative": "30d"}
+        if "recently" in query_lower or "最近" in query_lower:
+            return {"relative": "7d"}
+        return dict(time_range)

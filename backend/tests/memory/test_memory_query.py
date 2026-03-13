@@ -347,8 +347,8 @@ class TestMemoryQueryService:
 
         return {"L1": l1_handler, "L3": l3_handler}
 
-    def test_missing_time_range_requires_confirmation(self):
-        """Should return confirm_required when time_range is missing."""
+    def test_missing_time_range_requires_confirmation_for_ambiguous_query(self):
+        """Should request clarification when an ambiguous query lacks a time range."""
         from magi.memory.query.service import MemoryQueryService
         from magi.memory.query.models import MemoryQueryRequest
 
@@ -362,6 +362,22 @@ class TestMemoryQueryService:
 
         assert result.status == "confirm_required"
         assert "time range" in result.confirm_prompt.lower()
+
+    def test_infers_time_range_from_query_when_missing(self, mock_layer_handlers):
+        """Should infer a historical time range from the query when possible."""
+        from magi.memory.query.service import MemoryQueryService
+        from magi.memory.query.models import MemoryQueryRequest
+
+        service = MemoryQueryService(layer_handlers=mock_layer_handlers)
+        request = MemoryQueryRequest(
+            query="What did I browse yesterday?",
+            time_range={},
+        )
+
+        result = asyncio.get_event_loop().run_until_complete(service.query(request))
+
+        assert result.status == "success"
+        assert result.query_meta["time_range"]["relative"] == "1d"
 
     def test_empty_results(self, mock_layer_handlers):
         """Should return empty status when no results found."""
