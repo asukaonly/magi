@@ -25,7 +25,7 @@ The service automatically:
 3. Routes to appropriate memory layers
 4. Formats results using type handlers
 """
-from .models import MemoryQueryRequest, MemoryQueryResult
+from .models import MemoryQueryRequest, MemoryQueryResult, RetrievalPlan
 from .handlers import TypeHandler, TypeHandlerRegistry
 from .privacy import PrivacyGuard, SensitivityLevel, PrivacyCheckResult
 from .router import IntentRouter, RoutingPlan
@@ -34,6 +34,7 @@ from .service import MemoryQueryService
 __all__ = [
     "MemoryQueryRequest",
     "MemoryQueryResult",
+    "RetrievalPlan",
     "TypeHandler",
     "TypeHandlerRegistry",
     "PrivacyGuard",

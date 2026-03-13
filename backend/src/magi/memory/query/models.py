@@ -1,6 +1,5 @@
 """Data models for memory query requests and results."""
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 
@@ -10,8 +9,23 @@ class MemoryQueryRequest:
 
     query: str
     time_range: Dict[str, Any]
+    sources: Optional[List[str]] = None
+    query_mode: Optional[str] = None
     data_types: Optional[List[str]] = None
     limit: Optional[int] = None
+
+
+@dataclass
+class RetrievalPlan:
+    """Execution-ready retrieval plan for event-centric memory queries."""
+
+    layers: List[str]
+    query_mode: str
+    source_filters: List[str]
+    time_range: Dict[str, Any]
+    topic_query: str
+    confidence: float
+    reasoning: str
 
 
 @dataclass

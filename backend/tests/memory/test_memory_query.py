@@ -35,6 +35,22 @@ class TestMemoryQueryRequest:
         assert request.data_types == ["note", "chat"]
         assert request.limit == 10
 
+    def test_create_request_with_event_memory_fields(self):
+        """Should accept source filters and query mode for event-centric retrieval."""
+        from magi.memory.query.models import MemoryQueryRequest
+
+        request = MemoryQueryRequest(
+            query="what did I do yesterday",
+            time_range={"relative": "1d"},
+            sources=["git", "terminal"],
+            query_mode="detail",
+            limit=5,
+        )
+
+        assert request.sources == ["git", "terminal"]
+        assert request.query_mode == "detail"
+        assert request.limit == 5
+
 
 class TestMemoryQueryResult:
     """Tests for MemoryQueryResult model."""
@@ -65,6 +81,46 @@ class TestMemoryQueryResult:
         assert result.status == "confirm_required"
         assert result.confirm_prompt is not None
         assert result.data is None
+
+    def test_query_meta_supports_event_retrieval_fields(self):
+        """Should allow query metadata to expose event-centric retrieval information."""
+        from magi.memory.query.models import MemoryQueryResult
+
+        result = MemoryQueryResult(
+            status="success",
+            data=[],
+            query_meta={
+                "layers": ["L1", "L4"],
+                "query_mode": "summary",
+                "source_filters": ["git", "chat"],
+            },
+        )
+
+        assert result.query_meta["layers"] == ["L1", "L4"]
+        assert result.query_meta["query_mode"] == "summary"
+        assert result.query_meta["source_filters"] == ["git", "chat"]
+
+
+class TestRetrievalPlan:
+    """Tests for RetrievalPlan contract."""
+
+    def test_create_plan_with_ordered_layers(self):
+        """Should store retrieval layers in priority order."""
+        from magi.memory.query.models import RetrievalPlan
+
+        plan = RetrievalPlan(
+            layers=["L1", "L4"],
+            query_mode="summary",
+            source_filters=["git", "terminal"],
+            time_range={"relative": "7d"},
+            topic_query="programming",
+            confidence=0.82,
+            reasoning="Need raw events plus summaries.",
+        )
+
+        assert plan.layers == ["L1", "L4"]
+        assert plan.query_mode == "summary"
+        assert plan.source_filters == ["git", "terminal"]
 
 
 class TestTypeHandler:
