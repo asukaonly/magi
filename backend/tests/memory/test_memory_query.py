@@ -1,5 +1,6 @@
 """Unit tests for memory query module."""
 import pytest
+import time
 from datetime import datetime
 
 
@@ -397,3 +398,103 @@ class TestMemoryQueryService:
         assert result.status == "success"
         assert len(result.data) >= 1
         assert result.query_meta is not None
+
+
+class TestL1EventQueryHandler:
+    """Tests for UnifiedMemoryStore-backed L1 event querying."""
+
+    def test_filters_events_by_source_and_topic(self):
+        """Should filter L1 events by requested sources and topic relevance."""
+        from magi.memory.query.l1_handler import L1EventQueryHandler
+        from magi.memory.query.models import MemoryQueryRequest, RetrievalPlan
+
+        now = time.time()
+        l1_raw = MagicMock()
+        l1_raw.list_events = AsyncMock(return_value=[
+            {
+                "id": "git-1",
+                "type": "TOOL_INVOKED",
+                "timestamp": now - 3600,
+                "source": "git",
+                "data": {"message": "Committed memory query refactor", "files": ["router.py"]},
+                "metadata": {"branch": "codex/memory"},
+            },
+            {
+                "id": "calendar-1",
+                "type": "TIMELINE_EVENT",
+                "timestamp": now - 3500,
+                "source": "calendar",
+                "data": {"title": "Doctor appointment"},
+                "metadata": {},
+            },
+        ])
+        unified_memory = MagicMock()
+        unified_memory.l1_raw = l1_raw
+
+        handler = L1EventQueryHandler(unified_memory)
+        request = MemoryQueryRequest(
+            query="What programming-related things did I do yesterday?",
+            time_range={"relative": "1d"},
+            sources=["git", "terminal"],
+            query_mode="detail",
+        )
+        plan = RetrievalPlan(
+            layers=["L1"],
+            query_mode="detail",
+            source_filters=["git", "terminal"],
+            time_range={"relative": "1d"},
+            topic_query="programming",
+            confidence=0.9,
+            reasoning="Need L1 programming activity details.",
+        )
+
+        result = asyncio.run(handler.query(request, plan))
+
+        assert len(result) == 1
+        assert result[0]["source"] == "git"
+        assert result[0]["event_id"] == "git-1"
+
+    def test_returns_normalized_event_snippets(self):
+        """Should return normalized fields for LLM-friendly event snippets."""
+        from magi.memory.query.l1_handler import L1EventQueryHandler
+        from magi.memory.query.models import MemoryQueryRequest, RetrievalPlan
+
+        now = time.time()
+        l1_raw = MagicMock()
+        l1_raw.list_events = AsyncMock(return_value=[
+            {
+                "id": "term-1",
+                "type": "TOOL_INVOKED",
+                "timestamp": now - 1800,
+                "source": "terminal",
+                "data": {"command": "pytest tests/memory/test_memory_query.py", "result": "success"},
+                "metadata": {"cwd": "/repo/backend"},
+            }
+        ])
+        unified_memory = MagicMock()
+        unified_memory.l1_raw = l1_raw
+
+        handler = L1EventQueryHandler(unified_memory)
+        request = MemoryQueryRequest(
+            query="What commands did I run yesterday?",
+            time_range={"relative": "1d"},
+            sources=["terminal"],
+            query_mode="detail",
+        )
+        plan = RetrievalPlan(
+            layers=["L1"],
+            query_mode="detail",
+            source_filters=["terminal"],
+            time_range={"relative": "1d"},
+            topic_query="terminal",
+            confidence=0.9,
+            reasoning="Need terminal detail.",
+        )
+
+        result = asyncio.run(handler.query(request, plan))
+
+        assert result[0]["event_id"] == "term-1"
+        assert result[0]["event_type"] == "TOOL_INVOKED"
+        assert result[0]["summary"]
+        assert "details" in result[0]
+        assert "raw_ref" in result[0]
