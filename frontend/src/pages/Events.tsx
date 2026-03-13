@@ -3,12 +3,14 @@
  */
 import React, { useEffect, useState } from 'react';
 import {
+  AlertTriangle,
   Database,
   FileText,
   GitBranch,
   Network,
   RefreshCw,
   Search,
+  Trash2,
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -17,8 +19,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { memoryApi } from '@/api/modules/memory';
 import { apiClient } from '../api/client';
 
 interface Event {
@@ -46,6 +50,8 @@ interface Capability {
   usage_count: number;
 }
 
+const CONFIRM_WAIT_SECONDS = 3;
+
 const EventsPage: React.FC = () => {
   const { t } = useTranslation('app');
   const [loading, setLoading] = useState(false);
@@ -71,6 +77,11 @@ const EventsPage: React.FC = () => {
 
   // 搜索关键词
   const [searchKeyword, setSearchKeyword] = useState('');
+
+  // 删除确认弹窗
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [countdown, setCountdown] = useState(CONFIRM_WAIT_SECONDS);
 
   const fetchAllData = async () => {
     setLoading(true);
@@ -150,6 +161,22 @@ const EventsPage: React.FC = () => {
     fetchAllData();
   }, []);
 
+  // 倒计时逻辑
+  useEffect(() => {
+    if (!showClearConfirm) {
+      setCountdown(CONFIRM_WAIT_SECONDS);
+      return;
+    }
+
+    if (countdown <= 0) return;
+
+    const timer = setTimeout(() => {
+      setCountdown((prev) => prev - 1);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [showClearConfirm, countdown]);
+
   const getLevelName = (level: number) => {
     const names = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'EMERGENCY'];
     return names[level] || 'UNKNOWN';
@@ -186,6 +213,36 @@ const EventsPage: React.FC = () => {
     }
   };
 
+  // 清除记忆
+  const handleClearMemory = async () => {
+    setClearing(true);
+    try {
+      const response = await memoryApi.clearAll();
+      if (response.success) {
+        const totalCleared = Object.values(response.results).reduce(
+          (sum: number, result: any) => sum + (result.cleared ? result.count : 0),
+          0
+        );
+        toast.success(t('events.memoryCleared', { count: totalCleared }));
+        window.dispatchEvent(new CustomEvent('magi-memory-cleared'));
+        // 刷新数据
+        await fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error?.message || t('events.memoryClearFailed'));
+    } finally {
+      setClearing(false);
+      setShowClearConfirm(false);
+    }
+  };
+
+  const handleClearDialogOpenChange = (open: boolean) => {
+    if (clearing) {
+      return;
+    }
+    setShowClearConfirm(open);
+  };
+
   return (
     <div className="space-y-4 text-sm">
       <div className="flex items-center justify-between">
@@ -193,10 +250,21 @@ const EventsPage: React.FC = () => {
           <h1 className="text-2xl font-semibold">{t('events.title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t('events.subtitle')}</p>
         </div>
-        <Button onClick={fetchAllData} disabled={loading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          {t('events.refresh')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowClearConfirm(true)}
+            disabled={loading}
+            className="cursor-pointer"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            <span>{t('events.clearMemory', { defaultValue: 'Clear' })}</span>
+          </Button>
+          <Button onClick={fetchAllData} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            {t('events.refresh')}
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -219,13 +287,16 @@ const EventsPage: React.FC = () => {
             <CardHeader><CardTitle>{t('events.l1.rawEvents')}</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {loading ? <LoadingSpinner /> : l1Events.map((event) => (
-                <details key={event.id} className="rounded-md border p-3">
-                  <summary className="cursor-pointer text-sm">
-                    <span className="mr-2 font-medium">{event.type}</span>
-                    <Badge variant="outline" className="mr-2">{getLevelName(event.level)}</Badge>
-                    <span className="text-xs text-muted-foreground">{new Date(event.timestamp * 1000).toLocaleString()}</span>
+                <details
+                  key={event.id}
+                  className="overflow-hidden rounded-xl border border-border/70 bg-card p-0"
+                >
+                  <summary className="flex w-full cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm transition-colors hover:bg-muted/35 [&::-webkit-details-marker]:hidden">
+                    <span className="min-w-0 flex-1 truncate font-medium">{event.type}</span>
+                    <Badge variant="outline" className="shrink-0">{getLevelName(event.level)}</Badge>
+                    <span className="shrink-0 text-xs text-muted-foreground">{new Date(event.timestamp * 1000).toLocaleString()}</span>
                   </summary>
-                  <div className="mt-2 grid gap-2 text-xs">
+                  <div className="grid gap-2 border-t border-border/60 px-4 pb-4 pt-3 text-xs">
                     <div>ID: {event.id}</div>
                     <div>{t('events.l1.correlationId')}: {event.correlation_id || '-'}</div>
                     <div>{t('events.l1.source')}: {event.source || '-'}</div>
@@ -349,6 +420,59 @@ const EventsPage: React.FC = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={showClearConfirm} onOpenChange={handleClearDialogOpenChange}>
+        <DialogContent hideClose className="max-w-lg overflow-hidden border-destructive/30 p-0">
+          <DialogHeader className="border-b border-border/60 px-6 py-5">
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              {t('events.clearConfirm.title', { defaultValue: 'Clear All Memory' })}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('events.clearConfirm.warning', { defaultValue: 'This will permanently delete:' })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 px-6 py-5">
+            <div className="rounded-2xl border border-destructive/35 bg-destructive/10 p-4 text-sm">
+              <p className="font-medium text-destructive">
+                {t('events.clearConfirm.warning', { defaultValue: 'This will permanently delete:' })}
+              </p>
+              <ul className="mt-2 list-inside list-disc space-y-1 text-destructive/80">
+                <li>{t('events.clearConfirm.l1', { defaultValue: 'L1 raw events' })}</li>
+                <li>{t('events.clearConfirm.l2', { defaultValue: 'L2 event relations' })}</li>
+                <li>{t('events.clearConfirm.l3', { defaultValue: 'L3 semantic embeddings' })}</li>
+                <li>{t('events.clearConfirm.l4', { defaultValue: 'L4 summaries' })}</li>
+                <li>{t('events.clearConfirm.l5', { defaultValue: 'L5 capabilities' })}</li>
+                <li>{t('events.clearConfirm.chatContext', { defaultValue: 'Chat context history' })}</li>
+              </ul>
+              <p className="mt-3 font-semibold text-destructive">
+                {t('events.clearConfirm.irreversible', { defaultValue: 'This action cannot be undone!' })}
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="border-t border-border/60 px-6 py-5">
+            <Button
+              variant="outline"
+              onClick={() => setShowClearConfirm(false)}
+              disabled={clearing}
+            >
+              {t('events.clearConfirm.cancel', { defaultValue: 'Cancel' })}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearMemory}
+              disabled={clearing || countdown > 0}
+              className="min-w-[120px]"
+            >
+              {clearing
+                ? t('events.clearConfirm.clearing', { defaultValue: 'Clearing...' })
+                : countdown > 0
+                  ? t('events.clearConfirm.wait', { seconds: countdown, defaultValue: `Wait ${countdown}s` })
+                  : t('events.clearConfirm.confirm', { defaultValue: 'Confirm Clear' })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
