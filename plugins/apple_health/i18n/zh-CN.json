@@ -1,6 +1,8 @@
 {
-  "apple_health": "Apple 健康",
-  "description": "Apple 健康数据接入时间线",
+  "apple_health": {
+    "name": "Apple 健康",
+    "description": "Apple 健康数据接入时间线"
+  },
   "data_types": {
     "steps": "步数",
     "walking_running": "步行 + 跑步距离",

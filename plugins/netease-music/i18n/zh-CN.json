@@ -1,6 +1,8 @@
 {
-  "netease_music": "网易云音乐",
-  "description": "网易云音乐播放记录接入时间线",
+  "netease_music": {
+    "name": "网易云音乐",
+    "description": "网易云音乐播放记录接入时间线"
+  },
   "played_track": {
     "title": "播放了 {track_name}",
     "description": "播放了 {track_name} ({play_duration_sec}秒)"

@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from .avatar_paths import builtin_avatar_dir, user_avatar_dir
-from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, add_cors_middleware
+from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, LanguageContextMiddleware, add_cors_middleware
 from .websocket import register_websocket
 from ..core.logger import configure_logging, get_logger
 
@@ -106,6 +106,7 @@ def create_app() -> FastAPI:
     app.add_middleware(errorHandler)
     app.add_middleware(AuthMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(LanguageContextMiddleware)
 
     # registerroute
     _register_routes(app)

@@ -1,6 +1,8 @@
 {
-  "git_activity": "Git 活动",
-  "description": "Git 仓库活动接入时间线",
+  "git_activity": {
+    "name": "Git 活动",
+    "description": "Git 仓库活动接入时间线"
+  },
   "content_blocks": {
     "repo": "仓库：{repo_path}",
     "operation": "操作：{operation_type}",

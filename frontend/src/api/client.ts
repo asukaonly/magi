@@ -54,6 +54,11 @@ const createApiClient = (): AxiosInstance => {
       if (sessionToken && config.headers) {
         config.headers['X-Magi-Session-Token'] = sessionToken;
       }
+      // 添加语言设置
+      const language = localStorage.getItem('magi_language') || 'en';
+      if (config.headers) {
+        config.headers['Accept-Language'] = language;
+      }
       return config;
     },
     (error) => {

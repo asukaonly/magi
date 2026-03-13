@@ -1,15 +1,27 @@
 """Plugin management API router."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ...plugins import get_plugin_manager, reload_plugin_manager
-from ...plugins.contracts import PluginContribution, PluginManifest, PluginPackageState
+from ...plugins.contracts import PluginContribution, PluginManifest, PluginPackageState, ExtensionFieldSpec
+from ...plugins.i18n import PluginI18n, get_current_language
 
 plugins_router = APIRouter()
+
+
+def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
+    """Get i18n helper for a plugin, using cached instance if plugin is loaded."""
+    manager = get_plugin_manager()
+    plugin_instance = manager._plugin_instances.get(plugin_id)
+    if plugin_instance:
+        return plugin_instance.i18n
+    # For unloaded plugins, create i18n instance directly
+    return PluginI18n(plugin_id, Path(plugin_dir))
 
 
 class PluginSettingsUpdateRequest(BaseModel):
@@ -57,11 +69,18 @@ class PluginsListResponse(BaseModel):
 
 
 def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
+    i18n = _get_plugin_i18n(manifest.plugin_id, manifest.plugin_dir)
+    plugin_id = manifest.plugin_id
+
+    # Translate name and description
+    translated_name = i18n.t(f"{plugin_id}.name", fallback=manifest.name)
+    translated_description = i18n.t(f"{plugin_id}.description", fallback=manifest.description)
+
     return PluginManifestResponse(
         plugin_id=manifest.plugin_id,
-        name=manifest.name,
+        name=translated_name,
         version=manifest.version,
-        description=manifest.description,
+        description=translated_description,
         author=manifest.author,
         official=manifest.official,
         contribution_types=[item.value for item in manifest.contribution_types],
@@ -71,20 +90,59 @@ def _serialize_manifest(manifest: PluginManifest) -> PluginManifestResponse:
     )
 
 
-def _serialize_contribution(contribution: PluginContribution) -> PluginContributionResponse:
+def _serialize_field(field: ExtensionFieldSpec, i18n: PluginI18n, contribution_id: str) -> dict[str, Any]:
+    """Serialize a field with translation."""
+    # Translate label and description
+    label_key = f"fields.{contribution_id}.{field.key}.label"
+    desc_key = f"fields.{contribution_id}.{field.key}.description"
+
+    translated_label = i18n.t(label_key, fallback=field.label)
+    translated_description = i18n.t(desc_key, fallback=field.description)
+
+    field_dict = field.model_dump()
+    field_dict["label"] = translated_label
+    field_dict["description"] = translated_description
+
+    # Translate options if present
+    if field_dict.get("options"):
+        translated_options = []
+        for opt in field_dict["options"]:
+            opt_label_key = f"fields.{contribution_id}.{field.key}.options.{opt['value']}"
+            translated_opt_label = i18n.t(opt_label_key, fallback=opt["label"])
+            translated_options.append({"label": translated_opt_label, "value": opt["value"]})
+        field_dict["options"] = translated_options
+
+    return field_dict
+
+
+def _serialize_contribution(contribution: PluginContribution, i18n: PluginI18n) -> PluginContributionResponse:
+    contribution_id = contribution.contribution_id
+
+    # Translate display_name and description
+    display_name_key = f"contributions.{contribution_id}.display_name"
+    description_key = f"contributions.{contribution_id}.description"
+
+    translated_display_name = i18n.t(display_name_key, fallback=contribution.display_name)
+    translated_description = i18n.t(description_key, fallback=contribution.description)
+
+    # Serialize fields with translation
+    serialized_fields = [_serialize_field(field, i18n, contribution_id) for field in contribution.fields]
+
     return PluginContributionResponse(
         plugin_id=contribution.plugin_id,
         contribution_id=contribution.contribution_id,
         contribution_type=contribution.contribution_type.value if hasattr(contribution.contribution_type, "value") else str(contribution.contribution_type),
-        display_name=contribution.display_name,
-        description=contribution.description,
+        display_name=translated_display_name,
+        description=translated_description,
         surface=contribution.surface,
-        fields=[field.model_dump() for field in contribution.fields],
+        fields=serialized_fields,
         metadata=dict(contribution.metadata),
     )
 
 
 def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
+    i18n = _get_plugin_i18n(state.manifest.plugin_id, state.manifest.plugin_dir)
+
     return PluginPackageResponse(
         manifest=_serialize_manifest(state.manifest),
         enabled=state.enabled,
@@ -92,7 +150,7 @@ def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
         loaded=state.loaded,
         healthy=state.healthy,
         last_error=state.last_error,
-        contributions=[_serialize_contribution(item) for item in state.contributions],
+        contributions=[_serialize_contribution(item, i18n) for item in state.contributions],
         current_settings=dict(state.current_settings),
     )
 

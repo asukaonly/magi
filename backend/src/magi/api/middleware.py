@@ -10,6 +10,8 @@ import time
 import logging
 import os
 
+from ..plugins.i18n import set_current_language, DEFAULT_LANGUAGE, LANGUAGE_ALIASES
+
 logger = logging.getLogger(__name__)
 
 
@@ -136,6 +138,42 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             )
 
         return response
+
+
+class LanguageContextMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to set the language context for i18n.
+
+    Extracts Accept-Language header and sets thread-local language for
+    plugin translations.
+    """
+
+    def _normalize_language(self, lang: str | None) -> str:
+        """Normalize language code to standard format."""
+        if not lang:
+            return DEFAULT_LANGUAGE
+
+        # Handle multiple languages (e.g., "zh-CN,zh;q=0.9,en;q=0.8")
+        primary_lang = lang.split(",")[0].strip().split(";")[0].strip()
+
+        # Normalize using the same mapping as PluginI18n
+        lang_lower = primary_lang.lower()
+        return LANGUAGE_ALIASES.get(lang_lower, LANGUAGE_ALIASES.get(primary_lang, primary_lang))
+
+    async def dispatch(self, request: Request, call_next: Callable):
+        # Extract and normalize language from Accept-Language header
+        accept_language = request.headers.get("Accept-Language")
+        normalized_lang = self._normalize_language(accept_language)
+
+        # Set the thread-local language context
+        set_current_language(normalized_lang)
+
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            # Clear language context after request
+            set_current_language(None)
 
 
 def add_cors_middleware(app):
