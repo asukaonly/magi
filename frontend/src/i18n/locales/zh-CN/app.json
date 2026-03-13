@@ -55,7 +55,10 @@
       "manual_journal": "手动记录",
       "chat": "对话",
       "photo_library": "照片库",
-      "apple_health": "Apple 健康"
+      "apple_health": "Apple 健康",
+      "screen_time": "屏幕使用时间",
+      "terminal_history": "终端历史",
+      "git_activity": "Git 活动"
     },
     "feed": {
       "showDetails": "查看详情",
@@ -444,7 +447,10 @@
         "manual_journal": "允许用户主动补录文字和图片引用，进入同一条时间线链路。",
         "browser_history": "分析浏览行为，并控制是否继续抓取页面正文。",
         "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。",
-        "apple_health": "从 Apple 健康应用同步您的健康数据，包括步数、睡眠、心率等。"
+        "apple_health": "从 Apple 健康应用同步您的健康数据，包括步数、睡眠、心率等。",
+        "screen_time": "追踪屏幕使用时间，包含应用分类使用详情和每日汇总。",
+        "terminal_history": "监控来自 zsh 和 bash 的终端命令历史记录。",
+        "git_activity": "追踪 Git 仓库活动记录，包括提交、检出、合并、变基等操作。"
       },
       "syncModes": {
         "manual": "手动",

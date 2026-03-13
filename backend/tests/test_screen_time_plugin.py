@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import pytest
 import sys
 from datetime import date, datetime, timedelta
@@ -196,15 +197,20 @@ def test_sensor_source_item_version_fingerprint():
 
 def test_sensor_collect_items_with_stub_reader():
     """Test collect_items returns empty list with stub reader."""
+    from magi.utils.runtime import Runtimepaths
+
     sensor = ScreenTimeTimelineSensor()
+    runtime_paths = Runtimepaths()
     context = SensorSyncContext(
-        plugin_settings={},
+        source_type="screen_time",
+        manual=False,
         last_cursor=None,
         last_success_at=None,
-        limit=100
+        limit=100,
+        runtime_paths=runtime_paths,
+        plugin_settings={}
     )
 
-    import asyncio
     result = asyncio.run(sensor.collect_items(context))
 
     assert isinstance(result.items, list)
@@ -242,15 +248,17 @@ def test_fields_function():
 
 def test_plugin_get_sensors_on_non_darwin():
     """Test plugin returns empty sensors on non-darwin platform."""
+    plugin = ScreenTimePlugin()
+    plugin.configure(manifest=None, settings={})
     with patch('sys.platform', 'win32'):
-        plugin = ScreenTimePlugin(settings={})
         sensors = plugin.get_sensors()
         assert sensors == []
 
 
 def test_plugin_get_sensors_with_disabled_setting():
     """Test plugin returns empty sensors when disabled in settings."""
-    plugin = ScreenTimePlugin(settings={"sensors": {"screen_time": {"enabled": False}}})
+    plugin = ScreenTimePlugin()
+    plugin.configure(manifest=None, settings={"sensors": {"screen_time": {"enabled": False}}})
 
     with patch('sys.platform', 'darwin'):
         sensors = plugin.get_sensors()
@@ -264,7 +272,7 @@ def test_sensor_build_timeline_event():
     sensor = ScreenTimeTimelineSensor()
 
     item = {
-        "date": "2026-03-12",
+        "date": date(2026, 3, 12),
         "total_duration": 7200,
         "app_usages": [
             {"bundle_id": "com.apple.Safari", "app_name": "Safari", "usage_seconds": 3600, "category": "productivity"},

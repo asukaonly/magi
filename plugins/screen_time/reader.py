@@ -60,7 +60,7 @@ class ScreenTimeReader:
             self._db_path = db_path
             self._is_available = True
             return True
-        except (DatabaseNotFoundError):
+        except DatabaseNotFoundError:
             self._is_available = False
             return False
         except Exception:
@@ -75,6 +75,12 @@ class ScreenTimeReader:
                 self._db_path = self._find_database()
             self._conn = sqlite3.connect(str(self._db_path))
         return self._conn
+
+    def close(self) -> None:
+        """Close the database connection if open."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     def read_daily_screen_time(
         self,
@@ -96,98 +102,123 @@ class ScreenTimeReader:
         if not self.is_available():
             return []
 
-        conn = self.connection
-        cursor = conn.cursor()
-
         try:
-                # Query for daily aggregates
-                query = """
+            conn = self.connection
+            cursor = conn.cursor()
+
+            # Convert dates to timestamps for comparison
+            start_timestamp = datetime.combine(start_date, datetime.min.time()).timestamp()
+            end_timestamp = datetime.combine(end_date, datetime.max.time()).timestamp()
+
+            # Query for daily aggregates - group by date
+            # Note: The actual schema may vary by macOS version
+            # This is a best-effort implementation
+            query = """
                 SELECT
                     ZDATE,
-                    ZOBJECT,
-                    ZTOTALTIME
+                    SUM(ZTOTALTIME) as total_duration
                 FROM ZOBJECT
                 WHERE ZDATE >= ? AND ZDATE <= ?
+                GROUP BY ZDATE
                 ORDER BY ZDATE DESC
-                """
+            """
 
-                results = []
-                for row in cursor.fetchall():
-                    results.append(row)
+            cursor.execute(query, (start_timestamp, end_timestamp))
+            results = cursor.fetchall()
+            cursor.close()
 
-                cursor.close()
+            # Process results into DailyScreenTime objects
+            daily_data = []
+            for row in results:
+                try:
+                    entry_date = datetime.fromtimestamp(row[0]).date()
+                    total_duration = int(row[1]) if row[1] else 0
 
-                # Process results into DailyScreenTime objects
-                daily_data = []
-                for row in results:
-                    entry_date = date.fromtimestamp(row[0])
+                    # Get app usages for this date
+                    app_usages = self._get_app_usages_for_date(entry_date)
+
                     daily = DailyScreenTime(
                         date=entry_date,
-                        total_duration=row[2] if row[6] else 0,
-                        app_usages=self._parse_app_usages(row)
+                        total_duration=total_duration,
+                        app_usages=app_usages
                     )
                     daily_data.append(daily)
+                except (ValueError, TypeError, OSError):
+                    # Skip invalid entries
+                    continue
 
-                return daily_data
+            return daily_data
 
         except sqlite3.Error as e:
             raise DatabaseReadError(f"Failed to read Screen Time data: {e}")
-        finally:
-            if conn:
-                conn.close()
+        except Exception as e:
+            raise DatabaseReadError(f"Unexpected error reading Screen Time data: {e}")
 
-    def _parse_app_usages(self, row: sqlite3.Row) -> List[AppUsage]:
-        """Parse app usage data from a database row.
+    def _get_app_usages_for_date(self, target_date: date) -> List[AppUsage]:
+        """Get app usage breakdown for a specific date.
 
         Args:
-            row: Database row containing ZOBJECT and ZTOTALTIME
+            target_date: The date to query
 
         Returns:
             List of AppUsage objects
         """
         try:
-            # Query app details for this date
+            conn = self.connection
+            cursor = conn.cursor()
+
+            # Convert date to timestamps
+            start_timestamp = datetime.combine(target_date, datetime.min.time()).timestamp()
+            end_timestamp = datetime.combine(target_date, datetime.max.time()).timestamp()
+
+            # Query app usage for the date
             query = """
-                SELECT ZOBJECT, ZTOTALTIME
+                SELECT
+                    ZOBJECT as bundle_id,
+                    ZTOTALTIME as usage_seconds,
+                    ZDOMAIN as category
                 FROM ZOBJECT
-                WHERE ZDATE = ? AND ZOBJECT = ?
-            ORDER BY ZOBJECT
+                WHERE ZDATE >= ? AND ZDATE <= ?
+                AND ZOBJECT IS NOT NULL
+                ORDER BY ZTOTALTIME DESC
             """
 
-            app_cursor = self.connection.cursor()
-            app_results = app_cursor.fetchall()
+            cursor.execute(query, (start_timestamp, end_timestamp))
+            results = cursor.fetchall()
+            cursor.close()
 
             usages = []
-            for app_row in app_results:
-                bundle_id = app_row[0]
+            seen_bundles = set()
+
+            for row in results:
+                bundle_id = row[0]
+                if not bundle_id or bundle_id in seen_bundles:
+                    continue
+                seen_bundles.add(bundle_id)
+
                 app_name = self._get_app_name(bundle_id)
 
                 # Get usage time - ZTOTALTIME is in seconds
                 try:
-                    usage_seconds = int(app_row[5])  # Could be None
+                    usage_seconds = int(row[1]) if row[1] else 0
                 except (ValueError, TypeError):
                     usage_seconds = 0
 
-                # Get category from ZDOMAIN if available
-                category = app_row[4] if app_row[4] else None
+                # Get category
+                category = row[2] if len(row) > 2 and row[2] else None
 
-                usages.append(AppUsage(
-                    bundle_id=bundle_id,
-                    app_name=app_name,
-                    usage_seconds=usage_seconds,
-                    category=category
-                ))
-
-            app_cursor.close()
+                if usage_seconds > 0:
+                    usages.append(AppUsage(
+                        bundle_id=bundle_id,
+                        app_name=app_name,
+                        usage_seconds=usage_seconds,
+                        category=category
+                    ))
 
             return usages
+
         except sqlite3.Error as e:
             raise DatabaseReadError(f"Failed to read app usage data", query_type="app_details")
-
-        finally:
-            app_cursor.close()
-
-        return usages
 
     def _get_app_name(self, bundle_id: str) -> str:
         """Get human-readable app name from bundle ID.
@@ -200,29 +231,54 @@ class ScreenTimeReader:
         """
         # Common bundle ID patterns
         app_names = {
-            "com.apple.MobileSMS": "短信",
-            "com.apple.mail": "邮件",
-            "com.apple.mobilephone": "电话",
-            "com.apple.Music": "音乐",
-            "com.apple.Maps": "地图",
+            "com.apple.MobileSMS": "Messages",
+            "com.apple.mail": "Mail",
+            "com.apple.mobilephone": "Phone",
+            "com.apple.Music": "Music",
+            "com.apple.Maps": "Maps",
             "com.apple.Safari": "Safari",
             "com.apple.WebKit": "Safari",
-            "com.apple.findmy": "查找",
-            "com.apple.preferences": "系统设置",
+            "com.apple.findmy": "Find My",
+            "com.apple.preferences": "System Settings",
             "com.apple.AppStore": "App Store",
-            "com.apple.Terminal": "终端",
-            "com.apple.dt": "终端",
-            "com.apple.Calendar": "日历",
-            "com.apple.AddressBook": "通讯录",
-            "com.apple.Photos": "照片",
-            "com.apple.Preview": "预览",
-            "com.apple.Chat": "聊天",
+            "com.apple.Terminal": "Terminal",
+            "com.apple.dt": "Xcode",
+            "com.apple.Calendar": "Calendar",
+            "com.apple.AddressBook": "Contacts",
+            "com.apple.Photos": "Photos",
+            "com.apple.Preview": "Preview",
+            "com.apple.Chat": "Messages",
             "com.apple.FaceTime": "FaceTime",
-            "com.apple.Messages": "信息",
-            "com.apple.news": "新闻",
-            "com.apple.stock": "股市",
-            "com.apple.weather": "天气",
-            "com.apple.ActivityMonitor": "活动监视器",
+            "com.apple.Messages": "Messages",
+            "com.apple.news": "News",
+            "com.apple.stock": "Stocks",
+            "com.apple.weather": "Weather",
+            "com.apple.ActivityMonitor": "Activity Monitor",
+            "com.apple.finder": "Finder",
+            "com.apple.dock": "Dock",
+            "com.apple.notificationcenterui": "Notification Center",
+            "com.apple.Spotlight": "Spotlight",
+            # Third-party apps
+            "com.google.Chrome": "Chrome",
+            "com.google.Chrome.canary": "Chrome Canary",
+            "org.mozilla.firefox": "Firefox",
+            "com.microsoft.VSCode": "VS Code",
+            "com.tinyspeck.slackmacgap": "Slack",
+            "com.spotify.client": "Spotify",
+            "com.zoom.xos": "Zoom",
+            "com.microsoft.teams": "Teams",
+            "com.discord": "Discord",
+            "com.telegram.desktop": "Telegram",
+            "com.whatsapp.desktop": "WhatsApp",
         }
 
-        return app_names.get(bundle_id, bundle_id)
+        # Return mapped name or extract from bundle ID
+        if bundle_id in app_names:
+            return app_names[bundle_id]
+
+        # Try to extract app name from bundle ID
+        parts = bundle_id.split(".")
+        if len(parts) > 0:
+            return parts[-1].replace("-", " ").title()
+
+        return bundle_id

@@ -1,0 +1,11 @@
+[plugin]
+id = "terminal-history"
+name = "Terminal History"
+version = "0.1.0"
+description = "Terminal command history ingestion for the timeline."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "TerminalHistoryPlugin"
+official = true
+contribution_types = ["sensor"]
+platforms = ["macos"]

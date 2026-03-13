@@ -101,10 +101,10 @@ None (pure Python with SQLite3)
 - More detailed breakdown by app category
 
 ## Acceptance Criteria
-- [ ] Plugin loads successfully on macOS with SQLite database accessible
-- [ ] Plugin gracefully disables on Windows/Linux without errors
-- [ ] User can view their Screen Time data
-- [ ] Total usage duration and per-application usage details are captured
-- [ ] All i18n keys are present in zh-CN and en locales
-- [ ] Initial sync covers the past 30 days
-- [ ] Unit tests pass on all platforms
+- [x] Plugin loads successfully on macOS with SQLite database accessible
+- [x] Plugin gracefully disables on Windows/Linux without errors
+- [x] User can view their Screen Time data
+- [x] Total usage duration and per-application usage details are captured
+- [x] All i18n keys are present in zh-CN and en locales
+- [x] Initial sync covers the past 30 days
+- [x] Unit tests pass on all platforms

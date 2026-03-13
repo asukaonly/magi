@@ -38,9 +38,9 @@ def _fields(prefix: str) -> list[ExtensionFieldSpec]:
             default=1,
             options=[
                 ExtensionFieldOption(label="Every hour", value="1"),
-                ExtensionFieldOption(label="Every 6 hours", value=6),
-                ExtensionFieldOption(label="Every 12 hours", value=12),
-                ExtensionFieldOption(label="Every 24 hours", value=24"),
+                ExtensionFieldOption(label="Every 6 hours", value="6"),
+                ExtensionFieldOption(label="Every 12 hours", value="12"),
+                ExtensionFieldOption(label="Every 24 hours", value="24"),
             ],
             section="sync",
             surface="timeline",

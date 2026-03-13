@@ -1,0 +1,11 @@
+[plugin]
+id = "git-activity"
+name = "Git Activity"
+version = "0.1.0"
+description = "Git repository activity ingestion for the timeline."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "GitActivityPlugin"
+official = true
+contribution_types = ["sensor"]
+platforms = ["macos", "linux", "windows"]

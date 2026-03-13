@@ -1,27 +1,45 @@
 """Normalization helpers for Screen Time timeline ingestion."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from .types import DailyScreenTime, AppUsage
 
 
-def normalize_daily_screen_time(item: dict[str, Any], sensor: Any) -> dict[str, Any]:
+def normalize_daily_screen_time(item: dict[str, Any] | DailyScreenTime, sensor: Any) -> dict[str, Any]:
     """Normalize daily screen time data into timeline events.
 
     Args:
-        item: Daily screen time data dict
+        item: Daily screen time data (dict or DailyScreenTime object)
         sensor: The sensor instance
 
     Returns:
         Dictionary with normalized event data
     """
-    daily_data = DailyScreenTime(
-        date=item.get("date"),
-        total_duration=item.get("total_duration", 0),
-        app_usages=item.get("app_usages", [])
-    )
+    # Handle both dict and DailyScreenTime object inputs
+    if isinstance(item, DailyScreenTime):
+        daily_data = item
+    else:
+        # Convert app_usages from dict to AppUsage objects if needed
+        app_usages_raw = item.get("app_usages", [])
+        app_usages = []
+        for app in app_usages_raw:
+            if isinstance(app, AppUsage):
+                app_usages.append(app)
+            else:
+                app_usages.append(AppUsage(
+                    bundle_id=app.get("bundle_id", ""),
+                    app_name=app.get("app_name", ""),
+                    usage_seconds=app.get("usage_seconds", 0),
+                    category=app.get("category"),
+                ))
+
+        daily_data = DailyScreenTime(
+            date=item.get("date"),
+            total_duration=item.get("total_duration", 0),
+            app_usages=app_usages
+        )
 
     # Format total duration
     hours = daily_data.total_duration // 3600
@@ -79,11 +97,14 @@ def normalize_daily_screen_time(item: dict[str, Any], sensor: Any) -> dict[str, 
         "app_count": len(daily_data.app_usages),
     }
 
+    # Convert date to timestamp (start of day)
+    occurred_at = datetime.combine(daily_data.date, datetime.min.time()).timestamp()
+
     return {
         "event_id": f"screen_time_{daily_data.date.isoformat()}",
         "source_type": "screen_time",
         "source_item_id": f"screen_time_{daily_data.date.isoformat()}",
-        "occurred_at": daily_data.date.timestamp(),
+        "occurred_at": occurred_at,
         "title": title,
         "summary": summary,
         "content_blocks": content_blocks,
