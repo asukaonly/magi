@@ -40,4 +40,31 @@ describe('conversation store', () => {
 
     expect(useConversationStore.getState().unreadBySession['session-b']).toBe(0);
   });
+
+  it('keeps the locally selected session when session summaries refresh from the server', () => {
+    const store = useConversationStore.getState();
+
+    store.setCurrentSessionId('session-b');
+    store.hydrateSessions(
+      [
+        {
+          session_id: 'session-a',
+          title: 'Session A',
+          last_message_preview: 'older',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+        {
+          session_id: 'session-b',
+          title: 'Session B',
+          last_message_preview: 'selected',
+          last_timestamp: 11,
+          message_count: 2,
+        },
+      ],
+      'session-a'
+    );
+
+    expect(useConversationStore.getState().currentSessionId).toBe('session-b');
+  });
 });

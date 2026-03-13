@@ -107,13 +107,20 @@ export const useConversationStore = create<ConversationState>((set) => ({
       nextOrder.push(session.session_id);
     }
 
+    const hasLocalSelection =
+      Boolean(state.currentSessionId) &&
+      nextOrder.includes(state.currentSessionId as string);
+    const nextCurrentSessionId = hasLocalSelection
+      ? state.currentSessionId
+      : (currentSessionId ?? state.currentSessionId);
+
     return {
       sessionsById: nextSessionsById,
       orderedSessionIds: nextOrder,
-      currentSessionId: currentSessionId ?? state.currentSessionId,
+      currentSessionId: nextCurrentSessionId,
       unreadBySession:
-        currentSessionId
-          ? { ...state.unreadBySession, [currentSessionId]: 0 }
+        nextCurrentSessionId
+          ? { ...state.unreadBySession, [nextCurrentSessionId]: 0 }
           : state.unreadBySession,
     };
   }),
