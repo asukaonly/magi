@@ -1,5 +1,8 @@
 """Memory query tool for retrieving memories across L1-L5 layers."""
-from typing import Any, Dict, List
+from typing import Any, Dict
+
+from ..agent import get_unified_memory
+from ..memory.query.l1_handler import L1EventQueryHandler
 
 from .schema import Tool, ToolParameter, ParameterType, ToolResult, ToolExecutionContext, ToolSchema
 from ..memory.query import MemoryQueryService, MemoryQueryRequest
@@ -12,25 +15,36 @@ class MemoryQueryTool(Tool):
         """Initialize tool schema."""
         self.schema = ToolSchema(
             name="memory_query",
-            description="Retrieve memories from L1-L5 layers. Use this tool when the user asks about their past activities, browsing history, conversations, or any historical data. Supports intelligent routing across memory layers.",
+            description=(
+                "Retrieve historical event memory from UnifiedMemoryStore. Use this tool when the user asks "
+                "about past activities, prior work, earlier conversations, browser history, git activity, "
+                "terminal commands, or other historical behavior. You may pass only the raw query when unsure; "
+                "the service will infer time range, sources, and retrieval mode."
+            ),
             category="memory",
             parameters=[
                 ToolParameter(
                     name="query",
                     type=ParameterType.STRING,
-                    description="The search query describing what memories to retrieve (e.g., 'what I browsed yesterday', 'my notes about AI')",
+                    description="The historical activity or memory question to retrieve evidence for.",
                     required=True,
                 ),
                 ToolParameter(
                     name="time_range",
                     type=ParameterType.OBJECT,
-                    description="Time range for the search. Must include 'relative' (e.g., '1d', '7d', '1M') or 'start'/'end' timestamps.",
-                    required=True,
+                    description="Optional time range hint. Use relative or absolute boundaries when the user states them.",
+                    required=False,
                 ),
                 ToolParameter(
-                    name="data_types",
+                    name="sources",
                     type=ParameterType.ARRAY,
-                    description="Optional filter for memory types (e.g., ['browser_history', 'chat', 'note'])",
+                    description="Optional source filters such as ['chrome_history', 'git', 'chat', 'terminal'].",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="query_mode",
+                    type=ParameterType.STRING,
+                    description="Optional retrieval mode hint such as 'detail', 'summary', or 'experience'.",
                     required=False,
                 ),
                 ToolParameter(
@@ -48,24 +62,37 @@ class MemoryQueryTool(Tool):
                     "input": {
                         "query": "What websites did I visit yesterday?",
                         "time_range": {"relative": "1d"},
-                        "data_types": ["browser_history"]
+                        "sources": ["chrome_history"]
                     },
                     "output": "Returns browser history from yesterday",
                 },
                 {
                     "input": {
-                        "query": "Find my notes about machine learning from last week",
+                        "query": "What programming-related things did I do yesterday?",
                         "time_range": {"relative": "7d"},
-                        "data_types": ["note"]
+                        "sources": ["git", "terminal", "chat", "chrome_history"],
+                        "query_mode": "detail"
                     },
-                    "output": "Returns notes containing 'machine learning' from last week",
+                    "output": "Returns normalized event snippets for programming-related activity",
                 }
             ],
             tags=["memory", "search", "history"],
             timeout=30,
         )
 
-        self._service = MemoryQueryService()
+        self._service = self._build_service()
+
+    def _build_service(self) -> MemoryQueryService:
+        unified_memory = None
+        try:
+            unified_memory = get_unified_memory()
+        except Exception:
+            unified_memory = None
+
+        layer_handlers: Dict[str, Any] = {}
+        if unified_memory is not None:
+            layer_handlers["L1"] = L1EventQueryHandler(unified_memory)
+        return MemoryQueryService(layer_handlers=layer_handlers)
 
     async def execute(
         self,
@@ -77,6 +104,8 @@ class MemoryQueryTool(Tool):
             request = MemoryQueryRequest(
                 query=parameters["query"],
                 time_range=parameters.get("time_range", {}),
+                sources=parameters.get("sources"),
+                query_mode=parameters.get("query_mode"),
                 data_types=parameters.get("data_types"),
                 limit=parameters.get("limit"),
             )

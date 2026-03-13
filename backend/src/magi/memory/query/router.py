@@ -1,138 +1,156 @@
-"""Intent router for determining which memory layer to query."""
+"""Intent router for building event-centric memory retrieval plans."""
+from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
+
+DETAIL_KEYWORDS = [
+    "what did i do",
+    "what was i doing",
+    "哪些事",
+    "做了什么",
+    "明细",
+    "列出来",
+]
+SUMMARY_KEYWORDS = [
+    "summarize",
+    "summary",
+    "review",
+    "trend",
+    "overview",
+    "总结",
+    "回顾",
+    "梳理",
+    "趋势",
+]
+EXPERIENCE_KEYWORDS = [
+    "how did i solve",
+    "worked before",
+    "previously handled",
+    "之前怎么解决",
+    "之前成功",
+]
+
+EXPLICIT_SOURCE_RULES = {
+    "chrome_history": ["browse", "browsing", "website", "web", "search", "docs", "浏览", "网页", "搜索"],
+    "git": ["git", "commit", "branch", "repo", "pull request", "pr", "提交", "代码变更"],
+    "terminal": ["terminal", "command", "shell", "bash", "script", "终端", "命令"],
+    "chat": ["chat", "talked", "discussed", "said", "conversation", "聊天", "对话", "说过", "聊过"],
+}
+
+TOPIC_SOURCE_DEFAULTS = {
+    "programming": ["git", "terminal", "chrome_history", "chat"],
+    "research": ["chrome_history", "chat", "terminal"],
+}
+
+TOPIC_KEYWORDS = {
+    "programming": [
+        "programming",
+        "coding",
+        "development",
+        "bug",
+        "repo",
+        "implementation",
+        "编程",
+        "开发",
+        "代码",
+        "实现",
+    ],
+    "research": [
+        "research",
+        "study",
+        "learning",
+        "docs",
+        "调研",
+        "学习",
+        "资料",
+        "文档",
+    ],
+}
 
 
 @dataclass
 class RoutingPlan:
-    """Routing plan for memory query execution."""
-    primary_layer: str              # Main layer to query (L1-L5)
-    secondary_layers: List[str]     # Fallback layers for parallel query
-    confidence: float               # Prediction confidence (0-1)
-    reasoning: str                  # Why this routing was chosen
+    """Execution-ready memory retrieval plan."""
 
+    layers: List[str]
+    query_mode: str
+    source_filters: List[str]
+    time_range: Dict[str, Any]
+    topic_query: str
+    confidence: float
+    reasoning: str
 
-# Layer routing keywords
-LAYER_KEYWORDS = {
-    "L1": ["几点", "哪天", "具体数值", "确切时间", "原始记录", "审计",
-           "what time", "exactly", "when did", "specific"],
-    "L2": ["关系", "关联", "谁和谁", "归属", "网络", "连接",
-           "relation", "connected", "who is", "belongs to"],
-    "L3": ["相关", "类似", "关于", "模糊", "零散", "继续之前",
-           "related", "similar", "about", "scattered", "continue"],
-    "L4": ["总结", "趋势", "变化", "过去", "回顾", "长期",
-           "summarize", "trend", "change", "past", "review", "overview"],
-    "L5": ["怎么处理", "之前成功", "异常", "失败原因", "方案",
-           "how to handle", "worked before", "error", "failed", "approach"],
-}
+    @property
+    def primary_layer(self) -> str:
+        return self.layers[0] if self.layers else "L1"
+
+    @property
+    def secondary_layers(self) -> List[str]:
+        return self.layers[1:]
 
 
 class IntentRouter:
-    """Lightweight intent analyzer for memory layer routing."""
+    """Lightweight rule-based intent analyzer for event-centric retrieval."""
 
     def analyze(self, query: str, time_range: Dict[str, Any]) -> RoutingPlan:
-        """
-        Analyze query intent and determine routing plan.
-
-        Args:
-            query: User's query string
-            time_range: Time range for the query
-
-        Returns:
-            RoutingPlan with primary/secondary layers and confidence.
-        """
-        query_lower = query.lower()
-        scores: Dict[str, float] = {}
-
-        # Score each layer based on keyword matches
-        for layer, keywords in LAYER_KEYWORDS.items():
-            score = sum(1.0 for kw in keywords if kw in query_lower)
-            scores[layer] = score
-
-        # Find primary layer (highest score)
-        if max(scores.values()) == 0:
-            # No keyword match, default to L3 (concept retrieval)
-            primary = "L3"
-            confidence = 0.3
-        else:
-            primary = max(scores, key=scores.get)
-            total_matches = sum(scores.values())
-            confidence = min(0.9, scores[primary] / max(total_matches, 1) + 0.4)
-
-        # Determine secondary layers
-        secondary: List[str] = []
-        sorted_layers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        for layer, score in sorted_layers[1:3]:  # Take next 2 candidates
-            if score > 0:
-                secondary.append(layer)
-
-        # Add time-based adjustment
-        relative = time_range.get("relative", "")
-        if relative and any(x in relative for x in ["30d", "90d", "180d", "1M", "6M"]):
-            # Long time range suggests L4 (trends)
-            if primary != "L4":
-                secondary.append("L4")
-
-        reasoning = f"Primary: {primary} (score: {scores[primary]}), " \
-                    f"secondary: {secondary}, confidence: {confidence:.2f}"
-
-        return RoutingPlan(
-            primary_layer=primary,
-            secondary_layers=secondary,
+        query_lower = query.lower().strip()
+        query_mode = self._infer_query_mode(query_lower)
+        topic_query = self._infer_topic_query(query_lower)
+        source_filters = self._infer_source_filters(query_lower, topic_query)
+        layers = self._infer_layers(query_lower=query_lower, query_mode=query_mode, time_range=time_range)
+        confidence = self._estimate_confidence(query_mode=query_mode, source_filters=source_filters, time_range=time_range)
+        reasoning = self._build_reasoning(
+            layers=layers,
+            query_mode=query_mode,
+            source_filters=source_filters,
+            time_range=time_range,
+            topic_query=topic_query,
             confidence=confidence,
-            reasoning=reasoning
+        )
+        return RoutingPlan(
+            layers=layers,
+            query_mode=query_mode,
+            source_filters=source_filters,
+            time_range=dict(time_range),
+            topic_query=topic_query,
+            confidence=confidence,
+            reasoning=reasoning,
         )
 
     async def execute(
         self,
         plan: RoutingPlan,
         request: "MemoryQueryRequest",
-        layer_handlers: Dict[str, Any]
+        layer_handlers: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
-        """
-        Execute parallel queries across layers based on routing plan.
-
-        Args:
-            plan: Routing plan with layer selection
-            request: Original query request
-            layer_handlers: Dict mapping layer names to query handlers
-
-        Returns:
-            Merged and deduplicated results from all layers.
-        """
-        layers_to_query = [plan.primary_layer]
-        if plan.confidence < 0.8:
-            layers_to_query.extend(plan.secondary_layers)
-
-        # Remove duplicates while preserving order
-        layers_to_query = list(dict.fromkeys(layers_to_query))
-
-        # Execute queries in parallel
+        layers_to_query = list(dict.fromkeys(plan.layers))
         tasks = []
         for layer in layers_to_query:
             handler = layer_handlers.get(layer)
             if handler:
-                tasks.append(self._query_layer(layer, request, handler))
+                tasks.append(self._query_layer(layer, request, plan, handler))
 
         if not tasks:
             return []
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Merge and flatten results
         merged: List[Dict[str, Any]] = []
-        seen_ids: set = set()
+        seen_ids: set[str] = set()
 
         for result in results:
             if isinstance(result, Exception):
                 continue
             if isinstance(result, list):
                 for item in result:
-                    item_id = item.get("id")
-                    if item_id and item_id not in seen_ids:
+                    item_id = str(item.get("id") or item.get("event_id") or "")
+                    if item_id and item_id in seen_ids:
+                        continue
+                    if item_id:
                         seen_ids.add(item_id)
-                        merged.append(item)
+                    merged.append(item)
 
         return merged
 
@@ -140,13 +158,90 @@ class IntentRouter:
         self,
         layer: str,
         request: "MemoryQueryRequest",
-        handler: Any
+        plan: RoutingPlan,
+        handler: Any,
     ) -> List[Dict[str, Any]]:
-        """Query a single layer using its handler."""
         try:
-            # Handler interface: async def query(request) -> List[Dict]
-            if hasattr(handler, 'query'):
-                return await handler.query(request)
+            if hasattr(handler, "query"):
+                try:
+                    return await handler.query(request, plan)
+                except TypeError:
+                    return await handler.query(request)
             return []
         except Exception:
             return []
+
+    def _infer_query_mode(self, query_lower: str) -> str:
+        if any(keyword in query_lower for keyword in EXPERIENCE_KEYWORDS):
+            return "experience"
+        if any(keyword in query_lower for keyword in SUMMARY_KEYWORDS):
+            return "summary"
+        if any(keyword in query_lower for keyword in DETAIL_KEYWORDS):
+            return "detail"
+        if any(keyword in query_lower for keyword in ["yesterday", "昨天", "today", "今天"]):
+            return "detail"
+        return "detail"
+
+    def _infer_topic_query(self, query_lower: str) -> str:
+        for topic, keywords in TOPIC_KEYWORDS.items():
+            if any(keyword in query_lower for keyword in keywords):
+                return topic
+        return query_lower
+
+    def _infer_source_filters(self, query_lower: str, topic_query: str) -> List[str]:
+        sources: List[str] = []
+        for source, keywords in EXPLICIT_SOURCE_RULES.items():
+            if any(keyword in query_lower for keyword in keywords):
+                sources.append(source)
+
+        topic_defaults = TOPIC_SOURCE_DEFAULTS.get(topic_query, [])
+        for source in topic_defaults:
+            if source not in sources:
+                sources.append(source)
+        return sources
+
+    def _infer_layers(self, *, query_lower: str, query_mode: str, time_range: Dict[str, Any]) -> List[str]:
+        relative = str(time_range.get("relative", "")).strip()
+        if any(keyword in query_lower for keyword in ["scattered", "related", "similar", "thoughts", "模糊", "相关", "零散"]):
+            layers = ["L3", "L1"]
+        elif query_mode == "summary":
+            layers = ["L4", "L1"]
+        elif query_mode == "experience":
+            layers = ["L5", "L1"]
+        else:
+            layers = ["L1"]
+        if relative and any(token in relative for token in ["30d", "90d", "180d", "1m", "6m"]):
+            if "L4" not in layers:
+                layers.insert(0, "L4")
+        return layers
+
+    def _estimate_confidence(
+        self,
+        *,
+        query_mode: str,
+        source_filters: List[str],
+        time_range: Dict[str, Any],
+    ) -> float:
+        score = 0.45
+        if source_filters:
+            score += 0.2
+        if query_mode in {"summary", "experience"}:
+            score += 0.1
+        if time_range:
+            score += 0.1
+        return min(0.95, score)
+
+    def _build_reasoning(
+        self,
+        *,
+        layers: List[str],
+        query_mode: str,
+        source_filters: List[str],
+        time_range: Dict[str, Any],
+        topic_query: str,
+        confidence: float,
+    ) -> str:
+        return (
+            f"layers={layers}; query_mode={query_mode}; source_filters={source_filters}; "
+            f"time_range={time_range}; topic_query={topic_query}; confidence={confidence:.2f}"
+        )

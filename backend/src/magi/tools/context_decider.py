@@ -55,6 +55,7 @@ class ToolRecommendation:
 @dataclass
 class MemoryGuidance:
     """Memory retrieval guidance from ContextDecider."""
+    recommended: bool
     inject_prompt: bool
     system_prompt: str
     recommended_tools: TypingList[ToolRecommendation]
@@ -282,6 +283,12 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             decision = self._parse_response(response)
             decision = self._apply_research_guardrail(
                 user_message=user_message,
+                decision=decision,
+                available_tools=available_tools,
+            )
+            decision = self._apply_memory_guidance(
+                user_message=user_message,
+                context=context,
                 decision=decision,
                 available_tools=available_tools,
             )
@@ -648,6 +655,32 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             orchestration_strategy=self._default_orchestration_strategy(tools[:self.max_tools], user_lower),
         )
 
+    def _apply_memory_guidance(
+        self,
+        *,
+        user_message: str,
+        context: Optional[Dict[str, Any]],
+        decision: ContextDecision,
+        available_tools: List[Dict[str, Any]],
+    ) -> ContextDecision:
+        guidance = self.evaluate_memory_need(user_message, context or {})
+        if guidance is None or not guidance.recommended:
+            return decision
+        available_names = {str(item.get("name", "")).strip() for item in available_tools}
+        if "memory_query" not in available_names:
+            return decision
+        tools = list(decision.tools)
+        if "memory_query" not in tools:
+            tools.append("memory_query")
+        return ContextDecision(
+            intent=decision.intent,
+            tools=tools[: self.max_tools],
+            deep_thinking=decision.deep_thinking,
+            reasoning=decision.reasoning,
+            orchestration_strategy=decision.orchestration_strategy,
+            memory_layer=decision.memory_layer,
+        )
+
     def _default_orchestration_strategy(
         self,
         tools: Optional[List[str]] = None,
@@ -822,6 +855,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             suggested_params["data_types"] = data_types
 
         return MemoryGuidance(
+            recommended=True,
             inject_prompt=True,
             system_prompt=(
                 "Based on the user's query, memory retrieval may be helpful. "
