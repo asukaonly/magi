@@ -34,7 +34,7 @@ describe('main layout', () => {
     });
   });
 
-  it('renders a compact titlebar toggle beside the window controls and keeps the drag strip clear of it', async () => {
+  it('renders a compact titlebar toggle beside the window controls and keeps the drag strip shallow enough to avoid page actions', async () => {
     const user = userEvent.setup();
 
     const { container } = render(
@@ -52,6 +52,7 @@ describe('main layout', () => {
 
     expect(dragStrip).not.toBeNull();
     expect(toggleButton).toHaveClass('top-4', 'h-7', 'w-7');
+    expect(dragStrip).toHaveClass('h-4');
     expect((toggleButton as HTMLButtonElement).style.left).toBe('112px');
     expect(dragStrip?.style.left).toBe('148px');
     expect(screen.getByText('chat page').closest('div.min-h-0.min-w-0')).toHaveClass('col-start-2');

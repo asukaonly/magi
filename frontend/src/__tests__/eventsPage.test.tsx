@@ -126,5 +126,6 @@ describe('events page', () => {
     expect(dialog).toHaveClass('max-w-lg');
     expect(dialog).toHaveClass('overflow-hidden');
     expect(dialog).toHaveClass('p-0');
+    expect(dialog).toHaveClass('z-[80]');
   });
 });

@@ -52,7 +52,7 @@ const MainLayout: React.FC = () => {
 
           {/* Keep an invisible drag strip for macOS overlay mode without rendering a detached title bar */}
           <div
-            className="absolute right-0 top-0 z-40 h-14"
+            className="absolute right-0 top-0 z-40 h-4"
             style={{
               left: SHELL_DRAG_STRIP_LEFT,
               WebkitAppRegion: 'drag'
