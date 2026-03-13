@@ -1,13 +1,62 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { DynamicConfigField } from '@/components/config-forms/DynamicToolConfig';
 import type { ExtensionFieldSpec } from '@/api/modules/plugins';
+
+type TFunction = (key: string) => string;
+
+/**
+ * Helper function to get plugin-specific translation with fallback
+ */
+const getPluginTranslation = (
+  t: TFunction,
+  pluginId: string,
+  key: string,
+  fallback: string
+): string => {
+  const translationKey = `settings.plugins.${pluginId}.${key}`;
+  const translated = t(translationKey);
+  // If translation doesn't exist, i18next returns the key itself
+  return translated === translationKey ? fallback : translated;
+};
+
+/**
+ * Helper function to get translated section title with fallback
+ */
+const getSectionTitle = (
+  section: string,
+  t: TFunction,
+  pluginId: string | undefined
+): string => {
+  if (!pluginId) {
+    return section.replace(/_/g, ' ');
+  }
+  return getPluginTranslation(t, pluginId, `sections.${section}`, section.replace(/_/g, ' '));
+};
+
+/**
+ * Helper function to get translated option label with fallback
+ */
+const getOptionLabel = (
+  optionValue: string,
+  fieldKey: string,
+  t: TFunction,
+  pluginId: string | undefined,
+  originalLabel: string
+): string => {
+  if (!pluginId) {
+    return originalLabel;
+  }
+  return getPluginTranslation(t, pluginId, `options.${fieldKey}.${optionValue}`, originalLabel);
+};
 
 interface PluginSettingsFieldsProps {
   fields: ExtensionFieldSpec[];
   values: Record<string, any>;
   onChange: (key: string, value: any) => void;
   disabled?: boolean;
+  pluginId?: string;
 }
 
 const sortFields = (fields: ExtensionFieldSpec[]) =>
@@ -38,7 +87,10 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
   values,
   onChange,
   disabled = false,
+  pluginId,
 }) => {
+  const { t } = useTranslation('app');
+
   const grouped = sortFields(fields).reduce<Record<string, ExtensionFieldSpec[]>>((acc, field) => {
     if (!isFieldVisible(field, values)) {
       return acc;
@@ -54,7 +106,9 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
       {Object.entries(grouped).map(([section, sectionFields]) => (
         <div key={section} className="space-y-3">
           <div>
-            <h4 className="text-sm font-medium capitalize text-foreground">{section.replace(/_/g, ' ')}</h4>
+            <h4 className="text-sm font-medium capitalize text-foreground">
+              {getSectionTitle(section, t, pluginId)}
+            </h4>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             {sectionFields.map((field) => (
@@ -65,7 +119,7 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
                 onChange={(value) => onChange(field.key, value)}
                 disabled={disabled}
                 selectOptions={field.options.map((option) => ({
-                  label: option.label,
+                  label: getOptionLabel(option.value, field.key, t, pluginId, option.label),
                   value: option.value,
                 }))}
               />
