@@ -11,6 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
+type TFunction = (key: string) => string;
+
 const collectSurfaceFields = (
   plugin: PluginPackageState,
   surface: ExtensionFieldSpec['surface']
@@ -18,6 +20,21 @@ const collectSurfaceFields = (
   plugin.contributions
     .flatMap((contribution) => contribution.fields)
     .filter((field) => field.surface === surface);
+
+/**
+ * Helper function to get plugin-specific translation with fallback
+ */
+const getPluginTranslation = (
+  t: TFunction,
+  pluginId: string,
+  key: string,
+  fallback: string
+): string => {
+  const translationKey = `settings.plugins.${pluginId}.${key}`;
+  const translated = t(translationKey);
+  // If translation doesn't exist, i18next returns the key itself
+  return translated === translationKey ? fallback : translated;
+};
 
 interface ExtensionsSectionProps {
   plugins: PluginPackageState[];
@@ -79,9 +96,11 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
                     <div className="space-y-2">
                       <CardTitle className="flex items-center gap-2">
                         <PlugZap className="h-4 w-4 text-primary" />
-                        {plugin.manifest.name}
+                        {getPluginTranslation(t, plugin.manifest.plugin_id, 'name', plugin.manifest.name)}
                       </CardTitle>
-                      <CardDescription>{plugin.manifest.description || t('settings.extensions.emptyDescription')}</CardDescription>
+                      <CardDescription>
+                        {getPluginTranslation(t, plugin.manifest.plugin_id, 'description', plugin.manifest.description || t('settings.extensions.emptyDescription'))}
+                      </CardDescription>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant={plugin.enabled ? 'default' : 'secondary'}>
                           {plugin.enabled ? t('settings.extensions.status.enabled') : t('settings.extensions.status.disabled')}
@@ -141,9 +160,23 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
                       >
                         <div className="flex items-center gap-2">
                           <Blocks className="h-4 w-4 text-primary" />
-                          <p className="text-sm font-medium text-foreground">{contribution.display_name}</p>
+                          <p className="text-sm font-medium text-foreground">
+                            {getPluginTranslation(
+                              t,
+                              plugin.manifest.plugin_id,
+                              `contributions.${contribution.contribution_id}.display_name`,
+                              contribution.display_name
+                            )}
+                          </p>
                         </div>
-                        <p className="mt-2 text-xs text-muted-foreground">{contribution.description || contribution.contribution_id}</p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {getPluginTranslation(
+                            t,
+                            plugin.manifest.plugin_id,
+                            `contributions.${contribution.contribution_id}.description`,
+                            contribution.description || contribution.contribution_id
+                          )}
+                        </p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           <Badge variant="outline">{contribution.contribution_type}</Badge>
                           <Badge variant="secondary">{contribution.surface}</Badge>
@@ -168,6 +201,7 @@ export const ExtensionsSection: React.FC<ExtensionsSectionProps> = ({
                       values={drafts[plugin.manifest.plugin_id] || {}}
                       onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
                       disabled={!plugin.enabled}
+                      pluginId={plugin.manifest.plugin_id}
                     />
                   ) : (
                     <div className="rounded-2xl border border-dashed border-border/50 bg-background/60 px-4 py-3 text-sm text-muted-foreground">

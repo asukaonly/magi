@@ -546,6 +546,108 @@
         "reloadFailed": "Failed to reload action plugin: {{message}}"
       }
     },
+    "plugins": {
+      "core-timeline": {
+        "name": "Core Timeline",
+        "description": "Official timeline sensors for activity tracking",
+        "options": {
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
+          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
+          "fetch_page_content": { "true": "Yes", "false": "No" }
+        },
+        "sections": { "general": "General", "storage": "Storage", "analysis": "Analysis" }
+      },
+      "core-tools": {
+        "name": "Core Tools",
+        "description": "Built-in tools for web search, file operations, and more"
+      },
+      "core-actions": {
+        "name": "Core Actions",
+        "description": "Built-in actions for agent outbound capabilities",
+        "options": {
+          "default_level": { "info": "Info", "warning": "Warning", "critical": "Critical" },
+          "delivery_mode": { "console": "Console (Debug)", "smtp": "SMTP", "sendgrid": "SendGrid" }
+        },
+        "sections": { "notifications": "Notifications", "email": "Email" }
+      },
+      "apple-health": {
+        "name": "Apple Health",
+        "description": "Apple Health data ingestion for the timeline",
+        "options": {
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
+          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" }
+        },
+        "sections": { "data_types": "Data Types", "sync": "Sync", "storage": "Storage" }
+      },
+      "calendar": {
+        "name": "Calendar",
+        "description": "Calendar event ingestion for the timeline",
+        "options": {
+          "sync_interval_minutes": { "15": "15 minutes", "30": "30 minutes", "60": "1 hour", "360": "6 hours" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" }
+        },
+        "sections": { "general": "General", "sync": "Sync" }
+      },
+      "chrome-history": {
+        "name": "Chrome History",
+        "description": "Local Google Chrome browsing history ingestion for the timeline",
+        "options": {
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
+          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
+          "initial_sync_policy": { "full": "Sync full history", "lookback_days": "Sync recent days", "from_now": "Only new records from now on" },
+          "fetch_page_content": { "true": "Yes", "false": "No" }
+        },
+        "sections": { "general": "General", "sync": "Sync", "storage": "Storage", "activation": "Activation" }
+      },
+      "git-activity": {
+        "name": "Git Activity",
+        "description": "Git repository activity ingestion for the timeline",
+        "options": {
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" },
+          "initial_sync_policy": { "full": "Sync full history", "lookback_days": "Sync recent days", "from_now": "Only new commits from now" },
+          "sensitive_mode": { "redact": "Redact sensitive content", "skip": "Skip commits with sensitive content", "include": "Include all content" }
+        },
+        "sections": { "general": "General", "retention": "Retention", "privacy": "Privacy" }
+      },
+      "netease-music": {
+        "name": "NetEase Cloud Music",
+        "description": "Local NetEase Cloud Music play history ingestion for the timeline",
+        "options": {
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "sync_mode": { "manual": "Manual", "interval": "Interval", "watch": "Watch" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
+          "storage_mode": { "managed": "Managed", "external_reference": "External Reference" },
+          "initial_sync_policy": { "full": "Sync full history", "lookback_days": "Sync recent days", "from_now": "Only new tracks from now" }
+        },
+        "sections": { "general": "General", "storage": "Storage" }
+      },
+      "screen-time": {
+        "name": "Screen Time",
+        "description": "Screen time data ingestion for the timeline",
+        "options": {
+          "sync_interval_hours": { "1": "Every hour", "6": "Every 6 hours", "12": "Every 12 hours", "24": "Every 24 hours" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "full": "Full Retention" }
+        },
+        "sections": { "general": "General", "sync": "Sync", "retention": "Retention" }
+      },
+      "terminal-history": {
+        "name": "Terminal History",
+        "description": "Terminal command history ingestion for the timeline",
+        "options": {
+          "enabled": { "true": "Enabled", "false": "Disabled" },
+          "default_retention_mode": { "analyze_only": "Analyze Only", "retain_raw": "Retain Raw" },
+          "initial_sync_policy": { "full": "Sync full history", "lookback_days": "Sync recent days", "from_now": "Only new commands from now" },
+          "sensitive_mode": { "redact": "Redact sensitive content", "skip": "Skip commands with sensitive content", "include": "Include all content" }
+        },
+        "sections": { "general": "General", "retention": "Retention", "privacy": "Privacy", "activation": "Activation" }
+      }
+    },
     "saving": "Saving..."
   },
   "events": {

@@ -546,6 +546,108 @@
         "reloadFailed": "执行器重载失败：{{message}}"
       }
     },
+    "plugins": {
+      "core-timeline": {
+        "name": "核心时间线",
+        "description": "官方时间线传感器，用于活动追踪",
+        "options": {
+          "enabled": { "true": "启用", "false": "停用" },
+          "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },
+          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
+          "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
+          "fetch_page_content": { "true": "是", "false": "否" }
+        },
+        "sections": { "general": "常规", "storage": "存储", "analysis": "分析" }
+      },
+      "core-tools": {
+        "name": "核心工具",
+        "description": "内置工具，用于网页搜索、文件操作等功能"
+      },
+      "core-actions": {
+        "name": "核心执行器",
+        "description": "内置执行器，用于代理对外操作能力",
+        "options": {
+          "default_level": { "info": "信息", "warning": "警告", "critical": "严重" },
+          "delivery_mode": { "console": "控制台（调试）", "smtp": "SMTP", "sendgrid": "SendGrid" }
+        },
+        "sections": { "notifications": "通知", "email": "邮件" }
+      },
+      "apple-health": {
+        "name": "Apple 健康",
+        "description": "Apple 健康数据接入时间线",
+        "options": {
+          "enabled": { "true": "启用", "false": "停用" },
+          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
+          "storage_mode": { "managed": "托管", "external_reference": "外部引用" }
+        },
+        "sections": { "data_types": "数据类型", "sync": "同步", "storage": "存储" }
+      },
+      "calendar": {
+        "name": "日历",
+        "description": "日历事件接入时间线",
+        "options": {
+          "sync_interval_minutes": { "15": "15 分钟", "30": "30 分钟", "60": "1 小时", "360": "6 小时" },
+          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" }
+        },
+        "sections": { "general": "常规", "sync": "同步" }
+      },
+      "chrome-history": {
+        "name": "Chrome 历史",
+        "description": "本地 Google Chrome 浏览历史接入时间线",
+        "options": {
+          "enabled": { "true": "启用", "false": "停用" },
+          "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },
+          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
+          "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
+          "initial_sync_policy": { "full": "同步全部历史", "lookback_days": "同步最近几天", "from_now": "仅同步新记录" },
+          "fetch_page_content": { "true": "是", "false": "否" }
+        },
+        "sections": { "general": "常规", "sync": "同步", "storage": "存储", "activation": "激活" }
+      },
+      "git-activity": {
+        "name": "Git 活动",
+        "description": "Git 仓库活动接入时间线",
+        "options": {
+          "enabled": { "true": "启用", "false": "停用" },
+          "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" },
+          "initial_sync_policy": { "full": "同步全部历史", "lookback_days": "同步最近几天", "from_now": "仅同步新提交" },
+          "sensitive_mode": { "redact": "脱敏敏感内容", "skip": "跳过包含敏感内容的提交", "include": "包含所有内容" }
+        },
+        "sections": { "general": "常规", "retention": "保留策略", "privacy": "隐私" }
+      },
+      "netease-music": {
+        "name": "网易云音乐",
+        "description": "本地网易云音乐播放历史接入时间线",
+        "options": {
+          "enabled": { "true": "启用", "false": "停用" },
+          "sync_mode": { "manual": "手动", "interval": "定时", "watch": "监听" },
+          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
+          "storage_mode": { "managed": "托管", "external_reference": "外部引用" },
+          "initial_sync_policy": { "full": "同步全部历史", "lookback_days": "同步最近几天", "from_now": "仅同步新曲目" }
+        },
+        "sections": { "general": "常规", "storage": "存储" }
+      },
+      "screen-time": {
+        "name": "屏幕使用时间",
+        "description": "屏幕使用时间数据接入时间线",
+        "options": {
+          "sync_interval_hours": { "1": "每小时", "6": "每 6 小时", "12": "每 12 小时", "24": "每 24 小时" },
+          "default_retention_mode": { "analyze_only": "仅分析", "full": "完整保留" }
+        },
+        "sections": { "general": "常规", "sync": "同步", "retention": "保留策略" }
+      },
+      "terminal-history": {
+        "name": "终端历史",
+        "description": "终端命令历史接入时间线",
+        "options": {
+          "enabled": { "true": "启用", "false": "停用" },
+          "default_retention_mode": { "analyze_only": "仅分析", "retain_raw": "保留原始" },
+          "initial_sync_policy": { "full": "同步全部历史", "lookback_days": "同步最近几天", "from_now": "仅同步新命令" },
+          "sensitive_mode": { "redact": "脱敏敏感内容", "skip": "跳过包含敏感内容的命令", "include": "包含所有内容" }
+        },
+        "sections": { "general": "常规", "retention": "保留策略", "privacy": "隐私", "activation": "激活" }
+      }
+    },
     "saving": "保存中..."
   },
   "events": {
