@@ -95,6 +95,22 @@ class InstalledModelsResponse(BaseModel):
     models: List[str]
 
 
+def _derive_capability_response(capability: Any) -> CapabilityResponse:
+    usage_count = int(getattr(capability, "usage_count", 0) or 0)
+    success_count = int(getattr(capability, "success_count", 0) or 0)
+    success_rate = (success_count / usage_count) if usage_count > 0 else 0.0
+    avg_duration = float(getattr(capability, "avg_duration", 0.0) or 0.0)
+    return CapabilityResponse(
+        capability_id=str(getattr(capability, "capability_id")),
+        name=str(getattr(capability, "name", "")),
+        description=str(getattr(capability, "description", "")),
+        success_rate=success_rate,
+        usage_count=usage_count,
+        avg_duration=avg_duration,
+        last_used=float(getattr(capability, "last_used", 0.0) or 0.0),
+    )
+
+
 def get_unified_memory():
     try:
         from ...agent import get_unified_memory
@@ -292,18 +308,7 @@ async def get_capabilities(limit: int = Query(default=50, ge=1, le=200)):
     capabilities.sort(key=lambda cap: cap.usage_count, reverse=True)
     capabilities = capabilities[:limit]
 
-    return [
-        CapabilityResponse(
-            capability_id=cap.capability_id,
-            name=cap.name,
-            description=cap.description,
-            success_rate=cap.success_rate,
-            usage_count=cap.usage_count,
-            avg_duration=cap.avg_duration,
-            last_used=cap.last_used,
-        )
-        for cap in capabilities
-    ]
+    return [_derive_capability_response(cap) for cap in capabilities]
 
 
 @memory_router.get("/capabilities/{capability_id}", response_model=CapabilityResponse)
@@ -322,15 +327,7 @@ async def get_capability(capability_id: str):
             detail=f"Capability {capability_id} not found",
         )
 
-    return CapabilityResponse(
-        capability_id=capability.capability_id,
-        name=capability.name,
-        description=capability.description,
-        success_rate=capability.success_rate,
-        usage_count=capability.usage_count,
-        avg_duration=capability.avg_duration,
-        last_used=capability.last_used,
-    )
+    return _derive_capability_response(capability)
 
 
 @memory_router.post("/summaries/generate")
