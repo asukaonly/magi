@@ -18,7 +18,7 @@ vi.mock('@/components/layout/AppShellProviders', () => ({
 }));
 
 vi.mock('@/components/layout/Sidebar', () => ({
-  default: () => <aside data-testid="sidebar" />,
+  default: ({ collapsed }: { collapsed?: boolean }) => (collapsed ? null : <aside data-testid="sidebar" />),
 }));
 
 vi.mock('@/components/layout/ShellOverlays', () => ({
@@ -54,6 +54,7 @@ describe('main layout', () => {
     expect(toggleButton).toHaveClass('h-7', 'w-7');
     expect((toggleButton as HTMLButtonElement).style.left).toBe('112px');
     expect(dragStrip?.style.left).toBe('148px');
+    expect(screen.getByText('chat page').closest('div.min-h-0.min-w-0')).toHaveClass('col-start-2');
 
     await user.click(toggleButton);
 
