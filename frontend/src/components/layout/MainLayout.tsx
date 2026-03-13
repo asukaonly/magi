@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useChatShellStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft } from 'lucide-react';
@@ -8,7 +9,11 @@ import AppShellProviders from './AppShellProviders';
 import Sidebar from './Sidebar';
 import ShellOverlays from './ShellOverlays';
 
+const SHELL_TOGGLE_LEFT = '78px';
+const SHELL_DRAG_STRIP_LEFT = '124px';
+
 const MainLayout: React.FC = () => {
+  const { t } = useTranslation('app');
   const location = useLocation();
   const { sidebarCollapsed, toggleSidebarCollapsed, setActivePanel } = useChatShellStore();
 
@@ -27,12 +32,15 @@ const MainLayout: React.FC = () => {
         >
           {/* Collapse/Expand Button */}
           <button
+            type="button"
             onClick={toggleSidebarCollapsed}
-            className="absolute left-3 top-3 z-50 rounded-md p-2 transition-colors hover:bg-accent"
+            className="absolute top-3 z-[60] flex h-10 w-10 items-center justify-center rounded-xl border border-border/40 bg-card/90 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
             style={{
-              left: sidebarCollapsed ? '10px' : '78px',
+              left: SHELL_TOGGLE_LEFT,
               transition: 'left 0.2s ease'
             }}
+            aria-label={sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')}
+            title={sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')}
             data-tauri-drag-region={false}
           >
             {sidebarCollapsed ? (
@@ -44,9 +52,9 @@ const MainLayout: React.FC = () => {
 
           {/* Keep an invisible drag strip for macOS overlay mode without rendering a detached title bar */}
           <div
-            className="absolute right-0 top-0 z-50 h-16"
+            className="absolute right-0 top-0 z-40 h-14"
             style={{
-              left: sidebarCollapsed ? '38px' : '78px',
+              left: SHELL_DRAG_STRIP_LEFT,
               WebkitAppRegion: 'drag'
             } as React.CSSProperties}
             data-tauri-drag-region

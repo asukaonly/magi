@@ -148,9 +148,9 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
   return (
     <aside
-      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/30 pt-[4.25rem]"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/30 pt-14"
     >
-      <div className="px-4 py-3">
+      <div className="px-4 py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm font-medium text-muted-foreground/85">
             {t('nav.chat')}

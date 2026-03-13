@@ -22,6 +22,8 @@
     "loadingSessions": "Loading sessions...",
     "emptySessions": "No conversation yet. Start with a new chat.",
     "noPreview": "No preview",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar",
     "personality": "Personality",
     "memory": "Memory",
     "timeline": "Timeline",

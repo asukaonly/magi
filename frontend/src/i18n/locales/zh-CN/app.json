@@ -22,6 +22,8 @@
     "loadingSessions": "会话加载中...",
     "emptySessions": "暂无历史会话，点击“新建聊天”开始对话。",
     "noPreview": "暂无预览",
+    "collapseSidebar": "收起侧栏",
+    "expandSidebar": "展开侧栏",
     "personality": "人格",
     "memory": "记忆",
     "timeline": "时间线",

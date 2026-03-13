@@ -132,4 +132,17 @@ describe('sidebar navigation', () => {
 
     expect(await screen.findByText('3')).toBeInTheDocument();
   });
+
+  it('keeps the chat header close to the shell controls', async () => {
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    const navLabel = await screen.findByText('nav.chat');
+    const sidebar = navLabel.closest('aside');
+
+    expect(sidebar).toHaveClass('pt-14');
+  });
 });
