@@ -205,6 +205,19 @@ def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_defa
     assert activation_flow["fields"][0]["key"] == "sensors.chrome_history.initial_sync_policy"
 
 
+def test_chrome_history_sensor_exposes_plugin_translations(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = AppConfig()
+    manager, sensor_registry = _build_manager(monkeypatch, config)
+
+    manager.scan(persist_discovery=False)
+    manager.activate_enabled_plugins()
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+
+    assert resolved is not None
+    _, _, sensor, _ = resolved
+    assert sensor.t("summary.multiple_visits", title="GitHub", count=3) == "GitHub (3 visits)"
+
+
 @pytest.mark.asyncio
 async def test_chrome_history_sensor_collects_events_and_relations(
     monkeypatch: pytest.MonkeyPatch,

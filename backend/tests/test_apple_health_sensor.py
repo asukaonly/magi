@@ -236,7 +236,7 @@ class TestAppleHealthTimelineSensor:
         event = await sensor.build_timeline_event(item)
 
         assert event.source_type == "apple_health"
-        assert event.title == "Health Data: unknown_type"
+        assert event.title == "Health Data: Unknown Type"
         assert event.summary == "5000"
         assert "apple_health" in event.tags
         assert "unknown_type" in event.tags

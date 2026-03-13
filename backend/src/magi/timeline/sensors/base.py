@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Optional
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib  # type: ignore[no-redef]
+
+from ...plugins.i18n import PluginI18n, get_current_language
 from ..contracts import TimelineContentBlock, TimelineEvent
 from ..sync import SensorSyncContext, SensorSyncResult
 
@@ -37,10 +45,103 @@ class TimelineSensorBase(ABC):
         self.retention_mode = retention_mode or self.default_retention_mode
         self.source_path = source_path
         self.fetch_page_content = fetch_page_content
+        self._plugin_id: str | None = None
+        self._plugin_dir: Path | None = None
+        self._i18n: PluginI18n | None = None
 
     @property
     def default_retention_mode(self) -> str:
         return "analyze_only"
+
+    def bind_plugin_context(self, *, plugin_id: str | None = None, plugin_dir: str | Path | None = None) -> None:
+        """Bind plugin metadata needed for sensor-local translations."""
+        self._plugin_id = plugin_id or self._plugin_id
+        self._plugin_dir = Path(plugin_dir) if plugin_dir is not None else self._plugin_dir
+        self._i18n = None
+
+    @property
+    def plugin_id(self) -> str:
+        """Best-effort plugin identifier used for translation lookup."""
+        if self._plugin_id:
+            return self._plugin_id
+        manifest_path = self._manifest_path()
+        if manifest_path is not None and manifest_path.exists():
+            try:
+                with manifest_path.open("rb") as handle:
+                    raw = tomllib.load(handle)
+                plugin_block = raw.get("plugin", raw)
+                plugin_id = plugin_block.get("id")
+                if isinstance(plugin_id, str) and plugin_id:
+                    self._plugin_id = plugin_id
+                    return plugin_id
+            except Exception:
+                pass
+        plugin_dir = self.plugin_dir
+        if plugin_dir is not None:
+            return plugin_dir.name
+        return self.__class__.__name__
+
+    @property
+    def plugin_dir(self) -> Path | None:
+        """Best-effort plugin directory used for translation lookup."""
+        if self._plugin_dir is not None:
+            return self._plugin_dir
+        module = inspect.getmodule(self.__class__)
+        if module and module.__file__:
+            self._plugin_dir = Path(module.__file__).resolve().parent
+        return self._plugin_dir
+
+    @property
+    def i18n(self) -> PluginI18n:
+        """Get the i18n helper for this sensor's plugin."""
+        if self._i18n is None:
+            plugin_dir = self._resolve_i18n_plugin_dir()
+            if plugin_dir is None:
+                self._i18n = PluginI18n(self.plugin_id, Path("."))
+            else:
+                self._i18n = PluginI18n(self.plugin_id, plugin_dir)
+        return self._i18n
+
+    def t(
+        self,
+        key: str,
+        language: Optional[str] = None,
+        fallback: Optional[str] = None,
+        **kwargs: Any,
+    ) -> str:
+        """Translate sensor-local content using the owning plugin's dictionaries."""
+        effective_language = language or get_current_language()
+        return self.i18n.t(key, language=effective_language, fallback=fallback, **kwargs)
+
+    def _manifest_path(self) -> Path | None:
+        plugin_dir = self.plugin_dir
+        if plugin_dir is None:
+            return None
+        manifest_path = plugin_dir / "plugin.toml"
+        return manifest_path if manifest_path.exists() else None
+
+    def _resolve_i18n_plugin_dir(self) -> Path | None:
+        plugin_dir = self.plugin_dir
+        if plugin_dir is None:
+            return None
+        if (plugin_dir / "i18n").exists():
+            return plugin_dir
+
+        parent = plugin_dir.parent
+        plugin_id = self.plugin_id
+        candidates = {
+            plugin_id,
+            plugin_id.replace("-", "_"),
+            plugin_id.replace("_", "-"),
+            plugin_dir.name,
+        }
+        for candidate in candidates:
+            if not candidate:
+                continue
+            candidate_dir = parent / candidate
+            if (candidate_dir / "i18n").exists():
+                return candidate_dir
+        return plugin_dir
 
     def source_item_identity(self, item: dict[str, Any]) -> str:
         identity_parts = [str(item.get(field, "")) for field in self.update_key_fields]

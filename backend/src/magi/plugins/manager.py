@@ -133,6 +133,9 @@ class PluginManager:
 
             sensor_ids: list[str] = []
             for sensor_id, sensor, spec in plugin_instance.get_sensors():
+                bind_plugin_context = getattr(sensor, "bind_plugin_context", None)
+                if callable(bind_plugin_context):
+                    bind_plugin_context(plugin_id=plugin_id, plugin_dir=state.manifest.plugin_dir)
                 self._sensor_registry.register(plugin_id, sensor_id, sensor, spec)
                 sensor_ids.append(sensor_id)
                 registered_contributions.append(
