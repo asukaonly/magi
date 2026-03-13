@@ -520,6 +520,23 @@ describe('config forms', () => {
     ).toBeTruthy();
   });
 
+  it('does not reintroduce implicit two-column layout for custom providers on the settings surface', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{ llm: llmValue }}>
+        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
+      </Form>
+    );
+
+    await user.click(await screen.findByText('llm.actions.addCustomProvider'));
+
+    const customDefaultModelField = screen.getByLabelText('llm.fields.defaultModel');
+    const customModelSection = customDefaultModelField.closest('div.space-y-4');
+
+    expect(customModelSection?.className).not.toContain('lg:col-span-2');
+  });
+
   it('removes the ambiguous custom api format option', async () => {
     const user = userEvent.setup();
 

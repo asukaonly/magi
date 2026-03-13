@@ -371,7 +371,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       </select>
                     </label>
 
-                    <div className={cn('space-y-4 rounded-[20px] bg-muted/40 p-4 lg:col-span-2', isSettingsSurface && 'rounded-xl bg-muted/25 p-3.5')}>
+                    <div className={cn('space-y-4 rounded-[20px] bg-muted/40 p-4', !isSettingsSurface && 'lg:col-span-2', isSettingsSurface && 'rounded-xl bg-muted/25 p-3.5')}>
                       <div className="space-y-2">
                         <label className="block space-y-2">
                           <span className="text-sm font-medium">{t('llm.fields.defaultModel')}</span>
