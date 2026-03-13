@@ -54,7 +54,11 @@
       "chrome_history": "Chrome history",
       "manual_journal": "Manual journal",
       "chat": "Chat",
-      "photo_library": "Photo library"
+      "photo_library": "Photo library",
+      "apple_health": "Apple Health",
+      "screen_time": "Screen Time",
+      "terminal_history": "Terminal History",
+      "git_activity": "Git Activity"
     },
     "feed": {
       "showDetails": "Show details",
@@ -447,7 +451,11 @@
         "chat": "Use chat turns as direct evidence for preferences, relationships, and recurring concerns.",
         "manual_journal": "Let the user append timeline events with text and image references.",
         "browser_history": "Analyze browsing behavior while controlling whether page bodies are fetched.",
-        "photo_library": "Reference a photo library or exported folder and decide how much raw media is retained."
+        "photo_library": "Reference a photo library or exported folder and decide how much raw media is retained.",
+        "apple_health": "Sync your health data from Apple Health app, including steps, sleep, heart rate, etc.",
+        "screen_time": "Track screen time usage with per-application breakdown and daily summaries.",
+        "terminal_history": "Monitor terminal command history from zsh and bash shells.",
+        "git_activity": "Track git repository activity including commits, checkouts, merges, and rebase operations."
       },
       "syncModes": {
         "manual": "Manual",

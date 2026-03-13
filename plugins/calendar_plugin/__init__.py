@@ -1,0 +1,1 @@
+"""Calendar plugin for timeline sensor integration."""

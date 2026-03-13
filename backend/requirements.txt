@@ -45,3 +45,8 @@ passlib[bcrypt]>=1.7.4
 httpx>=0.26.0
 aiofiles>=23.2.1
 playwright>=1.53.0
+
+# Apple Health 传感器 (仅 macOS)
+# 取消注释以下依赖以在 macOS 上启用 Apple Health 传感器
+# pyobjc-framework-HealthKit>=10.0
+# pyobjc-framework-Foundation>=10.0

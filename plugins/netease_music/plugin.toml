@@ -1,0 +1,10 @@
+[plugin]
+id = "netease-music"
+name = "NetEase Cloud Music"
+version = "0.1.0"
+description = "Local NetEase Cloud Music play history ingestion for the timeline."
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "NeteaseMusicPlugin"
+official = true
+contribution_types = ["sensor"]
