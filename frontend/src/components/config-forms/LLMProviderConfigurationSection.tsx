@@ -226,16 +226,16 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           ? t('llm.providerConfiguration.providerKinds.custom')
                           : t('llm.providerConfiguration.providerKinds.builtin')}
                       </span>
-                      {activeReferences.length > 0 ? (
-                        <span className={badgeClassName}>
-                          {t('llm.providerConfiguration.referencedBy')}:{' '}
-                          {activeReferences.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
-                        </span>
-                      ) : null}
                     </div>
+                    {activeReferences.length > 0 ? (
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {t('llm.providerConfiguration.referencedBy')}:{' '}
+                        {activeReferences.map((scenario) => t(`llm.scenarios.${scenario}.title`)).join(' / ')}
+                      </p>
+                    ) : null}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <div className="flex items-center gap-2 sm:flex-nowrap lg:justify-end">
                     {activeProvider.provider_type === 'custom' ? (
                       <button
                         type="button"
@@ -304,7 +304,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 </div>
               ) : null}
 
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className={cn('grid gap-4 lg:grid-cols-2', isSettingsSurface && 'grid-cols-1 lg:grid-cols-1')}>
                 <label className="space-y-2">
                   <span className="text-sm font-medium">{t('llm.fields.apiKey')}</span>
                   <input
