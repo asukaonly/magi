@@ -34,7 +34,7 @@ describe('main layout', () => {
     });
   });
 
-  it('toggles the sidebar from the shell button and keeps the drag strip clear of the button hit area', async () => {
+  it('renders a compact titlebar toggle beside the window controls and keeps the drag strip clear of it', async () => {
     const user = userEvent.setup();
 
     const { container } = render(
@@ -51,7 +51,9 @@ describe('main layout', () => {
     const dragStrip = container.querySelector('div[data-tauri-drag-region]') as HTMLDivElement | null;
 
     expect(dragStrip).not.toBeNull();
-    expect(dragStrip?.style.left).toBe('124px');
+    expect(toggleButton).toHaveClass('h-7', 'w-7');
+    expect((toggleButton as HTMLButtonElement).style.left).toBe('112px');
+    expect(dragStrip?.style.left).toBe('148px');
 
     await user.click(toggleButton);
 

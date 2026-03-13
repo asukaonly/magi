@@ -9,8 +9,8 @@ import AppShellProviders from './AppShellProviders';
 import Sidebar from './Sidebar';
 import ShellOverlays from './ShellOverlays';
 
-const SHELL_TOGGLE_LEFT = '78px';
-const SHELL_DRAG_STRIP_LEFT = '124px';
+const SHELL_TOGGLE_LEFT = '112px';
+const SHELL_DRAG_STRIP_LEFT = '148px';
 
 const MainLayout: React.FC = () => {
   const { t } = useTranslation('app');
@@ -34,7 +34,7 @@ const MainLayout: React.FC = () => {
           <button
             type="button"
             onClick={toggleSidebarCollapsed}
-            className="absolute top-3 z-[60] flex h-10 w-10 items-center justify-center rounded-xl border border-border/40 bg-card/90 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+            className="absolute top-2.5 z-[60] flex h-7 w-7 items-center justify-center rounded-md border border-border/30 bg-card/75 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
             style={{
               left: SHELL_TOGGLE_LEFT,
               transition: 'left 0.2s ease'
@@ -44,9 +44,9 @@ const MainLayout: React.FC = () => {
             data-tauri-drag-region={false}
           >
             {sidebarCollapsed ? (
-              <PanelLeft className="h-4 w-4" />
+              <PanelLeft className="h-3.5 w-3.5" />
             ) : (
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftClose className="h-3.5 w-3.5" />
             )}
           </button>
 
