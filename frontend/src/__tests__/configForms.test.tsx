@@ -219,12 +219,12 @@ vi.mock('../api/modules/config', async () => {
               display_name: 'MiniMax',
               description: 'General multimodal models from MiniMax',
               icon: 'minimax',
-              default_model: 'MiniMax-M1',
-              default_base_url: 'https://api.minimax.chat/v1',
+              default_model: 'MiniMax-M2.5',
+              default_base_url: 'https://api.minimaxi.com/v1',
               models: [
                 {
-                  id: 'MiniMax-M1',
-                  label: 'MiniMax M1',
+                  id: 'MiniMax-M2.5',
+                  label: 'MiniMax M2.5',
                   capabilities: {
                     vision: true,
                     image_output: false,
@@ -233,7 +233,7 @@ vi.mock('../api/modules/config', async () => {
                     embedding: false,
                   },
                   limits: {
-                    context_window: 1000000,
+                    context_window: 1000192,
                     max_output_tokens: 8192,
                   },
                   provider_options_example: {},

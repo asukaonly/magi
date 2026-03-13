@@ -178,7 +178,7 @@ def test_default_registry_includes_extended_builtin_providers():
     assert providers_by_id["gemini"].default_base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
     assert providers_by_id["deepseek"].default_base_url == "https://api.deepseek.com"
     assert providers_by_id["kimi"].default_base_url == "https://api.moonshot.cn/v1"
-    assert providers_by_id["minimax"].default_base_url == "https://api.minimax.chat/v1"
+    assert providers_by_id["minimax"].default_base_url == "https://api.minimaxi.com/v1"
 
 
 def test_registry_supports_legacy_model_options_shape():

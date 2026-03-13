@@ -307,11 +307,11 @@ providers:
     display_name: MiniMax
     description: Multimodal models from MiniMax
     icon: minimax
-    default_model: MiniMax-M1
-    default_base_url: https://api.minimax.chat/v1
+    default_model: MiniMax-M2.5
+    default_base_url: https://api.minimaxi.com/v1
     models:
-      - id: MiniMax-M1
-        label: MiniMax M1
+      - id: MiniMax-M2.5
+        label: MiniMax M2.5
         capabilities:
           vision: true
           image_output: false
@@ -319,21 +319,21 @@ providers:
           reasoning: true
           embedding: false
         limits:
-          context_window: 1000000
+          context_window: 1000192
           max_output_tokens: 8192
-      - id: MiniMax-Text-01
-        label: MiniMax Text 01
+      - id: MiniMax-M2.5-highspeed
+        label: MiniMax M2.5 Highspeed
         capabilities:
-          vision: false
+          vision: true
           image_output: false
           tool_calling: true
           reasoning: true
           embedding: false
         limits:
-          context_window: 400000
+          context_window: 1000192
           max_output_tokens: 8192
-      - id: MiniMax-VL-01
-        label: MiniMax VL 01
+      - id: MiniMax-M2.1
+        label: MiniMax M2.1
         capabilities:
           vision: true
           image_output: false
