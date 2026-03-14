@@ -1,4 +1,4 @@
-import { api } from '../client';
+import { apiClient } from '../client';
 
 export interface SkillItem {
   name: string;
@@ -14,7 +14,7 @@ export interface SkillItem {
 }
 
 export const skillsApi = {
-  list: () => api.get<SkillItem[]>('/skills'),
+  list: () => apiClient.get<SkillItem[]>('/skills/').then((res) => res.data),
 };
 
 export default skillsApi;

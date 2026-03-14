@@ -154,11 +154,12 @@ async def list_skills():
     Returns:
         Skills metadatalist
     """
+    global _skill_indexer
+
+    # Lazily initialize indexer if not already done
     if _skill_indexer is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Skills module not initialized",
-        )
+        from ...skills.indexer import SkillIndexer
+        _skill_indexer = SkillIndexer()
 
     skills = _skill_indexer.scan_all()
     enabled_skills = _get_enabled_skill_names()

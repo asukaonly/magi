@@ -125,6 +125,13 @@
       "coreVisionMissing": "The current core model does not support image input. If chat receives images, runtime will return a clear error."
     },
     "completeSelections": "Choose an enabled provider and model for each scenario before continuing.",
+    "validation": {
+      "apiKeyRequired": "Please fill in the API Key for {{provider}}.",
+      "customProviderNameRequired": "Please enter a name for the custom provider.",
+      "customProviderApiKeyRequired": "Please enter the API Key for the custom provider.",
+      "customProviderBaseUrlRequired": "Please enter the Base URL for the custom provider.",
+      "customProviderModelRequired": "Please add at least one model for the custom provider."
+    },
     "modelManualPlaceholder": "Enter a model ID, for example gpt-4.1",
     "customProviderDefaultName": "Custom Provider",
     "providerLabel": "Model Provider",
@@ -283,6 +290,40 @@
       "magi": "MAGI Personalities",
       "general": "General Personalities",
       "custom": "Custom Personality"
+    }
+  },
+  "tools": {
+    "title": "Tools Configuration",
+    "desc": "Enable built-in tools and skills for the AI to use.",
+    "weather": {
+      "label": "Weather",
+      "desc": "Get real-time weather information and forecasts.",
+      "provider": "Provider",
+      "qweather": "QWeather",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "Enter API Key",
+      "apiUrl": "API URL",
+      "apiUrlPlaceholder": "Custom API endpoint"
+    },
+    "webSearch": {
+      "label": "Web Search",
+      "desc": "Search the internet for real-time information.",
+      "provider": "Provider",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "Enter API Key (not required for DuckDuckGo)"
+    },
+    "webFetch": {
+      "label": "Web Fetch",
+      "desc": "Fetch and read content from web pages.",
+      "usePlaywright": "Use Playwright rendering",
+      "usePlaywrightDesc": "Enable browser rendering for pages that require JavaScript."
+    },
+    "skills": {
+      "label": "Skills",
+      "desc": "{{count}} skills available",
+      "empty": "No skills available",
+      "emptyHint": "No skills have been configured. Skills can be added to extend AI capabilities.",
+      "enable": "Enable"
     }
   }
 }

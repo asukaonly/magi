@@ -27,6 +27,7 @@
     "saveFailed": "保存失败",
     "requiredFieldMissing": "请先补全必填项再继续。",
     "chooseModeFirst": "请先选择模式再继续。",
+    "validationFailed": "请补全必填配置项。",
     "completedTitle": "配置已完成",
     "completedDesc": "你可以随时在设置页面继续修改。"
   },
@@ -125,6 +126,13 @@
       "coreVisionMissing": "当前核心模型不支持图片输入。如果聊天中上传图片，会在运行时返回明确错误提示。"
     },
     "completeSelections": "请先为每个场景选择已启用的供应商和模型，再继续下一步。",
+    "validation": {
+      "apiKeyRequired": "请为 {{provider}} 填写 API Key。",
+      "customProviderNameRequired": "请为自定义供应商填写名称。",
+      "customProviderApiKeyRequired": "请为自定义供应商填写 API Key。",
+      "customProviderBaseUrlRequired": "请为自定义供应商填写 Base URL。",
+      "customProviderModelRequired": "请为自定义供应商添加至少一个模型。"
+    },
     "modelManualPlaceholder": "输入模型 ID，例如 gpt-4.1",
     "customProviderDefaultName": "自定义供应商",
     "providerLabel": "模型提供商",
@@ -283,6 +291,40 @@
       "magi": "MAGI 人格",
       "general": "通用人格",
       "custom": "自定义人格"
+    }
+  },
+  "tools": {
+    "title": "工具配置",
+    "desc": "启用 AI 可用的内置工具和技能。",
+    "weather": {
+      "label": "天气查询",
+      "desc": "获取实时天气信息和预报。",
+      "provider": "服务商",
+      "qweather": "和风天气",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "输入 API Key",
+      "apiUrl": "API URL",
+      "apiUrlPlaceholder": "自定义 API 端点"
+    },
+    "webSearch": {
+      "label": "网页搜索",
+      "desc": "在互联网上搜索实时信息。",
+      "provider": "服务商",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "输入 API Key（DuckDuckGo 无需配置）"
+    },
+    "webFetch": {
+      "label": "网页获取",
+      "desc": "抓取和读取网页内容。",
+      "usePlaywright": "使用 Playwright 渲染",
+      "usePlaywrightDesc": "对于需要 JavaScript 渲染的页面启用浏览器渲染。"
+    },
+    "skills": {
+      "label": "技能",
+      "desc": "{{count}} 个可用技能",
+      "empty": "暂无可用技能",
+      "emptyHint": "尚未配置技能。技能可用于扩展 AI 的能力。",
+      "enable": "启用"
     }
   }
 }

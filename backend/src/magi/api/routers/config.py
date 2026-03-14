@@ -1157,7 +1157,17 @@ async def complete_onboarding(config: SystemConfigModel):
         if not save_config(updates):
             raise HTTPException(status_code=500, detail="Failed to save onboarding configuration")
         refreshed_config = reload_config()
-        refresh_runtime_llm_config(refreshed_config)
+
+        # Try to initialize agent runtime if not already initialized
+        from ...runtime.bootstrap import get_agent_runtime, initialize_chat_agent
+        try:
+            get_agent_runtime()
+            # Already initialized, just refresh LLM config
+            refresh_runtime_llm_config(refreshed_config)
+        except RuntimeError:
+            # Not initialized, try to initialize now
+            logger.info("Attempting to initialize agent runtime after onboarding")
+            await initialize_chat_agent()
 
         # Save the full personality config to user storage and set as current
         if config.personality:

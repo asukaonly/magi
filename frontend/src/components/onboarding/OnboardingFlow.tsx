@@ -168,6 +168,39 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     return Object.values(llmConfig?.providers || {}).some((provider: any) => provider?.enabled);
   };
 
+  const validateProviderFields = (): { valid: boolean; message?: string } => {
+    const llmConfig = form.getFieldValue(['llm']);
+    const providers = llmConfig?.providers || {};
+
+    for (const [providerId, provider] of Object.entries(providers) as [string, any][]) {
+      if (!provider?.enabled) continue;
+
+      // Custom provider: all fields required
+      if (provider.provider_type === 'custom') {
+        if (!provider.display_name?.trim()) {
+          return { valid: false, message: t('llm.validation.customProviderNameRequired') };
+        }
+        if (!provider.api_key?.trim()) {
+          return { valid: false, message: t('llm.validation.customProviderApiKeyRequired') };
+        }
+        if (!provider.base_url?.trim()) {
+          return { valid: false, message: t('llm.validation.customProviderBaseUrlRequired') };
+        }
+        // At least one model required for custom provider
+        if (!provider.custom_models?.length) {
+          return { valid: false, message: t('llm.validation.customProviderModelRequired') };
+        }
+      } else {
+        // Built-in provider: API key required
+        if (!provider.api_key?.trim()) {
+          return { valid: false, message: t('llm.validation.apiKeyRequired', { provider: provider.display_name || providerId }) };
+        }
+      }
+    }
+
+    return { valid: true };
+  };
+
   const hasValidSelections = (): boolean => {
     const llmConfig = form.getFieldValue(['llm']);
     return BUILTIN_SCENARIOS.every((scenario) => {
@@ -221,6 +254,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       if (current === 2 && !hasEnabledProvider()) {
         toast.warning(t('llm.providerConfiguration.enableProviderFirst'));
         return;
+      }
+
+      // Validate provider fields when moving from providers step
+      if (current === 2) {
+        const validation = validateProviderFields();
+        if (!validation.valid) {
+          toast.warning(validation.message || t('messages.validationFailed'));
+          return;
+        }
       }
 
       if (!isQuickMode && current === 3 && !hasValidSelections()) {

@@ -300,7 +300,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       <Switch
                         aria-label={t('llm.fields.enabled')}
                         checked={activeProvider.enabled}
-                        disabled={activeReferences.length > 0}
+                        disabled={surface !== 'onboarding' && activeReferences.length > 0}
                         onCheckedChange={(checked) =>
                           onProviderChange(activeProviderId, (provider) => {
                             provider.enabled = checked;
