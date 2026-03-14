@@ -1,151 +1,119 @@
-"""Memory query tool for retrieving memories across L1-L5 layers."""
+"""Memory query tool for retrieving memories across the rewritten L0-L4 layers."""
+
+from __future__ import annotations
+
+from dataclasses import asdict
 from typing import Any, Dict
 
 from ..agent import get_unified_memory
-from ..memory.query.l1_handler import L1EventQueryHandler
-
-from .schema import Tool, ToolParameter, ParameterType, ToolResult, ToolExecutionContext, ToolSchema
-from ..memory.query import MemoryQueryService, MemoryQueryRequest
+from ..memory.hybrid_retrieval import HybridRetrievalService, build_query
+from .schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
 
 class MemoryQueryTool(Tool):
-    """Tool for querying memories across L1-L5 layers."""
+    """Tool for querying memories across L0-L4."""
 
     def _init_schema(self) -> None:
         """Initialize tool schema."""
         self.schema = ToolSchema(
             name="memory_query",
             description=(
-                "Retrieve historical event memory from UnifiedMemoryStore. Use this tool when the user asks "
-                "about past activities, prior work, earlier conversations, browser history, git activity, "
-                "terminal commands, or other historical behavior. You may pass only the raw query when unsure; "
-                "the service will infer time range, sources, and retrieval mode."
+                "Retrieve structured memory context from the lifecycle-based memory system. "
+                "Use this tool for questions about prior conversations, activities, relationships, "
+                "summaries, or learned execution experience."
             ),
             category="memory",
             parameters=[
                 ToolParameter(
                     name="query",
                     type=ParameterType.STRING,
-                    description="The historical activity or memory question to retrieve evidence for.",
+                    description="The memory question or recall intent.",
                     required=True,
                 ),
                 ToolParameter(
                     name="time_range",
                     type=ParameterType.OBJECT,
-                    description="Optional time range hint. Use relative or absolute boundaries when the user states them.",
+                    description="Optional time range constraints for retrieval.",
                     required=False,
                 ),
                 ToolParameter(
                     name="sources",
                     type=ParameterType.ARRAY,
-                    description="Optional source filters such as ['chrome_history', 'git', 'chat', 'terminal'].",
+                    description="Optional source filters such as ['chat', 'timeline', 'worker'].",
                     required=False,
                 ),
                 ToolParameter(
                     name="query_mode",
                     type=ParameterType.STRING,
-                    description="Optional retrieval mode hint such as 'detail', 'summary', or 'experience'.",
+                    description="detail|summary|experience|graph|strategy",
                     required=False,
+                    default="detail",
                 ),
                 ToolParameter(
                     name="limit",
                     type=ParameterType.INTEGER,
-                    description="Maximum number of results to return",
+                    description="Maximum number of results to return.",
                     required=False,
                     default=20,
                     min_value=1,
                     max_value=100,
                 ),
             ],
-            examples=[
-                {
-                    "input": {
-                        "query": "What websites did I visit yesterday?",
-                        "time_range": {"relative": "1d"},
-                        "sources": ["chrome_history"]
-                    },
-                    "output": "Returns browser history from yesterday",
-                },
-                {
-                    "input": {
-                        "query": "What programming-related things did I do yesterday?",
-                        "time_range": {"relative": "7d"},
-                        "sources": ["git", "terminal", "chat", "chrome_history"],
-                        "query_mode": "detail"
-                    },
-                    "output": "Returns normalized event snippets for programming-related activity",
-                }
-            ],
             tags=["memory", "search", "history"],
             timeout=30,
         )
-
         self._service = self._build_service()
 
-    def _build_service(self) -> MemoryQueryService:
+    def _build_service(self) -> HybridRetrievalService:
         unified_memory = None
         try:
             unified_memory = get_unified_memory()
         except Exception:
             unified_memory = None
-
-        layer_handlers: Dict[str, Any] = {}
-        if unified_memory is not None:
-            layer_handlers["L1"] = L1EventQueryHandler(unified_memory)
-        return MemoryQueryService(layer_handlers=layer_handlers)
+        return HybridRetrievalService(unified_memory)
 
     async def execute(
         self,
         parameters: Dict[str, Any],
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
     ) -> ToolResult:
-        """Execute memory query."""
+        """Execute a hybrid retrieval query."""
         try:
-            request = MemoryQueryRequest(
+            request = build_query(
                 query=parameters["query"],
+                user_id=parameters.get("user_id"),
+                session_id=parameters.get("session_id"),
                 time_range=parameters.get("time_range", {}),
-                sources=parameters.get("sources"),
                 query_mode=parameters.get("query_mode"),
-                data_types=parameters.get("data_types"),
-                limit=parameters.get("limit"),
+                source_filters=parameters.get("sources", []) or [],
+                domain_filters=parameters.get("domains", []) or [],
+                limit=parameters.get("limit", 20),
             )
-
-            result = await self._service.query(request)
-
-            if result.status == "success":
-                return ToolResult(
-                    success=True,
-                    data={
-                        "results": result.data,
-                        "meta": result.query_meta,
-                    }
-                )
-            elif result.status == "confirm_required":
-                return ToolResult(
-                    success=False,
-                    error=result.confirm_prompt,
-                    error_code="CONFIRM_REQUIRED",
-                )
-            elif result.status == "empty":
-                return ToolResult(
-                    success=True,
-                    data={"results": [], "meta": result.query_meta},
-                )
-            else:  # denied
-                return ToolResult(
-                    success=False,
-                    error=result.confirm_prompt,
-                    error_code="ACCESS_DENIED",
-                )
-
-        except Exception as e:
+            payload = await self._service.query(request)
+            payload_dict = asdict(payload) if hasattr(payload, "__dataclass_fields__") else {
+                "l0_workbench": getattr(payload, "l0_workbench", []),
+                "l1_events": getattr(payload, "l1_events", []),
+                "l2_entity_cards": getattr(payload, "l2_entity_cards", []),
+                "l2_relationships": getattr(payload, "l2_relationships", []),
+                "l3_reflections": getattr(payload, "l3_reflections", []),
+                "l4_procedures": getattr(payload, "l4_procedures", []),
+                "trace": getattr(payload, "trace", {}),
+            }
+            return ToolResult(
+                success=True,
+                data={
+                    "results": payload_dict,
+                    "meta": payload_dict["trace"],
+                    "agent_id": context.agent_id,
+                },
+            )
+        except Exception as exc:
             return ToolResult(
                 success=False,
-                error=str(e),
+                error=str(exc),
                 error_code="EXECUTION_ERROR",
             )
 
     def is_ready(self) -> bool:
         """Check if tool is ready to use."""
-        # Memory query is always available
         return True

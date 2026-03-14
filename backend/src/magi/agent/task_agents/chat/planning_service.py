@@ -96,6 +96,7 @@ class ChatPlanningService:
         filtered_history = self._prompt_service.filter_history_for_aggregation(history)
         system_prompt = await self._prompt_service.build_system_prompt(
             user_id=state.user_id,
+            session_id=state.session_id,
             task_category="chat",
             scenario=Scenario.CHAT,
         )

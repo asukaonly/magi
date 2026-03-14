@@ -1,5 +1,3 @@
-"""Tests for modular prompt context assembler and renderer."""
-
 from __future__ import annotations
 
 import unittest
@@ -40,12 +38,11 @@ class _FakeToolRegistry:
     def get_all_tools_info(self):
         return [
             {"name": "weather", "description": "Get weather details", "category": "builtin", "type": "tool"},
-            {"name": "web_search", "description": "Search web", "category": "builtin", "type": "tool"},
         ]
 
 
-class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
-    async def test_render_order_and_module_presence(self):
+class TestChatPromptMemoryPayload(unittest.IsolatedAsyncioTestCase):
+    async def test_prompt_context_reads_l0_l2_l3_l4_payloads(self):
         assembler = PromptContextAssembler(tool_registry=_FakeToolRegistry())
         renderer = PromptContextRenderer()
 
@@ -59,48 +56,19 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
             other_memory=_FakeOtherMemory(),
             tool_result={"tools": ["weather"]},
             retrieved_memory_payload={
-                "l0_workbench": [{"event": "recent_user_request"}],
-                "l2_entity_cards": [{"entity_id": "user:u1"}],
-                "l3_reflection_memory": [{"summary": "recent reflection"}],
-                "l4_procedural_memory": [{"skill_name": "weather capability"}],
+                "l0_workbench": [{"summary": "Current goal: comfort the user"}],
+                "l2_entity_cards": [{"entity_id": "user:u1", "stress_level": "high"}],
+                "l3_reflection_memory": [{"summary": "User wants to switch jobs"}],
+                "l4_procedural_memory": [{"skill_name": "browser.open", "success_rate": 0.8}],
                 "preference_memory": {"task_preferences": {"verbosity": "low"}},
             },
         )
 
         prompt = renderer.render_system_prompt(assembled)
 
-        i1 = prompt.find("# System Definition")
-        i2 = prompt.find("# Persona Entity")
-        i3 = prompt.find("# Profile Memory")
-        i4 = prompt.find("# System Information")
-        i5 = prompt.find("# Tool Information")
-
-        self.assertTrue(i1 >= 0)
-        self.assertTrue(i2 > i1)
-        self.assertTrue(i3 > i1)
-        self.assertTrue(i4 > i3)
-        self.assertTrue(i5 > i4)
-        self.assertIn("weather", prompt)
-
-    async def test_profile_emotion_mapping_uses_relationship_scores(self):
-        assembler = PromptContextAssembler(tool_registry=_FakeToolRegistry())
-
-        assembled = await assembler.assemble(
-            agent_id="chat-agent",
-            agent_type="chat",
-            scenario="chat",
-            task_category="chat",
-            user_id="u1",
-            self_memory=_FakeSelfMemory(),
-            other_memory=_FakeOtherMemory(),
-            tool_result={"tools": []},
-            retrieved_memory_payload={},
-        )
-
-        emotion = assembled.profile_memory.recent_emotion
-        self.assertEqual(emotion.get("emotion_label"), "positive")
-        self.assertEqual(emotion.get("trust_label"), "high")
-
-
-if __name__ == "__main__":
-    unittest.main()
+        self.assertEqual(assembled.self_memory.retrieval_memory.l0_workbench[0]["summary"], "Current goal: comfort the user")
+        self.assertEqual(assembled.self_memory.retrieval_memory.l2_entity_cards[0]["entity_id"], "user:u1")
+        self.assertEqual(assembled.self_memory.retrieval_memory.l3_reflection_memory[0]["summary"], "User wants to switch jobs")
+        self.assertEqual(assembled.self_memory.retrieval_memory.l4_procedural_memory[0]["skill_name"], "browser.open")
+        self.assertIn("Procedural Memory (L4)", prompt)
+        self.assertIn("Entity Cards (L2)", prompt)

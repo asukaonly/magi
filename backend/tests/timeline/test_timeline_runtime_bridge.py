@@ -6,7 +6,7 @@ from magi.config import AppConfig
 from magi.runtime.bootstrap import _build_timeline_handler
 
 
-class _FakeL1RawStore:
+class _FakeL1Store:
     def __init__(self) -> None:
         self.timeline_events = []
 
@@ -17,10 +17,10 @@ class _FakeL1RawStore:
 
 class _FakeUnifiedMemory:
     def __init__(self) -> None:
-        self.l1_raw = _FakeL1RawStore()
+        self.l1 = _FakeL1Store()
         self.edges: list[dict] = []
 
-    def upsert_user_graph_edge(self, **kwargs) -> None:
+    async def upsert_user_graph_edge(self, **kwargs) -> None:
         self.edges.append(kwargs)
 
 
@@ -54,8 +54,8 @@ async def test_runtime_timeline_handler_persists_chat_turn_and_user_graph_edges(
     )
 
     assert result == {"handled": True, "event_id": "chat:turn-1", "source_type": "chat"}
-    assert len(memory.l1_raw.timeline_events) == 1
-    stored_event = memory.l1_raw.timeline_events[0]
+    assert len(memory.l1.timeline_events) == 1
+    stored_event = memory.l1.timeline_events[0]
     assert stored_event.provenance["session_id"] == "session-1"
     assert [block.value for block in stored_event.content_blocks] == [
         "User: I still like Asuka best.",

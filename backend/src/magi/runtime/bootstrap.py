@@ -302,27 +302,27 @@ async def initialize_chat_agent():
         unified_memory = UnifiedMemoryStore(
             db_path=str(runtime_paths.events_db_path),
             persist_dir=str(runtime_paths.memories_dir),
-            enable_embeddings=True,
-            enable_summaries=True,
-            enable_capabilities=True,
-            embedding_config={
-                "backend": config.agent.memory.embedding.backend.value,
-                "local_model": config.agent.memory.embedding.local_model,
-                "local_dimension": config.agent.memory.embedding.local_dimension,
-            },
-            llm_adapter=llm_adapter,
+            enable_l0=config.agent.memory.enable_l0,
+            enable_l1=config.agent.memory.enable_l1,
+            enable_l2=config.agent.memory.enable_l2,
+            enable_l3=config.agent.memory.enable_l3,
+            enable_l4=config.agent.memory.enable_l4,
+            l0_checkpoint_interval_seconds=config.agent.memory.l0_checkpoint_interval_seconds,
         )
         await unified_memory.initialize()
-        logger.info("UnifiedMemoryStore initialized (L1-L5)")
+        logger.info("UnifiedMemoryStore initialized (L0-L4)")
 
         memory_integration_config = MemoryIntegrationConfig(
-            enable_l1_raw=config.agent.memory.enable_l1_raw,
-            enable_l2_relations=config.agent.memory.enable_l2_relations,
-            enable_l3_embeddings=config.agent.memory.enable_l3_embeddings,
-            enable_l4_summaries=config.agent.memory.enable_l4_summaries,
-            enable_l5_capabilities=config.agent.memory.enable_l5_capabilities,
-            async_embeddings=config.agent.memory.async_embeddings,
-            auto_extract_relations=config.agent.memory.auto_extract_relations,
+            enable_l0=config.agent.memory.enable_l0,
+            enable_l1=config.agent.memory.enable_l1,
+            enable_l2=config.agent.memory.enable_l2,
+            enable_l3=config.agent.memory.enable_l3,
+            enable_l4=config.agent.memory.enable_l4,
+            enable_l1_raw=config.agent.memory.enable_l1,
+            enable_l2_relations=config.agent.memory.enable_l2,
+            enable_l3_embeddings=config.agent.memory.enable_l3,
+            enable_l4_summaries=config.agent.memory.enable_l3,
+            enable_l5_capabilities=config.agent.memory.enable_l4,
             summary_interval_minutes=config.agent.memory.summary_interval_minutes,
         )
         _memory_integration = MemoryIntegrationModule(
