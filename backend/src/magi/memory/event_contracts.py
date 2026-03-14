@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -88,7 +89,7 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
     source_item_id = _first_non_empty(payload.get("source_item_id"), metadata.get("source_item_id"))
 
     return MemoryEvent(
-        event_id=str(event_id or event.correlation_id or f"evt-{int(now * 1000)}"),
+        event_id=str(event_id or f"evt_{uuid.uuid4().hex}"),
         correlation_id=str(event.correlation_id or ""),
         parent_event_id=parent_event_id,
         timestamp=float(event.timestamp),

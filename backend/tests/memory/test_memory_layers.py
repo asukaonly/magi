@@ -1,4 +1,4 @@
-"""Tests for L1-L5 unified memory flow and integration pipeline."""
+"""End-to-end tests for the rewritten L0-L4 memory system."""
 
 from __future__ import annotations
 
@@ -23,71 +23,79 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.store = UnifiedMemoryStore(
             db_path=str(self.base / "events.db"),
             persist_dir=str(self.base / "memories"),
-            enable_embeddings=True,
-            enable_summaries=True,
-            enable_capabilities=True,
-            embedding_config={
-                "backend": "sqlite_vec",
-                "local_model": "hash",
-                "local_dimension": 64,
-            },
         )
         await self.store.initialize()
 
     async def asyncTearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    async def test_l1_l5_pipeline(self):
+    async def test_l0_l4_pipeline(self):
         now = time.time()
-        for idx in range(3):
-            await self.store.add_event(
-                {
-                    "id": f"task-{idx}",
-                    "type": EventTypes.TASK_COMPLETED,
-                    "timestamp": now + idx,
-                    "source": "test",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "task_id": "daily_report",
-                        "success": True,
-                        "duration": 0.3,
-                        "action": {"tool": "summary_tool", "params": {"scope": "daily"}},
-                    },
-                    "metadata": {
-                        "event_type": EventTypes.TASK_COMPLETED,
-                        "message": "generate daily summary",
-                        "parameters": {"scope": "daily"},
-                    },
-                }
-            )
-
-        l1_count = await self.store.l1_raw.count_events()
-        self.assertEqual(l1_count, 3)
-
-        l2_stats = self.store.l2_relations.get_statistics()
-        self.assertEqual(l2_stats["total_events"], 3)
-
-        semantic = await self.store.search("daily summary", search_type="semantic", limit=5)
-        self.assertGreaterEqual(len(semantic), 1)
-
-        summary = self.store.generate_summary("day", force=True)
-        self.assertIsNotNone(summary)
-        self.assertGreater(summary.event_count, 0)
-
-        capabilities = self.store.l5_capabilities.get_all_capabilities()
-        self.assertGreaterEqual(len(capabilities), 1)
-
-        found = self.store.find_capability(
+        await self.store.add_event(
             {
-                "event_type": EventTypes.TASK_COMPLETED,
-                "message": "please generate daily summary",
-                "parameters": {"scope": "daily"},
-            },
-            threshold=0.1,
+                "id": "evt-1",
+                "type": EventTypes.USER_MESSAGE,
+                "timestamp": now,
+                "source": "chat",
+                "level": EventLevel.INFO.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "message": "I have been really stressed about work lately.",
+                },
+                "metadata": {"user_id": "u1"},
+            }
         )
-        self.assertIsNotNone(found)
+        await self.store.add_event(
+            {
+                "id": "evt-2",
+                "type": EventTypes.ACTION_EXECUTED,
+                "timestamp": now + 5,
+                "source": "worker",
+                "level": EventLevel.INFO.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "action_type": "browser.open",
+                    "params": {"url": "https://example.com"},
+                    "success": True,
+                    "execution_time": 0.5,
+                },
+            }
+        )
+        await self.store.add_event(
+            {
+                "id": "evt-3",
+                "type": EventTypes.ACTION_EXECUTED,
+                "timestamp": now + 10,
+                "source": "worker",
+                "level": EventLevel.ERROR.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "action_type": "browser.open",
+                    "params": {"url": "https://example.com"},
+                    "success": False,
+                    "execution_time": 0.5,
+                    "error": "timeout",
+                },
+            }
+        )
 
-    async def test_timeline_events_round_trip_through_l1(self):
+        workbench = await self.store.l0.get_workbench("s1")
+        l1_count = await self.store.l1.count_events()
+        assertions = await self.store.l2.list_tom_assertions(entity_id="user:u1")
+        summary = await self.store.generate_summary(period_type="day", period_start=now - 10, period_end=now + 60)
+        procedures = await self.store.l4.query_strategies(query="browser", limit=5)
+
+        self.assertEqual(workbench["session"]["user_id"], "u1")
+        self.assertEqual(l1_count, 3)
+        self.assertEqual(assertions[0]["trait_name"], "stress_level")
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["summary_type"], "temporal")
+        self.assertGreaterEqual(len(procedures), 1)
+
+    async def test_timeline_events_round_trip_through_l1_and_l2(self):
         service = TimelineService(self.store)
         event = TimelineEvent(
             event_id="timeline-1",
@@ -99,43 +107,35 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             summary="Wrote about the day",
             retention_mode="retain_raw",
             raw_payload_ref="/tmp/day-note.md",
-            content_blocks=[TimelineContentBlock(kind="text", value="Today was full and calm.")],
+            content_blocks=[TimelineContentBlock(kind="text", value="Today I said I like Asuka.")],
             processing_status={"stored": True, "embedded": False},
             provenance={"sensor_id": "manual_journal"},
         )
 
-        stored_id = await service.upsert_event(event)
-        self.assertEqual(stored_id, "timeline-1")
-
-        fetched = await self.store.l1_raw.get_timeline_event("timeline-1")
-        self.assertIsNotNone(fetched)
-        assert fetched is not None
-        self.assertEqual(fetched["occurred_at"], event.occurred_at)
-        self.assertEqual(fetched["captured_at"], event.captured_at)
-        self.assertEqual(fetched["retention_mode"], "retain_raw")
-        self.assertEqual(fetched["raw_payload_ref"], "/tmp/day-note.md")
-        self.assertEqual(fetched["content_blocks"][0]["kind"], "text")
-        self.assertEqual(fetched["processing_status"]["stored"], True)
-
-        listed = await self.store.l1_raw.list_events(limit=10, event_type="TIMELINE_EVENT")
-        self.assertEqual(listed[0]["id"], "timeline-1")
-        self.assertEqual(listed[0]["metadata"]["timeline"]["title"], "Evening note")
-
-        self.store.upsert_user_graph_edge(
-            subject_id="user:self",
-            subject_type="user",
-            predicate="LIKES",
-            object_id="character:asuka",
-            object_type="person",
-            evidence_event_ids=["timeline-1"],
-            confidence=0.85,
-            observed_at=event.occurred_at,
-            source_type="manual_journal",
-            object_attributes={"name": "Asuka"},
+        stored_id = await service.upsert_event(
+            event,
+            relation_candidates=[
+                {
+                    "subject_id": "user:self",
+                    "subject_type": "user",
+                    "predicate": "LIKES",
+                    "object_id": "character:asuka",
+                    "object_type": "person",
+                    "confidence": 0.85,
+                }
+            ],
+            allowed_edge_whitelist=["LIKES"],
         )
-        graph_stats = self.store.l2_user_graph.get_statistics()
-        self.assertEqual(graph_stats["total_nodes"], 2)
-        self.assertEqual(graph_stats["total_edges"], 1)
+
+        fetched = await self.store.l1.get_timeline_event("timeline-1")
+        listed = await self.store.l1.list_timeline_events(limit=10, source_type="manual_journal")
+        detail = await service.get_event_detail("timeline-1")
+
+        self.assertEqual(stored_id, "timeline-1")
+        self.assertIsNotNone(fetched)
+        self.assertEqual(fetched["retention_mode"], "retain_raw")
+        self.assertEqual(listed[0]["title"], "Evening note")
+        self.assertEqual(detail["graph_evidence"][0]["predicate"], "LIKES")
 
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
@@ -146,10 +146,6 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         self.memory = UnifiedMemoryStore(
             db_path=str(base / "events.db"),
             persist_dir=str(base / "memories"),
-            enable_embeddings=True,
-            enable_summaries=True,
-            enable_capabilities=True,
-            embedding_config={"backend": "sqlite_vec", "local_model": "hash", "local_dimension": 32},
         )
         await self.memory.initialize()
 
@@ -159,7 +155,7 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         self.integration = MemoryIntegrationModule(
             unified_memory=self.memory,
             message_bus=self.bus,
-            config=MemoryIntegrationConfig(summary_interval_minutes=1),
+            config=MemoryIntegrationConfig(),
         )
         await self.integration.start()
 
@@ -169,49 +165,44 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         self.temp_dir.cleanup()
 
     async def test_event_pipeline_from_bus(self):
-        correlation_id = "corr-1"
+        await self.bus.publish(
+            Event(
+                type="WORKER_AGENT_PROGRESS",
+                data={"user_id": "u1", "session_id": "s1", "worker_id": "worker-1"},
+                source="worker",
+                level=EventLevel.INFO,
+                correlation_id="corr-1",
+            )
+        )
         await self.bus.publish(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "message": "hello"},
-                source="test",
+                data={"user_id": "u1", "session_id": "s1", "message": "I feel stressed at work."},
+                source="chat",
                 level=EventLevel.INFO,
-                correlation_id=correlation_id,
+                correlation_id="corr-1",
             )
         )
-
         await self.bus.publish(
             Event(
                 type=EventTypes.TASK_COMPLETED,
-                data={
-                    "task_id": "chat_reply",
-                    "success": True,
-                    "duration": 0.2,
-                    "action": {"tool": "reply_tool"},
-                    "user_id": "u1",
-                },
-                source="test",
+                data={"user_id": "u1", "session_id": "s1", "task_id": "reply", "success": True},
+                source="runtime",
                 level=EventLevel.INFO,
-                correlation_id=correlation_id,
-                metadata={"event_type": EventTypes.TASK_COMPLETED, "message": "reply to user"},
+                correlation_id="corr-1",
             )
         )
 
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.2)
 
         stats = self.integration.get_statistics()
-        self.assertGreaterEqual(stats["events_processed"], 2)
-        self.assertGreaterEqual(stats["l1_stored"], 1)
+        workbench = await self.memory.l0.get_workbench("s1")
+        l1_count = await self.memory.l1.count_events()
 
-        l1_count = await self.memory.l1_raw.count_events()
-        self.assertGreaterEqual(l1_count, 1)
-
-        l2_stats = self.memory.l2_relations.get_statistics()
-        self.assertGreaterEqual(l2_stats["total_events"], 2)
-
-        await self.integration.generate_pending_summaries()
-        summary = self.memory.get_summary("hour")
-        self.assertTrue(summary is None or summary.event_count >= 1)
+        self.assertGreaterEqual(stats["events_processed"], 3)
+        self.assertEqual(l1_count, 2)
+        self.assertEqual(workbench["session"]["user_id"], "u1")
+        self.assertGreaterEqual(stats["l2_assertions_written"], 1)
 
 
 if __name__ == "__main__":

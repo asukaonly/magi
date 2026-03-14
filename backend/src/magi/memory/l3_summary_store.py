@@ -149,6 +149,10 @@ class L3SummaryStore:
             await db.commit()
         return count
 
+    def get_statistics(self) -> Dict[str, Any]:
+        """Return lightweight metadata for reporting."""
+        return {"db_path": self.db_path}
+
     async def _store_summary(self, summary: Dict[str, Any]) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(

@@ -23,7 +23,7 @@ class TimelineService:
         relation_candidates: Optional[list[dict]] = None,
         allowed_edge_whitelist: Optional[list[str]] = None,
     ) -> str:
-        await self._unified_memory.l1_raw.store_timeline_event(event)
+        await self._unified_memory.l1.store_timeline_event(event)
         event.processing_status["stored"] = True
         if relation_candidates:
             persisted = await self._insight_pipeline.process_event(
@@ -36,15 +36,15 @@ class TimelineService:
         return event.event_id
 
     async def get_event(self, event_id: str) -> Optional[dict]:
-        return await self._unified_memory.l1_raw.get_timeline_event(event_id)
+        return await self._unified_memory.l1.get_timeline_event(event_id)
 
     async def get_event_detail(self, event_id: str) -> Optional[dict]:
         event = await self.get_event(event_id)
         if event is None:
             return None
         graph_evidence = [
-            edge.to_dict()
-            for edge in self._unified_memory.l2_user_graph.find_edges_by_event_id(event_id)
+            edge
+            for edge in await self._unified_memory.l2.find_edges_by_event_id(event_id)
         ]
         return {
             **event,
@@ -52,7 +52,7 @@ class TimelineService:
         }
 
     async def list_events(self, limit: int = 100, source_type: Optional[str] = None) -> list[dict]:
-        return await self._unified_memory.l1_raw.list_timeline_events(limit=limit, source_type=source_type)
+        return await self._unified_memory.l1.list_timeline_events(limit=limit, source_type=source_type)
 
     async def create_manual_journal(
         self,
