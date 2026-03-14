@@ -162,6 +162,11 @@ memory_domain: Literal[
 每条事件还必须带以下策略字段：
 
 ```python
+ingest_target: Literal[
+    "l0_only",                  # 仅进入 L0，作为当前执行态信号
+    "l0_and_l1",                # 先服务当前执行，再进入 L1 做审计/复盘
+    "l1_only",                  # 直接进入 L1，不参与当前执行态缓存
+]
 cognition_eligible: bool        # 是否允许进入 L2/L3/L4 推导
 tom_depth: Literal[
     "none",                     # 不做 ToM
@@ -175,20 +180,43 @@ retention_class: Literal[
 ]
 ```
 
-### 4.3 默认策略矩阵
+### 4.3 运行时事件分流规则
 
-| 来源 | domain | cognition_eligible | tom_depth | retention_class |
-|------|--------|--------------------|-----------|-----------------|
-| 聊天记录 | user_authored | true | defensive_psychology | permanent |
-| 用户手动日记/时间线 | user_authored | true | defensive_psychology | permanent |
-| 浏览历史 | external_activity | true | topology_only | compressible |
-| 终端/Git 活动 | external_activity | true | none | compressible |
-| 照片/OCR/群聊 | external_activity | true | topology_only | compressible |
-| worker 进度 | runtime_telemetry | false | none | disposable |
-| loop/scheduler 维护 | system_control | false | none | disposable |
-| 系统错误 | runtime_telemetry | false | none | compressible |
+对于 `WORKER_AGENT_PROGRESS`、`LOOP_STARTED`、`TASK_ASSIGNED` 这类事件，不采用“要么全进 L0，要么全进 L1”的二选一策略，而是按执行价值与长期价值分流：
 
-### 4.4 群体内容的特殊规则
+1. **只服务当前运行态的高频事件**：默认 `l0_only`
+2. **值得审计/复盘的里程碑事件**：默认 `l0_and_l1`
+3. **不属于当前执行态，但需要长期保留的关键事件**：默认 `l1_only`
+
+判断标准：
+
+1. 该事件是否只服务当前执行态
+2. 该事件未来是否值得审计、回放、排障
+3. 该事件是否会影响未来行为策略
+
+### 4.4 默认策略矩阵
+
+| 来源 | ingest_target | domain | cognition_eligible | tom_depth | retention_class |
+|------|---------------|--------|--------------------|-----------|-----------------|
+| 聊天记录 | l1_only | user_authored | true | defensive_psychology | permanent |
+| 用户手动日记/时间线 | l1_only | user_authored | true | defensive_psychology | permanent |
+| 浏览历史 | l1_only | external_activity | true | topology_only | compressible |
+| 终端/Git 活动 | l1_only | external_activity | true | none | compressible |
+| 照片/OCR/群聊 | l1_only | external_activity | true | topology_only | compressible |
+| WORKER_AGENT_PROGRESS | l0_only | runtime_telemetry | false | none | disposable |
+| LOOP_STARTED / LOOP_PHASE_STARTED / HEARTBEAT | l0_only | system_control | false | none | disposable |
+| TASK_ASSIGNED / TASK_STARTED | l0_and_l1 | runtime_telemetry | false | none | compressible |
+| TASK_COMPLETED / TASK_FAILED | l0_and_l1 | runtime_telemetry | false | none | compressible |
+| 系统错误 / 熔断切换 / 策略变更 | l1_only | runtime_telemetry | false | none | compressible |
+
+### 4.5 运行时事件的特殊说明
+
+1. `l0_only` 事件默认不进入长期记忆主存，避免高频噪声灌爆 L1。
+2. `l0_and_l1` 事件进入 L1 后，默认只用于审计、排障、回放与 L4 程序性经验提炼，不参与 L2/L3 主认知链路。
+3. `TASK_COMPLETED`、`TASK_FAILED`、熔断状态变更这类事件虽然属于 runtime 事件，但可能改变未来执行路径，因此保留进入 L1 的资格。
+4. 若用户未来明确要求“完整运行时回放”，可通过配置将部分 `l0_only` 事件升级为 `l0_and_l1`。
+
+### 4.6 群体内容的特殊规则
 
 群聊、截图 OCR、公共社交文本等多实体内容默认不做深度单体心理诊断，仅允许抽取：
 
