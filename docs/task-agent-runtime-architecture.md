@@ -146,6 +146,25 @@ Current responsibilities:
 
 This scheduler is meant for user-facing or business-facing runtime work, not system housekeeping. `MaintenanceDaemon` remains a separate mechanism for now.
 
+### 7. Unified memory runtime
+
+The runtime now includes a lifecycle-based memory subsystem centered on:
+
+- [memory/__init__.py](/Users/asuka/code/magi/backend/src/magi/memory/__init__.py)
+- [integration.py](/Users/asuka/code/magi/backend/src/magi/memory/integration.py)
+- [hybrid_retrieval/service.py](/Users/asuka/code/magi/backend/src/magi/memory/hybrid_retrieval/service.py)
+
+Current responsibilities:
+
+- keep short-lived execution state in `L0` working memory with checkpoint recovery
+- persist normalized long-term events in `L1`
+- derive structured cognition in `L2`
+- generate reflective summaries in `L3`
+- store learned procedures and strategy heuristics in `L4`
+- expose cross-layer retrieval for prompt assembly and the `memory_query` tool
+
+This memory runtime is not just prompt-context caching. It is part of the core runtime boundary because timeline ingestion, worker outcomes, and chat interactions all feed the same memory lifecycle.
+
 ## Current Task-Agent Execution Framework
 
 The shared execution framework lives under:
@@ -290,6 +309,23 @@ The scheduler runtime currently supports three target families:
 
 This keeps timer-based work attached to the runtime boundary rather than coupling it to individual domains.
 
+## Memory Event Flow
+
+The current memory write path is:
+
+1. runtime or timeline code emits a raw event or fact
+2. `MemoryIntegrationModule` normalizes it into a memory event contract
+3. event routing decides whether it is `l0_only`, `l0_and_l1`, or `l1_only`
+4. `UnifiedMemoryStore` writes the event into the enabled lifecycle stages
+5. downstream retrieval surfaces read from event, cognition, reflection, and procedural memory as needed
+
+Two boundary rules matter here:
+
+- high-frequency runtime telemetry may exist, but should not automatically participate in long-term cognition
+- L1 is the durable source of truth for long-term memory, while L0 remains execution-scoped
+
+This is the reason worker progress signals, timeline facts, and chat messages can share one ingestion system without being treated identically downstream.
+
 ## Timeline Pull Sync Flow
 
 Timeline sensors may now expose an optional pull-sync contract:
@@ -302,7 +338,7 @@ The runtime flow is:
 2. `SchedulerBootstrap` resolves the sensor from `SensorRegistry`
 3. A pull-capable sensor runs `collect_items(...)`
 4. Returned items are normalized through `build_timeline_event(...)` and `extract_candidates(...)`
-5. `TimelineService` writes L1 events and updates downstream relationship extraction
+5. `TimelineService` writes normalized memory events and updates downstream cognition extraction
 
 This is the path that enables plugin-backed local sources such as browser history collectors to participate in timeline ingestion without adding custom background loops for each source.
 
@@ -344,6 +380,9 @@ If you are modifying this part of the system, read these first:
 - [task_orchestrator.py](/Users/asuka/code/magi/backend/src/magi/agent/task_orchestrator.py)
 - [orchestration.py](/Users/asuka/code/magi/backend/src/magi/agent/orchestration.py)
 - [worker_manager.py](/Users/asuka/code/magi/backend/src/magi/agent/workers/worker_manager.py)
+- [memory/__init__.py](/Users/asuka/code/magi/backend/src/magi/memory/__init__.py)
+- [integration.py](/Users/asuka/code/magi/backend/src/magi/memory/integration.py)
+- [hybrid_retrieval/service.py](/Users/asuka/code/magi/backend/src/magi/memory/hybrid_retrieval/service.py)
 
 ## Current Strengths
 
@@ -351,12 +390,14 @@ If you are modifying this part of the system, read these first:
 - Workers are leaf-only and bounded
 - Internal contracts are much more explicit than before
 - The runtime can now be reasoned about in terms of stable DTOs instead of ad hoc payload dictionaries
+- Memory ingestion and retrieval now share one lifecycle model instead of multiple loosely coupled memory stacks
 
 ## Current Risks
 
 - [common/contracts.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/common/contracts.py) is growing and may need to be split by concern
 - `TaskOrchestrator` is still a dense class and may eventually need event-adapter separation
 - Event transport payloads are still dict-based externally, so contract drift is still possible if new event producers bypass the typed classifiers
+- Memory quality now depends more heavily on correct event routing and source taxonomy, so runtime producers must follow the memory event contract carefully
 
 ## Contributor Guidance
 

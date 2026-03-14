@@ -52,6 +52,9 @@ Magi uses a layered backend architecture:
 - Agent layer
   Task orchestration, worker management, execution loops, prompt assembly
 
+- Memory layer
+  Lifecycle-based memory ingestion, cognition extraction, reflection, procedural memory, and prompt retrieval
+
 - Extension layer
   Tools, providers, memory backends, unified plugins, skills, LLM adapters
 
@@ -69,6 +72,27 @@ The extension layer now uses a unified plugin runtime for three contribution fam
 
 This means official built-ins and external packages follow the same discovery, enablement, and registry flow instead of separate hardcoded registration paths.
 
+The memory system has also been rewritten around a lifecycle model instead of the older feature-stacked L1-L5 framing.
+
+Current high-level memory shape:
+
+- `L0`
+  In-memory working context with checkpointing for crash recovery and short-lived execution state
+
+- `L1`
+  Normalized event memory as the long-term factual source of truth
+
+- `L2`
+  Structured cognition such as entities, relationships, and defensive ToM assertions derived from L1
+
+- `L3`
+  Reflection memory that compresses event streams into summaries and durable insights
+
+- `L4`
+  Procedural memory that stores reusable strategies, failure lessons, and execution heuristics
+
+This model lets Magi separate ephemeral runtime state from durable user memory while still supporting retrieval, timeline insighting, and future behavior adaptation.
+
 ## Repository Structure
 
 ```text
@@ -82,7 +106,7 @@ magi/
 │   │   ├── core/           # Runtime lifecycle and loop primitives
 │   │   ├── events/         # Event backends and event types
 │   │   ├── llm/            # Provider bridge and model adapters
-│   │   ├── memory/         # Prompt context, memory layers, stores
+│   │   ├── memory/         # Memory ingestion, retrieval, cognition, reflection, prompt context
 │   │   ├── plugins/        # Plugin interfaces and loading
 │   │   ├── processing/     # Processing modules
 │   │   ├── runtime/        # Runtime bootstrap and wiring
@@ -128,6 +152,17 @@ The runtime also now includes a unified scheduler layer:
   The runtime adapter that connects scheduled jobs to timeline sensor sync, task-agent dispatch, and outbound actions
 
 This scheduler is intentionally separate from housekeeping loops such as `MaintenanceDaemon`.
+
+The runtime also includes a unified memory subsystem:
+
+- `UnifiedMemoryStore`
+  Owns L0-L4 stores and the write path for normalized memory events
+
+- `MemoryIntegrationModule`
+  Bridges runtime events, timeline events, and task execution facts into the memory pipeline
+
+- `HybridRetrievalService`
+  Reads across event, cognition, reflection, and procedural memory when prompt assembly or tools need recall
 
 ## Current Explore Flow
 

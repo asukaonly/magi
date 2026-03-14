@@ -18,7 +18,7 @@ Magi currently exposes these major configuration areas:
 - onboarding flow
 - LLM provider and model settings
 - AI personality and tone
-- memory mode
+- memory system
 - tool management
 - plugin and extension management
 - timeline source management
@@ -156,29 +156,51 @@ Design expectations:
 - personality content should remain language-aware
 - quick mode should stay simpler than expert mode
 
-## Memory Mode
+## Memory System
 
-Magi uses a layered memory model.
+Magi now exposes a lifecycle-based memory system instead of the older feature-stacked memory layer framing.
 
 The current conceptual model is:
 
-- L1: raw events
-- L2: relationship graph
-- L3: semantic memory
-- L4: summaries
-- L5: capability memory
+- `L0`: working context
+  Short-lived runtime state kept in memory with checkpoint recovery
+
+- `L1`: event memory
+  Long-term normalized source events and the factual base for later recall
+
+- `L2`: structured cognition
+  Entities, relationships, and defensive ToM assertions derived from L1
+
+- `L3`: reflection memory
+  Summaries and distilled insights generated from retained event streams
+
+- `L4`: procedural memory
+  Reusable strategies, execution heuristics, and learned failure avoidance
 
 Product expectations:
 
-- users can understand the layers at a high level
-- dependencies between layers are visible
-- advanced memory configuration is expert-oriented
-- quick onboarding should not force users through detailed memory decisions
+- users can understand the lifecycle of memory at a high level
+- advanced memory configuration remains expert-oriented
+- quick onboarding should not force detailed memory tuning
+- settings should expose the main lifecycle toggles and key pipeline switches
 
-Important behavioral rule:
+The current settings surface should support at least:
 
-- L1 is foundational
-- higher memory layers depend on it
+- enable or disable `L0` through `L4`
+- configure L0 checkpoint interval
+- configure L1 retention window
+- enable or disable T1 importance scoring
+- enable or disable L2 LLM extraction
+- enable or disable L3 LLM reflection
+- enable or disable L4 procedural skill extraction
+- expose whether short-lived L0-only runtime events participate in replay
+
+Important behavioral rules:
+
+- `L1` is the long-term foundation
+- `L2`, `L3`, and `L4` depend on `L1`
+- runtime telemetry should not be treated as equivalent to user-authored memory
+- expert memory controls belong in Settings and expert onboarding, not quick onboarding
 
 ## Tool And Extension Management
 
