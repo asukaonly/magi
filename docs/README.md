@@ -21,6 +21,18 @@ This folder is the active documentation home for Magi.
 5. [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
    Read this if you want to build a new built-in or external plugin package.
 
+## Memory Documentation
+
+Memory architecture is split into project-level docs in `docs/` and implementation-level deep dives in `backend/docs/`.
+
+- Project-level baseline (required first):
+  - [Project Overview](/Users/asuka/code/magi/docs/project-overview.md)
+  - [Product Configuration Guide](/Users/asuka/code/magi/docs/product-configuration-guide.md)
+  - [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
+- Memory implementation deep dives (backend maintainers):
+  - [Memory System Design](/Users/asuka/code/magi/backend/docs/memory-system-design.md)
+  - [Memory System Execution Plan](/Users/asuka/code/magi/backend/docs/memory-system-execution-plan.md)
+
 ## Audience Guide
 
 - Open source users
@@ -40,6 +52,6 @@ This folder is the active documentation home for Magi.
 
 ## Documentation Rules
 
-- `docs/` is now the preferred place for architecture and contributor-facing docs.
-- `docs/` is the only active documentation source in the repository.
+- `docs/` is the preferred place for project architecture and contributor-facing docs.
+- Module-level implementation deep dives can live near code (for example `backend/docs/`) but must stay aligned with `docs/`.
 - When runtime architecture changes materially, update the relevant document in `docs/` in the same change if practical.

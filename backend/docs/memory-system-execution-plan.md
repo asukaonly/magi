@@ -8,6 +8,14 @@
 
 **Tech Stack:** Python 3.10+, SQLite, aiosqlite, FastAPI, Pydantic v2, asyncio, pytest, current Magi runtime bootstrap and task-agent architecture.
 
+## Document Boundary
+
+To keep docs consistent and avoid duplicate architecture sources:
+
+1. Root `docs/` files are the baseline for project, product, and runtime semantics.
+2. This file is an execution-level plan for backend memory implementation only.
+3. If any step here conflicts with root `docs/`, align root docs first, then update this plan.
+
 ---
 
 ## Scope Notes
