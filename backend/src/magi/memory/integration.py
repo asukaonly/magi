@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..events.backend import MessageBusBackend
 from ..events.events import BusinessEventTypes, Event, EventTypes
+from .event_contracts import normalize_runtime_event
 from . import UnifiedMemoryStore
 
 logger = logging.getLogger(__name__)
@@ -216,6 +217,11 @@ class MemoryIntegrationModule:
             logger.exception("Failed to process event %s: %s", event.type, exc)
 
     async def _maybe_store_l1(self, event: Event) -> None:
+        normalized = normalize_runtime_event(event)
+        if normalized.ingest_target == "l0_only":
+            self._stats["l1_filtered"] += 1
+            return
+
         if not self._should_store_l1_event(event):
             self._stats["l1_filtered"] += 1
             return

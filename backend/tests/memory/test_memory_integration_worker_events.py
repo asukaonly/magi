@@ -43,7 +43,7 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
             self.assertIn(event_type, cfg.subscribed_events)
             self.assertIn(event_type, cfg.l1_event_whitelist)
 
-    async def test_worker_progress_event_is_stored_in_l1(self):
+    async def test_worker_progress_event_is_not_stored_in_l1(self):
         integration = MemoryIntegrationModule(
             unified_memory=_FakeUnifiedMemory(),
             message_bus=_FakeBus(),
@@ -60,8 +60,7 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         await integration._maybe_store_l1(event)
 
-        self.assertEqual(len(integration.unified_memory.l1_raw.stored_events), 1)
-        self.assertEqual(integration.unified_memory.l1_raw.stored_events[0].type, "WORKER_AGENT_PROGRESS")
+        self.assertEqual(len(integration.unified_memory.l1_raw.stored_events), 0)
 
     async def test_chat_response_action_preserves_trace_identity(self):
         integration = MemoryIntegrationModule(
