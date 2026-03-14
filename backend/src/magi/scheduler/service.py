@@ -221,9 +221,17 @@ class SchedulerService:
         schedule = await self._repository.get_schedule(schedule_id)
         if schedule is None:
             return ScheduledExecutionResult(success=False, message="schedule_not_found")
+        started_at = time.time()
         acquired = await self._repository.acquire_target_lock(schedule.target_type, schedule.target_key)
         if not acquired:
             return ScheduledExecutionResult(success=False, message="target_busy")
+        execution_id = await self._repository.create_execution_record(
+            schedule_id=schedule.schedule_id,
+            target_type=schedule.target_type,
+            target_key=schedule.target_key,
+            manual=manual or bool(schedule.metadata.get("manual", False)),
+            started_at=started_at,
+        )
         state = await self._repository.get_target_state(schedule.target_type, schedule.target_key)
         handler = self._handlers.get(schedule.target_type)
         try:
@@ -234,7 +242,7 @@ class SchedulerService:
                     schedule=schedule,
                     target_state=state,
                     runtime_dir=self._runtime_dir,
-                    triggered_at=time.time(),
+                    triggered_at=started_at,
                     manual=manual or bool(schedule.metadata.get("manual", False)),
                 )
             )
@@ -245,6 +253,12 @@ class SchedulerService:
                 result=result,
                 next_run_at=next_run_at,
                 scheduler_job_id=schedule.job_id or schedule.schedule_id,
+            )
+            await self._repository.complete_execution_success(
+                execution_id,
+                result=result,
+                scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                finished_at=time.time(),
             )
             if schedule.trigger.trigger_type == TriggerType.ONCE:
                 await self._repository.delete_schedule(schedule.schedule_id)
@@ -257,6 +271,12 @@ class SchedulerService:
                 error=str(exc),
                 next_run_at=next_run_at,
                 scheduler_job_id=schedule.job_id or schedule.schedule_id,
+            )
+            await self._repository.complete_execution_failure(
+                execution_id,
+                error=str(exc),
+                scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                finished_at=time.time(),
             )
             if schedule.trigger.trigger_type == TriggerType.ONCE:
                 await self._repository.delete_schedule(schedule.schedule_id)

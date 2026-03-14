@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -73,6 +74,37 @@ class ScheduleRepository:
                     PRIMARY KEY (target_type, target_key)
                 )
                 """
+            )
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schedule_executions (
+                    execution_id TEXT PRIMARY KEY,
+                    schedule_id TEXT NOT NULL,
+                    target_type TEXT NOT NULL,
+                    target_key TEXT NOT NULL,
+                    manual INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL,
+                    started_at REAL NOT NULL,
+                    finished_at REAL,
+                    duration_ms REAL,
+                    result_message TEXT,
+                    error TEXT,
+                    stats_json TEXT NOT NULL DEFAULT '{}',
+                    next_cursor TEXT,
+                    watermark_ts REAL,
+                    scheduler_job_id TEXT,
+                    created_at REAL NOT NULL
+                )
+                """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_schedule_executions_schedule_id ON schedule_executions(schedule_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_schedule_executions_target ON schedule_executions(target_type, target_key)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_schedule_executions_started_at ON schedule_executions(started_at DESC)"
             )
             await db.commit()
 
@@ -360,6 +392,114 @@ class ScheduleRepository:
                 WHERE target_type = ? AND target_key = ?
                 """,
                 (now, target_type.value, target_key),
+            )
+            await db.commit()
+
+    async def create_execution_record(
+        self,
+        *,
+        schedule_id: str,
+        target_type: ScheduledTargetType,
+        target_key: str,
+        manual: bool,
+        started_at: float,
+    ) -> str:
+        execution_id = f"exec_{uuid.uuid4().hex}"
+        async with self._connect() as db:
+            await db.execute(
+                """
+                INSERT INTO schedule_executions (
+                    execution_id, schedule_id, target_type, target_key, manual, status,
+                    started_at, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'running', ?, ?)
+                """,
+                (
+                    execution_id,
+                    schedule_id,
+                    target_type.value,
+                    target_key,
+                    1 if manual else 0,
+                    started_at,
+                    started_at,
+                ),
+            )
+            await db.commit()
+        return execution_id
+
+    async def complete_execution_success(
+        self,
+        execution_id: str,
+        *,
+        result: ScheduledExecutionResult,
+        scheduler_job_id: Optional[str],
+        finished_at: float,
+    ) -> None:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "SELECT started_at FROM schedule_executions WHERE execution_id = ?",
+                (execution_id,),
+            )
+            row = await cursor.fetchone()
+            started_at = float(row[0]) if row and row[0] is not None else finished_at
+            await db.execute(
+                """
+                UPDATE schedule_executions
+                SET status = 'success',
+                    finished_at = ?,
+                    duration_ms = ?,
+                    result_message = ?,
+                    stats_json = ?,
+                    next_cursor = ?,
+                    watermark_ts = ?,
+                    scheduler_job_id = ?
+                WHERE execution_id = ?
+                """,
+                (
+                    finished_at,
+                    max(0.0, (finished_at - started_at) * 1000.0),
+                    result.message,
+                    json.dumps(result.stats, ensure_ascii=False),
+                    result.next_cursor,
+                    result.watermark_ts,
+                    scheduler_job_id,
+                    execution_id,
+                ),
+            )
+            await db.commit()
+
+    async def complete_execution_failure(
+        self,
+        execution_id: str,
+        *,
+        error: str,
+        scheduler_job_id: Optional[str],
+        finished_at: float,
+    ) -> None:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "SELECT started_at FROM schedule_executions WHERE execution_id = ?",
+                (execution_id,),
+            )
+            row = await cursor.fetchone()
+            started_at = float(row[0]) if row and row[0] is not None else finished_at
+            await db.execute(
+                """
+                UPDATE schedule_executions
+                SET status = 'failed',
+                    finished_at = ?,
+                    duration_ms = ?,
+                    error = ?,
+                    scheduler_job_id = ?
+                WHERE execution_id = ?
+                """,
+                (
+                    finished_at,
+                    max(0.0, (finished_at - started_at) * 1000.0),
+                    error,
+                    scheduler_job_id,
+                    execution_id,
+                ),
             )
             await db.commit()
 

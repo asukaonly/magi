@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 
 import pytest
@@ -173,3 +174,64 @@ async def test_scheduler_service_serializes_concurrent_schedule_updates(tmp_path
     assert service._scheduler.get_job("agent-task-shared") is not None
 
     await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_service_persists_execution_history_rows(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+
+    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+        if context.schedule.target_key == "chat:failed":
+            raise RuntimeError("planned failure")
+        return ScheduledExecutionResult(success=True, message="ok", stats={"runs": 1})
+
+    service.register_handler(ScheduledTargetType.AGENT_TASK, handler)
+    await service.start()
+
+    await service.schedule_interval(
+        schedule_id="agent-task-success",
+        target_type=ScheduledTargetType.AGENT_TASK,
+        target_key="chat:ok",
+        seconds=300.0,
+        target_payload={"agent_type": "chat", "agent_id": "ok", "event_type": "ScheduledAgentTask"},
+    )
+    await service.schedule_interval(
+        schedule_id="agent-task-failed",
+        target_type=ScheduledTargetType.AGENT_TASK,
+        target_key="chat:failed",
+        seconds=300.0,
+        target_payload={"agent_type": "chat", "agent_id": "failed", "event_type": "ScheduledAgentTask"},
+    )
+
+    await service.trigger_now("agent-task-success")
+    with pytest.raises(RuntimeError):
+        await service.trigger_now("agent-task-failed")
+
+    await service.stop()
+
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT schedule_id, status, result_message, error, duration_ms
+        FROM schedule_executions
+        ORDER BY started_at ASC
+        """
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    assert len(rows) == 2
+    assert rows[0][0] == "agent-task-success"
+    assert rows[0][1] == "success"
+    assert rows[0][2] == "ok"
+    assert rows[0][3] is None
+    assert rows[0][4] is not None
+    assert rows[1][0] == "agent-task-failed"
+    assert rows[1][1] == "failed"
+    assert rows[1][2] is None
+    assert rows[1][3] == "planned failure"
+    assert rows[1][4] is not None
