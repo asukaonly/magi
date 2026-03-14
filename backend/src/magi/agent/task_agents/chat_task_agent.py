@@ -85,7 +85,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         runtime_paths = get_runtime_paths()
         self._session_service = ChatSessionService(
             session_state_file=runtime_paths.data_dir / "chat_sessions.json",
-            events_db_path=runtime_paths.events_db_path,
+            l1_db_path=runtime_paths.l1_memory_db_path,
             history_cache_max_sessions=history_cache_max_sessions,
             history_fetch_limit=history_fetch_limit,
         )

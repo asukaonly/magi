@@ -51,7 +51,7 @@ class UnifiedMemoryStore:
         from ..utils.runtime import get_runtime_paths
 
         runtime_paths = get_runtime_paths()
-        events_db = str((Path(db_path).expanduser() if db_path else runtime_paths.events_db_path))
+        l1_db = str((Path(db_path).expanduser() if db_path else runtime_paths.l1_memory_db_path))
         memories_dir = Path(persist_dir).expanduser() if persist_dir else runtime_paths.memories_dir
         memories_dir.mkdir(parents=True, exist_ok=True)
 
@@ -69,7 +69,7 @@ class UnifiedMemoryStore:
                 restore_on_restart=True,
             )
         if enable_l1:
-            self.l1 = L1EventStore(db_path=events_db)
+            self.l1 = L1EventStore(db_path=l1_db)
         if enable_l2:
             self.l2 = L2CognitionStore(db_path=str(memories_dir / "l2_cognition.db"))
         if enable_l3:

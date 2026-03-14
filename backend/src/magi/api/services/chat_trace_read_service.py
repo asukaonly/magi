@@ -114,7 +114,7 @@ class ChatTraceReadService:
 
     def __init__(self) -> None:
         runtime_paths = get_runtime_paths()
-        self._events_db_path: Path = runtime_paths.events_db_path
+        self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._orchestrations_path: Path = runtime_paths.data_dir / "task_orchestrations.json"
 
     def get_trace_snapshot(
@@ -602,29 +602,31 @@ class ChatTraceReadService:
         session_id: str,
         turn_id: str,
     ) -> list[dict[str, Any]]:
-        if not self._events_db_path.exists():
+        if not self._l1_db_path.exists():
             return []
         query = """
-            SELECT type, data, timestamp
-            FROM event_store
-            WHERE type IN ({types})
-              AND json_extract(data, '$.user_id') = ?
-              AND json_extract(data, '$.session_id') = ?
-              AND json_extract(data, '$.turn_id') = ?
+            SELECT event_type, structured_payload, timestamp
+            FROM events
+            WHERE deleted_at IS NULL
+              AND event_type IN ({types})
+              AND user_id = ?
+              AND session_id = ?
+              AND json_extract(structured_payload, '$.turn_id') = ?
             ORDER BY timestamp ASC
         """.format(types=", ".join("?" for _ in DISPLAY_EVENT_TYPES))
         params: list[Any] = list(DISPLAY_EVENT_TYPES) + [user_id, session_id, turn_id]
         return self._query_events(query, params)
 
     def _load_session_events(self, *, user_id: str, session_id: str) -> list[dict[str, Any]]:
-        if not self._events_db_path.exists():
+        if not self._l1_db_path.exists():
             return []
         query = """
-            SELECT type, data, timestamp
-            FROM event_store
-            WHERE type IN ({types})
-              AND json_extract(data, '$.user_id') = ?
-              AND json_extract(data, '$.session_id') = ?
+            SELECT event_type, structured_payload, timestamp
+            FROM events
+            WHERE deleted_at IS NULL
+              AND event_type IN ({types})
+              AND user_id = ?
+              AND session_id = ?
             ORDER BY timestamp ASC
         """.format(types=", ".join("?" for _ in DISPLAY_EVENT_TYPES))
         params: list[Any] = list(DISPLAY_EVENT_TYPES) + [user_id, session_id]
@@ -632,7 +634,7 @@ class ChatTraceReadService:
 
     def _query_events(self, query: str, params: list[Any]) -> list[dict[str, Any]]:
         try:
-            conn = sqlite3.connect(str(self._events_db_path))
+            conn = sqlite3.connect(str(self._l1_db_path))
             cur = conn.cursor()
             cur.execute(query, params)
             rows = cur.fetchall()

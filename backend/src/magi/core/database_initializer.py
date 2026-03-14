@@ -3,7 +3,6 @@ Database Initializer - 统一的数据库初始化管理器
 
 在应用启动时统一初始化所有数据库表结构。
 """
-import asyncio
 import logging
 import aiosqlite
 from pathlib import Path
@@ -65,12 +64,11 @@ class DatabaseInitializer:
 
         # 1. 初始化核心数据库表（使用 IF NOT EXISTS，幂等操作）
         await self._init_events_db()
-        await self._init_tasks_db()
+        await self._init_l1_memory_db()
         await self._init_behavior_evolution_db()
         await self._init_emotional_state_db()
         await self._init_growth_memory_db()
         await self._init_scenario_prompts_db()
-        await self._init_embeddings_db()
         await self._init_summaries_db()
         await self._init_capabilities_db()
         await self._init_llm_usage_db()
@@ -91,53 +89,19 @@ class DatabaseInitializer:
         """初始化事件数据库"""
         db_path = self.data_dir / "events.db"
         async with aiosqlite.connect(str(db_path)) as db:
-            # event_store 表
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS event_store (
-                    id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL,
-                    data TEXT NOT NULL,
-                    media_path TEXT,
-                    timestamp REAL NOT NULL,
-                    source TEXT,
-                    level INTEGER,
-                    correlation_id TEXT,
-                    metadata TEXT,
-                    created_at REAL NOT NULL
-                )
-            """)
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_event_store_type ON event_store(type)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_event_store_timestamp ON event_store(timestamp)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_event_store_correlation ON event_store(correlation_id)")
-
-            # message_queue 表（由 SQLiteMessageBackend 管理）
+            # message_queue table is managed by SQLiteMessageBackend.
+            await db.execute("PRAGMA journal_mode=WAL")
             await db.commit()
         logger.debug(f"Initialized events.db at {db_path}")
 
-    async def _init_tasks_db(self) -> None:
-        """初始化任务数据库"""
-        db_path = self.data_dir / "tasks.db"
-        async with aiosqlite.connect(str(db_path)) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    priority INTEGER DEFAULT 0,
-                    payload TEXT,
-                    result TEXT,
-                    error TEXT,
-                    created_at REAL NOT NULL,
-                    started_at REAL,
-                    completed_at REAL,
-                    parent_task_id TEXT,
-                    metadata TEXT
-                )
-            """)
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type)")
-            await db.commit()
-        logger.debug(f"Initialized tasks.db at {db_path}")
+    async def _init_l1_memory_db(self) -> None:
+        """初始化 L1 记忆数据库"""
+        from ..memory.l1_event_store import L1EventStore
+
+        db_path = self.memories_dir / "l1_events.db"
+        store = L1EventStore(db_path=str(db_path))
+        await store.initialize()
+        logger.debug(f"Initialized l1_events.db at {db_path}")
 
     async def _init_behavior_evolution_db(self) -> None:
         """初始化行为演化数据库"""
@@ -315,21 +279,6 @@ class DatabaseInitializer:
             await db.commit()
         logger.debug(f"Initialized scenario_prompts.db at {db_path}")
 
-    async def _init_embeddings_db(self) -> None:
-        """初始化嵌入向量数据库"""
-        db_path = self.memories_dir / "embeddings.db"
-        async with aiosqlite.connect(str(db_path)) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS event_embeddings (
-                    event_id TEXT PRIMARY KEY,
-                    embedding BLOB NOT NULL,
-                    metadata TEXT,
-                    created_at REAL NOT NULL
-                )
-            """)
-            await db.commit()
-        logger.debug(f"Initialized embeddings.db at {db_path}")
-
     async def _init_summaries_db(self) -> None:
         """初始化摘要数据库"""
         db_path = self.memories_dir / "summaries.db"
@@ -390,6 +339,25 @@ class DatabaseInitializer:
                     updated_at REAL NOT NULL
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS l5_capability_vectors (
+                    vector_id TEXT PRIMARY KEY,
+                    capability_id TEXT NOT NULL,
+                    embedding_model TEXT NOT NULL,
+                    embedding_dim INTEGER NOT NULL,
+                    embedding_payload BLOB NOT NULL,
+                    metadata TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    UNIQUE(capability_id, embedding_model)
+                )
+            """)
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_l5_capability_vectors_capability ON l5_capability_vectors(capability_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_l5_capability_vectors_model ON l5_capability_vectors(embedding_model)"
+            )
 
             await db.commit()
         logger.debug(f"Initialized capabilities.db at {db_path}")

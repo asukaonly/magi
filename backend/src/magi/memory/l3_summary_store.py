@@ -50,6 +50,20 @@ class L3SummaryStore:
                     updated_at REAL NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_summaries_period ON summaries(summary_type, summary_category, period_start, period_end);
+
+                CREATE TABLE IF NOT EXISTS l3_summary_vectors (
+                    vector_id TEXT PRIMARY KEY,
+                    summary_id TEXT NOT NULL,
+                    embedding_model TEXT NOT NULL,
+                    embedding_dim INTEGER NOT NULL,
+                    embedding_payload BLOB NOT NULL,
+                    metadata TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    UNIQUE(summary_id, embedding_model)
+                );
+                CREATE INDEX IF NOT EXISTS idx_l3_summary_vectors_summary ON l3_summary_vectors(summary_id);
+                CREATE INDEX IF NOT EXISTS idx_l3_summary_vectors_model ON l3_summary_vectors(embedding_model);
                 """
             )
             await db.commit()

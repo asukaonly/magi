@@ -98,8 +98,13 @@ class Runtimepaths:
 
     @property
     def events_db_path(self) -> Path:
-        """event database path"""
+        """Message bus queue database path."""
         return self.data_dir / "events.db"
+
+    @property
+    def l1_memory_db_path(self) -> Path:
+        """L1 memory database path."""
+        return self.memories_dir / "l1_events.db"
 
     @property
     def llm_usage_db_path(self) -> Path:

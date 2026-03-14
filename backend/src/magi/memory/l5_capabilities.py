@@ -118,6 +118,27 @@ class CapabilityMemory:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS l5_capability_vectors (
+                vector_id TEXT PRIMARY KEY,
+                capability_id TEXT NOT NULL,
+                embedding_model TEXT NOT NULL,
+                embedding_dim INTEGER NOT NULL,
+                embedding_payload BLOB NOT NULL,
+                metadata TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(capability_id, embedding_model)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_l5_capability_vectors_capability ON l5_capability_vectors(capability_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_l5_capability_vectors_model ON l5_capability_vectors(embedding_model)"
+        )
         conn.commit()
         conn.close()
         self._load_caches()

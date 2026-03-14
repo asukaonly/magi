@@ -9,7 +9,6 @@ from typing import Any, Callable, Optional
 from ..config import get_config, AppConfig
 from ..core.container import get_container
 from dependency_injector import providers
-from ..core.task_database import TaskDatabase
 from ..core.runtime import (
     ActionExecutor,
     AgentRuntime,
@@ -290,8 +289,6 @@ async def initialize_chat_agent():
         await _llm_usage_store.start(_message_bus)
         logger.info("LLM usage store started")
 
-        task_database = TaskDatabase(db_path=str(runtime_paths.data_dir / "tasks.db"))
-
         memory = SelfMemory(
             personality_name=current_personality,
             personalities_path=str(runtime_paths.personalities_dir),
@@ -300,7 +297,7 @@ async def initialize_chat_agent():
         other_memory = OtherMemory()
 
         unified_memory = UnifiedMemoryStore(
-            db_path=str(runtime_paths.events_db_path),
+            db_path=str(runtime_paths.l1_memory_db_path),
             persist_dir=str(runtime_paths.memories_dir),
             enable_l0=config.agent.memory.enable_l0,
             enable_l1=config.agent.memory.enable_l1,

@@ -125,7 +125,7 @@ class eventEmbeddingStore:
 
     def __init__(self, backend: Optional[EmbeddingBackend] = None, persist_path: Optional[str] = None):
         self.backend = backend or LocalEmbeddingBackend()
-        self.persist_path = str(Path(persist_path or "~/.magi/data/memories/embeddings.db").expanduser())
+        self.persist_path = str(Path(persist_path or "~/.magi/data/memories/l3_reflections.db").expanduser())
         self._sqlite_vec_enabled = False
 
     async def initialize(self) -> None:

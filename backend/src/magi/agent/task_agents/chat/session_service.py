@@ -22,12 +22,12 @@ class ChatSessionService:
         self,
         *,
         session_state_file: Path,
-        events_db_path: Path,
+        l1_db_path: Path,
         history_cache_max_sessions: int = 500,
         history_fetch_limit: int = 200,
     ) -> None:
         self._session_state_file = session_state_file
-        self._events_db_path = events_db_path
+        self._l1_db_path = l1_db_path
         self._history_cache_max_sessions = history_cache_max_sessions
         self._history_fetch_limit = history_fetch_limit
         self._conversation_history: dict[str, list[dict[str, Any]]] = {}
@@ -193,15 +193,16 @@ class ChatSessionService:
 
     def restore_conversation_from_events(self) -> None:
         try:
-            if not self._events_db_path.exists():
+            if not self._l1_db_path.exists():
                 return
-            conn = sqlite3.connect(str(self._events_db_path))
+            conn = sqlite3.connect(str(self._l1_db_path))
             cur = conn.cursor()
             cur.execute(
                 """
-                SELECT type, data
-                FROM event_store
-                WHERE type IN ('USER_INPUT', 'AI_RESPONSE', ?, ?)
+                SELECT event_type, structured_payload
+                FROM events
+                WHERE deleted_at IS NULL
+                  AND event_type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse', ?, ?)
                 ORDER BY timestamp ASC
                 LIMIT 5000
                 """,
@@ -210,7 +211,7 @@ class ChatSessionService:
             rows = cur.fetchall()
             conn.close()
         except Exception as exc:
-            logger.warning("Failed to restore conversation from event store: %s", exc)
+            logger.warning("Failed to restore conversation from L1 store: %s", exc)
             return
 
         for event_type, raw_data in rows:
@@ -224,11 +225,11 @@ class ChatSessionService:
             session_id = self.resolve_session_id(user_id, payload.get("session_id"))
             key = self.history_key(user_id, session_id)
             history = self._conversation_history.setdefault(key, [])
-            if event_type == "USER_INPUT":
+            if event_type in {"USER_INPUT", "UserMessage"}:
                 content = payload.get("message", "")
                 if content:
                     history.append({"role": "user", "content": str(content)})
-            elif event_type == "AI_RESPONSE":
+            elif event_type in {"AI_RESPONSE", "AIResponse"}:
                 content = payload.get("response", "")
                 if content:
                     history.append({"role": "assistant", "content": str(content)})

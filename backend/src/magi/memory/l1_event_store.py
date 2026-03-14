@@ -17,7 +17,7 @@ from .event_contracts import MemoryEvent, normalize_runtime_event
 class L1EventStore:
     """Stores immutable normalized memory events in SQLite."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/events.db") -> None:
+    def __init__(self, *, db_path: str = "~/.magi/data/memories/l1_events.db") -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._initialized = False
 
@@ -69,6 +69,20 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_events_goal ON events(goal_id);
                 CREATE INDEX IF NOT EXISTS idx_events_importance ON events(importance_score DESC);
                 CREATE INDEX IF NOT EXISTS idx_events_retention ON events(retention_class);
+
+                CREATE TABLE IF NOT EXISTS l1_event_vectors (
+                    vector_id TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL,
+                    embedding_model TEXT NOT NULL,
+                    embedding_dim INTEGER NOT NULL,
+                    embedding_payload BLOB NOT NULL,
+                    metadata TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    UNIQUE(event_id, embedding_model)
+                );
+                CREATE INDEX IF NOT EXISTS idx_l1_event_vectors_event ON l1_event_vectors(event_id);
+                CREATE INDEX IF NOT EXISTS idx_l1_event_vectors_model ON l1_event_vectors(embedding_model);
                 """
             )
             await db.commit()

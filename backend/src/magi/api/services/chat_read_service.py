@@ -22,7 +22,7 @@ class ChatReadService:
 
     def __init__(self) -> None:
         runtime_paths = get_runtime_paths()
-        self._events_db_path: Path = runtime_paths.events_db_path
+        self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._session_state_file: Path = runtime_paths.data_dir / "chat_sessions.json"
 
     def get_current_session_id(self, user_id: str) -> str:
@@ -53,16 +53,17 @@ class ChatReadService:
         safe_limit = max(1, min(limit, 200))
         sessions: dict[str, dict[str, Any]] = {}
 
-        if self._events_db_path.exists():
+        if self._l1_db_path.exists():
             query = """
-                SELECT type, data, timestamp
-                FROM event_store
-                WHERE type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
-                  AND json_extract(data, '$.user_id') = ?
+                SELECT event_type, structured_payload, timestamp
+                FROM events
+                WHERE deleted_at IS NULL
+                  AND event_type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
+                  AND user_id = ?
                 ORDER BY timestamp DESC
             """
             try:
-                conn = sqlite3.connect(str(self._events_db_path))
+                conn = sqlite3.connect(str(self._l1_db_path))
                 cur = conn.cursor()
                 cur.execute(query, (user_id,))
                 rows = cur.fetchall()
@@ -138,20 +139,21 @@ class ChatReadService:
         return result[:safe_limit]
 
     def get_conversation_history(self, user_id: str, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
-        if not self._events_db_path.exists():
+        if not self._l1_db_path.exists():
             return []
         safe_limit = max(1, min(limit, 1000))
         query = """
-            SELECT type, data, timestamp
-            FROM event_store
-            WHERE type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
-              AND json_extract(data, '$.user_id') = ?
-              AND json_extract(data, '$.session_id') = ?
+            SELECT event_type, structured_payload, timestamp
+            FROM events
+            WHERE deleted_at IS NULL
+              AND event_type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
+              AND user_id = ?
+              AND session_id = ?
             ORDER BY timestamp ASC
             LIMIT ?
         """
         try:
-            conn = sqlite3.connect(str(self._events_db_path))
+            conn = sqlite3.connect(str(self._l1_db_path))
             cur = conn.cursor()
             cur.execute(query, (user_id, session_id, safe_limit))
             rows = cur.fetchall()
@@ -188,24 +190,25 @@ class ChatReadService:
         return messages
 
     def get_display_history(self, user_id: str, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
-        if not self._events_db_path.exists():
+        if not self._l1_db_path.exists():
             return []
         safe_limit = max(1, min(limit, 1000))
         query = """
-            SELECT type, data, timestamp
-            FROM event_store
-            WHERE type IN (
+            SELECT event_type, structured_payload, timestamp
+            FROM events
+            WHERE deleted_at IS NULL
+              AND event_type IN (
                 'USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse',
                 'WORKER_AGENT_PROGRESS', 'WORKER_AGENT_COMPLETED', 'WORKER_AGENT_FAILED',
                 'CHAT_TOOL_LOOP_STEP', 'TOOL_INTERACTION', 'TOOL_INVOKED'
             )
-              AND json_extract(data, '$.user_id') = ?
-              AND json_extract(data, '$.session_id') = ?
+              AND user_id = ?
+              AND session_id = ?
             ORDER BY timestamp ASC
             LIMIT ?
         """
         try:
-            conn = sqlite3.connect(str(self._events_db_path))
+            conn = sqlite3.connect(str(self._l1_db_path))
             cur = conn.cursor()
             cur.execute(query, (user_id, session_id, safe_limit))
             rows = cur.fetchall()
@@ -302,20 +305,21 @@ class ChatReadService:
         return messages[-safe_limit:]
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
-        if not self._events_db_path.exists():
+        if not self._l1_db_path.exists():
             return
         delete_sql = """
-            DELETE FROM event_store
-            WHERE type IN (
+            DELETE FROM events
+            WHERE deleted_at IS NULL
+              AND event_type IN (
                 'USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse',
                 'WORKER_AGENT_PROGRESS', 'WORKER_AGENT_COMPLETED', 'WORKER_AGENT_FAILED',
                 'CHAT_TOOL_LOOP_STEP', 'TOOL_INTERACTION', 'TOOL_INVOKED'
             )
-              AND json_extract(data, '$.user_id') = ?
-              AND json_extract(data, '$.session_id') = ?
+              AND user_id = ?
+              AND session_id = ?
         """
         try:
-            conn = sqlite3.connect(str(self._events_db_path))
+            conn = sqlite3.connect(str(self._l1_db_path))
             cur = conn.cursor()
             cur.execute(delete_sql, (user_id, session_id))
             conn.commit()

@@ -68,6 +68,20 @@ class L4ProceduralMemoryStore:
                     UNIQUE(skill_name, skill_category)
                 );
                 CREATE INDEX IF NOT EXISTS idx_procedural_skill_name ON procedural_skills(skill_name, skill_category);
+
+                CREATE TABLE IF NOT EXISTS l4_skill_vectors (
+                    vector_id TEXT PRIMARY KEY,
+                    skill_id TEXT NOT NULL,
+                    embedding_model TEXT NOT NULL,
+                    embedding_dim INTEGER NOT NULL,
+                    embedding_payload BLOB NOT NULL,
+                    metadata TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    UNIQUE(skill_id, embedding_model)
+                );
+                CREATE INDEX IF NOT EXISTS idx_l4_skill_vectors_skill ON l4_skill_vectors(skill_id);
+                CREATE INDEX IF NOT EXISTS idx_l4_skill_vectors_model ON l4_skill_vectors(embedding_model);
                 """
             )
             await db.commit()
