@@ -1,16 +1,17 @@
 /**
- * Events页面 - L1-L5 记忆查看
+ * Memory页面 - L0-L4 记忆系统
  */
 import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
-  Database,
-  FileText,
-  GitBranch,
-  Network,
-  RefreshCw,
-  Search,
-  Trash2,
+  Brain
+  Database
+  FileText
+  Network
+  RefreshCw
+  Target,
+  Trash2
+  Users,
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -20,65 +21,55 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { memoryApi } from '@/api/modules/memory';
-import { apiClient } from '../api/client';
-
-interface Event {
-  id: string;
-  type: string;
-  data: any;
-  timestamp: number;
-  source: string;
-  level: number;
-  correlation_id: string;
-  metadata: any;
-}
-
-interface SearchResult {
-  event_id: string;
-  text: string;
-  metadata: any;
-}
-
-interface Capability {
-  capability_id: string;
-  name: string;
-  description: string;
-  success_rate: number;
-  usage_count: number;
-}
+import type {
+  L0Session,
+  L0Workbench
+  L1Event
+  L2Relation
+  L2Assertion
+  L3Summary
+  L4Skill
+  MemoryStatistics
+} from '@/api/modules/memory';
 
 const CONFIRM_WAIT_SECONDS = 3;
 
 const EventsPage: React.FC = () => {
   const { t } = useTranslation('app');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('l1');
+  const [activeTab, setActiveTab] = useState('l0');
 
-  // L1 数据
-  const [l1Events, setL1Events] = useState<Event[]>([]);
-  const [l1Stats, setL1Stats] = useState({ total: 0 });
+  // Statistics
+  const [stats, setStats] = useState<MemoryStatistics>({
+    l0: { active_sessions: 0, total_goals: 0, total_entities: 0, total_tactics: 0 },
+    l1: { event_count: 0 },
+    l2: { relation_count: 0, assertion_count: 0 },
+    l3: { summary_count: 0 },
+    l4: { skill_count: 0, open_circuit_breakers: 0 },
+  });
 
-  // L2 数据
-  const [l2Stats, setL2Stats] = useState({ total_events: 0, total_relations: 0 });
+  // L0 data
+  const [l0Sessions, setL0Sessions] = useState<L0Session[]>([]);
+  const [l0Workbench, setL0Workbench] = useState<L0Workbench | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
-  // L3 数据
-  const [l3Results, setL3Results] = useState<SearchResult[]>([]);
-  const [l3Stats, setL3Stats] = useState({ total_embeddings: 0, dimension: 0 });
+  // L1 data
+  const [l1Events, setL1Events] = useState<L1Event[]>([]);
 
-  // L4 数据
-  const [l4Stats, setL4Stats] = useState({ total_summaries: 0 });
+  // L2 data
+  const [l2Relations, setL2Relations] = useState<L2Relation[]>([]);
+  const [l2Assertions, setL2Assertions] = useState<L2Assertion[]>([]);
+  const [l2SubTab, setL2SubTab] = useState<'relations' | 'assertions'>('relations');
 
-  // L5 数据
-  const [l5Capabilities, setL5Capabilities] = useState<Capability[]>([]);
-  const [l5Stats, setL5Stats] = useState({ total_capabilities: 0 });
+  // L3 data
+  const [l3Summaries, setL3Summaries] = useState<L3Summary[]>([]);
 
-  // 搜索关键词
-  const [searchKeyword, setSearchKeyword] = useState('');
+  // L4 data
+  const [l4Skills, setL4Skills] = useState<L4Skill[]>([]);
 
-  // 删除确认弹窗
+  // Clear dialog
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [countdown, setCountdown] = useState(CONFIRM_WAIT_SECONDS);
@@ -86,74 +77,36 @@ const EventsPage: React.FC = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      await Promise.all([
-        fetchL1Data(),
-        fetchL2Data(),
-        fetchL3Data(),
-        fetchL4Data(),
-        fetchL5Data(),
+      const [statsRes, l0Res, l1Res, l2RelRes, l2AssRes, l3Res, l4Res] = await Promise.all([
+        memoryApi.getStatistics(),
+        memoryApi.getL0Sessions(),
+        memoryApi.getL1Events({ limit: 50 }),
+        memoryApi.getL2Relations(100),
+        memoryApi.getL2Assertions(100),
+        memoryApi.getL3Summaries({ limit: 100 }),
+        memoryApi.getL4Skills(100),
       ]);
-    } catch (error: any) {
-      toast.error(t('events.loadFailed', { message: error.message }));
+      setStats(statsRes);
+      setL0Sessions(l0Res.sessions || []);
+      setL1Events(l1Res.events || []);
+      setL2Relations(l2RelRes || []);
+      setL2Assertions(l2AssRes || []);
+      setL3Summaries(l3Res || []);
+      setL4Skills(l4Res || []);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(t('memory.loadFailed', { message }));
     } finally {
       setLoading(false);
     }
   };
 
-  // L1: 获取原始事件
-  const fetchL1Data = async () => {
+  const fetchWorkbench = async (sessionId: string) => {
     try {
-      const response = await apiClient.get('/memory/l1/events', { params: { limit: 50 } });
-      setL1Events(response.data.events || []);
-      setL1Stats(response.data.stats || { total: 0 });
-    } catch (error) {
-      console.error('Failed to fetch L1 data:', error);
-      setL1Events([]);
-      setL1Stats({ total: 0 });
-    }
-  };
-
-  // L2: 获取事件关系
-  const fetchL2Data = async () => {
-    try {
-      const response = await apiClient.get('/memory/l2/statistics');
-      setL2Stats(response.data || { total_events: 0, total_relations: 0 });
-    } catch (error) {
-      console.error('Failed to fetch L2 data:', error);
-    }
-  };
-
-  // L3: 获取嵌入向量
-  const fetchL3Data = async () => {
-    try {
-      const response = await apiClient.get('/memory/statistics');
-      const stats = response.data.l3_embeddings || {};
-      setL3Stats(stats);
-    } catch (error) {
-      console.error('Failed to fetch L3 data:', error);
-    }
-  };
-
-  // L4: 获取摘要
-  const fetchL4Data = async () => {
-    try {
-      const response = await apiClient.get('/memory/statistics');
-      const stats = response.data.l4_summaries || {};
-      setL4Stats(stats);
-    } catch (error) {
-      console.error('Failed to fetch L4 data:', error);
-    }
-  };
-
-  // L5: 获取能力
-  const fetchL5Data = async () => {
-    try {
-      const response = await apiClient.get('/memory/capabilities');
-      setL5Capabilities(response.data || []);
-      const statsResponse = await apiClient.get('/memory/statistics');
-      setL5Stats(statsResponse.data.l5_capabilities || { total_capabilities: 0 });
-    } catch (error) {
-      console.error('Failed to fetch L5 data:', error);
+      const workbench = await memoryApi.getL0Workbench(sessionId);
+      setL0Workbench(workbench);
+    } catch {
+      setL0Workbench(null);
     }
   };
 
@@ -161,302 +114,488 @@ const EventsPage: React.FC = () => {
     fetchAllData();
   }, []);
 
-  // 倒计时逻辑
+  useEffect(() => {
+    if (selectedSessionId) {
+      fetchWorkbench(selectedSessionId);
+    }
+  }, [selectedSessionId]);
+
   useEffect(() => {
     if (!showClearConfirm) {
       setCountdown(CONFIRM_WAIT_SECONDS);
       return;
     }
-
     if (countdown <= 0) return;
-
-    const timer = setTimeout(() => {
-      setCountdown((prev) => prev - 1);
-    }, 1000);
-
+    const timer = setTimeout(() => setCountdown((prev) => prev - 1), 1000);
     return () => clearTimeout(timer);
   }, [showClearConfirm, countdown]);
 
-  const getLevelName = (level: number) => {
-    const names = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'EMERGENCY'];
-    return names[level] || 'UNKNOWN';
-  };
-
-  // 搜索处理
-  const handleSearch = async () => {
-    if (!searchKeyword.trim()) {
-      toast.warning(t('events.searchKeywordRequired'));
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await apiClient.post('/memory/search', {
-        query: searchKeyword,
-        limit: 20,
-        search_type: 'hybrid',
-      });
-      const results = response.data || [];
-
-      if (results.length > 0) {
-        setActiveTab('l3');
-        setL3Results(results);
-        toast.success(t('events.searchFound', { count: results.length }));
-      } else {
-        toast.warning(t('events.searchEmpty'));
-      }
-    } catch (error: any) {
-      const errorMessage = error?.response?.data?.detail || error?.message || 'unknown';
-      toast.error(t('events.searchFailed', { message: errorMessage }));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 清除记忆
   const handleClearMemory = async () => {
     setClearing(true);
     try {
       const response = await memoryApi.clearAll();
       if (response.success) {
         const totalCleared = Object.values(response.results).reduce(
-          (sum: number, result: any) => sum + (result.cleared ? result.count : 0),
+          (sum: number, result: { cleared: boolean; count: number }) => sum + (result.cleared ? result.count : 0),
           0
         );
-        toast.success(t('events.memoryCleared', { count: totalCleared }));
+        toast.success(t('memory.memoryCleared', { count: totalCleared }));
         window.dispatchEvent(new CustomEvent('magi-memory-cleared'));
-        // 刷新数据
         await fetchAllData();
       }
-    } catch (error: any) {
-      toast.error(error?.message || t('events.memoryClearFailed'));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(message || t('memory.memoryClearFailed'));
     } finally {
       setClearing(false);
       setShowClearConfirm(false);
     }
   };
 
-  const handleClearDialogOpenChange = (open: boolean) => {
-    if (clearing) {
-      return;
+  const formatDate = (ts: number) => new Date(ts * 1000).toLocaleString();
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'text-green-600';
+      case 'completed':
+        return 'text-blue-600';
+      case 'failed':
+        return 'text-red-600';
+      default:
+        return 'text-gray-600';
     }
-    setShowClearConfirm(open);
   };
 
   return (
     <div className="space-y-4 text-sm">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">{t('events.title')}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t('events.subtitle')}</p>
+          <h1 className="text-2xl font-semibold">{t('memory.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('memory.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setShowClearConfirm(true)}
-            disabled={loading}
-            className="cursor-pointer"
-          >
+          <Button variant="outline" onClick={() => setShowClearConfirm(true)} disabled={loading}>
             <Trash2 className="mr-2 h-4 w-4" />
-            <span>{t('events.clearMemory', { defaultValue: 'Clear' })}</span>
+            <span>{t('memory.clearMemory')}</span>
           </Button>
           <Button onClick={fetchAllData} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            {t('events.refresh')}
+            {t('memory.refresh')}
           </Button>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid h-auto grid-cols-2 gap-1 md:grid-cols-5">
-          <TabsTrigger value="l1"><Database className="mr-1 h-4 w-4" />{t('events.tabs.l1')} ({l1Stats.total})</TabsTrigger>
-          <TabsTrigger value="l2"><GitBranch className="mr-1 h-4 w-4" />{t('events.tabs.l2')} ({l2Stats.total_relations})</TabsTrigger>
-          <TabsTrigger value="l3"><Network className="mr-1 h-4 w-4" />{t('events.tabs.l3')} ({l3Stats.total_embeddings})</TabsTrigger>
-          <TabsTrigger value="l4"><FileText className="mr-1 h-4 w-4" />{t('events.tabs.l4')} ({l4Stats.total_summaries})</TabsTrigger>
-          <TabsTrigger value="l5"><Zap className="mr-1 h-4 w-4" />{t('events.tabs.l5')} ({l5Stats.total_capabilities})</TabsTrigger>
+          <TabsTrigger value="l0">
+            <Brain className="mr-1 h-4 w-4" />
+            {t('memory.tabs.l0')} ({stats.l0.active_sessions})
+          </TabsTrigger>
+          <TabsTrigger value="l1">
+            <Database className="mr-1 h-4 w-4" />
+            {t('memory.tabs.l1')} ({stats.l1.event_count})
+          </TabsTrigger>
+          <TabsTrigger value="l2">
+            <Network className="mr-1 h-4 w-4" />
+            {t('memory.tabs.l2')} ({stats.l2.relation_count + stats.l2.assertion_count})
+          </TabsTrigger>
+          <TabsTrigger value="l3">
+            <FileText className="mr-1 h-4 w-4" />
+            {t('memory.tabs.l3')} ({stats.l3.summary_count})
+          </TabsTrigger>
+          <TabsTrigger value="l4">
+            <Zap className="mr-1 h-4 w-4" />
+            {t('memory.tabs.l4')} ({stats.l4.skill_count})
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="l1" className="space-y-4">
+        {/* L0 Working Memory */}
+        <TabsContent value="l0" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-4">
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l1.totalEvents')}</p><p className="mt-1 text-2xl font-semibold">{l1Stats.total}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">INFO</p><p className="mt-1 text-2xl font-semibold text-emerald-600">{l1Events.filter((e) => e.level === 1).length}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">WARNING</p><p className="mt-1 text-2xl font-semibold text-amber-600">{l1Events.filter((e) => e.level === 2).length}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">ERROR+</p><p className="mt-1 text-2xl font-semibold text-red-600">{l1Events.filter((e) => e.level >= 3).length}</p></CardContent></Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l0.activeSessions')}</p>
+                <p className="mt-1 text-2xl font-semibold">{stats.l0.active_sessions}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l0.totalGoals')}</p>
+                <p className="mt-1 text-2xl font-semibold text-blue-600">{stats.l0.total_goals}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l0.totalEntities')}</p>
+                <p className="mt-1 text-2xl font-semibold text-purple-600">{stats.l0.total_entities}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l0.totalTactics')}</p>
+                <p className="mt-1 text-2xl font-semibold text-amber-600">{stats.l0.total_tactics}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('memory.l0.sessions')}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {loading ? (
+                  <LoadingSpinner />
+                ) : l0Sessions.length === 0 ? (
+                  <p className="text-muted-foreground">{t('memory.l0.noSessions')}</p>
+                ) : (
+                  l0Sessions.map((session) => (
+                    <details
+                      key={session.session_id}
+                      className="overflow-hidden rounded-xl border border-border/70 bg-card p-0"
+                      onToggle={(e) => {
+                        if ((e.target as HTMLDetailsElement).open) {
+                          setSelectedSessionId(session.session_id);
+                        }
+                      }}
+                    >
+                      <summary className="flex w-full cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm transition-colors hover:bg-muted/35">
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {session.session_id.slice(0, 16)}...
+                        </span>
+                        <Badge variant="outline" className={getStatusColor(session.status)}>
+                          {session.status}
+                        </Badge>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {formatDate(session.last_active_at)}
+                        </span>
+                      </summary>
+                      {l0Workbench && (
+                        <div className="border-t border-border/60 px-4 pb-4 pt-3">
+                          <div className="mb-3">
+                            <p className="font-medium">{t('memory.l0.goalStack')}</p>
+                            <div className="mt-1 space-y-1">
+                              {(l0Workbench.goal_stack as Array<{ goal_id: string; description: string; status: string }>).map((goal) => (
+                                <div key={goal.goal_id} className="flex items-center gap-2 rounded bg-muted/30 p-2">
+                                  <Target className="h-4 w-4 text-blue-600" />
+                                  <span className="flex-1 truncate">{goal.description}</span>
+                                  <Badge variant="outline">{goal.status}</Badge>
+                                </div>
+                              ))}
+                              {l0Workbench.goal_stack.length === 0 && (
+                                <p className="text-xs text-muted-foreground">{t('memory.l0.noGoals')}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="font-medium">{t('memory.l0.activeEntities')}</p>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {(l0Workbench.active_entities as Array<{ entity_id: string; entity_type: string }>).map((entity) => (
+                                <Badge key={`${entity.entity_id}-${entity.entity_type}`} variant="secondary">
+                                  <Users className="mr-1 h-3 w-3" />
+                                  {entity.entity_id}
+                                </Badge>
+                              ))}
+                              {l0Workbench.active_entities.length === 0 && (
+                                <p className="text-xs text-muted-foreground">{t('memory.l0.noEntities')}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </details>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('memory.l0.about')}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p>{t('memory.l0.aboutDesc')}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">{t('memory.l0.sessionState')}</Badge>
+                  <Badge variant="outline">{t('memory.l0.goalStack')}</Badge>
+                  <Badge variant="outline">{t('memory.l0.activeEntities')}</Badge>
+                  <Badge variant="outline">{t('memory.l0.temporaryTactics')}</Badge>
+                </div>
+                <p className="text-muted-foreground">{t('memory.l0.checkpointHint')}</p>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* L1 Event Stream */}
+        <TabsContent value="l1" className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l1.totalEvents')}</p>
+                <p className="mt-1 text-2xl font-semibold">{stats.l1.event_count}</p>
+              </CardContent>
+            </Card>
           </div>
           <Card>
-            <CardHeader><CardTitle>{t('events.l1.rawEvents')}</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>{t('memory.l1.rawEvents')}</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-2">
-              {loading ? <LoadingSpinner /> : l1Events.map((event) => (
+              {loading ? (
+                <LoadingSpinner />
+              ) : (
+                l1Events.map((event) => (
+                  <details
+                    key={event.event_id}
+                    className="overflow-hidden rounded-xl border border-border/70 bg-card p-0"
+                  >
+                    <summary className="flex w-full cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm transition-colors hover:bg-muted/35">
+                      <span className="min-w-0 flex-1 truncate font-medium">{event.event_type}</span>
+                      <Badge variant="outline">{event.memory_domain}</Badge>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {formatDate(event.timestamp)}
+                      </span>
+                    </summary>
+                    <div className="grid gap-2 border-t border-border/60 px-4 pb-4 pt-3 text-xs">
+                      <div>ID: {event.event_id}</div>
+                      <div>{t('memory.l1.source')}: {event.source}</div>
+                      <div>{t('memory.l1.retention')}: {event.retention_class}</div>
+                      <div>{t('memory.l1.importance')}: {event.importance_score.toFixed(2)}</div>
+                      <pre className="max-h-52 overflow-auto rounded bg-muted p-2">{event.raw_content}</pre>
+                    </div>
+                  </details>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* L2 Cognition */}
+        <TabsContent value="l2" className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l2.relations')}</p>
+                <p className="mt-1 text-2xl font-semibold">{stats.l2.relation_count}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l2.assertions')}</p>
+                <p className="mt-1 text-2xl font-semibold">{stats.l2.assertion_count}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Tabs value={l2SubTab} onValueChange={(v) => setL2SubTab(v as 'relations' | 'assertions')}>
+            <TabsList>
+              <TabsTrigger value="relations">{t('memory.l2.knowledgeGraph')}</TabsTrigger>
+              <TabsTrigger value="assertions">{t('memory.l2.tomAssertions')}</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="relations" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t('memory.l2.relationsList')}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {l2Relations.map((rel) => (
+                    <div key={rel.triple_id} className="rounded-md border p-3">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">{rel.subject_type}</Badge>
+                        <span className="font-medium">{rel.subject_id}</span>
+                        <span className="text-muted-foreground">→</span>
+                        <Badge>{rel.predicate}</Badge>
+                        <span className="text-muted-foreground">→</span>
+                        <Badge variant="secondary">{rel.object_type}</Badge>
+                        <span className="font-medium">{rel.object_id}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {t('memory.l2.confidence')}: {(rel.confidence * 100).toFixed(0)}% | {t('memory.l2.observations')}: {rel.observation_count}
+                      </div>
+                    </div>
+                  ))}
+                  {l2Relations.length === 0 && (
+                    <p className="text-muted-foreground">{t('memory.l2.noRelations')}</p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="assertions" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t('memory.l2.assertionsList')}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {l2Assertions.map((assertion) => (
+                    <div key={assertion.assertion_id} className="rounded-md border p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{assertion.entity_id}</span>
+                        <Badge
+                          variant={
+                            assertion.validation_state === 'stable'
+                              ? 'success'
+                              : assertion.validation_state === 'contradicted'
+                                ? 'destructive'
+                                : 'outline'
+                          }
+                        >
+                          {assertion.validation_state}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-sm">
+                        {assertion.trait_name}: <span className="font-medium">{assertion.trait_value}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {t('memory.l2.confidence')}: {(assertion.confidence_score * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                  ))}
+                  {l2Assertions.length === 0 && (
+                    <p className="text-muted-foreground">{t('memory.l2.noAssertions')}</p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+
+        {/* L3 Reflection */}
+        <TabsContent value="l3" className="space-y-4">
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">{t('memory.l3.summaryCount')}</p>
+              <p className="mt-1 text-2xl font-semibold">{stats.l3.summary_count}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('memory.l3.summariesList')}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {l3Summaries.map((summary) => (
                 <details
-                  key={event.id}
+                  key={summary.summary_id}
                   className="overflow-hidden rounded-xl border border-border/70 bg-card p-0"
                 >
-                  <summary className="flex w-full cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm transition-colors hover:bg-muted/35 [&::-webkit-details-marker]:hidden">
-                    <span className="min-w-0 flex-1 truncate font-medium">{event.type}</span>
-                    <Badge variant="outline" className="shrink-0">{getLevelName(event.level)}</Badge>
-                    <span className="shrink-0 text-xs text-muted-foreground">{new Date(event.timestamp * 1000).toLocaleString()}</span>
+                  <summary className="flex w-full cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm transition-colors hover:bg-muted/35">
+                    <Badge variant="outline">{summary.summary_type}</Badge>
+                    <Badge variant="secondary">{summary.summary_category}</Badge>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatDate(summary.period_start)}
+                    </span>
                   </summary>
-                  <div className="grid gap-2 border-t border-border/60 px-4 pb-4 pt-3 text-xs">
-                    <div>ID: {event.id}</div>
-                    <div>{t('events.l1.correlationId')}: {event.correlation_id || '-'}</div>
-                    <div>{t('events.l1.source')}: {event.source || '-'}</div>
-                    <pre className="max-h-52 overflow-auto rounded bg-muted p-2">{JSON.stringify(event.data, null, 2)}</pre>
+                  <div className="border-t border-border/60 px-4 pb-4 pt-3">
+                    <p className="text-sm">{summary.content}</p>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      {t('memory.l3.sourceEvents')}: {summary.source_event_count}
+                    </div>
                   </div>
                 </details>
               ))}
+              {l3Summaries.length === 0 && (
+                <p className="text-muted-foreground">{t('memory.l3.noSummaries')}</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="l2" className="space-y-4">
+        {/* L4 Procedural */}
+        <TabsContent value="l4" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-3">
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l2.totalEvents')}</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_events}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l2.totalRelations')}</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_relations}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l2.avgRelationPerEvent')}</p><p className="mt-1 text-2xl font-semibold">{l2Stats.total_events > 0 ? (l2Stats.total_relations / l2Stats.total_events).toFixed(2) : '0'}</p></CardContent></Card>
-          </div>
-          <Card>
-            <CardHeader><CardTitle>{t('events.l2.relationDoc')}</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div><Badge variant="outline" className="mr-2">PRECEDE</Badge>{t('events.l2.precedeDesc')}</div>
-              <div><Badge variant="outline" className="mr-2">TRIGGER</Badge>{t('events.l2.triggerDesc')}</div>
-              <div><Badge variant="outline" className="mr-2">CAUSE</Badge>{t('events.l2.causeDesc')}</div>
-              <div><Badge variant="outline" className="mr-2">FOLLOW</Badge>{t('events.l2.followDesc')}</div>
-              <div><Badge variant="outline" className="mr-2">SAME_USER</Badge>{t('events.l2.sameUserDesc')}</div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="l3" className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l3.embeddingCount')}</p><p className="mt-1 text-2xl font-semibold">{l3Stats.total_embeddings}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l3.vectorDimension')}</p><p className="mt-1 text-2xl font-semibold">{l3Stats.dimension}</p></CardContent></Card>
-          </div>
-          <Card>
-            <CardHeader><CardTitle>{t('events.l3.semanticSearch')}</CardTitle></CardHeader>
-            <CardContent>
-              <div className="flex gap-2">
-                <Input
-                  placeholder={t('events.l3.searchPlaceholder')}
-                  value={searchKeyword}
-                  onChange={(e) => setSearchKeyword(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      void handleSearch();
-                    }
-                  }}
-                />
-                <Button onClick={handleSearch} disabled={loading}>
-                  <Search className="mr-1 h-4 w-4" />
-                  {t('events.l3.search')}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-          {l3Results.length > 0 && (
             <Card>
-              <CardHeader><CardTitle>{t('events.l3.results')}</CardTitle></CardHeader>
-              <CardContent className="space-y-2">
-                {l3Results.map((item) => (
-                  <div key={item.event_id} className="rounded-md border p-3 text-sm">
-                    <div className="font-medium">{item.event_id.slice(0, 12)}...</div>
-                    <div className="mt-1 text-muted-foreground">{item.text}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{t('events.l3.type')}：{item.metadata?.event_type || '-'}</div>
-                  </div>
-                ))}
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l4.skillCount')}</p>
+                <p className="mt-1 text-2xl font-semibold">{stats.l4.skill_count}</p>
               </CardContent>
             </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="l4" className="space-y-4">
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">{t('events.l4.summaryTotal')}</p>
-              <p className="mt-1 text-2xl font-semibold">{l4Stats.total_summaries}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>{t('events.l4.summaryDoc')}</CardTitle></CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <p>{t('events.l4.summaryExplain')}</p>
-              <div className="flex gap-2">
-                <Badge variant="outline">{t('events.l4.hour')}</Badge>
-                <Badge variant="outline">{t('events.l4.day')}</Badge>
-                <Badge variant="outline">{t('events.l4.week')}</Badge>
-                <Badge variant="outline">{t('events.l4.month')}</Badge>
-              </div>
-              <p className="text-muted-foreground">{t('events.l4.summaryHint')}</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="l5" className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l5.capabilityTotal')}</p><p className="mt-1 text-2xl font-semibold">{l5Stats.total_capabilities}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l5.highSuccess')}</p><p className="mt-1 text-2xl font-semibold text-emerald-600">{l5Capabilities.filter((c) => c.success_rate > 0.8).length}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t('events.l5.lowSuccess')}</p><p className="mt-1 text-2xl font-semibold text-red-600">{l5Capabilities.filter((c) => c.success_rate < 0.5).length}</p></CardContent></Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l4.openBreakers')}</p>
+                <p className="mt-1 text-2xl font-semibold text-red-600">{stats.l4.open_circuit_breakers}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{t('memory.l4.highSuccess')}</p>
+                <p className="mt-1 text-2xl font-semibold text-green-600">
+                  {l4Skills.filter((s) => s.success_rate > 0.8).length}
+                </p>
+              </CardContent>
+            </Card>
           </div>
           <Card>
-            <CardHeader><CardTitle>{t('events.l5.list')}</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>{t('memory.l4.skillsList')}</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-2">
-              {l5Capabilities.map((capability) => (
-                <div key={capability.capability_id} className="rounded-md border p-3 text-sm">
+              {l4Skills.map((skill) => (
+                <div key={skill.skill_id} className="rounded-md border p-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">{capability.name}</span>
-                    <Badge
-                      variant={
-                        capability.success_rate > 0.7 ? 'success' : capability.success_rate > 0.5 ? 'warning' : 'destructive'
-                      }
-                    >
-                      {(capability.success_rate * 100).toFixed(0)}%
-                    </Badge>
+                    <span className="font-medium">{skill.skill_name}</span>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant={
+                          skill.circuit_breaker_state === 'closed' ? 'success' : 'destructive'
+                        }
+                      >
+                        {skill.circuit_breaker_state}
+                      </Badge>
+                      <Badge
+                        variant={
+                          skill.success_rate > 0.7
+                            ? 'success'
+                            : skill.success_rate > 0.5
+                              ? 'secondary'
+                              : 'destructive'
+                        }
+                      >
+                        {(skill.success_rate * 100).toFixed(0)}%
+                      </Badge>
+                    </div>
                   </div>
-                  <p className="mt-1 text-muted-foreground">{capability.description}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{t('events.l5.usageCount')}：{capability.usage_count}</p>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {t('memory.l4.category')}: {skill.skill_category} | {t('memory.l4.attempts')}: {skill.total_attempts}
+                  </div>
                 </div>
               ))}
+              {l4Skills.length === 0 && (
+                <p className="text-muted-foreground">{t('memory.l4.noSkills')}</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      <Dialog open={showClearConfirm} onOpenChange={handleClearDialogOpenChange}>
+      {/* Clear Dialog */}
+      <Dialog open={showClearConfirm} onOpenChange={(open) => !clearing && setShowClearConfirm(open)}>
         <DialogContent hideClose className="max-w-lg overflow-hidden border-destructive/30 p-0">
           <DialogHeader className="border-b border-border/60 px-6 py-5">
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-5 w-5" />
-              {t('events.clearConfirm.title', { defaultValue: 'Clear All Memory' })}
+              {t('memory.clearConfirm.title')}
             </DialogTitle>
-            <DialogDescription className="sr-only">
-              {t('events.clearConfirm.warning', { defaultValue: 'This will permanently delete:' })}
-            </DialogDescription>
+            <DialogDescription className="sr-only">{t('memory.clearConfirm.warning')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 px-6 py-5">
             <div className="rounded-2xl border border-destructive/35 bg-destructive/10 p-4 text-sm">
-              <p className="font-medium text-destructive">
-                {t('events.clearConfirm.warning', { defaultValue: 'This will permanently delete:' })}
-              </p>
+              <p className="font-medium text-destructive">{t('memory.clearConfirm.warning')}</p>
               <ul className="mt-2 list-inside list-disc space-y-1 text-destructive/80">
-                <li>{t('events.clearConfirm.l1', { defaultValue: 'L1 raw events' })}</li>
-                <li>{t('events.clearConfirm.l2', { defaultValue: 'L2 event relations' })}</li>
-                <li>{t('events.clearConfirm.l3', { defaultValue: 'L3 semantic embeddings' })}</li>
-                <li>{t('events.clearConfirm.l4', { defaultValue: 'L4 summaries' })}</li>
-                <li>{t('events.clearConfirm.l5', { defaultValue: 'L5 capabilities' })}</li>
-                <li>{t('events.clearConfirm.chatContext', { defaultValue: 'Chat context history' })}</li>
+                <li>{t('memory.clearConfirm.l0')}</li>
+                <li>{t('memory.clearConfirm.l1')}</li>
+                <li>{t('memory.clearConfirm.l2')}</li>
+                <li>{t('memory.clearConfirm.l3')}</li>
+                <li>{t('memory.clearConfirm.l4')}</li>
+                <li>{t('memory.clearConfirm.chatContext')}</li>
               </ul>
-              <p className="mt-3 font-semibold text-destructive">
-                {t('events.clearConfirm.irreversible', { defaultValue: 'This action cannot be undone!' })}
-              </p>
+              <p className="mt-3 font-semibold text-destructive">{t('memory.clearConfirm.irreversible')}</p>
             </div>
           </div>
           <DialogFooter className="border-t border-border/60 px-6 py-5">
-            <Button
-              variant="outline"
-              onClick={() => setShowClearConfirm(false)}
-              disabled={clearing}
-            >
-              {t('events.clearConfirm.cancel', { defaultValue: 'Cancel' })}
+            <Button variant="outline" onClick={() => setShowClearConfirm(false)} disabled={clearing}>
+              {t('memory.clearConfirm.cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -465,10 +604,10 @@ const EventsPage: React.FC = () => {
               className="min-w-[120px]"
             >
               {clearing
-                ? t('events.clearConfirm.clearing', { defaultValue: 'Clearing...' })
+                ? t('memory.clearConfirm.clearing')
                 : countdown > 0
-                  ? t('events.clearConfirm.wait', { seconds: countdown, defaultValue: `Wait ${countdown}s` })
-                  : t('events.clearConfirm.confirm', { defaultValue: 'Confirm Clear' })}
+                  ? t('memory.clearConfirm.wait', { seconds: countdown })
+                  : t('memory.clearConfirm.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>
