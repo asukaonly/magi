@@ -31,6 +31,16 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
     assert "core" in config.llm.selections
 
 
+def test_system_config_defaults_include_memory_lifecycle_settings():
+    config = SystemConfigModel()
+
+    assert config.memory.enable_l0 is True
+    assert config.memory.enable_l4 is True
+    assert config.memory.l0_checkpoint_interval_seconds == 30
+    assert config.memory.enable_l2_llm_extraction is True
+    assert config.memory.enable_l4_skill_extraction is True
+
+
 def test_llm_settings_reject_duplicate_builtin_provider_types():
     with pytest.raises(ValueError):
         LLMSettings(
@@ -83,7 +93,11 @@ def test_build_update_paths_contains_new_sections():
     assert "llm.providers" in updates
     assert "llm.selections" in updates
     assert "preferences" in updates
-    assert "memory_layers" in updates
+    assert "agent.memory.enable_l0" in updates
+    assert "agent.memory.enable_l4" in updates
+    assert "agent.memory.l0_checkpoint_interval_seconds" in updates
+    assert "agent.memory.enable_l2_llm_extraction" in updates
+    assert "memory_layers" not in updates
     assert "tools.builtIn" in updates
     assert "tools.skills" in updates
     assert "agent.personality.name" in updates
@@ -249,7 +263,7 @@ def test_onboarding_template_ignores_llm_environment_variables(monkeypatch: pyte
 
 
 def test_example_config_uses_scenario_llm_structure():
-    example_path = Path(__file__).resolve().parents[1] / "configs" / "config.example.yaml"
+    example_path = Path(__file__).resolve().parents[2] / "configs" / "config.example.yaml"
     data = yaml.safe_load(example_path.read_text(encoding="utf-8"))
 
     assert "providers" in data["llm"]
