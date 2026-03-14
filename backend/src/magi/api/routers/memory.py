@@ -54,8 +54,136 @@ def get_memory_integration():
         return None
 
 
+# =============================================================================
+# L0 Working Memory Endpoints
+# =============================================================================
+
+@memory_router.get("/l0/sessions")
+async def list_l0_sessions():
+    """List all active L0 sessions with stats."""
+    unified_memory = get_unified_memory()
+    if not unified_memory or not unified_memory.l0:
+        return {"sessions": [], "stats": {"active_sessions": 0, "total_goals": 0, "total_entities": 0, "total_tactics": 0}}
+
+    sessions = []
+    total_goals = 0
+    total_entities = 0
+    total_tactics = 0
+
+    for session_id, session in unified_memory.l0._sessions.items():
+        goals = unified_memory.l0._goal_stack.get(session_id, [])
+        entities = unified_memory.l0._active_entities.get(session_id, {})
+        tactics = unified_memory.l0._temporary_tactics.get(session_id, {})
+        total_goals += len(goals)
+        total_entities += len(entities)
+        total_tactics += len(tactics)
+
+        sessions.append({
+            "session_id": session_id,
+            "user_id": session.get("user_id"),
+            "status": session.get("status"),
+            "started_at": session.get("started_at"),
+            "last_active_at": session.get("last_active_at"),
+            "goal_count": len(goals),
+            "entity_count": len(entities),
+            "tactic_count": len(tactics),
+        })
+
+    return {
+        "sessions": sessions,
+        "stats": {
+            "active_sessions": len([s for s in sessions if s["status"] == "active"]),
+            "total_goals": total_goals,
+            "total_entities": total_entities,
+            "total_tactics": total_tactics,
+        },
+    }
+
+
+@memory_router.get("/l0/workbench/{session_id}")
+async def get_l0_workbench(session_id: str):
+    """Get the workbench (goals, entities, tactics) for a session."""
+    unified_memory = get_unified_memory()
+    if not unified_memory or not unified_memory.l0:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="L0 working memory not initialized",
+        )
+
+    workbench = await unified_memory.l0.get_workbench(session_id)
+    if not workbench.get("session"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+    return workbench
+
+
+# =============================================================================
+# L2 Cognition Endpoints
+# =============================================================================
+
+@memory_router.get("/l2/statistics")
+async def get_l2_statistics():
+    """Get L2 cognition statistics."""
+    unified_memory = get_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return {"relation_count": 0, "assertion_count": 0, "db_path": None}
+
+    relations = await unified_memory.l2.get_relationships(limit=10000)
+    assertions = await unified_memory.l2.list_tom_assertions(limit=10000)
+    return {
+        "relation_count": len(relations),
+        "assertion_count": len(assertions),
+        "db_path": unified_memory.l2.db_path,
+    }
+
+
+@memory_router.get("/l2/relations")
+async def list_l2_relations(limit: int = Query(default=100, ge=1, le=500)):
+    """List knowledge graph relations."""
+    unified_memory = get_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return []
+    return await unified_memory.l2.get_relationships(limit=limit)
+
+
+@memory_router.get("/l2/assertions")
+async def list_l2_assertions(limit: int = Query(default=100, ge=1, le=500)):
+    """List ToM trait assertions."""
+    unified_memory = get_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return []
+    return await unified_memory.l2.list_tom_assertions(limit=limit)
+
+
+# =============================================================================
+# L3 Reflection Endpoints
+# =============================================================================
+
+@memory_router.get("/l3/summaries")
+async def list_l3_summaries(
+    limit: int = Query(default=100, ge=1, le=500),
+    summary_type: Optional[str] = Query(default=None, description="Filter by type: temporal, thematic, insight"),
+):
+    """List L3 reflection summaries."""
+    unified_memory = get_unified_memory()
+    if not unified_memory or not unified_memory.l3:
+        return []
+
+    summaries = await unified_memory.l3.list_summaries(limit=limit)
+    if summary_type:
+        summaries = [s for s in summaries if s.get("summary_type") == summary_type]
+    return summaries
+
+
+# =============================================================================
+# Unified Statistics Endpoint
+# =============================================================================
+
 @memory_router.get("/statistics")
 async def get_memory_statistics():
+    """Return per-layer memory statistics in L0-L4 format."""
     unified_memory = get_unified_memory()
     memory_integration = get_memory_integration()
 
@@ -65,9 +193,70 @@ async def get_memory_statistics():
             detail="Memory system not initialized",
         )
 
-    stats = await unified_memory.get_statistics()
+    stats: Dict[str, Any] = {}
+
+    # L0 statistics
+    if unified_memory.l0:
+        sessions = unified_memory.l0._sessions
+        total_goals = sum(len(unified_memory.l0._goal_stack.get(sid, [])) for sid in sessions)
+        total_entities = sum(len(unified_memory.l0._active_entities.get(sid, {})) for sid in sessions)
+        total_tactics = sum(len(unified_memory.l0._temporary_tactics.get(sid, {})) for sid in sessions)
+        stats["l0"] = {
+            "active_sessions": len([s for s in sessions.values() if s.get("status") == "active"]),
+            "total_goals": total_goals,
+            "total_entities": total_entities,
+            "total_tactics": total_tactics,
+            "db_path": unified_memory.l0.checkpoint_db_path,
+        }
+    else:
+        stats["l0"] = {"active_sessions": 0, "total_goals": 0, "total_entities": 0, "total_tactics": 0}
+
+    # L1 statistics
+    if unified_memory.l1:
+        stats["l1"] = {
+            "event_count": await unified_memory.l1.count_events(),
+            "db_path": unified_memory.l1.db_path,
+        }
+    else:
+        stats["l1"] = {"event_count": 0}
+
+    # L2 statistics
+    if unified_memory.l2:
+        relations = await unified_memory.l2.get_relationships(limit=10000)
+        assertions = await unified_memory.l2.list_tom_assertions(limit=10000)
+        stats["l2"] = {
+            "relation_count": len(relations),
+            "assertion_count": len(assertions),
+            "db_path": unified_memory.l2.db_path,
+        }
+    else:
+        stats["l2"] = {"relation_count": 0, "assertion_count": 0}
+
+    # L3 statistics
+    if unified_memory.l3:
+        summaries = await unified_memory.l3.list_summaries(limit=10000)
+        stats["l3"] = {
+            "summary_count": len(summaries),
+            "db_path": unified_memory.l3.db_path,
+        }
+    else:
+        stats["l3"] = {"summary_count": 0}
+
+    # L4 statistics
+    if unified_memory.l4:
+        skills = await unified_memory.l4.get_all_skills(limit=10000)
+        open_breakers = sum(1 for s in skills if s.get("circuit_breaker_state") != "closed")
+        stats["l4"] = {
+            "skill_count": len(skills),
+            "open_circuit_breakers": open_breakers,
+            "db_path": unified_memory.l4.db_path,
+        }
+    else:
+        stats["l4"] = {"skill_count": 0, "open_circuit_breakers": 0}
+
     if memory_integration:
         stats["integration"] = memory_integration.get_statistics()
+
     return stats
 
 
