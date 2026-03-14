@@ -62,6 +62,7 @@ class DirectLLMHandler(BaseExecutionHandler):
     async def build_request(self, request: ExecutionRequest) -> DirectLLMRequest:
         prompt_context = await self._deps.prompt_service.build_prompt_context(
             user_id=request.context.user_id,
+            session_id=request.context.session_id,
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
@@ -105,6 +106,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
     async def build_request(self, request: ExecutionRequest) -> FunctionCallingRequest:
         prompt_context = await self._deps.prompt_service.build_prompt_context(
             user_id=request.context.user_id,
+            session_id=request.context.session_id,
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
@@ -262,6 +264,7 @@ class ExploreRenderHandler(BaseExecutionHandler):
         filtered_history = self._deps.prompt_service.filter_history_for_aggregation(request.context.history)
         system_prompt = await self._deps.prompt_service.build_system_prompt(
             user_id=request.context.user_id,
+            session_id=request.context.session_id,
             task_category="analysis",
             scenario=Scenario.ANALYSIS,
         )

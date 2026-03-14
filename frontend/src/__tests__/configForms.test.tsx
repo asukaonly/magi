@@ -423,7 +423,7 @@ describe('config forms', () => {
     expect(workbench.className).toContain('xl:grid-cols-[220px_minmax(0,1fr)]');
     expect(workbench.className).toContain('md:h-[clamp(440px,56vh,680px)]');
     expect(detailPane.className).toContain('overflow-y-auto');
-    expect(modelSection.className).toContain('border-t');
+    expect(modelSection.className).toContain('space-y-3');
   });
 
   it('uses a switch control for provider enablement in the detail pane', async () => {
@@ -928,15 +928,15 @@ describe('config forms', () => {
     expect(availableModels?.className).not.toContain('lg:col-span-2');
   });
 
-  it('memory form disables l2-l5 when l1 off', async () => {
+  it('memory form warns when l1 is turned off', async () => {
     const user = userEvent.setup();
     render(
-      <Form initialValues={{ memory_layers: { L1: { enabled: true } } }}>
+      <Form initialValues={{ memory: { enable_l0: true, enable_l1: true, enable_l2: true, enable_l3: true, enable_l4: true } }}>
         <MemoryForm />
       </Form>
     );
-    const l1Switch = screen.getAllByRole('checkbox')[0];
+    const l1Switch = screen.getByRole('checkbox', { name: /settings\.memory\.fields\.enable_l1\.label/i });
     await user.click(l1Switch);
-    expect(await screen.findByText('L2-L5 依赖 L1')).toBeInTheDocument();
+    expect(await screen.findByText('settings.memory.form.l1DependencyTitle')).toBeInTheDocument();
   });
 });

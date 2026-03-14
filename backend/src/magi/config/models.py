@@ -188,6 +188,18 @@ class MemorySettings(BaseModel):
     db_path: str = Field(default="~/.magi/data/memories")
     retention_days: int = Field(default=7, ge=1)
 
+    enable_l0: bool = Field(default=True)
+    enable_l1: bool = Field(default=True)
+    enable_l2: bool = Field(default=True)
+    enable_l3: bool = Field(default=True)
+    enable_l4: bool = Field(default=True)
+    l0_checkpoint_interval_seconds: int = Field(default=30, ge=1)
+    runtime_replay_include_l0_only: bool = Field(default=False)
+    enable_t1_importance: bool = Field(default=True)
+    enable_l2_llm_extraction: bool = Field(default=True)
+    enable_l3_llm_summary: bool = Field(default=True)
+    enable_l4_skill_extraction: bool = Field(default=True)
+
     # L1-L5 layers
     enable_l1_raw: bool = Field(default=True)
     enable_l2_relations: bool = Field(default=True)

@@ -154,9 +154,10 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
 
     calls: dict[str, object] = {}
 
-    async def _fake_build_system_prompt(*, user_id=None, task_category="chat", scenario="chat"):  # type: ignore[no-untyped-def]
+    async def _fake_build_system_prompt(*, user_id=None, session_id=None, task_category="chat", scenario="chat"):  # type: ignore[no-untyped-def]
         calls["build_system_prompt"] = {
             "user_id": user_id,
+            "session_id": session_id,
             "task_category": task_category,
             "scenario": scenario,
         }
@@ -213,7 +214,12 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
 
     response = await agent._planning_service.aggregate_orchestration(state)
     assert response == "这是面向用户的最终回答"
-    assert calls["build_system_prompt"] == {"user_id": "u-chat", "task_category": "chat", "scenario": "chat"}
+    assert calls["build_system_prompt"] == {
+        "user_id": "u-chat",
+        "session_id": "s-chat",
+        "task_category": "chat",
+        "scenario": "chat",
+    }
 
     llm_call = calls["call_llm"]
     assert isinstance(llm_call, dict)
@@ -381,10 +387,11 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
     ]
     calls = {}
 
-    async def _fake_build_system_prompt(*, scenario="chat", user_id=None, task_category="chat"):  # type: ignore[no-untyped-def]
+    async def _fake_build_system_prompt(*, scenario="chat", user_id=None, session_id=None, task_category="chat"):  # type: ignore[no-untyped-def]
         calls["build_system_prompt"] = {
             "scenario": scenario,
             "user_id": user_id,
+            "session_id": session_id,
             "task_category": task_category,
         }
         return "analysis-system-prompt"
@@ -434,6 +441,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
     assert calls["build_system_prompt"] == {
         "scenario": "analysis",
         "user_id": "u-chat",
+        "session_id": "s-chat",
         "task_category": "analysis",
     }
     call_llm = calls["call_llm"]

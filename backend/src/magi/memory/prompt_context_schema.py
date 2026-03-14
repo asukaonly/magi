@@ -18,8 +18,10 @@ class IdentityConstraintContext:
 class RetrievalMemoryContext:
     """Retrieved memory payload for Module 2."""
 
-    short_term_workbench: List[Dict[str, Any]] = field(default_factory=list)
-    reflection_memory_l5: List[Dict[str, Any]] = field(default_factory=list)
+    l0_workbench: List[Dict[str, Any]] = field(default_factory=list)
+    l2_entity_cards: List[Dict[str, Any]] = field(default_factory=list)
+    l3_reflection_memory: List[Dict[str, Any]] = field(default_factory=list)
+    l4_procedural_memory: List[Dict[str, Any]] = field(default_factory=list)
     preference_memory: Dict[str, Any] = field(default_factory=dict)
 
 

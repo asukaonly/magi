@@ -119,10 +119,12 @@ export function SwitchField({
   checked,
   onChange,
   disabled = false,
+  ariaLabel,
 }: {
   checked?: boolean;
   onChange?: (checked: boolean) => void;
   disabled?: boolean;
+  ariaLabel?: string;
 }): JSX.Element {
   return (
     <label className="inline-flex items-center gap-2 text-sm">
@@ -131,6 +133,7 @@ export function SwitchField({
         checked={!!checked}
         onChange={(event) => onChange?.(event.target.checked)}
         disabled={disabled}
+        aria-label={ariaLabel}
       />
       <span>{checked ? '已启用' : '已关闭'}</span>
     </label>

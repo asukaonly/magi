@@ -253,7 +253,7 @@
     "llmModelsDesc": "Choose providers and models for each runtime scenario.",
     "usageDesc": "Inspect LLM call volume, prompt/completion tokens, and usage trends",
     "personalityDesc": "Manage AI personality configuration",
-    "memoryDesc": "Manage layered memory system and vector models",
+    "memoryDesc": "Control the L0-L4 memory lifecycle, replay posture, and extraction pipelines.",
     "timelineDesc": "Configure timeline ingestion defaults and tune each source independently",
     "extensionsDesc": "Inspect, enable, disable, and reload plugin packages from one place.",
     "toolsDesc": "Configure built-in tools and skills",
@@ -331,6 +331,68 @@
       "cancel": "Cancel",
       "confirm": "Confirm Clear",
       "clearing": "Clearing..."
+    },
+    "memory": {
+      "cards": {
+        "layers": "Lifecycle Layers",
+        "runtime": "Runtime Retention",
+        "pipelines": "Inference Pipelines"
+      },
+      "form": {
+        "title": "Memory lifecycle",
+        "description": "Enable only the memory stages you want Magi to persist and reason over.",
+        "l1DependencyTitle": "L1 event memory is the long-term foundation",
+        "l1DependencyDescription": "When L1 is off, downstream cognition, reflection, and procedural memory stay disabled.",
+        "restoreL1": "Re-enable L1"
+      },
+      "fields": {
+        "enable_l0": {
+          "label": "Enable L0 working context",
+          "description": "Keep short-lived runtime state in memory and checkpoint it for crash recovery."
+        },
+        "enable_l1": {
+          "label": "Enable L1 event memory",
+          "description": "Persist long-term source events that feed later cognition and retrieval."
+        },
+        "enable_l2": {
+          "label": "Enable L2 cognition graph",
+          "description": "Extract stable entities, relationships, and defensive ToM assertions from L1."
+        },
+        "enable_l3": {
+          "label": "Enable L3 reflections",
+          "description": "Generate synthesized summaries and reflective abstractions from accumulated events."
+        },
+        "enable_l4": {
+          "label": "Enable L4 procedural memory",
+          "description": "Capture repeatable strategies and failure-avoidance heuristics from prior runs."
+        },
+        "l0_checkpoint_interval_seconds": {
+          "label": "L0 checkpoint interval (seconds)"
+        },
+        "retention_days": {
+          "label": "L1 retention window (days)"
+        },
+        "runtime_replay_include_l0_only": {
+          "label": "Replay L0-only runtime events",
+          "description": "Include ephemeral execution events when replaying short-term context after recovery."
+        },
+        "enable_t1_importance": {
+          "label": "Enable T1 importance scoring",
+          "description": "Score event salience before promoting items into downstream cognition."
+        },
+        "enable_l2_llm_extraction": {
+          "label": "Enable L2 LLM extraction",
+          "description": "Use the model to derive entities, relations, and ToM assertions from L1 events."
+        },
+        "enable_l3_llm_summary": {
+          "label": "Enable L3 LLM reflection",
+          "description": "Use the model to build reflective summaries from retained memory streams."
+        },
+        "enable_l4_skill_extraction": {
+          "label": "Enable L4 skill extraction",
+          "description": "Promote repeated success or failure patterns into future procedural guidance."
+        }
+      }
     },
     "options": {
       "quick": "Quick Mode",

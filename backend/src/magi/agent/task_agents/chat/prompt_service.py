@@ -5,7 +5,9 @@ import json
 import re
 from typing import Any
 
+from ....agent import get_unified_memory
 from ....memory.context_builder import Scenario
+from ....memory.hybrid_retrieval import HybridRetrievalService, build_query
 from ....config.models import LLMScenario
 from ...orchestration import WorkerResult
 from ....memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
@@ -46,10 +48,16 @@ class ChatPromptService:
         self,
         *,
         user_id: str,
+        session_id: str | None = None,
         task_category: str,
         tools: list[str],
         scenario: str = Scenario.CHAT,
     ) -> dict[str, Any]:
+        retrieved_memory_payload = await self._build_retrieved_memory_payload(
+            user_id=user_id,
+            session_id=session_id,
+            task_category=task_category,
+        )
         return await self._prompt_context_assembler.assemble(
             agent_id=self._agent_id,
             agent_type=self._agent_type,
@@ -59,11 +67,7 @@ class ChatPromptService:
             self_memory=self._memory,
             other_memory=self._other_memory,
             tool_result={"tools": tools},
-            retrieved_memory_payload={
-                "short_term_workbench": [],
-                "reflection_memory_l5": [],
-                "preference_memory": {},
-            },
+            retrieved_memory_payload=retrieved_memory_payload,
             state_transition_override=None,
             persona_name=self._memory.personality_name if self._memory else "default",
         )
@@ -72,9 +76,15 @@ class ChatPromptService:
         self,
         *,
         user_id: str,
+        session_id: str | None = None,
         task_category: str,
         scenario: str = Scenario.CHAT,
     ) -> str:
+        retrieved_memory_payload = await self._build_retrieved_memory_payload(
+            user_id=user_id,
+            session_id=session_id,
+            task_category=task_category,
+        )
         prompt_context = await self._prompt_context_assembler.assemble(
             agent_id=self._agent_id,
             agent_type=self._agent_type,
@@ -84,7 +94,7 @@ class ChatPromptService:
             self_memory=self._memory,
             other_memory=self._other_memory,
             tool_result={"tools": []},
-            retrieved_memory_payload={},
+            retrieved_memory_payload=retrieved_memory_payload,
             state_transition_override=None,
         )
         return self._prompt_context_renderer.render_system_prompt(prompt_context)
@@ -314,3 +324,69 @@ class ChatPromptService:
 
     def prefers_chinese_response(self, text: str) -> bool:
         return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+    async def _build_retrieved_memory_payload(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None,
+        task_category: str,
+    ) -> dict[str, Any]:
+        try:
+            unified_memory = get_unified_memory()
+        except Exception:
+            unified_memory = None
+
+        if unified_memory is None:
+            return {
+                "l0_workbench": [],
+                "l2_entity_cards": [],
+                "l3_reflection_memory": [],
+                "l4_procedural_memory": [],
+                "preference_memory": {},
+            }
+
+        retrieval = HybridRetrievalService(unified_memory)
+        detail_payload = await retrieval.query(
+            build_query(
+                query=task_category,
+                user_id=user_id,
+                session_id=session_id,
+                time_range={},
+                query_mode="detail",
+                source_filters=[],
+                domain_filters=[],
+                limit=5,
+            )
+        )
+        summary_payload = await retrieval.query(
+            build_query(
+                query=task_category,
+                user_id=user_id,
+                session_id=session_id,
+                time_range={},
+                query_mode="summary",
+                source_filters=[],
+                domain_filters=[],
+                limit=3,
+            )
+        )
+        experience_payload = await retrieval.query(
+            build_query(
+                query=task_category,
+                user_id=user_id,
+                session_id=session_id,
+                time_range={},
+                query_mode="experience",
+                source_filters=[],
+                domain_filters=[],
+                limit=3,
+            )
+        )
+        return {
+            "l0_workbench": detail_payload.l0_workbench,
+            "l2_entity_cards": detail_payload.l2_entity_cards,
+            "l3_reflection_memory": summary_payload.l3_reflections,
+            "l4_procedural_memory": experience_payload.l4_procedures,
+            "preference_memory": {},
+        }

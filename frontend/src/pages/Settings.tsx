@@ -10,6 +10,8 @@ import {
   Save,
   Settings2,
   Brain,
+  User,
+  Database,
   Wrench,
   Cpu,
   ChevronRight,
@@ -38,6 +40,8 @@ import {
 } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField as BaseSelectField } from '@/components/config-forms/fields';
 import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig, type LanguageCode } from '../api/modules/config';
@@ -66,6 +70,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'preferences', icon: Settings2 },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
   { id: 'usage', icon: BarChart3 },
+  { id: 'personality', icon: User },
+  { id: 'memory', icon: Database },
   { id: 'timeline', icon: ScrollText },
   { id: 'extensions', icon: PlugZap },
   { id: 'tools', icon: Wrench },
@@ -76,6 +82,27 @@ const NAV_ITEMS: NavItem[] = [
 const isNavGroup = (item: NavItem): item is NavGroup => Array.isArray((item as NavGroup).children);
 
 const LANGUAGE_STORAGE_KEY = 'magi_language';
+
+type MemoryToggleFieldId =
+  | 'enable_l0'
+  | 'enable_l1'
+  | 'enable_l2'
+  | 'enable_l3'
+  | 'enable_l4'
+  | 'runtime_replay_include_l0_only'
+  | 'enable_t1_importance'
+  | 'enable_l2_llm_extraction'
+  | 'enable_l3_llm_summary'
+  | 'enable_l4_skill_extraction';
+
+const MEMORY_LAYER_FIELDS: MemoryToggleFieldId[] = ['enable_l0', 'enable_l1', 'enable_l2', 'enable_l3', 'enable_l4'];
+const MEMORY_PIPELINE_FIELDS: MemoryToggleFieldId[] = [
+  'runtime_replay_include_l0_only',
+  'enable_t1_importance',
+  'enable_l2_llm_extraction',
+  'enable_l3_llm_summary',
+  'enable_l4_skill_extraction',
+];
 
 const toI18nLanguage = (language: LanguageCode) => (language === 'zh' ? 'zh-CN' : 'en');
 
@@ -197,6 +224,28 @@ const NumberField: React.FC<{
       value={value ?? ''}
       onChange={(event) => onChange(Number(event.target.value))}
     />
+  </label>
+);
+
+const MemoryToggleCard: React.FC<{
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}> = ({ label, description, checked, disabled = false, onChange }) => (
+  <label
+    className={cn(
+      'group flex items-start justify-between gap-4 rounded-xl border px-4 py-3',
+      'transition-colors duration-150',
+      disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-border/80 hover:bg-muted/30'
+    )}
+  >
+    <div className="space-y-1">
+      <div className="text-sm font-medium">{label}</div>
+      <div className="text-xs leading-5 text-muted-foreground">{description}</div>
+    </div>
+    <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label={label} />
   </label>
 );
 
@@ -575,6 +624,76 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     discardChanges: handleDiscardChanges,
   }), [dirty, savedConfig, savedPluginDrafts, savedThemeMode, savedToolDrafts]);
 
+  const isMemoryFieldActive = (field: MemoryToggleFieldId, memory: SystemConfig['memory']) => {
+    switch (field) {
+      case 'enable_l2':
+        return memory.enable_l1 && memory.enable_l2;
+      case 'enable_l3':
+        return memory.enable_l1 && memory.enable_l3;
+      case 'enable_l4':
+        return memory.enable_l1 && memory.enable_l4;
+      default:
+        return Boolean(memory[field]);
+    }
+  };
+
+  const isMemoryFieldDisabled = (field: MemoryToggleFieldId, memory: SystemConfig['memory']) => {
+    switch (field) {
+      case 'enable_l2':
+      case 'enable_l3':
+      case 'enable_l4':
+        return !memory.enable_l1;
+      case 'runtime_replay_include_l0_only':
+        return !memory.enable_l0;
+      case 'enable_t1_importance':
+        return !memory.enable_l1;
+      case 'enable_l2_llm_extraction':
+        return !memory.enable_l1 || !memory.enable_l2;
+      case 'enable_l3_llm_summary':
+        return !memory.enable_l1 || !memory.enable_l3;
+      case 'enable_l4_skill_extraction':
+        return !memory.enable_l1 || !memory.enable_l4;
+      default:
+        return false;
+    }
+  };
+
+  const updateMemoryToggle = (field: MemoryToggleFieldId, checked: boolean) => {
+    patchDraftConfig((draft) => {
+      if (field === 'enable_l1' && !checked) {
+        draft.memory.enable_l1 = false;
+        draft.memory.enable_l2 = false;
+        draft.memory.enable_l3 = false;
+        draft.memory.enable_l4 = false;
+        draft.memory.enable_t1_importance = false;
+        draft.memory.enable_l2_llm_extraction = false;
+        draft.memory.enable_l3_llm_summary = false;
+        draft.memory.enable_l4_skill_extraction = false;
+        return;
+      }
+
+      if (field === 'enable_l2' && !checked) {
+        draft.memory.enable_l2 = false;
+        draft.memory.enable_l2_llm_extraction = false;
+        return;
+      }
+
+      if (field === 'enable_l3' && !checked) {
+        draft.memory.enable_l3 = false;
+        draft.memory.enable_l3_llm_summary = false;
+        return;
+      }
+
+      if (field === 'enable_l4' && !checked) {
+        draft.memory.enable_l4 = false;
+        draft.memory.enable_l4_skill_extraction = false;
+        return;
+      }
+
+      draft.memory[field] = checked as never;
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -672,8 +791,118 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         );
 
+      case 'personality':
+        return (
+          <div className="space-y-6">
+            <div className="overflow-hidden rounded-3xl border border-primary/20 bg-muted/30 p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-medium text-primary">{t('settings.fields.currentPersonality')}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {draftConfig.personality?.persona_entity?.basic_profile?.name || 'Default'}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl"
+                  onClick={() => {
+                    window.location.href = '/personality';
+                  }}
+                >
+                  {t('settings.actions.configure')}
+                </Button>
+              </div>
+              <p className="text-xs leading-6 text-muted-foreground">
+                {draftConfig.personality?.persona_entity?.basic_profile?.occupation || ''}
+              </p>
+            </div>
+          </div>
+        );
+
       case 'usage':
         return <LLMUsageSection />;
+
+      case 'memory':
+        return (
+          <div className="space-y-8">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">{t('settings.memory.cards.layers')}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {MEMORY_LAYER_FIELDS.map((field) => (
+                  <MemoryToggleCard
+                    key={field}
+                    label={t(`settings.memory.fields.${field}.label`)}
+                    description={t(`settings.memory.fields.${field}.description`)}
+                    checked={isMemoryFieldActive(field, draftConfig.memory)}
+                    disabled={isMemoryFieldDisabled(field, draftConfig.memory)}
+                    onChange={(checked) => updateMemoryToggle(field, checked)}
+                  />
+                ))}
+              </CardContent>
+            </Card>
+
+            {!draftConfig.memory.enable_l1 ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <div className="font-medium">{t('settings.memory.form.l1DependencyTitle')}</div>
+                <div className="mt-1 text-amber-800">{t('settings.memory.form.l1DependencyDescription')}</div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => updateMemoryToggle('enable_l1', true)}
+                >
+                  {t('settings.memory.form.restoreL1')}
+                </Button>
+              </div>
+            ) : null}
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">{t('settings.memory.cards.runtime')}</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <NumberField
+                  label={t('settings.memory.fields.l0_checkpoint_interval_seconds.label')}
+                  value={draftConfig.memory.l0_checkpoint_interval_seconds}
+                  min={1}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.memory.l0_checkpoint_interval_seconds = value;
+                  })}
+                />
+                <NumberField
+                  label={t('settings.memory.fields.retention_days.label')}
+                  value={draftConfig.memory.retention_days}
+                  min={1}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.memory.retention_days = value;
+                  })}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">{t('settings.memory.cards.pipelines')}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {MEMORY_PIPELINE_FIELDS.map((field) => (
+                  <MemoryToggleCard
+                    key={field}
+                    label={t(`settings.memory.fields.${field}.label`)}
+                    description={t(`settings.memory.fields.${field}.description`)}
+                    checked={Boolean(draftConfig.memory[field])}
+                    disabled={isMemoryFieldDisabled(field, draftConfig.memory)}
+                    onChange={(checked) => updateMemoryToggle(field, checked)}
+                  />
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        );
 
       case 'timeline':
         return (

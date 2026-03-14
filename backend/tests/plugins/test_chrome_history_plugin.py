@@ -167,7 +167,7 @@ def _create_bursty_history_db(root: Path) -> Path:
 
 
 def _plugin_root() -> Path:
-    return Path(__file__).resolve().parents[2] / "plugins"
+    return Path(__file__).resolve().parents[3] / "plugins"
 
 
 def _build_manager(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> tuple[PluginManager, SensorRegistry]:

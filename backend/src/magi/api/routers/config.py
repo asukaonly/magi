@@ -85,6 +85,18 @@ class MessageBusConfigModel(BaseModel):
 class MemoryConfigModel(BaseModel):
     backend: str = Field(default="sqlite")
     path: Optional[str] = Field(default="~/.magi/data/memories")
+    retention_days: int = Field(default=7, ge=1)
+    enable_l0: bool = Field(default=True)
+    enable_l1: bool = Field(default=True)
+    enable_l2: bool = Field(default=True)
+    enable_l3: bool = Field(default=True)
+    enable_l4: bool = Field(default=True)
+    l0_checkpoint_interval_seconds: int = Field(default=30, ge=1)
+    runtime_replay_include_l0_only: bool = Field(default=False)
+    enable_t1_importance: bool = Field(default=True)
+    enable_l2_llm_extraction: bool = Field(default=True)
+    enable_l3_llm_summary: bool = Field(default=True)
+    enable_l4_skill_extraction: bool = Field(default=True)
 
 
 class WebSocketConfigModel(BaseModel):
@@ -134,41 +146,6 @@ class BuiltInToolsConfigModel(BaseModel):
 class ToolsConfigModel(BaseModel):
     builtIn: BuiltInToolsConfigModel = Field(default_factory=BuiltInToolsConfigModel)
     skills: List[str] = Field(default_factory=list)
-
-
-class L1ConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-
-
-class L2ConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-    backend: str = Field(default="sqlite_networkx")
-    graphRules: Optional[str] = Field(default=None)
-
-
-class L3ConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-    deployment: str = Field(default="local")
-    backend: str = Field(default="sqlite_vec")
-    model: Optional[str] = Field(default=None)
-    modelStatus: Optional[str] = Field(default="not_downloaded")
-
-
-class L4ConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-    summaryTypes: List[str] = Field(default_factory=lambda: ["user_events"])
-
-
-class L5ConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-
-
-class MemoryLayersConfigModel(BaseModel):
-    L1: L1ConfigModel = Field(default_factory=L1ConfigModel)
-    L2: L2ConfigModel = Field(default_factory=L2ConfigModel)
-    L3: L3ConfigModel = Field(default_factory=L3ConfigModel)
-    L4: L4ConfigModel = Field(default_factory=L4ConfigModel)
-    L5: L5ConfigModel = Field(default_factory=L5ConfigModel)
 
 
 class TimelineSourceConfigModel(BaseModel):
@@ -235,7 +212,6 @@ class SystemConfigModel(BaseModel):
     preferences: UserPreferencesModel = Field(default_factory=UserPreferencesModel)
     personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
     tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
-    memory_layers: MemoryLayersConfigModel = Field(default_factory=MemoryLayersConfigModel)
     timeline: TimelineConfigModel = Field(default_factory=TimelineConfigModel)
 
 
@@ -572,28 +548,27 @@ def _load_llm_provider_registry() -> LLMProviderRegistryModel:
     )
 
 
-def _build_memory_layers(raw: Dict[str, Any], runtime_config: Any) -> MemoryLayersConfigModel:
-    saved_layers = raw.get("memory_layers")
-    if isinstance(saved_layers, dict):
-        return MemoryLayersConfigModel(**saved_layers)
+def _build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfigModel:
+    saved_memory = raw.get("memory", {})
+    if not isinstance(saved_memory, dict):
+        saved_memory = {}
 
     memory_cfg = runtime_config.agent.memory
-
-    # Get embedding model from LLM EMBEDDING scenario selection
-    embedding_selection = runtime_config.llm.selections.get("embedding")
-    embedding_model = embedding_selection.model if embedding_selection else None
-    has_embedding = embedding_model is not None and embedding_model != ""
-
-    return MemoryLayersConfigModel(
-        L1=L1ConfigModel(enabled=memory_cfg.enable_l1_raw),
-        L2=L2ConfigModel(enabled=memory_cfg.enable_l2_relations),
-        L3=L3ConfigModel(
-            enabled=has_embedding and memory_cfg.enable_l3_embeddings,
-            model=embedding_model,
-            modelStatus="ready" if has_embedding else "not_configured",
-        ),
-        L4=L4ConfigModel(enabled=memory_cfg.enable_l4_summaries),
-        L5=L5ConfigModel(enabled=memory_cfg.enable_l5_capabilities),
+    return MemoryConfigModel(
+        backend=saved_memory.get("backend", "sqlite"),
+        path=memory_cfg.db_path,
+        retention_days=memory_cfg.retention_days,
+        enable_l0=memory_cfg.enable_l0,
+        enable_l1=memory_cfg.enable_l1,
+        enable_l2=memory_cfg.enable_l2,
+        enable_l3=memory_cfg.enable_l3,
+        enable_l4=memory_cfg.enable_l4,
+        l0_checkpoint_interval_seconds=memory_cfg.l0_checkpoint_interval_seconds,
+        runtime_replay_include_l0_only=memory_cfg.runtime_replay_include_l0_only,
+        enable_t1_importance=memory_cfg.enable_t1_importance,
+        enable_l2_llm_extraction=memory_cfg.enable_l2_llm_extraction,
+        enable_l3_llm_summary=memory_cfg.enable_l3_llm_summary,
+        enable_l4_skill_extraction=memory_cfg.enable_l4_skill_extraction,
     )
 
 
@@ -726,10 +701,7 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             backend=runtime_config.agent.message_bus.backend.value,
             max_size=runtime_config.agent.message_bus.max_queue_size,
         ),
-        memory=MemoryConfigModel(
-            backend=raw.get("memory", {}).get("backend", "sqlite"),
-            path=runtime_config.agent.memory.db_path,
-        ),
+        memory=_build_memory_config(raw, runtime_config),
         websocket=WebSocketConfigModel(
             enabled=runtime_config.features.enable_websocket,
             port=runtime_config.server.port,
@@ -741,7 +713,6 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
         preferences=UserPreferencesModel(**preferences_data),
         personality=_load_full_personality(),
         tools=_build_tools(raw, runtime_config),
-        memory_layers=_build_memory_layers(raw, runtime_config),
         timeline=TimelineConfigModel(
             **(raw.get("timeline", {}) if isinstance(raw.get("timeline"), dict) else {})
         ),
@@ -821,6 +792,23 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.message_bus.max_queue_size": config.message_bus.max_size,
         "memory.backend": config.memory.backend,
         "agent.memory.db_path": config.memory.path,
+        "agent.memory.retention_days": config.memory.retention_days,
+        "agent.memory.enable_l0": config.memory.enable_l0,
+        "agent.memory.enable_l1": config.memory.enable_l1,
+        "agent.memory.enable_l2": config.memory.enable_l2,
+        "agent.memory.enable_l3": config.memory.enable_l3,
+        "agent.memory.enable_l4": config.memory.enable_l4,
+        "agent.memory.l0_checkpoint_interval_seconds": config.memory.l0_checkpoint_interval_seconds,
+        "agent.memory.runtime_replay_include_l0_only": config.memory.runtime_replay_include_l0_only,
+        "agent.memory.enable_t1_importance": config.memory.enable_t1_importance,
+        "agent.memory.enable_l2_llm_extraction": config.memory.enable_l2_llm_extraction,
+        "agent.memory.enable_l3_llm_summary": config.memory.enable_l3_llm_summary,
+        "agent.memory.enable_l4_skill_extraction": config.memory.enable_l4_skill_extraction,
+        "agent.memory.enable_l1_raw": config.memory.enable_l1,
+        "agent.memory.enable_l2_relations": config.memory.enable_l2,
+        "agent.memory.enable_l3_embeddings": config.memory.enable_l3,
+        "agent.memory.enable_l4_summaries": config.memory.enable_l3,
+        "agent.memory.enable_l5_capabilities": config.memory.enable_l4,
         "features.enable_websocket": config.websocket.enabled,
         "server.port": config.websocket.port,
         "log_level": config.log.level,
@@ -829,7 +817,6 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.personality.name": config.personality.persona_entity.basic_profile.name if config.personality.persona_entity.basic_profile.name else "default",
         "agent.personality.path": "~/.magi/personalities",
         "agent.personality.enable_evolution": True,
-        "memory_layers": config.memory_layers.model_dump(),
         "timeline": config.timeline.model_dump(),
         "tools.builtIn": config.tools.builtIn.model_dump(),
         "tools.skills": config.tools.skills,

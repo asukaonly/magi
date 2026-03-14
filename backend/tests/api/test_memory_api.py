@@ -4,41 +4,64 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers.memory import memory_router
-from magi.memory.l5_capabilities import Capability
 
 
-class _FakeCapabilityMemory:
-    def get_all_capabilities(self):
+class _FakeL4Store:
+    async def get_all_skills(self, limit: int = 100):
+        _ = limit
         return [
-            Capability(
-                capability_id="cap-test",
-                name="Chrome Recall",
-                description="Recall recent browser activity",
-                category="browser",
-                proficiency=0.75,
-                usage_count=8,
-                success_count=6,
-                last_used=1773400000.0,
-            )
+            {
+                "skill_id": "skill-1",
+                "skill_name": "browser.open",
+                "skill_category": "tool",
+                "success_rate": 0.75,
+                "total_attempts": 8,
+                "circuit_breaker_state": "closed",
+            }
         ]
 
 
 class _FakeUnifiedMemory:
     def __init__(self):
-        self.l5_capabilities = _FakeCapabilityMemory()
+        self.l4 = _FakeL4Store()
+
+    async def get_statistics(self):
+        return {
+            "l0": {"checkpoint_db_path": "/tmp/l0.db"},
+            "l1": {"event_count": 12},
+            "l2": {"db_path": "/tmp/l2.db"},
+            "l3": {"db_path": "/tmp/l3.db"},
+            "l4": {"db_path": "/tmp/l4.db"},
+        }
 
 
-def test_memory_capabilities_api_derives_success_rate(monkeypatch):
+def test_memory_statistics_api_reports_new_layers(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
     monkeypatch.setattr("magi.api.routers.memory.get_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory.get_memory_integration", lambda: None)
 
     client = TestClient(app)
-    response = client.get("/api/memory/capabilities")
+    response = client.get("/api/memory/statistics")
 
     assert response.status_code == 200
     body = response.json()
-    assert body[0]["capability_id"] == "cap-test"
+    assert body["l1"]["event_count"] == 12
+    assert "l4" in body
+
+
+def test_memory_procedures_api_lists_skills(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    monkeypatch.setattr("magi.api.routers.memory.get_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory.get_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get("/api/memory/procedures")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["skill_name"] == "browser.open"
     assert body[0]["success_rate"] == 0.75
-    assert body[0]["usage_count"] == 8

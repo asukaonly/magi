@@ -166,21 +166,21 @@ export interface ToolsConfig {
   skills: string[];
 }
 
-export interface MemoryLayersConfig {
-  L1: { enabled: boolean };
-  L2: { enabled: boolean; backend: 'sqlite_networkx' | 'kuzu'; graphRules?: string };
-  L3: {
-    enabled: boolean;
-    deployment: 'local' | 'remote';
-    backend: 'sqlite_vec';
-    model?: string;
-    modelStatus?: 'not_downloaded' | 'downloading' | 'ready';
-  };
-  L4: {
-    enabled: boolean;
-    summaryTypes: ('user_events' | 'ai_tool_execution' | 'external_perception')[];
-  };
-  L5: { enabled: boolean };
+export interface MemoryConfig {
+  backend: 'memory' | 'sqlite' | 'chromadb';
+  path?: string;
+  retention_days: number;
+  enable_l0: boolean;
+  enable_l1: boolean;
+  enable_l2: boolean;
+  enable_l3: boolean;
+  enable_l4: boolean;
+  l0_checkpoint_interval_seconds: number;
+  runtime_replay_include_l0_only: boolean;
+  enable_t1_importance: boolean;
+  enable_l2_llm_extraction: boolean;
+  enable_l3_llm_summary: boolean;
+  enable_l4_skill_extraction: boolean;
 }
 
 export type TimelineSyncMode = 'manual' | 'interval' | 'watch';
@@ -238,10 +238,7 @@ export interface SystemConfig {
     backend: 'memory' | 'sqlite' | 'redis';
     max_size?: number;
   };
-  memory: {
-    backend: 'memory' | 'sqlite' | 'chromadb';
-    path?: string;
-  };
+  memory: MemoryConfig;
   websocket: {
     enabled: boolean;
     port?: number;
@@ -253,7 +250,6 @@ export interface SystemConfig {
   preferences: UserPreferences;
   personality: PersonalityConfig;
   tools: ToolsConfig;
-  memory_layers: MemoryLayersConfig;
   timeline: TimelineConfig;
 }
 
@@ -311,7 +307,22 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
   loop: { strategy: 'continuous', interval: 1 },
   message_bus: { backend: 'sqlite', max_size: 1000 },
-  memory: { backend: 'sqlite', path: '~/.magi/data/memories' },
+  memory: {
+    backend: 'sqlite',
+    path: '~/.magi/data/memories',
+    retention_days: 7,
+    enable_l0: true,
+    enable_l1: true,
+    enable_l2: true,
+    enable_l3: true,
+    enable_l4: true,
+    l0_checkpoint_interval_seconds: 30,
+    runtime_replay_include_l0_only: false,
+    enable_t1_importance: true,
+    enable_l2_llm_extraction: true,
+    enable_l3_llm_summary: true,
+    enable_l4_skill_extraction: true,
+  },
   websocket: { enabled: true, port: 8000 },
   log: { level: 'INFO' },
   preferences: { onboarding_completed: false, user_mode: null, language: 'zh' },
@@ -323,13 +334,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       webFetch: { enabled: true, usePlaywright: false },
     },
     skills: [],
-  },
-  memory_layers: {
-    L1: { enabled: true },
-    L2: { enabled: true, backend: 'sqlite_networkx' },
-    L3: { enabled: true, deployment: 'local', backend: 'sqlite_vec', modelStatus: 'not_downloaded' },
-    L4: { enabled: true, summaryTypes: ['user_events'] },
-    L5: { enabled: true },
   },
   timeline: {
     enabled: true,

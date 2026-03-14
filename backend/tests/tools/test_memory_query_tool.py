@@ -15,10 +15,10 @@ class TestMemoryQueryTool:
 
         assert schema.name == "memory_query"
         assert "memory" in schema.category.lower()
-        assert len(schema.parameters) >= 2  # query + time_range at minimum
+        assert len(schema.parameters) >= 2
 
     def test_tool_parameters(self):
-        """Should require query while keeping time_range optional."""
+        """Should require query while keeping query_mode optional."""
         from magi.tools.memory_query import MemoryQueryTool
 
         tool = MemoryQueryTool()
@@ -30,48 +30,48 @@ class TestMemoryQueryTool:
         assert "sources" in param_names
         assert "query_mode" in param_names
 
-        # query should be required
         query_param = next(p for p in schema.parameters if p.name == "query")
         assert query_param.required is True
         time_range_param = next(p for p in schema.parameters if p.name == "time_range")
         assert time_range_param.required is False
 
-    def test_tool_uses_runtime_unified_memory_for_l1_queries(self, monkeypatch):
-        """Should build its service with a UnifiedMemoryStore-backed L1 handler."""
+    def test_tool_uses_runtime_unified_memory_for_hybrid_queries(self, monkeypatch):
+        """Should build its service with a HybridRetrievalService-backed runtime memory store."""
         import magi.tools.memory_query as memory_query_module
         from magi.tools.memory_query import MemoryQueryTool
 
         fake_unified_memory = MagicMock()
-        fake_unified_memory.l1_raw = MagicMock()
         monkeypatch.setattr(memory_query_module, "get_unified_memory", lambda: fake_unified_memory)
 
         tool = MemoryQueryTool()
 
-        assert "L1" in tool._service.layer_handlers
-        assert tool._service.layer_handlers["L1"].__class__.__name__ == "L1EventQueryHandler"
+        assert tool._service.__class__.__name__ == "HybridRetrievalService"
 
     @pytest.mark.asyncio
-    async def test_tool_execution(self):
-        """Should execute query and return ToolResult when only query is provided."""
+    async def test_tool_execution(self, monkeypatch):
+        """Should execute query and return a retrieval payload."""
         from magi.tools.memory_query import MemoryQueryTool
         from magi.tools.schema import ToolExecutionContext
 
         tool = MemoryQueryTool()
-        context = ToolExecutionContext(
-            agent_id="test",
-            task_id="test-task"
+        tool._service.query = AsyncMock(
+            return_value=MagicMock(
+                l0_workbench=[{"summary": "Current goal"}],
+                l1_events=[],
+                l2_entity_cards=[],
+                l2_relationships=[],
+                l3_reflections=[],
+                l4_procedures=[],
+                trace={"query_mode": "detail"},
+            )
         )
+        context = ToolExecutionContext(agent_id="test", task_id="test-task")
 
-        result = await tool.execute(
-            {
-                "query": "test query",
-            },
-            context
-        )
+        result = await tool.execute({"query": "test query"}, context)
 
-        # Result should be a ToolResult
-        assert hasattr(result, "success")
-        assert hasattr(result, "data")
+        assert result.success is True
+        assert result.data["results"]["l0_workbench"][0]["summary"] == "Current goal"
+        assert result.data["meta"]["query_mode"] == "detail"
 
     @pytest.mark.asyncio
     async def test_tool_to_claude_format(self):

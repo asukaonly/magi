@@ -145,8 +145,10 @@ class PromptContextAssembler:
 
         payload = retrieved_memory_payload or {}
         retrieval_memory = RetrievalMemoryContext(
-            short_term_workbench=list(payload.get("short_term_workbench", [])),
-            reflection_memory_l5=list(payload.get("reflection_memory_l5", [])),
+            l0_workbench=list(payload.get("l0_workbench", [])),
+            l2_entity_cards=list(payload.get("l2_entity_cards", [])),
+            l3_reflection_memory=list(payload.get("l3_reflection_memory", [])),
+            l4_procedural_memory=list(payload.get("l4_procedural_memory", [])),
             preference_memory={
                 "user_preferences": user_pref_memory,
                 **dict(payload.get("preference_memory", {})),
@@ -382,8 +384,8 @@ class PromptContextRenderer:
         """Render memory library as markdown."""
         lines = ["# Memory Library"]
 
-        lines.append("## Short-Term Workbench")
-        workbench = retrieval.short_term_workbench or []
+        lines.append("## Working Memory (L0)")
+        workbench = retrieval.l0_workbench or []
         if workbench:
             for item in workbench:
                 lines.append(f"* {self._format_memory_item(item)}")
@@ -391,10 +393,28 @@ class PromptContextRenderer:
             lines.append("* (empty)")
         lines.append("")
 
-        lines.append("## Reflection Memory (L5)")
-        reflection = retrieval.reflection_memory_l5 or []
+        lines.append("## Entity Cards (L2)")
+        entity_cards = retrieval.l2_entity_cards or []
+        if entity_cards:
+            for item in entity_cards:
+                lines.append(f"* {self._format_memory_item(item)}")
+        else:
+            lines.append("* (empty)")
+        lines.append("")
+
+        lines.append("## Reflection Memory (L3)")
+        reflection = retrieval.l3_reflection_memory or []
         if reflection:
             for item in reflection:
+                lines.append(f"* {self._format_memory_item(item)}")
+        else:
+            lines.append("* (empty)")
+        lines.append("")
+
+        lines.append("## Procedural Memory (L4)")
+        procedures = retrieval.l4_procedural_memory or []
+        if procedures:
+            for item in procedures:
                 lines.append(f"* {self._format_memory_item(item)}")
         else:
             lines.append("* (empty)")
