@@ -1,6 +1,7 @@
 """Insight extraction pipeline for timeline events."""
 from __future__ import annotations
 
+import inspect
 from typing import Any, Iterable
 
 from .contracts import TimelineEvent
@@ -60,7 +61,7 @@ class TimelineInsightPipeline:
             confidence = float(candidate.get("confidence", 0.5))
             observed_at = float(candidate.get("observed_at", event.occurred_at))
             source_type = str(candidate.get("source_type", event.source_type))
-            await self._unified_memory.upsert_user_graph_edge(
+            maybe_awaitable = self._unified_memory.upsert_user_graph_edge(
                 subject_id=subject_id,
                 subject_type=subject_type,
                 predicate=predicate,
@@ -73,6 +74,8 @@ class TimelineInsightPipeline:
                 subject_attributes=dict(candidate.get("subject_attributes", {})),
                 object_attributes=dict(candidate.get("object_attributes", {})),
             )
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
             persisted.append(
                 {
                     "subject_id": subject_id,

@@ -149,7 +149,7 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
     monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
 
-    builtin_plugins_root = Path(__file__).resolve().parents[2] / "plugins"
+    builtin_plugins_root = Path(__file__).resolve().parents[3] / "plugins"
     manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
