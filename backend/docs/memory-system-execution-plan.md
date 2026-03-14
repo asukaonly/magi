@@ -65,6 +65,132 @@
 
 ---
 
+## Phase Kickoff Checklists
+
+以下清单用于每个阶段正式开工前的准备检查。
+
+原则：
+
+1. 每个阶段开始前先做一次范围确认，避免跨阶段顺手改动。
+2. 每个阶段开始前明确本阶段新增文件、替换文件、删除文件。
+3. 每个阶段开始前先确认最小验证命令，避免写完才想起怎么验。
+4. 每个阶段结束后立即提交，不把下一阶段准备混进同一个 commit。
+
+### Phase 0 开工清单: 事件标准与配置
+
+- [ ] 回读 [memory-system-design.md](/Users/asuka/code/magi/backend/docs/memory-system-design.md) 的第 4、6、15 节，确认 `memory_domain`、`ingest_target`、`retention_class`、LLM 开关字段不再变化。
+- [ ] 列出当前所有 memory 写入入口：
+  `MemoryIntegrationModule`、timeline 写入入口、直接 `UnifiedMemoryStore.add_event()` 调用点。
+- [ ] 盘点当前运行时事件类型来源，至少覆盖：
+  `USER_MESSAGE`、`ACTION_EXECUTED`、`TASK_*`、`WORKER_AGENT_*`、`ERROR_OCCURRED`、timeline 事件。
+- [ ] 确认本阶段不实现新存储，只落 contract、normalizer、config。
+- [ ] 先创建测试文件 `backend/tests/memory/test_memory_event_contracts.py`，把事件分流矩阵写成断言。
+- [ ] 预备验证命令：
+  `cd backend && pytest tests/memory/test_memory_event_contracts.py -v`
+
+### Phase 1 开工清单: L0 + 新 L1
+
+- [ ] 回读设计文档第 5、6 节，确认 L0 checkpoint 策略与 L1 字段集合。
+- [ ] 明确旧 `RawEventStore` 的现有能力清单，标记哪些能力必须保留：
+  基础写入、查询、timeline event 支持、计数、删除。
+- [ ] 确认 L0 与 task runtime 的交互边界：
+  `ChatTaskAgent`、`TaskOrchestrator`、`PromptContextAssembler` 各自负责什么。
+- [ ] 决定本阶段是否先做“单库伪分片”再抽象分片路由。
+  建议先做分片接口 + 单库实现，避免一开始把复杂度拉满。
+- [ ] 先补三类测试：
+  L0 session/checkpoint、L1 policy fields、`l0_only` 事件不落 L1。
+- [ ] 明确需要更新的 bootstrap 初始化顺序，防止 task agent 启动时拿不到 L0/L1。
+- [ ] 预备验证命令：
+  `cd backend && pytest tests/memory/test_l0_working_memory.py tests/memory/test_l1_event_store.py tests/memory/test_memory_event_contracts.py -v`
+
+### Phase 2 开工清单: L2 结构化认知
+
+- [ ] 回读设计文档第 7 节，确认 `knowledge_graph`、`tom_trait_assertions`、`tom_snapshots` 三层结构。
+- [ ] 先冻结一版最小 ontology：
+  支持哪些 `subject_type`、`object_type`、`predicate`，不要在实现过程中边写边发散。
+- [ ] 明确不同 source 的 ToM 深度映射规则：
+  chat/journal -> `defensive_psychology`
+  group/public OCR -> `topology_only`
+  runtime telemetry -> `none`
+- [ ] 确认“强宣称验证”的最小规则先做哪几个：
+  `>=3` 事件、`>24h` 时间跨度、反证降级。
+- [ ] 先决定 snapshot 物化策略是同步更新还是后台任务更新。
+  建议先同步写 assertion，异步物化 snapshot。
+- [ ] 先补测试，覆盖：
+  低置信度进入 assertion、跨事件升级、反证降级、群体内容禁止深层诊断。
+- [ ] 预备验证命令：
+  `cd backend && pytest tests/memory/test_l2_cognition_store.py -v`
+
+### Phase 3 开工清单: L3 反思记忆
+
+- [ ] 回读设计文档第 8 节，确认 `temporal`、`thematic`、`insight` 三类输出。
+- [ ] 先确定本阶段最小可交付范围。
+  建议顺序：
+  `temporal` -> `thematic` -> `insight`
+- [ ] 确认摘要输入过滤条件已经在 L1 contract 中可直接判断：
+  `cognition_eligible`、`memory_domain`、`retention_class`
+- [ ] 确认 permanent 事件的压缩策略：
+  可摘要，不删除原文。
+- [ ] 决定本阶段是否直接启用 summary 向量化。
+  建议可以一起做，因为 schema 已经预留。
+- [ ] 先补测试，覆盖：
+  runtime telemetry 不进入摘要、summary 可回溯 source events、permanent event 不删。
+- [ ] 预备验证命令：
+  `cd backend && pytest tests/memory/test_l3_summary_store.py -v`
+
+### Phase 4 开工清单: L4 程序性记忆
+
+- [ ] 回读设计文档第 9 节，确认 L4 的对象是“如何做”，不是普通统计表。
+- [ ] 先列出本阶段支持的 skill identity 粒度：
+  tool、api、workflow、strategy 哪些本期实现。
+- [ ] 冻结熔断器最小状态机：
+  `closed -> open -> half_open -> closed`
+- [ ] 明确哪些事件会驱动 L4 更新：
+  `TASK_COMPLETED`、`TASK_FAILED`、关键 tool 调用结果、策略变更事件。
+- [ ] 确认 prompt/执行链路在本阶段还不消费 L4，只负责正确沉淀。
+- [ ] 先补测试，覆盖：
+  成功率累计、连续失败开熔断、恢复路径、模板回收。
+- [ ] 预备验证命令：
+  `cd backend && pytest tests/memory/test_l4_procedural_memory.py -v`
+
+### Phase 5 开工清单: 检索与 Prompt 集成
+
+- [ ] 回读设计文档第 10 节，确认五种 query mode：
+  `detail`、`summary`、`experience`、`graph`、`strategy`
+- [ ] 明确旧 `memory/query` 里哪些行为保留，哪些直接丢弃。
+- [ ] 明确 prompt payload 新结构，并确认不会破坏现有 `preference_memory` 读取。
+- [ ] 确认 ChatTaskAgent 当前有哪些入口会触发 memory retrieval：
+  tool 调用、prompt 组装、memory query tool。
+- [ ] 决定本阶段先做 retrieval service，再改 tool，再改 prompt，避免同时改三处导致问题难定位。
+- [ ] 先补测试，覆盖：
+  detail 命中 L0/L1、summary 命中 L3、experience 命中 L4、prompt 读取新 payload。
+- [ ] 预备验证命令：
+  `cd backend && pytest tests/memory/test_hybrid_retrieval.py tests/agent/test_chat_prompt_memory_payload.py -v`
+
+### Phase 6 开工清单: API、维护与收尾
+
+- [ ] 回读设计文档第 11、12、14 节，确认 retention policy、maintenance 归属、最终验收项。
+- [ ] 列出所有对外暴露的 memory API，确认哪些响应模型要删除、哪些要重命名。
+- [ ] 确认 housekeeping 任务归属 `MaintenanceDaemon`，不混入 `SchedulerService`。
+- [ ] 明确旧模块删除顺序：
+  先替换引用，再删文件，最后删测试。
+- [ ] 先补 API 测试，覆盖：
+  statistics、ToM assertions/snapshots、procedural skills、清理接口。
+- [ ] 决定最终大验证范围：
+  focused suite 必跑，`pytest` 全量作为加分验证。
+- [ ] 预备验证命令：
+  `cd backend && pytest tests/api/test_memory_api.py -v`
+
+### 阶段切换通用检查
+
+- [ ] 当前阶段对应测试已通过
+- [ ] 当前阶段文档术语已同步
+- [ ] 当前阶段改动已单独 commit
+- [ ] 下一阶段不会依赖未提交的临时改动
+- [ ] `git status --short` 已确认没有把无关文件带进来
+
+---
+
 ## Chunk 1: Foundations, L0, and L1
 
 ### Task 1: Standardize memory event contracts and config
