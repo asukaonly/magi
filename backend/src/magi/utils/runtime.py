@@ -79,7 +79,7 @@ class Runtimepaths:
     @property
     def scenario_prompts_db_path(self) -> Path:
         """Scenario prompts database path"""
-        return self.memories_dir / "scenario_prompts.db"
+        return self.data_dir / "scenario_prompts.db"
 
     @property
     def emotional_db_path(self) -> Path:
@@ -97,9 +97,14 @@ class Runtimepaths:
         return self.memories_dir / "self_memory_v2.db"
 
     @property
-    def events_db_path(self) -> Path:
+    def memory_db_path(self) -> Path:
+        """Shared memory database path for L0/L2/L3/L4."""
+        return self.memories_dir / "memory.db"
+
+    @property
+    def message_queue_db_path(self) -> Path:
         """Message bus queue database path."""
-        return self.data_dir / "events.db"
+        return self.data_dir / "message_queue.db"
 
     @property
     def l1_memory_db_path(self) -> Path:
@@ -109,7 +114,7 @@ class Runtimepaths:
     @property
     def llm_usage_db_path(self) -> Path:
         """LLM usage statistics database path."""
-        return self.memories_dir / "llm_usage.db"
+        return self.data_dir / "llm_usage.db"
 
     @property
     def scheduler_db_path(self) -> Path:

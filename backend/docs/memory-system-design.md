@@ -53,16 +53,17 @@
 
 ### 1.1 当前实现基线（2026-03-14）
 
-1. `events.db` 仅承担消息总线持久化（`message_queue`），不再承载 L1 主存。
+1. `message_queue.db` 仅承担消息总线持久化（`message_queue`），不再承载 L1 主存。
 2. L1 主存独立为 `memories/l1_events.db`（当前为单库单表，分片后置）。
-3. `event_store` 已移除，聊天/trace 读链路统一读取 L1 `events`。
-4. 向量不再使用独立 `embeddings.db`，改为分层向量表：
+3. L0/L2/L3/L4 共享 `memories/memory.db`（多表分层，统一 checkpoint 与认知/摘要/程序性记忆）。
+4. `event_store` 已移除，聊天/trace 读链路统一读取 L1 `events`。
+5. 向量不再使用独立 `embeddings.db`，改为分层向量表：
    - `l1_event_vectors`
    - `l3_summary_vectors`
    - `l4_skill_vectors`
    - `l5_capability_vectors`
-5. `scheduler.db` 除 `schedules/target_state` 外，新增 `schedule_executions` 记录每次调度执行。
-6. `tasks.db` 当前不参与 runtime 主链路，不作为调度执行记录来源。
+6. `scheduler.db` 除 `schedules/target_state` 外，新增 `schedule_executions` 记录每次调度执行。
+7. `tasks.db` 当前不参与 runtime 主链路，不作为调度执行记录来源。
 
 ---
 

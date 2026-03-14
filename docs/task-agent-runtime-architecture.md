@@ -159,11 +159,12 @@ Current responsibilities:
 
 - keep short-lived execution state in `L0` working memory with checkpoint recovery
 - persist normalized long-term events in `L1` (`memories/l1_events.db`)
-- derive structured cognition in `L2`
-- generate reflective summaries in `L3`
-- store learned procedures and strategy heuristics in `L4`
+- derive structured cognition in `L2` (stored in `memories/memory.db`)
+- generate reflective summaries in `L3` (stored in `memories/memory.db`)
+- store learned procedures and strategy heuristics in `L4` (stored in `memories/memory.db`)
 - keep vector data in layer-owned tables (`L1/L3/L4/L5`) instead of a shared embedding database
 - expose cross-layer retrieval for prompt assembly and the `memory_query` tool
+- keep message bus persistence isolated in `message_queue.db`
 
 This memory runtime is not just prompt-context caching. It is part of the core runtime boundary because timeline ingestion, worker outcomes, and chat interactions all feed the same memory lifecycle.
 

@@ -18,7 +18,7 @@ Directory Structure:
     │       └── <plugin>.yaml    # Per-plugin settings
     ├── data/
     │   ├── memories/            # Memory storage (L1/L2/L3/L4/L5)
-    │   └── events.db            # Message bus queue database
+    │   └── message_queue.db     # Message bus queue database
     └── personalities/           # Personality files
 
 First Run:

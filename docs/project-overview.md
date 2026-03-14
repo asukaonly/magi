@@ -95,14 +95,17 @@ This model lets Magi separate ephemeral runtime state from durable user memory w
 
 Current persistence boundary:
 
-- `~/.magi/data/events.db`
+- `~/.magi/data/message_queue.db`
   Message bus queue persistence only (`message_queue`)
 
 - `~/.magi/data/memories/l1_events.db`
   Canonical L1 event memory store (`events`)
 
-- `~/.magi/data/memories/l3_reflections.db`, `l4_procedural.db`, `capabilities.db`
-  Higher-layer durable memory stores
+- `~/.magi/data/memories/memory.db`
+  Shared L0/L2/L3/L4 storage (`l0_*`, `knowledge_graph`, `tom_*`, `summaries`, `procedural_skills`)
+
+- `~/.magi/data/scenario_prompts.db`, `~/.magi/data/llm_usage.db`
+  Runtime prompt policy and LLM usage metrics, separate from memory-layer databases
 
 - Per-layer vector tables
   Vectors are stored in layer-owned tables (`l1_event_vectors`, `l3_summary_vectors`, `l4_skill_vectors`, `l5_capability_vectors`) instead of a shared `embeddings.db`, so model/dimension changes can be rebuilt per layer.

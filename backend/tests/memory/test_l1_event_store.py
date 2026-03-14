@@ -10,7 +10,7 @@ from magi.memory.event_contracts import normalize_runtime_event
 async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
     from magi.memory.l1_event_store import L1EventStore
 
-    db_path = tmp_path / "events.db"
+    db_path = tmp_path / "l1_events.db"
     store = L1EventStore(db_path=str(db_path))
     await store.initialize()
 
@@ -40,7 +40,7 @@ async def test_l1_timeline_roundtrip_uses_timeline_metadata(tmp_path):
     from magi.memory.l1_event_store import L1EventStore
     from magi.timeline.contracts import TimelineContentBlock, TimelineEvent
 
-    db_path = tmp_path / "events.db"
+    db_path = tmp_path / "l1_events.db"
     store = L1EventStore(db_path=str(db_path))
     await store.initialize()
 

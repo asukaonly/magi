@@ -11,8 +11,8 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
     from magi.memory.l1_event_store import L1EventStore
     from magi.memory.l3_summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "events.db"))
-    l3_store = L3SummaryStore(db_path=str(tmp_path / "summaries.db"))
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"))
     await l1_store.initialize()
     await l3_store.initialize()
 

@@ -112,7 +112,7 @@ agent:
     backend: "sqlite"
     max_queue_size: 1000
     num_workers: 4
-    db_path: "~/.magi/data/events.db"
+    db_path: "~/.magi/data/message_queue.db"
 
 # =============================================================================
 # Server Configuration

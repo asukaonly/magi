@@ -21,7 +21,8 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base = Path(self.temp_dir.name)
         self.store = UnifiedMemoryStore(
-            db_path=str(self.base / "events.db"),
+            l1_db_path=str(self.base / "l1_events.db"),
+            memory_db_path=str(self.base / "memory.db"),
             persist_dir=str(self.base / "memories"),
         )
         await self.store.initialize()
@@ -144,7 +145,8 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         base = Path(self.temp_dir.name)
 
         self.memory = UnifiedMemoryStore(
-            db_path=str(base / "events.db"),
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
         )
         await self.memory.initialize()

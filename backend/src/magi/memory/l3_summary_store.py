@@ -16,7 +16,7 @@ from .l1_event_store import L1EventStore
 class L3SummaryStore:
     """Stores reflection-oriented summaries that remain traceable to L1 evidence."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/memory_l3.db") -> None:
+    def __init__(self, *, db_path: str = "~/.magi/data/memories/memory.db") -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._initialized = False
 

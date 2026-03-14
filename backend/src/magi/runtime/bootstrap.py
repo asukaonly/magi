@@ -273,7 +273,7 @@ async def initialize_chat_agent():
             logger.info("Agent tool configured with runtime LLM adapter")
 
         _message_bus = SQLiteMessageBackend(
-            db_path=str(runtime_paths.events_db_path),
+            db_path=str(runtime_paths.message_queue_db_path),
             max_queue_size=config.agent.message_bus.max_queue_size,
             num_workers=config.agent.message_bus.num_workers,
             broadcast_max_concurrency=config.agent.message_bus.broadcast_max_concurrency,
@@ -297,7 +297,8 @@ async def initialize_chat_agent():
         other_memory = OtherMemory()
 
         unified_memory = UnifiedMemoryStore(
-            db_path=str(runtime_paths.l1_memory_db_path),
+            l1_db_path=str(runtime_paths.l1_memory_db_path),
+            memory_db_path=str(runtime_paths.memory_db_path),
             persist_dir=str(runtime_paths.memories_dir),
             enable_l0=config.agent.memory.enable_l0,
             enable_l1=config.agent.memory.enable_l1,

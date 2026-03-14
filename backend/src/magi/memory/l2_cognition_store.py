@@ -19,7 +19,7 @@ _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
 class L2CognitionStore:
     """Persists structured cognition artifacts derived from L1 events."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/memory_l2.db") -> None:
+    def __init__(self, *, db_path: str = "~/.magi/data/memories/memory.db") -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._initialized = False
 

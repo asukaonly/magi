@@ -30,7 +30,7 @@ class ScenarioPromptsStore:
     根据人格和场景管理行为约束提示词。
     """
 
-    def __init__(self, db_path: str = "~/.magi/data/memories/scenario_prompts.db"):
+    def __init__(self, db_path: str = "~/.magi/data/scenario_prompts.db"):
         self.db_path = db_path
         self._cache: Dict[str, ScenarioPrompt] = {}
         self._initialized = False

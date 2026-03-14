@@ -63,14 +63,13 @@ class DatabaseInitializer:
             is_first = False
 
         # 1. 初始化核心数据库表（使用 IF NOT EXISTS，幂等操作）
-        await self._init_events_db()
+        await self._init_message_queue_db()
+        await self._init_shared_memory_db()
         await self._init_l1_memory_db()
         await self._init_behavior_evolution_db()
         await self._init_emotional_state_db()
         await self._init_growth_memory_db()
         await self._init_scenario_prompts_db()
-        await self._init_summaries_db()
-        await self._init_capabilities_db()
         await self._init_llm_usage_db()
 
         # 2. 执行注册的自定义初始化器
@@ -85,14 +84,34 @@ class DatabaseInitializer:
         else:
             logger.info("Database verification completed")
 
-    async def _init_events_db(self) -> None:
-        """初始化事件数据库"""
-        db_path = self.data_dir / "events.db"
+    async def _init_message_queue_db(self) -> None:
+        """初始化消息总线数据库"""
+        db_path = self.data_dir / "message_queue.db"
         async with aiosqlite.connect(str(db_path)) as db:
             # message_queue table is managed by SQLiteMessageBackend.
             await db.execute("PRAGMA journal_mode=WAL")
             await db.commit()
-        logger.debug(f"Initialized events.db at {db_path}")
+        logger.debug(f"Initialized message_queue.db at {db_path}")
+
+    async def _init_shared_memory_db(self) -> None:
+        """初始化共享记忆数据库（L0/L2/L3/L4）"""
+        from ..memory.l0_working_memory import L0WorkingMemoryStore
+        from ..memory.l2_cognition_store import L2CognitionStore
+        from ..memory.l3_summary_store import L3SummaryStore
+        from ..memory.l4_procedural_memory import L4ProceduralMemoryStore
+
+        db_path = self.memories_dir / "memory.db"
+
+        l0_store = L0WorkingMemoryStore(checkpoint_db_path=str(db_path))
+        l2_store = L2CognitionStore(db_path=str(db_path))
+        l3_store = L3SummaryStore(db_path=str(db_path))
+        l4_store = L4ProceduralMemoryStore(db_path=str(db_path))
+
+        await l0_store.initialize()
+        await l2_store.initialize()
+        await l3_store.initialize()
+        await l4_store.initialize()
+        logger.debug(f"Initialized memory.db at {db_path}")
 
     async def _init_l1_memory_db(self) -> None:
         """初始化 L1 记忆数据库"""
@@ -264,7 +283,7 @@ class DatabaseInitializer:
 
     async def _init_scenario_prompts_db(self) -> None:
         """初始化场景提示词数据库"""
-        db_path = self.memories_dir / "scenario_prompts.db"
+        db_path = self.data_dir / "scenario_prompts.db"
         async with aiosqlite.connect(str(db_path)) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS scenario_prompts (
@@ -279,92 +298,9 @@ class DatabaseInitializer:
             await db.commit()
         logger.debug(f"Initialized scenario_prompts.db at {db_path}")
 
-    async def _init_summaries_db(self) -> None:
-        """初始化摘要数据库"""
-        db_path = self.memories_dir / "summaries.db"
-        async with aiosqlite.connect(str(db_path)) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS summaries (
-                    summary_id TEXT PRIMARY KEY,
-                    content TEXT NOT NULL,
-                    summary_type TEXT NOT NULL,
-                    start_time REAL NOT NULL,
-                    end_time REAL NOT NULL,
-                    event_count INTEGER NOT NULL,
-                    key_topics TEXT,
-                    created_at REAL NOT NULL
-                )
-            """)
-            await db.commit()
-        logger.debug(f"Initialized summaries.db at {db_path}")
-
-    async def _init_capabilities_db(self) -> None:
-        """初始化能力记忆数据库"""
-        db_path = self.memories_dir / "capabilities.db"
-        async with aiosqlite.connect(str(db_path)) as db:
-            # capabilities 表
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS capabilities (
-                    capability_id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    description TEXT,
-                    category TEXT NOT NULL,
-                    proficiency REAL NOT NULL,
-                    usage_count INTEGER NOT NULL,
-                    success_count INTEGER NOT NULL,
-                    last_used REAL,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                )
-            """)
-
-            # capability_blacklist 表
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS capability_blacklist (
-                    capability_id TEXT PRIMARY KEY,
-                    reason TEXT,
-                    blacklisted_at REAL NOT NULL
-                )
-            """)
-
-            # capability_task_stats 表
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS capability_task_stats (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    capability_id TEXT NOT NULL,
-                    task_category TEXT NOT NULL,
-                    usage_count INTEGER NOT NULL,
-                    success_count INTEGER NOT NULL,
-                    avg_satisfaction REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                )
-            """)
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS l5_capability_vectors (
-                    vector_id TEXT PRIMARY KEY,
-                    capability_id TEXT NOT NULL,
-                    embedding_model TEXT NOT NULL,
-                    embedding_dim INTEGER NOT NULL,
-                    embedding_payload BLOB NOT NULL,
-                    metadata TEXT,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    UNIQUE(capability_id, embedding_model)
-                )
-            """)
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_l5_capability_vectors_capability ON l5_capability_vectors(capability_id)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_l5_capability_vectors_model ON l5_capability_vectors(embedding_model)"
-            )
-
-            await db.commit()
-        logger.debug(f"Initialized capabilities.db at {db_path}")
-
     async def _init_llm_usage_db(self) -> None:
         """初始化 LLM usage 统计数据库"""
-        db_path = self.memories_dir / "llm_usage.db"
+        db_path = self.data_dir / "llm_usage.db"
         async with aiosqlite.connect(str(db_path)) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS llm_usage (
@@ -407,7 +343,7 @@ class DatabaseInitializer:
 
         from ..memory.scenario_prompts import DEFAULT_SCENARIO_PROMPTS
 
-        db_path = self.memories_dir / "scenario_prompts.db"
+        db_path = self.data_dir / "scenario_prompts.db"
         async with aiosqlite.connect(str(db_path)) as db:
             import time
 

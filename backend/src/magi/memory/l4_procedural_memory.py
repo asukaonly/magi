@@ -19,7 +19,7 @@ class L4ProceduralMemoryStore:
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/data/memory_l4.db",
+        db_path: str = "~/.magi/data/memories/memory.db",
         breaker_failure_threshold: int = 3,
         breaker_recovery_successes: int = 2,
     ) -> None:

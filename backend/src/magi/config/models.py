@@ -225,7 +225,7 @@ class MessageBusSettings(BaseModel):
     backend: MessageBusBackend = Field(default=MessageBusBackend.SQLITE)
     max_queue_size: int = Field(default=1000, ge=1)
     num_workers: int = Field(default=4, ge=1)
-    db_path: str = Field(default="~/.magi/data/events.db")
+    db_path: str = Field(default="~/.magi/data/message_queue.db")
     broadcast_max_concurrency: int = Field(default=8, ge=1)
     handler_timeout_seconds: float = Field(default=2.0, ge=0.1)
     max_retries: int = Field(default=3, ge=0, description="Max retry attempts for failed message handling")

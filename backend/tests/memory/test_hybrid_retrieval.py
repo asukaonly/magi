@@ -12,7 +12,8 @@ async def test_detail_mode_prefers_l0_and_l1(tmp_path):
     from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 
     store = UnifiedMemoryStore(
-        db_path=str(tmp_path / "events.db"),
+        l1_db_path=str(tmp_path / "l1_events.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memories"),
     )
     await store.initialize()
@@ -61,7 +62,8 @@ async def test_summary_and_experience_modes_hit_l3_and_l4(tmp_path):
     from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 
     store = UnifiedMemoryStore(
-        db_path=str(tmp_path / "events.db"),
+        l1_db_path=str(tmp_path / "l1_events.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memories"),
     )
     await store.initialize()

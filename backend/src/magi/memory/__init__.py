@@ -40,6 +40,8 @@ class UnifiedMemoryStore:
         db_path: Optional[str] = None,
         persist_dir: Optional[str] = None,
         *,
+        l1_db_path: Optional[str] = None,
+        memory_db_path: Optional[str] = None,
         enable_l0: bool = True,
         enable_l1: bool = True,
         enable_l2: bool = True,
@@ -51,9 +53,20 @@ class UnifiedMemoryStore:
         from ..utils.runtime import get_runtime_paths
 
         runtime_paths = get_runtime_paths()
-        l1_db = str((Path(db_path).expanduser() if db_path else runtime_paths.l1_memory_db_path))
         memories_dir = Path(persist_dir).expanduser() if persist_dir else runtime_paths.memories_dir
         memories_dir.mkdir(parents=True, exist_ok=True)
+        l1_db = str(
+            (
+                Path(l1_db_path).expanduser()
+                if l1_db_path
+                else (Path(db_path).expanduser() if db_path else runtime_paths.l1_memory_db_path)
+            )
+        )
+        shared_memory_db = str(
+            Path(memory_db_path).expanduser()
+            if memory_db_path
+            else (memories_dir / "memory.db")
+        )
 
         self.l0: Optional[L0WorkingMemoryStore] = None
         self.l1: Optional[L1EventStore] = None
@@ -63,7 +76,7 @@ class UnifiedMemoryStore:
 
         if enable_l0:
             self.l0 = L0WorkingMemoryStore(
-                checkpoint_db_path=str(memories_dir / "l0_working_context.db"),
+                checkpoint_db_path=shared_memory_db,
                 checkpoint_interval_seconds=l0_checkpoint_interval_seconds,
                 session_timeout_seconds=session_timeout_seconds,
                 restore_on_restart=True,
@@ -71,11 +84,11 @@ class UnifiedMemoryStore:
         if enable_l1:
             self.l1 = L1EventStore(db_path=l1_db)
         if enable_l2:
-            self.l2 = L2CognitionStore(db_path=str(memories_dir / "l2_cognition.db"))
+            self.l2 = L2CognitionStore(db_path=shared_memory_db)
         if enable_l3:
-            self.l3 = L3SummaryStore(db_path=str(memories_dir / "l3_reflections.db"))
+            self.l3 = L3SummaryStore(db_path=shared_memory_db)
         if enable_l4:
-            self.l4 = L4ProceduralMemoryStore(db_path=str(memories_dir / "l4_procedural.db"))
+            self.l4 = L4ProceduralMemoryStore(db_path=shared_memory_db)
 
         self._initialized = False
         self._write_lock = asyncio.Lock()

@@ -19,7 +19,7 @@ class L0WorkingMemoryStore:
     def __init__(
         self,
         *,
-        checkpoint_db_path: str = "~/.magi/data/l0_working_context.db",
+        checkpoint_db_path: str = "~/.magi/data/memories/memory.db",
         checkpoint_interval_seconds: int = 30,
         session_timeout_seconds: int = 3600,
         restore_on_restart: bool = True,
