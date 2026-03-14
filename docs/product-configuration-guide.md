@@ -202,6 +202,12 @@ Important behavioral rules:
 - runtime telemetry should not be treated as equivalent to user-authored memory
 - expert memory controls belong in Settings and expert onboarding, not quick onboarding
 
+Current storage implementation notes:
+
+- `events.db` is reserved for message bus queue persistence, not long-term L1 memory.
+- L1 is stored in `memories/l1_events.db`.
+- Layer vectors are stored per layer (`L1/L3/L4/L5` vector tables) instead of a shared `embeddings.db`.
+
 ## Tool And Extension Management
 
 Tool management covers:

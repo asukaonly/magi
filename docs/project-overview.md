@@ -93,6 +93,20 @@ Current high-level memory shape:
 
 This model lets Magi separate ephemeral runtime state from durable user memory while still supporting retrieval, timeline insighting, and future behavior adaptation.
 
+Current persistence boundary:
+
+- `~/.magi/data/events.db`
+  Message bus queue persistence only (`message_queue`)
+
+- `~/.magi/data/memories/l1_events.db`
+  Canonical L1 event memory store (`events`)
+
+- `~/.magi/data/memories/l3_reflections.db`, `l4_procedural.db`, `capabilities.db`
+  Higher-layer durable memory stores
+
+- Per-layer vector tables
+  Vectors are stored in layer-owned tables (`l1_event_vectors`, `l3_summary_vectors`, `l4_skill_vectors`, `l5_capability_vectors`) instead of a shared `embeddings.db`, so model/dimension changes can be rebuilt per layer.
+
 ## Repository Structure
 
 ```text
@@ -147,6 +161,9 @@ The runtime also now includes a unified scheduler layer:
 
 - `SchedulerService`
   A persistent local scheduler used for one-shot, interval, and cron-style business jobs
+
+- `scheduler.db` execution observability
+  In addition to `schedules`, `target_state`, and APScheduler job metadata, runtime execution history is persisted in `schedule_executions` for audit/debug replay.
 
 - `SchedulerBootstrap`
   The runtime adapter that connects scheduled jobs to timeline sensor sync, task-agent dispatch, and outbound actions

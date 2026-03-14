@@ -43,13 +43,26 @@
 
 1. **分层原则**：按信息生命周期分层，而不是按功能插件分层。
 2. **系统目标**：核心服务于用户长期记忆与自我感知体系，而不是仅服务于回复增强。
-3. **向量定位**：向量是 L1/L3/L4 的检索属性，不是独立层级。
+3. **向量定位**：向量是 L1/L3/L4/L5 的检索属性，不是独立层级。
 4. **L4 定位**：L4 属于程序性记忆，负责沉淀“如何做一件事”的经验与策略，包括工具使用经验、异常处理肌肉记忆、熔断状态。
 5. **L0 介质**：L0 默认以内存为主，采用 checkpoint 定时落盘到 SQLite，用于恢复与异常重启保护。
 6. **ToM 必做**：L2 必须支持 ToM，但必须采用防御性设计，主观推断先进入低置信度断言层，经跨事件验证后才固化到稳定画像。
 7. **LLM 策略**：本期优先采用全 LLM 抽取方案，但各层能力都必须支持独立开关。
 8. **保留策略**：事件是否可压缩/删除取决于事件类型；聊天记录与用户主动记录默认不可删，浏览记录与部分外部活动默认可压缩删除。
 9. **污染隔离**：L1 中允许存在运行时遥测事件，但它们必须在评分、摘要、图谱与 ToM 流程中被默认隔离，不能与用户长期经验事件混算。
+
+### 1.1 当前实现基线（2026-03-14）
+
+1. `events.db` 仅承担消息总线持久化（`message_queue`），不再承载 L1 主存。
+2. L1 主存独立为 `memories/l1_events.db`（当前为单库单表，分片后置）。
+3. `event_store` 已移除，聊天/trace 读链路统一读取 L1 `events`。
+4. 向量不再使用独立 `embeddings.db`，改为分层向量表：
+   - `l1_event_vectors`
+   - `l3_summary_vectors`
+   - `l4_skill_vectors`
+   - `l5_capability_vectors`
+5. `scheduler.db` 除 `schedules/target_state` 外，新增 `schedule_executions` 记录每次调度执行。
+6. `tasks.db` 当前不参与 runtime 主链路，不作为调度执行记录来源。
 
 ---
 
@@ -58,7 +71,7 @@
 当前实现位于以下模块：
 
 - [UnifiedMemoryStore](/Users/asuka/code/magi/backend/src/magi/memory/__init__.py)
-- [RawEventStore](/Users/asuka/code/magi/backend/src/magi/memory/raw_event_store.py)
+- [L1EventStore](/Users/asuka/code/magi/backend/src/magi/memory/l1_event_store.py)
 - [EventRelationStore](/Users/asuka/code/magi/backend/src/magi/memory/l2_event_relations.py)
 - [L2UserGraphStore](/Users/asuka/code/magi/backend/src/magi/memory/l2_user_graph.py)
 - [eventEmbeddingStore](/Users/asuka/code/magi/backend/src/magi/memory/l3_semantic_embeddings.py)
@@ -393,6 +406,7 @@ class MemoryEvent:
     source_item_id: str | None
 
     memory_domain: str
+    ingest_target: str
     cognition_eligible: bool
     tom_depth: str
     retention_class: str
@@ -410,13 +424,6 @@ class MemoryEvent:
     importance_t0_base: float
     importance_t1_score: float | None
     importance_version: int
-
-    semantic_vector: bytes | None
-    vector_model: str | None
-    vector_generated_at: float | None
-    vector_status: str
-    vector_retry_count: int
-    vector_error: str | None
 
     level: int
     media_path: str | None
@@ -439,6 +446,7 @@ CREATE TABLE events (
     source_item_id TEXT,
 
     memory_domain TEXT NOT NULL,
+    ingest_target TEXT NOT NULL,
     cognition_eligible INTEGER NOT NULL DEFAULT 0,
     tom_depth TEXT NOT NULL DEFAULT 'none',
     retention_class TEXT NOT NULL DEFAULT 'compressible',
@@ -457,13 +465,6 @@ CREATE TABLE events (
     importance_t1_score REAL,
     importance_version INTEGER NOT NULL DEFAULT 1,
 
-    semantic_vector BLOB,
-    vector_model TEXT,
-    vector_generated_at REAL,
-    vector_status TEXT NOT NULL DEFAULT 'pending',
-    vector_retry_count INTEGER NOT NULL DEFAULT 0,
-    vector_error TEXT,
-
     level INTEGER NOT NULL DEFAULT 1,
     media_path TEXT,
     deleted_at REAL
@@ -477,24 +478,31 @@ CREATE INDEX idx_events_user ON events(user_id);
 CREATE INDEX idx_events_session ON events(session_id);
 CREATE INDEX idx_events_goal ON events(goal_id);
 CREATE INDEX idx_events_importance ON events(importance_score DESC);
-CREATE INDEX idx_events_vector_status ON events(vector_status);
 CREATE INDEX idx_events_retention ON events(retention_class);
 CREATE INDEX idx_events_metadata_action ON events(json_extract(metadata, '$.action'));
 ```
 
+L1 向量采用独立表（按模型重建）：
+
+```sql
+CREATE TABLE l1_event_vectors (
+    vector_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    embedding_model TEXT NOT NULL,
+    embedding_dim INTEGER NOT NULL,
+    embedding_payload BLOB NOT NULL,
+    metadata TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(event_id, embedding_model)
+);
+```
+
 ### 6.4 时间分片
 
-L1 采用时间分片，但对上暴露统一仓储接口。
+L1 分片在本阶段暂不落地，先使用单库单表，保持查询与写入链路稳定。
 
-默认策略：
-
-1. 分片粒度：月
-2. 热分片：最近 2 个
-3. 冷分片：其余历史分片
-4. 检索策略：
-   - 默认先查热分片
-   - 用户明确指定长时间范围时查全分片
-   - 聚类/回顾型任务允许跨分片 scatter-gather
+后续再引入冷热分片策略，前提是先完成指标基线与压测数据。
 
 ### 6.5 importance 评分
 
@@ -524,7 +532,7 @@ L1 采用时间分片，但对上暴露统一仓储接口。
 3. Raw event sync write into L1
 4. L0 session/workbench updates
 5. Async enqueue:
-   - vector generation
+   - vector generation (write to layer-owned vector tables)
    - T1 importance
    - L2 cognition extraction
    - L3 summary candidate update
@@ -743,10 +751,6 @@ CREATE TABLE summaries (
     key_entities TEXT,
     sentiment_summary TEXT,
 
-    semantic_vector BLOB,
-    vector_model TEXT,
-    vector_generated_at REAL,
-
     source_event_ids TEXT NOT NULL,
     source_event_count INTEGER NOT NULL,
 
@@ -759,6 +763,22 @@ CREATE TABLE summaries (
 
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
+);
+```
+
+L3 向量采用独立表：
+
+```sql
+CREATE TABLE l3_summary_vectors (
+    vector_id TEXT PRIMARY KEY,
+    summary_id TEXT NOT NULL,
+    embedding_model TEXT NOT NULL,
+    embedding_dim INTEGER NOT NULL,
+    embedding_payload BLOB NOT NULL,
+    metadata TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(summary_id, embedding_model)
 );
 ```
 
@@ -840,6 +860,22 @@ CREATE TABLE procedural_skills (
     updated_at REAL NOT NULL,
 
     UNIQUE(skill_name, skill_category)
+);
+```
+
+L4 向量采用独立表：
+
+```sql
+CREATE TABLE l4_skill_vectors (
+    vector_id TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL,
+    embedding_model TEXT NOT NULL,
+    embedding_dim INTEGER NOT NULL,
+    embedding_payload BLOB NOT NULL,
+    metadata TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(skill_id, embedding_model)
 );
 ```
 
