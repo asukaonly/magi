@@ -39,6 +39,28 @@ providers:
         limits:
           context_window: 200000
           max_output_tokens: 100000
+      - id: text-embedding-3-small
+        label: Text Embedding 3 Small
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: false
+          reasoning: false
+          embedding: true
+        limits:
+          context_window: 8191
+          max_output_tokens: 8191
+      - id: text-embedding-3-large
+        label: Text Embedding 3 Large
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: false
+          reasoning: false
+          embedding: true
+        limits:
+          context_window: 8191
+          max_output_tokens: 8191
     fields:
       model:
         visible: true
@@ -164,6 +186,17 @@ providers:
         provider_options_example:
           thinking:
             type: disabled
+      - id: embedding-3
+        label: Embedding-3
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: false
+          reasoning: false
+          embedding: true
+        limits:
+          context_window: 8192
+          max_output_tokens: 8192
     fields:
       model:
         visible: true
@@ -215,6 +248,28 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 32768
+      - id: text-embedding-004
+        label: Text Embedding 004
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: false
+          reasoning: false
+          embedding: true
+        limits:
+          context_window: 2048
+          max_output_tokens: 768
+      - id: gemini-embedding-exp-03-07
+        label: Gemini Embedding Exp
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: false
+          reasoning: false
+          embedding: true
+        limits:
+          context_window: 8192
+          max_output_tokens: 3072
     fields:
       model:
         visible: true
@@ -306,6 +361,17 @@ providers:
         limits:
           context_window: 128000
           max_output_tokens: 8192
+      - id: moonshot-v1-8k-embedding
+        label: Moonshot Embedding
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: false
+          reasoning: false
+          embedding: true
+        limits:
+          context_window: 8192
+          max_output_tokens: 8192
     fields:
       model:
         visible: true
@@ -356,6 +422,17 @@ providers:
           embedding: false
         limits:
           context_window: 262144
+          max_output_tokens: 8192
+      - id: abab-6.5e-001
+        label: MiniMax Embedding
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: false
+          reasoning: false
+          embedding: true
+        limits:
+          context_window: 8192
           max_output_tokens: 8192
     fields:
       model:

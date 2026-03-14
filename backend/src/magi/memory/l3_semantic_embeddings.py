@@ -373,22 +373,26 @@ class HybrideventSearch:
 def create_embedding_store(
     backend: str = "sqlite_vec",
     llm_adapter: Any = None,
-    local_model: str = "all-MiniLM-L6-v2",
-    local_dimension: int = 384,
     remote_model: str = "text-embedding-3-small",
     remote_dimension: int = 1536,
     persist_path: Optional[str] = None,
-) -> eventEmbeddingStore:
-    """Factory for sqlite-backed embedding stores."""
-    backend = (backend or "sqlite_vec").lower()
-    if backend in {"openai", "anthropic"} and llm_adapter is not None:
-        embedding_backend: EmbeddingBackend = RemoteEmbeddingBackend(
-            llm_adapter=llm_adapter,
-            model=remote_model,
-            dimension=remote_dimension,
-        )
-    else:
-        embedding_backend = LocalEmbeddingBackend(model_name=local_model, dimension=local_dimension)
+) -> Optional[eventEmbeddingStore]:
+    """Factory for sqlite-backed embedding stores.
+
+    Returns None if no valid embedding adapter is provided.
+    Embedding requires a configured remote embedding model (no local fallback).
+    """
+    # Only create store if we have a valid embedding adapter
+    if llm_adapter is None or not getattr(llm_adapter, "supports_embeddings", lambda: False)():
+        logger.info("No embedding adapter available, L3 embeddings will be disabled")
+        return None
+
+    embedding_backend: EmbeddingBackend = RemoteEmbeddingBackend(
+        llm_adapter=llm_adapter,
+        model=getattr(llm_adapter, "model_name", remote_model),
+        dimension=getattr(llm_adapter, "embedding_dimension", remote_dimension),
+    )
+    logger.info("Using remote embedding backend with model: %s", getattr(llm_adapter, "model_name", "unknown"))
 
     return eventEmbeddingStore(backend=embedding_backend, persist_path=persist_path)
 

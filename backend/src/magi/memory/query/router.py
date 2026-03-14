@@ -6,6 +6,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
+from ...core.logger import Loggers
+
+log = Loggers.memory()
+
 
 DETAIL_KEYWORDS = [
     "what did i do",
@@ -77,6 +81,7 @@ TOPIC_NOISE_PATTERNS = [
     "chrome history",
     "chrome",
     "浏览历史",
+    "浏览记录",
     "历史记录",
     "history",
     "what did i",
@@ -121,6 +126,8 @@ class IntentRouter:
     """Lightweight rule-based intent analyzer for event-centric retrieval."""
 
     def analyze(self, query: str, time_range: Dict[str, Any]) -> RoutingPlan:
+        log.info("[IntentRouter] analyze input", query=query, time_range=time_range)
+
         query_lower = query.lower().strip()
         query_mode = self._infer_query_mode(query_lower)
         topic_query = self._infer_topic_query(query_lower)
@@ -135,7 +142,8 @@ class IntentRouter:
             topic_query=topic_query,
             confidence=confidence,
         )
-        return RoutingPlan(
+
+        plan = RoutingPlan(
             layers=layers,
             query_mode=query_mode,
             source_filters=source_filters,
@@ -145,6 +153,17 @@ class IntentRouter:
             reasoning=reasoning,
         )
 
+        log.info(
+            "[IntentRouter] analyze output",
+            layers=layers,
+            query_mode=query_mode,
+            source_filters=source_filters,
+            topic_query=topic_query,
+            confidence=confidence,
+        )
+
+        return plan
+
     async def execute(
         self,
         plan: RoutingPlan,
@@ -152,23 +171,30 @@ class IntentRouter:
         layer_handlers: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
         layers_to_query = list(dict.fromkeys(plan.layers))
+        log.info("[IntentRouter] execute start", layers=layers_to_query, available_handlers=list(layer_handlers.keys()))
+
         tasks = []
         for layer in layers_to_query:
             handler = layer_handlers.get(layer)
             if handler:
                 tasks.append(self._query_layer(layer, request, plan, handler))
+            else:
+                log.warning("[IntentRouter] no handler for layer", layer=layer)
 
         if not tasks:
+            log.warning("[IntentRouter] no tasks to execute")
             return []
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         merged: List[Dict[str, Any]] = []
         seen_ids: set[str] = set()
 
-        for result in results:
+        for idx, result in enumerate(results):
             if isinstance(result, Exception):
+                log.error("[IntentRouter] task exception", layer=layers_to_query[idx], error=str(result))
                 continue
             if isinstance(result, list):
+                log.info("[IntentRouter] layer result", layer=layers_to_query[idx], count=len(result))
                 for item in result:
                     item_id = str(item.get("id") or item.get("event_id") or "")
                     if item_id and item_id in seen_ids:
@@ -177,6 +203,7 @@ class IntentRouter:
                         seen_ids.add(item_id)
                     merged.append(item)
 
+        log.info("[IntentRouter] execute done", merged_count=len(merged))
         return merged
 
     async def _query_layer(

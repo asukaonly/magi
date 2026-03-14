@@ -32,7 +32,7 @@ interface LLMFormProps {
   showSectionIntro?: boolean;
 }
 
-const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core'];
+const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
 
 const cloneCapabilities = (value?: Partial<LLMCapabilities>): LLMCapabilities => ({
   ...DEFAULT_LLM_CAPABILITIES,
@@ -71,6 +71,7 @@ const cloneLLMConfig = (value?: LLMConfig): LLMConfig => ({
   selections: {
     context_decider: cloneSelection(value?.selections?.context_decider),
     core: cloneSelection(value?.selections?.core),
+    embedding: cloneSelection(value?.selections?.embedding),
   },
 });
 
@@ -112,9 +113,36 @@ const resolveProviderDefaultModel = (
 const applySelectionDefaults = (
   selection: LLMSelectionConfig,
   registry: LLMProviderRegistry,
-  provider: LLMProviderConfig | undefined
+  provider: LLMProviderConfig | undefined,
+  scenario?: LLMScenario
 ) => {
   if (!provider) {
+    return;
+  }
+
+  // For embedding scenario, only set defaults if provider has embedding models
+  if (scenario === 'embedding') {
+    const models = getProviderModels(registry, provider.provider_type);
+    const embeddingModels = models.filter((model) => model.capabilities?.embedding === true);
+
+    if (embeddingModels.length === 0) {
+      // No embedding models available, don't set any defaults
+      selection.provider_id = '';
+      selection.model = '';
+      return;
+    }
+
+    // Find matching embedding model or use first available
+    const matchedModel = embeddingModels.find((model) => model.id === selection.model);
+    const fallbackModel = matchedModel || embeddingModels[0];
+    if (fallbackModel) {
+      selection.model = fallbackModel.id;
+      if (!selection.capability_override_enabled && fallbackModel.capabilities) {
+        selection.capabilities = cloneCapabilities(fallbackModel.capabilities);
+        selection.limits = cloneLimits(fallbackModel.limits);
+        selection.provider_options = { ...(fallbackModel.provider_options_example || {}) };
+      }
+    }
     return;
   }
 
@@ -189,7 +217,7 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
 
     selection.provider_id = hasEnabledSelection ? selection.provider_id : firstEnabledProviderId;
 
-    applySelectionDefaults(selection, registry, selectedProvider);
+    applySelectionDefaults(selection, registry, selectedProvider, scenario);
     next.selections[scenario] = selection;
   }
 
@@ -288,7 +316,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
       selection.provider_id = providerId;
       const provider = draft.providers[providerId];
       selection.model = resolveProviderDefaultModel(registry, provider);
-      applySelectionDefaults(selection, registry, provider);
+      applySelectionDefaults(selection, registry, provider, scenario);
       draft.selections[scenario] = selection;
     });
   };
@@ -300,7 +328,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     updateValue((draft) => {
       const selection = cloneSelection(draft.selections[scenario]);
       selection.model = model;
-      applySelectionDefaults(selection, registry, draft.providers[selection.provider_id]);
+      applySelectionDefaults(selection, registry, draft.providers[selection.provider_id], scenario);
       draft.selections[scenario] = selection;
     });
   };

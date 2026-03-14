@@ -121,7 +121,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         # Log request metadata
         if should_log:
-            logger.info(f"Request: {request.method} {request.url.path}")
+            logger.debug(f"Request: {request.method} {request.url.path}")
 
         # Process request
         response = await call_next(request)

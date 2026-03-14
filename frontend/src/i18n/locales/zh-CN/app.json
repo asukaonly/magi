@@ -710,6 +710,24 @@
       "lowSuccess": "低成功率能力",
       "list": "能力列表",
       "usageCount": "使用次数"
+    },
+    "clearMemory": "清除",
+    "memoryCleared": "已清除 {{count}} 条记忆",
+    "memoryClearFailed": "清除记忆失败",
+    "clearConfirm": {
+      "title": "清除所有记忆",
+      "warning": "此操作将永久删除以下数据：",
+      "l1": "L1 原始事件",
+      "l2": "L2 事件关系",
+      "l3": "L3 语义向量",
+      "l4": "L4 摘要",
+      "l5": "L5 能力记录",
+      "chatContext": "对话上下文历史",
+      "irreversible": "此操作不可撤销！",
+      "cancel": "取消",
+      "confirm": "确认清除",
+      "clearing": "清除中...",
+      "wait": "等待 {{seconds}}s"
     }
   },
   "personality": {

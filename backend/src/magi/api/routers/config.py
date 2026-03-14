@@ -578,13 +578,19 @@ def _build_memory_layers(raw: Dict[str, Any], runtime_config: Any) -> MemoryLaye
         return MemoryLayersConfigModel(**saved_layers)
 
     memory_cfg = runtime_config.agent.memory
+
+    # Get embedding model from LLM EMBEDDING scenario selection
+    embedding_selection = runtime_config.llm.selections.get("embedding")
+    embedding_model = embedding_selection.model if embedding_selection else None
+    has_embedding = embedding_model is not None and embedding_model != ""
+
     return MemoryLayersConfigModel(
         L1=L1ConfigModel(enabled=memory_cfg.enable_l1_raw),
         L2=L2ConfigModel(enabled=memory_cfg.enable_l2_relations),
         L3=L3ConfigModel(
-            enabled=memory_cfg.enable_l3_embeddings,
-            model=memory_cfg.embedding.local_model,
-            modelStatus="ready",
+            enabled=has_embedding and memory_cfg.enable_l3_embeddings,
+            model=embedding_model,
+            modelStatus="ready" if has_embedding else "not_configured",
         ),
         L4=L4ConfigModel(enabled=memory_cfg.enable_l4_summaries),
         L5=L5ConfigModel(enabled=memory_cfg.enable_l5_capabilities),

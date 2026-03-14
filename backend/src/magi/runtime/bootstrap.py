@@ -209,6 +209,24 @@ def _create_core_llm_adapter(llm_pool: ScenarioLLMPool):
     return llm_adapter
 
 
+def _create_embedding_llm_adapter(llm_pool: ScenarioLLMPool):
+    """Create embedding adapter from scenario pool, returns None if not configured."""
+    try:
+        embedding_adapter = llm_pool.get(LLMScenario.EMBEDDING)
+        if not getattr(embedding_adapter, "supports_embeddings", lambda: False)():
+            logger.warning("Configured embedding model does not support embeddings, will use local fallback")
+            return None
+        logger.info(
+            "Creating Embedding adapter | Provider: %s | Model: %s",
+            getattr(embedding_adapter, "provider_name", "unknown"),
+            getattr(embedding_adapter, "model_name", "unknown"),
+        )
+        return embedding_adapter
+    except Exception as exc:
+        logger.info("No embedding adapter configured or configuration incomplete: %s", exc)
+        return None
+
+
 def refresh_runtime_llm_config(config: AppConfig | None = None) -> None:
     """Refresh cached runtime LLM adapters after configuration changes."""
     global _scenario_llm_pool
@@ -299,21 +317,23 @@ async def initialize_chat_agent():
         await memory.init()
         other_memory = OtherMemory()
 
+        # Create embedding adapter from scenario pool (returns None if not configured)
+        embedding_adapter = _create_embedding_llm_adapter(_scenario_llm_pool)
+        has_embedding_support = embedding_adapter is not None
+
         unified_memory = UnifiedMemoryStore(
             db_path=str(runtime_paths.events_db_path),
             persist_dir=str(runtime_paths.memories_dir),
-            enable_embeddings=True,
+            enable_embeddings=has_embedding_support,
             enable_summaries=True,
             enable_capabilities=True,
-            embedding_config={
-                "backend": config.agent.memory.embedding.backend.value,
-                "local_model": config.agent.memory.embedding.local_model,
-                "local_dimension": config.agent.memory.embedding.local_dimension,
-            },
-            llm_adapter=llm_adapter,
+            llm_adapter=embedding_adapter,
         )
         await unified_memory.initialize()
-        logger.info("UnifiedMemoryStore initialized (L1-L5)")
+        if has_embedding_support:
+            logger.info("UnifiedMemoryStore initialized (L1-L5, embeddings enabled)")
+        else:
+            logger.info("UnifiedMemoryStore initialized (L1-L5, L3 embeddings disabled - no embedding model configured)")
 
         memory_integration_config = MemoryIntegrationConfig(
             enable_l1_raw=config.agent.memory.enable_l1_raw,

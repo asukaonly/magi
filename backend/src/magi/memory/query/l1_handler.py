@@ -4,6 +4,9 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List
 
+from ...core.logger import Loggers
+
+log = Loggers.memory()
 
 PROGRAMMING_SOURCES = {"git", "terminal", "chrome_history", "chat"}
 
@@ -17,12 +20,24 @@ class L1EventQueryHandler:
     async def query(self, request, plan) -> List[Dict[str, Any]]:
         limit = int(getattr(request, "limit", 0) or 200)
         start_time, end_time = self._time_range_bounds(plan.time_range)
+
+        log.info(
+            "[L1EventQueryHandler] query input",
+            limit=limit,
+            start_time=start_time,
+            end_time=end_time,
+            source_filters=plan.source_filters,
+            topic_query=plan.topic_query,
+        )
+
         events = await self._unified_memory.l1_raw.query_events(
             sources=plan.source_filters or None,
             start_time=start_time,
             end_time=end_time,
             limit=limit,
         )
+        log.info("[L1EventQueryHandler] raw_events_count", count=len(events))
+
         filtered: List[Dict[str, Any]] = []
         for event in events:
             if not self._matches_time_range(event, plan.time_range):
@@ -31,7 +46,14 @@ class L1EventQueryHandler:
                 continue
             filtered.append(self._normalize_event(event))
         filtered.sort(key=lambda item: float(item.get("timestamp", 0.0)), reverse=True)
-        return filtered[:limit]
+        result = filtered[:limit]
+
+        log.info(
+            "[L1EventQueryHandler] query output",
+            filtered_count=len(filtered),
+            returned_count=len(result),
+        )
+        return result
 
     def _time_range_bounds(self, time_range: Dict[str, Any]) -> tuple[float | None, float | None]:
         start = time_range.get("start")
@@ -77,6 +99,12 @@ class L1EventQueryHandler:
             return True
         normalized_topic = topic_query.lower().strip()
         event_text = self._build_search_text(event)
+        log.debug(
+            "[L1EventQueryHandler] _matches_topic check",
+            topic=normalized_topic,
+            event_source=event.get("source"),
+            event_text_preview=event_text[:200] if event_text else "",
+        )
         if normalized_topic in {"programming", "coding", "development"}:
             return str(event.get("source") or "") in PROGRAMMING_SOURCES or any(
                 token in event_text for token in ["code", "bug", "repo", "test", "program", "开发", "代码"]

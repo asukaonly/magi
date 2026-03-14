@@ -557,6 +557,23 @@ describe('config forms', () => {
           },
           provider_options: {},
         },
+        embedding: {
+          provider_id: '',
+          model: '',
+          capability_override_enabled: false,
+          capabilities: {
+            vision: false,
+            image_output: false,
+            tool_calling: false,
+            reasoning: false,
+            embedding: true,
+          },
+          limits: {
+            context_window: 8192,
+            max_output_tokens: 8192,
+          },
+          provider_options: {},
+        },
       },
     };
 

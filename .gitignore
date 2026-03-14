@@ -74,6 +74,7 @@ build/
 .cache/
 .ruff_cache/
 .worktrees/
+.worktree/
 
 # Claude Code local settings
 .claude/settings.local.json

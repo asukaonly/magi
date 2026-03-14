@@ -1,10 +1,13 @@
 """Memory query service for orchestrating retrieval across L1-L5 layers."""
 from typing import Any, Dict, List, Optional
 
+from ...core.logger import Loggers
 from .models import MemoryQueryRequest, MemoryQueryResult
 from .handlers import TypeHandlerRegistry
 from .privacy import PrivacyGuard
 from .router import IntentRouter
+
+log = Loggers.memory()
 
 
 class MemoryQueryService:
@@ -42,9 +45,19 @@ class MemoryQueryService:
         Returns:
             MemoryQueryResult with status and data
         """
+        log.info(
+            "[MemoryQueryService] query start",
+            query=request.query,
+            time_range=request.time_range,
+            sources=request.sources,
+        )
+
         # Step 1: Normalize and validate time range
         normalized_time_range = self._normalize_time_range(request.query, request.time_range)
+        log.debug("[MemoryQueryService] normalized_time_range", time_range=normalized_time_range)
+
         if not self._validate_time_range(normalized_time_range):
+            log.warning("[MemoryQueryService] time_range validation failed")
             return MemoryQueryResult(
                 status="confirm_required",
                 confirm_prompt="Please specify a time range for the search (e.g., 'yesterday', 'last week')."
@@ -52,10 +65,14 @@ class MemoryQueryService:
 
         # Step 2: Determine data types to query
         data_types = request.data_types or self._infer_data_types(request.query, request.sources)
+        log.debug("[MemoryQueryService] inferred_data_types", data_types=data_types)
 
         # Step 3: Privacy check
         privacy_result = self.privacy_guard.check(data_types, {"query": request.query})
+        log.debug("[MemoryQueryService] privacy_check", allowed=privacy_result.allowed)
+
         if not privacy_result.allowed:
+            log.warning("[MemoryQueryService] privacy denied", blocked_types=privacy_result.blocked_types)
             return MemoryQueryResult(
                 status="denied",
                 confirm_prompt=f"Access to {', '.join(privacy_result.blocked_types)} is restricted."
@@ -77,6 +94,14 @@ class MemoryQueryService:
         )
 
         routing_plan = self.router.analyze(request.query, request.time_range)
+        log.info(
+            "[MemoryQueryService] routing_plan",
+            layers=routing_plan.layers,
+            query_mode=routing_plan.query_mode,
+            source_filters=routing_plan.source_filters,
+            topic_query=routing_plan.topic_query,
+            confidence=routing_plan.confidence,
+        )
 
         # Step 5: Execute parallel queries
         raw_results = await self.router.execute(
@@ -84,6 +109,7 @@ class MemoryQueryService:
             request,
             self.layer_handlers
         )
+        log.info("[MemoryQueryService] raw_results_count", count=len(raw_results))
 
         # Step 6: Apply type handlers
         processed_results: List[Dict[str, Any]] = []
@@ -165,7 +191,7 @@ class MemoryQueryService:
 
     def _normalize_time_range(self, query: str, time_range: Dict[str, Any]) -> Dict[str, Any]:
         if self._validate_time_range(time_range):
-            return dict(time_range)
+            return dict[str, Any](time_range)
         query_lower = query.lower()
         if "yesterday" in query_lower or "昨天" in query_lower:
             return {"relative": "1d"}

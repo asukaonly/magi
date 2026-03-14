@@ -20,7 +20,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 type Mode = 'quick' | 'expert' | null;
 
 const STORAGE_KEY = 'magi_onboarding_state';
-const BUILTIN_SCENARIOS = ['context_decider', 'core'] as const;
+const BUILTIN_SCENARIOS = ['context_decider', 'core', 'embedding'] as const;
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
 
 interface OnboardingFlowProps {

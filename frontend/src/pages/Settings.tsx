@@ -7,14 +7,9 @@ import React, {
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import {
-  Download,
   Save,
-  Trash2,
-  AlertTriangle,
   Settings2,
   Brain,
-  User,
-  Database,
   Wrench,
   Cpu,
   ChevronRight,
@@ -43,13 +38,9 @@ import {
 } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField as BaseSelectField } from '@/components/config-forms/fields';
 import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig, type LanguageCode } from '../api/modules/config';
-import { memoryApi } from '../api/modules/memory';
 import { cn } from '@/lib/utils';
 import { useThemeStore, type ThemeMode } from '@/stores';
 import i18n from '@/i18n';
@@ -75,8 +66,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'preferences', icon: Settings2 },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
   { id: 'usage', icon: BarChart3 },
-  { id: 'personality', icon: User },
-  { id: 'memory', icon: Database },
   { id: 'timeline', icon: ScrollText },
   { id: 'extensions', icon: PlugZap },
   { id: 'tools', icon: Wrench },
@@ -234,12 +223,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     llm: false,
   });
-  const [downloadModel, setDownloadModel] = useState('bge-m3');
-  const [downloadProgress, setDownloadProgress] = useState(0);
-  const [downloadStatus, setDownloadStatus] = useState<'not_downloaded' | 'downloading' | 'ready'>('not_downloaded');
-  const [installedModels, setInstalledModels] = useState<string[]>([]);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [clearing, setClearing] = useState(false);
   const [timelineStatuses, setTimelineStatuses] = useState<TimelineSourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
@@ -358,15 +341,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     }
   };
 
-  const fetchInstalledModels = async () => {
-    try {
-      const response = await memoryApi.listModels();
-      setInstalledModels(response.data?.models || []);
-    } catch {
-      setInstalledModels([]);
-    }
-  };
-
   const fetchTimelineStatuses = async () => {
     setTimelineStatusesLoading(true);
     try {
@@ -403,7 +377,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   useEffect(() => {
     void Promise.all([
       fetchConfig(),
-      fetchInstalledModels(),
       fetchTimelineStatuses(),
       loadPlugins(),
       loadTools(),
@@ -602,52 +575,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     discardChanges: handleDiscardChanges,
   }), [dirty, savedConfig, savedPluginDrafts, savedThemeMode, savedToolDrafts]);
 
-  const startDownload = async () => {
-    try {
-      const response = await memoryApi.downloadModel(downloadModel);
-      setDownloadProgress(response.data?.progress || 0);
-      setDownloadStatus(response.data?.status || 'not_downloaded');
-    } catch (error: any) {
-      toast.error(error?.message || t('settings.downloadStartFailed'));
-      return;
-    }
-
-    const timer = window.setInterval(async () => {
-      try {
-        const status = await memoryApi.getModelStatus(downloadModel);
-        setDownloadProgress(status.data?.progress || 0);
-        setDownloadStatus(status.data?.status || 'not_downloaded');
-        if (status.data?.status === 'ready') {
-          window.clearInterval(timer);
-          toast.success(t('settings.modelReady'));
-          await fetchInstalledModels();
-        }
-      } catch {
-        window.clearInterval(timer);
-      }
-    }, 800);
-  };
-
-  const handleClearMemory = async () => {
-    setClearing(true);
-    try {
-      const response = await memoryApi.clearAll();
-      if (response.success) {
-        const totalCleared = Object.values(response.results).reduce(
-          (sum: number, result: any) => sum + (result.cleared ? result.count : 0),
-          0
-        );
-        toast.success(t('settings.memoryCleared', { count: totalCleared }));
-        window.dispatchEvent(new CustomEvent('magi-memory-cleared'));
-      }
-    } catch (error: any) {
-      toast.error(error?.message || t('settings.memoryClearFailed'));
-    } finally {
-      setClearing(false);
-      setShowClearConfirm(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -745,162 +672,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         );
 
-      case 'personality':
-        return (
-          <div className="space-y-6">
-            <div className="overflow-hidden rounded-3xl border border-primary/20 bg-muted/30 p-5">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-medium text-primary">{t('settings.fields.currentPersonality')}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {draftConfig.personality?.persona_entity?.basic_profile?.name || 'Default'}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl"
-                  onClick={() => {
-                    window.location.href = '/personality';
-                  }}
-                >
-                  {t('settings.actions.configure')}
-                </Button>
-              </div>
-              <p className="text-xs leading-6 text-muted-foreground">
-                {draftConfig.personality?.persona_entity?.basic_profile?.occupation || ''}
-              </p>
-            </div>
-          </div>
-        );
-
       case 'usage':
         return <LLMUsageSection />;
-
-      case 'memory':
-        return (
-          <div className="space-y-8">
-            {/* Danger Zone */}
-            <Card className="border-destructive/40 bg-destructive/5">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium text-destructive">
-                  <Trash2 className="h-4 w-4" />
-                  {t('settings.fields.clearMemory')}
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  {t('settings.fields.clearMemoryDesc')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setShowClearConfirm(true)}
-                >
-                  <Trash2 className="mr-1.5 h-4 w-4" />
-                  {t('settings.actions.clearMemory')}
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Memory Layers */}
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-medium">{t('settings.fields.memoryLayers')}</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t('settings.fields.memoryLayersDesc')}
-                </p>
-              </div>
-              <div className="grid gap-2.5 sm:grid-cols-2">
-                {(['L1', 'L2', 'L3', 'L4', 'L5'] as const).map((layer) => (
-                  <label
-                    key={layer}
-                    className={cn(
-                      'group flex items-center justify-between rounded-lg border px-4 py-3',
-                      'transition-colors duration-150',
-                      'hover:border-border/80 hover:bg-muted/30',
-                      'cursor-pointer'
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold tabular-nums text-muted-foreground">
-                        {layer}
-                      </span>
-                      <span className="text-sm font-medium">
-                        {t(`settings.fields.${layer.toLowerCase()}Enabled`)}
-                      </span>
-                    </div>
-                    <Switch
-                      checked={draftConfig.memory_layers[layer].enabled}
-                      onCheckedChange={(checked) =>
-                        patchDraftConfig((draft) => {
-                          draft.memory_layers[layer].enabled = checked;
-                        })
-                      }
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Model Download */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">
-                  {t('settings.fields.l3ModelDownload')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <LabeledSelectField
-                  label={t('settings.fields.model')}
-                  value={downloadModel}
-                  options={[
-                    { label: 'bge-m3', value: 'bge-m3' },
-                    { label: 'nomic-embed-text', value: 'nomic-embed-text' },
-                    { label: 'text-embedding-3-large', value: 'text-embedding-3-large' },
-                  ]}
-                  onChange={setDownloadModel}
-                />
-                <Button variant="outline" size="sm" onClick={startDownload}>
-                  <Download className="mr-1.5 h-4 w-4" />
-                  {t('settings.fields.downloadModel')}
-                </Button>
-
-                {/* Progress */}
-                <div className="space-y-2">
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
-                      style={{ width: `${downloadProgress}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span className="capitalize">{downloadStatus}</span>
-                    <span className="tabular-nums">{downloadProgress}%</span>
-                  </div>
-                </div>
-
-                {/* Installed Models */}
-                <div className="flex flex-wrap items-center gap-2 pt-2">
-                  <span className="text-xs text-muted-foreground">
-                    {t('settings.fields.installedModels')}:
-                  </span>
-                  {installedModels.length > 0 ? (
-                    installedModels.map((model) => (
-                      <Badge key={model} variant="secondary" className="text-xs">
-                        {model}
-                      </Badge>
-                    ))
-                  ) : (
-                    <Badge variant="outline" className="text-xs">
-                      {t('settings.fields.none')}
-                    </Badge>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        );
 
       case 'timeline':
         return (
@@ -1263,54 +1036,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           </div>
         </div>
       </footer>
-
-      {showClearConfirm ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="clear-confirm-title"
-          aria-describedby="clear-confirm-desc"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && !clearing) {
-              setShowClearConfirm(false);
-            }
-          }}
-        >
-          <Card className="mx-4 max-w-md">
-            <CardHeader>
-              <CardTitle id="clear-confirm-title" className="flex items-center gap-2 text-destructive">
-                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
-                {t('settings.clearConfirm.title')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div id="clear-confirm-desc" className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm">
-                <p className="font-medium text-destructive">{t('settings.clearConfirm.warning')}</p>
-                <ul className="mt-2 list-inside list-disc space-y-1 text-destructive/80">
-                  <li>{t('settings.clearConfirm.l1')}</li>
-                  <li>{t('settings.clearConfirm.l2')}</li>
-                  <li>{t('settings.clearConfirm.l3')}</li>
-                  <li>{t('settings.clearConfirm.l4')}</li>
-                  <li>{t('settings.clearConfirm.l5')}</li>
-                  <li>{t('settings.clearConfirm.chatContext')}</li>
-                </ul>
-                <p className="mt-3 font-semibold text-destructive">
-                  {t('settings.clearConfirm.irreversible')}
-                </p>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setShowClearConfirm(false)} disabled={clearing}>
-                  {t('settings.clearConfirm.cancel')}
-                </Button>
-                <Button variant="destructive" onClick={handleClearMemory} disabled={clearing}>
-                  {clearing ? t('settings.clearConfirm.clearing') : t('settings.clearConfirm.confirm')}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      ) : null}
     </div>
   );
 });

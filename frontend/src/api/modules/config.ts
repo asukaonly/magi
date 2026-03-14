@@ -18,7 +18,7 @@ export type LLMProvider =
   | 'custom'
   | 'local';
 export type ApiFormat = 'openai' | 'anthropic';
-export type LLMScenario = 'context_decider' | 'core';
+export type LLMScenario = 'context_decider' | 'core' | 'embedding';
 
 export interface UserPreferences {
   onboarding_completed: boolean;
@@ -296,6 +296,14 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         model: '',
         capability_override_enabled: false,
         capabilities: DEFAULT_LLM_CAPABILITIES,
+        limits: DEFAULT_LLM_LIMITS,
+        provider_options: {},
+      },
+      embedding: {
+        provider_id: '',
+        model: '',
+        capability_override_enabled: false,
+        capabilities: { ...DEFAULT_LLM_CAPABILITIES, embedding: true },
         limits: DEFAULT_LLM_LIMITS,
         provider_options: {},
       },

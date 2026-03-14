@@ -1,5 +1,5 @@
-import React from 'react';
-import { AlertTriangle } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { AlertTriangle, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { SelectField } from '@/components/config-forms/fields';
@@ -16,7 +16,7 @@ interface LLMModelSelectionSectionProps {
   onScenarioModelChange: (scenario: LLMScenario, model: string) => void;
 }
 
-const SCENARIOS: LLMScenario[] = ['context_decider', 'core'];
+const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
 
 export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> = ({
   registry,
@@ -31,30 +31,50 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const enabledProviders = Object.entries(value.providers).filter(([, provider]) => provider.enabled);
   const isSettingsSurface = surface === 'settings';
   const inputClassName = cn(
-    'h-11 w-full rounded-2xl border border-input/80 bg-background/90 px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
-    isSettingsSurface && 'rounded-lg border-border/65 bg-background'
+    'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+    isSettingsSurface && 'rounded-lg'
   );
+
+  // Collect all embedding models from all enabled providers
+  const allEmbeddingModels = useMemo(() => {
+    const models: Array<{ providerId: string; providerName: string; modelId: string; modelLabel: string }> = [];
+    for (const [providerId, provider] of enabledProviders) {
+      const isCustomProvider = provider.provider_type === 'custom';
+      const providerMeta = isCustomProvider
+        ? undefined
+        : registry.providers.find((item) => item.id === provider.provider_type);
+
+      const providerModels = isCustomProvider
+        ? [] // Custom providers don't have embedding models in registry
+        : providerMeta?.models || [];
+
+      for (const model of providerModels) {
+        if (model.capabilities?.embedding) {
+          models.push({
+            providerId,
+            providerName: provider.display_name || providerMeta?.display_name || providerId,
+            modelId: model.id,
+            modelLabel: model.label || model.id,
+          });
+        }
+      }
+    }
+    return models;
+  }, [enabledProviders, registry.providers]);
 
   if (enabledProviders.length === 0) {
     return (
       <section
         data-testid="llm-model-selection-section"
-        className={cn('space-y-4 border-t border-border/50 pt-6', isSettingsSurface && 'space-y-3 border-t-0 pt-0')}
+        className={cn('space-y-3', isSettingsSurface && 'space-y-3')}
       >
         {showSectionIntro ? (
           <div className="space-y-1">
-            <h3 className="text-lg font-semibold text-foreground">{t('llm.modelSelection.title')}</h3>
+            <h3 className="text-base font-semibold text-foreground">{t('llm.modelSelection.title')}</h3>
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.modelSelection.desc')}</p>
           </div>
         ) : null}
-        <div
-          className={cn(
-            'rounded-[24px] border border-border/60 p-5 text-sm text-muted-foreground',
-            isSettingsSurface
-              ? 'rounded-xl border-border/65 p-4'
-              : 'bg-muted/35'
-          )}
-        >
+        <div className="rounded-xl border border-border/65 p-4 text-sm text-muted-foreground">
           {t('llm.modelSelection.empty')}
         </div>
       </section>
@@ -64,51 +84,102 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   return (
     <section
       data-testid="llm-model-selection-section"
-      className={cn('space-y-4 border-t border-border/50 pt-6', isSettingsSurface && 'space-y-3 border-t-0 pt-0')}
+      className={cn('space-y-3')}
     >
       {showSectionIntro ? (
         <div className="space-y-1">
-          <h3 className="text-lg font-semibold text-foreground">{t('llm.modelSelection.title')}</h3>
+          <h3 className="text-base font-semibold text-foreground">{t('llm.modelSelection.title')}</h3>
           <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('llm.modelSelection.desc')}</p>
         </div>
       ) : null}
 
-      <div className={cn('grid gap-4 xl:grid-cols-2', isSettingsSurface && 'gap-3 xl:grid-cols-1')}>
+      <div className="grid gap-3">
         {SCENARIOS.map((scenario) => {
           const selection = value.selections[scenario];
           const provider = value.providers[selection.provider_id];
           const isCustomProvider = provider?.provider_type === 'custom';
+          const isEmbeddingScenario = scenario === 'embedding';
+
+          // For embedding scenario, use cross-provider model selection
+          if (isEmbeddingScenario) {
+            const currentEmbeddingModel = allEmbeddingModels.find(
+              (m) => m.providerId === selection.provider_id && m.modelId === selection.model
+            );
+
+            return (
+              <article
+                key={scenario}
+                data-testid={`llm-scenario-${scenario}`}
+                className="rounded-xl border border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+              >
+                <div className="space-y-1 mb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="text-sm font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>
+                    {currentEmbeddingModel && (
+                      <span className="rounded-full border border-border/60 bg-transparent px-2 py-0.5 text-xs text-muted-foreground">
+                        {currentEmbeddingModel.providerName}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">{t(`llm.scenarios.${scenario}.desc`)}</p>
+                </div>
+
+                {allEmbeddingModels.length > 0 ? (
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">{t('llm.fields.model')}</span>
+                    <SelectField
+                      className="w-full"
+                      triggerClassName={inputClassName}
+                      value={selection.provider_id && selection.model ? `${selection.provider_id}::${selection.model}` : ''}
+                      allowEmpty={false}
+                      placeholder={t('llm.modelSelection.selectEmbeddingModel')}
+                      options={allEmbeddingModels.map((m) => ({
+                        label: `${m.modelLabel} (${m.providerName})`,
+                        value: `${m.providerId}::${m.modelId}`,
+                      }))}
+                      onChange={(nextValue) => {
+                        const [providerId, modelId] = nextValue.split('::');
+                        // First change provider, then model
+                        onScenarioProviderChange(scenario, providerId);
+                        onScenarioModelChange(scenario, modelId);
+                      }}
+                    />
+                  </label>
+                ) : (
+                  <div className="flex items-start gap-2 rounded-lg border border-info/40 bg-info/5 px-3 py-2.5 text-sm text-info-foreground">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{t('llm.modelSelection.noEmbeddingModels')}</span>
+                  </div>
+                )}
+              </article>
+            );
+          }
+
+          // For non-embedding scenarios, filter out embedding models
+          // Custom providers don't have embedding models in registry, so no need to filter
           const models = isCustomProvider
             ? (provider?.custom_models || []).map((model) => ({ id: model, label: model }))
-            : registry.providers.find((item) => item.id === provider?.provider_type)?.models || [];
+            : (registry.providers.find((item) => item.id === provider?.provider_type)?.models || []).filter(
+                (model) => !model.capabilities?.embedding
+              );
 
           return (
             <article
               key={scenario}
               data-testid={`llm-scenario-${scenario}`}
-              className={cn(
-                'space-y-4 rounded-[24px] border border-border/60 p-5',
-                isSettingsSurface
-                  ? 'rounded-xl border-border/65 p-4'
-                  : 'bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--muted)/0.9))] shadow-[0_16px_34px_-28px_hsl(var(--foreground)/0.14)] dark:bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--background)/0.92))] dark:shadow-[0_20px_36px_-28px_rgba(0,0,0,0.62)]'
-              )}
+              className="rounded-xl border border-border/65 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
             >
-              <div className="space-y-1">
+              <div className="space-y-1 mb-4">
                 <div className="flex items-center justify-between gap-3">
-                  <h4 className={cn('text-base font-semibold text-foreground', isSettingsSurface && 'text-sm')}>{t(`llm.scenarios.${scenario}.title`)}</h4>
-                  <span
-                    className={cn(
-                      'rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground',
-                      isSettingsSurface && 'border-border/60 bg-transparent px-2 py-0.5'
-                    )}
-                  >
+                  <h4 className="text-sm font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>
+                  <span className="rounded-full border border-border/60 bg-transparent px-2 py-0.5 text-xs text-muted-foreground">
                     {provider?.display_name || selection.provider_id}
                   </span>
                 </div>
-                <p className={cn('text-sm text-muted-foreground', isSettingsSurface && 'text-xs leading-5')}>{t(`llm.scenarios.${scenario}.desc`)}</p>
+                <p className="text-xs leading-5 text-muted-foreground">{t(`llm.scenarios.${scenario}.desc`)}</p>
               </div>
 
-              <div className={cn('grid gap-4', quickMode ? 'lg:grid-cols-2' : 'md:grid-cols-2')}>
+              <div className={cn('grid gap-3', quickMode ? 'lg:grid-cols-2' : 'md:grid-cols-2')}>
                 <label className="space-y-2">
                   <span className="text-sm font-medium">{t('llm.fields.provider')}</span>
                   <SelectField
@@ -150,29 +221,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                 </label>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(selection.capabilities)
-                  .filter(([, enabled]) => Boolean(enabled))
-                  .map(([capability]) => (
-                    <span
-                      key={capability}
-                      className={cn(
-                        'rounded-full border border-primary/20 bg-background/85 px-2.5 py-1 text-xs text-primary',
-                        isSettingsSurface && 'border-border/60 bg-transparent text-muted-foreground'
-                      )}
-                    >
-                      {t(`llm.capabilities.${capability === 'image_output' ? 'imageOutput' : capability}`)}
-                    </span>
-                  ))}
-              </div>
-
               {scenario === 'core' && !selection.capabilities.vision ? (
-                <div
-                  className={cn(
-                    'flex items-start gap-2 rounded-xl border border-amber-400/45 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200',
-                    isSettingsSurface && 'border-amber-300/35 bg-transparent text-xs text-amber-800 dark:text-amber-200'
-                  )}
-                >
+                <div className="flex items-start gap-2 rounded-lg border border-amber-300/35 bg-transparent px-3 py-2 text-xs text-amber-800 dark:text-amber-200 mt-3">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{t('llm.warnings.coreVisionMissing')}</span>
                 </div>

@@ -91,6 +91,7 @@ class LLMScenario(str, Enum):
 
     CONTEXT_DECIDER = "context_decider"
     CORE = "core"
+    EMBEDDING = "embedding"
 
 
 class LLMProviderSettings(BaseModel):
@@ -139,6 +140,9 @@ class LLMSettings(BaseModel):
         default_factory=lambda: {
             LLMScenario.CONTEXT_DECIDER.value: LLMSelectionSettings(),
             LLMScenario.CORE.value: LLMSelectionSettings(),
+            LLMScenario.EMBEDDING.value: LLMSelectionSettings(
+                capabilities=LLMCapabilitiesSettings(embedding=True),
+            ),
         }
     )
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
@@ -147,6 +151,7 @@ class LLMSettings(BaseModel):
 
     @model_validator(mode="after")
     def validate_builtin_provider_uniqueness(self) -> "LLMSettings":
+        # EMBEDDING is optional - system falls back to local model if not configured
         required_scenarios = {
             LLMScenario.CONTEXT_DECIDER.value,
             LLMScenario.CORE.value,
@@ -174,10 +179,8 @@ class LLMSettings(BaseModel):
 # =============================================================================
 
 class EmbeddingSettings(BaseModel):
-    """Embedding configuration."""
+    """Embedding configuration. Note: embedding model is configured via LLM EMBEDDING scenario."""
     backend: EmbeddingBackend = Field(default=EmbeddingBackend.SQLITE_VEC)
-    local_model: str = Field(default="all-MiniLM-L6-v2")
-    local_dimension: int = Field(default=384)
 
 
 class MemorySettings(BaseModel):

@@ -68,17 +68,15 @@ class UnifiedMemoryStore:
 
         self.l3_embeddings: Optional[eventEmbeddingStore] = None
         self.l3_hybrid_search: Optional[HybrideventSearch] = None
-        if enable_embeddings:
+        if enable_embeddings and llm_adapter is not None:
             self.l3_embeddings = create_embedding_store(
-                backend=str(emb_config.get("backend", "sqlite_vec")),
                 llm_adapter=llm_adapter,
-                local_model=str(emb_config.get("local_model", "all-MiniLM-L6-v2")),
-                local_dimension=int(emb_config.get("local_dimension", 384)),
-                remote_model=str(emb_config.get("openai_model", "text-embedding-3-small")),
-                remote_dimension=int(emb_config.get("remote_dimension", 1536)),
                 persist_path=str(memories_dir / "embeddings.db"),
             )
-            self.l3_hybrid_search = HybrideventSearch(self.l3_embeddings)
+            if self.l3_embeddings:
+                self.l3_hybrid_search = HybrideventSearch(self.l3_embeddings)
+            else:
+                logger.info("L3 embeddings disabled: no valid embedding adapter configured")
 
         self.l4_summaries: Optional[SummaryStore] = None
         self.l4_auto_summarizer: Optional[AutoSummarizer] = None

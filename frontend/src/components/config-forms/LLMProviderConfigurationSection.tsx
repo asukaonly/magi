@@ -197,11 +197,11 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   className={cn(
                     'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
                     providerId === activeProviderId
-                      ? 'bg-background text-foreground'
+                      ? 'bg-primary/15 text-foreground ring-2 ring-primary/70'
                       : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
                     isSettingsSurface &&
                       (providerId === activeProviderId
-                        ? 'rounded-xl bg-background shadow-[0_1px_2px_rgba(15,23,42,0.04)] ring-1 ring-inset ring-primary/35'
+                        ? 'rounded-xl bg-primary/12 shadow-sm ring-2 ring-primary/60'
                         : 'rounded-xl bg-transparent shadow-[0_1px_2px_rgba(15,23,42,0.03)] ring-1 ring-inset ring-border/60')
                   )}
                 >

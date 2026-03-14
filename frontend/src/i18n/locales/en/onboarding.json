@@ -57,7 +57,9 @@
     "modelSelection": {
       "title": "Model Selection",
       "desc": "Choose models per runtime scenario. For now we split intent detection and core conversation.",
-      "empty": "Enable at least one provider first, then come back to assign models."
+      "empty": "Enable at least one provider first, then come back to assign models.",
+      "selectEmbeddingModel": "Select embedding model",
+      "noEmbeddingModels": "No embedding models available from enabled providers. Enable a provider with embedding support (e.g., OpenAI)."
     },
     "providerConfiguration": {
       "title": "Provider Configuration",
@@ -88,6 +90,10 @@
       "core": {
         "title": "Core LLM Model",
         "desc": "Used for final responses, tool calling, and multimodal input."
+      },
+      "embedding": {
+        "title": "Embedding Model",
+        "desc": "Used for memory vectorization storage and semantic search."
       }
     },
     "fields": {

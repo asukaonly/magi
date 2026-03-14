@@ -710,6 +710,24 @@
       "lowSuccess": "Low Success Capabilities",
       "list": "Capability List",
       "usageCount": "Usage Count"
+    },
+    "clearMemory": "Clear",
+    "memoryCleared": "Cleared {{count}} memory items",
+    "memoryClearFailed": "Failed to clear memory",
+    "clearConfirm": {
+      "title": "Clear All Memory",
+      "warning": "This will permanently delete:",
+      "l1": "L1 raw events",
+      "l2": "L2 event relations",
+      "l3": "L3 semantic embeddings",
+      "l4": "L4 summaries",
+      "l5": "L5 capability records",
+      "chatContext": "Chat context history",
+      "irreversible": "This action cannot be undone!",
+      "cancel": "Cancel",
+      "confirm": "Confirm Clear",
+      "clearing": "Clearing...",
+      "wait": "Wait {{seconds}}s"
     }
   },
   "personality": {

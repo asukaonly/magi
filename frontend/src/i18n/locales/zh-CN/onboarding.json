@@ -57,7 +57,9 @@
     "modelSelection": {
       "title": "模型选择",
       "desc": "为不同场景挑选对应模型。当前先区分意图识别和核心对话。",
-      "empty": "请先启用至少一个供应商，再回来选择模型。"
+      "empty": "请先启用至少一个供应商，再回来选择模型。",
+      "selectEmbeddingModel": "选择向量模型",
+      "noEmbeddingModels": "当前已启用的供应商没有向量模型，请启用支持向量的供应商（如 OpenAI）。"
     },
     "providerConfiguration": {
       "title": "供应商配置",
@@ -88,6 +90,10 @@
       "core": {
         "title": "核心 LLM 模型",
         "desc": "用于最终回答、工具调用和多模态输入。"
+      },
+      "embedding": {
+        "title": "向量模型",
+        "desc": "用于记忆向量化存储和语义检索。"
       }
     },
     "fields": {
