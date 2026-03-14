@@ -178,7 +178,9 @@ export interface MemoryConfig {
   l0_checkpoint_interval_seconds: number;
   runtime_replay_include_l0_only: boolean;
   enable_t1_importance: boolean;
+  enable_l1_vectorization: boolean;
   enable_l2_llm_extraction: boolean;
+  enable_l3_vectorization: boolean;
   enable_l3_llm_summary: boolean;
   enable_l4_skill_extraction: boolean;
 }
@@ -310,16 +312,18 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   memory: {
     backend: 'sqlite',
     path: '~/.magi/data/memories',
-    retention_days: 7,
+    retention_days: 30,
     enable_l0: true,
     enable_l1: true,
     enable_l2: true,
     enable_l3: true,
     enable_l4: true,
-    l0_checkpoint_interval_seconds: 30,
+    l0_checkpoint_interval_seconds: 60,
     runtime_replay_include_l0_only: false,
     enable_t1_importance: true,
+    enable_l1_vectorization: false,
     enable_l2_llm_extraction: true,
+    enable_l3_vectorization: false,
     enable_l3_llm_summary: true,
     enable_l4_skill_extraction: true,
   },

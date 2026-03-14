@@ -93,11 +93,11 @@ describe('events page', () => {
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,
       results: {
-        l1_raw: { cleared: true, count: 1 },
-        l2_relations: { cleared: true, count: 2 },
-        l3_embeddings: { cleared: true, count: 3 },
-        l4_summaries: { cleared: true, count: 4 },
-        l5_capabilities: { cleared: true, count: 5 },
+        l0: { cleared: true, count: 1 },
+        l1: { cleared: true, count: 2 },
+        l2: { cleared: true, count: 3 },
+        l3: { cleared: true, count: 4 },
+        l4: { cleared: true, count: 5 },
         chat_context: { cleared: true, count: 6 },
       },
     });

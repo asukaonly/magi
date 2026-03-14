@@ -134,7 +134,7 @@
       "title": "系统信息",
       "frameworkVersion": "框架版本",
       "memoryArchitecture": "记忆架构",
-      "memoryArchitectureValue": "L1-L5 五层",
+      "memoryArchitectureValue": "L0-L4 生命周期",
       "eventSystem": "事件系统",
       "recentActivity": "最近活动",
       "latest": "最新"
@@ -339,57 +339,66 @@
         "pipelines": "推理抽取管线"
       },
       "form": {
-        "title": "记忆生命周期",
-        "description": "只启用你希望 Magi 持久化和参与推理的记忆阶段。",
-        "l1DependencyTitle": "L1 事件记忆是长期记忆的基础",
-        "l1DependencyDescription": "关闭 L1 后，下游的认知、反思和程序性记忆都会保持停用。",
-        "restoreL1": "重新启用 L1"
+        "title": "记忆配置",
+        "l1DependencyTitle": "原始事件记忆是长期记忆的基础",
+        "l1DependencyDescription": "关闭后，下游的知识、反思和策略记忆都会保持停用。",
+        "restoreL1": "重新启用"
       },
       "fields": {
         "enable_l0": {
-          "label": "启用 L0 工作上下文",
+          "label": "启用工作上下文",
           "description": "将短时运行态保存在内存中，并通过 checkpoint 提供异常恢复能力。"
         },
         "enable_l1": {
-          "label": "启用 L1 事件记忆",
+          "label": "启用原始事件记忆",
           "description": "持久化长期源事件，作为后续认知和检索的事实基础。"
         },
         "enable_l2": {
-          "label": "启用 L2 认知图谱",
-          "description": "从 L1 中抽取稳定实体、关系以及防御性 ToM 断言。"
+          "label": "启用知识记忆",
+          "description": "从原始事件中抽取稳定实体、关系以及防御性 ToM 断言。"
         },
         "enable_l3": {
-          "label": "启用 L3 反思层",
+          "label": "启用摘要与反思记忆",
           "description": "基于累计事件生成摘要化、反思化的长期抽象。"
         },
         "enable_l4": {
-          "label": "启用 L4 程序性记忆",
+          "label": "启用策略及执行记忆",
           "description": "把可复用的成功策略与失败规避经验固化成未来行为准则。"
         },
         "l0_checkpoint_interval_seconds": {
-          "label": "L0 checkpoint 间隔（秒）"
+          "label": "Checkpoint 间隔（秒）"
         },
         "retention_days": {
-          "label": "L1 保留窗口（天）"
+          "label": "保留窗口（天）"
         },
         "runtime_replay_include_l0_only": {
-          "label": "回放仅存在于 L0 的运行时事件",
+          "label": "回放仅存在于工作上下文的运行时事件",
           "description": "在异常恢复后的短期上下文回放中，是否纳入纯瞬时执行事件。"
         },
         "enable_t1_importance": {
-          "label": "启用 T1 重要度评分",
+          "label": "启用重要度评分",
           "description": "在事件进入下游认知层之前，先评估其重要程度。"
         },
+        "enable_l1_vectorization": {
+          "label": "启用向量化（语义搜索）",
+          "description": "将原始事件向量化以便支持语义相似性搜索。",
+          "description_disabled": "需要先在模型配置中选择向量模型。"
+        },
         "enable_l2_llm_extraction": {
-          "label": "启用 L2 的 LLM 抽取",
-          "description": "使用模型从 L1 事件中抽取实体、关系和 ToM 断言。"
+          "label": "启用 LLM 知识抽取",
+          "description": "使用模型从原始事件中抽取实体、关系和 ToM 断言。"
         },
         "enable_l3_llm_summary": {
-          "label": "启用 L3 的 LLM 反思",
+          "label": "启用 LLM 反思摘要",
           "description": "使用模型把保留的记忆流压缩成更高层次的反思摘要。"
         },
+        "enable_l3_vectorization": {
+          "label": "启用向量化（语义搜索）",
+          "description": "将反思摘要向量化以便支持语义相似性搜索。",
+          "description_disabled": "需要先在模型配置中选择向量模型。"
+        },
         "enable_l4_skill_extraction": {
-          "label": "启用 L4 技能抽取",
+          "label": "启用技能抽取",
           "description": "把重复出现的成功或失败模式提升为未来可复用的程序性经验。"
         }
       }
@@ -714,82 +723,81 @@
     },
     "saving": "保存中..."
   },
-  "events": {
+  "memory": {
     "title": "记忆查看",
-    "subtitle": "L1-L5 五层记忆架构数据查看",
+    "subtitle": "L0-L4 分层记忆系统",
     "refresh": "刷新",
+    "refreshSuccess": "数据已刷新",
     "loadFailed": "加载数据失败: {{message}}",
-    "searchKeywordRequired": "请输入搜索关键词",
-    "searchFound": "找到 {{count}} 条相关事件",
-    "searchEmpty": "未找到相关事件",
-    "searchFailed": "搜索失败: {{message}}",
+    "searchPlaceholder": "请输入搜索关键词...",
+    "searchComplete": "搜索完成",
+    "searchError": "搜索失败: {{message}}",
+    "search": "搜索",
+    "clear": "清除",
+    "architectureLabel": "记忆架构",
+    "memoryArchitectureValue": "L0-L4 生命周期",
     "tabs": {
+      "l0": "L0",
       "l1": "L1",
       "l2": "L2",
       "l3": "L3",
-      "l4": "L4",
-      "l5": "L5"
+      "l4": "L4"
+    },
+    "l0": {
+      "activeSessions": "活跃会话",
+      "totalGoals": "目标总数",
+      "totalEntities": "实体总数",
+      "totalTactics": "策略总数",
+      "sessions": "会话列表",
+      "noSessions": "暂无活跃会话",
+      "workbench": "工作台",
+      "goalStack": "目标栈",
+      "noGoals": "目标栈为空",
+      "activeEntities": "活跃实体",
+      "noEntities": "暂无活跃实体",
+      "tactics": "临时策略",
+      "noTactics": "暂无策略定义"
     },
     "l1": {
-      "totalEvents": "总事件数",
-      "rawEvents": "原始事件（最近 50 条）",
-      "correlationId": "关联ID",
-      "source": "来源"
+      "totalEvents": "事件总数",
+      "userAuthored": "用户 authored",
+      "interaction": "交互事件",
+      "externalActivity": "外部活动",
+      "events": "事件流",
+      "noEvents": "暂无事件记录"
     },
     "l2": {
-      "totalEvents": "总事件数",
-      "totalRelations": "总关系数",
-      "avgRelationPerEvent": "平均关系/事件",
-      "relationDoc": "关系类型说明",
-      "precedeDesc": "同一链路上的前后事件",
-      "triggerDesc": "感知触发处理",
-      "causeDesc": "因果关系",
-      "followDesc": "后续事件",
-      "sameUserDesc": "同一用户事件"
+      "relationCount": "知识关系",
+      "assertionCount": "心智断言",
+      "relations": "知识图谱",
+      "noRelations": "暂无关系记录",
+      "assertions": "心智理论",
+      "noAssertions": "暂无断言记录"
     },
     "l3": {
-      "embeddingCount": "嵌入向量数",
-      "vectorDimension": "向量维度",
-      "semanticSearch": "语义搜索",
-      "searchPlaceholder": "输入搜索关键词，如：用户消息、错误、任务完成...",
-      "search": "搜索",
-      "results": "搜索结果",
-      "type": "类型"
+      "summaryCount": "摘要数量",
+      "noSummaries": "暂无摘要",
+      "summaries": "反思摘要"
     },
     "l4": {
-      "summaryTotal": "摘要总数",
-      "summaryDoc": "摘要说明",
-      "summaryExplain": "L4 摘要按照时间粒度自动生成：",
-      "hour": "小时",
-      "day": "天",
-      "week": "周",
-      "month": "月",
-      "summaryHint": "摘要会在后台定期生成，也可以手动触发。"
+      "skillCount": "程序性技能",
+      "openBreakers": "熔断器开启",
+      "highSuccess": "高成功率技能",
+      "noSkills": "暂无程序性技能",
+      "skills": "程序性记忆"
     },
-    "l5": {
-      "capabilityTotal": "能力总数",
-      "highSuccess": "高成功率能力",
-      "lowSuccess": "低成功率能力",
-      "list": "能力列表",
-      "usageCount": "使用次数"
-    },
-    "clearMemory": "清除",
-    "memoryCleared": "已清除 {{count}} 条记忆",
-    "memoryClearFailed": "清除记忆失败",
     "clearConfirm": {
       "title": "清除所有记忆",
-      "warning": "此操作将永久删除以下数据：",
-      "l1": "L1 原始事件",
-      "l2": "L2 事件关系",
-      "l3": "L3 语义向量",
-      "l4": "L4 摘要",
-      "l5": "L5 能力记录",
+      "description": "此操作将永久删除所有层级的记忆数据。",
+      "l0": "L0 工作上下文（会话、目标）",
+      "l1": "L1 事件流",
+      "l2": "L2 认知（知识图谱、心智理论）",
+      "l3": "L3 反思摘要",
+      "l4": "L4 程序性技能",
       "chatContext": "对话上下文历史",
-      "irreversible": "此操作不可撤销！",
-      "cancel": "取消",
+      "typePrompt": "输入 'CLEAR' 确认：",
       "confirm": "确认清除",
-      "clearing": "清除中...",
-      "wait": "等待 {{seconds}}s"
+      "cancel": "取消"
     }
   },
   "personality": {

@@ -40,7 +40,6 @@ import {
 } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SelectField as BaseSelectField } from '@/components/config-forms/fields';
@@ -94,15 +93,6 @@ type MemoryToggleFieldId =
   | 'enable_l2_llm_extraction'
   | 'enable_l3_llm_summary'
   | 'enable_l4_skill_extraction';
-
-const MEMORY_LAYER_FIELDS: MemoryToggleFieldId[] = ['enable_l0', 'enable_l1', 'enable_l2', 'enable_l3', 'enable_l4'];
-const MEMORY_PIPELINE_FIELDS: MemoryToggleFieldId[] = [
-  'runtime_replay_include_l0_only',
-  'enable_t1_importance',
-  'enable_l2_llm_extraction',
-  'enable_l3_llm_summary',
-  'enable_l4_skill_extraction',
-];
 
 const toI18nLanguage = (language: LanguageCode) => (language === 'zh' ? 'zh-CN' : 'en');
 
@@ -227,26 +217,81 @@ const NumberField: React.FC<{
   </label>
 );
 
-const MemoryToggleCard: React.FC<{
+interface ExpandableMemoryLayerCardProps {
+  layerKey: string;
   label: string;
   description: string;
   checked: boolean;
   disabled?: boolean;
-  onChange: (checked: boolean) => void;
-}> = ({ label, description, checked, disabled = false, onChange }) => (
-  <label
+  expanded: boolean;
+  onToggle: (checked: boolean) => void;
+  onExpand: (expanded: boolean) => void;
+  children?: React.ReactNode;
+}
+
+const ExpandableMemoryLayerCard: React.FC<ExpandableMemoryLayerCardProps> = ({
+  label,
+  description,
+  checked,
+  disabled = false,
+  expanded,
+  onToggle,
+  onExpand,
+  children,
+}) => (
+  <div
     className={cn(
-      'group flex items-start justify-between gap-4 rounded-xl border px-4 py-3',
-      'transition-colors duration-150',
-      disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-border/80 hover:bg-muted/30'
+      'rounded-xl border transition-all duration-200',
+      checked ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-background/60',
+      disabled && 'opacity-60'
     )}
   >
-    <div className="space-y-1">
-      <div className="text-sm font-medium">{label}</div>
-      <div className="text-xs leading-5 text-muted-foreground">{description}</div>
+    {/* Header row with toggle */}
+    <div className="flex items-center gap-3 px-4 py-3">
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onToggle}
+        aria-label={label}
+      />
+      <div
+        className={cn('flex-1', !disabled && 'cursor-pointer')}
+        onClick={() => !disabled && checked && onExpand(!expanded)}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <div className={cn('text-sm font-medium', checked && 'text-primary')}>
+              {label}
+            </div>
+            <div className="text-xs leading-5 text-muted-foreground">{description}</div>
+          </div>
+          {checked && children && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onExpand(!expanded);
+              }}
+              className="rounded p-1 hover:bg-muted/50"
+            >
+              {expanded ? (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              )}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
-    <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label={label} />
-  </label>
+
+    {/* Expandable content */}
+    {checked && expanded && children && (
+      <div className="border-t border-border/40 px-4 py-3">
+        <div className="space-y-4">{children}</div>
+      </div>
+    )}
+  </div>
 );
 
 export interface SettingsPageHandle {
@@ -272,6 +317,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     llm: false,
   });
+  const [expandedMemoryLayers, setExpandedMemoryLayers] = useState<Set<string>>(new Set(['l0', 'l1']));
   const [timelineStatuses, setTimelineStatuses] = useState<TimelineSourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
@@ -624,40 +670,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     discardChanges: handleDiscardChanges,
   }), [dirty, savedConfig, savedPluginDrafts, savedThemeMode, savedToolDrafts]);
 
-  const isMemoryFieldActive = (field: MemoryToggleFieldId, memory: SystemConfig['memory']) => {
-    switch (field) {
-      case 'enable_l2':
-        return memory.enable_l1 && memory.enable_l2;
-      case 'enable_l3':
-        return memory.enable_l1 && memory.enable_l3;
-      case 'enable_l4':
-        return memory.enable_l1 && memory.enable_l4;
-      default:
-        return Boolean(memory[field]);
-    }
-  };
-
-  const isMemoryFieldDisabled = (field: MemoryToggleFieldId, memory: SystemConfig['memory']) => {
-    switch (field) {
-      case 'enable_l2':
-      case 'enable_l3':
-      case 'enable_l4':
-        return !memory.enable_l1;
-      case 'runtime_replay_include_l0_only':
-        return !memory.enable_l0;
-      case 'enable_t1_importance':
-        return !memory.enable_l1;
-      case 'enable_l2_llm_extraction':
-        return !memory.enable_l1 || !memory.enable_l2;
-      case 'enable_l3_llm_summary':
-        return !memory.enable_l1 || !memory.enable_l3;
-      case 'enable_l4_skill_extraction':
-        return !memory.enable_l1 || !memory.enable_l4;
-      default:
-        return false;
-    }
-  };
-
   const updateMemoryToggle = (field: MemoryToggleFieldId, checked: boolean) => {
     patchDraftConfig((draft) => {
       if (field === 'enable_l1' && !checked) {
@@ -823,26 +835,259 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       case 'usage':
         return <LLMUsageSection />;
 
-      case 'memory':
+      case 'memory': {
+        // Check if embedding model is configured
+        const embeddingSelection = draftConfig.llm?.selections?.embedding;
+        const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
+
         return (
-          <div className="space-y-8">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">{t('settings.memory.cards.layers')}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {MEMORY_LAYER_FIELDS.map((field) => (
-                  <MemoryToggleCard
-                    key={field}
-                    label={t(`settings.memory.fields.${field}.label`)}
-                    description={t(`settings.memory.fields.${field}.description`)}
-                    checked={isMemoryFieldActive(field, draftConfig.memory)}
-                    disabled={isMemoryFieldDisabled(field, draftConfig.memory)}
-                    onChange={(checked) => updateMemoryToggle(field, checked)}
+          <div className="space-y-6">
+            {/* L0 Working Context */}
+            <ExpandableMemoryLayerCard
+              layerKey="l0"
+              label={t('settings.memory.fields.enable_l0.label')}
+              description={t('settings.memory.fields.enable_l0.description')}
+              checked={draftConfig.memory.enable_l0}
+              expanded={expandedMemoryLayers.has('l0')}
+              onToggle={(checked) => updateMemoryToggle('enable_l0', checked)}
+              onExpand={(expanded) => {
+                setExpandedMemoryLayers((prev) => {
+                  const next = new Set(prev);
+                  if (expanded) {
+                    next.add('l0');
+                  } else {
+                    next.delete('l0');
+                  }
+                  return next;
+                });
+              }}
+            >
+              <div className="space-y-4">
+                <NumberField
+                  label={t('settings.memory.fields.l0_checkpoint_interval_seconds.label')}
+                  value={draftConfig.memory.l0_checkpoint_interval_seconds ?? 60}
+                  min={1}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.memory.l0_checkpoint_interval_seconds = value;
+                  })}
+                />
+                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-medium">{t('settings.memory.fields.runtime_replay_include_l0_only.label')}</div>
+                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.runtime_replay_include_l0_only.description')}</div>
+                  </div>
+                  <Switch
+                    checked={draftConfig.memory.runtime_replay_include_l0_only ?? false}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.memory.runtime_replay_include_l0_only = checked;
+                    })}
+                    aria-label={t('settings.memory.fields.runtime_replay_include_l0_only.label')}
                   />
-                ))}
-              </CardContent>
-            </Card>
+                </label>
+              </div>
+            </ExpandableMemoryLayerCard>
+
+            {/* L1 Event Memory */}
+            <ExpandableMemoryLayerCard
+              layerKey="l1"
+              label={t('settings.memory.fields.enable_l1.label')}
+              description={t('settings.memory.fields.enable_l1.description')}
+              checked={draftConfig.memory.enable_l1}
+              expanded={expandedMemoryLayers.has('l1')}
+              onToggle={(checked) => updateMemoryToggle('enable_l1', checked)}
+              onExpand={(expanded) => {
+                setExpandedMemoryLayers((prev) => {
+                  const next = new Set(prev);
+                  if (expanded) {
+                    next.add('l1');
+                  } else {
+                    next.delete('l1');
+                  }
+                  return next;
+                });
+              }}
+            >
+              <div className="space-y-4">
+                <NumberField
+                  label={t('settings.memory.fields.retention_days.label')}
+                  value={draftConfig.memory.retention_days ?? 30}
+                  min={1}
+                  onChange={(value) => patchDraftConfig((draft) => {
+                    draft.memory.retention_days = value;
+                  })}
+                />
+                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_t1_importance.label')}</div>
+                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_t1_importance.description')}</div>
+                  </div>
+                  <Switch
+                    checked={draftConfig.memory.enable_t1_importance ?? false}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.memory.enable_t1_importance = checked;
+                    })}
+                    aria-label={t('settings.memory.fields.enable_t1_importance.label')}
+                  />
+                </label>
+
+                <label className={cn(
+                  "flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5",
+                  !hasEmbeddingModel && "opacity-50"
+                )}>
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l1_vectorization.label')}</div>
+                    <div className="text-[11px] leading-4 text-muted-foreground">
+                      {hasEmbeddingModel
+                        ? t('settings.memory.fields.enable_l1_vectorization.description')
+                        : t('settings.memory.fields.enable_l1_vectorization.description_disabled')}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={draftConfig.memory.enable_l1_vectorization ?? false}
+                    disabled={!hasEmbeddingModel}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.memory.enable_l1_vectorization = checked;
+                    })}
+                    aria-label={t('settings.memory.fields.enable_l1_vectorization.label')}
+                  />
+                </label>
+              </div>
+            </ExpandableMemoryLayerCard>
+
+            {/* L2 Cognition Graph */}
+            <ExpandableMemoryLayerCard
+              layerKey="l2"
+              label={t('settings.memory.fields.enable_l2.label')}
+              description={t('settings.memory.fields.enable_l2.description')}
+              checked={draftConfig.memory.enable_l1 && draftConfig.memory.enable_l2}
+              disabled={!draftConfig.memory.enable_l1}
+              expanded={expandedMemoryLayers.has('l2')}
+              onToggle={(checked) => updateMemoryToggle('enable_l2', checked)}
+              onExpand={(expanded) => {
+                setExpandedMemoryLayers((prev) => {
+                  const next = new Set(prev);
+                  if (expanded) {
+                    next.add('l2');
+                  } else {
+                    next.delete('l2');
+                  }
+                  return next;
+                });
+              }}
+            >
+              <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-medium">{t('settings.memory.fields.enable_l2_llm_extraction.label')}</div>
+                  <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l2_llm_extraction.description')}</div>
+                </div>
+                <Switch
+                  checked={draftConfig.memory.enable_l2_llm_extraction ?? false}
+                  disabled={!draftConfig.memory.enable_l2}
+                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                    draft.memory.enable_l2_llm_extraction = checked;
+                  })}
+                  aria-label={t('settings.memory.fields.enable_l2_llm_extraction.label')}
+                />
+              </label>
+            </ExpandableMemoryLayerCard>
+
+            {/* L3 Reflection */}
+            <ExpandableMemoryLayerCard
+              layerKey="l3"
+              label={t('settings.memory.fields.enable_l3.label')}
+              description={t('settings.memory.fields.enable_l3.description')}
+              checked={draftConfig.memory.enable_l1 && draftConfig.memory.enable_l3}
+              disabled={!draftConfig.memory.enable_l1}
+              expanded={expandedMemoryLayers.has('l3')}
+              onToggle={(checked) => updateMemoryToggle('enable_l3', checked)}
+              onExpand={(expanded) => {
+                setExpandedMemoryLayers((prev) => {
+                  const next = new Set(prev);
+                  if (expanded) {
+                    next.add('l3');
+                  } else {
+                    next.delete('l3');
+                  }
+                  return next;
+                });
+              }}
+            >
+              <div className="space-y-3">
+                <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l3_llm_summary.label')}</div>
+                    <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l3_llm_summary.description')}</div>
+                  </div>
+                  <Switch
+                    checked={draftConfig.memory.enable_l3_llm_summary ?? false}
+                    disabled={!draftConfig.memory.enable_l3}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.memory.enable_l3_llm_summary = checked;
+                    })}
+                    aria-label={t('settings.memory.fields.enable_l3_llm_summary.label')}
+                  />
+                </label>
+
+                <label className={cn(
+                  "flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5",
+                  !hasEmbeddingModel && "opacity-50"
+                )}>
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-medium">{t('settings.memory.fields.enable_l3_vectorization.label')}</div>
+                    <div className="text-[11px] leading-4 text-muted-foreground">
+                      {hasEmbeddingModel
+                        ? t('settings.memory.fields.enable_l3_vectorization.description')
+                        : t('settings.memory.fields.enable_l3_vectorization.description_disabled')}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={draftConfig.memory.enable_l3_vectorization ?? false}
+                    disabled={!draftConfig.memory.enable_l3 || !hasEmbeddingModel}
+                    onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                      draft.memory.enable_l3_vectorization = checked;
+                    })}
+                    aria-label={t('settings.memory.fields.enable_l3_vectorization.label')}
+                  />
+                </label>
+              </div>
+            </ExpandableMemoryLayerCard>
+
+            {/* L4 Procedural Memory */}
+            <ExpandableMemoryLayerCard
+              layerKey="l4"
+              label={t('settings.memory.fields.enable_l4.label')}
+              description={t('settings.memory.fields.enable_l4.description')}
+              checked={draftConfig.memory.enable_l1 && draftConfig.memory.enable_l4}
+              disabled={!draftConfig.memory.enable_l1}
+              expanded={expandedMemoryLayers.has('l4')}
+              onToggle={(checked) => updateMemoryToggle('enable_l4', checked)}
+              onExpand={(expanded) => {
+                setExpandedMemoryLayers((prev) => {
+                  const next = new Set(prev);
+                  if (expanded) {
+                    next.add('l4');
+                  } else {
+                    next.delete('l4');
+                  }
+                  return next;
+                });
+              }}
+            >
+              <label className="flex items-start justify-between gap-4 rounded-lg border border-border/40 bg-background/50 px-3 py-2.5">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-medium">{t('settings.memory.fields.enable_l4_skill_extraction.label')}</div>
+                  <div className="text-[11px] leading-4 text-muted-foreground">{t('settings.memory.fields.enable_l4_skill_extraction.description')}</div>
+                </div>
+                <Switch
+                  checked={draftConfig.memory.enable_l4_skill_extraction ?? false}
+                  disabled={!draftConfig.memory.enable_l4}
+                  onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                    draft.memory.enable_l4_skill_extraction = checked;
+                  })}
+                  aria-label={t('settings.memory.fields.enable_l4_skill_extraction.label')}
+                />
+              </label>
+            </ExpandableMemoryLayerCard>
 
             {!draftConfig.memory.enable_l1 ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -859,50 +1104,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 </Button>
               </div>
             ) : null}
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">{t('settings.memory.cards.runtime')}</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-2">
-                <NumberField
-                  label={t('settings.memory.fields.l0_checkpoint_interval_seconds.label')}
-                  value={draftConfig.memory.l0_checkpoint_interval_seconds}
-                  min={1}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.memory.l0_checkpoint_interval_seconds = value;
-                  })}
-                />
-                <NumberField
-                  label={t('settings.memory.fields.retention_days.label')}
-                  value={draftConfig.memory.retention_days}
-                  min={1}
-                  onChange={(value) => patchDraftConfig((draft) => {
-                    draft.memory.retention_days = value;
-                  })}
-                />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">{t('settings.memory.cards.pipelines')}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {MEMORY_PIPELINE_FIELDS.map((field) => (
-                  <MemoryToggleCard
-                    key={field}
-                    label={t(`settings.memory.fields.${field}.label`)}
-                    description={t(`settings.memory.fields.${field}.description`)}
-                    checked={Boolean(draftConfig.memory[field])}
-                    disabled={isMemoryFieldDisabled(field, draftConfig.memory)}
-                    onChange={(checked) => updateMemoryToggle(field, checked)}
-                  />
-                ))}
-              </CardContent>
-            </Card>
           </div>
         );
+      }
 
       case 'timeline':
         return (

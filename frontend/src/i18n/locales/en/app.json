@@ -134,7 +134,7 @@
       "title": "System Info",
       "frameworkVersion": "Framework Version",
       "memoryArchitecture": "Memory Architecture",
-      "memoryArchitectureValue": "L1-L5 Five Layers",
+      "memoryArchitectureValue": "L0-L4 Lifecycle",
       "eventSystem": "Event System",
       "recentActivity": "Recent Activity",
       "latest": "Latest"
@@ -339,57 +339,66 @@
         "pipelines": "Inference Pipelines"
       },
       "form": {
-        "title": "Memory lifecycle",
-        "description": "Enable only the memory stages you want Magi to persist and reason over.",
-        "l1DependencyTitle": "L1 event memory is the long-term foundation",
-        "l1DependencyDescription": "When L1 is off, downstream cognition, reflection, and procedural memory stay disabled.",
-        "restoreL1": "Re-enable L1"
+        "title": "Memory Configuration",
+        "l1DependencyTitle": "Raw event memory is the long-term foundation",
+        "l1DependencyDescription": "When disabled, downstream knowledge, reflection, and strategy memory stay disabled.",
+        "restoreL1": "Re-enable"
       },
       "fields": {
         "enable_l0": {
-          "label": "Enable L0 working context",
+          "label": "Enable working context",
           "description": "Keep short-lived runtime state in memory and checkpoint it for crash recovery."
         },
         "enable_l1": {
-          "label": "Enable L1 event memory",
+          "label": "Enable raw event memory",
           "description": "Persist long-term source events that feed later cognition and retrieval."
         },
         "enable_l2": {
-          "label": "Enable L2 cognition graph",
-          "description": "Extract stable entities, relationships, and defensive ToM assertions from L1."
+          "label": "Enable knowledge memory",
+          "description": "Extract stable entities, relationships, and defensive ToM assertions from raw events."
         },
         "enable_l3": {
-          "label": "Enable L3 reflections",
+          "label": "Enable summary & reflection memory",
           "description": "Generate synthesized summaries and reflective abstractions from accumulated events."
         },
         "enable_l4": {
-          "label": "Enable L4 procedural memory",
+          "label": "Enable strategy & execution memory",
           "description": "Capture repeatable strategies and failure-avoidance heuristics from prior runs."
         },
         "l0_checkpoint_interval_seconds": {
-          "label": "L0 checkpoint interval (seconds)"
+          "label": "Checkpoint interval (seconds)"
         },
         "retention_days": {
-          "label": "L1 retention window (days)"
+          "label": "Retention window (days)"
         },
         "runtime_replay_include_l0_only": {
-          "label": "Replay L0-only runtime events",
+          "label": "Replay working-context-only runtime events",
           "description": "Include ephemeral execution events when replaying short-term context after recovery."
         },
         "enable_t1_importance": {
-          "label": "Enable T1 importance scoring",
+          "label": "Enable importance scoring",
           "description": "Score event salience before promoting items into downstream cognition."
         },
+        "enable_l1_vectorization": {
+          "label": "Enable vectorization (semantic search)",
+          "description": "Vectorize raw events to enable semantic similarity search.",
+          "description_disabled": "Requires an embedding model to be configured first."
+        },
         "enable_l2_llm_extraction": {
-          "label": "Enable L2 LLM extraction",
-          "description": "Use the model to derive entities, relations, and ToM assertions from L1 events."
+          "label": "Enable LLM knowledge extraction",
+          "description": "Use the model to derive entities, relations, and ToM assertions from raw events."
         },
         "enable_l3_llm_summary": {
-          "label": "Enable L3 LLM reflection",
+          "label": "Enable LLM reflection summary",
           "description": "Use the model to build reflective summaries from retained memory streams."
         },
+        "enable_l3_vectorization": {
+          "label": "Enable vectorization (semantic search)",
+          "description": "Vectorize reflection summaries to enable semantic similarity search.",
+          "description_disabled": "Requires an embedding model to be configured first."
+        },
         "enable_l4_skill_extraction": {
-          "label": "Enable L4 skill extraction",
+          "label": "Enable skill extraction",
           "description": "Promote repeated success or failure patterns into future procedural guidance."
         }
       }
@@ -714,82 +723,81 @@
     },
     "saving": "Saving..."
   },
-  "events": {
+  "memory": {
     "title": "Memory Viewer",
-    "subtitle": "Inspect L1-L5 layered memory data",
+    "subtitle": "L0-L4 Layered Memory System",
     "refresh": "Refresh",
+    "refreshSuccess": "Data refreshed",
     "loadFailed": "Failed to load data: {{message}}",
-    "searchKeywordRequired": "Please enter a search keyword",
-    "searchFound": "{{count}} related events found",
-    "searchEmpty": "No related events found",
-    "searchFailed": "Search failed: {{message}}",
+    "searchPlaceholder": "Search keywords...",
+    "searchComplete": "Search completed",
+    "searchError": "Search failed: {{message}}",
+    "search": "Search",
+    "clear": "Clear",
+    "architectureLabel": "Memory Architecture",
+    "memoryArchitectureValue": "L0-L4 Lifecycle",
     "tabs": {
+      "l0": "L0",
       "l1": "L1",
       "l2": "L2",
       "l3": "L3",
-      "l4": "L4",
-      "l5": "L5"
+      "l4": "L4"
+    },
+    "l0": {
+      "activeSessions": "Active Sessions",
+      "totalGoals": "Total Goals",
+      "totalEntities": "Total Entities",
+      "totalTactics": "Total Tactics",
+      "sessions": "Sessions",
+      "noSessions": "No active sessions",
+      "workbench": "Workbench",
+      "goalStack": "Goal Stack",
+      "noGoals": "No goals in stack",
+      "activeEntities": "Active Entities",
+      "noEntities": "No active entities",
+      "tactics": "Temporary Tactics",
+      "noTactics": "No tactics defined"
     },
     "l1": {
       "totalEvents": "Total Events",
-      "rawEvents": "Raw Events (latest 50)",
-      "correlationId": "Correlation ID",
-      "source": "Source"
+      "userAuthored": "User Authored",
+      "interaction": "Interaction",
+      "externalActivity": "External Activity",
+      "events": "Event Stream",
+      "noEvents": "No events recorded"
     },
     "l2": {
-      "totalEvents": "Total Events",
-      "totalRelations": "Total Relations",
-      "avgRelationPerEvent": "Avg Relations / Event",
-      "relationDoc": "Relation Types",
-      "precedeDesc": "Previous/next events in the same chain",
-      "triggerDesc": "Perception-triggered processing",
-      "causeDesc": "Causal relation",
-      "followDesc": "Follow-up events",
-      "sameUserDesc": "Events from the same user"
+      "relationCount": "Knowledge Relations",
+      "assertionCount": "ToM Assertions",
+      "relations": "Knowledge Graph",
+      "noRelations": "No relations found",
+      "assertions": "Theory of Mind",
+      "noAssertions": "No assertions found"
     },
     "l3": {
-      "embeddingCount": "Embedding Count",
-      "vectorDimension": "Vector Dimension",
-      "semanticSearch": "Semantic Search",
-      "searchPlaceholder": "Search keywords, e.g. user message, error, task done...",
-      "search": "Search",
-      "results": "Search Results",
-      "type": "Type"
+      "summaryCount": "Summaries",
+      "noSummaries": "No summaries generated yet",
+      "summaries": "Reflection Summaries"
     },
     "l4": {
-      "summaryTotal": "Summary Count",
-      "summaryDoc": "Summary Notes",
-      "summaryExplain": "L4 summaries are generated by time granularity:",
-      "hour": "Hour",
-      "day": "Day",
-      "week": "Week",
-      "month": "Month",
-      "summaryHint": "Summaries are generated periodically in the background and can also be triggered manually."
+      "skillCount": "Procedural Skills",
+      "openBreakers": "Open Circuit Breakers",
+      "highSuccess": "High Success Skills",
+      "noSkills": "No procedural skills yet",
+      "skills": "Procedural Memory"
     },
-    "l5": {
-      "capabilityTotal": "Capability Count",
-      "highSuccess": "High Success Capabilities",
-      "lowSuccess": "Low Success Capabilities",
-      "list": "Capability List",
-      "usageCount": "Usage Count"
-    },
-    "clearMemory": "Clear",
-    "memoryCleared": "Cleared {{count}} memory items",
-    "memoryClearFailed": "Failed to clear memory",
     "clearConfirm": {
       "title": "Clear All Memory",
-      "warning": "This will permanently delete:",
-      "l1": "L1 raw events",
-      "l2": "L2 event relations",
-      "l3": "L3 semantic embeddings",
-      "l4": "L4 summaries",
-      "l5": "L5 capability records",
+      "description": "This will permanently delete all memory data from all layers.",
+      "l0": "L0 working context (sessions, goals)",
+      "l1": "L1 event stream",
+      "l2": "L2 cognition (knowledge graph, ToM)",
+      "l3": "L3 reflection summaries",
+      "l4": "L4 procedural skills",
       "chatContext": "Chat context history",
-      "irreversible": "This action cannot be undone!",
-      "cancel": "Cancel",
-      "confirm": "Confirm Clear",
-      "clearing": "Clearing...",
-      "wait": "Wait {{seconds}}s"
+      "typePrompt": "Type 'CLEAR' to confirm:",
+      "confirm": "Clear All",
+      "cancel": "Cancel"
     }
   },
   "personality": {

@@ -1,7 +1,5 @@
 import { api } from '../client';
 
-import type { ModelDownloadStatus } from 'app';
-
 export interface ModelDownloadStatus {
   model: string;
   status: 'not_downloaded' | 'downloading' | 'ready';
@@ -9,9 +7,6 @@ export interface ModelDownloadStatus {
   message?: string;
   updated_at: number;
 }
-
-// L0 Working Memory Types
-export interface L0Session {
 
 // L0 Working Memory Types
 export interface L0Session {
@@ -141,33 +136,33 @@ export interface ClearMemoryResponse {
 export const memoryApi = {
   // L0 Working Memory
   getL0Sessions: () =>
-    api.get<{ sessions: L0Session[]; stats: L0Stats }>('/memory/l0/sessions'),
+    api.get<{ sessions: L0Session[]; stats: L0Stats }>('/memory/l0/sessions') as unknown as Promise<{ sessions: L0Session[]; stats: L0Stats }>,
   getL0Workbench: (sessionId: string) =>
-    api.get<L0Workbench>(`/memory/l0/workbench/${sessionId}`),
+    api.get<L0Workbench>(`/memory/l0/workbench/${sessionId}`) as unknown as Promise<L0Workbench>,
 
   // L1 Event Stream
   getL1Events: (params?: { limit?: number; event_type?: string; user_id?: string; session_id?: string }) =>
-    api.get<{ events: L1Event[]; stats: { total: number } }>('/memory/l1/events', { params }),
+    api.get<{ events: L1Event[]; stats: { total: number } }>('/memory/l1/events', { params }) as unknown as Promise<{ events: L1Event[]; stats: { total: number } }>,
 
   // L2 Cognition
   getL2Statistics: () =>
-    api.get<{ relation_count: number; assertion_count: number; db_path?: string }>('/memory/l2/statistics'),
+    api.get<{ relation_count: number; assertion_count: number; db_path?: string }>('/memory/l2/statistics') as unknown as Promise<{ relation_count: number; assertion_count: number; db_path?: string }>,
   getL2Relations: (limit?: number) =>
-    api.get<L2Relation[]>('/memory/l2/relations', { params: limit ? { limit } : undefined }),
+    api.get<L2Relation[]>('/memory/l2/relations', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Relation[]>,
   getL2Assertions: (limit?: number) =>
-    api.get<L2Assertion[]>('/memory/l2/assertions', { params: limit ? { limit } : undefined }),
+    api.get<L2Assertion[]>('/memory/l2/assertions', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Assertion[]>,
 
   // L3 Reflection
   getL3Summaries: (params?: { limit?: number; summary_type?: string }) =>
-    api.get<L3Summary[]>('/memory/l3/summaries', { params }),
+    api.get<L3Summary[]>('/memory/l3/summaries', { params }) as unknown as Promise<L3Summary[]>,
 
   // L4 Procedural
   getL4Skills: (limit?: number) =>
-    api.get<L4Skill[]>('/memory/procedures', { params: limit ? { limit } : undefined }),
+    api.get<L4Skill[]>('/memory/procedures', { params: limit ? { limit } : undefined }) as unknown as Promise<L4Skill[]>,
 
   // Statistics & Search
   getStatistics: () =>
-    api.get<MemoryStatistics>('/memory/statistics'),
+    api.get<MemoryStatistics>('/memory/statistics') as unknown as Promise<MemoryStatistics>,
   search: (query: string, options?: { limit?: number; query_mode?: string }) =>
     api.post('/memory/search', { query, limit: options?.limit ?? 20, query_mode: options?.query_mode ?? 'detail' }),
 
