@@ -26,7 +26,7 @@ export type {
   LLMConfig,
   PersonalityConfig as RuntimePersonalityConfig,
   ToolsConfig,
-  MemoryLayersConfig,
+  MemoryConfig,
   TimelineConfig,
   OnboardingStep,
   OnboardingState,

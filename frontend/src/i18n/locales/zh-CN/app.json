@@ -253,7 +253,7 @@
     "llmModelsDesc": "为不同运行场景分别选择供应商和模型。",
     "usageDesc": "查看 LLM 调用次数、输入输出 token 使用量和趋势",
     "personalityDesc": "管理 AI 人格配置",
-    "memoryDesc": "管理多层记忆系统和向量模型",
+    "memoryDesc": "控制 L0-L4 记忆生命周期、回放策略和各层抽取管线。",
     "timelineDesc": "配置时间线接入默认策略，并分别调整每个来源的行为",
     "extensionsDesc": "统一查看、启停和重载插件包，并检查它们贡献的能力。",
     "toolsDesc": "配置内置工具和技能",
@@ -331,6 +331,68 @@
       "cancel": "取消",
       "confirm": "确认清除",
       "clearing": "清除中..."
+    },
+    "memory": {
+      "cards": {
+        "layers": "生命周期层级",
+        "runtime": "运行期保留",
+        "pipelines": "推理抽取管线"
+      },
+      "form": {
+        "title": "记忆生命周期",
+        "description": "只启用你希望 Magi 持久化和参与推理的记忆阶段。",
+        "l1DependencyTitle": "L1 事件记忆是长期记忆的基础",
+        "l1DependencyDescription": "关闭 L1 后，下游的认知、反思和程序性记忆都会保持停用。",
+        "restoreL1": "重新启用 L1"
+      },
+      "fields": {
+        "enable_l0": {
+          "label": "启用 L0 工作上下文",
+          "description": "将短时运行态保存在内存中，并通过 checkpoint 提供异常恢复能力。"
+        },
+        "enable_l1": {
+          "label": "启用 L1 事件记忆",
+          "description": "持久化长期源事件，作为后续认知和检索的事实基础。"
+        },
+        "enable_l2": {
+          "label": "启用 L2 认知图谱",
+          "description": "从 L1 中抽取稳定实体、关系以及防御性 ToM 断言。"
+        },
+        "enable_l3": {
+          "label": "启用 L3 反思层",
+          "description": "基于累计事件生成摘要化、反思化的长期抽象。"
+        },
+        "enable_l4": {
+          "label": "启用 L4 程序性记忆",
+          "description": "把可复用的成功策略与失败规避经验固化成未来行为准则。"
+        },
+        "l0_checkpoint_interval_seconds": {
+          "label": "L0 checkpoint 间隔（秒）"
+        },
+        "retention_days": {
+          "label": "L1 保留窗口（天）"
+        },
+        "runtime_replay_include_l0_only": {
+          "label": "回放仅存在于 L0 的运行时事件",
+          "description": "在异常恢复后的短期上下文回放中，是否纳入纯瞬时执行事件。"
+        },
+        "enable_t1_importance": {
+          "label": "启用 T1 重要度评分",
+          "description": "在事件进入下游认知层之前，先评估其重要程度。"
+        },
+        "enable_l2_llm_extraction": {
+          "label": "启用 L2 的 LLM 抽取",
+          "description": "使用模型从 L1 事件中抽取实体、关系和 ToM 断言。"
+        },
+        "enable_l3_llm_summary": {
+          "label": "启用 L3 的 LLM 反思",
+          "description": "使用模型把保留的记忆流压缩成更高层次的反思摘要。"
+        },
+        "enable_l4_skill_extraction": {
+          "label": "启用 L4 技能抽取",
+          "description": "把重复出现的成功或失败模式提升为未来可复用的程序性经验。"
+        }
+      }
     },
     "options": {
       "quick": "快速模式",

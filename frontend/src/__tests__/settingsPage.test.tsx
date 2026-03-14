@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
 import { SettingsPage } from '@/pages/Settings';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
-import { memoryApi } from '@/api/modules/memory';
 import { pluginsApi } from '@/api/modules/plugins';
 import { timelineApi } from '@/api/modules/timeline';
 import { toolsApi } from '@/api/modules/tools';
@@ -71,15 +70,6 @@ vi.mock('@/api/modules/config', async () => {
     },
   };
 });
-
-vi.mock('@/api/modules/memory', () => ({
-  memoryApi: {
-    listModels: vi.fn(),
-    downloadModel: vi.fn(),
-    getModelStatus: vi.fn(),
-    clearAll: vi.fn(),
-  },
-}));
 
 vi.mock('@/api/modules/timeline', () => ({
   timelineApi: {
@@ -462,9 +452,6 @@ describe('settings page draft saving', () => {
       success: true,
       data: structuredClone(DEFAULT_SYSTEM_CONFIG),
     } as any);
-    vi.mocked(memoryApi.listModels).mockResolvedValue({
-      data: { models: [] },
-    } as any);
     vi.mocked(timelineApi.getSourceStatus).mockResolvedValue({
       sources: [chromeTimelineSourceFixture, timelineSourceFixture],
     } as any);
@@ -514,6 +501,33 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           loop: expect.objectContaining({ interval: 2 }),
+        })
+      )
+    );
+  });
+
+  it('saves memory lifecycle changes from the memory section', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await screen.findByRole('button', { name: 'settings.tabs.memory' });
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memory' }));
+
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.enable_l0.label' }));
+    const checkpointInput = screen.getByLabelText('settings.memory.fields.l0_checkpoint_interval_seconds.label');
+    fireEvent.change(checkpointInput, { target: { value: '45' } });
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.enable_l4_skill_extraction.label' }));
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            enable_l0: false,
+            l0_checkpoint_interval_seconds: 45,
+            enable_l4_skill_extraction: false,
+          }),
         })
       )
     );
