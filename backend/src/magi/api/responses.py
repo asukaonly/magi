@@ -1,14 +1,14 @@
 """
-统一responseformat
+Unified response format.
 
-定义APIresponse的standardformat
+Defines standard API response shapes.
 """
 from typing import Any, Optional, List
 from pydantic import BaseModel, Field
 
 
 class SuccessResponse(BaseModel):
-    """successresponse"""
+    """Success response."""
 
     success: bool = True
     message: str = "operation successful"
@@ -24,8 +24,8 @@ class SuccessResponse(BaseModel):
         }
 
 
-class errorResponse(BaseModel):
-    """errorresponse"""
+class ErrorResponse(BaseModel):
+    """Error response."""
 
     success: bool = False
     message: str
@@ -44,7 +44,7 @@ class errorResponse(BaseModel):
 
 
 class PaginatedResponse(BaseModel):
-    """分页response"""
+    """Paginated response."""
 
     success: bool = True
     data: List[Any] = Field(default_factory=list)
@@ -67,7 +67,7 @@ class PaginatedResponse(BaseModel):
 
 
 def success(data: Any = None, message: str = "operation successful") -> dict:
-    """createsuccessresponse"""
+    """Build a success response dict."""
     return {
         "success": True,
         "message": message,
@@ -76,7 +76,7 @@ def success(data: Any = None, message: str = "operation successful") -> dict:
 
 
 def error(message: str, error_code: str = None, details: Any = None) -> dict:
-    """createerrorresponse"""
+    """Build an error response dict."""
     response = {
         "success": False,
         "message": message,
@@ -94,7 +94,7 @@ def paginated(
     page: int = 1,
     page_size: int = 10,
 ) -> dict:
-    """create分页response"""
+    """Build a paginated response dict."""
     total_pages = (total + page_size - 1) // page_size
     return {
         "success": True,

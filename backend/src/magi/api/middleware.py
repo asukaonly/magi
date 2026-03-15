@@ -36,7 +36,7 @@ def get_required_desktop_session_token() -> str | None:
     return token or None
 
 
-class errorHandler(BaseHTTPMiddleware):
+class ErrorHandler(BaseHTTPMiddleware):
     """
     Global error handling middleware.
 
@@ -50,7 +50,7 @@ class errorHandler(BaseHTTPMiddleware):
         except Exception as exc:
             logger.exception(f"Unhandled exception: {exc}")
 
-            # Return统一errorformat
+            # Return standardized error response
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={

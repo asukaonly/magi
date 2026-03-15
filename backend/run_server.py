@@ -5,7 +5,7 @@ Magi backend server launcher.
 import sys
 import os
 
-# 添加src目录到Python路径
+# Add src directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 import uvicorn

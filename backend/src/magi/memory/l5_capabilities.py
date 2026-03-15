@@ -191,7 +191,7 @@ class CapabilityMemory:
         conn = sqlite3.connect(self.persist_path)
         conn.row_factory = sqlite3.Row
 
-        # task_id 作为 capability_id 使用，task_category 默认为 "default"
+        # task_id used as capability_id; task_category defaults to "default"
         capability_id = task_id
         task_category = "default"
         cache_key = f"{capability_id}:{task_category}"

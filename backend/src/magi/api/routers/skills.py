@@ -30,7 +30,7 @@ skills_router = APIRouter(prefix="/api/skills", tags=["skills"])
 # ============ data Models ============
 
 class SkillMetadataResponse(BaseModel):
-    """Skill metadataresponse"""
+    """Skill metadata response."""
     name: str
     description: str
     category: Optional[str] = None
@@ -39,12 +39,12 @@ class SkillMetadataResponse(BaseModel):
     context: Optional[str] = None
     agent: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
-    directory: str  # Skill directorypath
+    directory: str  # Skill directory path
     enabled: bool = False
 
 
 class SkillDetailResponse(BaseModel):
-    """Skill 详情response（containsContent）"""
+    """Skill detail response (includes full content)."""
     name: str
     description: str
     category: Optional[str] = None
@@ -53,20 +53,20 @@ class SkillDetailResponse(BaseModel):
     context: Optional[str] = None
     agent: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
-    prompt_template: str  # process后的模板Content
+    prompt_template: str  # Processed template content
     supporting_data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SkillExecuteRequest(BaseModel):
-    """Skill Executerequest"""
-    arguments: List[str] = Field(default_factory=list, description="commandrowParameter")
-    user_id: str = Field(default="anotttnymous", description="userid")
-    user_message: str = Field(default="", description="原始User message")
-    context: Dict[str, Any] = Field(default_factory=dict, description="额外context")
+    """Skill execution request."""
+    arguments: List[str] = Field(default_factory=list, description="Command-line arguments")
+    user_id: str = Field(default="anonymous", description="User ID")
+    user_message: str = Field(default="", description="Original user message")
+    context: Dict[str, Any] = Field(default_factory=dict, description="Extra context")
 
 
 class SkillExecuteResponse(BaseModel):
-    """Skill Executeresponse"""
+    """Skill execution response."""
     success: bool
     response: Optional[str] = None
     error: Optional[str] = None
@@ -84,15 +84,15 @@ def get_skill_executor():
     return _get_skill_executor_service()
 
 
-# ============ API 端点 ============
+# ============ API endpoints ============
 
 @skills_router.get("/", response_model=List[SkillMetadataResponse])
 async def list_skills():
     """
-    getall Skills list（仅metadata）
+    Get all skills list (metadata only).
 
     Returns:
-        Skills metadatalist
+        List of skill metadata.
     """
     skill_indexer = _get_skill_indexer_service()
     if skill_indexer is None:
@@ -124,10 +124,10 @@ async def list_skills():
 @skills_router.post("/refresh", response_model=List[SkillMetadataResponse])
 async def refresh_skills():
     """
-    重new扫描 Skills directory
+    Rescan skills directory and return updated list.
 
     Returns:
-        update后的 Skills list
+        Updated list of skills.
     """
     skill_indexer = _get_skill_indexer_service()
     if skill_indexer is None:
@@ -160,13 +160,13 @@ async def refresh_skills():
 @skills_router.get("/{skill_name}", response_model=SkillDetailResponse)
 async def get_skill_detail(skill_name: str):
     """
-    get Skill 详情（contains完整Content）
+    Get skill detail (includes full content).
 
     Args:
-        skill_name: Skill Name
+        skill_name: Skill name.
 
     Returns:
-        Skill 详情
+        Skill detail.
     """
     skill_loader = _get_skill_loader_service()
     if skill_loader is None:
@@ -199,14 +199,14 @@ async def get_skill_detail(skill_name: str):
 @skills_router.post("/{skill_name}/execute", response_model=SkillExecuteResponse)
 async def execute_skill(skill_name: str, request: SkillExecuteRequest):
     """
-    手动Execute Skill
+    Execute a skill manually.
 
     Args:
-        skill_name: Skill Name
-        request: Executerequest
+        skill_name: Skill name.
+        request: Execution request.
 
     Returns:
-        Execution result
+        Execution result.
     """
     skill_executor = _get_skill_executor_service()
     if skill_executor is None:
@@ -215,7 +215,7 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
             detail="Skills module not initialized",
         )
 
-    # buildExecutecontext
+    # Build execution context
     import os
     context = {
         "user_id": request.user_id,
@@ -259,10 +259,10 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
 @skills_router.get("/categories/list")
 async def list_skill_categories():
     """
-    get Skill 分Classlist
+    Get list of skill categories.
 
     Returns:
-        分Classlist
+        List of category names.
     """
     skill_indexer = _get_skill_indexer_service()
     if skill_indexer is None:

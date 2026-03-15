@@ -215,7 +215,7 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
     assert [item["kind"] for item in messages] == ["user", "status"]
     assert messages[1]["turn_id"] == "turn_1"
     assert messages[1]["trace_available"] is True
-    assert messages[1]["trace_summary"]["headline"] == "正在执行工具链"
+    assert messages[1]["trace_summary"]["headline"] == "Running tool chain"
 
 
 def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
@@ -423,6 +423,6 @@ def test_trace_summary_counts_planning_as_active_before_workers_exist(tmp_path):
     summary = service.get_trace_summary(user_id="u1", session_id="s1", turn_id="turn_plan")
 
     assert summary is not None
-    assert summary["headline"] == "正在编排任务"
+    assert summary["headline"] == "Orchestrating tasks"
     assert summary["active_steps"] == 1
     assert summary["completed_steps"] == 0

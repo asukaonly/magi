@@ -1289,7 +1289,7 @@ class FunctionCallingExecutor:
 
     def _classify_exception_failure(self, exc: Exception) -> str:
         message = str(exc).lower()
-        if "429" in message or "rate limit" in message or "速率限制" in message:
+        if "429" in message or "rate limit" in message.lower() or "速率限制" in message:
             return "LLM_RATE_LIMIT"
         if "timeout" in message:
             return "WORKER_TIMEOUT"

@@ -1,14 +1,15 @@
 """
-messageAPIroute
+Messages API router.
 
-提供User messagesend、dialoguehistory等function
-使用正确的Agentarchitecture：message → MessageBus → Perception器subscribe → PerceptionManager → LoopEngine → Agentprocess → WebSocketpush
+Provides user message send, dialogue history, and related endpoints.
+Flow: message → MessageBus → sensor subscribe → PerceptionManager → LoopEngine → Agent process → WebSocket push.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
 import asyncio
+import uuid
 
 from dependency_injector.wiring import inject, Provide
 
@@ -32,16 +33,16 @@ user_messages_router = APIRouter()
 # ============ data Models ============
 
 class UserMessageRequest(BaseModel):
-    """User messagerequest"""
-    message: str = Field(..., description="User messageContent")
-    user_id: str = Field(default="web_user", description="userid")
-    session_id: Optional[str] = Field(None, description="sessionid")
+    """User message request."""
+    message: str = Field(..., description="User message content")
+    user_id: str = Field(default="web_user", description="User ID")
+    session_id: Optional[str] = Field(None, description="Session ID")
     client_turn_id: Optional[str] = Field(None, description="Optional client-generated turn id")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="metadata")
 
 
 class MessageResponse(BaseModel):
-    """messageresponse"""
+    """Message response."""
     success: bool
     message: str
     data: Optional[Dict[str, Any]] = None
@@ -57,14 +58,14 @@ def get_message_bus():
     return _get_message_bus_service()
 
 
-# ============ globalUser message传感器 ============
+# ============ Global user message sensor ============
 
-# globalUser message传感器Instance（单例）
+# Global user message sensor instance (singleton)
 _user_message_sensor: Optional[UserMessageSensor] = None
 
 
 def get_user_message_sensor() -> UserMessageSensor:
-    """get或createUser message传感器Instance"""
+    """Get or create the global user message sensor instance."""
     global _user_message_sensor
     # Try container first
     try:
@@ -82,10 +83,10 @@ def get_user_message_sensor() -> UserMessageSensor:
     return _user_message_sensor
 
 
-# ============ dialoguehistorystorage ============
+# ============ Dialogue history storage ============
 
-# simple的dialoguehistorystorage（内存中）
-_conversation_history = {}  # {user_id: [messages]}
+# In-memory dialogue history storage: {user_id: [messages]}
+_conversation_history = {}
 
 
 # ============ API Endpoints ============
@@ -98,16 +99,16 @@ async def send_user_message(
     message_bus = Depends(Provide[Container.message_bus]),
 ):
     """
-    sendUser message到message bus
+    Send user message to the message bus.
 
-    message将被作为eventrelease到message bus，由subscribe者（Perception器）receive并process
+    The message is published as an event; subscribers (e.g. perception sensors) receive and process it.
 
     Args:
-        request: User messagerequest
-        message_bus: Injected message bus (via DI container)
+        request: User message request.
+        message_bus: Injected message bus (via DI container).
 
     Returns:
-        确认response
+        Acknowledgment response.
     """
     try:
         # check runtime is initialized
@@ -115,13 +116,13 @@ async def send_user_message(
         try:
             get_agent_runtime()
         except RuntimeError:
-            # Agent 未initialize（可能is没有Setting API Key）
+            # Agent not initialized (e.g. API key not set)
             agent_logger.warning(f"⚠️ AgentRuntime not initialized when user {request.user_id} sent message")
 
-            # senderror message到 WebSocket
+            # Send error to WebSocket client
             await ws_manager.broadcast_to_user(request.user_id, {
                 "type": "error",
-                "content": "AI service 未初始化。请先完成引导配置或检查当前配置后重启服务。",
+                "content": "AI service is not initialized. Please complete onboarding or check configuration and restart.",
                 "timestamp": time.time(),
             })
 
@@ -138,11 +139,11 @@ async def send_user_message(
         if message_bus is None or type(message_bus).__name__ == "object":
             message_bus = get_message_bus()
 
-        # parsesessionid（未指scheduled使用currentsession）
+        # Resolve session_id (use current session if not provided)
         read_service = get_chat_read_service()
         session_id = request.session_id or read_service.get_current_session_id(request.user_id)
 
-        # buildmessagedata
+        # Build message payload
         message_data = {
             "message": request.message,
             "user_id": request.user_id,
@@ -152,7 +153,7 @@ async def send_user_message(
             "timestamp": time.time(),
         }
 
-        # 如果 message bus 可用，通过 message bus 发布事件
+        # Publish event via message bus when available
         if message_bus:
             event = Event(
                 type=EventTypes.USER_MESSAGE,
@@ -208,23 +209,23 @@ async def send_user_message(
 @user_messages_router.get("/history", response_model=Dict[str, Any])
 async def get_conversation_history(
     user_id: str = "web_user",
-    session_id: Optional[str] = Query(default=None, description="sessionid，不传则使用currentsession"),
+    session_id: Optional[str] = Query(default=None, description="Session ID; omit to use current session"),
 ):
     """
-    getdialoguehistory
+    Get conversation history.
 
     Args:
-        user_id: userid
+        user_id: User ID.
 
     Returns:
-        dialoguehistory
+        Dialogue history for the session.
     """
     try:
         read_service = get_chat_read_service()
         resolved_session_id = session_id or read_service.get_current_session_id(user_id)
         history = read_service.get_display_history(user_id, resolved_session_id)
 
-        # convert为前端expectation的format
+        # Convert to format expected by frontend
         messages = []
         for msg in history:
             messages.append({
@@ -244,7 +245,7 @@ async def get_conversation_history(
             "count": len(messages)
         }
     except RuntimeError:
-        # Agent未initialize，Return空history
+        # Agent not initialized; return empty history
         return {
             "user_id": user_id,
             "session_id": session_id,
@@ -269,8 +270,8 @@ async def get_worker_result(worker_id: str, user_id: str = "web_user"):
 @user_messages_router.get("/trace", response_model=Dict[str, Any])
 async def get_execution_trace(
     user_id: str = "web_user",
-    session_id: Optional[str] = Query(default=None, description="sessionid，不传则使用currentsession"),
-    turn_id: str = Query(..., description="turn id for the target user message"),
+    session_id: Optional[str] = Query(default=None, description="Session ID; omit to use current session"),
+    turn_id: str = Query(..., description="Turn ID for the target user message"),
 ):
     """Get structured execution trace for one chat turn."""
     from ..services import get_chat_trace_read_service
@@ -295,16 +296,16 @@ async def get_execution_trace(
 @user_messages_router.post("/history/clear")
 async def clear_conversation_history(
     user_id: str = "web_user",
-    session_id: Optional[str] = Query(default=None, description="sessionid，不传则clearcurrentsession"),
+    session_id: Optional[str] = Query(default=None, description="Session ID; omit to clear current session"),
 ):
     """
-    cleardialoguehistory
+    Clear conversation history.
 
     Args:
-        user_id: userid
+        user_id: User ID.
 
     Returns:
-        operationResult
+        Operation result.
     """
     try:
         read_service = get_chat_read_service()
@@ -318,10 +319,10 @@ async def clear_conversation_history(
             "session_id": resolved_session_id,
         }
     except RuntimeError:
-        # Agent未initialize
+        # Agent not initialized
         return {
             "success": True,
-            "message": "Conversation history cleared (nottt agent initialized)",
+            "message": "Conversation history cleared (agent not initialized)",
             "user_id": user_id,
             "session_id": session_id,
         }
@@ -329,7 +330,7 @@ async def clear_conversation_history(
 
 @user_messages_router.get("/session/current", response_model=Dict[str, Any])
 async def get_current_session(user_id: str = "web_user"):
-    """getcurrentsessionid"""
+    """Get current session ID."""
     try:
         read_service = get_chat_read_service()
         session_id = read_service.get_current_session_id(user_id)
@@ -340,7 +341,7 @@ async def get_current_session(user_id: str = "web_user"):
 
 @user_messages_router.post("/session/new", response_model=Dict[str, Any])
 async def create_new_session(user_id: str = "web_user"):
-    """createnewsession并切换为currentsession"""
+    """Create a new session and set it as the current session."""
     try:
         read_service = get_chat_read_service()
         session_id = read_service.create_new_session(user_id)
@@ -377,10 +378,10 @@ async def list_sessions(
 @user_messages_router.get("/sensor/status")
 async def get_sensor_status():
     """
-    get传感器State
+    Get sensor state.
 
     Returns:
-        传感器Stateinfo
+        Sensor state info.
     """
     sensor = get_user_message_sensor()
 
@@ -395,7 +396,7 @@ async def get_sensor_status():
 
 @user_messages_router.post("/sensor/enable")
 async def enable_sensor():
-    """Enable传感器"""
+    """Enable the sensor."""
     sensor = get_user_message_sensor()
     sensor.enable()
     return {"success": True, "message": "Sensor enabled"}
@@ -403,7 +404,7 @@ async def enable_sensor():
 
 @user_messages_router.post("/sensor/disable")
 async def disable_sensor():
-    """Disable传感器"""
+    """Disable the sensor."""
     sensor = get_user_message_sensor()
     sensor.disable()
     return {"success": True, "message": "Sensor disabled"}

@@ -1,7 +1,7 @@
 """
-FastAPI应用主file
+FastAPI application entry point.
 
-createandConfigurationFastAPI应用Instance
+Creates and configures the FastAPI application instance.
 """
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .avatar_paths import builtin_avatar_dir, user_avatar_dir
-from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, LanguageContextMiddleware, add_cors_middleware
+from .middleware import ErrorHandler, AuthMiddleware, RequestLoggingMiddleware, LanguageContextMiddleware, add_cors_middleware
 from .websocket import register_websocket
 from ..core.logger import configure_logging, get_logger
 
@@ -29,17 +29,17 @@ def _build_custom_openapi(app: FastAPI):
                 description="""
                 ## Magi AI Agent Framework API
 
-                Agent系统的RESTful API，提供Agent管理、任务管理、tool管理等function。
+                RESTful API for the agent system: agent lifecycle, task management, tools, and more.
 
-                ### functionfeature
-                - Agent管理（create、query、启动、stop）
-                - 任务管理（create、query、重试）
-                - tool管理（list、详情、Test）
-                - memory管理（search、详情、delete）
-                - metricmonitor（performance、State）
+                ### Features
+                - Agent management (create, query, start, stop)
+                - Task management (create, query, retry)
+                - Tool management (list, details, test)
+                - Memory management (search, details, delete)
+                - Metrics (performance, state)
 
-                ### authentication
-                生产环境需要JWT tokenauthentication（开发环境已Disable）
+                ### Authentication
+                Production requires JWT token authentication (disabled in development).
                 """,
                 routes=app.routes,
             )
@@ -54,12 +54,12 @@ def _build_custom_openapi(app: FastAPI):
 
 def create_app(*, lifespan: Any = None) -> FastAPI:
     """
-    createFastAPI应用Instance
+    Create the FastAPI application instance.
 
     Returns:
-        FastAPI应用Instance
+        Configured FastAPI application instance.
     """
-    # ConfigurationLog（Output到run时directoryand终端）
+    # Configure logging (output to run directory and console)
     from ..utils.runtime import get_runtime_paths
     runtime_paths = get_runtime_paths()
     log_file = runtime_paths.logs_dir / "magi.log"
@@ -74,7 +74,7 @@ def create_app(*, lifespan: Any = None) -> FastAPI:
         title="Magi AI Agent Framework API",
         description="AI Agent Framework RESTful API",
         version="1.0.0",
-        docs_url=None,  # Disabledefaultdocument，使用customroute
+        docs_url=None,  # Disable default docs; use custom routes
         redoc_url=None,
         lifespan=lifespan,
     )
@@ -82,9 +82,9 @@ def create_app(*, lifespan: Any = None) -> FastAPI:
     # SettingcustomOpenAPI
     app.openapi = _build_custom_openapi(app)
 
-    # addmiddle件
+    # Add middleware
     add_cors_middleware(app)
-    app.add_middleware(errorHandler)
+    app.add_middleware(ErrorHandler)
     app.add_middleware(AuthMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(LanguageContextMiddleware)
@@ -92,10 +92,10 @@ def create_app(*, lifespan: Any = None) -> FastAPI:
     # registerroute
     _register_routes(app)
 
-    # add健康check端点
+    # Health check endpoint
     @app.get("/api/health", tags=["Health"])
     async def health_check():
-        """健康check"""
+        """Health check."""
         return {
             "success": True,
             "message": "System is healthy",
@@ -105,10 +105,10 @@ def create_app(*, lifespan: Any = None) -> FastAPI:
             },
         }
 
-    # adddocument端点
+    # Documentation endpoints
     @app.get("/api/docs", include_in_schema=False)
     async def custom_swagger_ui_html():
-        """customSwagger UI"""
+        """Custom Swagger UI."""
         return get_swagger_ui_html(
             openapi_url="/api/openapi.json",
             title="Magi API Docs",
@@ -116,13 +116,13 @@ def create_app(*, lifespan: Any = None) -> FastAPI:
 
     @app.get("/api/openapi.json", include_in_schema=False)
     async def get_openapi_endpoint():
-        """getOpenAPI schema"""
+        """Return OpenAPI schema."""
         return app.openapi()
 
     # Register WebSocket endpoint
     register_websocket(app)
 
-    # 挂载静态头像目录
+    # Mount static avatar directories
     avatar_dir = builtin_avatar_dir()
     if avatar_dir.exists():
         app.mount("/static/avatars", StaticFiles(directory=str(avatar_dir)), name="avatars")
@@ -138,10 +138,10 @@ def create_app(*, lifespan: Any = None) -> FastAPI:
 
 def _register_routes(app: FastAPI):
     """
-    registerallroute
+    Register all API routes.
 
     Args:
-        app: FastAPI应用Instance
+        app: FastAPI application instance.
     """
     from .routers import (
         agents_router,
@@ -159,56 +159,56 @@ def _register_routes(app: FastAPI):
         plugins_router,
     )
 
-    # registerAgent管理route
+    # Agent management routes
     app.include_router(
         agents_router,
         prefix="/api/agents",
         tags=["Agents"],
     )
 
-    # register任务管理route
+    # Task management routes
     app.include_router(
         tasks_router,
         prefix="/api/tasks",
         tags=["Tasks"],
     )
 
-    # registertool管理route
+    # Tool management routes
     app.include_router(
         tools_router,
         prefix="/api/tools",
         tags=["Tools"],
     )
 
-    # registermemory管理route
+    # Memory management routes
     app.include_router(
         memory_router,
         prefix="/api/memory",
         tags=["Memory"],
     )
 
-    # registermetricmonitorroute
+    # Metrics routes
     app.include_router(
         metrics_router,
         prefix="/api/metrics",
         tags=["Metrics"],
     )
 
-    # registerUser messageroute
+    # User messages routes
     app.include_router(
         user_messages_router,
         prefix="/api/messages",
         tags=["Messages"],
     )
 
-    # registerConfiguration管理route
+    # Config management routes
     app.include_router(
         config_router,
         prefix="/api/config",
         tags=["Config"],
     )
 
-    # registerPersonality configurationroute
+    # Personality configuration routes
     app.include_router(
         personality_config_router,
         prefix="/api/personality",
@@ -221,14 +221,14 @@ def _register_routes(app: FastAPI):
         tags=["Personality Presets"],
     )
 
-    # register他人memoryroute
+    # Others (memory) routes
     app.include_router(
         others_router,
         prefix="/api/others",
         tags=["Others"],
     )
 
-    # register Skills 管理route
+    # Skills management routes
     app.include_router(
         skills_router,
         tags=["Skills"],

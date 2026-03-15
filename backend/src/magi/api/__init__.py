@@ -1,8 +1,8 @@
 """
-API层 - FastAPI应用androute
+API layer: FastAPI application and routes.
 """
-from .middleware import errorHandler, AuthMiddleware
-from .responses import SuccessResponse, errorResponse, PaginatedResponse
+from .middleware import ErrorHandler, AuthMiddleware
+from .responses import SuccessResponse, ErrorResponse, PaginatedResponse
 
 
 def create_app():
@@ -13,9 +13,9 @@ def create_app():
 
 __all__ = [
     "create_app",
-    "errorHandler",
+    "ErrorHandler",
     "AuthMiddleware",
     "SuccessResponse",
-    "errorResponse",
+    "ErrorResponse",
     "PaginatedResponse",
 ]

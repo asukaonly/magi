@@ -33,7 +33,7 @@ class SelfMemoryContext:
     dynamic_state: Dict[str, Any] = field(default_factory=dict)
     retrieval_memory: RetrievalMemoryContext = field(default_factory=RetrievalMemoryContext)
     state_transition_override: Optional[str] = None
-    scenario_prompt: Optional[str] = None  # 场景行为约束提示词
+    scenario_prompt: Optional[str] = None  # Scenario behavior constraint prompt
 
 
 @dataclass

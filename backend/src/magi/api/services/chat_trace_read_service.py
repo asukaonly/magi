@@ -270,7 +270,7 @@ class ChatTraceReadService:
         root = ExecutionTraceNode(
             id=f"{turn_id}:root",
             kind="root",
-            label="工具链",
+            label="Tool chain",
             status="running",
             started_at=started_at,
             ended_at=ended_at,
@@ -279,7 +279,7 @@ class ChatTraceReadService:
         planning_node = ExecutionTraceNode(
             id=f"{turn_id}:planning",
             kind="planning",
-            label="任务编排",
+            label="Task orchestration",
             status="running",
             started_at=started_at,
             ended_at=None,
@@ -316,7 +316,7 @@ class ChatTraceReadService:
                     group_node = ExecutionTraceNode(
                         id=f"{turn_id}:group:{group_key}",
                         kind="parallel_group",
-                        label=f"并行任务 {group_key}",
+                        label=f"Parallel tasks {group_key}",
                         status="running",
                         started_at=started_at,
                         metadata={"parallel_group": group_key},
@@ -393,7 +393,7 @@ class ChatTraceReadService:
         root = ExecutionTraceNode(
             id=f"{turn_id}:root",
             kind="root",
-            label="工具链",
+            label="Tool chain",
             status="running",
             started_at=started_at,
             ended_at=ended_at,
@@ -412,7 +412,7 @@ class ChatTraceReadService:
                 ExecutionTraceNode(
                     id=f"{turn_id}:iteration:{iteration}",
                     kind="iteration",
-                    label=f"第 {iteration} 轮",
+                    label=f"Round {iteration}",
                     status="running",
                     started_at=float(payload.get("timestamp") or started_at),
                     metadata={"iteration": iteration},
@@ -427,7 +427,7 @@ class ChatTraceReadService:
                 ExecutionTraceNode(
                     id=f"{turn_id}:iteration:{iteration}",
                     kind="iteration",
-                    label=f"第 {iteration} 轮",
+                    label=f"Round {iteration}",
                     status="running",
                     started_at=float(payload.get("timestamp") or started_at),
                     metadata={"iteration": iteration},
@@ -578,16 +578,16 @@ class ChatTraceReadService:
         orchestration_state: Optional[dict[str, Any]],
     ) -> str:
         if status == "completed":
-            return "工具链已完成"
+            return "Tool chain completed"
         if status == "failed":
-            return "工具链执行失败"
+            return "Tool chain failed"
         if mode == "orchestration" and completed_steps == 0:
             subtasks = orchestration_state.get("subtasks") if isinstance(orchestration_state, dict) else None
             if active_steps <= 1 and not subtasks:
-                return "正在编排任务"
+                return "Orchestrating tasks"
         if active_steps > 0 or completed_steps > 0:
-            return "正在执行工具链"
-        return "思考中"
+            return "Running tool chain"
+        return "Thinking"
 
     def _extract_orchestration_id(self, events: list[dict[str, Any]]) -> Optional[str]:
         for item in events:

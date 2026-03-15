@@ -1,7 +1,7 @@
 """
-Scenario Prompts - 场景行为提示词管理
+Scenario Prompts - scenario behavior prompt management.
 
-根据人格和场景提供行为约束提示词。
+Provides behavior constraint prompts by persona and scenario.
 """
 
 import aiosqlite
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ScenarioPrompt:
-    """场景提示词配置"""
+    """Scenario prompt configuration."""
     persona: str
     scenario: str
     prompt: str
@@ -25,9 +25,9 @@ class ScenarioPrompt:
 
 class ScenarioPromptsStore:
     """
-    场景提示词存储
+    Scenario prompt store.
 
-    根据人格和场景管理行为约束提示词。
+    Manages behavior constraint prompts by persona and scenario.
     """
 
     def __init__(self, db_path: str = "~/.magi/data/scenario_prompts.db"):
@@ -41,7 +41,7 @@ class ScenarioPromptsStore:
         return str(Path(self.db_path).expanduser())
 
     async def init(self) -> None:
-        """初始化数据库"""
+        """Initialize database."""
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -62,18 +62,18 @@ class ScenarioPromptsStore:
 
     async def get_prompt(self, persona: str, scenario: str) -> Optional[str]:
         """
-        获取场景提示词
+        Get scenario prompt.
 
         Args:
-            persona: 人格名称
-            scenario: 场景名称
+            persona: Persona name.
+            scenario: Scenario name.
 
         Returns:
-            提示词内容，如果没有则返回 None
+            Prompt content, or None if not found.
         """
         cache_key = f"{persona}:{scenario}"
 
-        # 检查缓存
+        # Check cache
         if cache_key in self._cache:
             return self._cache[cache_key].prompt
 
@@ -96,12 +96,12 @@ class ScenarioPromptsStore:
 
     async def set_prompt(self, persona: str, scenario: str, prompt: str) -> None:
         """
-        设置场景提示词
+        Set scenario prompt.
 
         Args:
-            persona: 人格名称
-            scenario: 场景名称
-            prompt: 提示词内容
+            persona: Persona name.
+            scenario: Scenario name.
+            prompt: Prompt content.
         """
         cache_key = f"{persona}:{scenario}"
 
@@ -114,7 +114,7 @@ class ScenarioPromptsStore:
             """, (persona, scenario, prompt, now, now, prompt, now))
             await db.commit()
 
-            # 更新缓存
+            # Update cache
             self._cache[cache_key] = ScenarioPrompt(
                 persona=persona,
                 scenario=scenario,
@@ -125,13 +125,13 @@ class ScenarioPromptsStore:
 
     async def get_all_prompts(self, persona: Optional[str] = None) -> Dict[str, ScenarioPrompt]:
         """
-        获取所有场景提示词
+        Get all scenario prompts.
 
         Args:
-            persona: 可选的人格名称过滤
+            persona: Optional persona name filter.
 
         Returns:
-            场景提示词字典，key 为 "persona:scenario"
+            Dict of scenario prompts, key is "persona:scenario".
         """
         result: Dict[str, ScenarioPrompt] = {}
 
@@ -158,14 +158,14 @@ class ScenarioPromptsStore:
 
     async def delete_prompt(self, persona: str, scenario: str) -> bool:
         """
-        删除场景提示词
+        Delete scenario prompt.
 
         Args:
-            persona: 人格名称
-            scenario: 场景名称
+            persona: Persona name.
+            scenario: Scenario name.
 
         Returns:
-            是否成功删除
+            True if deleted, False if not found.
         """
         cache_key = f"{persona}:{scenario}"
 
@@ -183,11 +183,11 @@ class ScenarioPromptsStore:
             return False
 
     async def clear_cache(self) -> None:
-        """清空缓存"""
+        """Clear in-memory cache."""
         self._cache.clear()
 
 
-# 默认场景提示词
+# Default scenario prompts
 CHAT_SCENARIO_PROMPT = """# Scenario Behavioral Protocol: Casual Chat
 [System Notice: You are currently in an instant messaging chat mode. You MUST completely discard the "AI Assistant" mindset and fully adopt the interaction logic of a real human being.]
 
@@ -264,14 +264,14 @@ DEFAULT_SCENARIO_PROMPTS = {
 
 async def initialize_default_prompts(store: ScenarioPromptsStore, persona_name: str = "default") -> None:
     """
-    初始化默认场景提示词
+    Initialize default scenario prompts.
 
     Args:
-        store: ScenarioPromptsStore 实例
-        persona_name: 当前人格名称
+        store: ScenarioPromptsStore instance.
+        persona_name: Current persona name.
     """
     for (persona, scenario), prompt in DEFAULT_SCENARIO_PROMPTS.items():
-        # 只初始化 default 和当前人格的提示词
+        # Only init default and current persona prompts
         if persona == "default" or persona == persona_name:
             existing = await store.get_prompt(persona, scenario)
             if not existing:

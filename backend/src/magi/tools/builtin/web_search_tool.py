@@ -261,8 +261,8 @@ class WebSearchTool(MultiProviderTool):
                         "Ask the user to confirm tool configuration or restore a supported provider."
                     ),
                     "user_message_template": (
-                        "要继续联网搜索，请先确认网页搜索工具配置可用。"
-                        "恢复后我会继续当前搜索。"
+                        "To continue web search, please ensure the web search tool is configured. "
+                        "I will resume the current search after it is available."
                     ),
                     "config_tool": "system-settings",
                     "config_example": {
@@ -345,8 +345,8 @@ class WebSearchTool(MultiProviderTool):
                 "Do not keep retrying DuckDuckGo for the same request."
             ),
             "user_message_template": (
-                "默认的 DuckDuckGo 搜索这次触发了反爬验证，暂时拿不到稳定结果。"
-                "请先配置 Brave、Perplexity 或 Tavily 其中一个搜索服务，我再继续帮你查。"
+                "DuckDuckGo hit an anti-bot check this time and could not return stable results. "
+                "Please configure Brave, Perplexity, or Tavily in settings, then I can continue the search."
             ),
             "config_tool": "system-settings",
             "requested_provider": requested_provider,

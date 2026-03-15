@@ -286,7 +286,7 @@ class ChatReadService:
                     {
                         "role": "assistant",
                         "kind": "status",
-                        "content": str((summary or {}).get("headline") or "思考中"),
+                        "content": str((summary or {}).get("headline") or "Thinking"),
                         "timestamp": int(turn.get("last_trace_timestamp") or 0),
                         "turn_id": turn_id,
                         "trace_summary": summary,

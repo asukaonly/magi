@@ -609,9 +609,9 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 intent = "web_interaction"
 
         # Real-time queries (weather, news, stocks)
-        if any(kw in user_lower for kw in ["days气", "weather", "气温", "temperature", "news", "new闻", "股票", "stock", "汇率", "exchange rate"]):
+        if any(kw in user_lower for kw in ["天气", "weather", "气温", "temperature", "news", "新闻", "股票", "stock", "汇率", "exchange rate"]):
             # Prefer dedicated weather tool for weather-related requests.
-            if any(kw in user_lower for kw in ["days气", "weather", "气温", "temperature"]) and "weather" in available_tools:
+            if any(kw in user_lower for kw in ["天气", "weather", "气温", "temperature"]) and "weather" in available_tools:
                 tools.append("weather")
             elif "web-search" in available_tools:
                 tools.append("web-search")
@@ -633,8 +633,8 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             intent = "command_execution"
 
         # Screenshot/browser
-        if any(kw in user_lower for kw in ["截graph", "screenshot", "网页", "website", "浏览器"]):
-            if "截graph" in user_lower or "screenshot" in user_lower:
+        if any(kw in user_lower for kw in ["截图", "screenshot", "网页", "website", "浏览器"]):
+            if "截图" in user_lower or "screenshot" in user_lower:
                 tools.append("bash")  # Use bash for screenshot
             intent = "web_interaction"
 

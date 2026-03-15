@@ -155,12 +155,12 @@ class PromptContextAssembler:
             },
         )
 
-        # 获取场景提示词
+        # Get scenario prompt
         scenario_prompt_text: Optional[str] = None
         if self.scenario_prompts_store:
             scenario_prompt_text = await self.scenario_prompts_store.get_prompt(persona_name, scenario)
             if not scenario_prompt_text:
-                # 回退到 default 人格的提示词
+                # Fall back to default persona prompt
                 scenario_prompt_text = await self.scenario_prompts_store.get_prompt("default", scenario)
 
         return SelfMemoryContext(
