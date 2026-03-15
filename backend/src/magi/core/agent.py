@@ -71,7 +71,7 @@ class Agent:
             self.state = AgentState.RUNNING
 
         except Exception as e:
-            self.state = AgentState.error
+            self.state = AgentState.ERROR
             raise
 
     async def stop(self):
@@ -94,7 +94,7 @@ class Agent:
             self._stop_time = asyncio.get_event_loop().time()
 
         except Exception as e:
-            self.state = AgentState.error
+            self.state = AgentState.ERROR
             raise
 
     async def pause(self):

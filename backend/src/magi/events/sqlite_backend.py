@@ -402,8 +402,8 @@ class SQLiteMessageBackend(MessageBusBackend):
                 "UPDATE message_queue SET status = ? WHERE id = ?",
                 (STATUS_COMPLETED, event_id),
             )
-            await db.commit()
             self._stats["processed_count"] += 1
+            await db.commit()
 
     async def _mark_failed(self, event_id: int, error_message: str) -> None:
         """

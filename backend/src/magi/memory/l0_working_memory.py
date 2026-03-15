@@ -414,13 +414,26 @@ class L0WorkingMemoryStore:
             await self.checkpoint_session(session_id)
 
     async def expire_idle_sessions(self) -> list[str]:
-        """Expire sessions that have been idle beyond the configured timeout."""
+        """Expire sessions that have been idle beyond the configured timeout.
+
+        Expired sessions are checkpointed, then purged from in-memory dicts
+        to prevent unbounded growth.
+        """
         now = time.time()
         expired: list[str] = []
         for session_id, session in list(self._sessions.items()):
             if now - float(session["last_active_at"]) <= self.session_timeout_seconds:
                 continue
             session["status"] = "expired"
+            # Checkpoint before evicting from memory
+            try:
+                await self.checkpoint_session(session_id)
+            except Exception:
+                pass
+            self._sessions.pop(session_id, None)
+            self._goal_stack.pop(session_id, None)
+            self._active_entities.pop(session_id, None)
+            self._temporary_tactics.pop(session_id, None)
             expired.append(session_id)
         return expired
 

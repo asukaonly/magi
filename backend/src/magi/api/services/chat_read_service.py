@@ -35,6 +35,22 @@ class ChatReadService:
         runtime_paths = get_runtime_paths()
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._session_state_file: Path = runtime_paths.data_dir / "chat_sessions.json"
+        self._conn: Optional[sqlite3.Connection] = None
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Return a reusable SQLite connection, creating one lazily."""
+        if self._conn is None:
+            self._conn = sqlite3.connect(str(self._l1_db_path))
+        return self._conn
+
+    def close(self) -> None:
+        """Close the cached SQLite connection."""
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
 
     def get_current_session_id(self, user_id: str) -> str:
         mapping = self._load_session_mapping()
@@ -74,7 +90,7 @@ class ChatReadService:
                     ascending=False,
                 )
             except Exception as exc:
-                logger.warning(f"Failed to query session list: {exc}")
+                logger.exception(f"Failed to query session list: {exc}")
                 rows = []
 
             for event_type, raw_data, raw_ts in rows:
@@ -156,7 +172,7 @@ class ChatReadService:
                 ascending=True,
             )
         except Exception as exc:
-            logger.warning(f"Failed to query chat history: {exc}")
+            logger.exception(f"Failed to query chat history: {exc}")
             return []
 
         messages: list[dict[str, Any]] = []
@@ -207,7 +223,7 @@ class ChatReadService:
             )
             rows = sorted([*fact_rows, *runtime_rows], key=lambda item: float(item[2] or 0))
         except Exception as exc:
-            logger.warning(f"Failed to query display history: {exc}")
+            logger.exception(f"Failed to query display history: {exc}")
             return []
 
         trace_service = get_chat_trace_read_service()
@@ -301,7 +317,7 @@ class ChatReadService:
         if not self._l1_db_path.exists():
             return
         try:
-            conn = sqlite3.connect(str(self._l1_db_path))
+            conn = self._get_conn()
             cur = conn.cursor()
             cur.execute(
                 f"""
@@ -324,9 +340,8 @@ class ChatReadService:
                 [*RUNTIME_TRACE_EVENT_TYPES, user_id, session_id],
             )
             conn.commit()
-            conn.close()
         except Exception as exc:
-            logger.warning(f"Failed to clear chat history: {exc}")
+            logger.exception(f"Failed to clear chat history: {exc}")
 
     def _query_fact_rows(
         self,
@@ -393,11 +408,10 @@ class ChatReadService:
             query += " LIMIT ?"
             params.append(int(limit))
 
-        conn = sqlite3.connect(str(self._l1_db_path))
+        conn = self._get_conn()
         cur = conn.cursor()
         cur.execute(query, params)
         rows = cur.fetchall()
-        conn.close()
         return rows
 
     def clear_all_sessions(self) -> int:
@@ -422,11 +436,11 @@ class ChatReadService:
 
     def _save_session_mapping(self, mapping: dict[str, str]) -> None:
         try:
+            from ...utils.file_io import atomic_write_text
             payload = {"current_session_by_user": mapping}
-            self._session_state_file.parent.mkdir(parents=True, exist_ok=True)
-            self._session_state_file.write_text(
+            atomic_write_text(
+                self._session_state_file,
                 json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
             )
         except Exception as exc:
             logger.warning(f"Failed to save session mapping: {exc}")

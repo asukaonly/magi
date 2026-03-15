@@ -2,6 +2,7 @@
 AgentLoop Engine - Sense-Plan-Act-Reflect循环
 """
 import asyncio
+import time
 from typing import List, Optional, Callable, Any
 from enum import Enum
 from ..events.events import Event, EventTypes, EventLevel
@@ -62,7 +63,7 @@ class LoopEngine:
         self.loop_interval = loop_interval
         self._state = LoopState.STOPPED
         self._loop_task: Optional[asyncio.Task] = None
-        self._pause_event: Optional[asyncio.event] = None
+        self._pause_event: Optional[asyncio.Event] = None
 
         # 循环statistics
         self._loop_count = 0
@@ -200,6 +201,14 @@ class LoopEngine:
             "phase_stats": self._phase_stats,
         }
 
+    def reset_stats(self) -> None:
+        """Reset accumulated statistics to prevent unbounded growth."""
+        self._loop_count = 0
+        self._error_count = 0
+        for phase in self._phase_stats.values():
+            phase["count"] = 0
+            phase["total_time"] = 0.0
+
     async def _main_loop(self):
         """Main loop"""
         try:
@@ -287,12 +296,10 @@ class LoopEngine:
         await self._publish_phase_event("sense", "started")
 
         # Get perceptions from perception module
-        import time
         sense_start = time.time()
         perceptions = await self.agent.perception_module.perceive()
 
         # Publish perception received event
-        from ..events.events import Event, EventTypes, EventLevel
         for perception in perceptions:
             correlation_id = self._extract_perception_correlation_id(perception)
             event = Event(
@@ -327,8 +334,6 @@ class LoopEngine:
         Returns:
             Action: Action plan
         """
-        import time
-        from ..events.events import Event, EventTypes, EventLevel
 
         # Publish phase started event
         await self._publish_phase_event("plan", "started", {"perception_type": perception.type})
@@ -372,8 +377,6 @@ class LoopEngine:
         Returns:
             ActionResult: Execution result
         """
-        import time
-        from ..events.events import Event, EventTypes, EventLevel
 
         # Publish phase started event
         await self._publish_phase_event("act", "started", {"action_type": type(action).__name__})
@@ -422,8 +425,6 @@ class LoopEngine:
             action: Action
             result: Result
         """
-        import time
-        from ..events.events import Event, EventTypes, EventLevel
 
         # Publish phase started event
         await self._publish_phase_event("reflect", "started")

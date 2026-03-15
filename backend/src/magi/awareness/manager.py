@@ -2,6 +2,7 @@
 自Perceptionmodule - Perception管理器（完整版）
 """
 import asyncio
+import bisect
 from typing import List, Optional, Callable, Dict, Any
 from collections import deque
 from .base import Perception, PerceptionType, TriggerMode
@@ -215,11 +216,11 @@ class PerceptionManager:
         Args:
             perception: Perception
         """
-        self._queue.append(perception)
-        # 按prioritysort（降序）
-        self._queue = deque(
-            sorted(self._queue, key=lambda p: p.priority, reverse=True)
-        )
+        # Use bisect to insert in O(n) instead of sorting entire queue O(n log n).
+        # _queue is maintained in descending priority order.
+        keys = [-p.priority for p in self._queue]
+        idx = bisect.bisect_right(keys, -perception.priority)
+        self._queue.insert(idx, perception)
 
         # limitationqueuelength
         if len(self._queue) > self.max_queue_size:

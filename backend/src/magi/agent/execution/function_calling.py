@@ -95,7 +95,7 @@ class FunctionCallingExecutor:
     Supports continuous tool calling with multi-turn conversations.
     """
 
-    max_ITERATIONS = 10  # Maximum tool calls in a single loop
+    MAX_ITERATIONS = 10  # Maximum tool calls in a single loop
     _RAW_TOOL_HISTORY_LIMIT = 4
     _FAILED_ITERATION_REPLAN_LIMIT = 2
     _NON_REPLAN_ERROR_CODES = {
@@ -168,7 +168,7 @@ class FunctionCallingExecutor:
         session_id: Optional[str] = None,
         turn_id: Optional[str] = None,
         conversation_history: List[Dict] = None,
-        max_iterations: int = max_ITERATIONS,
+        max_iterations: int = MAX_ITERATIONS,
         disable_thinking: bool = True,
         intent: str = "unknown",
         execution_agent_id: str = "chat_agent",

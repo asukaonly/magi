@@ -21,7 +21,6 @@ from .orchestration import (
     WorkerResult,
     get_orchestration_store,
 )
-
 logger = get_logger(__name__)
 
 WorkerPlanCallback = Callable[[str, list[dict[str, Any]], dict[str, Any], str, str], Awaitable[SubtaskPlan]]
@@ -154,11 +153,12 @@ class TaskOrchestrator:
         )
 
     async def process_worker_updates(self, batch_facts: list[Any]) -> OrchestrationExecutionResult:
+        from .task_agents.common.contracts import WorkerUpdatePayload  # avoid circular import
+
         touched_states: dict[str, TaskOrchestrationState] = {}
         for fact in batch_facts:
             if not isinstance(fact, FactRecord) or fact.event_type not in self.WORKER_AGENT_EVENT_TYPES:
                 continue
-            from .task_agents.common.contracts import WorkerUpdatePayload
 
             payload = (
                 WorkerUpdatePayload.from_dict(fact.payload, fallback_user_id="")

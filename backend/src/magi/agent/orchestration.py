@@ -398,10 +398,10 @@ class OrchestrationStore:
 
     def _write_payload(self, payload: Dict[str, Any]) -> None:
         try:
-            self._file_path.parent.mkdir(parents=True, exist_ok=True)
-            self._file_path.write_text(
+            from ..utils.file_io import atomic_write_text
+            atomic_write_text(
+                self._file_path,
                 json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
             )
         except Exception as exc:
             logger.warning("Failed to write orchestration store | path=%s error=%s", self._file_path, exc)

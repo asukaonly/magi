@@ -12,7 +12,10 @@ from dependency_injector import containers, providers
 if TYPE_CHECKING:
     from ..agent.runtime import AgentRuntime
     from ..events.sqlite_backend import SQLiteMessageBackend
+    from ..llm.scenario_pool import ScenarioLLMPool
     from ..memory.integration import MemoryIntegrationModule
+    from ..memory import UnifiedMemoryStore
+    from ..scheduler.service import SchedulerService
     from ..awareness.sensors import UserMessageSensor
     from ..api.services import ChatReadService
 
@@ -46,14 +49,14 @@ class Container(containers.DeclarativeContainer):
         ]
     )
 
-    # Core runtime services (initialized in bootstrap)
-    # These use Configuration providers that are overridden at runtime
-    message_bus = providers.Singleton(object)  # Placeholder, overridden in bootstrap
-    agent_runtime = providers.Singleton(object)  # Placeholder, overridden in bootstrap
-    memory_integration = providers.Singleton(object)  # Placeholder, overridden in bootstrap
-    unified_memory = providers.Singleton(object)  # Placeholder, overridden in bootstrap
-    scheduler_service = providers.Singleton(object)  # Placeholder, overridden in bootstrap
-    scenario_llm_pool = providers.Singleton(object)  # Placeholder, overridden in bootstrap
+    # Core runtime services — placeholders overridden at bootstrap time.
+    # Type annotations (TYPE_CHECKING only) indicate the runtime type.
+    message_bus: providers.Singleton[SQLiteMessageBackend] = providers.Singleton(object)
+    agent_runtime: providers.Singleton[AgentRuntime] = providers.Singleton(object)
+    memory_integration: providers.Singleton[MemoryIntegrationModule] = providers.Singleton(object)
+    unified_memory: providers.Singleton[UnifiedMemoryStore] = providers.Singleton(object)
+    scheduler_service: providers.Singleton[SchedulerService] = providers.Singleton(object)
+    scenario_llm_pool: providers.Singleton[ScenarioLLMPool] = providers.Singleton(object)
 
     # Factory providers for per-request instances
     chat_read_service = providers.Factory(_create_chat_read_service)
