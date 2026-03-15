@@ -12,7 +12,7 @@ export function SelectField({
   value,
   onChange,
   options,
-  placeholder = '请选择',
+  placeholder = 'Select...',
   disabled = false,
   allowEmpty = true,
   className,
@@ -135,7 +135,7 @@ export function SwitchField({
         disabled={disabled}
         aria-label={ariaLabel}
       />
-      <span>{checked ? '已启用' : '已关闭'}</span>
+      <span>{checked ? 'Enabled' : 'Off'}</span>
     </label>
   );
 }

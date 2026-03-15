@@ -1,5 +1,5 @@
 /**
- * 人格配置API
+ * Personality config API.
  */
 import { api } from '../client';
 import type { LLMConfig } from './config';
@@ -91,7 +91,7 @@ export interface PersonalityCompareResponse {
   to_config?: PersonalityConfig;
 }
 
-// 默认值
+// Defaults
 export const DEFAULT_BASIC_PROFILE: BasicProfile = {
   name: 'AI Assistant',
   age: 'Unknown',
@@ -153,41 +153,22 @@ export const DEFAULT_PERSONALITY_CONFIG: PersonalityConfig = {
   state_transition_protocol: DEFAULT_STATE_TRANSITION_PROTOCOL,
 };
 
-// API方法
+// API methods
 export const personalityApi = {
-  // 获取人格配置
   get: (name: string) => api.get<PersonalityResponse>(`/personality/${name}`),
-
-  // 更新人格配置
   update: (name: string, config: PersonalityConfig) =>
     api.put<PersonalityResponse>(`/personality/${name}`, config),
-
-  // 使用AI名字创建/更新人格配置
   updateWithAIName: (config: PersonalityConfig) =>
     api.put<PersonalityResponse>(`/personality/new?use_ai_name=true`, config),
-
-  // AI生成人格配置
   generate: (request: AIGenerateRequest) =>
     api.post<PersonalityResponse>('/personality/generate', request, {
       timeout: 120000,
     }),
-
-  // 列出所有人格
   list: () => api.get<PersonalityResponse>('/personality'),
-
-  // 删除人格配置
   delete: (name: string) => api.delete<PersonalityResponse>(`/personality/${name}`),
-
-  // 获取当前激活的人格
   getCurrent: () => api.get<PersonalityResponse>('/personality/current'),
-
-  // 设置当前激活的人格
   setCurrent: (name: string) => api.put<PersonalityResponse>('/personality/current', { name }),
-
-  // 获取随机问候语
   getGreeting: () => api.get<PersonalityResponse>('/personality/greeting'),
-
-  // 比较两个人格
   compare: (fromName: string, toName: string) =>
     api.get<PersonalityCompareResponse>(`/personality/compare/${fromName}/${toName}`),
 };

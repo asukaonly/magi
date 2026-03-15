@@ -191,7 +191,7 @@ export const upsertTraceSummary = (
       id: `${turnId}-status`,
       role: 'assistant',
       kind: 'status',
-      content: nextSummary?.headline || '思考中',
+      content: nextSummary?.headline || 'Thinking...',
       timestamp: Date.now(),
       turnId,
       traceSummary: nextSummary || null,

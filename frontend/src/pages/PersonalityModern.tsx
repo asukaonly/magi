@@ -188,7 +188,7 @@ const PersonalityModern: React.FC = () => {
   };
 
   const save = async () => {
-    // 新建模式下校验名称
+    // Validate name in create mode
     if (isNewMode) {
       const name = config.persona_entity.basic_profile.name?.trim();
       if (!name) {
@@ -200,13 +200,13 @@ const PersonalityModern: React.FC = () => {
     setSaving(true);
     try {
       if (isNewMode) {
-        // 新建模式：直接创建新人格
+        // Create mode: create new personality
         await personalityApi.updateWithAIName(config);
         toast.success(t('personality.createSuccess'));
         setIsNewMode(false);
         await loadList();
         await loadCurrent();
-        // 选中新创建的人格
+        // Select the newly created personality
         const newName = config.persona_entity.basic_profile.name;
         setSelectedName(newName);
         void loadOne(newName);
@@ -293,7 +293,7 @@ const PersonalityModern: React.FC = () => {
       </div>
       {/* Avatar selector row */}
       <div className="flex gap-3 overflow-x-auto pb-2">
-          {/* Add Button - 新建模式下隐藏 */}
+          {/* Add button – hidden in create mode */}
           {!isNewMode && (
             <button
               onClick={startNewPersonality}

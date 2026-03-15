@@ -15,7 +15,7 @@ const selectableStyle = (active: boolean): string =>
   );
 
 const languages = [
-  { value: 'zh', labelKey: 'language.zhHans', description: '简体中文' },
+  { value: 'zh', labelKey: 'language.zhHans', description: 'Simplified Chinese' },
   { value: 'en', labelKey: 'language.en', description: 'English' },
 ] as const;
 
@@ -53,7 +53,7 @@ export const LanguageForm: React.FC<LanguageFormProps> = ({ includeMode = true }
                       'flex h-10 w-10 items-center justify-center rounded-lg text-lg font-medium',
                       currentLanguage === lang.value ? 'bg-primary-600/10 text-primary-600' : 'bg-muted text-muted-foreground'
                     )}>
-                      {lang.value === 'zh' ? '中' : 'En'}
+                      {lang.value === 'zh' ? 'Zh' : 'En'}
                     </div>
                     <div>
                       <div className="font-medium">{t(lang.labelKey)}</div>

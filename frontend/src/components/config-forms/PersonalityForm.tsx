@@ -24,7 +24,7 @@ interface PersonalityFormProps {
   language?: 'zh' | 'en';
 }
 
-// 分组显示顺序
+// Group display order
 const GROUP_ORDER = ['magi', 'general'];
 
 type CachedPhraseKey = 'on_init' | 'on_wake' | 'on_error_generic' | 'on_success' | 'on_switch_attempt';
@@ -181,17 +181,15 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   ) => {
     setViewMode('focus');
     setShowDetails(false);
-    // 先设置加载状态，然后设置选中状态
     setLoadingConfig(true);
     setConfigLoaded(false);
 
     try {
-      // 从预设 API 获取完整配置
+      // Fetch full config from preset API
       const result = await personalitiesApi.get(item.id, language);
       const data = (result.data || {}) as Partial<PersonalityConfig>;
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
-      // 将完整的人格配置设置到表单
       setFieldValue(['personality'], mergedConfig);
     } catch {
       setConfig(DEFAULT_PERSONALITY_CONFIG);
@@ -207,7 +205,6 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     setShowDetails(false);
     setConfig(DEFAULT_PERSONALITY_CONFIG);
     setConfigLoaded(true);
-    // 将默认人格配置设置到表单
     setFieldValue(['personality'], DEFAULT_PERSONALITY_CONFIG);
     setOneLiner('');
   };
@@ -229,7 +226,6 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
       const data = ((payload && !Array.isArray(payload) ? payload : generated.data) || {}) as Partial<PersonalityConfig>;
       const mergedConfig = mergeConfig(data);
       setConfig(mergedConfig);
-      // 将完整的人格配置设置到表单
       setFieldValue(['personality'], mergedConfig);
     } catch (error: any) {
       toast.error(error?.message || t('personality.generateFailed'));
@@ -265,7 +261,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
               ? t('personality.blankCardDesc')
               : config.persona_entity.basic_profile.core_background || focusedPreset?.prompt || focusedPreset?.description || '';
 
-            // 按后端返回的 group 字段分组
+            // Group by backend group field
             const groupedPersonalities = GROUP_ORDER.reduce((acc, group) => {
               const items = presets.filter((p) => p.group === group);
               if (items.length > 0) {
@@ -358,7 +354,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                       transition={{ duration: 0.22, ease: 'easeOut' }}
                       className="space-y-6"
                     >
-                      {/* 动态分组显示 */}
+                      {/* Dynamic group sections */}
                       {groupedPersonalities.map(({ group, items }) => (
                         <div key={group}>
                           <h3 className={cn(
@@ -376,7 +372,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                         </div>
                       ))}
 
-                      {/* 自定义人格 */}
+                      {/* Custom personality */}
                       <div>
                         <h3 className="mb-3 text-sm font-semibold text-muted-foreground">{t('personality.groups.custom')}</h3>
                         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

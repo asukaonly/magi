@@ -1,5 +1,5 @@
 /**
- * 路由配置
+ * Router configuration.
  */
 import React from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
@@ -25,7 +25,7 @@ const OnboardingPage = React.lazy(() =>
   import('../pages/Onboarding').then((m) => ({ default: m.default }))
 );
 
-// 加载组件
+// Lazy-loaded route components
 const LoadingFallback = () => (
   <LoadingFallbackInner />
 );
@@ -135,7 +135,6 @@ const router = createBrowserRouter([
 ]);
 
 const AppRouter: React.FC = () => {
-  console.log('🚀 AppRouter 渲染');
   return <RouterProvider router={router} />;
 };
 

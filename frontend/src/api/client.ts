@@ -1,10 +1,10 @@
 /**
- * Axios API客户端
+ * Axios API client.
  */
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { getRuntimeConfig } from '@/runtime/config';
 
-// API响应类型
+// API response types
 export interface ApiResponse<T = any> {
   success: boolean;
   message: string;
@@ -28,7 +28,7 @@ export interface PaginatedResponse<T> {
   total_pages: number;
 }
 
-// 创建axios实例
+// Create axios instance
 let desktopSessionToken: string | undefined;
 
 const createApiClient = (): AxiosInstance => {
@@ -41,10 +41,10 @@ const createApiClient = (): AxiosInstance => {
     },
   });
 
-  // 请求拦截器
+  // Request interceptor
   client.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-      // 添加认证token（如果有）
+      // Add auth token if present
       const token = localStorage.getItem('auth_token');
       if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
@@ -54,7 +54,7 @@ const createApiClient = (): AxiosInstance => {
       if (sessionToken && config.headers) {
         config.headers['X-Magi-Session-Token'] = sessionToken;
       }
-      // 添加语言设置
+      // Add language header
       const language = localStorage.getItem('magi_language') || 'en';
       if (config.headers) {
         config.headers['Accept-Language'] = language;
@@ -66,22 +66,22 @@ const createApiClient = (): AxiosInstance => {
     }
   );
 
-  // 响应拦截器
+  // Response interceptor
   client.interceptors.response.use(
     (response) => {
       return response;
     },
     (error: AxiosError<ApiError>) => {
-      // 统一处理错误
+      // Centralized error handling
       if (error.response) {
-        // 服务器返回错误响应
+        // Server returned error response
         const errorData = error.response.data;
         const resolvedMessage =
           errorData?.message ||
           (typeof errorData?.detail === 'string' ? errorData.detail : undefined) ||
           'An error occurred';
 
-        // 特殊处理401未授权
+        // Handle 401 Unauthorized
         if (error.response.status === 401) {
           localStorage.removeItem('auth_token');
           window.location.href = '/login';
@@ -94,13 +94,13 @@ const createApiClient = (): AxiosInstance => {
           details: errorData?.details,
         });
       } else if (error.request) {
-        // 请求发送但没有收到响应
+        // Request sent but no response received
         return Promise.reject({
           message: 'No response from server',
           code: 'NETWORK_ERROR',
         });
       } else {
-        // 请求配置错误
+        // Request config error
         return Promise.reject({
           message: error.message || 'Request failed',
           code: 'REQUEST_ERROR',
@@ -129,7 +129,7 @@ export const configureApiClient = (options: {
   }
 };
 
-// 通用API方法
+// Generic API helpers
 export const api = {
   get: <T = any>(url: string, paramsOrConfig?: any) => {
     const config =

@@ -1,5 +1,5 @@
 /**
- * 配置管理 API + 类型定义
+ * Config management API and type definitions.
  */
 import { api } from '../client';
 import type { PersonalityConfig } from './personality';

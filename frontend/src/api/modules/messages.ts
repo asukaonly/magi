@@ -1,5 +1,5 @@
 /**
- * 消息API
+ * Messages API.
  */
 import { api } from '../client';
 
@@ -10,7 +10,7 @@ export interface UserMessageRequest {
   metadata?: Record<string, any>;
 }
 
-// 后端实际返回的 data 结构
+// Backend response data shape
 export interface MessageData {
   user_id: string;
   session_id?: string;
@@ -103,41 +103,31 @@ export interface ExecutionTraceSnapshot {
 }
 
 export const messagesApi = {
-  /**
-   * 发送用户消息
-   */
+  /** Send user message */
   sendMessage: async (request: UserMessageRequest): Promise<{ success: boolean; message: string; data?: MessageData }> => {
     const response = await api.post<MessageData>('/messages/send', request);
     return response;
   },
 
-  /**
-   * 获取传感器状态
-   */
+  /** Get sensor status */
   getSensorStatus: async (): Promise<SensorStatus> => {
     const response = await api.get<SensorStatus>('/messages/sensor/status');
     return (response.data || response) as SensorStatus;
   },
 
-  /**
-   * 启用传感器
-   */
+  /** Enable sensor */
   enableSensor: async (): Promise<{ success: boolean; message: string }> => {
     const response = await api.post<{ success: boolean; message: string }>('/messages/sensor/enable');
     return response;
   },
 
-  /**
-   * 禁用传感器
-   */
+  /** Disable sensor */
   disableSensor: async (): Promise<{ success: boolean; message: string }> => {
     const response = await api.post<{ success: boolean; message: string }>('/messages/sensor/disable');
     return response;
   },
 
-  /**
-   * 获取对话历史
-   */
+  /** Get conversation history */
   getHistory: async (userId: string = 'web_user', sessionId?: string): Promise<ConversationHistory> => {
     const response = await api.get<ConversationHistory>('/messages/history', {
       params: { user_id: userId, session_id: sessionId },
@@ -145,9 +135,7 @@ export const messagesApi = {
     return (response.data || response) as ConversationHistory;
   },
 
-  /**
-   * 清空对话历史
-   */
+  /** Clear conversation history */
   clearHistory: async (
     userId: string = 'web_user',
     sessionId?: string

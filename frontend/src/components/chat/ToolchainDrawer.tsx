@@ -127,7 +127,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                   <div className="mb-3 flex items-center justify-between rounded-2xl border border-border/40 bg-card px-4 py-2.5">
                     <div>
                       <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">Execution Timeline</div>
-                      <div className="mt-1 text-[13px] text-foreground/90">按执行顺序查看编排、分支和工具调用。</div>
+                      <div className="mt-1 text-[13px] text-foreground/90">View orchestration, branches and tool calls in execution order.</div>
                     </div>
                     <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">
                       {snapshot.summary.completedSteps + snapshot.summary.failedSteps} steps

@@ -1,5 +1,5 @@
 /**
- * Memory页面 - L0-L4 记忆系统
+ * Memory page – L0–L4 memory system.
  */
 import React, { useEffect, useState } from 'react';
 import {

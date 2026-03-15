@@ -1,5 +1,5 @@
 /**
- * API模块统一导出
+ * API modules barrel export.
  */
 export { apiClient, api } from './client';
 export type { ApiResponse, ApiError, PaginatedResponse } from './client';

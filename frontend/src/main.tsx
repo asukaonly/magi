@@ -1,5 +1,5 @@
 /**
- * 应用入口
+ * Application entry point.
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
