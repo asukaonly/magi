@@ -47,6 +47,15 @@ class ActionExecutor:
                 correlation_id=correlation_id,
             )
         )
+        logger.info(
+            "AI_RESPONSE published to message bus",
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id or None,
+            orchestration_id=orchestration_id or None,
+            correlation_id=correlation_id or None,
+            response_chars=len(response),
+        )
 
     async def emit_action_event(self, fact: FactRecord, success: bool, error: str | None = None) -> None:
         try:

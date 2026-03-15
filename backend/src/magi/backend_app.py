@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 
 from .api.app import create_app as create_api_app
@@ -98,6 +100,12 @@ def create_backend_app() -> FastAPI:
                 session_id = str(data.get("session_id", "")).strip()
                 turn_id = str(data.get("turn_id", "")).strip()
                 if not user_id:
+                    logger.warning(
+                        "AI_RESPONSE missing user_id; skip websocket broadcast",
+                        turn_id=turn_id or None,
+                        session_id=session_id or None,
+                        pid=os.getpid(),
+                    )
                     return
                 enriched = dict(data)
                 if session_id and turn_id:
@@ -110,7 +118,18 @@ def create_backend_app() -> FastAPI:
                         enriched["trace_summary"] = snapshot.get("summary")
                         enriched["trace_available"] = bool(snapshot.get("summary", {}).get("trace_available"))
                         enriched["orchestration_id"] = snapshot.get("orchestration_id")
-                await manager.broadcast("agent_response", enriched, room=f"user_{user_id}")
+                room_name = f"user_{user_id}"
+                room_clients = manager.get_clients_in_room(room_name)
+                logger.info(
+                    "AI_RESPONSE received by websocket bridge",
+                    user_id=user_id,
+                    session_id=session_id or None,
+                    turn_id=turn_id or None,
+                    room=room_name,
+                    room_clients=room_clients,
+                    pid=os.getpid(),
+                )
+                await manager.broadcast("agent_response", enriched, room=room_name)
 
             async def _on_trace_event(event: Event):
                 data = event.data if isinstance(event.data, dict) else {}
@@ -123,8 +142,9 @@ def create_backend_app() -> FastAPI:
             )
             app.state.ai_response_subscription_id = sub_id
             logger.info(
-                "Subscribed AI_RESPONSE for websocket bridge | subscription_id=%s",
-                sub_id,
+                "Subscribed AI_RESPONSE for websocket bridge",
+                subscription_id=sub_id,
+                pid=os.getpid(),
             )
             trace_sub_ids = []
             for trace_event_type in TRACE_EVENT_TYPES:
@@ -135,7 +155,11 @@ def create_backend_app() -> FastAPI:
                 )
                 trace_sub_ids.append(worker_sub_id)
             app.state.worker_agent_subscription_ids = trace_sub_ids
-            logger.info("Subscribed trace events for websocket bridge | count=%s", len(trace_sub_ids))
+            logger.info(
+                "Subscribed trace events for websocket bridge",
+                count=len(trace_sub_ids),
+                pid=os.getpid(),
+            )
 
     @app.on_event("shutdown")
     async def shutdown_event():

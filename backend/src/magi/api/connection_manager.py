@@ -3,10 +3,9 @@ FastAPI WebSocket integration.
 
 Provides WebSocket support for the FastAPI application.
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
 from typing import Dict, Set
-import json
+
+from fastapi import WebSocket
 
 from ..core.logger import get_logger
 
@@ -46,14 +45,17 @@ class ConnectionManager:
             del self.connection_rooms[sid]
             logger.info("WebSocket disconnected", sid=sid, total=len(self.active_connections))
 
-    async def send_to_connection(self, sid: str, message: dict):
+    async def send_to_connection(self, sid: str, message: dict) -> bool:
         """Send a message to a specific connection."""
         if sid in self.active_connections:
             try:
                 await self.active_connections[sid].send_json(message)
+                return True
             except Exception as e:
                 logger.error("Failed to send", sid=sid, error=str(e))
                 self.disconnect(sid)
+                return False
+        return False
 
     async def broadcast(self, event: str, data: dict, room: str = None):
         """
@@ -71,13 +73,26 @@ class ConnectionManager:
 
         if room:
             # Send to all connections in the room
-            if room in self.rooms:
-                for sid in list(self.rooms[room]):
-                    await self.send_to_connection(sid, message)
+            targets = list(self.rooms.get(room, set()))
         else:
             # Broadcast to all connections
-            for sid in list(self.active_connections.keys()):
-                await self.send_to_connection(sid, message)
+            targets = list(self.active_connections.keys())
+
+        success_count = 0
+        for sid in targets:
+            if await self.send_to_connection(sid, message):
+                success_count += 1
+
+        failed_count = len(targets) - success_count
+        log_method = logger.info if event in {"agent_response", "execution_trace_update"} else logger.debug
+        log_method(
+            "Broadcast dispatched",
+            event=event,
+            room=room or "__all__",
+            targets=len(targets),
+            success=success_count,
+            failed=failed_count,
+        )
 
     def join_room(self, sid: str, room: str):
         """Join a room."""
