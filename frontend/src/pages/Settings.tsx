@@ -1,709 +1,99 @@
-import React, {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useState,
-} from 'react';
-import { toast } from 'sonner';
+import { forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Save,
-  Settings2,
-  Brain,
-  User,
-  Database,
-  Wrench,
-  Cpu,
   ChevronRight,
   ChevronDown,
   Sun,
   Moon,
   Monitor,
-  BarChart3,
-  ScrollText,
-  PlugZap,
-  Send,
   X,
   RotateCcw,
+  Save,
 } from 'lucide-react';
+
+import { useSettings } from '@/hooks/useSettings';
+import { NAV_ITEMS, isNavGroup } from '@/constants/settings';
+import type { NavItem, SettingsPageHandle, SettingsPageProps } from '@/types/settings';
+import {
+  LabeledSelectField,
+  NumberField,
+  ExpandableMemoryLayerCard,
+} from '@/components/settings';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
 import { LLMUsageSection } from '@/components/settings/LLMUsageSection';
 import ActionsSection from '@/components/settings/ActionsSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
-import { timelineApi, type TimelineSourceStatusItem } from '@/api/modules/timeline';
-import {
-  buildPluginFieldValueMap,
-  pluginsApi,
-  type PluginPackageState,
-} from '@/api/modules/plugins';
-import { toolsApi, type ToolConfig } from '@/api/modules/tools';
+import { SystemConfig } from '@/api/modules/config';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { SelectField as BaseSelectField } from '@/components/config-forms/fields';
-import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig, type LanguageCode } from '../api/modules/config';
 import { cn } from '@/lib/utils';
-import { useThemeStore, type ThemeMode } from '@/stores';
-import i18n from '@/i18n';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-
-type SelectOption = { label: string; value: string };
-
-type NavLeaf = {
-  id: string;
-  icon: React.ElementType;
-  children?: never;
-};
-
-type NavGroup = {
-  id: string;
-  icon: React.ElementType;
-  children: Array<{ id: string }>;
-};
-
-type NavItem = NavLeaf | NavGroup;
-
-const NAV_ITEMS: NavItem[] = [
-  { id: 'preferences', icon: Settings2 },
-  { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
-  { id: 'usage', icon: BarChart3 },
-  { id: 'personality', icon: User },
-  { id: 'memory', icon: Database },
-  { id: 'timeline', icon: ScrollText },
-  { id: 'extensions', icon: PlugZap },
-  { id: 'tools', icon: Wrench },
-  { id: 'actions', icon: Send },
-  { id: 'system', icon: Cpu },
-];
-
-const isNavGroup = (item: NavItem): item is NavGroup => Array.isArray((item as NavGroup).children);
-
-const LANGUAGE_STORAGE_KEY = 'magi_language';
-
-type MemoryToggleFieldId =
-  | 'enable_l0'
-  | 'enable_l1'
-  | 'enable_l2'
-  | 'enable_l3'
-  | 'enable_l4'
-  | 'runtime_replay_include_l0_only'
-  | 'enable_t1_importance'
-  | 'enable_l2_llm_extraction'
-  | 'enable_l3_llm_summary'
-  | 'enable_l4_skill_extraction';
-
-const toI18nLanguage = (language: LanguageCode) => (language === 'zh' ? 'zh-CN' : 'en');
-
-const persistLanguageSelection = (language: LanguageCode) => {
-  const nextLanguage = toI18nLanguage(language);
-  localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
-  document.documentElement.lang = nextLanguage;
-};
-
-const previewLanguageSelection = async (language: LanguageCode) => {
-  const nextLanguage = toI18nLanguage(language);
-  document.documentElement.lang = nextLanguage;
-  await i18n.changeLanguage(nextLanguage);
-};
-
-const serialize = (value: unknown) => JSON.stringify(value);
-
-const collectPluginSurfaceFields = (plugin: PluginPackageState, surfaces: string[]) =>
-  plugin.contributions
-    .flatMap((contribution) => contribution.fields)
-    .filter((field) => surfaces.includes(field.surface));
-
-const buildPluginDraftSnapshotFromPackages = (plugins: PluginPackageState[]) =>
-  Object.fromEntries(
-    plugins.map((plugin) => [
-      plugin.manifest.plugin_id,
-      buildPluginFieldValueMap(collectPluginSurfaceFields(plugin, ['extensions', 'actions']), plugin.current_settings),
-    ])
-  );
-
-const buildPluginDraftSnapshotFromTimeline = (statuses: TimelineSourceStatusItem[]) =>
-  statuses.reduce<Record<string, Record<string, any>>>((acc, source) => {
-    const current = acc[source.plugin_id] || {};
-    for (const field of source.fields) {
-      current[field.key] = source.current_settings[field.key] ?? field.default;
-    }
-    const activationFlow = source.activation_flow;
-    if (activationFlow) {
-      current[activationFlow.enabled_key] =
-        source.current_settings[activationFlow.enabled_key] ?? source.enabled;
-      current[activationFlow.configured_key] =
-        source.current_settings[activationFlow.configured_key] ?? false;
-      for (const field of activationFlow.fields) {
-        current[field.key] = source.current_settings[field.key] ?? field.default;
-      }
-    }
-    acc[source.plugin_id] = current;
-    return acc;
-  }, {});
-
-const mergeDraftMaps = (
-  current: Record<string, Record<string, any>>,
-  incoming: Record<string, Record<string, any>>,
-  { preserveExisting }: { preserveExisting: boolean }
-) => {
-  const next = structuredClone(current);
-  for (const [pluginId, values] of Object.entries(incoming)) {
-    next[pluginId] = next[pluginId] || {};
-    for (const [key, value] of Object.entries(values)) {
-      if (preserveExisting && key in next[pluginId]) {
-        continue;
-      }
-      next[pluginId][key] = value;
-    }
-  }
-  return next;
-};
-
-const buildToolDraftSnapshot = (tools: ToolConfig[]) =>
-  Object.fromEntries(
-    tools.map((tool) => [
-      tool.name,
-      {
-        enabled: tool.enabled,
-        values: structuredClone(tool.current_values || {}),
-      },
-    ])
-  );
-
-const diffFlatMaps = (saved: Record<string, any>, draft: Record<string, any>) => {
-  const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
-  const updates: Record<string, any> = {};
-  for (const key of keys) {
-    if (serialize(saved[key] ?? null) !== serialize(draft[key] ?? null)) {
-      updates[key] = draft[key];
-    }
-  }
-  return updates;
-};
-
-const LabeledSelectField: React.FC<{
-  label: string;
-  value: string;
-  options: SelectOption[];
-  onChange: (value: string) => void;
-}> = ({ label, value, options, onChange }) => (
-  <label className="space-y-2">
-    <span className="text-sm font-medium">{label}</span>
-    <BaseSelectField value={value} onChange={onChange} options={options} allowEmpty={false} />
-  </label>
-);
-
-const NumberField: React.FC<{
-  label: string;
-  value: number | undefined;
-  min?: number;
-  max?: number;
-  step?: number;
-  onChange: (value: number) => void;
-}> = ({ label, value, min, max, step, onChange }) => (
-  <label className="space-y-2">
-    <span className="text-sm font-medium">{label}</span>
-    <input
-      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-      type="number"
-      min={min}
-      max={max}
-      step={step}
-      value={value ?? ''}
-      onChange={(event) => onChange(Number(event.target.value))}
-    />
-  </label>
-);
-
-interface ExpandableMemoryLayerCardProps {
-  layerKey: string;
-  label: string;
-  description: string;
-  checked: boolean;
-  disabled?: boolean;
-  expanded: boolean;
-  onToggle: (checked: boolean) => void;
-  onExpand: (expanded: boolean) => void;
-  children?: React.ReactNode;
-}
-
-const ExpandableMemoryLayerCard: React.FC<ExpandableMemoryLayerCardProps> = ({
-  label,
-  description,
-  checked,
-  disabled = false,
-  expanded,
-  onToggle,
-  onExpand,
-  children,
-}) => (
-  <div
-    className={cn(
-      'rounded-xl border transition-all duration-200',
-      checked ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-background/60',
-      disabled && 'opacity-60'
-    )}
-  >
-    {/* Header row with toggle */}
-    <div className="flex items-center gap-3 px-4 py-3">
-      <Switch
-        checked={checked}
-        disabled={disabled}
-        onCheckedChange={onToggle}
-        aria-label={label}
-      />
-      <div
-        className={cn('flex-1', !disabled && 'cursor-pointer')}
-        onClick={() => !disabled && checked && onExpand(!expanded)}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <div className={cn('text-sm font-medium', checked && 'text-primary')}>
-              {label}
-            </div>
-            <div className="text-xs leading-5 text-muted-foreground">{description}</div>
-          </div>
-          {checked && children && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onExpand(!expanded);
-              }}
-              className="rounded p-1 hover:bg-muted/50"
-            >
-              {expanded ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              )}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-
-    {/* Expandable content */}
-    {checked && expanded && children && (
-      <div className="border-t border-border/40 px-4 py-3">
-        <div className="space-y-4">{children}</div>
-      </div>
-    )}
-  </div>
-);
-
-export interface SettingsPageHandle {
-  hasUnsavedChanges: () => boolean;
-  discardChanges: () => Promise<void>;
-}
-
-interface SettingsPageProps {
-  onRequestClose?: () => void;
-}
+import { toast } from 'sonner';
 
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
   const { t } = useTranslation('app');
-  const themeMode = useThemeStore((state) => state.mode);
-  const setThemeMode = useThemeStore((state) => state.setMode);
-  const [savedConfig, setSavedConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
-  const [draftConfig, setDraftConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
-  const [savedThemeMode, setSavedThemeMode] = useState<ThemeMode>(themeMode);
-  const [draftThemeMode, setDraftThemeMode] = useState<ThemeMode>(themeMode);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState('preferences');
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-    llm: false,
-  });
-  const [expandedMemoryLayers, setExpandedMemoryLayers] = useState<Set<string>>(new Set(['l0', 'l1']));
-  const [timelineStatuses, setTimelineStatuses] = useState<TimelineSourceStatusItem[]>([]);
-  const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
-  const [timelineSelection, setTimelineSelection] = useState<string | null>(null);
-  const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
-  const [pluginsLoading, setPluginsLoading] = useState(false);
-  const [pluginProcessingIds, setPluginProcessingIds] = useState<Record<string, string>>({});
-  const [savedPluginDrafts, setSavedPluginDrafts] = useState<Record<string, Record<string, any>>>({});
-  const [draftPluginDrafts, setDraftPluginDrafts] = useState<Record<string, Record<string, any>>>({});
-  const [tools, setTools] = useState<ToolConfig[]>([]);
-  const [toolsLoading, setToolsLoading] = useState(false);
-  const [toolsError, setToolsError] = useState<string | null>(null);
-  const [savedToolDrafts, setSavedToolDrafts] = useState<Record<string, { enabled: boolean; values: Record<string, any> }>>({});
-  const [draftToolDrafts, setDraftToolDrafts] = useState<Record<string, { enabled: boolean; values: Record<string, any> }>>({});
-  const [reloadingActionPlugins, setReloadingActionPlugins] = useState<Record<string, boolean>>({});
+
+  const {
+    loading,
+    saving,
+    activeSection,
+    getGroupExpanded,
+    setGroupExpanded,
+    handleNavItemClick,
+    isWideSection,
+    usesInnerPaneScroll,
+    draftConfig,
+    patchDraftConfig,
+    draftThemeMode,
+    handleThemePreviewChange,
+    handleLanguagePreviewChange,
+    expandedMemoryLayers,
+    setExpandedMemoryLayers,
+    updateMemoryToggle,
+    plugins,
+    pluginsLoading,
+    pluginProcessingIds,
+    reloadingActionPlugins,
+    draftPluginDrafts,
+    handlePluginDraftChange,
+    handlePluginDraftChanges,
+    handlePluginAction,
+    handleReloadActionPlugin,
+    loadPlugins,
+    tools,
+    toolsLoading,
+    toolsError,
+    draftToolDrafts,
+    handleToolDraftChange,
+    handleToolEnabledChange,
+    timelineStatuses,
+    timelineStatusesLoading,
+    timelineSelection,
+    setTimelineSelection,
+    fetchTimelineStatuses,
+    dirty,
+    handleSaveChanges,
+    handleDiscardChanges,
+    getHandle,
+  } = useSettings();
 
   const isNavGroupActive = (item: NavItem) => {
     if (!isNavGroup(item)) {
       return activeSection === item.id;
     }
-    return item.children.some((child) => child.id === activeSection);
+    return item.children!.some((child) => child.id === activeSection);
   };
-  const isWideSection = activeSection === 'llmProviders' || activeSection === 'llmModels';
-  const usesInnerPaneScroll = activeSection === 'llmProviders';
 
-  const getGroupExpanded = (groupId: string) => expandedGroups[groupId] ?? false;
-
-  const setGroupExpanded = (groupId: string, expanded: boolean) => {
-    setExpandedGroups((prev) => ({ ...prev, [groupId]: expanded }));
-  };
+  useImperativeHandle(ref, getHandle, [getHandle]);
 
   const handleSectionSelect = (sectionId: string) => {
-    setActiveSection(sectionId);
     if (sectionId === 'timeline') {
       setTimelineSelection(null);
       void fetchTimelineStatuses();
     }
-  };
-
-  const handleNavItemClick = (item: NavItem) => {
-    if (isNavGroup(item)) {
-      const isExpanded = getGroupExpanded(item.id);
-      if (isExpanded) {
-        setGroupExpanded(item.id, false);
-        return;
-      }
-      setGroupExpanded(item.id, true);
-      handleSectionSelect(item.children[0]?.id || item.id);
-      return;
-    }
-    handleSectionSelect(item.id);
-  };
-
-  const patchDraftConfig = (updater: (draft: SystemConfig) => void) => {
-    setDraftConfig((prev) => {
-      const next = structuredClone(prev);
-      updater(next);
-      return next;
-    });
-  };
-
-  const loadPlugins = async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (!silent) {
-      setPluginsLoading(true);
-    }
-    try {
-      const response = await pluginsApi.list();
-      const nextPlugins = response.plugins || [];
-      const nextSnapshot = buildPluginDraftSnapshotFromPackages(nextPlugins);
-      setPlugins(nextPlugins);
-      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));
-    } catch (error: any) {
-      toast.error(t('settings.extensions.errors.loadFailed', { message: error?.message || 'unknown' }));
-    } finally {
-      if (!silent) {
-        setPluginsLoading(false);
-      }
-    }
-  };
-
-  const loadTools = async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (!silent) {
-      setToolsLoading(true);
-      setToolsError(null);
-    }
-    try {
-      const response = await toolsApi.listWithConfig();
-      const nextTools = response.tools || [];
-      const nextDrafts = buildToolDraftSnapshot(nextTools);
-      setTools(nextTools);
-      setSavedToolDrafts(nextDrafts);
-      setDraftToolDrafts((prev) => {
-        if (Object.keys(prev).length === 0) {
-          return nextDrafts;
-        }
-        const merged = structuredClone(prev);
-        for (const [toolName, snapshot] of Object.entries(nextDrafts)) {
-          merged[toolName] = {
-            enabled: merged[toolName]?.enabled ?? snapshot.enabled,
-            values: {
-              ...snapshot.values,
-              ...(merged[toolName]?.values || {}),
-            },
-          };
-        }
-        return merged;
-      });
-    } catch (error: any) {
-      const message = error?.message || t('settings.errorUnknown');
-      setToolsError(t('settings.loadToolsFailed', { message }));
-      toast.error(t('settings.loadToolsFailed', { message }));
-    } finally {
-      if (!silent) {
-        setToolsLoading(false);
-      }
-    }
-  };
-
-  const fetchTimelineStatuses = async () => {
-    setTimelineStatusesLoading(true);
-    try {
-      const response = await timelineApi.getSourceStatus();
-      const nextStatuses = response.sources || [];
-      const nextSnapshot = buildPluginDraftSnapshotFromTimeline(nextStatuses);
-      setTimelineStatuses(nextStatuses);
-      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));
-    } catch (error: any) {
-      toast.error(t('settings.timeline.errors.statusLoadFailed', { message: error?.message || 'unknown' }));
-      setTimelineStatuses([]);
-    } finally {
-      setTimelineStatusesLoading(false);
-    }
-  };
-
-  const fetchConfig = async () => {
-    setLoading(true);
-    try {
-      const response = await configApi.get();
-      const nextConfig = response.data || DEFAULT_SYSTEM_CONFIG;
-      setSavedConfig(nextConfig);
-      setDraftConfig(structuredClone(nextConfig));
-      setSavedThemeMode(themeMode);
-      setDraftThemeMode(themeMode);
-    } catch (error: any) {
-      toast.error(t('settings.loadFailed', { message: error?.message || 'unknown' }));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void Promise.all([
-      fetchConfig(),
-      fetchTimelineStatuses(),
-      loadPlugins(),
-      loadTools(),
-    ]);
-  }, []);
-
-  useEffect(() => {
-    if (timelineSelection && !timelineStatuses.some((source) => source.source_name === timelineSelection)) {
-      setTimelineSelection(null);
-    }
-  }, [timelineSelection, timelineStatuses]);
-
-  useEffect(() => {
-    if (activeSection !== 'timeline') {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      void fetchTimelineStatuses();
-    }, 4000);
-    return () => window.clearInterval(timer);
-  }, [activeSection]);
-
-  const configDirty = serialize(savedConfig) !== serialize(draftConfig);
-  const pluginsDirty = serialize(savedPluginDrafts) !== serialize(draftPluginDrafts);
-  const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
-  const themeDirty = savedThemeMode !== draftThemeMode;
-  const dirty = configDirty || pluginsDirty || toolsDirty || themeDirty;
-
-  const handleThemePreviewChange = (mode: ThemeMode) => {
-    setDraftThemeMode(mode);
-    setThemeMode(mode, { persist: false });
-  };
-
-  const handleLanguagePreviewChange = (value: string) => {
-    const nextLanguage = value as LanguageCode;
-    patchDraftConfig((draft) => {
-      draft.preferences.language = nextLanguage;
-    });
-    void previewLanguageSelection(nextLanguage);
-  };
-
-  const handlePluginDraftChange = (pluginId: string, key: string, value: any) => {
-    setDraftPluginDrafts((prev) => ({
-      ...prev,
-      [pluginId]: {
-        ...(prev[pluginId] || {}),
-        [key]: value,
-      },
-    }));
-  };
-
-  const handlePluginDraftChanges = (pluginId: string, updates: Record<string, any>) => {
-    setDraftPluginDrafts((prev) => ({
-      ...prev,
-      [pluginId]: {
-        ...(prev[pluginId] || {}),
-        ...updates,
-      },
-    }));
-  };
-
-  const handleToolDraftChange = (toolName: string, path: string, value: any) => {
-    setDraftToolDrafts((prev) => ({
-      ...prev,
-      [toolName]: {
-        enabled: prev[toolName]?.enabled ?? tools.find((tool) => tool.name === toolName)?.enabled ?? true,
-        values: {
-          ...(prev[toolName]?.values || {}),
-          [path]: value,
-        },
-      },
-    }));
-  };
-
-  const handleToolEnabledChange = (toolName: string, enabled: boolean) => {
-    setDraftToolDrafts((prev) => ({
-      ...prev,
-      [toolName]: {
-        enabled,
-        values: {
-          ...(prev[toolName]?.values || tools.find((tool) => tool.name === toolName)?.current_values || {}),
-        },
-      },
-    }));
-  };
-
-  const handlePluginAction = async (pluginId: string, action: 'enable' | 'disable' | 'reload') => {
-    setPluginProcessingIds((prev) => ({ ...prev, [pluginId]: action }));
-    try {
-      const next =
-        action === 'enable'
-          ? await pluginsApi.enable(pluginId)
-          : action === 'disable'
-            ? await pluginsApi.disable(pluginId)
-            : await pluginsApi.reload(pluginId);
-      const nextSnapshot = buildPluginDraftSnapshotFromPackages([next]);
-      setPlugins((prev) => prev.map((item) => (item.manifest.plugin_id === next.manifest.plugin_id ? next : item)));
-      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      toast.success(t(`settings.extensions.feedback.${action}Success`, { name: next.manifest.name }));
-      await fetchTimelineStatuses();
-    } catch (error: any) {
-      toast.error(t('settings.extensions.errors.actionFailed', { message: error?.message || 'unknown' }));
-    } finally {
-      setPluginProcessingIds((prev) => {
-        const next = { ...prev };
-        delete next[pluginId];
-        return next;
-      });
-    }
-  };
-
-  const handleReloadActionPlugin = async (pluginId: string) => {
-    setReloadingActionPlugins((prev) => ({ ...prev, [pluginId]: true }));
-    try {
-      const next = await pluginsApi.reload(pluginId);
-      const nextSnapshot = buildPluginDraftSnapshotFromPackages([next]);
-      setPlugins((prev) => prev.map((item) => (item.manifest.plugin_id === next.manifest.plugin_id ? next : item)));
-      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      toast.success(t('settings.actionsConfig.feedback.reloadSuccess', { name: next.manifest.name }));
-      await fetchTimelineStatuses();
-    } catch (error: any) {
-      toast.error(t('settings.actionsConfig.errors.reloadFailed', { message: error?.message || 'unknown' }));
-    } finally {
-      setReloadingActionPlugins((prev) => ({ ...prev, [pluginId]: false }));
-    }
-  };
-
-  const handleSaveChanges = async () => {
-    setSaving(true);
-    try {
-      if (configDirty) {
-        await configApi.update(draftConfig);
-        setSavedConfig(structuredClone(draftConfig));
-      }
-
-      for (const tool of tools) {
-        const savedSnapshot = savedToolDrafts[tool.name] ?? { enabled: tool.enabled, values: tool.current_values };
-        const draftSnapshot = draftToolDrafts[tool.name] ?? savedSnapshot;
-        const updates = diffFlatMaps(savedSnapshot.values || {}, draftSnapshot.values || {});
-        const enabledChanged = savedSnapshot.enabled !== draftSnapshot.enabled;
-        if (Object.keys(updates).length === 0 && !enabledChanged) {
-          continue;
-        }
-        await toolsApi.updateToolConfig(tool.name, {
-          updates,
-          enabled: enabledChanged ? draftSnapshot.enabled : undefined,
-        });
-      }
-
-      for (const plugin of plugins) {
-        const pluginId = plugin.manifest.plugin_id;
-        const savedValues = savedPluginDrafts[pluginId] || {};
-        const draftValues = draftPluginDrafts[pluginId] || {};
-        const updates = diffFlatMaps(savedValues, draftValues);
-        if (Object.keys(updates).length === 0) {
-          continue;
-        }
-        await pluginsApi.updateSettings(pluginId, updates);
-      }
-
-      if (themeDirty) {
-        setThemeMode(draftThemeMode, { persist: true });
-        setSavedThemeMode(draftThemeMode);
-      }
-      persistLanguageSelection(draftConfig.preferences.language);
-
-      await Promise.all([
-        fetchTimelineStatuses(),
-        loadPlugins({ silent: true }),
-        loadTools({ silent: true }),
-      ]);
-
-      setSavedPluginDrafts(structuredClone(draftPluginDrafts));
-      setSavedToolDrafts(structuredClone(draftToolDrafts));
-      toast.success(t('settings.saveSuccess'));
-    } catch (error: any) {
-      toast.error(t('settings.saveFailed', { message: error?.message || 'unknown' }));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDiscardChanges = async () => {
-    setDraftConfig(structuredClone(savedConfig));
-    setDraftPluginDrafts(structuredClone(savedPluginDrafts));
-    setDraftToolDrafts(structuredClone(savedToolDrafts));
-    setDraftThemeMode(savedThemeMode);
-    setThemeMode(savedThemeMode, { persist: true });
-    await previewLanguageSelection(savedConfig.preferences.language);
-  };
-
-  useImperativeHandle(ref, () => ({
-    hasUnsavedChanges: () => dirty,
-    discardChanges: handleDiscardChanges,
-  }), [dirty, savedConfig, savedPluginDrafts, savedThemeMode, savedToolDrafts]);
-
-  const updateMemoryToggle = (field: MemoryToggleFieldId, checked: boolean) => {
-    patchDraftConfig((draft) => {
-      if (field === 'enable_l1' && !checked) {
-        draft.memory.enable_l1 = false;
-        draft.memory.enable_l2 = false;
-        draft.memory.enable_l3 = false;
-        draft.memory.enable_l4 = false;
-        draft.memory.enable_t1_importance = false;
-        draft.memory.enable_l2_llm_extraction = false;
-        draft.memory.enable_l3_llm_summary = false;
-        draft.memory.enable_l4_skill_extraction = false;
-        return;
-      }
-
-      if (field === 'enable_l2' && !checked) {
-        draft.memory.enable_l2 = false;
-        draft.memory.enable_l2_llm_extraction = false;
-        return;
-      }
-
-      if (field === 'enable_l3' && !checked) {
-        draft.memory.enable_l3 = false;
-        draft.memory.enable_l3_llm_summary = false;
-        return;
-      }
-
-      if (field === 'enable_l4' && !checked) {
-        draft.memory.enable_l4 = false;
-        draft.memory.enable_l4_skill_extraction = false;
-        return;
-      }
-
-      draft.memory[field] = checked as never;
-    });
   };
 
   if (loading) {
@@ -1265,7 +655,13 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 <div key={item.id} className="space-y-1.5">
                   <button
                     type="button"
-                    onClick={() => handleNavItemClick(item)}
+                    onClick={() => {
+                      if (isNavGroup(item)) {
+                        handleNavItemClick(item.id, true, item.children[0]?.id);
+                      } else {
+                        handleNavItemClick(item.id, false);
+                      }
+                    }}
                     aria-current={isActive ? 'page' : undefined}
                     aria-expanded={isNavGroup(item) ? isExpanded : undefined}
                     aria-label={t(`settings.tabs.${item.id}`)}
