@@ -85,8 +85,6 @@ def truncate_text(text: str, max_length: int = 5000) -> str:
     """
     Truncate text that exceeds max length.
 
-    Set env var MAGI_FULL_LOG=1 to disable truncation and save full content to log file.
-
     Args:
         text: Original text.
         max_length: Maximum character length.
@@ -94,10 +92,6 @@ def truncate_text(text: str, max_length: int = 5000) -> str:
     Returns:
         Truncated text.
     """
-    # Check if full logging is enabled
-    if os.getenv("MAGI_FULL_LOG") == "1" or os.getenv("MAGI_full_LOG") == "1":
-        return text
-
     if len(text) <= max_length:
         return text
     return text[:max_length] + f"... (truncated, total {len(text)} chars)"

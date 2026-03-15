@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import logging
+import getpass
 import yaml
 
 from ...config.loader import get_config_file_path
@@ -280,7 +281,7 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
         "user_message": request.user_message,
         "conversation_history": [],
         "env_vars": {
-            "user": os.getenv("user") or os.getenv("username") or "unknown",
+            "user": getpass.getuser(),
             "HOME": os.path.expanduser("~"),
             "PWD": os.getcwd(),
             "CLAUDE_session_id": f"api_session_{request.user_id}",

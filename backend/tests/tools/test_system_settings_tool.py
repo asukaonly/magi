@@ -17,13 +17,21 @@ def _context() -> ToolExecutionContext:
     return ToolExecutionContext(agent_id="test-agent")
 
 
+def _ensure_tool_registered(name: str, tool_class) -> None:
+    if tool_registry.get_tool(name) is None:
+        tool_registry.register(tool_class)
+
+
 @pytest.mark.asyncio
 async def test_list_contains_app_and_tool_paths():
+    _ensure_tool_registered("web-search", WebSearchTool)
+    _ensure_tool_registered("web-fetch", WebFetchTool)
+    _ensure_tool_registered("weather", WeatherTool)
     tool = SystemSettingsTool()
     result = await tool.execute({"action": "list"}, _context())
 
     assert result.success is True
-    assert "app.llm.model" in result.data["available_paths"]
+    assert "app.llm.timeout" in result.data["available_paths"]
     assert "tool.web-search.default_provider" in result.data["available_paths"]
     assert "tool.web-fetch.default_provider" in result.data["available_paths"]
     assert "tool.weather.providers.{provider}.api_key" in result.data["available_paths"]
@@ -59,6 +67,7 @@ async def test_set_app_path_uses_save_config_with_type_conversion(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_set_tool_path_routes_to_tool_update(monkeypatch):
+    _ensure_tool_registered("web-search", WebSearchTool)
     tool = SystemSettingsTool()
     web_tool = tool_registry.get_tool("web-search")
     assert web_tool is not None
@@ -88,6 +97,7 @@ async def test_set_tool_path_routes_to_tool_update(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_set_web_fetch_tool_path_routes_to_tool_update(monkeypatch):
+    _ensure_tool_registered("web-fetch", WebFetchTool)
     tool = SystemSettingsTool()
     web_fetch_tool = tool_registry.get_tool("web-fetch")
     assert web_fetch_tool is not None

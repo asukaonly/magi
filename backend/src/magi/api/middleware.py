@@ -8,8 +8,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Callable
 import time
 import logging
-import os
 
+from ..config import get_config
 from ..plugins.i18n import set_current_language, DEFAULT_LANGUAGE, LANGUAGE_ALIASES
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ EXEMPT_PATH_PREFIXES = (
 
 
 def get_required_desktop_session_token() -> str | None:
-    token = os.getenv("MAGI_DESKTOP_SESSION_TOKEN", "").strip()
+    token = str(get_config().server.desktop_session_token or "").strip()
     return token or None
 
 

@@ -10,6 +10,7 @@ Handles tool execution using LLM's native function calling capability:
 import inspect
 import json
 import logging
+import getpass
 import os
 import re
 import time
@@ -1344,7 +1345,7 @@ class FunctionCallingExecutor:
             "user_id": user_id,
             "session_id": f"session_{user_id}",
             "env_vars": {
-                "user": os.getenv("user") or os.getenv("username") or "unknown",
+                "user": getpass.getuser(),
                 "HOME": os.path.expanduser("~"),
                 "PWD": os.getcwd(),
             },

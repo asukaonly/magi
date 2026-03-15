@@ -5,14 +5,23 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="${ROOT_DIR}/backend"
 FRONTEND_DIR="${ROOT_DIR}/frontend"
 
-BACKEND_HOST="${MAGI_BACKEND_HOST:-127.0.0.1}"
-BACKEND_PORT="${MAGI_BACKEND_PORT:-8000}"
 FRONTEND_PORT="${MAGI_FRONTEND_PORT:-5173}"
 BACKEND_LOG_FILE="${MAGI_BACKEND_LOG_FILE:-${HOME}/.magi/logs/backend-dev-hot.log}"
 TAURI_BIN_DIR="${ROOT_DIR}/frontend/src-tauri/binaries"
 
-# Use a stable dev token so HTTP/WS desktop auth passes while backend reload is enabled.
-DESKTOP_TOKEN="${MAGI_DESKTOP_SESSION_TOKEN:-magi-desktop-dev-token}"
+BACKEND_SETTINGS="$(
+  cd "${BACKEND_DIR}"
+  python - <<'PY'
+import os
+import sys
+sys.path.insert(0, os.path.join(os.getcwd(), "src"))
+from magi.config import get_config
+cfg = get_config()
+token = (cfg.server.desktop_session_token or "").replace("|", "")
+print(f"{cfg.server.host}|{cfg.server.port}|{int(bool(cfg.server.reload))}|{token}")
+PY
+)"
+IFS='|' read -r BACKEND_HOST BACKEND_PORT BACKEND_RELOAD DESKTOP_TOKEN <<< "${BACKEND_SETTINGS}"
 
 BACKEND_PID=""
 
@@ -85,18 +94,16 @@ kill_listeners_on_port "${FRONTEND_PORT}"
 mkdir -p "$(dirname "${BACKEND_LOG_FILE}")"
 touch "${BACKEND_LOG_FILE}"
 
-echo "Starting backend with hot reload for Tauri..."
+echo "Starting backend for Tauri..."
 (
   cd "${BACKEND_DIR}"
-  MAGI_DESKTOP_SESSION_TOKEN="${DESKTOP_TOKEN}" \
-  python run_server.py \
-    --host "${BACKEND_HOST}" \
-    --port "${BACKEND_PORT}" \
-    --reload
+  python run_server.py
 ) >"${BACKEND_LOG_FILE}" 2>&1 &
 BACKEND_PID=$!
 echo "Backend logs: ${BACKEND_LOG_FILE}"
 echo "Tail backend logs manually: tail -f ${BACKEND_LOG_FILE}"
+echo "Backend endpoint(from config): http://${BACKEND_HOST}:${BACKEND_PORT}"
+echo "Backend reload(from config): ${BACKEND_RELOAD}"
 
 echo "Starting Tauri desktop window (frontend HMR enabled by Vite)..."
 (

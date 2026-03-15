@@ -4,7 +4,7 @@ System Settings Tool - Unified app/tool configuration entrypoint.
 from typing import Dict, Any, List, Optional, Tuple
 
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
-from ...config import get_config, save_config, get_config_file_path, ENV_MAPPINGS, list_app_config_specs
+from ...config import get_config, save_config, get_config_file_path, list_app_config_specs
 from ...core.logger import get_logger
 
 
@@ -248,9 +248,6 @@ class SystemSettingsTool(Tool):
         # Get config file path
         config_path = str(get_config_file_path())
 
-        # List known env vars
-        env_vars = list(set(env_var for _, (env_var, _, _) in ENV_MAPPINGS.items()))
-
         return ToolResult(
             success=True,
             data={
@@ -259,7 +256,6 @@ class SystemSettingsTool(Tool):
                 "app_specs": [item.model_dump() for item in app_specs],
                 "tool_specs": tool_specs,
                 "available_paths": available_paths,
-                "env_vars": env_vars,
                 "config_file": config_path,
                 "summary": (
                     f"Config file: {config_path}. Found {len(app_specs)} app paths and "

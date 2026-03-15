@@ -13,9 +13,9 @@ from ...config import get_config, save_config
 # Provider display info for messages
 PROVIDER_INFO = {
     "duckduckgo": {"name": "DuckDuckGo"},
-    "brave": {"name": "Brave Search", "env_var": "BRAVE_API_KEY"},
-    "perplexity": {"name": "Perplexity AI", "env_var": "PERPLEXITY_API_KEY"},
-    "tavily": {"name": "Tavily", "env_var": "TAVILY_API_KEY"},
+    "brave": {"name": "Brave Search"},
+    "perplexity": {"name": "Perplexity AI"},
+    "tavily": {"name": "Tavily"},
 }
 
 

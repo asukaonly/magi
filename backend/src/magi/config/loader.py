@@ -2,12 +2,11 @@
 Configuration Loader - Runtime configuration management.
 
 Configuration Sources (priority order):
-    1. Selected environment variables (highest priority)
-    2. Runtime config files:
+    1. Runtime config files:
        - ~/.magi/config/agent.yaml
        - ~/.magi/config/plugins/index.yaml
        - ~/.magi/config/plugins/<plugin_id>.yaml
-    3. Default values (lowest priority)
+    2. Pydantic model defaults (lowest priority)
 
 Directory Structure:
     ~/.magi/
@@ -26,13 +25,11 @@ First Run:
     it will be copied from backend/configs/config.example.yaml.
     Plugin package metadata and settings are then materialized into split files.
 """
-import os
-import re
 import shutil
 import logging
 import yaml
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable, Tuple
+from typing import Optional, Dict, Any
 
 from .models import AppConfig
 from .constants import DEFAULT_MAX_TOKENS
@@ -86,45 +83,6 @@ def get_data_dir() -> Path:
 
 
 # =============================================================================
-# Environment Variable Mappings
-# =============================================================================
-
-# Maps config path -> (env_var_name, type_converter, default_value)
-ENV_MAPPINGS: Dict[str, Tuple[str, Callable, Any]] = {
-    # Agent Settings
-    "agent.name": ("AGENT_NAME", str, "magi-agent"),
-    "agent.num_task_agents": ("NUM_TASK_AGENTS", int, 2),
-    "agent.loop_interval": ("LOOP_INTERVAL", float, 1.0),
-    "agent.enable_monitoring": ("ENABLE_MONITORING", lambda v: v.lower() == "true", True),
-
-    # Feature Flags
-    "features.enable_three_layer_arch": ("ENABLE_THREE_LAYER_ARCH", lambda v: v.lower() == "true", False),
-    "features.enable_skills": ("ENABLE_SKILLS", lambda v: v.lower() == "true", True),
-    "features.enable_websocket": ("ENABLE_WEBSOCKET", lambda v: v.lower() == "true", True),
-
-    # Tools - Weather
-    "tools.weather.default_provider": ("WEATHER_DEFAULT_PROVIDER", str, "qweather"),
-    "tools.weather.providers.qweather.api_key": ("QWEATHER_API_KEY", str, None),
-    "tools.weather.providers.qweather.base_url": ("QWEATHER_API_HOST", str, None),
-
-    # Tools - Web Search
-    "tools.web_search.default_provider": ("WEB_SEARCH_DEFAULT_PROVIDER", str, "duckduckgo"),
-    "tools.web_search.providers.brave.api_key": ("BRAVE_API_KEY", str, None),
-    "tools.web_search.providers.perplexity.api_key": ("PERPLEXITY_API_KEY", str, None),
-    "tools.web_search.providers.tavily.api_key": ("TAVILY_API_KEY", str, None),
-
-    # Server Settings
-    "server.host": ("SERVER_HOST", str, "0.0.0.0"),
-    "server.port": ("SERVER_PORT", int, 8000),
-    "server.debug": ("SERVER_DEBUG", lambda v: v.lower() == "true", False),
-
-    # Global
-    "debug": ("DEBUG", lambda v: v.lower() == "true", False),
-    "log_level": ("LOG_LEVEL", str, "INFO"),
-}
-
-
-# =============================================================================
 # Config Loader
 # =============================================================================
 
@@ -134,7 +92,6 @@ class ConfigLoader:
 
     - Loads from ~/.magi/config/agent.yaml
     - Creates default config on first run
-    - Supports selected environment variable overrides
     - Can save changes back to config file
     """
 
@@ -160,7 +117,7 @@ class ConfigLoader:
         # Load YAML file
         self._yaml_data = self._load_yaml()
 
-        # Build config with selected env var overrides
+        # Build typed config from YAML
         self._config = self._build_config()
 
         logger.info(f"Configuration loaded from {self._config_file}")
@@ -483,51 +440,14 @@ class ConfigLoader:
         """Load and parse YAML configuration file."""
         data = self._load_yaml_file(self._config_file)
         data = self._merge_split_plugin_config(data)
-        data = self._substitute_env_vars(data)
-        return data
-
-    def _substitute_env_vars(self, data: Any) -> Any:
-        """Recursively substitute ${VAR} patterns."""
-        if isinstance(data, str):
-            if "${" not in data:
-                return data
-
-            pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'
-
-            def replace(match):
-                var_name = match.group(1)
-                default = match.group(2) if match.group(2) is not None else ""
-                return os.getenv(var_name, default)
-
-            return re.sub(pattern, replace, data)
-
-        elif isinstance(data, dict):
-            return {k: self._substitute_env_vars(v) for k, v in data.items()}
-
-        elif isinstance(data, list):
-            return [self._substitute_env_vars(item) for item in data]
-
         return data
 
     def _build_config(self) -> AppConfig:
-        """Build final config by merging YAML + selected env vars + defaults."""
+        """Build final config by merging YAML + model defaults."""
         config_dict: Dict[str, Any] = {}
 
         # Apply YAML values
         self._apply_yaml_values(config_dict, self._yaml_data, "")
-
-        # Apply environment variable overrides
-        for config_path, (env_var, converter, default) in ENV_MAPPINGS.items():
-            env_value = os.getenv(env_var)
-
-            if env_value is not None:
-                try:
-                    value = converter(env_value)
-                    self._set_nested(config_dict, config_path, value)
-                except Exception as e:
-                    logger.warning(f"Failed to convert {env_var}={env_value}: {e}")
-            elif not self._has_nested(config_dict, config_path):
-                self._set_nested(config_dict, config_path, default)
 
         return AppConfig(**config_dict)
 
@@ -555,18 +475,6 @@ class ConfigLoader:
             current = current[part]
 
         current[parts[-1]] = value
-
-    def _has_nested(self, data: Dict, path: str) -> bool:
-        """Check if nested path exists."""
-        parts = path.split(".")
-        current = data
-
-        for part in parts:
-            if not isinstance(current, dict) or part not in current:
-                return False
-            current = current[part]
-
-        return True
 
     def _get_nested(self, data: Dict, path: str) -> Any:
         """Get nested value using dot-notation path."""

@@ -6,7 +6,10 @@ from magi.api.app import create_app
 
 
 def test_builtin_avatar_is_served_from_static_path(monkeypatch) -> None:
-    monkeypatch.setenv("MAGI_DESKTOP_SESSION_TOKEN", "desktop-secret")
+    monkeypatch.setattr(
+        "magi.api.middleware.get_required_desktop_session_token",
+        lambda: "desktop-secret",
+    )
 
     client = TestClient(create_app())
 
@@ -17,7 +20,10 @@ def test_builtin_avatar_is_served_from_static_path(monkeypatch) -> None:
 
 
 def test_personality_list_returns_static_avatar_paths(monkeypatch) -> None:
-    monkeypatch.setenv("MAGI_DESKTOP_SESSION_TOKEN", "desktop-secret")
+    monkeypatch.setattr(
+        "magi.api.middleware.get_required_desktop_session_token",
+        lambda: "desktop-secret",
+    )
 
     client = TestClient(create_app())
 

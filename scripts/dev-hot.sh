@@ -5,13 +5,24 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="${ROOT_DIR}/backend"
 FRONTEND_DIR="${ROOT_DIR}/frontend"
 
-BACKEND_HOST="${MAGI_BACKEND_HOST:-127.0.0.1}"
-BACKEND_PORT="${MAGI_BACKEND_PORT:-8000}"
 FRONTEND_HOST="${MAGI_FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${MAGI_FRONTEND_PORT:-5173}"
 
 BACKEND_PID=""
 FRONTEND_PID=""
+
+BACKEND_SETTINGS="$(
+  cd "${BACKEND_DIR}"
+  python - <<'PY'
+import os
+import sys
+sys.path.insert(0, os.path.join(os.getcwd(), "src"))
+from magi.config import get_config
+cfg = get_config()
+print(f"{cfg.server.host}|{cfg.server.port}|{int(bool(cfg.server.reload))}")
+PY
+)"
+IFS='|' read -r BACKEND_HOST BACKEND_PORT BACKEND_RELOAD <<< "${BACKEND_SETTINGS}"
 
 cleanup() {
   echo
@@ -31,10 +42,10 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-echo "Starting backend with hot reload..."
+echo "Starting backend..."
 (
   cd "${BACKEND_DIR}"
-  python run_server.py --host "${BACKEND_HOST}" --port "${BACKEND_PORT}" --reload
+  python run_server.py
 ) &
 BACKEND_PID=$!
 
@@ -48,6 +59,7 @@ FRONTEND_PID=$!
 echo
 echo "Dev environment is up."
 echo "Backend:  http://${BACKEND_HOST}:${BACKEND_PORT}"
+echo "Backend reload(from config): ${BACKEND_RELOAD}"
 echo "Frontend: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
 echo "Press Ctrl+C to stop both."
 
@@ -62,4 +74,3 @@ while true; do
   fi
   sleep 1
 done
-

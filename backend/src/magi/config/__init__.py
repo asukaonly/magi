@@ -11,9 +11,8 @@ First Run:
     and plugin configuration is materialized into split files.
 
 Configuration Sources (priority order):
-    1. Environment variables (highest priority)
-    2. Runtime config files under ~/.magi/config/
-    3. Default values (lowest priority)
+    1. Runtime config files under ~/.magi/config/
+    2. Model defaults (lowest priority)
 
 Usage:
     from magi.config import get_config, save_config
@@ -25,9 +24,6 @@ Usage:
     # Save configuration (persists to split runtime config files)
     save_config({"tools.weather.api_key": "your-key"})
 
-Environment Variables:
-    QWEATHER_API_KEY, SEARCH_API_KEY
-    DEBUG, LOG_LEVEL
 """
 from .loader import (
     ConfigLoader,
@@ -42,7 +38,6 @@ from .loader import (
     get_plugins_index_file,
     get_plugin_settings_file,
     get_data_dir,
-    ENV_MAPPINGS,
 )
 
 from .models import (
@@ -112,8 +107,7 @@ __all__ = [
     # Loader class
     "ConfigLoader",
 
-    # Mappings
-    "ENV_MAPPINGS",
+    # Introspection
     "ConfigPathSpec",
     "list_app_config_specs",
 
