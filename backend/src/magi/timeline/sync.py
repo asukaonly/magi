@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol, runtime_checkable
 
-from ..utils.runtime import Runtimepaths
+from ..utils.runtime import RuntimePaths
 
 
 @dataclass(slots=True)
@@ -16,7 +16,7 @@ class SensorSyncContext:
     last_cursor: Optional[str]
     last_success_at: Optional[float]
     limit: int
-    runtime_paths: Runtimepaths
+    runtime_paths: RuntimePaths
     plugin_settings: dict[str, Any] = field(default_factory=dict)
 
 

@@ -1,7 +1,7 @@
 """
-toolSchemaandmetadata定义
+Tool schema and metadata definitions.
 
-定义tool的standardInterfaceandmetadatastructure
+Defines standard tool interface and metadata structure.
 """
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class ParameterType(str, Enum):
-    """ParameterType"""
+    """Parameter type enum."""
     STRING = "string"
     INTEGER = "integer"
     FLOAT = "float"
@@ -101,53 +101,53 @@ class ToolErrorCode(str, Enum):
 
 
 class ToolParameter(BaseModel):
-    """toolParameter定义"""
-    name: str = Field(..., description="Parameter名")
-    type: ParameterType = Field(..., description="ParameterType")
-    description: str = Field(..., description="ParameterDescription")
-    required: bool = Field(default=False, description="is not必需")
-    default: Any = Field(None, description="defaultValue")
-    enum: Optional[List[Any]] = Field(None, description="枚举Value")
-    min_value: Optional[float] = Field(None, description="minimumValue（numbertype）")
-    max_value: Optional[float] = Field(None, description="maximumValue（numbertype）")
+    """Tool parameter definition."""
+    name: str = Field(..., description="Parameter name")
+    type: ParameterType = Field(..., description="Parameter type")
+    description: str = Field(..., description="Parameter description")
+    required: bool = Field(default=False, description="Whether required")
+    default: Any = Field(None, description="Default value")
+    enum: Optional[List[Any]] = Field(None, description="Enum values")
+    min_value: Optional[float] = Field(None, description="Minimum value (numeric)")
+    max_value: Optional[float] = Field(None, description="Maximum value (numeric)")
 
 
 class ToolSchema(BaseModel):
-    """toolSchema"""
-    name: str = Field(..., description="toolName")
-    description: str = Field(..., description="toolDescription")
-    category: str = Field(..., description="tool分Class")
-    version: str = Field(default="1.0.0", description="toolversion")
-    author: str = Field(default="Magi Team", description="作者")
-    parameters: List[ToolParameter] = Field(default_factory=list, description="Parameterlist")
-    examples: List[Dict[str, Any]] = Field(default_factory=list, description="使用Example")
+    """Tool schema."""
+    name: str = Field(..., description="Tool name")
+    description: str = Field(..., description="Tool description")
+    category: str = Field(..., description="Tool category")
+    version: str = Field(default="1.0.0", description="Tool version")
+    author: str = Field(default="Magi Team", description="Author")
+    parameters: List[ToolParameter] = Field(default_factory=list, description="Parameter list")
+    examples: List[Dict[str, Any]] = Field(default_factory=list, description="Usage examples")
 
-    # ExecuteConfiguration
-    timeout: int = Field(default=30, description="timeout时间（seconds）")
-    retry_on_failure: bool = Field(default=False, description="failure时is not重试")
-    max_retries: int = Field(default=3, description="maximum重试count")
+    # Execution configuration
+    timeout: int = Field(default=30, description="Timeout in seconds")
+    retry_on_failure: bool = Field(default=False, description="Whether to retry on failure")
+    max_retries: int = Field(default=3, description="Maximum retry count")
 
-    # permissionandsafe
-    requires_auth: bool = Field(default=False, description="is not需要authentication")
-    allowed_roles: List[str] = Field(default_factory=list, description="允许的role")
-    dangerous: bool = Field(default=False, description="is notdangerousoperation")
+    # Permission and safety
+    requires_auth: bool = Field(default=False, description="Whether authentication required")
+    allowed_roles: List[str] = Field(default_factory=list, description="Allowed roles")
+    dangerous: bool = Field(default=False, description="Whether dangerous operation")
 
-    # metadata
-    tags: List[str] = Field(default_factory=list, description="label")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="othermetadata")
+    # Metadata
+    tags: List[str] = Field(default_factory=list, description="Tags")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Other metadata")
 
 
 class ToolExecutionContext(BaseModel):
-    """toolExecutecontext"""
+    """Tool execution context."""
     agent_id: str
     task_id: Optional[str] = None
-    workspace: str = Field(default="./workspace", description="工作directory")
-    env_vars: Dict[str, str] = Field(default_factory=dict, description="环境Variable")
-    permissions: List[str] = Field(default_factory=list, description="permissionlist")
+    workspace: str = Field(default="./workspace", description="Working directory")
+    env_vars: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
+    permissions: List[str] = Field(default_factory=list, description="Permission list")
 
 
 class ToolResult(BaseModel):
-    """toolExecution result"""
+    """Tool execution result."""
     success: bool
     data: Any = None
     error: Optional[str] = None
@@ -172,9 +172,9 @@ class ToolConfigSpec(BaseModel):
 
 class Tool(ABC):
     """
-    toolBase class
+    Tool base class.
 
-    alltool都应该继承此Class并ImplementationexecuteMethod
+    All tools should inherit from this class and implement the execute method.
     """
 
     def __init__(self):
@@ -184,9 +184,9 @@ class Tool(ABC):
     @abstractmethod
     def _init_schema(self) -> None:
         """
-        initializetoolSchema
+        Initialize tool schema.
 
-        子Class必须Implementation此Method来定义tool的metadata
+        Subclasses must implement this to define tool metadata.
         """
         pass
 
@@ -197,14 +197,14 @@ class Tool(ABC):
         context: ToolExecutionContext
     ) -> ToolResult:
         """
-        Executetool
+        Execute the tool.
 
         Args:
-            parameters: toolParameter
-            context: Executecontext
+            parameters: Tool parameters.
+            context: Execution context.
 
         Returns:
-            Execution result
+            Execution result.
         """
         pass
 
@@ -213,27 +213,27 @@ class Tool(ABC):
         parameters: Dict[str, Any]
     ) -> tuple[bool, Optional[str]]:
         """
-        ValidateParameter
+        Validate parameters.
 
         Args:
-            parameters: 待Validate的Parameter
+            parameters: Parameters to validate.
 
         Returns:
-            (is notvalid, errorinfo)
+            Tuple of (is_valid, error_message).
         """
         if not self.schema:
             return True, None
 
-        # check必需Parameter
+        # Check required parameters
         for param in self.schema.parameters:
             if param.required and param.name not in parameters:
                 return False, f"Missing required parameter: {param.name}"
 
-            # checktype
+            # Check type
             if param.name in parameters:
                 value = parameters[param.name]
 
-                # typeValidate
+                # Type validation
                 if param.type == ParameterType.STRING:
                     if not isinstance(value, str):
                         return False, f"Parameter {param.name} must be a string"
@@ -253,11 +253,11 @@ class Tool(ABC):
                     if not isinstance(value, dict):
                         return False, f"Parameter {param.name} must be an object"
 
-                # 枚举ValueValidate
+                # Enum validation
                 if param.enum and value not in param.enum:
                     return False, f"Parameter {param.name} must be one of {param.enum}"
 
-                # rangeValidate
+                # Range validation
                 if param.min_value is not None and isinstance(value, (int, float)):
                     if value < param.min_value:
                         return False, f"Parameter {param.name} must be >= {param.min_value}"
@@ -274,9 +274,9 @@ class Tool(ABC):
         context: ToolExecutionContext
     ) -> tuple[bool, Optional[str]]:
         """
-        Execute前钩子
+        Pre-execution hook.
 
-        子Class可以重写此Method来Implementationcustom的Execute前逻辑
+        Subclasses can override for custom pre-execution logic.
         """
         return True, None
 
@@ -286,20 +286,20 @@ class Tool(ABC):
         context: ToolExecutionContext
     ) -> ToolResult:
         """
-        Execute后钩子
+        Post-execution hook.
 
-        子Class可以重写此Method来Implementationcustom的Execute后逻辑
+        Subclasses can override for custom post-execution logic.
         """
         return result
 
     def get_schema(self) -> ToolSchema:
-        """gettoolSchema"""
+        """Get tool schema."""
         return self.schema
 
     def get_info(self) -> Dict[str, Any]:
-        """gettoolinfo"""
+        """Get tool info."""
         return {
-            "name": self.schema.name if self.schema else "Unknotttwn",
+            "name": self.schema.name if self.schema else "Unknown",
             "description": self.schema.description if self.schema else "",
             "category": self.schema.category if self.schema else "unknown",
             "parameters": [p.dict() for p in self.schema.parameters] if self.schema else [],
@@ -310,9 +310,9 @@ class Tool(ABC):
 
     def to_claude_format(self) -> Dict[str, Any]:
         """
-        convert为 Claude Tool Use API format
+        Convert to Claude Tool Use API format.
 
-        Claude tools 定义format：
+        Claude tools definition format:
         {
             "name": "tool_name",
             "description": "Tool description",
@@ -326,12 +326,12 @@ class Tool(ABC):
         }
 
         Returns:
-            Claude tools API format的tool定义
+            Tool definition in Claude API format.
         """
         if not self.schema:
             return {}
 
-        # build properties
+        # Build properties
         properties = {}
         required = []
 
@@ -341,15 +341,15 @@ class Tool(ABC):
                 "description": param.description,
             }
 
-            # adddefaultValue
+            # Add default value
             if param.default is not None:
                 prop_def["default"] = param.default
 
-            # add枚举Value
+            # Add enum values
             if param.enum:
                 prop_def["enum"] = param.enum
 
-            # addrangelimitation
+            # Add range constraints
             if param.min_value is not None:
                 prop_def["min"] = param.min_value
             if param.max_value is not None:
@@ -357,7 +357,7 @@ class Tool(ABC):
 
             properties[param.name] = prop_def
 
-            # 收集必需Parameter
+            # Collect required parameters
             if param.required:
                 required.append(param.name)
 
@@ -434,18 +434,18 @@ class Tool(ABC):
     @classmethod
     def from_claude_format(cls, tool_def: Dict[str, Any]) -> 'Tool':
         """
-        从 Claude Tool Use API formatcreatetool定义
+        Create tool schema from Claude Tool Use API format.
 
         Args:
-            tool_def: Claude format的tool定义
+            tool_def: Tool definition in Claude format.
 
         Returns:
-            ToolSchema Object
+            ToolSchema object.
         """
         from . import registry
 
-        # 这is一个ClassMethod，但实际createtool需要具体的toolClass
-        # 这里只Return schema，实际tool需要由具体的toolClassImplementation
+        # This is a class method; actual tool creation needs concrete tool class.
+        # This returns schema only; concrete tool class implements the tool.
         parameters = []
 
         input_schema = tool_def.get("input_schema", {})
@@ -474,7 +474,7 @@ class Tool(ABC):
         return ToolSchema(
             name=tool_def.get("name", "unknown"),
             description=tool_def.get("description", ""),
-            category="external",  # 从 Claude import的tooldefault为 external
+            category="external",  # Tools imported from Claude default to external
             parameters=parameters,
         )
 

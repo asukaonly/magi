@@ -161,14 +161,14 @@ class TestAppleHealthTimelineSensor:
 
             # Mock context
             from magi.timeline.sync import SensorSyncContext
-            from magi.utils.runtime import Runtimepaths
+            from magi.utils.runtime import RuntimePaths
             context = SensorSyncContext(
             source_type="apple_health",
             manual=False,
             last_cursor=None,
             last_success_at=0,
             limit=100,
-            runtime_paths=Runtimepaths(None),
+            runtime_paths=RuntimePaths(None),
             plugin_settings={}
             )
 
@@ -262,14 +262,14 @@ class TestAppleHealthTimelineSensor:
 
         # Mock context with settings
         from magi.timeline.sync import SensorSyncContext
-        from magi.utils.runtime import Runtimepaths
+        from magi.utils.runtime import RuntimePaths
         context = SensorSyncContext(
             source_type="apple_health",
             manual=False,
             last_cursor=None,
             last_success_at=0,
             limit=100,
-            runtime_paths=Runtimepaths(None),
+            runtime_paths=RuntimePaths(None),
             plugin_settings={
                 "sensors": {
                     "apple_health": {

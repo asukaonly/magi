@@ -1,7 +1,7 @@
 """
-toolRegistry
+Tool registry.
 
-Implementationtool的register、query、Execute、monitor等function
+Provides tool registration, lookup, execution, and monitoring.
 """
 import asyncio
 import time
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class ToolExecutionStats:
-    """toolExecutestatistics"""
+    """Tool execution statistics."""
 
     def __init__(self):
         self.total_calls: int = 0
@@ -29,8 +29,8 @@ class ToolExecutionStats:
         self.last_execution_time: Optional[float] = None
         self.average_execution_time: float = 0.0
 
-    def record_call(self, success: bool, execution_time: float):
-        """record一次调用"""
+    def record_call(self, success: bool, execution_time: float) -> None:
+        """Record a single tool call."""
         self.total_calls += 1
         self.last_execution_time = execution_time
 
@@ -44,7 +44,7 @@ class ToolExecutionStats:
             self.average_execution_time = self.total_execution_time / self.total_calls
 
     def get_stats(self) -> Dict[str, Any]:
-        """getstatisticsinfo"""
+        """Get statistics summary."""
         return {
             "total_calls": self.total_calls,
             "successful_calls": self.successful_calls,
@@ -57,41 +57,41 @@ class ToolExecutionStats:
 
 class ToolRegistry:
     """
-    toolRegistry
+    Tool registry.
 
-    管理tool的register、query、Execute、statistics等function
+    Manages tool registration, lookup, execution, and statistics.
     """
 
     def __init__(self, skill_indexer=None):
-        # toolregister {name: tool_class}
+        # Tool registry: {name: tool_class}
         self._tools: Dict[str, type[Tool]] = {}
 
-        # toolInstancecache {name: instance}
+        # Tool instance cache: {name: instance}
         self._tool_instances: Dict[str, Tool] = {}
 
-        # toolClass别index {category: [tool_names]}
+        # Category index: {category: [tool_names]}
         self._category_index: Dict[str, List[str]] = defaultdict(list)
 
-        # toollabelindex {tag: [tool_names]}
+        # Tag index: {tag: [tool_names]}
         self._tag_index: Dict[str, List[str]] = defaultdict(list)
 
-        # Executestatistics {tool_name: ToolExecutionStats}
+        # Execution stats: {tool_name: ToolExecutionStats}
         self._stats: Dict[str, ToolExecutionStats] = defaultdict(ToolExecutionStats)
 
-        # Skills index {name: SkillMetadata} - 按需load，仅storagemetadata
+        # Skills index: {name: SkillMetadata}, lazy-loaded, metadata only
         self._skills: Dict[str, "SkillMetadata"] = {}
 
-        # Skill indexer Instance
+        # Skill indexer instance
         self._skill_indexer = skill_indexer
 
     def register(self, tool_class: type[Tool]) -> None:
         """
-        registertool
+        Register a tool.
 
         Args:
-            tool_class: toolClass
+            tool_class: Tool class to register.
         """
-        # createtemporaryInstancegetschema
+        # Create temporary instance to get schema
         temp_instance = tool_class()
         schema = temp_instance.get_schema()
 
@@ -100,45 +100,45 @@ class ToolRegistry:
 
         tool_name = schema.name
 
-        # checkis notregistered
+        # Check if already registered
         if tool_name in self._tools:
             logger.warning(f"Tool {tool_name} already registered, overwriting")
 
-        # registertoolClass
+        # Register tool class
         self._tools[tool_name] = tool_class
 
-        # create并cacheInstance
+        # Create and cache instance
         self._tool_instances[tool_name] = temp_instance
 
-        # updateindex
+        # Update indexes
         self._category_index[schema.category].append(tool_name)
 
         for tag in schema.tags:
             self._tag_index[tag].append(tool_name)
 
-        # initializestatistics
+        # Initialize statistics
         self._stats[tool_name] = ToolExecutionStats()
 
         logger.info(f"Registered tool: {tool_name} (category: {schema.category})")
 
     def unregister(self, tool_name: str) -> bool:
         """
-        deregistertool
+        Unregister a tool.
 
         Args:
-            tool_name: toolName
+            tool_name: Tool name.
 
         Returns:
-            is notsuccess
+            True if successful.
         """
         if tool_name not in self._tools:
             logger.warning(f"Tool {tool_name} not registered")
             return False
 
-        # getschema
+        # Get schema
         schema = self._tool_instances[tool_name].get_schema()
 
-        # 从index中Remove
+        # Remove from indexes
         if schema.category in self._category_index:
             self._category_index[schema.category].remove(tool_name)
 
@@ -146,7 +146,7 @@ class ToolRegistry:
             if tag in self._tag_index:
                 self._tag_index[tag].remove(tool_name)
 
-        # deletetool
+        # Delete tool
         del self._tools[tool_name]
         del self._tool_instances[tool_name]
         del self._stats[tool_name]
@@ -156,13 +156,13 @@ class ToolRegistry:
 
     def get_tool(self, tool_name: str) -> Optional[Tool]:
         """
-        gettoolInstance
+        Get tool instance.
 
         Args:
-            tool_name: toolName
+            tool_name: Tool name.
 
         Returns:
-            toolInstance或None
+            Tool instance or None.
         """
         return self._tool_instances.get(tool_name)
 
@@ -172,22 +172,22 @@ class ToolRegistry:
         tags: Optional[List[str]] = None
     ) -> List[str]:
         """
-        column出tool
+        List tools with optional filters.
 
         Args:
-            category: filterClass别
-            tags: filterlabel
+            category: Filter by category.
+            tags: Filter by tags.
 
         Returns:
-            toolNamelist
+            List of tool names.
         """
         tools = list(self._tools.keys())
 
-        # 按Class别filter
+        # Filter by category
         if category:
             tools = list(set(tools) & set(self._category_index.get(category, [])))
 
-        # 按labelfilter
+        # Filter by tags
         if tags:
             tag_sets = [set(self._tag_index.get(tag, [])) for tag in tags]
             if tag_sets:
@@ -197,13 +197,13 @@ class ToolRegistry:
 
     def get_tool_info(self, tool_name: str) -> Optional[Dict[str, Any]]:
         """
-        gettoolinfo
+        Get tool info.
 
         Args:
-            tool_name: toolName
+            tool_name: Tool name.
 
         Returns:
-            toolinfo或None
+            Tool info dict or None.
         """
         tool = self.get_tool(tool_name)
         if not tool:
@@ -216,17 +216,17 @@ class ToolRegistry:
 
     def get_all_tools_info(self) -> List[Dict[str, Any]]:
         """
-        getalltoolinfo（contains Skills）
+        Get all tool info (includes skills).
 
         Returns:
-            toolinfolist
+            List of tool info dicts.
         """
         tools_info = [
             self.get_tool_info(tool_name)
             for tool_name in self._tools.keys()
         ]
 
-        # add Skills info（仅metadata）
+        # Add skills info (metadata only)
         for skill_name, skill_metadata in self._skills.items():
             tools_info.append({
                 "name": skill_metadata.name,
@@ -260,43 +260,43 @@ class ToolRegistry:
 
     def get_skill_names(self) -> List[str]:
         """
-        getallregistered的 Skill Name
+        Get all registered skill names.
 
         Returns:
-            Skill Namelist
+            List of skill names.
         """
         return list(self._skills.keys())
 
     def get_skill_metadata(self, name: str) -> Optional["SkillMetadata"]:
         """
-        get指定 Skill 的metadata
+        Get skill metadata by name.
 
         Args:
-            name: Skill Name
+            name: Skill name.
 
         Returns:
-            SkillMetadata 或 None
+            SkillMetadata or None.
         """
         return self._skills.get(name)
 
     def is_skill(self, name: str) -> bool:
         """
-        check指定Nameis not为 Skill
+        Check if name is a skill.
 
         Args:
-            name: tool/Skill Name
+            name: Tool or skill name.
 
         Returns:
-            is not为 Skill
+            True if it is a skill.
         """
         return name in self._skills
 
     def refresh_skills(self) -> Dict[str, "SkillMetadata"]:
         """
-        刷new Skills index
+        Refresh skills index.
 
         Returns:
-            update后的 Skills dictionary
+            Updated skills dictionary.
         """
         if self._skill_indexer:
             skills = self._skill_indexer.refresh()
@@ -311,15 +311,15 @@ class ToolRegistry:
         context: ToolExecutionContext
     ) -> ToolResult:
         """
-        Executetool
+        Execute a tool.
 
         Args:
-            tool_name: toolName
-            parameters: Parameter
-            context: Executecontext
+            tool_name: Tool name.
+            parameters: Tool parameters.
+            context: Execution context.
 
         Returns:
-            Execution result
+            Execution result.
         """
         tool = self.get_tool(tool_name)
         if not tool:
@@ -332,7 +332,7 @@ class ToolRegistry:
         schema = tool.get_schema()
         stats = self._stats[tool_name]
 
-        # permissioncheck
+        # Permission check
         if schema.dangerous and "dangerous_tools" not in context.permissions:
             logger.warning(f"Tool {tool_name} requires dangerous_tools permission")
             return ToolResult(
@@ -341,7 +341,7 @@ class ToolRegistry:
                 error_code=ToolErrorCode.PERMISSION_DENIED.value
             )
 
-        # checkauthentication要求
+        # Check authentication requirement
         if schema.requires_auth and "authenticated" not in context.permissions:
             logger.warning(f"Tool {tool_name} requires authentication")
             return ToolResult(
@@ -350,7 +350,7 @@ class ToolRegistry:
                 error_code=ToolErrorCode.AUTH_REQUIRED.value
             )
 
-        # checkrolepermission
+        # Check role permission
         if schema.allowed_roles:
             agent_role = context.env_vars.get("role", "guest")
             if agent_role not in schema.allowed_roles:
@@ -361,7 +361,7 @@ class ToolRegistry:
                     error_code=ToolErrorCode.ROLE_NOT_ALLOWED.value
                 )
 
-        # ValidateParameter
+        # Validate parameters
         valid, error_msg = await tool.validate_parameters(parameters)
         if not valid:
             return ToolResult(
@@ -370,10 +370,10 @@ class ToolRegistry:
                 error_code=ToolErrorCode.INVALID_PARAMETERS.value
             )
 
-        # Executetool
+        # Execute tool
         start_time = time.time()
         try:
-            # Settingtimeout
+            # Set timeout
             result = await asyncio.wait_for(
                 tool.execute(parameters, context),
                 timeout=schema.timeout
@@ -381,10 +381,10 @@ class ToolRegistry:
 
             execution_time = time.time() - start_time
 
-            # recordstatistics
+            # Record statistics
             stats.record_call(result.success, execution_time)
 
-            # Execute后钩子
+            # Post-execution hook
             result = await tool.after_execution(result, context)
 
             return result
@@ -420,18 +420,18 @@ class ToolRegistry:
         parallel: bool = False
     ) -> List[ToolResult]:
         """
-        批量Executetool
+        Execute multiple tools in batch.
 
         Args:
-            commands: commandlist [{"tool": name, "parameters": {...}}, ...]
-            context: Executecontext
-            parallel: is notparallelExecute
+            commands: Command list [{"tool": name, "parameters": {...}}, ...].
+            context: Execution context.
+            parallel: Whether to execute in parallel.
 
         Returns:
-            Resultlist
+            List of results.
         """
         if parallel:
-            # parallelExecute
+            # Execute in parallel
             tasks = [
                 self.execute(cmd["tool"], cmd.get("parameters", {}), context)
                 for cmd in commands
@@ -439,7 +439,7 @@ class ToolRegistry:
             return await asyncio.gather(*tasks, return_exceptions=True)
 
         else:
-            # serialExecute
+            # Execute serially
             results = []
             for cmd in commands:
                 result = await self.execute(
@@ -447,9 +447,9 @@ class ToolRegistry:
                     cmd.get("parameters", {}),
                     context
                 )
-                results.append(result)
+                results.append(result                )
 
-                # 如果failure且不要求继续，stopExecute
+                # Stop on failure if requested
                 if not result.success:
                     break
 
@@ -457,13 +457,13 @@ class ToolRegistry:
 
     def get_stats(self, tool_name: Optional[str] = None) -> Dict[str, Any]:
         """
-        getstatisticsinfo
+        Get execution statistics.
 
         Args:
-            tool_name: toolName（Nonetable示getall）
+            tool_name: Tool name (None to get all).
 
         Returns:
-            statisticsinfo
+            Statistics dictionary.
         """
         if tool_name:
             if tool_name in self._stats:
@@ -479,12 +479,12 @@ class ToolRegistry:
 
     def export_to_claude_format(self) -> List[Dict[str, Any]]:
         """
-        exportalltool为 Claude Tool Use API format
+        Export all tools in Claude Tool Use API format.
 
         Only exports tools that are ready (have required configuration).
 
         Returns:
-            Claude tools API format的toollist
+            List of tools in Claude API format.
         """
         tools = []
         for tool_name in self._tools.keys():
@@ -501,18 +501,18 @@ class ToolRegistry:
         executor: callable
     ) -> None:
         """
-        从 Claude Tool Use API formatimporttool
+        Import tools from Claude Tool Use API format.
 
         Args:
-            tool_defs: Claude format的tool定义list
-            executor: ExecuteFunction，signature为 async def execute(name, params) -> Any
+            tool_defs: List of tool definitions in Claude format.
+            executor: Execute function with signature async def execute(name, params) -> Any.
         """
         from .builtin import DynamicTool
 
         for tool_def in tool_defs:
             schema = Tool.Schema.from_claude_format(tool_def)
 
-            # createdynamictoolClass
+            # Create dynamic tool class
             dynamic_tool = type(
                 f"ClaudeTool_{tool_def['name']}",
                 (DynamicTool,),
@@ -528,5 +528,5 @@ class ToolRegistry:
                 logger.error(f"Failed to import tool {tool_def.get('name')}: {e}")
 
 
-# globaltoolRegistryInstance
+# Global tool registry instance
 tool_registry = ToolRegistry()

@@ -1,7 +1,7 @@
 """
-Executeplan器
+Execution planner.
 
-ImplementationDAG任务编排andExecute
+Implements DAG-based task orchestration and execution.
 """
 import asyncio
 import logging
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class TaskStatus(str, Enum):
-    """Task State"""
+    """Task status."""
     PENDING = "pending"
     READY = "ready"
     RUNNING = "running"
@@ -26,7 +26,7 @@ class TaskStatus(str, Enum):
 
 
 class PlanNode:
-    """plannode"""
+    """Plan node."""
 
     def __init__(
         self,
@@ -45,7 +45,7 @@ class PlanNode:
         self.dependents: Set[str] = set()
 
     def is_ready(self, completed_nodes: Set[str]) -> bool:
-        """checknodeis not准备好Execute"""
+        """Check if node is ready for execution."""
         return self.depends_on.issubset(completed_nodes)
 
     def __repr__(self):
@@ -53,7 +53,7 @@ class PlanNode:
 
 
 class ExecutionPlan:
-    """Executeplan"""
+    """Execution plan."""
 
     def __init__(self, plan_id: str):
         self.plan_id = plan_id
@@ -68,25 +68,25 @@ class ExecutionPlan:
         dependencies: Optional[List[str]] = None
     ) -> None:
         """
-        addnode
+        Add a node to the plan.
 
         Args:
-            node_id: nodeid
-            tool: toolName
-            parameters: toolParameter
-            dependencies: dependency的nodeidlist
+            node_id: Node ID.
+            tool: Tool name.
+            parameters: Tool parameters.
+            dependencies: List of dependency node IDs.
         """
         node = PlanNode(node_id, tool, parameters, dependencies)
         self.nodes[node_id] = node
 
-        # adddependency边
+        # Add dependency edges
         if dependencies:
             for dep_id in dependencies:
                 self.edges[dep_id].add(node_id)
                 node.dependents.update(self.edges[dep_id])
 
     def get_ready_nodes(self) -> List[PlanNode]:
-        """get准备好的node"""
+        """Get nodes ready for execution."""
         completed = {nid for nid, node in self.nodes.items() if node.status == TaskStatus.COMPLETED}
         ready = []
 
@@ -98,7 +98,7 @@ class ExecutionPlan:
         return ready
 
     def is_complete(self) -> bool:
-        """checkplanis notcomplete"""
+        """Check if plan is complete."""
         return all(
             node.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SKIPPED]
             for node in self.nodes.values()
@@ -106,7 +106,7 @@ class ExecutionPlan:
 
     def get_execution_order(self) -> List[List[str]]:
         """
-        getExecute顺序（按层级）
+        Get execution order by level.
 
         Returns:
             [[node_ids_level_1], [node_ids_level_2], ...]
@@ -115,7 +115,7 @@ class ExecutionPlan:
         remaining = set(self.nodes.keys())
 
         while remaining:
-            # 找出current层级的node（没有incomplete的dependency）
+            # Find nodes at current level (no incomplete dependencies)
             completed_in_prev_levels = set()
             for level in levels:
                 completed_in_prev_levels.update(level)
@@ -127,7 +127,7 @@ class ExecutionPlan:
                     current_level.append(node_id)
 
             if not current_level:
-                # 没有可Execute的node，可能有循环dependency
+                # No executable nodes, possible circular dependency
                 logger.warning(f"Possible circular dependency detected. Remaining: {remaining}")
                 break
 
@@ -137,7 +137,7 @@ class ExecutionPlan:
         return levels
 
     def visualize(self) -> str:
-        """可视化plan（文本形式）"""
+        """Visualize plan (text format)."""
         lines = [f"Execution Plan: {self.plan_id}", "=" * 50]
 
         for node in self.nodes.values():
@@ -151,17 +151,17 @@ class ExecutionPlan:
 
 class ExecutionPlanner:
     """
-    Executeplan器
+    Execution planner.
 
-    generationDAG并Execute任务编排
+    Generates DAG and executes task orchestration.
     """
 
     def __init__(self, tool_registry):
         """
-        initializeplan器
+        Initialize planner.
 
         Args:
-            tool_registry: toolRegistryInstance
+            tool_registry: Tool registry instance.
         """
         self.registry = tool_registry
 
@@ -171,18 +171,18 @@ class ExecutionPlanner:
         tasks: List[Dict[str, Any]]
     ) -> ExecutionPlan:
         """
-        createExecuteplan
+        Create execution plan.
 
         Args:
-            plan_id: planid
-            tasks: 任务list [{"id": str, "tool": str, "parameters": dict, "depends_on": [str]}]
+            plan_id: Plan ID.
+            tasks: Task list [{"id": str, "tool": str, "parameters": dict, "depends_on": [str]}].
 
         Returns:
-            Executeplan
+            Execution plan.
         """
         plan = ExecutionPlan(plan_id)
 
-        # 先addallnode
+        # Add all nodes first
         for task in tasks:
             plan.add_node(
                 node_id=task["id"],
@@ -202,13 +202,13 @@ class ExecutionPlanner:
         stop_on_failure: bool = True
     ) -> Dict[str, ToolResult]:
         """
-        Executeplan
+        Execute the plan.
 
         Args:
-            plan: Executeplan
-            context: Executecontext
-            parallel: is notparallelExecute同一层级的任务
-            stop_on_failure: 遇到failureis notstop
+            plan: Execution plan.
+            context: Execution context.
+            parallel: Whether to execute same-level tasks in parallel.
+            stop_on_failure: Whether to stop on failure.
 
         Returns:
             {node_id: ToolResult}
@@ -216,26 +216,26 @@ class ExecutionPlanner:
         logger.info(f"Executing plan: {plan.plan_id}")
         results = {}
 
-        # 按层级Execute
+        # Execute by level
         levels = plan.get_execution_order()
 
         for level_idx, level_nodes in enumerate(levels):
             logger.info(f"Executing level {level_idx + 1}/{len(levels)}: {len(level_nodes)} nodes")
 
             if parallel and len(level_nodes) > 1:
-                # parallelExecutecurrent层级
+                # Execute current level in parallel
                 level_results = await self._execute_level_parallel(
                     plan, level_nodes, context, stop_on_failure
                 )
             else:
-                # serialExecute
+                # Execute serially
                 level_results = await self._execute_level_serial(
                     plan, level_nodes, context, stop_on_failure
                 )
 
             results.update(level_results)
 
-            # checkis not需要stop
+            # Check if we need to stop
             if stop_on_failure:
                 failed = [
                     nid for nid, result in level_results.items()
@@ -243,7 +243,7 @@ class ExecutionPlanner:
                 ]
                 if failed:
                     logger.warning(f"level {level_idx + 1} has failures: {failed}")
-                    # mark后续node为跳过
+                    # Mark remaining nodes as skipped
                     self._mark_remaining_skipped(plan)
                     break
 
@@ -257,7 +257,7 @@ class ExecutionPlanner:
         context: ToolExecutionContext,
         stop_on_failure: bool
     ) -> Dict[str, ToolResult]:
-        """serialExecute一个层级"""
+        """Execute one level serially."""
         results = {}
 
         for node_id in node_ids:
@@ -266,7 +266,7 @@ class ExecutionPlanner:
 
             logger.info(f"Executing node: {node_id} (tool: {node.tool})")
 
-            # 使用上一个node的ResultupdateParameter
+            # Update parameters from previous node results
             updated_params = self._update_parameters_from_results(
                 node.parameters,
                 results
@@ -300,19 +300,19 @@ class ExecutionPlanner:
         context: ToolExecutionContext,
         stop_on_failure: bool
     ) -> Dict[str, ToolResult]:
-        """parallelExecute一个层级"""
+        """Execute one level in parallel."""
         results = {}
 
-        # markallnode为run中
+        # Mark all nodes as running
         for node_id in node_ids:
             plan.nodes[node_id].status = TaskStatus.RUNNING
 
-        # create任务
+        # Create tasks
         async def execute_node(node_id: str):
             node = plan.nodes[node_id]
             logger.info(f"Executing node: {node_id} (tool: {node.tool})")
 
-            # 使用completed的nodeResultupdateParameter
+            # Update parameters from completed node results
             updated_params = self._update_parameters_from_results(
                 node.parameters,
                 results
@@ -335,11 +335,11 @@ class ExecutionPlanner:
 
             return node_id, result
 
-        # parallelExecuteall任务
+        # Execute all tasks in parallel
         tasks = [execute_node(nid) for nid in node_ids]
         task_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 收集Result
+        # Collect results
         for task_result in task_results:
             if isinstance(task_result, Exception):
                 logger.exception(f"Task execution failed with exception")
@@ -356,9 +356,9 @@ class ExecutionPlanner:
         results: Dict[str, ToolResult]
     ) -> Dict[str, Any]:
         """
-        从before的nodeResult中updateParameter
+        Update parameters from previous node results.
 
-        supportParameterreferenceformat：${node_id.field}
+        Supports parameter reference format: ${node_id.field}
         """
         import re
 
@@ -366,7 +366,7 @@ class ExecutionPlanner:
 
         for key, value in updated.items():
             if isinstance(value, str) and "${" in value:
-                # replaceParameterreference
+                # Replace parameter references
                 def replace_ref(match):
                     node_id = match.group(1)
                     field = match.group(2) if match.group(2) else "data"
@@ -382,30 +382,30 @@ class ExecutionPlanner:
         return updated
 
     def _mark_remaining_skipped(self, plan: ExecutionPlan) -> None:
-        """mark剩余node为跳过"""
+        """Mark remaining nodes as skipped."""
         for node in plan.nodes.values():
             if node.status == TaskStatus.PENDING:
                 node.status = TaskStatus.SKIPPED
 
     def validate_plan(self, plan: ExecutionPlan) -> tuple[bool, Optional[str]]:
         """
-        Validateplan
+        Validate plan.
 
-        check if has循环dependency
+        Check for circular dependencies.
 
         Args:
-            plan: Executeplan
+            plan: Execution plan.
 
         Returns:
             (is_valid, error_message)
         """
-        # 使用拓扑sortcheck循环dependency
+        # Use topological sort to check for cycles
         visited = set()
         temp_visited = set()
 
         def has_cycle(node_id: str) -> bool:
             if node_id in temp_visited:
-                return True  # Found循环
+                return True  # Found cycle
             if node_id in visited:
                 return False
 

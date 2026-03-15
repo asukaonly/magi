@@ -1,7 +1,7 @@
 """
-WebSocketeventpush
+WebSocket event broadcasting.
 
-定义各种real-timeevent的pushFunction
+Defines functions for pushing real-time events to connected clients.
 """
 import logging
 from .server import ws_manager
@@ -11,12 +11,12 @@ logger = logging.getLogger(__name__)
 
 async def broadcast_agent_state(agent_id: str, state: str, data: dict = None):
     """
-    广播AgentStateupdate
+    Broadcast agent state update to connected clients.
 
     Args:
-        agent_id: Agent id
-        state: newState
-        data: 额外data
+        agent_id: Agent ID.
+        state: New state value.
+        data: Additional payload data.
     """
     message = {
         "agent_id": agent_id,
@@ -38,12 +38,12 @@ async def broadcast_agent_state(agent_id: str, state: str, data: dict = None):
 
 async def broadcast_task_state(task_id: str, state: str, data: dict = None):
     """
-    广播任务Stateupdate
+    Broadcast task state update to connected clients.
 
     Args:
-        task_id: 任务id
-        state: newState
-        data: 额外data
+        task_id: Task ID.
+        state: New state value.
+        data: Additional payload data.
     """
     message = {
         "task_id": task_id,
@@ -65,10 +65,10 @@ async def broadcast_task_state(task_id: str, state: str, data: dict = None):
 
 async def broadcast_metrics(metrics: dict):
     """
-    广播系统metricupdate
+    Broadcast system metrics update to connected clients.
 
     Args:
-        metrics: metricdata
+        metrics: Metrics data.
     """
     message = {
         "metrics": metrics,
@@ -86,12 +86,12 @@ async def broadcast_metrics(metrics: dict):
 
 async def broadcast_log(level: str, message: str, source: str = None):
     """
-    广播Logmessage
+    Broadcast log message to connected clients.
 
     Args:
-        level: Loglevel（info/warning/error）
-        message: Logmessage
-        source: Logsource
+        level: Log level (info/warning/error).
+        message: Log message content.
+        source: Log source identifier.
     """
     log_entry = {
         "level": level,
@@ -111,11 +111,11 @@ async def broadcast_log(level: str, message: str, source: str = None):
 
 async def broadcast_system_event(event_type: str, data: dict):
     """
-    广播系统event
+    Broadcast system event to connected clients.
 
     Args:
-        event_type: eventtype
-        data: eventdata
+        event_type: Event type identifier.
+        data: Event payload data.
     """
     message = {
         "event_type": event_type,
@@ -131,14 +131,14 @@ async def broadcast_system_event(event_type: str, data: dict):
     logger.debug(f"broadcasted system event: {event_type}")
 
 
-async def send_to_client(sid: str, Event: str, data: dict):
+async def send_to_client(sid: str, event: str, data: dict):
     """
-    sendmessage给指定client
+    Send a message to a specific client.
 
     Args:
-        sid: clientid
-        event: Event名
-        data: data
+        sid: Client session ID.
+        event: Event name.
+        data: Event payload data.
     """
     await ws_manager.sio.emit(event, data, to=sid)
     logger.debug(f"Sent message to client {sid}: {event}")

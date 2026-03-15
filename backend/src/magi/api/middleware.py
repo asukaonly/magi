@@ -132,7 +132,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         # Log response metadata
         if should_log:
-            logger.info(
+            logger.debug(
                 f"Response: {response.status_code} "
                 f"took {process_time:.3f}s"
             )

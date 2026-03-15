@@ -34,7 +34,7 @@ from ..llm.usage_events import configure_llm_usage_event_publisher
 from ..plugins import get_action_registry, get_plugin_manager, get_sensor_registry, initialize_plugin_manager
 from ..scheduler import SchedulerBootstrap, SchedulerService, set_scheduler_runtime
 from ..timeline.service import TimelineService
-from ..utils.runtime import get_runtime_paths, Runtimepaths, init_runtime_data
+from ..utils.runtime import get_runtime_paths, RuntimePaths, init_runtime_data
 from ..core.logger import get_logger
 from ..core.database_initializer import DatabaseInitializer, set_database_initializer
 from .maintenance import MaintenanceDaemon, MaintenanceConfig, set_maintenance_daemon

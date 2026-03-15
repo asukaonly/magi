@@ -364,13 +364,13 @@ def test_sensor_collect_items_with_stub_reader():
     """Test collect_items returns empty list with stub reader."""
     from calendar_plugin.sensor import CalendarTimelineSensor
     from magi.timeline import SensorSyncContext
-    from magi.utils.runtime import Runtimepaths
+    from magi.utils.runtime import RuntimePaths
     from datetime import datetime, timedelta
     import time
     import asyncio
 
     sensor = CalendarTimelineSensor()
-    runtime_paths = Runtimepaths()
+    runtime_paths = RuntimePaths()
     context = SensorSyncContext(
         source_type="calendar",
         manual=False,

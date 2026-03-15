@@ -17,7 +17,7 @@ from magi.scheduler import (
 from magi.timeline import SensorSyncResult, TimelineContentBlock, TimelineEvent
 from magi.timeline.sensors import TimelineSensorBase
 from magi.timeline.sync import PullSyncSensor
-from magi.utils.runtime import Runtimepaths
+from magi.utils.runtime import RuntimePaths
 
 
 class _FakeTimelineService:
@@ -172,7 +172,7 @@ class _ChatSensor(TimelineSensorBase):
 
 @pytest.mark.asyncio
 async def test_scheduler_bootstrap_syncs_timeline_sources_and_updates_target_state(tmp_path):
-    runtime_paths = Runtimepaths(tmp_path / "runtime")
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = SchedulerService(db_path=runtime_paths.scheduler_db_path, runtime_dir=runtime_paths.base_dir)
     sensor_registry = SensorRegistry()
     sensor_registry.register(
@@ -243,7 +243,7 @@ async def test_scheduler_bootstrap_syncs_timeline_sources_and_updates_target_sta
 
 @pytest.mark.asyncio
 async def test_scheduler_bootstrap_dispatches_action_and_agent_targets(tmp_path):
-    runtime_paths = Runtimepaths(tmp_path / "runtime")
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = SchedulerService(db_path=runtime_paths.scheduler_db_path, runtime_dir=runtime_paths.base_dir)
     sensor_registry = SensorRegistry()
     action_registry = ActionRegistry()
@@ -295,7 +295,7 @@ async def test_scheduler_bootstrap_dispatches_action_and_agent_targets(tmp_path)
 
 @pytest.mark.asyncio
 async def test_scheduler_bootstrap_clears_stale_state_for_non_pull_timeline_sources(tmp_path):
-    runtime_paths = Runtimepaths(tmp_path / "runtime")
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = SchedulerService(db_path=runtime_paths.scheduler_db_path, runtime_dir=runtime_paths.base_dir)
     sensor_registry = SensorRegistry()
     sensor_registry.register(

@@ -1,7 +1,7 @@
 """
-AgentLogConfiguration
+Agent logging configuration.
 
-为Agentprocess链路提供专门的Logrecord
+Provides dedicated logging for agent processing chains.
 """
 import logging
 import os
@@ -9,15 +9,15 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 
-def _get_agent_log_file():
-    """getAgentLogfilepath（使用run时directory）"""
+def _get_agent_log_file() -> str:
+    """Get agent log file path (uses runtime directory)."""
     from ..utils.runtime import get_runtime_paths
     runtime_paths = get_runtime_paths()
     return str(runtime_paths.logs_dir / 'agent_chain.log')
 
 
 class AgentFormatter(logging.Formatter):
-    """AgentLogformat化器 - addtimestampand链路追踪info"""
+    """Agent log formatter with timestamp and chain trace info."""
 
     def __init__(self):
         super().__init__(
@@ -26,27 +26,27 @@ class AgentFormatter(logging.Formatter):
         )
 
 
-def setup_agent_logger():
+def setup_agent_logger() -> logging.Logger:
     """
-    ConfigurationAgent专用logger
+    Configure agent-specific logger.
 
     Returns:
-        logging.Logger: Agent专用loggerInstance
+        Agent-specific logger instance.
     """
-    # createlogger
+    # Create logger
     agent_logger = logging.getLogger('magi.agent')
     agent_logger.setLevel(logging.DEBUG)
 
-    # 防止重复addhandler
+    # Avoid adding duplicate handlers
     if agent_logger.handlers:
         return agent_logger
 
-    # getLogfilepath
+    # Get log file path
     agent_log_file = _get_agent_log_file()
-    # 确保directoryexists
+    # Ensure directory exists
     os.makedirs(os.path.dirname(agent_log_file), exist_ok=True)
 
-    # filehandler - 自动轮转
+    # File handler with automatic rotation
     file_handler = RotatingFileHandler(
         agent_log_file,
         maxBytes=10*1024*1024,  # 10MB
@@ -56,53 +56,53 @@ def setup_agent_logger():
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(AgentFormatter())
 
-    # 控制台handler
+    # Console handler
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(AgentFormatter())
 
-    # addhandler
+    # Add handlers
     agent_logger.addHandler(file_handler)
     agent_logger.addHandler(console_handler)
 
     return agent_logger
 
 
-# globalAgent loggerInstance
+# Global agent logger instance
 agent_logger = setup_agent_logger()
 
 
-def get_agent_logger(name: str = None) -> logging.Logger:
+def get_agent_logger(name: str | None = None) -> logging.Logger:
     """
-    getAgent loggerInstance
+    Get agent logger instance.
 
     Args:
-        name: loggerName（optional）
+        name: Logger name (optional, for sub-loggers).
 
     Returns:
-        logging.Logger: Agent loggerInstance
+        Agent logger instance.
     """
     if name:
         return logging.getLogger(f'magi.agent.{name}')
     return agent_logger
 
 
-# Agent链路LogHelper Functions
-def log_chain_start(logger: logging.Logger, chain_id: str, message: str):
-    """record链路Start"""
+# Agent chain logging helpers
+def log_chain_start(logger: logging.Logger, chain_id: str, message: str) -> None:
+    """Log chain start."""
     logger.info(f"{'='*60}")
     logger.info(f"[chain:{chain_id}] start | {message}")
     logger.info(f"{'='*60}")
 
 
-def log_chain_step(logger: logging.Logger, chain_id: str, step: str, message: str, level: str = "INFO"):
-    """record链路step"""
+def log_chain_step(logger: logging.Logger, chain_id: str, step: str, message: str, level: str = "INFO") -> None:
+    """Log chain step."""
     log_func = getattr(logger, level.lower(), logger.info)
     log_func(f"[chain:{chain_id}] [{step}] {message}")
 
 
-def log_chain_end(logger: logging.Logger, chain_id: str, message: str, success: bool = True):
-    """record链路End"""
-    status = "✅ SUCCESS" if success else "❌ failED"
+def log_chain_end(logger: logging.Logger, chain_id: str, message: str, success: bool = True) -> None:
+    """Log chain end."""
+    status = "✅ SUCCESS" if success else "❌ FAILED"
     logger.info(f"[chain:{chain_id}] end {status} | {message}")
     logger.info(f"{'='*60}")

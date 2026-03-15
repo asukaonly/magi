@@ -11,7 +11,7 @@ from magi.plugins.manager import PluginManager
 from magi.plugins.sensors import SensorRegistry
 from magi.timeline import SensorSyncContext
 from magi.tools.registry import ToolRegistry
-from magi.utils.runtime import Runtimepaths
+from magi.utils.runtime import RuntimePaths
 
 
 def _apply_updates(config: AppConfig, updates: dict[str, object]) -> None:
@@ -262,7 +262,7 @@ async def test_chrome_history_sensor_collects_events_and_relations(
             last_cursor=None,
             last_success_at=None,
             limit=50,
-            runtime_paths=Runtimepaths(tmp_path / "runtime"),
+            runtime_paths=RuntimePaths(tmp_path / "runtime"),
             plugin_settings=config.plugins.packages["chrome-history"].settings,
         )
     )
@@ -279,7 +279,7 @@ async def test_chrome_history_sensor_collects_events_and_relations(
             last_cursor="101",
             last_success_at=result.watermark_ts,
             limit=50,
-            runtime_paths=Runtimepaths(tmp_path / "runtime-incremental"),
+            runtime_paths=RuntimePaths(tmp_path / "runtime-incremental"),
             plugin_settings=config.plugins.packages["chrome-history"].settings,
         )
     )
@@ -343,7 +343,7 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
             last_cursor=None,
             last_success_at=None,
             limit=50,
-            runtime_paths=Runtimepaths(tmp_path / "runtime-bursty"),
+            runtime_paths=RuntimePaths(tmp_path / "runtime-bursty"),
             plugin_settings=config.plugins.packages["chrome-history"].settings,
         )
     )
@@ -418,7 +418,7 @@ async def test_chrome_history_sensor_from_now_skips_initial_backfill(
             last_cursor=None,
             last_success_at=None,
             limit=50,
-            runtime_paths=Runtimepaths(tmp_path / "runtime-from-now"),
+            runtime_paths=RuntimePaths(tmp_path / "runtime-from-now"),
             plugin_settings=config.plugins.packages["chrome-history"].settings,
         )
     )

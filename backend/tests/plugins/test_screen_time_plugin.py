@@ -197,10 +197,10 @@ def test_sensor_source_item_version_fingerprint():
 
 def test_sensor_collect_items_with_stub_reader():
     """Test collect_items returns empty list with stub reader."""
-    from magi.utils.runtime import Runtimepaths
+    from magi.utils.runtime import RuntimePaths
 
     sensor = ScreenTimeTimelineSensor()
-    runtime_paths = Runtimepaths()
+    runtime_paths = RuntimePaths()
     context = SensorSyncContext(
         source_type="screen_time",
         manual=False,

@@ -553,7 +553,7 @@ from magi.plugins.manager import PluginManager
 from magi.plugins.sensors import SensorRegistry
 from magi.timeline import SensorSyncContext
 from magi.tools.registry import ToolRegistry
-from magi.utils.runtime import Runtimepaths
+from magi.utils.runtime import RuntimePaths
 from netease_music.plugin import NeteaseMusicPlugin, DEFAULT_SETTINGS
 
 

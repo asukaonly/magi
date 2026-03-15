@@ -1,7 +1,7 @@
 """
-toolversion管理
+Tool version management.
 
-Implementationtool的version控制andcompatibilitycheck
+Implements tool versioning and compatibility checks.
 """
 import logging
 from typing import Dict, List, Optional, Any
@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ToolVersion:
-    """toolversioninfo"""
+    """Tool version info."""
     version: str
-    tool_class: type  # toolClass
+    tool_class: type  # Tool class
     registered_at: datetime = field(default_factory=datetime.now)
     deprecation_date: Optional[datetime] = None
     is_deprecated: bool = False
@@ -26,7 +26,7 @@ class ToolVersion:
 
 @dataclass
 class VersionCompatibility:
-    """versioncompatibilityinfo"""
+    """Version compatibility info."""
     min_version: str
     max_version: Optional[str] = None
     compatible: bool = True
@@ -35,9 +35,9 @@ class VersionCompatibility:
 
 class ToolVersionManager:
     """
-    toolversion管理器
+    Tool version manager.
 
-    管理tool的多个version，processversionupgradeandcompatibility
+    Manages multiple versions of tools and version upgrade compatibility.
     """
 
     def __init__(self):
@@ -58,21 +58,21 @@ class ToolVersionManager:
         breaking_changes: Optional[List[str]] = None
     ) -> None:
         """
-        registertoolversion
+        Register tool version.
 
         Args:
-            tool_name: toolName
-            version: Version number（遵循语义化version SemVer）
-            tool_class: toolClass
-            is_active: is not设为活跃version
-            deprecation_date: 弃用日期
-            migration_guide: 迁移指南
-            breaking_changes: 破坏性变更list
+            tool_name: Tool name.
+            version: Version number (SemVer).
+            tool_class: Tool class.
+            is_active: Whether to set as active version.
+            deprecation_date: Deprecation date.
+            migration_guide: Migration guide.
+            breaking_changes: List of breaking changes.
         """
         if tool_name not in self.versions:
             self.versions[tool_name] = {}
 
-        # checkversionis not已exists
+        # Check if version already exists
         if version in self.versions[tool_name]:
             logger.warning(f"Version {version} of tool {tool_name} already exists, overwriting")
 
@@ -87,7 +87,7 @@ class ToolVersionManager:
 
         self.versions[tool_name][version] = tool_version
 
-        # 设为活跃version
+        # Set as active version
         if is_active:
             self.active_versions[tool_name] = version
             logger.info(f"Set version {version} as active for tool {tool_name}")
@@ -96,26 +96,26 @@ class ToolVersionManager:
 
     def get_active_version(self, tool_name: str) -> Optional[str]:
         """
-        gettool的活跃version
+        Get active version of a tool.
 
         Args:
-            tool_name: toolName
+            tool_name: Tool name.
 
         Returns:
-            Version number或None
+            Version number or None.
         """
         return self.active_versions.get(tool_name)
 
     def get_tool_class(self, tool_name: str, version: Optional[str] = None) -> Optional[type]:
         """
-        gettoolClass
+        Get tool class.
 
         Args:
-            tool_name: toolName
-            version: Version number（Nonetable示get活跃version）
+            tool_name: Tool name.
+            version: Version number (None for active version).
 
         Returns:
-            toolClass或None
+            Tool class or None.
         """
         if tool_name not in self.versions:
             return None
@@ -130,32 +130,32 @@ class ToolVersionManager:
 
     def list_versions(self, tool_name: str) -> List[ToolVersion]:
         """
-        column出tool的allversion
+        List all versions of a tool.
 
         Args:
-            tool_name: toolName
+            tool_name: Tool name.
 
         Returns:
-            versionlist（按Version numbersort）
+            List of versions (sorted by version number).
         """
         if tool_name not in self.versions:
             return []
 
         versions = list(self.versions[tool_name].values())
-        # 按Version numbersort（使用语义化version比较）
+        # Sort by version number (semantic version comparison)
         versions.sort(key=lambda v: self._parse_version(v.version))
         return versions
 
     def is_deprecated(self, tool_name: str, version: Optional[str] = None) -> bool:
         """
-        checkversionis notdeprecated
+        Check if version is deprecated.
 
         Args:
-            tool_name: toolName
-            version: Version number（Nonetable示check活跃version）
+            tool_name: Tool name.
+            version: Version number (None to check active version).
 
         Returns:
-            is notdeprecated
+            Whether deprecated.
         """
         if version is None:
             version = self.active_versions.get(tool_name)
@@ -171,14 +171,14 @@ class ToolVersionManager:
         required_version: str
     ) -> VersionCompatibility:
         """
-        checkversioncompatibility
+        Check version compatibility.
 
         Args:
-            tool_name: toolName
-            required_version: 需要的version
+            tool_name: Tool name.
+            required_version: Required version.
 
         Returns:
-            compatibilityinfo
+            Compatibility info.
         """
         active_version = self.active_versions.get(tool_name)
 
@@ -186,10 +186,10 @@ class ToolVersionManager:
             return VersionCompatibility(
                 min_version=required_version,
                 compatible=False,
-                notes=f"Tool {tool_name} has nottt active version"
+                notes=f"Tool {tool_name} has no active version"
             )
 
-        # simple的version比较（实际应使用语义化version比较）
+        # Simple version comparison (consider using packaging.version for semantic comparison)
         active_parsed = self._parse_version(active_version)
         required_parsed = self._parse_version(required_version)
 
@@ -209,14 +209,14 @@ class ToolVersionManager:
 
     def set_active_version(self, tool_name: str, version: str) -> bool:
         """
-        Setting活跃version
+        Set active version.
 
         Args:
-            tool_name: toolName
-            version: Version number
+            tool_name: Tool name.
+            version: Version number.
 
         Returns:
-            is notsuccess
+            Whether successful.
         """
         if tool_name not in self.versions or version not in self.versions[tool_name]:
             logger.warning(f"Version {version} of tool {tool_name} does not exist")
@@ -235,15 +235,15 @@ class ToolVersionManager:
         migration_guide: Optional[str] = None
     ) -> bool:
         """
-        弃用version
+        Deprecate a version.
 
         Args:
-            tool_name: toolName
-            version: Version number
-            migration_guide: 迁移指南
+            tool_name: Tool name.
+            version: Version number.
+            migration_guide: Migration guide.
 
         Returns:
-            is notsuccess
+            Whether successful.
         """
         if tool_name not in self.versions or version not in self.versions[tool_name]:
             logger.warning(f"Version {version} of tool {tool_name} does not exist")
@@ -259,14 +259,14 @@ class ToolVersionManager:
 
     def get_migration_guide(self, tool_name: str, from_version: str) -> Optional[str]:
         """
-        get迁移指南
+        Get migration guide.
 
         Args:
-            tool_name: toolName
-            from_version: 源version
+            tool_name: Tool name.
+            from_version: Source version.
 
         Returns:
-            迁移指南或None
+            Migration guide or None.
         """
         if tool_name not in self.versions or from_version not in self.versions[tool_name]:
             return None
@@ -275,15 +275,15 @@ class ToolVersionManager:
 
     def get_breaking_changes(self, tool_name: str, from_version: str, to_version: Optional[str] = None) -> List[str]:
         """
-        get破坏性变更
+        Get breaking changes.
 
         Args:
-            tool_name: toolName
-            from_version: 源version
-            to_version: targetversion（Nonetable示活跃version）
+            tool_name: Tool name.
+            from_version: Source version.
+            to_version: Target version (None for active version).
 
         Returns:
-            破坏性变更list
+            List of breaking changes.
         """
         if to_version is None:
             to_version = self.active_versions.get(tool_name)
@@ -291,8 +291,8 @@ class ToolVersionManager:
         if not to_version or tool_name not in self.versions:
             return []
 
-        # 简化Implementation：Returntargetversion的破坏性变更
-        # 实际应该比较from_versionandto_version之间的all破坏性变更
+        # Simplified: return target version's breaking changes
+        # Ideally compare all breaking changes between from_version and to_version
         if to_version in self.versions[tool_name]:
             return self.versions[tool_name][to_version].breaking_changes
 
@@ -300,15 +300,15 @@ class ToolVersionManager:
 
     def _parse_version(self, version: str) -> tuple:
         """
-        parseVersion number
+        Parse version number.
 
-        simpleImplementation，实际应使用packaging.version
+        Simple implementation; consider using packaging.version.
 
         Args:
-            version: versionstring
+            version: Version string.
 
         Returns:
-            (major, minotttr, patch)
+            (major, minor, patch)
         """
         try:
             parts = version.split(".")
@@ -318,20 +318,20 @@ class ToolVersionManager:
                 return (int(parts[0]), int(parts[1]), 0)
             elif len(parts) == 1:
                 return (int(parts[0]), 0, 0)
-        except (ValueError, Indexerror):
+        except (ValueError, IndexError):
             pass
 
         return (0, 0, 0)
 
     def get_version_info(self, tool_name: str) -> Dict[str, Any]:
         """
-        gettool的完整versioninfo
+        Get full version info for a tool.
 
         Args:
-            tool_name: toolName
+            tool_name: Tool name.
 
         Returns:
-            versioninfodictionary
+            Version info dictionary.
         """
         active_version = self.active_versions.get(tool_name)
         versions = self.list_versions(tool_name)

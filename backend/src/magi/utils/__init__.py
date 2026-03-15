@@ -1,11 +1,13 @@
 """
-Tool Module
+Utils module.
+
+Provides runtime path management and utilities.
 """
-from .runtime import get_runtime_paths, set_runtime_dir, init_runtime_data, Runtimepaths
+from .runtime import get_runtime_paths, set_runtime_dir, init_runtime_data, RuntimePaths
 
 __all__ = [
     "get_runtime_paths",
     "set_runtime_dir",
     "init_runtime_data",
-    "Runtimepaths",
+    "RuntimePaths",
 ]

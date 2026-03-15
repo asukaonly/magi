@@ -1,7 +1,7 @@
 """
-LLM调用LogConfiguration
+LLM call logging configuration.
 
-专门recordLLM调用的promptandOutputResult
+Logs LLM request prompts and response outputs.
 """
 import logging
 import os
@@ -9,15 +9,15 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 
-def _get_llm_log_file():
-    """getLLMLogfilepath（使用run时directory）"""
+def _get_llm_log_file() -> str:
+    """Get LLM log file path (uses runtime directory)."""
     from ..utils.runtime import get_runtime_paths
     runtime_paths = get_runtime_paths()
     return str(runtime_paths.logs_dir / 'llm_calls.log')
 
 
 class LLMFormatter(logging.Formatter):
-    """LLMLogformat化器 - structure化Logformat"""
+    """LLM log formatter with structured format."""
 
     def __init__(self):
         super().__init__(
@@ -26,27 +26,27 @@ class LLMFormatter(logging.Formatter):
         )
 
 
-def setup_llm_logger():
+def setup_llm_logger() -> logging.Logger:
     """
-    ConfigurationLLM专用logger
+    Configure LLM-specific logger.
 
     Returns:
-        logging.Logger: LLM专用loggerInstance
+        LLM-specific logger instance.
     """
-    # createlogger
+    # Create logger
     llm_logger = logging.getLogger('magi.llm')
     llm_logger.setLevel(logging.DEBUG)
 
-    # 防止重复addhandler
+    # Avoid adding duplicate handlers
     if llm_logger.handlers:
         return llm_logger
 
-    # getLogfilepath
+    # Get log file path
     llm_log_file = _get_llm_log_file()
-    # 确保directoryexists
+    # Ensure directory exists
     os.makedirs(os.path.dirname(llm_log_file), exist_ok=True)
 
-    # filehandler - 自动轮转
+    # File handler with automatic rotation
     file_handler = RotatingFileHandler(
         llm_log_file,
         maxBytes=50*1024*1024,  # 50MB
@@ -56,25 +56,25 @@ def setup_llm_logger():
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(LLMFormatter())
 
-    # addhandler
+    # Add handler
     llm_logger.addHandler(file_handler)
 
     return llm_logger
 
 
-# globalLLM loggerInstance
+# Global LLM logger instance
 llm_logger = setup_llm_logger()
 
 
-def get_llm_logger(name: str = None) -> logging.Logger:
+def get_llm_logger(name: str | None = None) -> logging.Logger:
     """
-    getLLM loggerInstance
+    Get LLM logger instance.
 
     Args:
-        name: loggerName（optional）
+        name: Logger name (optional, for sub-loggers).
 
     Returns:
-        logging.Logger: LLM loggerInstance
+        LLM logger instance.
     """
     if name:
         return logging.getLogger(f'magi.llm.{name}')
@@ -83,18 +83,18 @@ def get_llm_logger(name: str = None) -> logging.Logger:
 
 def truncate_text(text: str, max_length: int = 5000) -> str:
     """
-    截断过长的文本
+    Truncate text that exceeds max length.
 
-    Setting环境Variable MAGI_FULL_LOG=1 可以Disable截断，在Logfile中save完整Content
+    Set env var MAGI_FULL_LOG=1 to disable truncation and save full content to log file.
 
     Args:
-        text: 原始文本
-        max_length: maximumlength
+        text: Original text.
+        max_length: Maximum character length.
 
     Returns:
-        截断后的文本
+        Truncated text.
     """
-    # checkis notEnable完整Log
+    # Check if full logging is enabled
     if os.getenv("MAGI_FULL_LOG") == "1" or os.getenv("MAGI_full_LOG") == "1":
         return text
 
@@ -122,15 +122,15 @@ def log_llm_request(
     **kwargs
 ):
     """
-    recordLLMrequest
+    Log LLM request.
 
     Args:
-        logger: loggerInstance
-        request_id: requestid
-        model: modelName
-        system_prompt: 系统prompt
-        messages: messagelist
-        **kwargs: otherParameter
+        logger: Logger instance.
+        request_id: Request ID.
+        model: Model name.
+        system_prompt: System prompt.
+        messages: Message list.
+        **kwargs: Other parameters.
     """
     logger.debug("=" * 80)
     logger.debug(f"LLM_REQUEST [{request_id}] | Model: {model}")
@@ -160,18 +160,18 @@ def log_llm_response(
     **metadata
 ):
     """
-    recordLLMresponse
+    Log LLM response.
 
     Args:
-        logger: loggerInstance
-        request_id: requestid
-        response: Response content
-        success: is notsuccess
-        error: errorinfo
-        duration_ms: 耗时（毫seconds）
-        **metadata: othermetadata
+        logger: Logger instance.
+        request_id: Request ID.
+        response: Response content.
+        success: Whether the call succeeded.
+        error: Error message if failed.
+        duration_ms: Duration in milliseconds.
+        **metadata: Additional metadata.
     """
-    status = "SUCCESS" if success else "failED"
+    status = "SUCCESS" if success else "FAILED"
     logger.debug("=" * 80)
     logger.debug(f"LLM_RESPONSE [{request_id}] | {status}")
     if duration_ms:

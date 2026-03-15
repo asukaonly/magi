@@ -12,8 +12,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-class Runtimepaths:
-    """Runtime path management"""
+class RuntimePaths:
+    """Runtime path management."""
 
     def __init__(self, base_dir: Optional[Path] = None):
         """
@@ -23,7 +23,7 @@ class Runtimepaths:
             base_dir: Base directory, defaults to ~/.magi
         """
         if base_dir is None:
-            # Use .magi folder under user home directory
+            # Use .magi folder under user home directory.
             home = Path.home()
             base_dir = home / ".magi"
 
@@ -31,13 +31,13 @@ class Runtimepaths:
         self._ensure_directories()
 
     def _ensure_directories(self):
-        """Ensure all necessary directories exist"""
+        """Ensure all necessary directories exist."""
         directories = [
             self.base_dir,
             self.personalities_dir,
             self.data_dir,
             self.memories_dir,
-            self.others_dir,  # Others' memory directory
+            self.others_dir,
             self.logs_dir,
         ]
 
@@ -48,52 +48,52 @@ class Runtimepaths:
 
     @property
     def personalities_dir(self) -> Path:
-        """Personality configuration directory"""
+        """Personality configuration directory."""
         return self.base_dir / "personalities"
 
     @property
     def data_dir(self) -> Path:
-        """data directory"""
+        """Data directory."""
         return self.base_dir / "data"
 
     @property
     def memories_dir(self) -> Path:
-        """Memory database directory"""
+        """Memory database directory."""
         return self.data_dir / "memories"
 
     @property
     def others_dir(self) -> Path:
-        """Others' memory directory (MD file storage)"""
+        """Others' memory directory (MD file storage)."""
         return self.base_dir / "others"
 
     @property
     def logs_dir(self) -> Path:
-        """Log directory"""
+        """Log directory."""
         return self.base_dir / "logs"
 
     @property
     def behavior_db_path(self) -> Path:
-        """Behavior evolution database path"""
+        """Behavior evolution database path."""
         return self.memories_dir / "behavior_evolution.db"
 
     @property
     def scenario_prompts_db_path(self) -> Path:
-        """Scenario prompts database path"""
+        """Scenario prompts database path."""
         return self.data_dir / "scenario_prompts.db"
 
     @property
     def emotional_db_path(self) -> Path:
-        """Emotional state database path"""
+        """Emotional state database path."""
         return self.memories_dir / "emotional_state.db"
 
     @property
     def growth_db_path(self) -> Path:
-        """Growth memory database path"""
+        """Growth memory database path."""
         return self.memories_dir / "growth_memory.db"
 
     @property
     def self_memory_db_path(self) -> Path:
-        """Self memory database path (compatible)"""
+        """Self memory database path (compatibility)."""
         return self.memories_dir / "self_memory_v2.db"
 
     @property
@@ -123,13 +123,13 @@ class Runtimepaths:
 
     def other_file(self, user_id: str) -> Path:
         """
-        Get others' memory file path
+        Get others' memory file path.
 
         Args:
-            user_id: User id
+            user_id: User ID.
 
         Returns:
-            Others' memory MD file path
+            Path to the others' memory MD file.
         """
         # Convert user id to safe filename (replace special characters)
         safe_name = user_id.replace("/", "_").replace("\\", "_").replace(":", "_")
@@ -137,13 +137,13 @@ class Runtimepaths:
 
     def personality_file(self, name: str) -> Path:
         """
-        Get personality configuration file path
+        Get personality configuration file path.
 
         Args:
-            name: Personality name (without extension)
+            name: Personality name (without extension).
 
         Returns:
-            Full path to personality configuration file
+            Full path to personality configuration file.
         """
         return self.personalities_dir / f"{name}.json"
 
@@ -188,21 +188,21 @@ class Runtimepaths:
 
     def get_personality_path(self, name: str = "default") -> str:
         """
-        Get personality configuration file path (string format, for compatibility)
+        Get personality configuration file path (string format, for compatibility).
 
         Args:
-            name: Personality name
+            name: Personality name.
 
         Returns:
-            Personality directory path string
+            Personality directory path string.
         """
         return str(self.personalities_dir)
 
-    def initialize_default_personality(self):
+    def initialize_default_personality(self) -> None:
         """
         Initialize personality configuration.
 
-        Only creates default.json as fallback when:
+        Creates default.json as fallback when:
         - current file doesn't exist, or
         - current points to a non-existent personality
         """
@@ -240,7 +240,7 @@ class Runtimepaths:
 
     @property
     def current_personality_file(self) -> Path:
-        """Get current personality file path"""
+        """Get current personality file path."""
         current_file = self.personalities_dir / "current"
         if current_file.exists():
             name = current_file.read_text().strip()
@@ -250,33 +250,33 @@ class Runtimepaths:
 
 
 # Global instance
-_runtime_paths: Optional[Runtimepaths] = None
+_runtime_paths: Optional[RuntimePaths] = None
 
 
-def get_runtime_paths() -> Runtimepaths:
-    """Get global runtime paths instance"""
+def get_runtime_paths() -> RuntimePaths:
+    """Get global runtime paths instance."""
     global _runtime_paths
     if _runtime_paths is None:
-        _runtime_paths = Runtimepaths()
+        _runtime_paths = RuntimePaths()
     return _runtime_paths
 
 
 def set_runtime_dir(path: str | Path):
     """
-    Set custom runtime directory
+    Set custom runtime directory.
 
     Args:
-        path: Custom directory path
+        path: Custom directory path.
     """
     global _runtime_paths
-    _runtime_paths = Runtimepaths(Path(path))
+    _runtime_paths = RuntimePaths(Path(path))
 
 
 def init_runtime_data():
     """
-    initialize runtime data
+    Initialize runtime data.
 
-    Call at application startup to ensure default configuration exists
+    Call at application startup to ensure default configuration exists.
     """
     paths = get_runtime_paths()
     paths.initialize_default_personality()

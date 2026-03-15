@@ -10,7 +10,7 @@ from ..plugins.sensors import SensorRegistry
 from ..timeline.contracts import TimelineEvent
 from ..timeline.service import TimelineService
 from ..timeline.sync import SensorSyncContext
-from ..utils.runtime import Runtimepaths
+from ..utils.runtime import RuntimePaths
 from .contracts import (
     ScheduleDefinition,
     ScheduledExecutionContext,
@@ -43,7 +43,7 @@ class SchedulerBootstrap:
         action_registry: ActionRegistry,
         plugin_manager,
         timeline_service: TimelineService,
-        runtime_paths: Runtimepaths,
+        runtime_paths: RuntimePaths,
         task_agent_manager,
         action_executor,
         get_config,
