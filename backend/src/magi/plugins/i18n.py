@@ -193,26 +193,28 @@ class PluginI18n:
         self._loaded_languages.clear()
 
 
-# Thread-local storage for current request language
-import threading
+# Context-local storage for current request language
+import contextvars
 
-_current_language = threading.local()
+_current_language: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "current_language", default=None
+)
 
 
 def set_current_language(language: Optional[str]) -> None:
     """
-    Set the current thread's language context.
+    Set the current context's language.
 
     This should be called at the beginning of a request or task
     to establish the language preference for all plugin operations.
     """
-    _current_language.value = language
+    _current_language.set(language)
 
 
 def get_current_language() -> str:
     """
-    Get the current thread's language context.
+    Get the current context's language.
 
     Returns DEFAULT_LANGUAGE if no context is set.
     """
-    return getattr(_current_language, "value", DEFAULT_LANGUAGE)
+    return _current_language.get() or DEFAULT_LANGUAGE

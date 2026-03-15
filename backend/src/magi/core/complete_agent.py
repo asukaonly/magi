@@ -62,8 +62,7 @@ class CompleteAgent(Agent):
 
     async def execute_action(self, action):
         """Execute action"""
-        # Temporary placeholder implementation
-        return {"success": True}
+        raise NotImplementedError("execute_action must be overridden by subclasses")
 
     async def _on_start(self):
         """processing on startup"""

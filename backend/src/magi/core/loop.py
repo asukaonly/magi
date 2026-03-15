@@ -56,7 +56,7 @@ class LoopEngine:
         Args:
             agent: AgentInstance
             strategy: Loop strategy
-            loop_interval: 循环interval（seconds）
+            loop_interval: Loop interval in seconds
         """
         self.agent = agent
         self.strategy = strategy
@@ -65,7 +65,7 @@ class LoopEngine:
         self._loop_task: Optional[asyncio.Task] = None
         self._pause_event: Optional[asyncio.Event] = None
 
-        # 循环statistics
+        # Loop statistics
         self._loop_count = 0
         self._phase_stats = {
             "sense": {"count": 0, "total_time": 0.0},
@@ -96,9 +96,10 @@ class LoopEngine:
         if self._state == LoopState.RUNNING:
             return
 
+        self.reset_stats()
         self._state = LoopState.RUNNING
         self._pause_event = asyncio.Event()
-        self._pause_event.set()  # 初始未pause
+        self._pause_event.set()  # Initially not paused
 
         self._loop_task = asyncio.create_task(self._main_loop())
 
