@@ -11,6 +11,8 @@ from ....core.logger import get_logger
 
 logger = get_logger(__name__)
 
+FACT_EVENTS_TABLE = "fact_events"
+RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
 TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"
 TOOL_INVOKED_EVENT_TYPE = "TOOL_INVOKED"
 
@@ -198,11 +200,16 @@ class ChatSessionService:
             conn = sqlite3.connect(str(self._l1_db_path))
             cur = conn.cursor()
             cur.execute(
-                """
-                SELECT event_type, structured_payload
-                FROM events
+                f"""
+                SELECT event_type, structured_payload, timestamp
+                FROM {FACT_EVENTS_TABLE}
                 WHERE deleted_at IS NULL
-                  AND event_type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse', ?, ?)
+                  AND event_type IN ('UserMessage', 'AIResponse')
+                UNION ALL
+                SELECT event_type, structured_payload, timestamp
+                FROM {RUNTIME_OBSERVATIONS_TABLE}
+                WHERE deleted_at IS NULL
+                  AND event_type IN (?, ?)
                 ORDER BY timestamp ASC
                 LIMIT 5000
                 """,
@@ -214,7 +221,7 @@ class ChatSessionService:
             logger.warning("Failed to restore conversation from L1 store: %s", exc)
             return
 
-        for event_type, raw_data in rows:
+        for event_type, raw_data, _ in rows:
             try:
                 payload = json.loads(raw_data or "{}")
             except Exception:
@@ -225,11 +232,11 @@ class ChatSessionService:
             session_id = self.resolve_session_id(user_id, payload.get("session_id"))
             key = self.history_key(user_id, session_id)
             history = self._conversation_history.setdefault(key, [])
-            if event_type in {"USER_INPUT", "UserMessage"}:
+            if event_type == "UserMessage":
                 content = payload.get("message", "")
                 if content:
                     history.append({"role": "user", "content": str(content)})
-            elif event_type in {"AI_RESPONSE", "AIResponse"}:
+            elif event_type == "AIResponse":
                 content = payload.get("response", "")
                 if content:
                     history.append({"role": "assistant", "content": str(content)})

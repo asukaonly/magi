@@ -16,6 +16,17 @@ from .chat_trace_read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, 
 
 logger = get_logger(__name__)
 
+FACT_EVENTS_TABLE = "fact_events"
+RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
+RUNTIME_TRACE_EVENT_TYPES = (
+    "WORKER_AGENT_PROGRESS",
+    "WORKER_AGENT_COMPLETED",
+    "WORKER_AGENT_FAILED",
+    "CHAT_TOOL_LOOP_STEP",
+    "TOOL_INTERACTION",
+    "TOOL_INVOKED",
+)
+
 
 class ChatReadService:
     """Query chat session and history from persistent storage."""
@@ -54,20 +65,14 @@ class ChatReadService:
         sessions: dict[str, dict[str, Any]] = {}
 
         if self._l1_db_path.exists():
-            query = """
-                SELECT event_type, structured_payload, timestamp
-                FROM events
-                WHERE deleted_at IS NULL
-                  AND event_type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
-                  AND user_id = ?
-                ORDER BY timestamp DESC
-            """
             try:
-                conn = sqlite3.connect(str(self._l1_db_path))
-                cur = conn.cursor()
-                cur.execute(query, (user_id,))
-                rows = cur.fetchall()
-                conn.close()
+                rows = self._query_fact_rows(
+                    event_types=USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES,
+                    user_id=user_id,
+                    session_id=None,
+                    limit=None,
+                    ascending=False,
+                )
             except Exception as exc:
                 logger.warning(f"Failed to query session list: {exc}")
                 rows = []
@@ -81,9 +86,9 @@ class ChatReadService:
                 if not session_id:
                     continue
                 timestamp = int(float(raw_ts or 0))
-                if event_type in ("USER_INPUT", "UserMessage"):
+                if event_type in USER_EVENT_TYPES:
                     content = str(payload.get("message") or "").strip()
-                elif event_type in ("AI_RESPONSE", "AIResponse"):
+                elif event_type in AI_RESPONSE_EVENT_TYPES:
                     content = str(payload.get("response") or "").strip()
                 else:
                     continue
@@ -104,7 +109,7 @@ class ChatReadService:
                     session["last_message_preview"] = content[:120]
                 # Iterate desc by timestamp: repeatedly setting this keeps the oldest
                 # user message as title seed after full traversal.
-                if event_type in ("USER_INPUT", "UserMessage") and content:
+                if event_type in USER_EVENT_TYPES and content:
                     session["title_candidate"] = content[:80]
 
         ordered = sorted(
@@ -142,22 +147,14 @@ class ChatReadService:
         if not self._l1_db_path.exists():
             return []
         safe_limit = max(1, min(limit, 1000))
-        query = """
-            SELECT event_type, structured_payload, timestamp
-            FROM events
-            WHERE deleted_at IS NULL
-              AND event_type IN ('USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse')
-              AND user_id = ?
-              AND session_id = ?
-            ORDER BY timestamp ASC
-            LIMIT ?
-        """
         try:
-            conn = sqlite3.connect(str(self._l1_db_path))
-            cur = conn.cursor()
-            cur.execute(query, (user_id, session_id, safe_limit))
-            rows = cur.fetchall()
-            conn.close()
+            rows = self._query_fact_rows(
+                event_types=USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES,
+                user_id=user_id,
+                session_id=session_id,
+                limit=safe_limit,
+                ascending=True,
+            )
         except Exception as exc:
             logger.warning(f"Failed to query chat history: {exc}")
             return []
@@ -168,10 +165,10 @@ class ChatReadService:
                 payload = json.loads(raw_data or "{}")
             except Exception:
                 continue
-            if event_type in ("USER_INPUT", "UserMessage"):
+            if event_type in USER_EVENT_TYPES:
                 content = payload.get("message")
                 role = "user"
-            elif event_type in ("AI_RESPONSE", "AIResponse"):
+            elif event_type in AI_RESPONSE_EVENT_TYPES:
                 content = payload.get("response")
                 role = "assistant"
             else:
@@ -193,26 +190,22 @@ class ChatReadService:
         if not self._l1_db_path.exists():
             return []
         safe_limit = max(1, min(limit, 1000))
-        query = """
-            SELECT event_type, structured_payload, timestamp
-            FROM events
-            WHERE deleted_at IS NULL
-              AND event_type IN (
-                'USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse',
-                'WORKER_AGENT_PROGRESS', 'WORKER_AGENT_COMPLETED', 'WORKER_AGENT_FAILED',
-                'CHAT_TOOL_LOOP_STEP', 'TOOL_INTERACTION', 'TOOL_INVOKED'
-            )
-              AND user_id = ?
-              AND session_id = ?
-            ORDER BY timestamp ASC
-            LIMIT ?
-        """
         try:
-            conn = sqlite3.connect(str(self._l1_db_path))
-            cur = conn.cursor()
-            cur.execute(query, (user_id, session_id, safe_limit))
-            rows = cur.fetchall()
-            conn.close()
+            fact_rows = self._query_fact_rows(
+                event_types=USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES,
+                user_id=user_id,
+                session_id=session_id,
+                limit=None,
+                ascending=True,
+            )
+            runtime_rows = self._query_runtime_rows(
+                event_types=RUNTIME_TRACE_EVENT_TYPES,
+                user_id=user_id,
+                session_id=session_id,
+                limit=None,
+                ascending=True,
+            )
+            rows = sorted([*fact_rows, *runtime_rows], key=lambda item: float(item[2] or 0))
         except Exception as exc:
             logger.warning(f"Failed to query display history: {exc}")
             return []
@@ -307,25 +300,105 @@ class ChatReadService:
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         if not self._l1_db_path.exists():
             return
-        delete_sql = """
-            DELETE FROM events
-            WHERE deleted_at IS NULL
-              AND event_type IN (
-                'USER_INPUT', 'AI_RESPONSE', 'UserMessage', 'AIResponse',
-                'WORKER_AGENT_PROGRESS', 'WORKER_AGENT_COMPLETED', 'WORKER_AGENT_FAILED',
-                'CHAT_TOOL_LOOP_STEP', 'TOOL_INTERACTION', 'TOOL_INVOKED'
-            )
-              AND user_id = ?
-              AND session_id = ?
-        """
         try:
             conn = sqlite3.connect(str(self._l1_db_path))
             cur = conn.cursor()
-            cur.execute(delete_sql, (user_id, session_id))
+            cur.execute(
+                f"""
+                DELETE FROM {FACT_EVENTS_TABLE}
+                WHERE deleted_at IS NULL
+                  AND event_type IN ({", ".join("?" for _ in (USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES))})
+                  AND user_id = ?
+                  AND session_id = ?
+                """,
+                [*(USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES), user_id, session_id],
+            )
+            cur.execute(
+                f"""
+                DELETE FROM {RUNTIME_OBSERVATIONS_TABLE}
+                WHERE deleted_at IS NULL
+                  AND event_type IN ({", ".join("?" for _ in RUNTIME_TRACE_EVENT_TYPES)})
+                  AND user_id = ?
+                  AND session_id = ?
+                """,
+                [*RUNTIME_TRACE_EVENT_TYPES, user_id, session_id],
+            )
             conn.commit()
             conn.close()
         except Exception as exc:
             logger.warning(f"Failed to clear chat history: {exc}")
+
+    def _query_fact_rows(
+        self,
+        *,
+        event_types: tuple[str, ...],
+        user_id: str,
+        session_id: str | None,
+        limit: int | None,
+        ascending: bool,
+    ) -> list[tuple[str, str, float]]:
+        return self._query_rows(
+            table=FACT_EVENTS_TABLE,
+            event_types=event_types,
+            user_id=user_id,
+            session_id=session_id,
+            limit=limit,
+            ascending=ascending,
+        )
+
+    def _query_runtime_rows(
+        self,
+        *,
+        event_types: tuple[str, ...],
+        user_id: str,
+        session_id: str | None,
+        limit: int | None,
+        ascending: bool,
+    ) -> list[tuple[str, str, float]]:
+        return self._query_rows(
+            table=RUNTIME_OBSERVATIONS_TABLE,
+            event_types=event_types,
+            user_id=user_id,
+            session_id=session_id,
+            limit=limit,
+            ascending=ascending,
+        )
+
+    def _query_rows(
+        self,
+        *,
+        table: str,
+        event_types: tuple[str, ...],
+        user_id: str,
+        session_id: str | None,
+        limit: int | None,
+        ascending: bool,
+    ) -> list[tuple[str, str, float]]:
+        if not event_types:
+            return []
+        order_direction = "ASC" if ascending else "DESC"
+        query = f"""
+            SELECT event_type, structured_payload, timestamp
+            FROM {table}
+            WHERE deleted_at IS NULL
+              AND event_type IN ({", ".join("?" for _ in event_types)})
+              AND user_id = ?
+        """
+        params: list[Any] = [*event_types, user_id]
+        if session_id:
+            query += " AND session_id = ?"
+            params.append(session_id)
+        query += f" ORDER BY timestamp {order_direction}"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(int(limit))
+
+        conn = sqlite3.connect(str(self._l1_db_path))
+        cur = conn.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        conn.close()
+        return rows
 
     def clear_all_sessions(self) -> int:
         """Clear all current session mappings and return removed count."""

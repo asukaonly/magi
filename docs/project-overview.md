@@ -99,7 +99,7 @@ Current persistence boundary:
   Message bus queue persistence only (`message_queue`)
 
 - `~/.magi/data/memories/l1_events.db`
-  Canonical L1 event memory store (`events`)
+  Canonical L1 storage split into semantic facts and runtime observations (`fact_events`, `runtime_observations`)
 
 - `~/.magi/data/memories/memory.db`
   Shared L0/L2/L3/L4 storage (`l0_*`, `knowledge_graph`, `tom_*`, `summaries`, `procedural_skills`)

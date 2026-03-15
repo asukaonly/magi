@@ -85,12 +85,14 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
         workbench = await self.store.l0.get_workbench("s1")
         l1_count = await self.store.l1.count_events()
+        runtime_count = await self.store.l1.count_runtime_observations()
         assertions = await self.store.l2.list_tom_assertions(entity_id="user:u1")
         summary = await self.store.generate_summary(period_type="day", period_start=now - 10, period_end=now + 60)
         procedures = await self.store.l4.query_strategies(query="browser", limit=5)
 
         self.assertEqual(workbench["session"]["user_id"], "u1")
-        self.assertEqual(l1_count, 3)
+        self.assertEqual(l1_count, 1)
+        self.assertEqual(runtime_count, 2)
         self.assertEqual(assertions[0]["trait_name"], "stress_level")
         self.assertIsNotNone(summary)
         self.assertEqual(summary["summary_type"], "temporal")
@@ -200,9 +202,11 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         stats = self.integration.get_statistics()
         workbench = await self.memory.l0.get_workbench("s1")
         l1_count = await self.memory.l1.count_events()
+        runtime_count = await self.memory.l1.count_runtime_observations()
 
         self.assertGreaterEqual(stats["events_processed"], 3)
-        self.assertEqual(l1_count, 2)
+        self.assertEqual(l1_count, 1)
+        self.assertEqual(runtime_count, 1)
         self.assertEqual(workbench["session"]["user_id"], "u1")
         self.assertGreaterEqual(stats["l2_assertions_written"], 1)
 

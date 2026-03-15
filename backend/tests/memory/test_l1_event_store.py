@@ -68,3 +68,29 @@ async def test_l1_timeline_roundtrip_uses_timeline_metadata(tmp_path):
     assert fetched["title"] == "Journal"
     assert len(listed) == 1
     assert listed[0]["summary"] == "A reflective note"
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_routes_runtime_events_to_observations(tmp_path):
+    from magi.memory.l1_event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path))
+    await store.initialize()
+
+    event = Event(
+        type=EventTypes.ACTION_EXECUTED,
+        data={"user_id": "user-1", "session_id": "session-1", "action_type": "bash", "success": True},
+        source="runtime",
+        level=EventLevel.INFO,
+        correlation_id="corr-2",
+    )
+    memory_event = normalize_runtime_event(event, event_id="evt-runtime-1")
+    await store.store(memory_event)
+
+    fetched_fact = await store.get_event("evt-runtime-1")
+    runtime_rows = await store.query_runtime_observations(session_id="session-1", user_id="user-1", limit=10)
+
+    assert fetched_fact is None
+    assert len(runtime_rows) == 1
+    assert runtime_rows[0]["event_id"] == "evt-runtime-1"

@@ -12,11 +12,13 @@ from ...utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
 
-USER_EVENT_TYPES = ("USER_INPUT", "UserMessage")
-AI_RESPONSE_EVENT_TYPES = ("AI_RESPONSE", "AIResponse")
+FACT_EVENTS_TABLE = "fact_events"
+RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
+USER_EVENT_TYPES = ("UserMessage",)
+AI_RESPONSE_EVENT_TYPES = ("AIResponse",)
 WORKER_EVENT_TYPES = ("WORKER_AGENT_PROGRESS", "WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED")
 TRACE_EVENT_TYPES = WORKER_EVENT_TYPES + ("CHAT_TOOL_LOOP_STEP", "TOOL_INTERACTION", "TOOL_INVOKED")
-DISPLAY_EVENT_TYPES = USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES + TRACE_EVENT_TYPES
+FACT_DISPLAY_EVENT_TYPES = USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES
 
 
 @dataclass(slots=True)
@@ -604,35 +606,66 @@ class ChatTraceReadService:
     ) -> list[dict[str, Any]]:
         if not self._l1_db_path.exists():
             return []
-        query = """
-            SELECT event_type, structured_payload, timestamp
-            FROM events
-            WHERE deleted_at IS NULL
-              AND event_type IN ({types})
-              AND user_id = ?
-              AND session_id = ?
-              AND json_extract(structured_payload, '$.turn_id') = ?
-            ORDER BY timestamp ASC
-        """.format(types=", ".join("?" for _ in DISPLAY_EVENT_TYPES))
-        params: list[Any] = list(DISPLAY_EVENT_TYPES) + [user_id, session_id, turn_id]
-        return self._query_events(query, params)
+        fact_items = self._query_table_events(
+            table=FACT_EVENTS_TABLE,
+            event_types=FACT_DISPLAY_EVENT_TYPES,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        trace_items = self._query_table_events(
+            table=RUNTIME_OBSERVATIONS_TABLE,
+            event_types=TRACE_EVENT_TYPES,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        return sorted(fact_items + trace_items, key=lambda item: float(item.get("timestamp", 0.0)))
 
     def _load_session_events(self, *, user_id: str, session_id: str) -> list[dict[str, Any]]:
         if not self._l1_db_path.exists():
             return []
-        query = """
+        fact_items = self._query_table_events(
+            table=FACT_EVENTS_TABLE,
+            event_types=FACT_DISPLAY_EVENT_TYPES,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=None,
+        )
+        trace_items = self._query_table_events(
+            table=RUNTIME_OBSERVATIONS_TABLE,
+            event_types=TRACE_EVENT_TYPES,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=None,
+        )
+        return sorted(fact_items + trace_items, key=lambda item: float(item.get("timestamp", 0.0)))
+
+    def _query_table_events(
+        self,
+        *,
+        table: str,
+        event_types: tuple[str, ...],
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+    ) -> list[dict[str, Any]]:
+        if not event_types:
+            return []
+        type_placeholders = ", ".join("?" for _ in event_types)
+        query = f"""
             SELECT event_type, structured_payload, timestamp
-            FROM events
+            FROM {table}
             WHERE deleted_at IS NULL
-              AND event_type IN ({types})
+              AND event_type IN ({type_placeholders})
               AND user_id = ?
               AND session_id = ?
-            ORDER BY timestamp ASC
-        """.format(types=", ".join("?" for _ in DISPLAY_EVENT_TYPES))
-        params: list[Any] = list(DISPLAY_EVENT_TYPES) + [user_id, session_id]
-        return self._query_events(query, params)
-
-    def _query_events(self, query: str, params: list[Any]) -> list[dict[str, Any]]:
+        """
+        params: list[Any] = [*event_types, user_id, session_id]
+        if turn_id is not None:
+            query += " AND json_extract(structured_payload, '$.turn_id') = ?"
+            params.append(turn_id)
+        query += " ORDER BY timestamp ASC"
         try:
             conn = sqlite3.connect(str(self._l1_db_path))
             cur = conn.cursor()
@@ -640,7 +673,7 @@ class ChatTraceReadService:
             rows = cur.fetchall()
             conn.close()
         except Exception as exc:
-            logger.warning("Failed to query trace events: %s", exc)
+            logger.warning("Failed to query trace events table=%s: %s", table, exc)
             return []
 
         items: list[dict[str, Any]] = []

@@ -11,34 +11,39 @@ from magi.api.routers import messages
 from magi.api.services.chat_read_service import ChatReadService
 from magi.api.services.chat_trace_read_service import ChatTraceReadService
 
+FACT_EVENTS_TABLE = "fact_events"
+RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
+
 
 def _init_event_store(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS events (
-            event_id TEXT PRIMARY KEY,
-            event_type TEXT NOT NULL,
-            structured_payload TEXT NOT NULL,
-            timestamp REAL NOT NULL,
-            user_id TEXT,
-            session_id TEXT,
-            deleted_at REAL
+    for table in (FACT_EVENTS_TABLE, RUNTIME_OBSERVATIONS_TABLE):
+        cur.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {table} (
+                event_id TEXT PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                structured_payload TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                user_id TEXT,
+                session_id TEXT,
+                deleted_at REAL
+            )
+            """
         )
-        """
-    )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)")
+        cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_id)")
+        cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table}(session_id)")
     conn.commit()
     conn.close()
 
 
 def _insert_event(db_path: Path, event_type: str, data: dict, timestamp: float) -> None:
+    target_table = FACT_EVENTS_TABLE if event_type in {"UserMessage", "AIResponse"} else RUNTIME_OBSERVATIONS_TABLE
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO events (event_id, event_type, structured_payload, timestamp, user_id, session_id, deleted_at) VALUES (?, ?, ?, ?, ?, ?, NULL)",
+        f"INSERT INTO {target_table} (event_id, event_type, structured_payload, timestamp, user_id, session_id, deleted_at) VALUES (?, ?, ?, ?, ?, ?, NULL)",
         (
             f"{event_type}-{int(timestamp * 1000)}",
             event_type,
@@ -76,31 +81,31 @@ def test_list_sessions_aggregates_and_sorts(tmp_path):
 
     _insert_event(
         service._l1_db_path,
-        "USER_INPUT",
+        "UserMessage",
         {"user_id": "u1", "session_id": "s1", "message": "hello from session one"},
         1000,
     )
     _insert_event(
         service._l1_db_path,
-        "AI_RESPONSE",
+        "AIResponse",
         {"user_id": "u1", "session_id": "s1", "response": "response one"},
         1010,
     )
     _insert_event(
         service._l1_db_path,
-        "USER_INPUT",
+        "UserMessage",
         {"user_id": "u1", "session_id": "s2", "message": "hello from session two"},
         2000,
     )
     _insert_event(
         service._l1_db_path,
-        "AI_RESPONSE",
+        "AIResponse",
         {"user_id": "u1", "session_id": "s2", "response": "response two"},
         2010,
     )
     _insert_event(
         service._l1_db_path,
-        "USER_INPUT",
+        "UserMessage",
         {"user_id": "u2", "session_id": "s-other", "message": "ignore me"},
         5000,
     )
@@ -121,7 +126,7 @@ def test_list_sessions_respects_limit(tmp_path):
     for index in range(5):
         _insert_event(
             service._l1_db_path,
-            "USER_INPUT",
+            "UserMessage",
             {
                 "user_id": "u1",
                 "session_id": f"s{index}",
@@ -174,7 +179,7 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
 
     _insert_event(
         service._l1_db_path,
-        "USER_INPUT",
+        "UserMessage",
         {"user_id": "u1", "session_id": "s1", "message": "start task", "turn_id": "turn_1"},
         1000,
     )
@@ -226,7 +231,7 @@ def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
 
     _insert_event(
         service._l1_db_path,
-        "USER_INPUT",
+        "UserMessage",
         {"user_id": "u1", "session_id": "s1", "message": "why", "turn_id": "turn_2"},
         2000,
     )
@@ -246,7 +251,7 @@ def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
     )
     _insert_event(
         service._l1_db_path,
-        "AI_RESPONSE",
+        "AIResponse",
         {"user_id": "u1", "session_id": "s1", "turn_id": "turn_2", "response": "answer"},
         2010,
     )
@@ -320,7 +325,7 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
 
     _insert_event(
         service._l1_db_path,
-        "USER_INPUT",
+        "UserMessage",
         {"user_id": "u1", "session_id": "s1", "message": "analyze repo", "turn_id": "turn_1"},
         1000,
     )
@@ -346,7 +351,7 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     )
     _insert_event(
         service._l1_db_path,
-        "AI_RESPONSE",
+        "AIResponse",
         {"user_id": "u1", "session_id": "s1", "turn_id": "turn_1", "response": "final answer"},
         1030,
     )
@@ -398,7 +403,7 @@ def test_trace_summary_counts_planning_as_active_before_workers_exist(tmp_path):
 
     _insert_event(
         service._l1_db_path,
-        "USER_INPUT",
+        "UserMessage",
         {"user_id": "u1", "session_id": "s1", "message": "plan this", "turn_id": "turn_plan"},
         1000,
     )
