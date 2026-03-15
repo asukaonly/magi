@@ -1,0 +1,377 @@
+/**
+ * useMemory hook - Manages memory system state and operations.
+ *
+ * This hook encapsulates all memory-related business logic including:
+ * - Loading memory statistics and data for each layer (L0-L4)
+ * - Session selection and workbench loading
+ * - Search functionality
+ * - Clear memory operations
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
+import { memoryApi } from '@/api/modules/memory';
+import type {
+  L0Session,
+  L0Workbench,
+  L1Event,
+  L2Relation,
+  L2Assertion,
+  L3Summary,
+  L4Skill,
+  MemoryStatistics,
+} from '@/api/modules/memory';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface UseMemoryReturn {
+  // Loading state
+  loading: boolean;
+
+  // Statistics
+  stats: MemoryStatistics;
+
+  // L0 data
+  l0Sessions: L0Session[];
+  l0Workbench: L0Workbench | null;
+  selectedSessionId: string | null;
+  selectSession: (sessionId: string | null) => void;
+
+  // L1 data
+  l1Events: L1Event[];
+
+  // L2 data
+  l2Relations: L2Relation[];
+  l2Assertions: L2Assertion[];
+
+  // L3 data
+  l3Summaries: L3Summary[];
+
+  // L4 data
+  l4Skills: L4Skill[];
+
+  // Search
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  searching: boolean;
+  handleSearch: () => Promise<void>;
+
+  // Clear dialog
+  clearDialogOpen: boolean;
+  setClearDialogOpen: (open: boolean) => void;
+  clearConfirmText: string;
+  setClearConfirmText: (text: string) => void;
+  clearing: boolean;
+  handleClearRequest: () => void;
+  handleClearConfirm: () => Promise<void>;
+
+  // Actions
+  refresh: (activeTab: string) => Promise<void>;
+  refreshAll: () => Promise<void>;
+}
+
+const DEFAULT_STATS: MemoryStatistics = {
+  l0: { active_sessions: 0, total_goals: 0, total_entities: 0, total_tactics: 0 },
+  l1: { event_count: 0 },
+  l2: { relation_count: 0, assertion_count: 0 },
+  l3: { summary_count: 0 },
+  l4: { skill_count: 0, open_circuit_breakers: 0 },
+};
+
+// ============================================================================
+// Hook Implementation
+// ============================================================================
+
+export function useMemory(): UseMemoryReturn {
+  const { t } = useTranslation('app');
+
+  // Loading state
+  const [loading, setLoading] = useState(false);
+
+  // Statistics
+  const [stats, setStats] = useState<MemoryStatistics>(DEFAULT_STATS);
+
+  // L0 data
+  const [l0Sessions, setL0Sessions] = useState<L0Session[]>([]);
+  const [l0Workbench, setL0Workbench] = useState<L0Workbench | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+
+  // L1 data
+  const [l1Events, setL1Events] = useState<L1Event[]>([]);
+
+  // L2 data
+  const [l2Relations, setL2Relations] = useState<L2Relation[]>([]);
+  const [l2Assertions, setL2Assertions] = useState<L2Assertion[]>([]);
+
+  // L3 data
+  const [l3Summaries, setL3Summaries] = useState<L3Summary[]>([]);
+
+  // L4 data
+  const [l4Skills, setL4Skills] = useState<L4Skill[]>([]);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+
+  // Clear dialog state
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearConfirmText, setClearConfirmText] = useState('');
+  const [clearing, setClearing] = useState(false);
+
+  // ============================================================================
+  // Data Loading Functions
+  // ============================================================================
+
+  const loadStatistics = useCallback(async () => {
+    try {
+      const data = await memoryApi.getStatistics();
+      setStats(data);
+    } catch (error) {
+      console.error('Failed to load statistics:', error);
+    }
+  }, []);
+
+  const loadL0Sessions = useCallback(async () => {
+    try {
+      const data = await memoryApi.getL0Sessions();
+      setL0Sessions(data.sessions || []);
+    } catch (error) {
+      console.error('Failed to load L0 sessions:', error);
+    }
+  }, []);
+
+  const loadL0Workbench = useCallback(async (sessionId: string) => {
+    try {
+      const data = await memoryApi.getL0Workbench(sessionId);
+      setL0Workbench(data);
+    } catch (error) {
+      console.error('Failed to load L0 workbench:', error);
+      setL0Workbench(null);
+    }
+  }, []);
+
+  const loadL1Events = useCallback(async () => {
+    try {
+      const data = await memoryApi.getL1Events({ limit: 100 });
+      setL1Events(data.events || []);
+    } catch (error) {
+      console.error('Failed to load L1 events:', error);
+    }
+  }, []);
+
+  const loadL2Data = useCallback(async () => {
+    try {
+      const [relations, assertions] = await Promise.all([
+        memoryApi.getL2Relations(100),
+        memoryApi.getL2Assertions(100),
+      ]);
+      setL2Relations(relations);
+      setL2Assertions(assertions);
+    } catch (error) {
+      console.error('Failed to load L2 data:', error);
+    }
+  }, []);
+
+  const loadL3Summaries = useCallback(async () => {
+    try {
+      const data = await memoryApi.getL3Summaries({ limit: 100 });
+      setL3Summaries(data);
+    } catch (error) {
+      console.error('Failed to load L3 summaries:', error);
+    }
+  }, []);
+
+  const loadL4Skills = useCallback(async () => {
+    try {
+      const data = await memoryApi.getL4Skills(100);
+      setL4Skills(data);
+    } catch (error) {
+      console.error('Failed to load L4 skills:', error);
+    }
+  }, []);
+
+  // ============================================================================
+  // Initial Load
+  // ============================================================================
+
+  useEffect(() => {
+    const loadAll = async () => {
+      setLoading(true);
+      await Promise.all([
+        loadStatistics(),
+        loadL0Sessions(),
+        loadL1Events(),
+        loadL2Data(),
+        loadL3Summaries(),
+        loadL4Skills(),
+      ]);
+      setLoading(false);
+    };
+    loadAll();
+  }, [loadStatistics, loadL0Sessions, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills]);
+
+  // ============================================================================
+  // Session Selection
+  // ============================================================================
+
+  useEffect(() => {
+    if (selectedSessionId) {
+      loadL0Workbench(selectedSessionId);
+    }
+  }, [selectedSessionId, loadL0Workbench]);
+
+  const selectSession = useCallback((sessionId: string | null) => {
+    setSelectedSessionId(sessionId);
+  }, []);
+
+  // ============================================================================
+  // Refresh Actions
+  // ============================================================================
+
+  const refreshAll = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([
+      loadStatistics(),
+      loadL0Sessions(),
+      loadL1Events(),
+      loadL2Data(),
+      loadL3Summaries(),
+      loadL4Skills(),
+    ]);
+    setLoading(false);
+  }, [loadStatistics, loadL0Sessions, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills]);
+
+  const refresh = useCallback(
+    async (activeTab: string) => {
+      setLoading(true);
+      await loadStatistics();
+      switch (activeTab) {
+        case 'l0':
+          await loadL0Sessions();
+          if (selectedSessionId) {
+            await loadL0Workbench(selectedSessionId);
+          }
+          break;
+        case 'l1':
+          await loadL1Events();
+          break;
+        case 'l2':
+          await loadL2Data();
+          break;
+        case 'l3':
+          await loadL3Summaries();
+          break;
+        case 'l4':
+          await loadL4Skills();
+          break;
+      }
+      setLoading(false);
+      toast.success(t('memory.refreshSuccess'));
+    },
+    [loadStatistics, loadL0Sessions, loadL0Workbench, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills, selectedSessionId, t]
+  );
+
+  // ============================================================================
+  // Search
+  // ============================================================================
+
+  const handleSearch = useCallback(async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const results = await memoryApi.search(searchQuery);
+      toast.success(t('memory.searchComplete'));
+      console.log('Search results:', results);
+    } catch (error) {
+      toast.error(t('memory.searchError', { message: String(error) }));
+    } finally {
+      setSearching(false);
+    }
+  }, [searchQuery, t]);
+
+  // ============================================================================
+  // Clear Memory
+  // ============================================================================
+
+  const handleClearRequest = useCallback(() => {
+    setClearDialogOpen(true);
+    setClearConfirmText('');
+  }, []);
+
+  const handleClearConfirm = useCallback(async () => {
+    if (clearConfirmText !== 'CLEAR') return;
+    setClearing(true);
+    try {
+      const result = await memoryApi.clearAll();
+      toast.success(`Cleared ${result.results?.l0?.count || 0} items`);
+      setClearDialogOpen(false);
+      await refreshAll();
+    } catch (error) {
+      toast.error(`Clear failed: ${error}`);
+    } finally {
+      setClearing(false);
+    }
+  }, [clearConfirmText, refreshAll]);
+
+  // ============================================================================
+  // Return
+  // ============================================================================
+
+  return {
+    // Loading state
+    loading,
+
+    // Statistics
+    stats,
+
+    // L0 data
+    l0Sessions,
+    l0Workbench,
+    selectedSessionId,
+    selectSession,
+
+    // L1 data
+    l1Events,
+
+    // L2 data
+    l2Relations,
+    l2Assertions,
+
+    // L3 data
+    l3Summaries,
+
+    // L4 data
+    l4Skills,
+
+    // Search
+    searchQuery,
+    setSearchQuery,
+    searching,
+    handleSearch,
+
+    // Clear dialog
+    clearDialogOpen,
+    setClearDialogOpen,
+    clearConfirmText,
+    setClearConfirmText,
+    clearing,
+    handleClearRequest,
+    handleClearConfirm,
+
+    // Actions
+    refresh,
+    refreshAll,
+  };
+}
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+export const formatTimestamp = (ts: number): string => {
+  if (!ts) return '-';
+  return new Date(ts * 1000).toLocaleString();
+};
