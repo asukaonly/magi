@@ -52,6 +52,8 @@ class Container(containers.DeclarativeContainer):
     agent_runtime = providers.Singleton(object)  # Placeholder, overridden in bootstrap
     memory_integration = providers.Singleton(object)  # Placeholder, overridden in bootstrap
     unified_memory = providers.Singleton(object)  # Placeholder, overridden in bootstrap
+    scheduler_service = providers.Singleton(object)  # Placeholder, overridden in bootstrap
+    scenario_llm_pool = providers.Singleton(object)  # Placeholder, overridden in bootstrap
 
     # Factory providers for per-request instances
     chat_read_service = providers.Factory(_create_chat_read_service)

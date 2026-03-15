@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.config import AppConfig
-from magi.runtime.bootstrap import _build_timeline_handler
+from magi.timeline.handler import build_timeline_handler
 
 
 class _FakeL1Store:
@@ -27,7 +27,7 @@ class _FakeUnifiedMemory:
 @pytest.mark.asyncio
 async def test_runtime_timeline_handler_persists_chat_turn_and_user_graph_edges() -> None:
     memory = _FakeUnifiedMemory()
-    handler = _build_timeline_handler(AppConfig(), memory)
+    handler = build_timeline_handler(AppConfig(), memory)
 
     result = await handler(
         {

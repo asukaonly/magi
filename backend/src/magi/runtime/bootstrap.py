@@ -8,7 +8,6 @@ from typing import Any, Callable, Optional
 from ..config import AppConfig, get_config
 from ..core.container import get_container
 from ..core.logger import get_logger
-from ..events.sqlite_backend import SQLiteMessageBackend
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationModule
 from ..context.scenario_prompts import ScenarioPromptsStore
@@ -22,15 +21,6 @@ from .runtime_modules import (
 )
 
 logger = get_logger(__name__)
-
-_memory_integration: MemoryIntegrationModule | None = None
-_message_bus: SQLiteMessageBackend | None = None
-_agent_runtime = None
-_maintenance_daemon = None
-_scenario_prompts_store: ScenarioPromptsStore | None = None
-_scenario_llm_pool = None
-_llm_usage_store = None
-_scheduler_service: SchedulerService | None = None
 
 _runtime_orchestrator: ModuleLifecycleOrchestrator | None = None
 _runtime_state: RuntimeBootstrapState | None = None
@@ -59,21 +49,24 @@ def get_master_agent():
     return None
 
 
-def get_memory_integration() -> MemoryIntegrationModule:
-    """Get memory integration module."""
+def _resolve_from_container(attr: str) -> Any:
+    """Try to resolve a service from the DI container, return None on failure."""
     try:
         container = get_container()
-        instance = container.memory_integration()
-        if instance is not None and not isinstance(instance, object) or (
-            isinstance(instance, object) and type(instance).__name__ != "object"
-        ):
+        instance = getattr(container, attr)()
+        if instance is not None and type(instance).__name__ != "object":
             return instance
     except Exception:
         pass
+    return None
 
-    if _memory_integration is None:
-        raise RuntimeError("MemoryIntegrationModule not initialized. Call initialize_agent_runtime() first.")
-    return _memory_integration
+
+def get_memory_integration() -> MemoryIntegrationModule:
+    """Get memory integration module."""
+    instance = _resolve_from_container("memory_integration")
+    if instance is not None:
+        return instance
+    raise RuntimeError("MemoryIntegrationModule not initialized. Call initialize_agent_runtime() first.")
 
 
 def get_unified_memory() -> UnifiedMemoryStore:
@@ -83,37 +76,28 @@ def get_unified_memory() -> UnifiedMemoryStore:
 
 def get_agent_runtime():
     """Get agent runtime."""
-    try:
-        container = get_container()
-        instance = container.agent_runtime()
-        if instance is not None and not isinstance(instance, object) or (
-            isinstance(instance, object) and type(instance).__name__ != "object"
-        ):
-            return instance
-    except Exception:
-        pass
-
-    if _agent_runtime is None:
-        raise RuntimeError("AgentRuntime not initialized. Call initialize_agent_runtime() first.")
-    return _agent_runtime
+    instance = _resolve_from_container("agent_runtime")
+    if instance is not None:
+        return instance
+    raise RuntimeError("AgentRuntime not initialized. Call initialize_agent_runtime() first.")
 
 
 def get_scheduler_service() -> SchedulerService:
     """Get the active scheduler service."""
-    if _scheduler_service is None:
-        raise RuntimeError("SchedulerService not initialized. Call initialize_agent_runtime() first.")
-    return _scheduler_service
+    instance = _resolve_from_container("scheduler_service")
+    if instance is not None:
+        return instance
+    raise RuntimeError("SchedulerService not initialized. Call initialize_agent_runtime() first.")
 
 
 def refresh_runtime_llm_config(config: AppConfig | None = None) -> None:
     """Refresh cached runtime LLM adapters after configuration changes."""
-    global _scenario_llm_pool
-
-    if _scenario_llm_pool is None:
+    scenario_llm_pool = _resolve_from_container("scenario_llm_pool")
+    if scenario_llm_pool is None:
         return
 
     next_config = config or get_config()
-    _scenario_llm_pool.refresh(next_config)
+    scenario_llm_pool.refresh(next_config)
     logger.info("Runtime LLM pool refreshed after configuration update")
 
 
@@ -122,36 +106,16 @@ def _is_llm_selection_pending(config: AppConfig) -> bool:
     return _is_llm_selection_pending_impl(config)
 
 
-def _sync_globals_from_state(state: RuntimeBootstrapState | None) -> None:
-    global _memory_integration, _message_bus, _agent_runtime, _maintenance_daemon
-    global _scenario_prompts_store, _scenario_llm_pool, _llm_usage_store, _scheduler_service
-
-    if state is None:
-        _memory_integration = None
-        _message_bus = None
-        _agent_runtime = None
-        _maintenance_daemon = None
-        _scenario_prompts_store = None
-        _scenario_llm_pool = None
-        _llm_usage_store = None
-        _scheduler_service = None
-        return
-
-    _memory_integration = state.memory_integration
-    _message_bus = state.message_bus
-    _agent_runtime = state.agent_runtime
-    _maintenance_daemon = state.maintenance_daemon
-    _scenario_prompts_store = state.scenario_prompts_store
-    _scenario_llm_pool = state.scenario_llm_pool
-    _llm_usage_store = state.llm_usage_store
-    _scheduler_service = state.scheduler_service
+def _is_runtime_initialized() -> bool:
+    """Check whether agent runtime has been initialized."""
+    return _runtime_state is not None and _runtime_state.agent_runtime is not None
 
 
 async def initialize_agent_runtime() -> None:
     """Initialize agent runtime on application startup."""
     global _runtime_orchestrator, _runtime_state
 
-    if _agent_runtime is not None:
+    if _is_runtime_initialized():
         logger.warning("Agent runtime already initialized")
         return
 
@@ -175,18 +139,15 @@ async def initialize_agent_runtime() -> None:
             logger.warning("=" * 60)
         _runtime_orchestrator = None
         _runtime_state = None
-        _sync_globals_from_state(None)
         return
     except Exception as exc:
         logger.error("Failed to initialize agent runtime: %s", exc, exc_info=True)
         _runtime_orchestrator = None
         _runtime_state = None
-        _sync_globals_from_state(None)
         raise
 
     _runtime_orchestrator = orchestrator
     _runtime_state = state
-    _sync_globals_from_state(state)
     logger.info("Agent runtime initialized successfully")
 
 
@@ -202,7 +163,6 @@ async def shutdown_agent_runtime() -> None:
     finally:
         _runtime_orchestrator = None
         _runtime_state = None
-        _sync_globals_from_state(None)
         logger.info("Agent runtime stopped")
 
 

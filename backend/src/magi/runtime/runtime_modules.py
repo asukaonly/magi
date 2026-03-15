@@ -474,7 +474,7 @@ class RuntimeExportsModule(LifecycleModule):
     def __init__(self, state: RuntimeBootstrapState):
         super().__init__(
             name="runtime_exports",
-            dependencies=("runtime_agent_core", "runtime_memory", "runtime_message_bus"),
+            dependencies=("runtime_agent_core", "runtime_memory", "runtime_message_bus", "runtime_scheduler", "runtime_llm"),
         )
         self._state = state
 
@@ -489,11 +489,26 @@ class RuntimeExportsModule(LifecycleModule):
         container.agent_runtime.override(providers.Object(agent_runtime))
         container.memory_integration.override(providers.Object(memory_integration))
         container.unified_memory.override(providers.Object(unified_memory))
+
+        if self._state.scheduler_service is not None:
+            container.scheduler_service.override(providers.Object(self._state.scheduler_service))
+        if self._state.scenario_llm_pool is not None:
+            container.scenario_llm_pool.override(providers.Object(self._state.scenario_llm_pool))
+
         logger.info("DI container providers registered")
 
         set_message_bus = getattr(self._state.bindings, "set_message_bus", None)
         if set_message_bus is not None:
             set_message_bus(message_bus)
+
+    async def shutdown(self) -> None:
+        container = get_container()
+        container.message_bus.reset_override()
+        container.agent_runtime.reset_override()
+        container.memory_integration.reset_override()
+        container.unified_memory.reset_override()
+        container.scheduler_service.reset_override()
+        container.scenario_llm_pool.reset_override()
 
 
 class OtherDependenciesModule(LifecycleModule):
