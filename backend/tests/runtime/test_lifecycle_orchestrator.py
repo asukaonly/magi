@@ -111,3 +111,43 @@ async def test_post_init_failure_triggers_reverse_shutdown_for_all_initialized_m
         await orchestrator.startup()
 
     assert events == ["a.init", "b.init", "a.post", "b.post", "b.stop", "a.stop"]
+
+
+@pytest.mark.asyncio
+async def test_dependencies_are_started_in_topological_order() -> None:
+    events: list[str] = []
+
+    async def _record(name: str) -> None:
+        events.append(name)
+
+    orchestrator = ModuleLifecycleOrchestrator(
+        modules=[
+            LifecycleModule(name="scheduler", dependencies=["runtime"], init=lambda: _record("scheduler.init")),
+            LifecycleModule(name="runtime", dependencies=["memory"], init=lambda: _record("runtime.init")),
+            LifecycleModule(name="memory", dependencies=["bus"], init=lambda: _record("memory.init")),
+            LifecycleModule(name="bus", init=lambda: _record("bus.init")),
+        ]
+    )
+
+    await orchestrator.startup()
+
+    assert events == ["bus.init", "memory.init", "runtime.init", "scheduler.init"]
+
+
+def test_unknown_dependency_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="depends on unknown module"):
+        ModuleLifecycleOrchestrator(
+            modules=[
+                LifecycleModule(name="a", dependencies=["missing"]),
+            ]
+        )
+
+
+def test_cycle_dependency_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="dependency cycle detected"):
+        ModuleLifecycleOrchestrator(
+            modules=[
+                LifecycleModule(name="a", dependencies=["b"]),
+                LifecycleModule(name="b", dependencies=["a"]),
+            ]
+        )

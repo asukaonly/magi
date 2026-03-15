@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from .connection_manager import manager
 from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
+from ..runtime.lifecycle import LifecycleModule
 
 logger = get_logger(__name__, category="API")
 
@@ -25,10 +26,14 @@ TRACE_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES + (
 )
 
 
-class WebSocketBridgeLifecycleModule:
+class WebSocketBridgeLifecycleModule(LifecycleModule):
     """Manage websocket bridge subscriptions across app lifecycle."""
 
     def __init__(self, app: FastAPI, retry_interval_seconds: float = 0.5):
+        super().__init__(
+            name="websocket_bridge",
+            dependencies=("agent_runtime",),
+        )
         self._app = app
         self._retry_interval_seconds = retry_interval_seconds
 

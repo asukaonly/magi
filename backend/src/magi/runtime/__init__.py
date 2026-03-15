@@ -8,8 +8,10 @@ from .bootstrap import (
     get_memory_integration,
     get_scheduler_service,
     get_unified_memory,
+    initialize_agent_runtime,
     initialize_chat_agent,
     refresh_runtime_llm_config,
+    shutdown_agent_runtime,
     shutdown_chat_agent,
 )
 
@@ -21,7 +23,9 @@ __all__ = [
     "get_memory_integration",
     "get_scheduler_service",
     "get_unified_memory",
+    "initialize_agent_runtime",
     "initialize_chat_agent",
     "refresh_runtime_llm_config",
+    "shutdown_agent_runtime",
     "shutdown_chat_agent",
 ]

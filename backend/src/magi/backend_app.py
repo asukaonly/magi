@@ -14,8 +14,8 @@ from .core.logger import get_logger
 from .runtime import (
     RuntimeBindings,
     configure_runtime_bindings,
-    initialize_chat_agent,
-    shutdown_chat_agent,
+    initialize_agent_runtime,
+    shutdown_agent_runtime,
 )
 from .runtime.lifecycle import LifecycleModule, ModuleLifecycleOrchestrator
 
@@ -36,30 +36,58 @@ def _build_runtime_bindings() -> RuntimeBindings:
     )
 
 
+class CoreDependenciesModule(LifecycleModule):
+    """Initialize backend core dependencies."""
+
+    def __init__(self) -> None:
+        super().__init__(name="core_dependencies")
+
+    async def init(self) -> None:
+        wire_container()
+        logger.info("DI container wired")
+
+
+class RuntimeBindingsModule(LifecycleModule):
+    """Initialize runtime bridge callbacks."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="runtime_bindings",
+            dependencies=("core_dependencies",),
+        )
+
+    async def init(self) -> None:
+        configure_runtime_bindings(_build_runtime_bindings())
+
+
+class AgentRuntimeModule(LifecycleModule):
+    """Bridge app lifecycle with runtime lifecycle entrypoints."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="agent_runtime",
+            dependencies=("runtime_bindings",),
+        )
+
+    async def init(self) -> None:
+        await initialize_agent_runtime()
+
+    async def shutdown(self) -> None:
+        await shutdown_agent_runtime()
+
+
 def _build_lifecycle_orchestrator(app: FastAPI) -> ModuleLifecycleOrchestrator:
     websocket_bridge = WebSocketBridgeLifecycleModule(
         app,
         retry_interval_seconds=WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS,
     )
 
-    async def _init_container() -> None:
-        wire_container()
-        logger.info("DI container wired")
-
-    async def _init_runtime_bindings() -> None:
-        configure_runtime_bindings(_build_runtime_bindings())
-
     return ModuleLifecycleOrchestrator(
         modules=[
-            LifecycleModule(name="container", init=_init_container),
-            LifecycleModule(name="runtime_bindings", init=_init_runtime_bindings),
-            LifecycleModule(name="agent_runtime", init=initialize_chat_agent, shutdown=shutdown_chat_agent),
-            LifecycleModule(
-                name="websocket_bridge",
-                init=websocket_bridge.init,
-                post_init=websocket_bridge.post_init,
-                shutdown=websocket_bridge.shutdown,
-            ),
+            CoreDependenciesModule(),
+            RuntimeBindingsModule(),
+            AgentRuntimeModule(),
+            websocket_bridge,
         ]
     )
 
