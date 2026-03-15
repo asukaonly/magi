@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from fastapi import FastAPI
@@ -28,6 +29,7 @@ TRACE_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES + (
     "CHAT_TOOL_LOOP_STEP",
     "TOOL_INTERACTION",
 )
+WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS = 0.5
 
 
 def _build_runtime_bindings() -> RuntimeBindings:
@@ -61,11 +63,24 @@ def create_backend_app() -> FastAPI:
         """Initialize runtime modules and bridges."""
         await initialize_chat_agent()
 
-        from .api.routers.messages import get_message_bus
         from .api.services import get_chat_trace_read_service
+        from .api.routers.messages import get_message_bus
 
-        message_bus = get_message_bus()
-        if message_bus:
+        app.state.ai_response_subscription_id = None
+        app.state.worker_agent_subscription_ids = []
+        app.state.websocket_bridge_message_bus = None
+        app.state.websocket_bridge_retry_task = None
+
+        async def _ensure_ws_bridge_subscriptions() -> bool:
+            message_bus = get_message_bus()
+            if message_bus is None:
+                return False
+
+            existing_sub_id = getattr(app.state, "ai_response_subscription_id", None)
+            existing_bus = getattr(app.state, "websocket_bridge_message_bus", None)
+            if existing_sub_id and existing_bus is message_bus:
+                return True
+
             trace_service = get_chat_trace_read_service()
 
             async def _broadcast_trace_update(data: dict) -> None:
@@ -135,12 +150,29 @@ def create_backend_app() -> FastAPI:
                 data = event.data if isinstance(event.data, dict) else {}
                 await _broadcast_trace_update(data)
 
+            # Re-subscribe when runtime/message bus instance changes.
+            stale_sub_id = getattr(app.state, "ai_response_subscription_id", None)
+            stale_trace_sub_ids = getattr(app.state, "worker_agent_subscription_ids", None) or []
+            stale_bus = getattr(app.state, "websocket_bridge_message_bus", None)
+            if stale_bus is not None and stale_bus is not message_bus:
+                if stale_sub_id:
+                    try:
+                        await stale_bus.unsubscribe(stale_sub_id)
+                    except Exception as exc:
+                        logger.warning(f"Failed to unsubscribe stale AI_RESPONSE bridge: {exc}")
+                for stale_trace_sub_id in stale_trace_sub_ids:
+                    try:
+                        await stale_bus.unsubscribe(stale_trace_sub_id)
+                    except Exception as exc:
+                        logger.warning(f"Failed to unsubscribe stale trace bridge {stale_trace_sub_id}: {exc}")
+
             sub_id = await message_bus.subscribe(
                 EventTypes.AI_RESPONSE,
                 _on_ai_response,
                 propagation_mode="broadcast",
             )
             app.state.ai_response_subscription_id = sub_id
+            app.state.websocket_bridge_message_bus = message_bus
             logger.info(
                 "Subscribed AI_RESPONSE for websocket bridge",
                 subscription_id=sub_id,
@@ -160,26 +192,79 @@ def create_backend_app() -> FastAPI:
                 count=len(trace_sub_ids),
                 pid=os.getpid(),
             )
+            return True
+
+        async def _retry_ws_bridge_subscriptions() -> None:
+            attempts = 0
+            while True:
+                try:
+                    if await _ensure_ws_bridge_subscriptions():
+                        logger.info(
+                            "Deferred websocket bridge subscription established",
+                            attempts=attempts,
+                            pid=os.getpid(),
+                        )
+                        return
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "Deferred websocket bridge subscription attempt failed",
+                        attempts=attempts + 1,
+                        error=str(exc),
+                        pid=os.getpid(),
+                    )
+
+                attempts += 1
+                if attempts % 20 == 0:
+                    logger.info(
+                        "Waiting for message bus before websocket bridge subscription",
+                        attempts=attempts,
+                        pid=os.getpid(),
+                    )
+                await asyncio.sleep(WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS)
+
+        subscribed = await _ensure_ws_bridge_subscriptions()
+        if not subscribed:
+            logger.info(
+                "Message bus unavailable at startup; scheduling websocket bridge retry",
+                pid=os.getpid(),
+            )
+            app.state.websocket_bridge_retry_task = asyncio.create_task(_retry_ws_bridge_subscriptions())
 
     @app.on_event("shutdown")
     async def shutdown_event():
         """Stop runtime modules and detach bridges."""
         from .api.routers.messages import get_message_bus
 
-        message_bus = get_message_bus()
-        sub_id = getattr(app.state, "ai_response_subscription_id", None)
-        if message_bus and sub_id:
+        retry_task = getattr(app.state, "websocket_bridge_retry_task", None)
+        if retry_task:
+            retry_task.cancel()
             try:
-                await message_bus.unsubscribe(sub_id)
+                await retry_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                app.state.websocket_bridge_retry_task = None
+
+        message_bus = get_message_bus()
+        bridge_bus = getattr(app.state, "websocket_bridge_message_bus", None) or message_bus
+        sub_id = getattr(app.state, "ai_response_subscription_id", None)
+        if bridge_bus and sub_id:
+            try:
+                await bridge_bus.unsubscribe(sub_id)
             except Exception as exc:
                 logger.warning(f"Failed to unsubscribe AI_RESPONSE bridge: {exc}")
         worker_sub_ids = getattr(app.state, "worker_agent_subscription_ids", None) or []
-        if message_bus and worker_sub_ids:
+        if bridge_bus and worker_sub_ids:
             for worker_sub_id in worker_sub_ids:
                 try:
-                    await message_bus.unsubscribe(worker_sub_id)
+                    await bridge_bus.unsubscribe(worker_sub_id)
                 except Exception as exc:
                     logger.warning(f"Failed to unsubscribe worker bridge {worker_sub_id}: {exc}")
+        app.state.ai_response_subscription_id = None
+        app.state.worker_agent_subscription_ids = []
+        app.state.websocket_bridge_message_bus = None
         await shutdown_chat_agent()
 
     return app
