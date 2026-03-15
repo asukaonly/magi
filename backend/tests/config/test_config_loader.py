@@ -21,6 +21,10 @@ def _patch_config_paths(monkeypatch, root: Path) -> None:
     monkeypatch.setattr("magi.config.loader.get_plugin_settings_file", lambda plugin_id: plugins_dir / f"{plugin_id}.yaml")
     monkeypatch.setattr("magi.config.loader.get_data_dir", lambda: data_dir)
     monkeypatch.setattr("magi.config.loader.get_example_config_file", lambda: root / "missing-example.yaml")
+    monkeypatch.setattr("magi.config.loader.get_llm_config_file", lambda: config_dir / "llm.yaml")
+    monkeypatch.setattr("magi.config.loader.get_llm_default_config_file", lambda: root / "llm.default.yaml")
+    packaged_llm_defaults = Path(__file__).resolve().parents[2] / "configs" / "llm.default.yaml"
+    (root / "llm.default.yaml").write_text(packaged_llm_defaults.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, monkeypatch) -> None:
@@ -139,10 +143,9 @@ def test_loader_creates_default_scenario_llm_config(tmp_path: Path, monkeypatch)
 
     loader = ConfigLoader()
     config = loader.load()
-    agent_data = yaml.safe_load((tmp_path / "config" / "agent.yaml").read_text(encoding="utf-8")) or {}
+    llm_data = yaml.safe_load((tmp_path / "config" / "llm.yaml").read_text(encoding="utf-8")) or {}
 
-    assert "providers" in agent_data["llm"]
-    assert "selections" in agent_data["llm"]
+    assert llm_data == {}
     assert "openai" in config.llm.providers
     assert config.llm.providers["openai"].enabled is False
     assert "context_decider" in config.llm.selections
@@ -168,3 +171,177 @@ def test_loader_ignores_llm_environment_overrides(tmp_path: Path, monkeypatch) -
     assert config.llm.selections["context_decider"].model == ""
     assert config.llm.selections["core"].provider_id == ""
     assert config.llm.selections["core"].model == ""
+
+
+def test_loader_creates_llm_split_file_and_loads_default_llm_config(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+    (tmp_path / "llm.default.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "providers": {
+                    "openai": {
+                        "enabled": False,
+                        "provider_type": "openai",
+                        "display_name": "OpenAI",
+                        "api_key": "",
+                        "base_url": "",
+                        "api_format": None,
+                        "custom_models": [],
+                        "custom_default_model": None,
+                    }
+                },
+                "selections": {
+                    "context_decider": {
+                        "provider_id": "",
+                        "model": "",
+                        "capability_override_enabled": False,
+                        "capabilities": {
+                            "vision": False,
+                            "image_output": False,
+                            "tool_calling": True,
+                            "reasoning": True,
+                            "embedding": False,
+                        },
+                        "limits": {"context_window": None, "max_output_tokens": None},
+                        "provider_options": {},
+                    },
+                    "core": {
+                        "provider_id": "",
+                        "model": "",
+                        "capability_override_enabled": False,
+                        "capabilities": {
+                            "vision": False,
+                            "image_output": False,
+                            "tool_calling": True,
+                            "reasoning": True,
+                            "embedding": False,
+                        },
+                        "limits": {"context_window": None, "max_output_tokens": None},
+                        "provider_options": {},
+                    },
+                    "embedding": {
+                        "provider_id": "",
+                        "model": "",
+                        "capability_override_enabled": False,
+                        "capabilities": {
+                            "vision": False,
+                            "image_output": False,
+                            "tool_calling": False,
+                            "reasoning": False,
+                            "embedding": True,
+                        },
+                        "limits": {"context_window": None, "max_output_tokens": None},
+                        "provider_options": {},
+                    },
+                },
+                "temperature": 0.7,
+                "max_tokens": 4096,
+                "timeout": 60,
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    loader = ConfigLoader()
+    config = loader.load()
+
+    llm_file = tmp_path / "config" / "llm.yaml"
+    llm_data = yaml.safe_load(llm_file.read_text(encoding="utf-8")) or {}
+
+    assert llm_file.exists()
+    assert llm_data == {}
+    assert config.llm.providers["openai"].enabled is False
+    assert config.llm.selections["core"].provider_id == ""
+    assert config.llm.selections["core"].model == ""
+
+
+def test_loader_save_writes_llm_overrides_only(tmp_path: Path, monkeypatch) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+    (tmp_path / "llm.default.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "providers": {
+                    "openai": {
+                        "enabled": False,
+                        "provider_type": "openai",
+                        "display_name": "OpenAI",
+                        "api_key": "",
+                        "base_url": "",
+                        "api_format": None,
+                        "custom_models": [],
+                        "custom_default_model": None,
+                    }
+                },
+                "selections": {
+                    "context_decider": {
+                        "provider_id": "",
+                        "model": "",
+                        "capability_override_enabled": False,
+                        "capabilities": {
+                            "vision": False,
+                            "image_output": False,
+                            "tool_calling": True,
+                            "reasoning": True,
+                            "embedding": False,
+                        },
+                        "limits": {"context_window": None, "max_output_tokens": None},
+                        "provider_options": {},
+                    },
+                    "core": {
+                        "provider_id": "",
+                        "model": "",
+                        "capability_override_enabled": False,
+                        "capabilities": {
+                            "vision": False,
+                            "image_output": False,
+                            "tool_calling": True,
+                            "reasoning": True,
+                            "embedding": False,
+                        },
+                        "limits": {"context_window": None, "max_output_tokens": None},
+                        "provider_options": {},
+                    },
+                    "embedding": {
+                        "provider_id": "",
+                        "model": "",
+                        "capability_override_enabled": False,
+                        "capabilities": {
+                            "vision": False,
+                            "image_output": False,
+                            "tool_calling": False,
+                            "reasoning": False,
+                            "embedding": True,
+                        },
+                        "limits": {"context_window": None, "max_output_tokens": None},
+                        "provider_options": {},
+                    },
+                },
+                "temperature": 0.7,
+                "max_tokens": 4096,
+                "timeout": 60,
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    loader = ConfigLoader()
+    _ = loader.load()
+    saved = loader.save(
+        {
+            "llm.providers.openai.enabled": True,
+            "llm.providers.openai.api_key": "sk-test",
+            "llm.selections.core.provider_id": "openai",
+            "llm.selections.core.model": "gpt-5",
+        }
+    )
+
+    llm_data = yaml.safe_load((tmp_path / "config" / "llm.yaml").read_text(encoding="utf-8")) or {}
+
+    assert saved is True
+    assert llm_data["providers"]["openai"]["enabled"] is True
+    assert llm_data["providers"]["openai"]["api_key"] == "sk-test"
+    assert llm_data["selections"]["core"]["provider_id"] == "openai"
+    assert llm_data["selections"]["core"]["model"] == "gpt-5"
+    assert "temperature" not in llm_data

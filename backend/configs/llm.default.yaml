@@ -1,0 +1,56 @@
+providers:
+  openai:
+    enabled: false
+    provider_type: openai
+    display_name: OpenAI
+    api_key: ""
+    base_url: ""
+    api_format: null
+    custom_models: []
+    custom_default_model: null
+selections:
+  context_decider:
+    provider_id: ""
+    model: ""
+    capability_override_enabled: false
+    capabilities:
+      vision: false
+      image_output: false
+      tool_calling: true
+      reasoning: true
+      embedding: false
+    limits:
+      context_window: null
+      max_output_tokens: null
+    provider_options: {}
+  core:
+    provider_id: ""
+    model: ""
+    capability_override_enabled: false
+    capabilities:
+      vision: false
+      image_output: false
+      tool_calling: true
+      reasoning: true
+      embedding: false
+    limits:
+      context_window: null
+      max_output_tokens: null
+    provider_options: {}
+  embedding:
+    provider_id: ""
+    model: ""
+    capability_override_enabled: false
+    capabilities:
+      vision: false
+      image_output: false
+      tool_calling: false
+      reasoning: false
+      embedding: true
+    limits:
+      context_window: null
+      max_output_tokens: null
+    provider_options: {}
+temperature: 0.7
+max_tokens: 4096
+timeout: 60

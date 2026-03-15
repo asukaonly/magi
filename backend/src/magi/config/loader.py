@@ -4,6 +4,7 @@ Configuration Loader - Runtime configuration management.
 Configuration Sources (priority order):
     1. Runtime config files:
        - ~/.magi/config/agent.yaml
+       - ~/.magi/config/llm.yaml
        - ~/.magi/config/plugins/index.yaml
        - ~/.magi/config/plugins/<plugin_id>.yaml
     2. Pydantic model defaults (lowest priority)
@@ -11,7 +12,8 @@ Configuration Sources (priority order):
 Directory Structure:
     ~/.magi/
     ├── config/
-    │   ├── agent.yaml           # Host/runtime configuration
+    │   ├── agent.yaml           # Host/runtime configuration (without llm block)
+    │   ├── llm.yaml             # LLM override-only configuration
     │   └── plugins/
     │       ├── index.yaml       # Plugin package state
     │       └── <plugin>.yaml    # Per-plugin settings
@@ -32,7 +34,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from .models import AppConfig
-from .constants import DEFAULT_MAX_TOKENS
+from .diff_utils import deep_merge_dict, extract_dict_overrides
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,16 @@ def get_plugin_settings_file(plugin_id: str) -> Path:
     return get_plugins_config_dir() / f"{plugin_id}.yaml"
 
 
+def get_llm_config_file() -> Path:
+    """Get runtime llm override config file path."""
+    return get_config_dir() / "llm.yaml"
+
+
+def get_llm_default_config_file() -> Path:
+    """Get packaged llm default config file path."""
+    return Path(__file__).parent.parent.parent.parent / "configs" / "llm.default.yaml"
+
+
 def get_example_config_file() -> Path:
     """Get example config file path (in package)"""
     # Path relative to this file: backend/configs/config.example.yaml
@@ -99,6 +111,8 @@ class ConfigLoader:
         self._config: Optional[AppConfig] = None
         self._yaml_data: Dict[str, Any] = {}
         self._config_file: Path = get_config_file()
+        self._llm_config_file: Path = get_llm_config_file()
+        self._llm_default_config_file: Path = get_llm_default_config_file()
         self._plugins_index_file: Path = get_plugins_index_file()
 
     def load(self) -> AppConfig:
@@ -139,6 +153,9 @@ class ConfigLoader:
             plugins_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created plugin config directory: {plugins_dir}")
 
+        if not self._llm_default_config_file.exists():
+            raise FileNotFoundError(f"Missing packaged LLM defaults file: {self._llm_default_config_file}")
+
         # Copy example config if runtime config doesn't exist
         if not config_file.exists():
             if example_file.exists():
@@ -148,6 +165,10 @@ class ConfigLoader:
                 # Create minimal config
                 self._create_default_config_file(config_file)
                 logger.info(f"Created default config at {config_file}")
+
+        if not self._llm_config_file.exists():
+            self._write_yaml_file(self._llm_config_file, {})
+            logger.info(f"Created llm config file: {self._llm_config_file}")
 
         # Ensure data directories exist
         data_dir = get_data_dir()
@@ -160,56 +181,6 @@ class ConfigLoader:
     def _create_default_config_file(self, config_file: Path):
         """Create a minimal default config file."""
         default_config = {
-            "llm": {
-                "providers": {
-                    "openai": {
-                        "enabled": False,
-                        "provider_type": "openai",
-                        "display_name": "OpenAI",
-                        "api_key": "",
-                        "base_url": "",
-                    }
-                },
-                "selections": {
-                    "context_decider": {
-                        "provider_id": "",
-                        "model": "",
-                        "capability_override_enabled": False,
-                        "capabilities": {
-                            "vision": False,
-                            "image_output": False,
-                            "tool_calling": True,
-                            "reasoning": True,
-                            "embedding": False,
-                        },
-                        "limits": {
-                            "context_window": None,
-                            "max_output_tokens": None,
-                        },
-                        "provider_options": {},
-                    },
-                    "core": {
-                        "provider_id": "",
-                        "model": "",
-                        "capability_override_enabled": False,
-                        "capabilities": {
-                            "vision": False,
-                            "image_output": False,
-                            "tool_calling": True,
-                            "reasoning": True,
-                            "embedding": False,
-                        },
-                        "limits": {
-                            "context_window": None,
-                            "max_output_tokens": None,
-                        },
-                        "provider_options": {},
-                    },
-                },
-                "temperature": 0.7,
-                "max_tokens": DEFAULT_MAX_TOKENS,
-                "timeout": 60,
-            },
             "agent": {
                 "name": "magi-agent",
                 "num_task_agents": 2,
@@ -354,6 +325,7 @@ class ConfigLoader:
     def _ensure_split_plugin_config_layout(self) -> None:
         """Ensure plugin metadata and settings use split config files."""
         agent_data = self._load_yaml_file(self._config_file)
+        agent_changed = False
         plugins_root = get_plugins_config_dir()
         plugins_root.mkdir(parents=True, exist_ok=True)
         index_data = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
@@ -363,6 +335,10 @@ class ConfigLoader:
             if isinstance(agent_data.get("plugins"), dict)
             else {}
         )
+
+        if "llm" in agent_data:
+            del agent_data["llm"]
+            agent_changed = True
 
         if legacy_packages:
             packages_section = index_data.setdefault("packages", {})
@@ -383,8 +359,11 @@ class ConfigLoader:
             agent_data.setdefault("plugins", {})
             if isinstance(agent_data["plugins"], dict) and "packages" in agent_data["plugins"]:
                 del agent_data["plugins"]["packages"]
-            self._write_yaml_file(self._config_file, agent_data)
+                agent_changed = True
             self._write_yaml_file(self._plugins_index_file, index_data)
+
+        if agent_changed:
+            self._write_yaml_file(self._config_file, agent_data)
 
         if not self._plugins_index_file.exists():
             self._write_yaml_file(self._plugins_index_file, index_data)
@@ -440,7 +419,16 @@ class ConfigLoader:
         """Load and parse YAML configuration file."""
         data = self._load_yaml_file(self._config_file)
         data = self._merge_split_plugin_config(data)
+        data["llm"] = self._load_effective_llm_config()
         return data
+
+    def _load_effective_llm_config(self) -> Dict[str, Any]:
+        """Load effective LLM config by merging packaged defaults and runtime overrides."""
+        defaults = self._load_yaml_file(self._llm_default_config_file)
+        overrides = self._load_yaml_file(self._llm_config_file)
+        if not defaults:
+            raise ValueError(f"LLM defaults file is empty: {self._llm_default_config_file}")
+        return deep_merge_dict(defaults, overrides)
 
     def _build_config(self) -> AppConfig:
         """Build final config by merging YAML + model defaults."""
@@ -503,13 +491,21 @@ class ConfigLoader:
             logger.info("Configuration save requested | update_paths=%s", update_keys)
 
             agent_yaml = self._load_yaml_file(self._config_file)
+            if "llm" in agent_yaml:
+                del agent_yaml["llm"]
             agent_yaml.setdefault("plugins", {})
             if isinstance(agent_yaml.get("plugins"), dict) and "packages" in agent_yaml["plugins"]:
                 del agent_yaml["plugins"]["packages"]
             plugins_index = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
+            llm_defaults = self._load_yaml_file(self._llm_default_config_file)
+            llm_overrides = self._load_yaml_file(self._llm_config_file)
+            llm_effective = deep_merge_dict(llm_defaults, llm_overrides)
             plugin_settings_updates: Dict[str, Dict[str, Any]] = {}
 
             for path, value in updates.items():
+                if path.startswith("llm."):
+                    self._set_nested_yaml(llm_effective, path[4:], value)
+                    continue
                 if path.startswith("plugins.packages."):
                     parts = path.split(".")
                     if len(parts) < 4:
@@ -526,7 +522,10 @@ class ConfigLoader:
                     continue
                 self._set_nested_yaml(agent_yaml, path, value)
 
+            next_llm_overrides = extract_dict_overrides(llm_defaults, llm_effective)
+
             self._write_yaml_file(self._config_file, agent_yaml)
+            self._write_yaml_file(self._llm_config_file, next_llm_overrides)
             self._write_yaml_file(self._plugins_index_file, plugins_index)
 
             for plugin_id, plugin_updates in plugin_settings_updates.items():
@@ -593,7 +592,7 @@ def get_config() -> AppConfig:
     """
     Get application configuration.
 
-    Loads from ~/.magi/config/agent.yaml with selected env var overrides.
+    Loads from runtime config files under ~/.magi/config/.
 
     Returns:
         AppConfig: Application configuration
