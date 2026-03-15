@@ -102,8 +102,8 @@ class _FakeSchedulerService:
         )
 
 
-class _FakeSchedulerBootstrap:
-    async def queue_manual_timeline_sync(self, source_name):
+class _FakeTimelineSchedulerContrib:
+    async def queue_manual_sync(self, source_name):
         return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
 
 
@@ -234,8 +234,8 @@ def _build_client(monkeypatch):
     )
     monkeypatch.setattr(
         timeline_module,
-        "get_scheduler_bootstrap",
-        lambda: _FakeSchedulerBootstrap(),
+        "get_timeline_scheduler_contrib",
+        lambda: _FakeTimelineSchedulerContrib(),
     )
     return TestClient(app), service
 
@@ -368,7 +368,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
             )
 
     monkeypatch.setattr(timeline_module, "get_scheduler_service", lambda: _NonPullSchedulerService())
-    monkeypatch.setattr(timeline_module, "get_scheduler_bootstrap", lambda: _FakeSchedulerBootstrap())
+    monkeypatch.setattr(timeline_module, "get_timeline_scheduler_contrib", lambda: _FakeTimelineSchedulerContrib())
 
     client = TestClient(app)
 

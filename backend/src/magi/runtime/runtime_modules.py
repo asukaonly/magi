@@ -35,6 +35,7 @@ from ..plugins import (
     initialize_plugin_manager,
 )
 from ..scheduler import SchedulerBootstrap, SchedulerService, set_scheduler_runtime
+from ..timeline.scheduler_contrib import TimelineSchedulerContrib, set_timeline_scheduler_contrib
 from ..timeline.service import TimelineService
 from ..utils.runtime import RuntimePaths, get_runtime_paths, init_runtime_data
 from .lifecycle import LifecycleModule
@@ -440,21 +441,32 @@ class SchedulerModule(LifecycleModule):
             db_path=runtime_paths.scheduler_db_path,
             runtime_dir=runtime_paths.base_dir,
         )
-        scheduler_bootstrap = SchedulerBootstrap(
+
+        # Timeline layer registers its own scheduler handler
+        timeline_contrib = TimelineSchedulerContrib(
             scheduler_service=scheduler_service,
             sensor_registry=get_sensor_registry(),
-            action_registry=get_action_registry(),
             plugin_manager=get_plugin_manager(),
             timeline_service=timeline_service,
             runtime_paths=runtime_paths,
-            task_agent_manager=task_agent_manager,
-            action_executor=action_executor,
             get_config=get_config,
         )
+        timeline_contrib.register_handler()
+
+        # Generic agent_task + action_dispatch handlers
+        scheduler_bootstrap = SchedulerBootstrap(
+            scheduler_service=scheduler_service,
+            action_registry=get_action_registry(),
+            runtime_paths=runtime_paths,
+            task_agent_manager=task_agent_manager,
+            action_executor=action_executor,
+        )
         scheduler_bootstrap.register_handlers()
+
         await scheduler_service.start()
-        await scheduler_bootstrap.sync_timeline_sensor_schedules()
+        await timeline_contrib.sync_schedules()
         set_scheduler_runtime(scheduler_service, scheduler_bootstrap)
+        set_timeline_scheduler_contrib(timeline_contrib)
 
         self._state.scheduler_service = scheduler_service
         self._state.scheduler_bootstrap = scheduler_bootstrap
@@ -466,6 +478,7 @@ class SchedulerModule(LifecycleModule):
         self._state.scheduler_service = None
         self._state.scheduler_bootstrap = None
         set_scheduler_runtime(None, None)
+        set_timeline_scheduler_contrib(None)
 
 
 class RuntimeExportsModule(LifecycleModule):

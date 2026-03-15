@@ -11,6 +11,9 @@ from magi.scheduler import (
     SchedulerBootstrap,
     SchedulerService,
     ScheduledTargetType,
+)
+from magi.timeline.scheduler_contrib import (
+    TimelineSchedulerContrib,
     build_timeline_schedule_id,
     build_timeline_target_key,
 )
@@ -203,24 +206,29 @@ async def test_scheduler_bootstrap_syncs_timeline_sources_and_updates_target_sta
     timeline_service = _FakeTimelineService()
     bootstrap = SchedulerBootstrap(
         scheduler_service=service,
-        sensor_registry=sensor_registry,
         action_registry=action_registry,
-        plugin_manager=_FakePluginManager(),
-        timeline_service=timeline_service,
         runtime_paths=runtime_paths,
         task_agent_manager=task_agent_manager,
         action_executor=action_executor,
+    )
+    timeline_contrib = TimelineSchedulerContrib(
+        scheduler_service=service,
+        sensor_registry=sensor_registry,
+        plugin_manager=_FakePluginManager(),
+        timeline_service=timeline_service,
+        runtime_paths=runtime_paths,
         get_config=lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),
     )
+    timeline_contrib.register_handler()
     bootstrap.register_handlers()
     await service.start()
-    await bootstrap.sync_timeline_sensor_schedules()
+    await timeline_contrib.sync_schedules()
 
     schedule_id = build_timeline_schedule_id("pull-plugin", "pull_history")
     schedule = await service.repository.get_schedule(schedule_id)
     assert schedule is not None
 
-    manual = await bootstrap.queue_manual_timeline_sync("pull_history")
+    manual = await timeline_contrib.queue_manual_sync("pull_history")
     assert manual.trigger.trigger_type.value == "once"
 
     deadline = time.monotonic() + 1.0
@@ -253,14 +261,10 @@ async def test_scheduler_bootstrap_dispatches_action_and_agent_targets(tmp_path)
     action_executor = _FakeActionExecutor()
     bootstrap = SchedulerBootstrap(
         scheduler_service=service,
-        sensor_registry=sensor_registry,
         action_registry=action_registry,
-        plugin_manager=_FakePluginManager(),
-        timeline_service=_FakeTimelineService(),
         runtime_paths=runtime_paths,
         task_agent_manager=task_agent_manager,
         action_executor=action_executor,
-        get_config=lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),
     )
     bootstrap.register_handlers()
     await service.start()
@@ -319,15 +323,12 @@ async def test_scheduler_bootstrap_clears_stale_state_for_non_pull_timeline_sour
             },
         ),
     )
-    bootstrap = SchedulerBootstrap(
+    timeline_contrib = TimelineSchedulerContrib(
         scheduler_service=service,
         sensor_registry=sensor_registry,
-        action_registry=ActionRegistry(),
         plugin_manager=_StaleChatPluginManager(),
         timeline_service=_FakeTimelineService(),
         runtime_paths=runtime_paths,
-        task_agent_manager=_FakeTaskAgentManager(),
-        action_executor=_FakeActionExecutor(),
         get_config=lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),
     )
     await service.start()
@@ -339,7 +340,7 @@ async def test_scheduler_bootstrap_clears_stale_state_for_non_pull_timeline_sour
         scheduler_job_id="timeline-sync:core-timeline:chat",
     )
 
-    await bootstrap.sync_timeline_sensor_schedules()
+    await timeline_contrib.sync_schedules()
 
     state = await service.get_target_state(
         ScheduledTargetType.TIMELINE_SENSOR_SYNC,
