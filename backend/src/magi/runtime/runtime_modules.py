@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from dependency_injector import providers
 
-from ..agent.task_agents import (
-    ChatTaskAgent,
-    DefaultTaskAgent,
-    ExploreTaskAgent,
-    TimelineTaskAgent,
-)
+from ..agent.task_agents.factory import create_chat_agent_factory, create_default_agent_factory
 from ..config import AppConfig, get_config
 from ..core.container import get_container
 from ..core.database_initializer import DatabaseInitializer, set_database_initializer
@@ -24,9 +19,9 @@ from ..core.runtime import (
     SensorHub,
     TaskAgentManager,
 )
-from ..core.runtime.types import TaskAgentType
 from ..events.sqlite_backend import SQLiteMessageBackend
-from ..llm import LLMScenario, ScenarioLLMPool, create_llm_adapter, get_llm_usage_store
+from ..llm import LLMScenario, ScenarioLLMPool, get_llm_usage_store
+from ..llm.factory import create_core_llm_adapter, create_scenario_llm_pool
 from ..llm.usage_events import configure_llm_usage_event_publisher
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
@@ -107,88 +102,7 @@ def _is_llm_selection_pending(config: AppConfig) -> bool:
     return False
 
 
-def _create_scenario_llm_pool(config: AppConfig) -> ScenarioLLMPool:
-    return ScenarioLLMPool(config=config, adapter_factory=create_llm_adapter)
 
-
-def _create_core_llm_adapter(llm_pool: ScenarioLLMPool):
-    llm_adapter = llm_pool.get(LLMScenario.CORE)
-    logger.info(
-        "Creating LLM adapter | Provider: %s | Model: %s",
-        getattr(llm_adapter, "provider_name", "unknown"),
-        getattr(llm_adapter, "model_name", "unknown"),
-    )
-    return llm_adapter
-
-
-def _get_nested_setting(payload: dict[str, Any], path: str, default: Any) -> Any:
-    current: Any = payload
-    for part in path.split("."):
-        if not isinstance(current, dict):
-            return default
-        if part not in current:
-            return default
-        current = current[part]
-    return current
-
-
-def _resolve_timeline_contribution(source_type: str):
-    registry = get_sensor_registry()
-    return registry.resolve_domain_sensor("timeline", source_type)
-
-
-def _build_timeline_handler(
-    config: AppConfig,
-    unified_memory: UnifiedMemoryStore,
-) -> Callable[[dict[str, Any]], Any]:
-    service = TimelineService(unified_memory)
-
-    async def _handle_timeline_payload(payload: dict[str, Any]) -> dict[str, Any]:
-        source_type = str(payload.get("source_type") or "").strip()
-        if not config.timeline.enabled:
-            return {"handled": False, "reason": "timeline_disabled"}
-        resolved = _resolve_timeline_contribution(source_type)
-        if resolved is None:
-            return {"handled": False, "reason": "unsupported_source", "source_type": source_type}
-        plugin_id, _sensor_id, sensor, spec = resolved
-        package_state = get_plugin_manager().get_package(plugin_id)
-        current_settings = package_state.current_settings if package_state is not None else {}
-        sensor_settings_path = f"sensors.{source_type}"
-        default_settings = dict(spec.metadata.get("default_settings", {}))
-        if not bool(
-            _get_nested_setting(
-                current_settings,
-                f"{sensor_settings_path}.enabled",
-                default_settings.get("enabled", True),
-            )
-        ):
-            return {"handled": False, "reason": "source_disabled", "source_type": source_type}
-
-        event = await sensor.build_timeline_event(payload)
-        extracted = await sensor.extract_candidates(payload)
-        event.entities = list(extracted.get("entities", []))
-        event.tags = list(dict.fromkeys([*event.tags, *list(extracted.get("tags", []))]))
-        event.provenance.update(
-            {
-                "correlation_id": str(payload.get("correlation_id") or ""),
-                "timeline_task_agent_id": str(payload.get("target_task_agent_id") or ""),
-            }
-        )
-        await service.upsert_event(
-            event,
-            relation_candidates=list(extracted.get("relation_candidates", [])),
-            allowed_edge_whitelist=[
-                str(edge_type)
-                for edge_type in _get_nested_setting(
-                    current_settings,
-                    f"{sensor_settings_path}.edge_whitelist",
-                    default_settings.get("edge_whitelist", []),
-                )
-            ],
-        )
-        return {"handled": True, "event_id": event.event_id, "source_type": source_type}
-
-    return _handle_timeline_payload
 
 
 class CoreDependenciesModule(LifecycleModule):
@@ -202,6 +116,12 @@ class CoreDependenciesModule(LifecycleModule):
         init_runtime_data()
         self._state.runtime_paths = get_runtime_paths()
         logger.info("Runtime directory: %s", self._state.runtime_paths.base_dir)
+
+        db_initializer = DatabaseInitializer(data_dir=self._state.runtime_paths.data_dir)
+        await db_initializer.initialize_all()
+        set_database_initializer(db_initializer)
+        self._state.db_initializer = db_initializer
+        logger.info("Database initialization completed")
 
 
 class ConfigurationModule(LifecycleModule):
@@ -284,9 +204,9 @@ class LLMRuntimeModule(LifecycleModule):
     async def init(self) -> None:
         config = _require(self._state.config, "runtime config is required")
         try:
-            self._state.scenario_llm_pool = _create_scenario_llm_pool(config)
+            self._state.scenario_llm_pool = create_scenario_llm_pool(config)
             self._state.scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
-            self._state.llm_adapter = _create_core_llm_adapter(self._state.scenario_llm_pool)
+            self._state.llm_adapter = create_core_llm_adapter(self._state.scenario_llm_pool)
         except Exception as exc:
             raise RuntimeInitializationDeferred(
                 pending_selection=_is_llm_selection_pending(config),
@@ -298,8 +218,8 @@ class LLMRuntimeModule(LifecycleModule):
         self._state.llm_adapter = None
 
 
-class MemorySystemModule(LifecycleModule):
-    """Initialize persistence, memory stores, usage metrics, and memory integration."""
+class MemoryStoreModule(LifecycleModule):
+    """Initialize persistence, memory stores, usage metrics, and memory integration (L6)."""
 
     def __init__(self, state: RuntimeBootstrapState):
         super().__init__(
@@ -313,24 +233,12 @@ class MemorySystemModule(LifecycleModule):
         runtime_paths = _require(self._state.runtime_paths, "runtime paths are required")
         message_bus = _require(self._state.message_bus, "message bus is required")
 
-        db_initializer = DatabaseInitializer(data_dir=runtime_paths.data_dir)
-        await db_initializer.initialize_all()
-        await db_initializer.insert_default_data(persona_name=self._state.current_personality)
-        set_database_initializer(db_initializer)
-        self._state.db_initializer = db_initializer
-        logger.info("Database initialization completed")
+        await self._state.db_initializer.insert_default_data(persona_name=self._state.current_personality)
 
         configure_llm_usage_event_publisher(message_bus)
         self._state.llm_usage_store = get_llm_usage_store()
         await self._state.llm_usage_store.start(message_bus)
         logger.info("LLM usage store started")
-
-        self._state.self_memory = SelfMemory(
-            personality_name=self._state.current_personality,
-            personalities_path=str(runtime_paths.personalities_dir),
-        )
-        await self._state.self_memory.init()
-        self._state.other_memory = OtherMemory()
 
         self._state.unified_memory = UnifiedMemoryStore(
             l1_db_path=str(runtime_paths.l1_memory_db_path),
@@ -367,15 +275,6 @@ class MemorySystemModule(LifecycleModule):
         await self._state.memory_integration.start()
         logger.info("MemoryIntegrationModule started")
 
-        self._state.scenario_prompts_store = ScenarioPromptsStore(
-            db_path=str(runtime_paths.scenario_prompts_db_path)
-        )
-        await self._state.scenario_prompts_store.init()
-        await initialize_default_prompts(
-            self._state.scenario_prompts_store,
-            persona_name=self._state.current_personality,
-        )
-
     async def shutdown(self) -> None:
         if self._state.memory_integration is not None:
             await self._state.memory_integration.stop()
@@ -387,8 +286,56 @@ class MemorySystemModule(LifecycleModule):
         configure_llm_usage_event_publisher(None)
 
         self._state.unified_memory = None
+
+
+class PersonalityModule(LifecycleModule):
+    """Initialize self-memory and other-memory personality stores (L8)."""
+
+    def __init__(self, state: RuntimeBootstrapState):
+        super().__init__(
+            name="runtime_personality",
+            dependencies=("runtime_memory", "runtime_configuration", "runtime_core_dependencies"),
+        )
+        self._state = state
+
+    async def init(self) -> None:
+        runtime_paths = _require(self._state.runtime_paths, "runtime paths are required")
+
+        self._state.self_memory = SelfMemory(
+            personality_name=self._state.current_personality,
+            personalities_path=str(runtime_paths.personalities_dir),
+        )
+        await self._state.self_memory.init()
+        self._state.other_memory = OtherMemory()
+
+    async def shutdown(self) -> None:
         self._state.self_memory = None
         self._state.other_memory = None
+
+
+class ContextModule(LifecycleModule):
+    """Initialize scenario prompts store and load default prompts (L10)."""
+
+    def __init__(self, state: RuntimeBootstrapState):
+        super().__init__(
+            name="runtime_context",
+            dependencies=("runtime_personality", "runtime_core_dependencies"),
+        )
+        self._state = state
+
+    async def init(self) -> None:
+        runtime_paths = _require(self._state.runtime_paths, "runtime paths are required")
+
+        self._state.scenario_prompts_store = ScenarioPromptsStore(
+            db_path=str(runtime_paths.scenario_prompts_db_path)
+        )
+        await self._state.scenario_prompts_store.init()
+        await initialize_default_prompts(
+            self._state.scenario_prompts_store,
+            persona_name=self._state.current_personality,
+        )
+
+    async def shutdown(self) -> None:
         self._state.scenario_prompts_store = None
 
 
@@ -425,7 +372,7 @@ class AgentRuntimeCoreModule(LifecycleModule):
     def __init__(self, state: RuntimeBootstrapState):
         super().__init__(
             name="runtime_agent_core",
-            dependencies=("runtime_memory", "runtime_llm", "runtime_message_bus", "runtime_configuration"),
+            dependencies=("runtime_context", "runtime_personality", "runtime_memory", "runtime_llm", "runtime_message_bus", "runtime_configuration"),
         )
         self._state = state
 
@@ -443,29 +390,21 @@ class AgentRuntimeCoreModule(LifecycleModule):
         sensor_hub = SensorHub(message_bus=message_bus)
         action_executor = ActionExecutor(message_bus=message_bus)
         task_agent_manager = TaskAgentManager(
-            create_chat_agent=lambda agent_id: ChatTaskAgent(
-                agent_id=agent_id,
+            create_chat_agent=create_chat_agent_factory(
                 llm_adapter=llm_adapter,
                 llm_pool=llm_pool,
                 memory=memory,
                 other_memory=other_memory,
                 unified_memory=unified_memory,
                 memory_integration=memory_integration,
-                history_cache_max_sessions=config.agent.runtime.chat_history_cache_max_sessions,
-                history_fetch_limit=config.agent.runtime.chat_history_fetch_limit,
                 scenario_prompts_store=scenario_prompts_store,
+                config=config,
             ),
-            create_default_agent=lambda agent_type, agent_id: (
-                ExploreTaskAgent(agent_id=agent_id, llm_adapter=llm_adapter, llm_pool=llm_pool)
-                if agent_type == TaskAgentType.EXPLORE.value
-                else TimelineTaskAgent(
-                    agent_id=agent_id,
-                    timeline_handler=_build_timeline_handler(config, unified_memory),
-                    config=config,
-                    unified_memory=unified_memory,
-                )
-                if agent_type == TaskAgentType.TIMELINE.value
-                else DefaultTaskAgent(agent_type, agent_id)
+            create_default_agent=create_default_agent_factory(
+                llm_adapter=llm_adapter,
+                llm_pool=llm_pool,
+                config=config,
+                unified_memory=unified_memory,
             ),
             idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
             max_dynamic_instances=config.agent.runtime.task_agent_manager_max_dynamic_instances,
@@ -619,8 +558,10 @@ def build_runtime_modules(state: RuntimeBootstrapState) -> list[LifecycleModule]
         MessageBusModule(state),
         PluginSystemModule(state),
         LLMRuntimeModule(state),
-        MemorySystemModule(state),
+        MemoryStoreModule(state),
         ToolsModule(state),
+        PersonalityModule(state),
+        ContextModule(state),
         AgentRuntimeCoreModule(state),
         SchedulerModule(state),
         RuntimeExportsModule(state),
