@@ -32,7 +32,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
     def __init__(self, app: FastAPI, retry_interval_seconds: float = 0.5):
         super().__init__(
             name="websocket_bridge",
-            dependencies=("agent_runtime",),
+            dependencies=("runtime_system",),
         )
         self._app = app
         self._retry_interval_seconds = retry_interval_seconds

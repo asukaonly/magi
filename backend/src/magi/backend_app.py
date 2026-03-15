@@ -36,37 +36,37 @@ def _build_runtime_bindings() -> RuntimeBindings:
     )
 
 
-class CoreDependenciesModule(LifecycleModule):
+class AppCoreDependenciesModule(LifecycleModule):
     """Initialize backend core dependencies."""
 
     def __init__(self) -> None:
-        super().__init__(name="core_dependencies")
+        super().__init__(name="app_core_dependencies")
 
     async def init(self) -> None:
         wire_container()
         logger.info("DI container wired")
 
 
-class RuntimeBindingsModule(LifecycleModule):
+class AppRuntimeBindingsModule(LifecycleModule):
     """Initialize runtime bridge callbacks."""
 
     def __init__(self) -> None:
         super().__init__(
-            name="runtime_bindings",
-            dependencies=("core_dependencies",),
+            name="app_runtime_bindings",
+            dependencies=("app_core_dependencies",),
         )
 
     async def init(self) -> None:
         configure_runtime_bindings(_build_runtime_bindings())
 
 
-class AgentRuntimeModule(LifecycleModule):
-    """Bridge app lifecycle with runtime lifecycle entrypoints."""
+class RuntimeSystemModule(LifecycleModule):
+    """Compose runtime subsystem lifecycle behind one app-level module."""
 
     def __init__(self) -> None:
         super().__init__(
-            name="agent_runtime",
-            dependencies=("runtime_bindings",),
+            name="runtime_system",
+            dependencies=("app_runtime_bindings",),
         )
 
     async def init(self) -> None:
@@ -76,7 +76,7 @@ class AgentRuntimeModule(LifecycleModule):
         await shutdown_agent_runtime()
 
 
-def _build_lifecycle_orchestrator(app: FastAPI) -> ModuleLifecycleOrchestrator:
+def _build_app_lifecycle_orchestrator(app: FastAPI) -> ModuleLifecycleOrchestrator:
     websocket_bridge = WebSocketBridgeLifecycleModule(
         app,
         retry_interval_seconds=WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS,
@@ -84,9 +84,9 @@ def _build_lifecycle_orchestrator(app: FastAPI) -> ModuleLifecycleOrchestrator:
 
     return ModuleLifecycleOrchestrator(
         modules=[
-            CoreDependenciesModule(),
-            RuntimeBindingsModule(),
-            AgentRuntimeModule(),
+            AppCoreDependenciesModule(),
+            AppRuntimeBindingsModule(),
+            RuntimeSystemModule(),
             websocket_bridge,
         ]
     )
@@ -96,7 +96,7 @@ def create_backend_app() -> FastAPI:
     """Create full backend app with lifecycle-managed module startup/shutdown."""
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-        orchestrator = _build_lifecycle_orchestrator(app)
+        orchestrator = _build_app_lifecycle_orchestrator(app)
         app.state.module_lifecycle_orchestrator = orchestrator
         await orchestrator.startup()
         try:
