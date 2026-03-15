@@ -189,7 +189,7 @@ The runtime also includes a unified memory subsystem:
 Large explore requests are not handled by one giant worker anymore.
 
 The current flow is:
-
+  
 1. `ChatTaskAgent` recognizes a large explore-style request
 2. It routes that request to `ExploreTaskAgent`
 3. `ExploreTaskAgent` plans bounded leaf subtasks

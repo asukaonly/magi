@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Check,
@@ -15,267 +14,50 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
-  personalityApi,
-  DEFAULT_PERSONALITY_CONFIG,
-  type PersonalityConfig,
-  type PersonalityDiff,
-  type StateTransitionProtocolItem,
-} from '../api';
-
-interface PersonalityInfo {
-  name: string;
-  displayName: string;
-  subtitle?: string;
-}
-
-const CONFIDENCE_OPTIONS = ['Extremely High', 'High', 'Medium', 'Low'];
+  usePersonality,
+  CONFIDENCE_OPTIONS,
+  parseLines,
+  toLines,
+  getInitials,
+  normalizeTransition,
+} from '@/hooks';
 
 const sectionCardClass = 'border-border/50 bg-card';
 
-const parseLines = (value: string): string[] =>
-  value
-    .split('\n')
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-const toLines = (items: string[]): string => items.join('\n');
-
-const normalizeTransition = (item: Partial<StateTransitionProtocolItem>): StateTransitionProtocolItem => ({
-  trigger_type: item.trigger_type || '',
-  trigger_condition: item.trigger_condition || '',
-  target_state_name: item.target_state_name || '',
-  behavior_shift: item.behavior_shift || '',
-});
-
-const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig => {
-  const next = structuredClone(DEFAULT_PERSONALITY_CONFIG);
-  next.persona_entity.basic_profile = {
-    ...next.persona_entity.basic_profile,
-    ...(incoming.persona_entity?.basic_profile || {}),
-  };
-  next.persona_entity.psychological_traits = {
-    ...next.persona_entity.psychological_traits,
-    ...(incoming.persona_entity?.psychological_traits || {}),
-  };
-  next.persona_entity.social_responses = {
-    ...next.persona_entity.social_responses,
-    ...(incoming.persona_entity?.social_responses || {}),
-  };
-  next.persona_entity.behavioral_strategies = {
-    ...next.persona_entity.behavioral_strategies,
-    ...(incoming.persona_entity?.behavioral_strategies || {}),
-  };
-  next.cached_phrases = {
-    ...next.cached_phrases,
-    ...(incoming.cached_phrases || {}),
-  };
-  next.appearance_prompt = incoming.appearance_prompt || next.appearance_prompt;
-  const transitions = incoming.state_transition_protocol || next.state_transition_protocol;
-  next.state_transition_protocol = transitions.length > 0 ? transitions.map(normalizeTransition) : [normalizeTransition({})];
-  return next;
-};
-
-const getInitials = (name: string): string => {
-  const words = name.split(/[\s_-]+/).filter(Boolean);
-  if (words.length === 0) return name.charAt(0).toUpperCase();
-  if (words.length === 1) return words[0].charAt(0).toUpperCase();
-  return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase();
-};
-
 const PersonalityModern: React.FC = () => {
   const { t } = useTranslation('app');
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [switching, setSwitching] = useState(false);
-  const [currentName, setCurrentName] = useState('default');
-  const [selectedName, setSelectedName] = useState('default');
-  const [isNewMode, setIsNewMode] = useState(false);
-  const [config, setConfig] = useState<PersonalityConfig>(DEFAULT_PERSONALITY_CONFIG);
-  const [list, setList] = useState<PersonalityInfo[]>([
-    { name: 'default', displayName: 'default', subtitle: 'System Default' },
-  ]);
-  const [prompt, setPrompt] = useState('');
-  const [targetLanguage, setTargetLanguage] = useState('Auto');
-  const [diffs, setDiffs] = useState<PersonalityDiff[]>([]);
 
-  const patch = (fn: (draft: PersonalityConfig) => void) => {
-    setConfig((prev) => {
-      const next = structuredClone(prev);
-      fn(next);
-      return next;
-    });
-  };
+  const {
+    // State
+    config,
+    list,
+    currentName,
+    selectedName,
+    isNewMode,
+    loading,
+    saving,
+    generating,
+    switching,
+    selectedInfo,
+    diffPreview,
 
-  const loadList = useCallback(async () => {
-    try {
-      const result = await personalityApi.list();
-      const names = ((result.data as any)?.personalities || ['default']) as string[];
-      const items: PersonalityInfo[] = [];
-      for (const name of names) {
-        try {
-          const detail = await personalityApi.get(name);
-          const basicProfile = (detail.data as any)?.persona_entity?.basic_profile;
-          items.push({
-            name,
-            displayName: basicProfile?.name || name,
-            subtitle: basicProfile?.occupation,
-          });
-        } catch {
-          items.push({ name, displayName: name });
-        }
-      }
-      setList(items.length ? items : [{ name: 'default', displayName: 'default' }]);
-    } catch {
-      setList([{ name: 'default', displayName: 'default' }]);
-    }
-  }, []);
+    // Form state
+    prompt,
+    setPrompt,
+    targetLanguage,
+    setTargetLanguage,
 
-  const loadCurrent = useCallback(async () => {
-    try {
-      const result = await personalityApi.getCurrent();
-      const current = (result.data as any)?.current || 'default';
-      setCurrentName(current);
-      setSelectedName(current);
-      return current;
-    } catch {
-      setCurrentName('default');
-      setSelectedName('default');
-      return 'default';
-    }
-  }, []);
-
-  const loadOne = useCallback(async (name: string) => {
-    setLoading(true);
-    try {
-      const result = await personalityApi.get(name);
-      const data = (result.data || {}) as Partial<PersonalityConfig>;
-      setConfig(mergeConfig(data));
-    } catch {
-      toast.error(t('personality.loadFailed'));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    const init = async () => {
-      const current = await loadCurrent();
-      await loadList();
-      await loadOne(current);
-    };
-    void init();
-  }, [loadCurrent, loadList, loadOne]);
-
-  const switchPersonality = async () => {
-    if (selectedName === currentName) return;
-    setSwitching(true);
-    try {
-      const response = await personalityApi.compare(currentName, selectedName);
-      const nextDiffs = ((response.data as any)?.diffs || []) as PersonalityDiff[];
-      setDiffs(nextDiffs);
-      const ok = window.confirm(t('personality.switchConfirm', { from: currentName, to: selectedName }));
-      if (!ok) return;
-      await personalityApi.setCurrent(selectedName);
-      setCurrentName(selectedName);
-      await loadOne(selectedName);
-      toast.success(t('personality.switchSuccess', { name: selectedName }));
-    } catch {
-      toast.error(t('personality.switchFailed'));
-    } finally {
-      setSwitching(false);
-    }
-  };
-
-  const save = async () => {
-    // Validate name in create mode
-    if (isNewMode) {
-      const name = config.persona_entity.basic_profile.name?.trim();
-      if (!name) {
-        toast.warning(t('personality.nameRequired'));
-        return;
-      }
-    }
-
-    setSaving(true);
-    try {
-      if (isNewMode) {
-        // Create mode: create new personality
-        await personalityApi.updateWithAIName(config);
-        toast.success(t('personality.createSuccess'));
-        setIsNewMode(false);
-        await loadList();
-        await loadCurrent();
-        // Select the newly created personality
-        const newName = config.persona_entity.basic_profile.name;
-        setSelectedName(newName);
-        void loadOne(newName);
-      } else if (currentName === 'default' || currentName !== config.persona_entity.basic_profile.name) {
-        await personalityApi.updateWithAIName(config);
-        toast.success(t('personality.saveSuccess'));
-        await loadList();
-        await loadCurrent();
-      } else {
-        await personalityApi.update(currentName, config);
-        toast.success(t('personality.saveSuccess'));
-        await loadList();
-        await loadCurrent();
-      }
-    } catch {
-      toast.error(t('personality.saveFailed'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const generate = async () => {
-    if (!prompt.trim()) {
-      toast.warning(t('personality.generatePromptRequired'));
-      return;
-    }
-    setGenerating(true);
-    try {
-      const response = await personalityApi.generate({ description: prompt, target_language: targetLanguage });
-      const data = (response.data || {}) as Partial<PersonalityConfig>;
-      setConfig(mergeConfig(data));
-      setPrompt('');
-      toast.success(t('personality.generateSuccess'));
-    } catch {
-      toast.error(t('personality.generateFailed'));
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const startNewPersonality = () => {
-    setIsNewMode(true);
-    setSelectedName('__new__');
-    setDiffs([]);
-    setConfig(structuredClone(DEFAULT_PERSONALITY_CONFIG));
-  };
-
-  const cancelNewPersonality = () => {
-    setIsNewMode(false);
-    setSelectedName(currentName);
-    void loadOne(currentName);
-  };
-
-  const deletePersonality = () => {
-    if (selectedName === 'default') return;
-    if (!window.confirm(t('personality.deleteConfirm', { name: selectedName }))) return;
-    void personalityApi.delete(selectedName).then(async () => {
-      setDiffs([]);
-      await loadList();
-      const current = await loadCurrent();
-      await loadOne(current);
-    });
-  };
-
-  const selectedInfo = useMemo(
-    () => list.find((item) => item.name === selectedName),
-    [list, selectedName]
-  );
-  const diffPreview = useMemo(() => diffs.slice(0, 8), [diffs]);
+    // Actions
+    patch,
+    selectPersonality,
+    startNewPersonality,
+    cancelNewPersonality,
+    save,
+    generate,
+    switchPersonality,
+    deletePersonality,
+    reload,
+  } = usePersonality();
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -317,14 +99,7 @@ const PersonalityModern: React.FC = () => {
             return (
               <button
                 key={item.name}
-                onClick={() => {
-                  if (isNewMode) {
-                    setIsNewMode(false);
-                  }
-                  setSelectedName(item.name);
-                  setDiffs([]);
-                  void loadOne(item.name);
-                }}
+                onClick={() => selectPersonality(item.name)}
                 className="group relative flex shrink-0 flex-col items-center gap-2"
               >
                 <div
@@ -407,10 +182,7 @@ const PersonalityModern: React.FC = () => {
                 ) : (
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      setDiffs([]);
-                      void loadOne(selectedName);
-                    }}
+                    onClick={reload}
                     className="rounded-2xl"
                   >
                     <RefreshCw className="mr-2 h-4 w-4" />

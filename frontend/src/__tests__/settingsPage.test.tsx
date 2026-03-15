@@ -513,10 +513,12 @@ describe('settings page draft saving', () => {
     await screen.findByRole('button', { name: 'settings.tabs.memory' });
     await user.click(screen.getByRole('button', { name: 'settings.tabs.memory' }));
 
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.enable_l0.label' }));
-    const checkpointInput = screen.getByLabelText('settings.memory.fields.l0_checkpoint_interval_seconds.label');
+    // L0 is enabled by default and expanded by default, so the checkpoint Input should be visible
+    const checkpointInput = await screen.findByLabelText('settings.memory.fields.l0_checkpoint_interval_seconds.label');
     fireEvent.change(checkpointInput, { target: { value: '45' } });
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.enable_l4_skill_extraction.label' }));
+
+    // L1 is enabled by default and expanded by default, toggle runtime_replay_include_l0_only
+    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.runtime_replay_include_l0_only.label' }));
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
@@ -524,9 +526,8 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           memory: expect.objectContaining({
-            enable_l0: false,
             l0_checkpoint_interval_seconds: 45,
-            enable_l4_skill_extraction: false,
+            runtime_replay_include_l0_only: true,
           }),
         })
       )
