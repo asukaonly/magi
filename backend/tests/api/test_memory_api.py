@@ -6,7 +6,41 @@ from fastapi.testclient import TestClient
 from magi.api.routers.memory import memory_router
 
 
+class _FakeL0Store:
+    checkpoint_db_path = "/tmp/l0.db"
+    _sessions: dict = {}
+    _goal_stack: dict = {}
+    _active_entities: dict = {}
+    _temporary_tactics: dict = {}
+
+
+class _FakeL1Store:
+    db_path = "/tmp/l1.db"
+
+    async def count_events(self):
+        return 12
+
+
+class _FakeL2Store:
+    db_path = "/tmp/l2.db"
+
+    async def get_relationships(self, limit: int = 100):
+        return []
+
+    async def list_tom_assertions(self, limit: int = 100):
+        return []
+
+
+class _FakeL3Store:
+    db_path = "/tmp/l3.db"
+
+    async def list_summaries(self, limit: int = 100):
+        return []
+
+
 class _FakeL4Store:
+    db_path = "/tmp/l4.db"
+
     async def get_all_skills(self, limit: int = 100):
         _ = limit
         return [
@@ -23,6 +57,10 @@ class _FakeL4Store:
 
 class _FakeUnifiedMemory:
     def __init__(self):
+        self.l0 = _FakeL0Store()
+        self.l1 = _FakeL1Store()
+        self.l2 = _FakeL2Store()
+        self.l3 = _FakeL3Store()
         self.l4 = _FakeL4Store()
 
     async def get_statistics(self):

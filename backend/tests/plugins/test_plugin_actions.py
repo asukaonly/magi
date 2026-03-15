@@ -21,7 +21,7 @@ async def test_core_actions_plugin_registers_actions_and_tool_adapters(
     tool_registry = ToolRegistry()
     sensor_registry = SensorRegistry()
     action_registry = get_action_registry().__class__()
-    repo_plugins = Path(__file__).resolve().parents[2] / "plugins"
+    repo_plugins = Path(__file__).resolve().parents[3] / "plugins"
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
     monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: True)

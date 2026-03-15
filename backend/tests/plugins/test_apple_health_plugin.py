@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 # Add plugins directory to sys.path to import plugins
 from pathlib import Path
 
-_plugins_path = Path(__file__).resolve().parents[2] / "plugins"
+_plugins_path = Path(__file__).resolve().parents[3] / "plugins"
 if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 
@@ -844,7 +844,7 @@ class TestAppleHealthPlugin:
 
         try:
             plugin = AppleHealthPlugin()
-            plugin.settings = {"sensors": {"apple_health": {"types": {}}}}
+            plugin.settings = {"sensors": {"apple_health": {"enabled": True, "types": {}}}}
 
             with patch.object(HealthKitReader, 'is_available', return_value=True):
                 sensors = plugin.get_sensors()

@@ -143,6 +143,9 @@ class GitActivityPlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("git_activity", {}))
 
+        if not settings.get("enabled", DEFAULT_SETTINGS["enabled"]):
+            return []
+
         # Get configured repos (use empty list as default)
         repos = settings.get("repos", [])
         valid_repos = []

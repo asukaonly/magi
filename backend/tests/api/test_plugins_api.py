@@ -8,6 +8,7 @@ from magi.api.routers.plugins import plugins_router
 
 class _FakeManager:
     def __init__(self) -> None:
+        self._plugin_instances: dict = {}
         self.state = type(
             "PluginState",
             (),

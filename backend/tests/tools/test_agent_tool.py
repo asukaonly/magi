@@ -43,24 +43,32 @@ class _FakeFunctionCallingExecutor:
         selected_tools,
         user_id,
         session_id=None,
+        turn_id=None,
         conversation_history=None,
         max_iterations=10,
         disable_thinking=True,
         intent="unknown",
         execution_agent_id="chat_agent",
         execution_workspace=None,
+        orchestration_strategy=None,
+        llm_timeout_seconds=None,
+        final_response_json_mode=False,
     ):
         _ = (
             system_prompt,
             selected_tools,
             user_id,
             session_id,
+            turn_id,
             conversation_history,
             max_iterations,
             disable_thinking,
             intent,
             execution_agent_id,
             execution_workspace,
+            orchestration_strategy,
+            llm_timeout_seconds,
+            final_response_json_mode,
         )
         if self._tool_result_callback:
             await self._tool_result_callback(
@@ -373,6 +381,7 @@ async def test_await_timeout_does_not_cancel_worker_task():
         target_task_agent_id="u-chat",
         user_id="u-chat",
         session_id="s-chat",
+        turn_id=None,
         created_at=0.0,
         updated_at=0.0,
     )

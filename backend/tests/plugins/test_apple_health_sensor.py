@@ -1,13 +1,19 @@
 """Tests for AppleHealthTimelineSensor."""
+import sys
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
-from plugins.apple_health.reader import HealthKitReader
-from plugins.apple_health.sensor import AppleHealthTimelineSensor
-from plugins.apple_health.types import HealthDataType, get_default_enabled_types
+_plugins_path = Path(__file__).resolve().parents[3] / "plugins"
+if str(_plugins_path) not in sys.path:
+    sys.path.insert(0, str(_plugins_path))
+
+from apple_health.reader import HealthKitReader
+from apple_health.sensor import AppleHealthTimelineSensor
+from apple_health.types import HealthDataType, get_default_enabled_types
 
 
 class TestAppleHealthTimelineSensor:
@@ -52,10 +58,10 @@ class TestAppleHealthTimelineSensor:
         assert len(sensor.enabled_types) == len(default_types)
         assert [ht.key for ht in sensor.enabled_types] == [ht.key for ht in default_types]
 
-    @patch('plugins.apple_health.reader.HealthKitReader')
+    @patch('apple_health.reader.HealthKitReader')
     def test_reader_property_on_darwin(self, mock_reader_class):
         """Test reader property initialization on macOS."""
-        with patch('plugins.apple_health.sensor.sys.platform', 'darwin'):
+        with patch('apple_health.sensor.sys.platform', 'darwin'):
             # Mock the reader
             mock_reader_class.return_value = Mock()
 
@@ -130,11 +136,11 @@ class TestAppleHealthTimelineSensor:
         # Fingerprints should be different
         assert fingerprint1 != fingerprint2
 
-    @patch('plugins.apple_health.reader.HealthKitReader')
+    @patch('apple_health.reader.HealthKitReader')
     async def test_collect_items(self, mock_reader_class):
         """Test collect_items method."""
         # Setup
-        with patch('plugins.apple_health.sensor.datetime') as mock_datetime:
+        with patch('apple_health.sensor.datetime') as mock_datetime:
             mock_now = datetime(2024, 1, 2, 12, 0, 0)
             mock_datetime.now.return_value = mock_now
             mock_datetime.datetime.datetime = datetime
@@ -184,7 +190,7 @@ class TestAppleHealthTimelineSensor:
             assert reader_instance.get_authorization_status.called
             assert reader_instance.read_daily_aggregate.call_count == 2
 
-    @patch('plugins.apple_health.sensor.NORMALIZERS')
+    @patch('apple_health.sensor.NORMALIZERS')
     async def test_build_timeline_event_with_normalizer(self, mock_normalizers):
         """Test build_timeline_event with normalizer."""
         # Setup mock normalizer that mimics real normalizer
@@ -241,8 +247,8 @@ class TestAppleHealthTimelineSensor:
         assert "apple_health" in event.tags
         assert "unknown_type" in event.tags
 
-    @patch('plugins.apple_health.reader.HealthKitReader')
-    @patch('plugins.apple_health.sensor.sys.platform', 'darwin')
+    @patch('apple_health.reader.HealthKitReader')
+    @patch('apple_health.sensor.sys.platform', 'darwin')
     async def test_collect_items_with_settings(self, mock_reader_class):
         """Test collect_items respects plugin settings."""
         reader_instance = Mock(spec=HealthKitReader)

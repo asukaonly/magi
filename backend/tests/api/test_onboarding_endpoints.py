@@ -1,23 +1,33 @@
 """Tests for onboarding-related endpoints."""
 
+import json
 from pathlib import Path
 
 import yaml
 
-from magi.api.routers.personalities import _parse_markdown_preset
-from magi.api.routers.skills import _get_enabled_skill_names
+from magi.api.routers.personality_presets import _parse_json_preset
+from magi.api.services.skills_runtime_service import _get_enabled_skill_names
 
 
-def test_parse_markdown_preset(tmp_path: Path):
-    file_path = tmp_path / "helper.md"
+def test_parse_json_preset(tmp_path: Path):
+    file_path = tmp_path / "helper.json"
     file_path.write_text(
-        "# Helper\n\nA practical helper.\n\nUse concise and direct responses.",
+        json.dumps({
+            "meta": {"group": "general", "order": 1},
+            "persona_entity": {
+                "basic_profile": {
+                    "name": "Helper",
+                    "occupation": "A practical helper",
+                    "core_background": "Use concise and direct responses.",
+                }
+            },
+        }),
         encoding="utf-8",
     )
-    preset = _parse_markdown_preset(file_path)
+    preset = _parse_json_preset(file_path)
     assert preset.id == "helper"
     assert preset.name == "Helper"
-    assert preset.description == "A practical helper."
+    assert preset.occupation == "A practical helper"
     assert "Use concise" in preset.prompt
 
 
@@ -34,7 +44,7 @@ def test_get_enabled_skill_names(monkeypatch, tmp_path: Path):
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "magi.api.routers.skills.get_config_file_path",
+        "magi.api.services.skills_runtime_service.get_config_file_path",
         lambda: config_file,
     )
     names = _get_enabled_skill_names()

@@ -107,6 +107,9 @@ class CalendarPlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("calendar", {}))
 
+        if not settings.get("enabled", DEFAULT_SETTINGS["enabled"]):
+            return []
+
         # Check EventKit availability (but still return sensor spec even if not available)
         reader = None
         try:

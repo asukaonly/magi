@@ -94,6 +94,9 @@ class ScreenTimePlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("screen_time", {}))
 
+        if not settings.get("enabled", DEFAULT_SETTINGS["enabled"]):
+            return []
+
         # Check database availability (but still return sensor spec even if not available)
         reader = None
         try:

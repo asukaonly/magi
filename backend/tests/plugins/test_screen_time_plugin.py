@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 # Add plugins directory to sys.path
-_plugins_path = Path(__file__).resolve().parents[2] / "plugins"
+_plugins_path = Path(__file__).resolve().parents[3] / "plugins"
 if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 

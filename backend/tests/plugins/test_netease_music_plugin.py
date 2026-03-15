@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 # Add plugins directory to sys.path to import plugins
-_plugins_path = Path(__file__).resolve().parents[2] / "plugins"
+_plugins_path = Path(__file__).resolve().parents[3] / "plugins"
 if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 
@@ -543,7 +543,7 @@ import sys
 from pathlib import Path
 
 # Add plugins directory to sys.path to import plugin
-_plugins_path = Path(__file__).resolve().parents[2] / "plugins"
+_plugins_path = Path(__file__).resolve().parents[3] / "plugins"
 if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 

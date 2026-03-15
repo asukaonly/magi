@@ -170,6 +170,9 @@ class TerminalHistoryPlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("terminal_history", {}))
 
+        if not settings.get("enabled", DEFAULT_SETTINGS["enabled"]):
+            return []
+
         # Check history availability (but still return sensor spec even if not available)
         reader = None
         try:

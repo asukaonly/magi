@@ -2,7 +2,7 @@
 
 import json
 
-from magi.api.routers.personality import PersonalityConfigModel, _build_diffs
+from magi.api.routers.personality_config import PersonalityConfigModel, _build_diffs
 from magi.personality.loader import PersonalityLoader
 
 

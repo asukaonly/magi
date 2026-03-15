@@ -163,6 +163,9 @@ class AppleHealthPlugin(Plugin):
         if isinstance(sensors_settings, dict):
             settings = dict(sensors_settings.get("apple_health", {}))
 
+        if not settings.get("enabled", DEFAULT_SETTINGS["enabled"]):
+            return []
+
         # Get enabled types from settings (use default enabled types if not configured)
         enabled_types = _get_enabled_types_from_settings(settings)
         if not enabled_types:

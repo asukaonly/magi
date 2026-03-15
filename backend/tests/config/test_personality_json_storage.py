@@ -2,7 +2,7 @@
 
 import pytest
 
-from magi.api.routers.personality import (
+from magi.api.routers.personality_config import (
     PersonalityConfigModel,
     delete_personality,
     list_personalities,
