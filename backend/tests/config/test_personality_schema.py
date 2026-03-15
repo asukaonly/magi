@@ -3,7 +3,7 @@
 import json
 
 from magi.api.routers.personality import PersonalityConfigModel, _build_diffs
-from magi.memory.personality_loader import PersonalityLoader
+from magi.personality.loader import PersonalityLoader
 
 
 def test_personality_model_accepts_new_schema():

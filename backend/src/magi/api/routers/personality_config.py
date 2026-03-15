@@ -25,7 +25,7 @@ from ...config import get_config
 from ...config.models import LLMScenario, LLMSettings
 from ...core.runtime import TaskAgentType
 from ...llm import create_llm_adapter
-from ...memory.personality_loader import PersonalityLoader
+from ...personality.loader import PersonalityLoader
 from ...utils.runtime import get_runtime_paths
 from ...core.logger import get_logger
 

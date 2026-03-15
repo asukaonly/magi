@@ -6,11 +6,11 @@ import re
 from typing import Any
 
 from ....agent import get_unified_memory
-from ....memory.context_builder import Scenario
+from ....context.builder import Scenario
 from ....memory.hybrid_retrieval import HybridRetrievalService, build_query
 from ....config.models import LLMScenario
 from ...orchestration import WorkerResult
-from ....memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
+from ....context.assembler import PromptContextAssembler, PromptContextRenderer
 from ..common import TaskAgentLLMService
 
 

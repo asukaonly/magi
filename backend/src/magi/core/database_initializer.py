@@ -341,7 +341,7 @@ class DatabaseInitializer:
             logger.info("Skipping default data insertion (not first run)")
             return
 
-        from ..memory.scenario_prompts import DEFAULT_SCENARIO_PROMPTS
+        from ..context.scenario_prompts import DEFAULT_SCENARIO_PROMPTS
 
         db_path = self.data_dir / "scenario_prompts.db"
         async with aiosqlite.connect(str(db_path)) as db:

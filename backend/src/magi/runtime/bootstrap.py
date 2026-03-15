@@ -11,7 +11,7 @@ from ..core.logger import get_logger
 from ..events.sqlite_backend import SQLiteMessageBackend
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationModule
-from ..memory.scenario_prompts import ScenarioPromptsStore
+from ..context.scenario_prompts import ScenarioPromptsStore
 from ..scheduler import SchedulerService
 from .lifecycle import ModuleLifecycleOrchestrator
 from .runtime_modules import (

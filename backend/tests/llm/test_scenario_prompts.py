@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.memory.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
+from magi.context.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
 
 
 @pytest.mark.asyncio

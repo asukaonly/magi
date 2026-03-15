@@ -9,13 +9,13 @@ Internal note.
 import logging
 from typing import Dict, Any
 
-from .models import (
+from ..personality.models import (
     TaskBehaviorProfile,
     EmotionalState,
     GrowthMemory,
     AmbiguityTolerance,
 )
-from .personality_loader import PersonalityConfig
+from ..personality.loader import PersonalityConfig
 
 logger = logging.getLogger(__name__)
 

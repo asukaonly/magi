@@ -4,9 +4,9 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from magi.agent.task_agents.chat.prompt_service import ChatPromptService
-from magi.memory.models import EmotionalState
-from magi.memory.personality_loader import PersonalityConfig
-from magi.memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
+from magi.personality.models import EmotionalState
+from magi.personality.loader import PersonalityConfig
+from magi.context.assembler import PromptContextAssembler, PromptContextRenderer
 
 
 class _FakeMemory:

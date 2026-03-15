@@ -30,9 +30,9 @@ from ..llm import LLMScenario, ScenarioLLMPool, create_llm_adapter, get_llm_usag
 from ..llm.usage_events import configure_llm_usage_event_publisher
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
-from ..memory.other_memory import OtherMemory
-from ..memory.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
-from ..memory.self_memory import SelfMemory
+from ..context.scenario_prompts import ScenarioPromptsStore, initialize_default_prompts
+from ..personality.other_memory import OtherMemory
+from ..personality.self_memory import SelfMemory
 from ..plugins import (
     get_action_registry,
     get_plugin_manager,

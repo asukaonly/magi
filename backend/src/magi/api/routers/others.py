@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import logging
 
-from ...memory.other_memory import OtherMemory, OtherProfile
+from ...personality.other_memory import OtherMemory, OtherProfile
 from ...utils.runtime import get_runtime_paths
 
 logger = logging.getLogger(__name__)

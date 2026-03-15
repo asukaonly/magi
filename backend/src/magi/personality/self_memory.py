@@ -17,7 +17,7 @@ from dataclasses import asdict
 from .models import (
     EmotionalState,
 )
-from .personality_loader import PersonalityLoader, PersonalityConfig
+from .loader import PersonalityLoader, PersonalityConfig
 from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
 from .emotional_state import EmotionalStateEngine, InteractionOutcome, EngagementLevel
 from .growth_memory import GrowthMemoryEngine, InteractionType, MilestoneType

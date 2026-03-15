@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import unittest
 
-from magi.memory.models import EmotionalState, TaskBehaviorProfile
-from magi.memory.personality_loader import PersonalityConfig
-from magi.memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
+from magi.personality.models import EmotionalState, TaskBehaviorProfile
+from magi.personality.loader import PersonalityConfig
+from magi.context.assembler import PromptContextAssembler, PromptContextRenderer
 
 
 class _FakeSelfMemory:

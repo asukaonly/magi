@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .prompt_context_schema import (
+from .schema import (
     IdentityConstraintContext,
     ProfileMemoryContext,
     PromptAssemblyContext,

@@ -8,7 +8,7 @@ from typing import Optional
 from ....core.logger import get_logger
 from ....core.runtime.contracts import FactRecord
 from ....core.runtime.types import TaskAgentType
-from ....memory.context_builder import Scenario
+from ....context.builder import Scenario
 from ..common import (
     BaseExecutionHandler,
     CommonHandlerDependencies,

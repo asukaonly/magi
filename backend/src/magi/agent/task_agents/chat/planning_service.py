@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from ....core.logger import get_logger
-from ....memory.context_builder import Scenario
+from ....context.builder import Scenario
 from ....tools.registry import ToolRegistry
 from ....tools.schema import ToolExecutionContext
 from ...orchestration import PlannedSubtask, SubtaskPlan, TaskOrchestrationState

@@ -10,9 +10,9 @@ from ....core.runtime import SensorEvent
 from ....core.runtime.contracts import FactRecord
 from ....core.runtime.types import TaskAgentType
 from ....events.events import EventTypes
-from ....memory.behavior_evolution import SatisfactionLevel
-from ....memory.emotional_state import EngagementLevel, InteractionOutcome
-from ....memory.growth_memory import InteractionType
+from ....personality.behavior_evolution import SatisfactionLevel
+from ....personality.emotional_state import EngagementLevel, InteractionOutcome
+from ....personality.growth_memory import InteractionType
 from ..common import ExecutionResult, FunctionCallingExecutionResult, IncomingFactKind
 from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext

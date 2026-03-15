@@ -127,7 +127,7 @@ async def handle_get_personality(ctx: WebSocketContext, data: dict) -> dict:
     """Handle personality info requests."""
     try:
         from ..services.personality_state_service import get_current_personality
-        from ...memory.personality_loader import PersonalityLoader
+        from ...personality.loader import PersonalityLoader
         from ...utils.runtime import get_runtime_paths
 
         current_name = get_current_personality()

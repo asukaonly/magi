@@ -614,7 +614,7 @@ def _build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
 
 def _load_full_personality() -> FullPersonalityConfigModel:
     """Load full personality config from personality file, not from agent.yaml."""
-    from ...memory.personality_loader import PersonalityLoader
+    from ...personality.loader import PersonalityLoader
     from ...utils.runtime import get_runtime_paths
 
     try:

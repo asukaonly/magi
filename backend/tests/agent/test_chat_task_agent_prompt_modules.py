@@ -15,8 +15,8 @@ from magi.agent.task_agents.chat import (
 )
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.config.models import LLMScenario
-from magi.memory.models import EmotionalState, TaskBehaviorProfile
-from magi.memory.personality_loader import PersonalityConfig
+from magi.personality.models import EmotionalState, TaskBehaviorProfile
+from magi.personality.loader import PersonalityConfig
 
 
 class _FakeLLMAdapter:

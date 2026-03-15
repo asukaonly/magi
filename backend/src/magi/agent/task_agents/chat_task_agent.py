@@ -10,7 +10,7 @@ from ...core.logger import get_logger
 from ...core.runtime.contracts import FactRecord
 from ...core.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
 from ...core.runtime.types import TaskAgentType
-from ...memory.prompt_context_assembler import PromptContextAssembler, PromptContextRenderer
+from ...context.assembler import PromptContextAssembler, PromptContextRenderer
 from ...skills.executor import SkillExecutor
 from ...skills.indexer import SkillIndexer
 from ...skills.loader import SkillLoader
