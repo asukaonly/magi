@@ -13,6 +13,9 @@ import aiosqlite
 from .event_contracts import MemoryEvent
 
 
+MAX_CONCURRENT_SESSIONS = 64
+
+
 class L0WorkingMemoryStore:
     """Maintains session-local workbench state and restores it from checkpoints."""
 
@@ -23,11 +26,13 @@ class L0WorkingMemoryStore:
         checkpoint_interval_seconds: int = 30,
         session_timeout_seconds: int = 3600,
         restore_on_restart: bool = True,
+        max_concurrent_sessions: int = MAX_CONCURRENT_SESSIONS,
     ) -> None:
         self.checkpoint_db_path = str(Path(checkpoint_db_path).expanduser())
         self.checkpoint_interval_seconds = int(checkpoint_interval_seconds)
         self.session_timeout_seconds = int(session_timeout_seconds)
         self.restore_on_restart = bool(restore_on_restart)
+        self.max_concurrent_sessions = int(max_concurrent_sessions)
 
         self._sessions: dict[str, dict[str, Any]] = {}
         self._goal_stack: dict[str, list[dict[str, Any]]] = {}
@@ -126,6 +131,10 @@ class L0WorkingMemoryStore:
                 merged.update(metadata)
                 existing["metadata"] = merged
             return existing
+
+        # Evict the least-recently-active session when at capacity
+        if len(self._sessions) >= self.max_concurrent_sessions:
+            await self._evict_lru_session()
 
         session = {
             "session_id": session_id,
@@ -436,6 +445,24 @@ class L0WorkingMemoryStore:
             self._temporary_tactics.pop(session_id, None)
             expired.append(session_id)
         return expired
+
+    async def _evict_lru_session(self) -> Optional[str]:
+        """Checkpoint and evict the least-recently-active session."""
+        if not self._sessions:
+            return None
+        lru_id = min(
+            self._sessions,
+            key=lambda sid: float(self._sessions[sid]["last_active_at"]),
+        )
+        try:
+            await self.checkpoint_session(lru_id)
+        except Exception:
+            pass
+        self._sessions.pop(lru_id, None)
+        self._goal_stack.pop(lru_id, None)
+        self._active_entities.pop(lru_id, None)
+        self._temporary_tactics.pop(lru_id, None)
+        return lru_id
 
     async def _restore_from_checkpoint(self) -> None:
         async with aiosqlite.connect(self.checkpoint_db_path) as db:
