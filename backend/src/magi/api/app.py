@@ -8,6 +8,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from typing import Any
 
 from .avatar_paths import builtin_avatar_dir, user_avatar_dir
 from .middleware import errorHandler, AuthMiddleware, RequestLoggingMiddleware, LanguageContextMiddleware, add_cors_middleware
@@ -51,7 +52,7 @@ def _build_custom_openapi(app: FastAPI):
     return custom_openapi
 
 
-def create_app() -> FastAPI:
+def create_app(*, lifespan: Any = None) -> FastAPI:
     """
     createFastAPI应用Instance
 
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
         version="1.0.0",
         docs_url=None,  # Disabledefaultdocument，使用customroute
         redoc_url=None,
+        lifespan=lifespan,
     )
 
     # SettingcustomOpenAPI

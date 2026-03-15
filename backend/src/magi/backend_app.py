@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+
 from fastapi import FastAPI
 
 from .api.app import create_app as create_api_app
@@ -63,15 +66,16 @@ def _build_lifecycle_orchestrator(app: FastAPI) -> ModuleLifecycleOrchestrator:
 
 def create_backend_app() -> FastAPI:
     """Create full backend app with lifecycle-managed module startup/shutdown."""
-    app = create_api_app()
-    app.state.module_lifecycle_orchestrator = _build_lifecycle_orchestrator(app)
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+        orchestrator = _build_lifecycle_orchestrator(app)
+        app.state.module_lifecycle_orchestrator = orchestrator
+        await orchestrator.startup()
+        try:
+            yield
+        finally:
+            await orchestrator.shutdown()
 
-    @app.on_event("startup")
-    async def startup_event() -> None:
-        await app.state.module_lifecycle_orchestrator.startup()
-
-    @app.on_event("shutdown")
-    async def shutdown_event() -> None:
-        await app.state.module_lifecycle_orchestrator.shutdown()
+    app = create_api_app(lifespan=_lifespan)
 
     return app

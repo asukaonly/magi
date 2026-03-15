@@ -40,26 +40,23 @@ async def test_websocket_bridge_subscribes_after_runtime_message_bus_ready(monke
     monkeypatch.setattr("magi.backend_app.WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS", 0.01)
 
     app = create_backend_app()
-    await app.router.startup()
+    async with app.router.lifespan_context(app):
+        assert app.state.ai_response_subscription_id is None
 
-    assert app.state.ai_response_subscription_id is None
+        holder["bus"] = fake_bus
 
-    holder["bus"] = fake_bus
+        for _ in range(100):
+            if app.state.ai_response_subscription_id:
+                break
+            await asyncio.sleep(0.01)
 
-    for _ in range(100):
-        if app.state.ai_response_subscription_id:
-            break
-        await asyncio.sleep(0.01)
-
-    assert app.state.ai_response_subscription_id is not None
-    subscribed_event_types = {event_type for _, event_type in fake_bus.subscriptions}
-    assert "AIResponse" in subscribed_event_types
-    assert "WORKER_AGENT_PROGRESS" in subscribed_event_types
-    assert "WORKER_AGENT_COMPLETED" in subscribed_event_types
-    assert "WORKER_AGENT_FAILED" in subscribed_event_types
-    assert "CHAT_TOOL_LOOP_STEP" in subscribed_event_types
-    assert "TOOL_INTERACTION" in subscribed_event_types
-
-    await app.router.shutdown()
+        assert app.state.ai_response_subscription_id is not None
+        subscribed_event_types = {event_type for _, event_type in fake_bus.subscriptions}
+        assert "AIResponse" in subscribed_event_types
+        assert "WORKER_AGENT_PROGRESS" in subscribed_event_types
+        assert "WORKER_AGENT_COMPLETED" in subscribed_event_types
+        assert "WORKER_AGENT_FAILED" in subscribed_event_types
+        assert "CHAT_TOOL_LOOP_STEP" in subscribed_event_types
+        assert "TOOL_INTERACTION" in subscribed_event_types
 
     assert set(fake_bus.unsubscribed) == {sub_id for sub_id, _ in fake_bus.subscriptions}
