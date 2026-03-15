@@ -14,10 +14,10 @@ from ..memory.integration import MemoryIntegrationModule
 from ..context.scenario_prompts import ScenarioPromptsStore
 from ..scheduler import SchedulerService
 from .lifecycle import ModuleLifecycleOrchestrator
+from ..llm.factory import is_llm_selection_pending as _is_llm_selection_pending_impl
 from .runtime_modules import (
     RuntimeBootstrapState,
     RuntimeInitializationDeferred,
-    _is_llm_selection_pending as _is_llm_selection_pending_impl,
     build_runtime_modules,
 )
 

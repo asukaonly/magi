@@ -61,3 +61,22 @@ def create_core_llm_adapter(llm_pool: ScenarioLLMPool) -> LLMAdapter:
         getattr(llm_adapter, "model_name", "unknown"),
     )
     return llm_adapter
+
+
+REQUIRED_RUNTIME_LLM_SCENARIOS = (
+    LLMScenario.CONTEXT_DECIDER.value,
+    LLMScenario.CORE.value,
+)
+
+
+def is_llm_selection_pending(config: AppConfig) -> bool:
+    """Check whether required LLM scenario selections are incomplete."""
+    for scenario_name in REQUIRED_RUNTIME_LLM_SCENARIOS:
+        selection = config.llm.selections.get(scenario_name)
+        if selection is None:
+            return True
+        if not str(selection.provider_id or "").strip():
+            return True
+        if not str(selection.model or "").strip():
+            return True
+    return False

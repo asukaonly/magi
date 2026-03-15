@@ -21,7 +21,7 @@ from ..core.runtime import (
 )
 from ..events.sqlite_backend import SQLiteMessageBackend
 from ..llm import LLMScenario, ScenarioLLMPool, get_llm_usage_store
-from ..llm.factory import create_core_llm_adapter, create_scenario_llm_pool
+from ..llm.factory import create_core_llm_adapter, create_scenario_llm_pool, is_llm_selection_pending
 from ..llm.usage_events import configure_llm_usage_event_publisher
 from ..memory import UnifiedMemoryStore
 from ..memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
@@ -41,11 +41,6 @@ from .lifecycle import LifecycleModule
 from .maintenance import MaintenanceConfig, MaintenanceDaemon, set_maintenance_daemon
 
 logger = get_logger(__name__)
-
-REQUIRED_RUNTIME_LLM_SCENARIOS = (
-    LLMScenario.CONTEXT_DECIDER.value,
-    LLMScenario.CORE.value,
-)
 
 
 class RuntimeInitializationDeferred(Exception):
@@ -89,17 +84,6 @@ def _require(value: Any, message: str) -> Any:
         raise RuntimeError(message)
     return value
 
-
-def _is_llm_selection_pending(config: AppConfig) -> bool:
-    for scenario_name in REQUIRED_RUNTIME_LLM_SCENARIOS:
-        selection = config.llm.selections.get(scenario_name)
-        if selection is None:
-            return True
-        if not str(selection.provider_id or "").strip():
-            return True
-        if not str(selection.model or "").strip():
-            return True
-    return False
 
 
 
@@ -209,7 +193,7 @@ class LLMRuntimeModule(LifecycleModule):
             self._state.llm_adapter = create_core_llm_adapter(self._state.scenario_llm_pool)
         except Exception as exc:
             raise RuntimeInitializationDeferred(
-                pending_selection=_is_llm_selection_pending(config),
+                pending_selection=is_llm_selection_pending(config),
                 cause=exc,
             ) from exc
 
@@ -441,7 +425,7 @@ class SchedulerModule(LifecycleModule):
     def __init__(self, state: RuntimeBootstrapState):
         super().__init__(
             name="runtime_scheduler",
-            dependencies=("runtime_agent_core", "runtime_memory", "runtime_configuration", "runtime_core_dependencies"),
+            dependencies=("runtime_agent_core", "runtime_memory", "runtime_plugin_system", "runtime_configuration", "runtime_core_dependencies"),
         )
         self._state = state
 
