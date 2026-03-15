@@ -87,21 +87,20 @@ def test_custom_provider_default_model_must_be_in_model_list():
 
 
 def test_build_update_paths_contains_new_sections():
-    config = SystemConfigModel()
+    current = _build_system_config(mask_api_key=False)
+    config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
+    config.memory.enable_l0 = not current.memory.enable_l0
+    config.timeline.enabled = not current.timeline.enabled
     updates = _build_update_paths(config)
 
-    assert "llm.providers" in updates
-    assert "llm.selections" in updates
-    assert "preferences" in updates
     assert "agent.memory.enable_l0" in updates
-    assert "agent.memory.enable_l4" in updates
-    assert "agent.memory.l0_checkpoint_interval_seconds" in updates
-    assert "agent.memory.enable_l2_llm_extraction" in updates
-    assert "memory_layers" not in updates
-    assert "tools.builtIn" in updates
-    assert "tools.skills" in updates
-    assert "agent.personality.name" in updates
+    assert updates["agent.memory.enable_l0"] == config.memory.enable_l0
     assert "timeline" in updates
+    assert updates["timeline"]["enabled"] == config.timeline.enabled
+    assert "agent.memory.enable_l4" not in updates
+    assert "memory_layers" not in updates
+    assert "tools.skills" not in updates
+    assert "agent.personality.name" not in updates
 
 
 def test_timeline_defaults_include_source_retention_and_edge_whitelists():
@@ -122,10 +121,12 @@ def test_onboarding_template_includes_timeline_defaults():
 
 
 def test_build_update_paths_skip_masked_api_key():
-    config = SystemConfigModel()
+    current = _build_system_config(mask_api_key=False)
+    config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
+    config.llm.providers["openai"].display_name = "OpenAI Override"
     config.llm.providers["openai"].api_key = "***"
     updates = _build_update_paths(config)
-    assert updates["llm.providers"]["openai"].get("api_key") in (None, "")
+    assert updates["llm.providers"]["openai"].get("api_key") == current.llm.providers["openai"].api_key
 
 
 def test_build_system_config_returns_real_llm_api_keys_by_default(monkeypatch: pytest.MonkeyPatch):
@@ -263,18 +264,18 @@ def test_onboarding_template_ignores_llm_environment_variables(monkeypatch: pyte
 
 
 def test_example_config_uses_scenario_llm_structure():
-    example_path = Path(__file__).resolve().parents[2] / "configs" / "config.example.yaml"
-    data = yaml.safe_load(example_path.read_text(encoding="utf-8"))
+    llm_default_path = Path(__file__).resolve().parents[2] / "configs" / "llm.default.yaml"
+    data = yaml.safe_load(llm_default_path.read_text(encoding="utf-8"))
 
-    assert "providers" in data["llm"]
-    assert "selections" in data["llm"]
-    assert "provider" not in data["llm"]
-    assert "model" not in data["llm"]
-    assert data["llm"]["providers"]["openai"]["enabled"] is False
-    assert data["llm"]["selections"]["context_decider"]["provider_id"] == ""
-    assert data["llm"]["selections"]["context_decider"]["model"] == ""
-    assert data["llm"]["selections"]["core"]["provider_id"] == ""
-    assert data["llm"]["selections"]["core"]["model"] == ""
+    assert "providers" in data
+    assert "selections" in data
+    assert "provider" not in data
+    assert "model" not in data
+    assert data["providers"]["openai"]["enabled"] is False
+    assert data["selections"]["context_decider"]["provider_id"] == ""
+    assert data["selections"]["context_decider"]["model"] == ""
+    assert data["selections"]["core"]["provider_id"] == ""
+    assert data["selections"]["core"]["model"] == ""
 
 
 def test_discover_llm_models_returns_models_from_provider_endpoint(monkeypatch: pytest.MonkeyPatch):
@@ -508,6 +509,7 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
         "magi.api.routers.config._save_personality_to_user",
         lambda _: True,
     )
+    monkeypatch.setattr("magi.runtime.bootstrap.get_agent_runtime", lambda: object())
 
     response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
 

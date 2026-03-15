@@ -757,9 +757,48 @@ def _apply_llm_registry_defaults(config: SystemConfigModel, registry: LLMProvide
 
 
 def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
+    normalized = _normalize_masked_secrets(config)
+    target_updates = _build_full_update_paths(normalized)
+    current_updates = _build_full_update_paths(_build_system_config(mask_api_key=False))
+
+    return {
+        path: value
+        for path, value in target_updates.items()
+        if current_updates.get(path) != value
+    }
+
+
+def _normalize_masked_secrets(config: SystemConfigModel) -> SystemConfigModel:
+    normalized = SystemConfigModel.model_validate(config.model_dump())
+    runtime_config = get_config()
+
+    for provider_id, provider in normalized.llm.providers.items():
+        if not _is_masked_api_key(provider.api_key):
+            continue
+        runtime_provider = runtime_config.llm.providers.get(provider_id)
+        provider.api_key = runtime_provider.api_key if runtime_provider is not None else None
+
+    weather_api_key = normalized.tools.builtIn.weather.apiKey
+    if _is_masked_api_key(weather_api_key):
+        weather_provider = normalized.tools.builtIn.weather.provider
+        runtime_weather = runtime_config.tools.weather.providers.get(weather_provider)
+        normalized.tools.builtIn.weather.apiKey = runtime_weather.api_key if runtime_weather is not None else None
+
+    web_search_api_key = normalized.tools.builtIn.webSearch.apiKey
+    if _is_masked_api_key(web_search_api_key):
+        web_search_provider = normalized.tools.builtIn.webSearch.provider
+        runtime_web_search = runtime_config.tools.web_search.providers.get(web_search_provider)
+        normalized.tools.builtIn.webSearch.apiKey = runtime_web_search.api_key if runtime_web_search is not None else None
+
+    return normalized
+
+
+def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     _apply_llm_registry_defaults(config, _load_llm_provider_registry())
 
     for selection_id, selection in config.llm.selections.items():
+        if not str(selection.provider_id or "").strip():
+            continue
         provider = config.llm.providers.get(selection.provider_id)
         if provider is None:
             raise ValueError(
@@ -772,10 +811,7 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
 
     llm_providers: Dict[str, Any] = {}
     for provider_id, provider in config.llm.providers.items():
-        provider_payload = provider.model_dump()
-        if _is_masked_api_key(provider_payload.get("api_key")):
-            provider_payload["api_key"] = None
-        llm_providers[provider_id] = provider_payload
+        llm_providers[provider_id] = provider.model_dump()
 
     updates: Dict[str, Any] = {
         "agent.name": config.agent.name,
@@ -827,11 +863,11 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
         "tools.web_fetch.default_provider": "browser" if config.tools.builtIn.webFetch.usePlaywright else "http",
     }
-    if config.tools.builtIn.weather.apiKey and not _is_masked_api_key(config.tools.builtIn.weather.apiKey):
+    if config.tools.builtIn.weather.apiKey is not None:
         updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = config.tools.builtIn.weather.apiKey
-    if config.tools.builtIn.weather.apiUrl:
+    if config.tools.builtIn.weather.apiUrl is not None:
         updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url"] = config.tools.builtIn.weather.apiUrl
-    if config.tools.builtIn.webSearch.apiKey and not _is_masked_api_key(config.tools.builtIn.webSearch.apiKey):
+    if config.tools.builtIn.webSearch.apiKey is not None:
         updates[f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.api_key"] = config.tools.builtIn.webSearch.apiKey
     return updates
 
