@@ -25,9 +25,11 @@ WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS = 0.5
 
 def _build_runtime_bindings() -> RuntimeBindings:
     """Build runtime-to-API bridge callbacks."""
-    from .api.routers.messages import set_message_bus
-    from .api.routers.personality_config import get_current_personality
-    from .api.routers.skills import init_skills_module
+    from .api.services import (
+        get_current_personality,
+        init_skills_module,
+        set_message_bus,
+    )
 
     return RuntimeBindings(
         get_current_personality=get_current_personality,

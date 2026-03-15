@@ -12,9 +12,15 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import logging
 import getpass
-import yaml
 
-from ...config.loader import get_config_file_path
+from ..services.skills_runtime_service import (
+    get_enabled_skill_names as _get_enabled_skill_names_service,
+    get_skill_executor as _get_skill_executor_service,
+    get_skill_indexer as _get_skill_indexer_service,
+    get_skill_loader as _get_skill_loader_service,
+    init_skills_module as _init_skills_module_service,
+    register_enabled_skills as _register_enabled_skills_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,81 +74,14 @@ class SkillExecuteResponse(BaseModel):
     mode: Optional[str] = None  # "direct" or "subagent"
 
 
-# ============ globalInstance（在应用启动时initialize）============
-
-_skill_indexer = None
-_skill_loader = None
-_skill_executor = None
-
-
-def _get_enabled_skill_names() -> set[str]:
-    config_path = get_config_file_path()
-    if not config_path.exists():
-        return set()
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        tools = raw.get("tools", {}) if isinstance(raw.get("tools"), dict) else {}
-        skills = tools.get("skills", [])
-        if isinstance(skills, list):
-            return set(str(s) for s in skills)
-    except Exception:
-        logger.exception("Failed to read enabled skills from config file")
-    return set()
-
-
-def _register_enabled_skills(skills: Dict[str, Any]) -> Dict[str, Any]:
-    """Register only enabled skills into the shared tool registry."""
-    from ...tools.registry import tool_registry
-
-    enabled_skills = _get_enabled_skill_names()
-    filtered_skills = (
-        {name: metadata for name, metadata in skills.items() if name in enabled_skills}
-        if enabled_skills
-        else {}
-    )
-    if _skill_indexer is not None:
-        tool_registry.bind_skill_indexer(_skill_indexer)
-    tool_registry.register_skill_index(filtered_skills)
-    logger.info(
-        "Registered enabled skills into tool registry | indexed=%s enabled=%s registered=%s",
-        len(skills),
-        len(enabled_skills),
-        len(filtered_skills),
-    )
-    return filtered_skills
-
-
 def init_skills_module(llm_adapter=None):
-    """
-    initialize Skills module
-
-    Args:
-        llm_adapter: LLM Adapter（用于 sub-agent Execute）
-    """
-    global _skill_indexer, _skill_loader, _skill_executor
-
-    from ...skills.indexer import SkillIndexer
-    from ...skills.loader import SkillLoader
-    from ...skills.executor import SkillExecutor
-
-    _skill_indexer = SkillIndexer()
-    _skill_loader = SkillLoader(_skill_indexer)
-    _skill_executor = SkillExecutor(_skill_loader, llm_adapter)
-
-    # 初始扫描
-    skills = _skill_indexer.scan_all()
-    registered_skills = _register_enabled_skills(skills)
-    logger.info(
-        "Skills module initialized | indexed=%s registered=%s",
-        len(skills),
-        len(registered_skills),
-    )
+    """Compatibility wrapper for shared skills runtime service."""
+    _init_skills_module_service(llm_adapter=llm_adapter)
 
 
 def get_skill_executor():
-    """get SkillExecutor Instance"""
-    return _skill_executor
+    """Get SkillExecutor instance from shared skills runtime service."""
+    return _get_skill_executor_service()
 
 
 # ============ API 端点 ============
@@ -155,15 +94,15 @@ async def list_skills():
     Returns:
         Skills metadatalist
     """
-    global _skill_indexer
+    skill_indexer = _get_skill_indexer_service()
+    if skill_indexer is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Skills module not initialized",
+        )
 
-    # Lazily initialize indexer if not already done
-    if _skill_indexer is None:
-        from ...skills.indexer import SkillIndexer
-        _skill_indexer = SkillIndexer()
-
-    skills = _skill_indexer.scan_all()
-    enabled_skills = _get_enabled_skill_names()
+    skills = skill_indexer.scan_all()
+    enabled_skills = _get_enabled_skill_names_service()
 
     return [
         SkillMetadataResponse(
@@ -190,15 +129,16 @@ async def refresh_skills():
     Returns:
         update后的 Skills list
     """
-    if _skill_indexer is None:
+    skill_indexer = _get_skill_indexer_service()
+    if skill_indexer is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skills module not initialized",
         )
 
-    skills = _skill_indexer.refresh()
-    _register_enabled_skills(skills)
-    enabled_skills = _get_enabled_skill_names()
+    skills = skill_indexer.refresh()
+    _register_enabled_skills_service(skills)
+    enabled_skills = _get_enabled_skill_names_service()
 
     return [
         SkillMetadataResponse(
@@ -228,13 +168,14 @@ async def get_skill_detail(skill_name: str):
     Returns:
         Skill 详情
     """
-    if _skill_loader is None:
+    skill_loader = _get_skill_loader_service()
+    if skill_loader is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skills module not initialized",
         )
 
-    skill_content = _skill_loader.load_skill(skill_name)
+    skill_content = skill_loader.load_skill(skill_name)
     if not skill_content:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -267,7 +208,8 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
     Returns:
         Execution result
     """
-    if _skill_executor is None:
+    skill_executor = _get_skill_executor_service()
+    if skill_executor is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skills module not initialized",
@@ -291,7 +233,7 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
     context.update(request.context)
 
     try:
-        result = await _skill_executor.execute(
+        result = await skill_executor.execute(
             skill_name=skill_name,
             arguments=request.arguments,
             context=context,
@@ -322,13 +264,14 @@ async def list_skill_categories():
     Returns:
         分Classlist
     """
-    if _skill_indexer is None:
+    skill_indexer = _get_skill_indexer_service()
+    if skill_indexer is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skills module not initialized",
         )
 
-    skills = _skill_indexer.scan_all()
+    skills = skill_indexer.scan_all()
     categories = set(skill.category for skill in skills.values() if skill.category)
 
     return {

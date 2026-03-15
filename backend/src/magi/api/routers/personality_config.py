@@ -17,6 +17,10 @@ from pydantic import BaseModel, Field
 
 from ..llm_draft import resolve_adapter_for_scenario
 from ..avatar_paths import resolve_avatar_public_url
+from ..services.personality_state_service import (
+    get_current_personality as _get_current_personality_service,
+    set_current_personality as _set_current_personality_service,
+)
 from ...config import get_config
 from ...config.models import LLMScenario, LLMSettings
 from ...core.runtime import TaskAgentType
@@ -119,7 +123,6 @@ class PersonalityCompareResponse(BaseModel):
 
 
 DEFAULT_PERSONALITY = "default"
-CURRENT_FILE = "current"
 
 
 FIELD_LABELS: Dict[str, str] = {
@@ -390,22 +393,13 @@ Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural an
 # ============ Current Personality Management ============
 
 def get_current_personality() -> str:
-    runtime_paths = get_runtime_paths()
-    current_file = runtime_paths.personalities_dir / CURRENT_FILE
-    if current_file.exists():
-        return current_file.read_text().strip()
-    return DEFAULT_PERSONALITY
+    """Compatibility wrapper for shared personality state service."""
+    return _get_current_personality_service()
 
 
 def set_current_personality(name: str) -> bool:
-    runtime_paths = get_runtime_paths()
-    current_file = runtime_paths.personalities_dir / CURRENT_FILE
-    try:
-        current_file.write_text(name)
-        return True
-    except Exception as exc:
-        logger.error("Failed to set current personality: %s", exc)
-        return False
+    """Compatibility wrapper for shared personality state service."""
+    return _set_current_personality_service(name)
 
 
 # ============ API Endpoints ============

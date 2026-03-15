@@ -15,6 +15,10 @@ from dependency_injector.wiring import inject, Provide
 from ..connection_manager import manager as ws_manager
 from ...awareness.sensors import UserMessageSensor
 from ..services import get_chat_read_service
+from ..services.runtime_message_bus import (
+    get_message_bus as _get_message_bus_service,
+    set_message_bus as _set_message_bus_service,
+)
 from ...utils.agent_logger import get_agent_logger
 from ...events.events import Event, EventTypes, EventLevel
 from ...core.logger import get_logger
@@ -43,31 +47,14 @@ class MessageResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
-# ============ globalmessage bus ============
-
-_message_bus = None
-
-
 def set_message_bus(message_bus):
-    """Settingmessage busInstance"""
-    global _message_bus
-    _message_bus = message_bus
+    """Compatibility wrapper for shared message bus service."""
+    _set_message_bus_service(message_bus)
 
 
 def get_message_bus():
-    """getmessage busInstance - checks DI container first, falls back to global."""
-    # Try container first
-    try:
-        from ...core.container import get_container
-        container = get_container()
-        instance = container.message_bus()
-        # Check if it's a real instance (not the placeholder object)
-        if instance is not None and type(instance).__name__ != "object":
-            return instance
-    except Exception:
-        pass
-    # Fallback to global
-    return _message_bus
+    """Compatibility wrapper for shared message bus service."""
+    return _get_message_bus_service()
 
 
 # ============ globalUser message传感器 ============

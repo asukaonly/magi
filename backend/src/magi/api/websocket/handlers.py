@@ -126,7 +126,7 @@ async def handle_ping(ctx: WebSocketContext, data: dict) -> dict:
 async def handle_get_personality(ctx: WebSocketContext, data: dict) -> dict:
     """Handle personality info requests."""
     try:
-        from ..routers.personality_config import get_current_personality
+        from ..services.personality_state_service import get_current_personality
         from ...memory.personality_loader import PersonalityLoader
         from ...utils.runtime import get_runtime_paths
 
@@ -161,7 +161,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
         from ...agent import get_agent_runtime
         from ...events.events import Event, EventTypes
         from ..services import get_chat_read_service
-        from ..routers.messages import get_message_bus
+        from ..services.runtime_message_bus import get_message_bus
 
         user_id = data.get("user_id", "web_user")
         session_id = data.get("session_id")
