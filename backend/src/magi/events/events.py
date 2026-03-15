@@ -36,11 +36,11 @@ class PropagationMode:
 @dataclass
 class Event:
     """
-    eventdatastructure
+    Event data structure
 
     Attributes:
-        type: eventtype（如 "AgentStarted", "PerceptionReceived"）
-        data: eventdata（可以isanytype）
+        type: event type (e.g. "AgentStarted", "PerceptionReceived")
+        data: event data (can be any type)
         timestamp: timestamp
         source: event source (can be agent id, module name, etc.)
         level: event level (affects priority and persistence strategy)
@@ -56,13 +56,13 @@ class Event:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        """process after initialization"""
+        """Post-initialization processing"""
         if self.correlation_id is None:
-            # generation唯一的associateid
+            # Generate unique correlation id
             self.correlation_id = str(uuid.uuid4())
 
     def to_dict(self) -> Dict[str, Any]:
-        """convert为dictionary"""
+        """Convert to dictionary"""
         return {
             "type": self.type,
             "data": self.data,
@@ -75,7 +75,7 @@ class Event:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Event":
-        """从dictionarycreateevent"""
+        """Create event from dictionary"""
         return cls(
             type=data["type"],
             data=data["data"],
@@ -87,32 +87,32 @@ class Event:
         )
 
 
-# coreeventtype定义
+# Core event type definitions
 class EventTypes:
-    """coreeventtypeConstant"""
+    """Core event type constants"""
 
-    # 生命periodevent
+    # Lifecycle events
     AGENT_STARTED = "AgentStarted"
     AGENT_STOPPED = "AgentStopped"
     STATE_CHANGED = "StateChanged"
 
-    # Perceptionevent
+    # Perception events
     PERCEPTION_RECEIVED = "PerceptionReceived"
     PERCEPTION_PROCESSED = "Perceptionprocessed"
 
-    # processevent
+    # Processing events
     ACTION_EXECUTED = "ActionExecuted"
     CAPABILITY_CREATED = "CapabilityCreated"
     CAPABILITY_UPDATED = "CapabilityUpdated"
 
-    # learningevent
+    # Learning events
     EXPERIENCE_STORED = "ExperienceStored"
 
-    # errorevent
+    # Error events
     ERROR_OCCURRED = "errorOccurred"
     HANDLER_FAILED = "HandlerFailed"
 
-    # 循环event
+    # Loop events
     LOOP_STARTED = "LoopStarted"
     LOOP_COMPLETED = "LoopCompleted"
     LOOP_PAUSED = "LoopPaused"
@@ -120,39 +120,39 @@ class EventTypes:
     LOOP_PHASE_STARTED = "LoopPhaseStarted"
     LOOP_PHASE_COMPLETED = "LoopPhaseCompleted"
 
-    # 健康event
+    # Health events
     HEALTH_WARNING = "HealthWarning"
 
-    # 任务event
+    # Task events
     TASK_CREATED = "TaskCreated"
     TASK_ASSIGNED = "TaskAssigned"
     TASK_STARTED = "TaskStarted"
     TASK_COMPLETED = "TaskCompleted"
     TASK_FAILED = "TaskFailed"
 
-    # User messageevent
+    # User message events
     USER_MESSAGE = "UserMessage"
     AI_RESPONSE = "AIResponse"
     LLM_CALL_COMPLETED = "LLMCallCompleted"
 
 
-# 业务eventtypeConstant（L1 层storage使用）
+# Business event type constants (used by L1 layer storage)
 class BusinessEventTypes:
     """
-    业务eventtypeConstant
+    Business event type constants
 
-    这些is经过filterandconvert后的业务event，
-    用于 L1 层storage，专注于userrow为analysis。
+    These are filtered and transformed business events
+    used for L1 layer storage, focusing on user behavior analysis.
     """
 
-    # userInputevent（来自 USER_MESSAGE）
+    # User input event (from USER_MESSAGE)
     USER_INPUT = "USER_INPUT"
 
-    # AI responseevent（来自 ACTION_EXECUTED，当 action_type=ChatResponseAction）
+    # AI response event (from ACTION_EXECUTED, when action_type=ChatResponseAction)
     AI_RESPONSE = "AI_RESPONSE"
 
-    # tool调用event（来自 ACTION_EXECUTED，当 action_type istool调用）
+    # Tool invocation event (from ACTION_EXECUTED, when action_type is a tool call)
     TOOL_INVOKED = "TOOL_INVOKED"
 
-    # 系统Exceptionevent（只recordcritical error，level >= error）
+    # System error event (only records critical errors, level >= ERROR)
     SYSTEM_ERROR = "SYSTEM_ERROR"

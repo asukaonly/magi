@@ -1,5 +1,5 @@
 """
-LLMAdapter - 抽象Base class
+LLM Adapter - Abstract base class
 """
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, AsyncIterator, List
@@ -7,12 +7,12 @@ from typing import Optional, Dict, Any, AsyncIterator, List
 
 class LLMAdapter(ABC):
     """
-    LLMAdapter抽象Base class
+    LLM Adapter abstract base class
 
-    定义统一的LLM调用Interface，support多种LLM提供商：
+    Defines a unified LLM invocation interface, supporting multiple LLM providers:
     - OpenAI (GPT-4, GPT-3.5)
     - Anthropic (Claude)
-    - 本地model (Llama.cpp)
+    - Local models (Llama.cpp)
     """
 
     @abstractmethod
@@ -24,16 +24,16 @@ class LLMAdapter(ABC):
         **kwargs
     ) -> str:
         """
-        generation文本（非流式）
+        Generate text (non-streaming)
 
         Args:
-            prompt: Inputprompt
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter（0.0-2.0）
-            **kwargs: otherParameter
+            prompt: Input prompt
+            max_tokens: Maximum token count
+            temperature: Temperature parameter (0.0-2.0)
+            **kwargs: Additional parameters
 
         Returns:
-            str: generation的文本
+            str: Generated text
         """
         pass
 
@@ -46,16 +46,16 @@ class LLMAdapter(ABC):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        generation文本（流式）
+        Generate text (streaming)
 
         Args:
-            prompt: Inputprompt
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter（0.0-2.0）
-            **kwargs: otherParameter
+            prompt: Input prompt
+            max_tokens: Maximum token count
+            temperature: Temperature parameter (0.0-2.0)
+            **kwargs: Additional parameters
 
         Yields:
-            str: generation的文本片段
+            str: Generated text chunks
         """
         pass
 
@@ -68,16 +68,16 @@ class LLMAdapter(ABC):
         **kwargs
     ) -> str:
         """
-        dialoguegeneration（非流式）
+        Dialogue generation (non-streaming)
 
         Args:
-            messages: dialoguehistory [{"role": "user", "content": "..."}, ...]
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter（0.0-2.0）
-            **kwargs: otherParameter
+            messages: Dialogue history [{"role": "user", "content": "..."}, ...]
+            max_tokens: Maximum token count
+            temperature: Temperature parameter (0.0-2.0)
+            **kwargs: Additional parameters
 
         Returns:
-            str: 助手的response
+            str: Assistant's response
         """
         pass
 
@@ -90,28 +90,28 @@ class LLMAdapter(ABC):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        dialoguegeneration（流式）
+        Dialogue generation (streaming)
 
         Args:
-            messages: dialoguehistory
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter（0.0-2.0）
-            **kwargs: otherParameter
+            messages: Dialogue history
+            max_tokens: Maximum token count
+            temperature: Temperature parameter (0.0-2.0)
+            **kwargs: Additional parameters
 
         Yields:
-            str: generation的文本片段
+            str: Generated text chunks
         """
         pass
 
     @property
     @abstractmethod
     def model_name(self) -> str:
-        """getmodelName"""
+        """Get model name"""
         pass
 
     @property
     def provider_name(self) -> str:
-        """get提供商Name（default使用Class名推断）"""
+        """Get provider name (defaults to inferring from class name)"""
         return self.__class__.__name__.replace("Adapter", "").lower()
 
     async def get_embedding(
@@ -120,14 +120,14 @@ class LLMAdapter(ABC):
         model: Optional[str] = None,
     ) -> Optional[List[float]]:
         """
-        get文本的embeddingvector（optionalImplementation）
+        Get text embedding vector (optional implementation)
 
         Args:
-            text: Input文本
-            model: embeddingmodelName（optional）
+            text: Input text
+            model: Embedding model name (optional)
 
         Returns:
-            vectorembedding，如果not support则ReturnNone
+            Embedding vector, or None if not supported
         """
         return None
 
@@ -137,18 +137,18 @@ class LLMAdapter(ABC):
         model: Optional[str] = None,
     ) -> List[Optional[List[float]]]:
         """
-        批量getembeddingvector（optionalImplementation）
+        Batch get embedding vectors (optional implementation)
 
         Args:
-            texts: Input文本list
-            model: embeddingmodelName（optional）
+            texts: Input text list
+            model: Embedding model name (optional)
 
         Returns:
-            vectorembeddinglist
+            List of embedding vectors
         """
         return [await self.get_embedding(text, model) for text in texts]
 
     @property
     def supports_embeddings(self) -> bool:
-        """is notsupportembeddingvector"""
+        """Whether embedding vectors are supported"""
         return False

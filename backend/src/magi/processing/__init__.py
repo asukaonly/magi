@@ -1,7 +1,8 @@
 """
 Self-processing Module
 
-processPerception input，supportcapability积累、failurelearning、人机协作等function
+Process perception input, supporting capability accumulation, failure learning,
+human-agent collaboration, and other functions.
 """
 from .module import SelfprocessingModule
 from .base import (

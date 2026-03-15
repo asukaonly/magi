@@ -1,5 +1,5 @@
 """
-渐进式learningstrategy
+Progressive learning strategy
 """
 from typing import Dict, Any
 from .base import LearningStage, ComplexityLevel
@@ -7,23 +7,23 @@ from .base import LearningStage, ComplexityLevel
 
 class ProgressiveLearning:
     """
-    渐进式learning
+    Progressive Learning
 
-    通过渐进式learning提升自主processcapability
+    Improves autonomous processing capabilities through progressive learning.
     """
 
     def __init__(self):
-        """initialize渐进式learning"""
+        """Initialize Progressive Learning."""
         self.interaction_count = 0
 
-        # 阶段阈Value
+        # Stage thresholds
         self.stage_thresholds = {
             LearningStage.INITIAL: 0,
             LearningStage.GROWTH: 100,
             LearningStage.MATURE: 1000,
         }
 
-        # 各阶段的complex度容忍度
+        # Complexity tolerance per stage
         self.stage_tolerance = {
             LearningStage.INITIAL: [ComplexityLevel.LOW],
             LearningStage.GROWTH: [
@@ -39,7 +39,7 @@ class ProgressiveLearning:
 
     @property
     def current_stage(self) -> LearningStage:
-        """getcurrentlearning阶段"""
+        """Get current learning stage."""
         if self.interaction_count < self.stage_thresholds[LearningStage.GROWTH]:
             return LearningStage.INITIAL
         elif self.interaction_count < self.stage_thresholds[LearningStage.MATURE]:
@@ -48,7 +48,7 @@ class ProgressiveLearning:
             return LearningStage.MATURE
 
     def record_interaction(self):
-        """record一次交互"""
+        """Record an interaction."""
         self.interaction_count += 1
 
     async def should_handle_autonotttmously(
@@ -56,13 +56,13 @@ class ProgressiveLearning:
         complexity: ComplexityLevel
     ) -> bool:
         """
-        判断is not应该自主process
+        Determine whether to handle a task autonomously.
 
         Args:
-            complexity: 任务complex度
+            complexity: Task complexity
 
         Returns:
-            is not自主process
+            Whether to handle autonomously
         """
         stage = self.current_stage
         tolerance = self.stage_tolerance.get(stage, [])
@@ -74,18 +74,18 @@ class ProgressiveLearning:
         complexity: ComplexityLevel
     ) -> bool:
         """
-        判断is not应该request人Class帮助
+        Determine whether to request human help.
 
         Args:
-            complexity: 任务complex度
+            complexity: Task complexity
 
         Returns:
-            is not需要帮助
+            Whether help is needed
         """
         return not await self.should_handle_autonotttmously(complexity)
 
     def get_stage_info(self) -> Dict[str, Any]:
-        """get阶段info"""
+        """Get stage information."""
         stage = self.current_stage
         return {
             "stage": stage.value,
@@ -94,7 +94,7 @@ class ProgressiveLearning:
         }
 
     def _get_next_threshold(self) -> int:
-        """get下一阶段的阈Value"""
+        """Get the threshold for the next stage."""
         stage = self.current_stage
 
         if stage == LearningStage.INITIAL:
@@ -102,4 +102,4 @@ class ProgressiveLearning:
         elif stage == LearningStage.GROWTH:
             return self.stage_thresholds[LearningStage.MATURE]
         else:
-            return -1  # 已达到最高阶段
+            return -1  # Already at the highest stage

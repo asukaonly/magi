@@ -1,5 +1,5 @@
 """
-contextPerceptionprocess
+Context perception and processing
 """
 import time
 from typing import Dict, Any, List
@@ -8,50 +8,50 @@ from .base import processingContext
 
 class ContextManager:
     """
-    context管理器
+    Context Manager
 
-    收集and管理contextinfo
+    Collects and manages contextual information.
     """
 
     def __init__(self):
-        """initializecontext管理器"""
+        """Initialize the Context Manager."""
         self._context = processingContext(
             user_status={},
             system_status={},
             recent_tasks=[],
         )
 
-        # contextConfiguration
-        self.max_recent_tasks = 20  # 最多保留20个最近任务
-        self.context_ttl = 3600  # contextvalid期（seconds）
+        # Context configuration
+        self.max_recent_tasks = 20  # Keep at most 20 recent tasks
+        self.context_ttl = 3600  # Context TTL (seconds)
 
     async def collect(self) -> processingContext:
         """
-        收集contextinfo
+        Collect contextual information.
 
         Returns:
-            currentcontext
+            Current context
         """
-        # updated at戳
+        # Update timestamp
         self._context.current_time = time.time()
 
-        # 收集userState
+        # Collect user status
         self._context.user_status = await self._collect_user_status()
 
-        # 收集系统State
+        # Collect system status
         self._context.system_status = await self._collect_system_status()
 
         return self._context
 
     async def update_after_task(self, task: Dict, result: Any):
         """
-        任务Execute后updatecontext
+        Update context after task execution.
 
         Args:
-            task: 任务Description
+            task: Task description
             result: Execution result
         """
-        # add到最近任务
+        # Add to recent tasks
         task_record = {
             "task": task,
             "result": result,
@@ -60,25 +60,25 @@ class ContextManager:
 
         self._context.recent_tasks.append(task_record)
 
-        # limitationquantity
+        # Limit quantity
         if len(self._context.recent_tasks) > self.max_recent_tasks:
             self._context.recent_tasks.pop(0)
 
     async def should_notify(self) -> bool:
         """
-        判断is not应该notifyuser
+        Determine whether the user should be notified.
 
         Returns:
-            is not应该notify
+            Whether to notify
         """
-        # 基于userState判断
+        # Decide based on user status
         user_status = self._context.user_status
 
-        # 如果user忙碌，不notify
+        # If user is busy, don't notify
         if user_status.get("busy", False):
             return False
 
-        # 如果is深夜，减少notify
+        # If it's late night, reduce notifications
         current_hour = time.localtime(self._context.current_time).tm_hour
         if current_hour >= 23 or current_hour <= 6:
             return False
@@ -87,15 +87,15 @@ class ContextManager:
 
     async def adjust_task_priority(self, base_priority: int) -> int:
         """
-        根据context调整任务priority
+        Adjust task priority based on context.
 
         Args:
-            base_priority: basepriority
+            base_priority: Base priority
 
         Returns:
-            调整后的priority
+            Adjusted priority
         """
-        # 如果系统负载高，降低priority
+        # If system load is high, lower priority
         system_status = self._context.system_status
         cpu_usage = system_status.get("cpu_usage", 0)
 
@@ -105,17 +105,17 @@ class ContextManager:
         return base_priority
 
     async def _collect_user_status(self) -> Dict[str, Any]:
-        """收集userState"""
-        # 简化版：ReturndefaultState
-        # 实际Implementation可以从日历、State应用等get
+        """Collect user status."""
+        # Simplified: return default status
+        # Actual implementation could pull from calendar, status apps, etc.
         return {
             "busy": False,
             "active": True,
         }
 
     async def _collect_system_status(self) -> Dict[str, Any]:
-        """收集系统State"""
-        # 简化版：Return基本State
+        """Collect system status."""
+        # Simplified: return basic status
         import psutil
         return {
             "cpu_usage": psutil.cpu_percent(),

@@ -14,14 +14,14 @@ logger = logging.getLogger(__name__)
 agents_router = APIRouter()
 
 
-# ============ data Models ============
+# ============ Data Models ============
 
 class AgentCreateRequest(BaseModel):
     """Create agent request"""
 
-    name: str = Field(..., description="AgentName")
-    agent_type: str = Field(..., description="Agenttype: master/task/worker")
-    config: Dict[str, Any] = Field(default_factory=dict, description="AgentConfiguration")
+    name: str = Field(..., description="Agent name")
+    agent_type: str = Field(..., description="Agent type: master/task/worker")
+    config: Dict[str, Any] = Field(default_factory=dict, description="Agent configuration")
 
 
 class AgentUpdateRequest(BaseModel):
@@ -32,7 +32,7 @@ class AgentUpdateRequest(BaseModel):
 
 
 class AgentResponse(BaseModel):
-    """Agentresponse"""
+    """Agent response"""
 
     id: str
     name: str
@@ -46,10 +46,10 @@ class AgentResponse(BaseModel):
 class AgentActionRequest(BaseModel):
     """Agent action request"""
 
-    action: str = Field(..., description="operationtype: start/stop/restart")
+    action: str = Field(..., description="Operation type: start/stop/restart")
 
 
-# ============ In-memory storage (development use) ============
+# ============ In-Memory Storage (Development Use) ============
 
 # TODO: Replace with actual Agent Manager
 _agents_store: Dict[str, Dict] = {}
@@ -160,7 +160,7 @@ async def update_agent(agent_id: str, request: AgentUpdateRequest):
 
     agent = _agents_store[agent_id]
 
-    # updatefield
+    # Update fields
     if request.name:
         agent["name"] = request.name
     if request.config:
@@ -200,7 +200,7 @@ async def agent_action(agent_id: str, request: AgentActionRequest):
         request: Action request
 
     Returns:
-        operationResult
+        Operation result
     """
     if agent_id not in _agents_store:
         raise HTTPException(
@@ -210,7 +210,7 @@ async def agent_action(agent_id: str, request: AgentActionRequest):
 
     agent = _agents_store[agent_id]
 
-    # Executeoperation
+    # Execute operation
     if request.action == "start":
         if agent["state"] == "running":
             raise HTTPException(
@@ -251,13 +251,13 @@ async def agent_action(agent_id: str, request: AgentActionRequest):
 @agents_router.get("/{agent_id}/stats")
 async def get_agent_stats(agent_id: str):
     """
-    getAgentstatisticsinfo
+    Get agent statistics
 
     Args:
-        agent_id: Agent id
+        agent_id: Agent ID
 
     Returns:
-        Agentstatisticsinfo
+        Agent statistics
     """
     if agent_id not in _agents_store:
         raise HTTPException(

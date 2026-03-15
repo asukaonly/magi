@@ -1,12 +1,12 @@
 """
-capabilitystorage - 占位Implementation
+Capability storage - placeholder implementation
 """
 class CapabilityStore:
-    """capabilitystorage（temporary占位）"""
+    """Capability storage (temporary placeholder)"""
 
     def __init__(self):
         pass
 
     async def update_success_rate(self, capability_id: str, success: bool):
-        """updatesuccess率"""
+        """Update success rate."""
         pass

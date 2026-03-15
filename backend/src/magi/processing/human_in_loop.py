@@ -1,5 +1,5 @@
 """
-人机协作Decision
+Human-agent collaboration decision
 """
 from typing import Dict, Any, Optional, Callable
 from .base import processingResult, TaskComplexity
@@ -7,25 +7,25 @@ from .base import processingResult, TaskComplexity
 
 class HumanInLoop:
     """
-    人机协作
+    Human-in-the-Loop
 
-    在无法自主process时主动request人Class帮助
+    Proactively requests human help when autonomous processing is not possible.
     """
 
     def __init__(self):
-        """initialize人机协作"""
-        # 人Class帮助callback
+        """Initialize Human-in-the-Loop."""
+        # Human help callback
         self._help_callback: Optional[Callable] = None
 
-        # pending的帮助request
+        # Pending help requests
         self._pending_requests: Dict[str, Dict] = {}
 
     def set_help_callback(self, callback: Callable):
         """
-        Setting帮助callback
+        Set the help callback.
 
         Args:
-            callback: callbackFunction，receive帮助context
+            callback: Callback function that receives the help context
         """
         self._help_callback = callback
 
@@ -36,17 +36,17 @@ class HumanInLoop:
         context: Dict[str, Any]
     ) -> processingResult:
         """
-        request人Class帮助
+        Request human help.
 
         Args:
-            task: 任务Description
-            complexity: complex度
-            context: context
+            task: Task description
+            complexity: Complexity
+            context: Context
 
         Returns:
-            processResult
+            Processing result
         """
-        # generation帮助context
+        # Generate help context
         help_context = {
             "task": task,
             "complexity": {
@@ -58,7 +58,7 @@ class HumanInLoop:
             "suggestion": await self._generate_suggestion(task),
         }
 
-        # 调用帮助callback
+        # Invoke help callback
         if self._help_callback:
             result = await self._help_callback(help_context)
             return processingResult(
@@ -68,7 +68,7 @@ class HumanInLoop:
                 human_help_context=help_context,
             )
         else:
-            # 无callback，mark需要帮助
+            # No callback, mark as needing help
             return processingResult(
                 action={},
                 needs_human_help=True,
@@ -82,42 +82,42 @@ class HumanInLoop:
         human_action: Dict[str, Any]
     ):
         """
-        从人Classprocessinglearning
+        Learn from human processing.
 
         Args:
-            task: 任务Description
-            human_action: 人ClassExecute的action
+            task: Task description
+            human_action: Action performed by the human
         """
-        # record人Classprocessway
-        # TODO: storage到Memory System，用于后续learning
+        # Record human processing approach
+        # TODO: Store in Memory System for future learning
         pass
 
     async def _generate_options(self, task: Dict) -> list:
         """
-        generationotttptional方案
+        Generate available options.
 
         Args:
-            task: 任务Description
+            task: Task description
 
         Returns:
-            方案list
+            List of options
         """
-        # 简化版：Return基本方案
+        # Simplified: return basic options
         return [
-            {"name": "skip", "description": "跳过任务"},
-            {"name": "retry", "description": "重试任务"},
-            {"name": "delegate", "description": "委托给otherAgent"},
+            {"name": "skip", "description": "Skip task"},
+            {"name": "retry", "description": "Retry task"},
+            {"name": "delegate", "description": "Delegate to another agent"},
         ]
 
     async def _generate_suggestion(self, task: Dict) -> str:
         """
-        generationsuggestion
+        Generate a suggestion.
 
         Args:
-            task: 任务Description
+            task: Task description
 
         Returns:
-            suggestion文本
+            Suggestion text
         """
         task_type = task.get("type", "unknown")
-        return f"suggestion人工process {task_type} type的任务"
+        return f"Suggest manual processing for {task_type} type tasks"

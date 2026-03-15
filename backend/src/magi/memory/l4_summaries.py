@@ -101,7 +101,7 @@ class SummaryStore:
         for row in rows:
             summary_id, summary_type, start_time, end_time, event_count, content, key_topics, created_at = row
             payload = json.loads(content)
-            # 兼容旧数据：从 summary_id 解析 period_key
+            # Backward compatible with legacy data: extract period_key from summary_id
             period_key = payload.get("period_key") or self._extract_period_key(summary_id, summary_type)
             summary = EventSummary(
                 period_type=summary_type,
@@ -120,8 +120,8 @@ class SummaryStore:
         self._initialized = True
 
     def _extract_period_key(self, summary_id: str, summary_type: str) -> str:
-        """从 summary_id 中提取 period_key（兼容旧数据格式）"""
-        # summary_id 格式为 "{period_type}_{period_key}"
+        """Extract period_key from summary_id (backward compatible with legacy data format)"""
+        # summary_id format is "{period_type}_{period_key}"
         prefix = f"{summary_type}_"
         if summary_id.startswith(prefix):
             return summary_id[len(prefix):]

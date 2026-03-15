@@ -1,5 +1,5 @@
 """
-自Perceptionmodule - Perception管理器（完整版）
+Perception module - perception manager (full version)
 """
 import asyncio
 import bisect
@@ -10,13 +10,13 @@ from .base import Perception, PerceptionType, TriggerMode
 
 class PerceptionManager:
     """
-    Perception管理器
+    Perception manager
 
-    职责：
-    - 管理all传感器
-    - 收集Perception input
-    - 五步PerceptionDecision（去重、分Class、intent识别、priority评估、融合）
-    - priorityqueue管理
+    Responsibilities:
+    - Manage all sensors
+    - Collect perception input
+    - Five-step perception pipeline (dedup, classify, intent recognition, priority assessment, fusion)
+    - Priority queue management
     """
 
     def __init__(
@@ -24,24 +24,24 @@ class PerceptionManager:
         max_queue_size: int = 100,
     ):
         """
-        initializePerception管理器
+        Initialize perception manager
 
         Args:
-            max_queue_size: queuemaximumlength
+            max_queue_size: maximum queue length
         """
         self.max_queue_size = max_queue_size
 
-        # 传感器Registry
+        # Sensor registry
         self._sensors: Dict[str, any] = {}
 
-        # Perceptionqueue（按prioritysort）
+        # Perception queue (sorted by priority)
         self._queue: deque = deque()
 
-        # 去重cache（最近100个Perception）
+        # Dedup cache (last 100 perceptions)
         self._dedup_cache: List[str] = []
         self._dedup_cache_size = 100
 
-        # statisticsinfo
+        # Statistics
         self._stats = {
             "perceived_count": 0,
             "dropped_count": 0,
@@ -50,45 +50,45 @@ class PerceptionManager:
 
     def register_sensor(self, name: str, sensor):
         """
-        register传感器
+        Register sensor
 
         Args:
-            name: 传感器Name
-            sensor: 传感器Instance
+            name: sensor name
+            sensor: sensor instance
         """
         self._sensors[name] = sensor
 
     async def perceive(self) -> List[Perception]:
         """
-        收集allPerception input
+        Collect all perception input
 
         Returns:
-            Perception list（processed）
+            Perception list (processed)
         """
-        # 1. 收集原始Perception
+        # 1. Collect raw perceptions
         raw_perceptions = await self._collect_perceptions()
 
         processed = []
 
         for perception in raw_perceptions:
-            # 2. 去重
+            # 2. Dedup
             if self._is_duplicate(perception):
                 continue
 
-            # 3. 分Class
+            # 3. Classify
             classified = self._classify(perception)
 
-            # 4. intent识别
+            # 4. Intent recognition
             intent = self._recognize_intent(classified)
 
-            # 5. priority评估
+            # 5. Priority assessment
             priority = self._assess_priority(classified, intent)
 
-            # 6. updatePerception
+            # 6. Update perception
             perception.priority = priority
             processed.append(perception)
 
-            # 加入queue（按prioritysort）
+            # Add to queue (sorted by priority)
             self._enqueue(perception)
 
         # Update statistics
@@ -99,20 +99,20 @@ class PerceptionManager:
 
     async def _collect_perceptions(self) -> List[Perception]:
         """
-        收集all传感器的Perception input
+        Collect perception input from all sensors
 
         Returns:
-            原始Perception list
+            Raw perception list
         """
         perceptions = []
 
         for name, sensor in self._sensors.items():
             try:
-                # get传感器触发pattern
+                # Get sensor trigger mode
                 trigger_mode = getattr(sensor, 'trigger_mode', TriggerMode.POLL)
 
                 if trigger_mode == TriggerMode.POLL:
-                    # 轮询pattern
+                    # Polling mode
                     if hasattr(sensor, 'enabled') and not sensor.enabled:
                         continue
 
@@ -121,34 +121,34 @@ class PerceptionManager:
                         perceptions.append(perception)
 
                 elif trigger_mode == TriggerMode.EVENT:
-                    # eventpattern（由传感器主动调用）
-                    pass  # 传感器会通过callbackpushPerception
+                    # Event mode (sensor pushes actively)
+                    pass  # Sensor pushes perception via callback
 
-                # HYBRidpattern暂不Implementation
+                # Hybrid mode not yet implemented
             except Exception as e:
-                # recorderror但继续processother传感器
+                # Log error but continue processing other sensors
                 pass
 
         return perceptions
 
     def _is_duplicate(self, perception: Perception) -> bool:
         """
-        checkis not重复
+        Check if duplicate
 
         Args:
             perception: Perception
 
         Returns:
-            is not重复
+            Whether duplicate
         """
-        # generationPerception指纹
+        # Generate perception fingerprint
         fingerprint = f"{perception.type}:{str(perception.data)}"
 
         if fingerprint in self._dedup_cache:
             self._stats["dropped_count"] += 1
             return True
 
-        # add到cache
+        # Add to cache
         self._dedup_cache.append(fingerprint)
         if len(self._dedup_cache) > self._dedup_cache_size:
             self._dedup_cache.pop(0)
@@ -157,29 +157,29 @@ class PerceptionManager:
 
     def _classify(self, perception: Perception) -> Perception:
         """
-        分ClassPerception
+        Classify perception
 
         Args:
             perception: Perception
 
         Returns:
-            分Class后的Perception
+            Classified perception
         """
-        # 简化版：根据type分Class
-        # 实际Implementation可以使用LLM进row更智能的分Class
+        # Simplified: classify by type
+        # Actual implementation can use LLM for smarter classification
         return perception
 
     def _recognize_intent(self, perception: Perception) -> str:
         """
-        intent识别
+        Intent recognition
 
         Args:
             perception: Perception
 
         Returns:
-            intent（如：query、command、notification）
+            intent (e.g.: query, command, notification)
         """
-        # 简化版：根据PerceptionType推断intent
+        # Simplified: infer intent from perception type
         intent_map = {
             PerceptionType.TEXT.value: "query",
             PerceptionType.AUDIO.value: "query",
@@ -192,26 +192,26 @@ class PerceptionManager:
 
     def _assess_priority(self, perception: Perception, intent: str) -> int:
         """
-        评估priority
+        Assess priority
 
         Args:
             perception: Perception
             intent: intent
 
         Returns:
-            priority（0=普通，1=重要，2=紧急）
+            priority (0=normal, 1=important, 2=urgent)
         """
-        # 简化版：根据intent判断priority
+        # Simplified: determine priority based on intent
         if intent == "notification":
-            return 1  # 重要
+            return 1  # important
         elif perception.type == PerceptionType.SENSOR.value and perception.data.get("urgent"):
-            return 2  # 紧急
+            return 2  # urgent
         else:
-            return 0  # 普通
+            return 0  # normal
 
     def _enqueue(self, perception: Perception):
         """
-        加入priorityqueue
+        Add to priority queue
 
         Args:
             perception: Perception
@@ -222,17 +222,17 @@ class PerceptionManager:
         idx = bisect.bisect_right(keys, -perception.priority)
         self._queue.insert(idx, perception)
 
-        # limitationqueuelength
+        # Limit queue length
         if len(self._queue) > self.max_queue_size:
-            self._queue.pop()  # Removepriority最低的
+            self._queue.pop()  # Remove lowest priority
             self._stats["dropped_count"] += 1
 
     def get_stats(self) -> dict:
         """
-        getstatisticsinfo
+        Get statistics
 
         Returns:
-            statisticsinfo
+            Statistics
         """
         return {
             **self._stats,
@@ -243,7 +243,7 @@ class PerceptionManager:
 
 
 class Sensor:
-    """传感器Base class（占位）"""
+    """Sensor base class (placeholder)"""
     @property
     def perception_type(self) -> PerceptionType:
         pass
@@ -257,9 +257,9 @@ class Sensor:
         return True
 
     async def sense(self) -> Optional[Perception]:
-        """Perception一次"""
+        """Sense once"""
         return None
 
     async def listen(self, callback):
-        """监听pattern（占位）"""
+        """Listen mode (placeholder)"""
         pass

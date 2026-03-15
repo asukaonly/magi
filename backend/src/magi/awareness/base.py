@@ -1,5 +1,5 @@
 """
-自Perceptionmodule - coredatastructure
+Perception module - core data structures
 """
 from enum import Enum
 from dataclasses import dataclass
@@ -8,32 +8,32 @@ import time
 
 
 class PerceptionType(Enum):
-    """PerceptionType"""
-    AUDIO = "audio"          # 音频
-    VIDEO = "video"          # 视频
-    TEXT = "text"            # 文本
-    IMAGE = "image"          # graph像
-    SENSOR = "sensor"        # 传感器data
+    """Perception type"""
+    AUDIO = "audio"          # audio
+    VIDEO = "video"          # video
+    TEXT = "text"            # text
+    IMAGE = "image"          # image
+    SENSOR = "sensor"        # sensor data
     EVENT = "event"          # event
 
 
 class TriggerMode(Enum):
-    """触发pattern"""
-    POLL = "poll"            # 轮询pattern
-    EVENT = "event"          # eventpattern
-    HYBRID = "hybrid"        # 混合pattern
+    """Trigger mode"""
+    POLL = "poll"            # polling mode
+    EVENT = "event"          # event mode
+    HYBRID = "hybrid"        # hybrid mode
 
 
 @dataclass
 class Perception:
     """
-    Perceptiondata
+    Perception data
     """
-    type: str                 # PerceptionType
-    data: Any                 # Perceptiondata
+    type: str                 # perception type
+    data: Any                 # perception data
     timestamp: float           # timestamp
-    source: str                # Perception源identifier
-    priority: int = 0          # priority（0=普通，1=重要，2=紧急）
+    source: str                # perception source identifier
+    priority: int = 0          # priority (0=normal, 1=important, 2=urgent)
     metadata: dict = None       # additional metadata
 
     def __post_init__(self):

@@ -1,7 +1,7 @@
 """
-Agentcoremodule
+Agent core module
 
-containsAgentBase class、MasterAgent、TaskAgent、WorkerAgent等corecomponent
+Contains Agent base class, MasterAgent, TaskAgent, WorkerAgent and other core components.
 """
 from .agent import Agent, AgentConfig, AgentState
 from .loop import LoopEngine, LoopStrategy
@@ -23,7 +23,7 @@ __all__ = [
     "LoopEngine",
     "LoopStrategy",
 
-    # 任务database
+    # Task database
     "TaskDatabase",
     "Task",
     "TaskStatus",

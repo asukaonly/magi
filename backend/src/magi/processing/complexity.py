@@ -1,5 +1,5 @@
 """
-complex度评估器 - 评估任务complex度
+Complexity evaluator - evaluates task complexity
 """
 from typing import Dict, Any, List
 from .base import TaskComplexity, ComplexityLevel
@@ -7,14 +7,14 @@ from .base import TaskComplexity, ComplexityLevel
 
 class ComplexityEvaluator:
     """
-    complex度评估器
+    Complexity Evaluator
 
-    评估任务complex度，决定is notrequest人Class帮助
+    Evaluates task complexity to determine whether to request human help.
     """
 
     def __init__(self):
-        """initializecomplex度评估器"""
-        # complex度阈ValueConfiguration
+        """Initialize the Complexity Evaluator."""
+        # Complexity threshold configuration
         self.thresholds = {
             ComplexityLevel.LOW: 30,
             ComplexityLevel.MEDIUM: 50,
@@ -24,27 +24,27 @@ class ComplexityEvaluator:
 
     def evaluate(self, task: Dict[str, Any]) -> TaskComplexity:
         """
-        评估任务complex度
+        Evaluate task complexity.
 
         Args:
-            task: 任务Description
+            task: Task description
 
         Returns:
-            TaskComplexity: complex度评估Result
+            TaskComplexity: Complexity evaluation result
         """
-        # 1. statisticstoolquantity
+        # 1. Count tools
         tool_count = self._count_tools(task)
 
-        # 2. 估算stepquantity
+        # 2. Estimate step count
         step_count = self._estimate_steps(task)
 
-        # 3. 评估Parameter不确定性
+        # 3. Assess parameter uncertainty
         param_uncertainty = self._assess_parameter_uncertainty(task)
 
-        # 4. statisticsdependencyrelationship
+        # 4. Count dependencies
         dependency_count = self._count_dependencies(task)
 
-        # 5. calculatecomplex度score (0-100)
+        # 5. Calculate complexity score (0-100)
         score = self._calculate_score(
             tool_count,
             step_count,
@@ -52,7 +52,7 @@ class ComplexityEvaluator:
             dependency_count
         )
 
-        # 6. 确定complex度level
+        # 6. Determine complexity level
         level = self._determine_level(score)
 
         return TaskComplexity(
@@ -65,28 +65,28 @@ class ComplexityEvaluator:
         )
 
     def _count_tools(self, task: Dict[str, Any]) -> int:
-        """statisticstoolquantity"""
-        # 从任务Description中提取所需tool
+        """Count the number of tools."""
+        # Extract required tools from task description
         tools = task.get("tools", [])
         if isinstance(tools, list):
             return len(tools)
-        return 1  # default至少需要1个tool
+        return 1  # Default: at least 1 tool needed
 
     def _estimate_steps(self, task: Dict[str, Any]) -> int:
-        """估算stepquantity"""
-        # 简化版：基于toolquantity估算
-        # 每个tool平均需要2-3个step
+        """Estimate the number of steps."""
+        # Simplified: estimate based on tool count
+        # Each tool requires 2-3 steps on average
         tool_count = self._count_tools(task)
         return tool_count * 2
 
     def _assess_parameter_uncertainty(self, task: Dict[str, Any]) -> float:
-        """评估Parameter不确定性"""
+        """Assess parameter uncertainty."""
         params = task.get("parameters", {})
 
         if not params:
-            return 0.0  # 无Parameter，不确定性低
+            return 0.0  # No parameters, low uncertainty
 
-        # statistics缺失Parameter
+        # Count missing parameters
         missing = 0
         total = 0
 
@@ -98,7 +98,7 @@ class ComplexityEvaluator:
         return missing / total if total > 0 else 0.0
 
     def _count_dependencies(self, task: Dict[str, Any]) -> int:
-        """statisticsdependencyrelationship"""
+        """Count dependencies."""
         deps = task.get("dependencies", [])
         return len(deps) if isinstance(deps, list) else 0
 
@@ -110,31 +110,31 @@ class ComplexityEvaluator:
         dependency_count: int
     ) -> float:
         """
-        calculatecomplex度score
+        Calculate the complexity score.
 
-        weight分配：
-        - toolquantity: 30%
-        - stepquantity: 30%
-        - Parameter不确定性: 25%
-        - dependencyrelationship: 15%
+        Weight distribution:
+        - Tool count: 30%
+        - Step count: 30%
+        - Parameter uncertainty: 25%
+        - Dependencies: 15%
         """
-        # toolquantity得分 (0-30)
+        # Tool count score (0-30)
         tool_score = min(tool_count * 5, 30)
 
-        # stepquantity得分 (0-30)
+        # Step count score (0-30)
         step_score = min(step_count * 2, 30)
 
-        # Parameter不确定性得分 (0-25)
+        # Parameter uncertainty score (0-25)
         uncertainty_score = param_uncertainty * 25
 
-        # dependencyrelationship得分 (0-15)
+        # Dependency score (0-15)
         dep_score = min(dependency_count * 3, 15)
 
         total_score = tool_score + step_score + uncertainty_score + dep_score
         return min(total_score, 100)
 
     def _determine_level(self, score: float) -> ComplexityLevel:
-        """根据score确定complex度level"""
+        """Determine complexity level based on score."""
         if score < self.thresholds[ComplexityLevel.LOW]:
             return ComplexityLevel.LOW
         elif score < self.thresholds[ComplexityLevel.MEDIUM]:

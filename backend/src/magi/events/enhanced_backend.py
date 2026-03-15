@@ -1,12 +1,12 @@
 """
-event系统增强function
+Enhanced event system features
 
-Implementation：
-- BoundedpriorityQueue（背压机制）
-- 双传播pattern完善
-- load balance调度
-- eventfilter机制
-- error隔离
+Implementation:
+- Bounded priority queue (backpressure)
+- Dual propagation pattern support
+- Load-balanced dispatching
+- Event filter mechanism
+- Error isolation
 """
 import asyncio
 import heapq
@@ -19,27 +19,27 @@ from .backend import MessageBusBackend
 
 
 class PropagationMode(Enum):
-    """传播pattern"""
+    """Propagation mode"""
     BROADCAST = "broadcast"      # broadcast: all subscribers receive
-    COMPETING = "competing"      # competing: only one subscriber receives（负载最低的）
-    round_RObin = "round_robin"  # 轮询：依次分发给subscribe者
+    COMPETING = "competing"      # competing: only one subscriber receives (lowest load)
+    round_RObin = "round_robin"  # round-robin: distribute to subscribers in turn
 
 
 class DropPolicy(Enum):
-    """丢弃strategy"""
-    reject = "reject"                    # 拒绝newevent
-    oldEST = "oldest"                    # 丢弃最oldevent
-    LOWEST_PRIORITY = "lowest_priority" # 丢弃最低priorityevent
+    """Drop policy"""
+    reject = "reject"                    # reject new event
+    oldEST = "oldest"                    # drop oldest event
+    LOWEST_PRIORITY = "lowest_priority" # drop lowest priority event
 
 
 class BoundedpriorityQueue:
     """
-    有界priorityqueue
+    Bounded priority queue
 
-    feature：
-    - 背压机制（Backpressure）
-    - 多种丢弃strategy
-    - priority保证
+    Features:
+    - Backpressure mechanism
+    - Multiple drop policies
+    - Priority guarantee
     """
 
     def __init__(
@@ -48,22 +48,22 @@ class BoundedpriorityQueue:
         drop_policy: DropPolicy = DropPolicy.LOWEST_PRIORITY,
     ):
         """
-        initialize有界priorityqueue
+        Initialize bounded priority queue
 
         Args:
-            max_size: queuemaximumlength
-            drop_policy: 丢弃strategy
+            max_size: maximum queue length
+            drop_policy: drop policy
         """
         self.max_size = max_size
         self.drop_policy = drop_policy
 
-        # priorityqueue
-        # 元素：(-priority, timestamp, event)
+        # Priority queue
+        # Elements: (-priority, timestamp, event)
         self._queue: List[tuple] = []
         self._lock = asyncio.Lock()
         self._counter = 0
 
-        # statistics
+        # Statistics
         self._stats = {
             "enqueued": 0,
             "dequeued": 0,
@@ -73,20 +73,20 @@ class BoundedpriorityQueue:
 
     async def enqueue(self, event: Event) -> bool:
         """
-        入队（带背压）
+        Enqueue (with backpressure)
 
         Args:
             event: Event
 
         Returns:
-            is notsuccess入队
+            Whether enqueue was successful
         """
         async with self._lock:
-            # checkqueueis not已满
+            # Check if the queue is full
             if len(self._queue) >= self.max_size:
                 return await self._handle_queue_full(event)
 
-            # 入队
+            # Enqueue
             priority = -event.level.value
             timestamp = time.time()
             heapq.heappush(self._queue, (priority, self._counter, event))
@@ -97,13 +97,13 @@ class BoundedpriorityQueue:
 
     async def dequeue(self, timeout: float = 1.0) -> Optional[Event]:
         """
-        出队
+        Dequeue
 
         Args:
-            timeout: timeout时间
+            timeout: timeout duration
 
         Returns:
-            event或None
+            Event or None
         """
         try:
             async with self._lock:
@@ -121,25 +121,25 @@ class BoundedpriorityQueue:
 
     async def _handle_queue_full(self, event: Event) -> bool:
         """
-        processqueue满的情况
+        Handle queue full condition
 
         Args:
-            event: newevent
+            event: new event
 
         Returns:
-            is notsuccess入队
+            Whether enqueue was successful
         """
         if self.drop_policy == DropPolicy.reject:
             self._stats["rejected"] += 1
             return False
 
         elif self.drop_policy == DropPolicy.OLDEST:
-            # 丢弃最old的
+            # Drop the oldest
             if self._queue:
                 heapq.heappop(self._queue)
                 self._stats["dropped"] += 1
 
-            # 然后入队newevent
+            # Then enqueue the new event
             priority = -event.level.value
             heapq.heappush(self._queue, (priority, self._counter, event))
             self._counter += 1
@@ -147,21 +147,21 @@ class BoundedpriorityQueue:
             return True
 
         elif self.drop_policy == DropPolicy.LOWEST_PRIORITY:
-            # 比较neweventandqueue中最低priority
+            # Compare new event with the lowest priority in the queue
             if self._queue:
                 lowest_priority = -self._queue[0][0]
                 new_priority = -event.level.value
 
                 if new_priority > lowest_priority:
-                    # neweventpriority更低，丢弃newevent
+                    # New event has lower priority, drop it
                     self._stats["rejected"] += 1
                     return False
                 else:
-                    # neweventpriority更高或相等，丢弃最低priorityevent
+                    # New event has higher or equal priority, drop the lowest priority event
                     heapq.heappop(self._queue)
                     self._stats["dropped"] += 1
 
-            # 入队newevent
+            # Enqueue new event
             priority = -event.level.value
             heapq.heappush(self._queue, (priority, self._counter, event))
             self._counter += 1
@@ -171,19 +171,19 @@ class BoundedpriorityQueue:
         return False
 
     def size(self) -> int:
-        """getqueuesize"""
+        """Get queue size"""
         return len(self._queue)
 
     def is_empty(self) -> bool:
-        """is not为空"""
+        """Check if empty"""
         return len(self._queue) == 0
 
     def is_full(self) -> bool:
-        """is not已满"""
+        """Check if full"""
         return len(self._queue) >= self.max_size
 
     def get_stats(self) -> dict:
-        """getstatisticsinfo"""
+        """Get statistics"""
         return {
             **self._stats,
             "current_size": len(self._queue),
@@ -194,17 +194,17 @@ class BoundedpriorityQueue:
 
 class LoadAwareDispatcher:
     """
-    负载Perception的调度器
+    Load-aware dispatcher
 
-    根据handler的pendingquantity进rowload balance
+    Performs load balancing based on handler pending counts
     """
 
     def __init__(self):
-        """initialize调度器"""
-        # Handler的pending计数
+        """Initialize dispatcher"""
+        # Handler pending counts
         self._handler_pending: Dict[Callable, int] = defaultdict(int)
 
-        # Round-robinindex
+        # Round-robin index
         self._round_robin_index: Dict[str, int] = {}
 
     def select_cometing_handler(
@@ -213,19 +213,19 @@ class LoadAwareDispatcher:
         event_type: str,
     ) -> Optional[Dict]:
         """
-        选择competing pattern的handler（负载最低的）
+        Select handler for competing mode (lowest load)
 
         Args:
-            subscriptions: subscribelist
-            event_type: eventtype
+            subscriptions: subscription list
+            event_type: event type
 
         Returns:
-            选中的subscribe或None
+            Selected subscription or None
         """
         if not subscriptions:
             return None
 
-        # 选择pending最少的handler
+        # Select the handler with the fewest pending tasks
         selected = min(
             subscriptions,
             key=lambda s: self._handler_pending[s["handler"]]
@@ -239,19 +239,19 @@ class LoadAwareDispatcher:
         event_type: str,
     ) -> Optional[Dict]:
         """
-        选择轮询pattern的handler
+        Select handler for round-robin mode
 
         Args:
-            subscriptions: subscribelist
-            event_type: eventtype
+            subscriptions: subscription list
+            event_type: event type
 
         Returns:
-            选中的subscribe或None
+            Selected subscription or None
         """
         if not subscriptions:
             return None
 
-        # get或initializeindex
+        # Get or initialize index
         index = self._round_robin_index.get(event_type, 0)
         total = len(subscriptions)
 
@@ -261,35 +261,35 @@ class LoadAwareDispatcher:
         return selected
 
     def increment_pending(self, handler: Callable):
-        """增加pending计数"""
+        """Increment pending count"""
         self._handler_pending[handler] += 1
 
     def decrement_pending(self, handler: Callable):
-        """减少pending计数"""
+        """Decrement pending count"""
         self._handler_pending[handler] -= 1
         if self._handler_pending[handler] < 0:
             self._handler_pending[handler] = 0
 
     def get_pending_count(self, handler: Callable) -> int:
-        """getpending计数"""
+        """Get pending count"""
         return self._handler_pending.get(handler, 0)
 
     def get_all_pending(self) -> Dict[Callable, int]:
-        """getallhandler的pending计数"""
+        """Get pending counts for all handlers"""
         return self._handler_pending.copy()
 
 
 class EnhancedMemoryMessageBackend(MessageBusBackend):
     """
-    增强的内存message后端
+    Enhanced in-memory message backend
 
-    完整Implementation：
-    - 双传播pattern（BROADCAST/COMPETING/round_RObin）
-    - 背压机制（BoundedpriorityQueue）
-    - load balance调度（LoadAwareDispatcher）
-    - eventfilter机制
-    - error隔离
-    - 优雅启停
+    Full implementation:
+    - Dual propagation modes (BROADCAST/COMPETING/ROUND_ROBIN)
+    - Backpressure mechanism (BoundedPriorityQueue)
+    - Load-balanced dispatching (LoadAwareDispatcher)
+    - Event filter mechanism
+    - Error isolation
+    - Graceful start/stop
     """
 
     def __init__(
@@ -299,23 +299,23 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         drop_policy: DropPolicy = DropPolicy.LOWEST_PRIORITY,
     ):
         """
-        initialize增强的message后端
+        Initialize enhanced message backend
 
         Args:
-            max_queue_size: queuemaximumlength
-            num_workers: Workerquantity
-            drop_policy: 丢弃strategy
+            max_queue_size: maximum queue length
+            num_workers: number of workers
+            drop_policy: drop policy
         """
-        # 使用有界priorityqueue
+        # Use bounded priority queue
         self._queue = BoundedpriorityQueue(
             max_size=max_queue_size,
             drop_policy=drop_policy,
         )
 
-        # load balance调度器
+        # Load-balanced dispatcher
         self._dispatcher = LoadAwareDispatcher()
 
-        # subscribeinfo
+        # Subscription info
         # {event_type: [subscription]}
         self._subscriptions: Dict[str, List[Dict]] = defaultdict(list)
         self._subscription_index: Dict[str, Dict] = {}
@@ -325,7 +325,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         self._running = False
         self._shutdown_requested = False
 
-        # statisticsinfo
+        # Statistics
         self._stats = {
             "published_count": 0,
             "processed_count": 0,
@@ -343,13 +343,13 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
             event: Event
 
         Returns:
-            is notsuccessrelease
+            Whether publish was successful
         """
-        # checkis not正在关闭
+        # Check if shutdown is in progress
         if self._shutdown_requested:
             return False
 
-        # 入队
+        # Enqueue
         success = await self._queue.enqueue(event)
 
         if success:
@@ -367,16 +367,16 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         filter_func: Optional[Callable[[Event], bool]] = None,
     ) -> str:
         """
-        subscribeevent
+        Subscribe to event
 
         Args:
-            event_type: eventtype
-            handler: processFunction
-            propagation_mode: 传播pattern
-            filter_func: filterFunction
+            event_type: event type
+            handler: handler function
+            propagation_mode: propagation mode
+            filter_func: filter function
 
         Returns:
-            subscribeid
+            subscription id
         """
         subscription_id = f"{event_type}_{id(handler)}_{time.time_ns()}"
 
@@ -395,13 +395,13 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
 
     async def unsubscribe(self, subscription_id: str) -> bool:
         """
-        cancelsubscribe
+        Unsubscribe
 
         Args:
-            subscription_id: subscribeid
+            subscription_id: subscription id
 
         Returns:
-            is notsuccess
+            Whether successful
         """
         if subscription_id not in self._subscription_index:
             return False
@@ -409,7 +409,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         subscription = self._subscription_index[subscription_id]
         event_type = subscription["event_type"]
 
-        # 从subscribelist中Remove
+        # Remove from subscription list
         self._subscriptions[event_type] = [
             s for s in self._subscriptions[event_type] if s["id"] != subscription_id
         ]
@@ -425,54 +425,54 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         self._running = True
         self._shutdown_requested = False
 
-        # 启动worker池
+        # Start worker pool
         self._workers = [
             asyncio.create_task(self._worker(i))
-            for i in range(4)  # 固定4个worker
+            for i in range(4)  # Fixed 4 workers
         ]
 
     async def stop(self):
-        """stop message bus（优雅关闭）"""
+        """Stop message bus (graceful shutdown)"""
         if not self._running:
             return
 
-        # request关闭
+        # Request shutdown
         self._shutdown_requested = True
 
-        # 等待queueclear或timeout
+        # Wait for queue to drain or timeout
         timeout = 30  # seconds
         start_time = time.time()
 
         while not self._queue.is_empty() and (time.time() - start_time) < timeout:
             await asyncio.sleep(0.1)
 
-        # stopworker
+        # Stop workers
         self._running = False
 
         for worker in self._workers:
             worker.cancel()
 
-        # 等待workerEnd
+        # Wait for workers to finish
         await asyncio.gather(*self._workers, return_exceptions=True)
 
     async def _worker(self, worker_id: int):
         """
-        Workerprocessevent
+        Worker event processor
 
         Args:
-            worker_id: Worker id
+            worker_id: worker id
         """
         while self._running:
             try:
-                # 从queuegetevent
+                # Get event from queue
                 event = await self._queue.dequeue()
 
                 if event is None:
-                    # queue为空，短暂休眠后重试
+                    # Queue is empty, sleep briefly and retry
                     await asyncio.sleep(0.01)
                     continue
 
-                # processevent
+                # Process event
                 await self._process_event(event)
 
             except asyncio.CancelledError:
@@ -482,7 +482,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
 
     async def _process_event(self, event: Event):
         """
-        processevent（根据传播pattern分发）
+        Process event (dispatch by propagation mode)
 
         Args:
             event: Event
@@ -492,7 +492,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
         if not subscriptions:
             return
 
-        # 按传播patterngroup
+        # Group by propagation mode
         broadcast_subs = []
         competing_subs = []
         round_robin_subs = []
@@ -506,12 +506,12 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
             elif mode == "round_robin":
                 round_robin_subs.append(sub)
 
-        # broadcast pattern：allsubscribe者都收到
+        # Broadcast mode: all subscribers receive
         for sub in broadcast_subs:
             await self._handle_event(sub, event)
             self._stats["broadcast_count"] += 1
 
-        # competing pattern：负载最低的subscribe者收到
+        # Competing mode: subscriber with lowest load receives
         if competing_subs:
             selected = self._dispatcher.select_cometing_handler(
                 competing_subs,
@@ -521,7 +521,7 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
                 await self._handle_event(selected, event)
                 self._stats["competing_count"] += 1
 
-        # 轮询pattern：依次分发
+        # Round-robin mode: distribute in turn
         if round_robin_subs:
             selected = self._dispatcher.select_round_robin_handler(
                 round_robin_subs,
@@ -533,29 +533,29 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
 
     async def _handle_event(self, subscription: Dict, event: Event):
         """
-        call handler to process event（带error隔离）
+        Call handler to process event (with error isolation)
 
         Args:
-            subscription: subscribeinfo
+            subscription: subscription info
             event: Event
         """
-        # checkfilterFunction
+        # Check filter function
         filter_func = subscription.get("filter_func")
         if filter_func:
             try:
                 if not filter_func(event):
-                    return  # 被filter
+                    return  # Filtered out
             except Exception:
-                # filterFunction出错，default不filter
+                # Filter function error, do not filter by default
                 pass
 
         handler = subscription["handler"]
 
-        # 增加pending计数
+        # Increment pending count
         self._dispatcher.increment_pending(handler)
 
         try:
-            # 调用handler
+            # Call handler
             if asyncio.iscoroutinefunction(handler):
                 await handler(event)
             else:
@@ -564,19 +564,19 @@ class EnhancedMemoryMessageBackend(MessageBusBackend):
             self._stats["processed_count"] += 1
 
         except Exception as e:
-            # error隔离：单个handlerfailure不影响other
+            # Error isolation: single handler failure does not affect others
             self._stats["error_count"] += 1
 
         finally:
-            # 减少pending计数
+            # Decrement pending count
             self._dispatcher.decrement_pending(handler)
 
     def get_stats(self) -> dict:
         """
-        getstatisticsinfo
+        Get statistics
 
         Returns:
-            statisticsinfo
+            Statistics
         """
         return {
             **self._stats,

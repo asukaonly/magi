@@ -1,5 +1,5 @@
 """
-AgentLoop Engine - Sense-Plan-Act-Reflect循环
+Agent Loop Engine - Sense-Plan-Act-Reflect loop
 """
 import asyncio
 import time
@@ -24,22 +24,22 @@ class LoopState(Enum):
 
 class LoopEngine:
     """
-    AgentLoop Engine
+    Agent Loop Engine
 
-    ImplementationSense-Plan-Act-Reflect循环：
-    1. Sense - Perceive the world（收集Perception input）
-    2. Plan - Decision规划（制定Action plan）
-    3. Act - Execute action（Executeplan）
-    4. Reflect - Reflectionlearning（评估Result、Update memory）
+    Implements the Sense-Plan-Act-Reflect loop:
+    1. Sense - Perceive the world (collect perceptual input)
+    2. Plan - Decision planning (formulate action plan)
+    3. Act - Execute action (carry out the plan)
+    4. Reflect - Reflection and learning (evaluate results, update memory)
 
-    support三种Loop strategy：
-    - STEP: 单步pattern（Debug用）
-    - WAVE: 波次pattern（批process用）
-    - CONTINUOUS: 持续pattern（长期run）
+    Supports three loop strategies:
+    - STEP: Single-step mode (for debugging)
+    - WAVE: Wave mode (for batch processing)
+    - CONTINUOUS: Continuous mode (for long-running execution)
 
-    support循环控制：
-    - start(): 启动循环
-    - stop(): stop循环
+    Supports loop control:
+    - start(): Start the loop
+    - stop(): Stop the loop
     - pause(): Pause loop
     - resume(): Resume loop
     """
@@ -51,10 +51,10 @@ class LoopEngine:
         loop_interval: float = 1.0,
     ):
         """
-        initializeLoop Engine
+        Initialize Loop Engine
 
         Args:
-            agent: AgentInstance
+            agent: Agent instance
             strategy: Loop strategy
             loop_interval: Loop interval in seconds
         """
@@ -146,7 +146,7 @@ class LoopEngine:
 
     async def step_sense(self) -> List:
         """
-        单步Execute - 只Execute Sense 阶段
+        Single-step execution - execute only the Sense phase
 
         Returns:
             Perception list
@@ -155,7 +155,7 @@ class LoopEngine:
 
     async def step_plan(self, perception) -> Any:
         """
-        单步Execute - 只Execute Plan 阶段
+        Single-step execution - execute only the Plan phase
 
         Args:
             perception: Perception input
@@ -167,7 +167,7 @@ class LoopEngine:
 
     async def step_act(self, action) -> Any:
         """
-        单步Execute - 只Execute Act 阶段
+        Single-step execution - execute only the Act phase
 
         Args:
             action: Action to execute
@@ -179,7 +179,7 @@ class LoopEngine:
 
     async def step_reflect(self, perception, action, result):
         """
-        单步Execute - 只Execute Reflect 阶段
+        Single-step execution - execute only the Reflect phase
 
         Args:
             perception: Perception
@@ -190,10 +190,10 @@ class LoopEngine:
 
     def get_stats(self) -> dict:
         """
-        get循环statisticsinfo
+        Get loop statistics
 
         Returns:
-            statisticsinfo
+            Statistics dictionary
         """
         return {
             "state": self._state.value,
@@ -327,7 +327,7 @@ class LoopEngine:
 
     async def plan(self, perception) -> Any:
         """
-        Plan - Decision规划
+        Plan - Decision planning
 
         Args:
             perception: Perception input
@@ -419,7 +419,7 @@ class LoopEngine:
 
     async def reflect(self, perception, action, result):
         """
-        Reflect - Reflectionlearning
+        Reflect - Reflection and learning
 
         Args:
             perception: Perception
@@ -476,7 +476,7 @@ class LoopEngine:
         """Wait (based on strategy)"""
         if self.strategy == LoopStrategy.STEP:
             # Wait for user confirmation (for debugging)
-            await asyncio.sleep(0)  # 实际应该isinput()
+            await asyncio.sleep(0)  # In practice should wait for input()
         else:
             # Wait for configured interval
             await asyncio.sleep(self.loop_interval)

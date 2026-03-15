@@ -1,5 +1,5 @@
 """
-Agentcore - AgentBase classandState管理
+Agent core - Agent base class and state management
 """
 from enum import Enum
 from dataclasses import dataclass
@@ -8,7 +8,7 @@ import asyncio
 
 
 class AgentState(Enum):
-    """AgentState"""
+    """Agent state"""
     IDLE = "idle"
     STARTING = "starting"
     RUNNING = "running"
@@ -20,7 +20,7 @@ class AgentState(Enum):
 
 @dataclass
 class AgentConfig:
-    """AgentConfiguration"""
+    """Agent configuration"""
     name: str
     llm_config: Dict[str, Any]
     num_task_agents: int = 3
@@ -29,22 +29,22 @@ class AgentConfig:
 
 class Agent:
     """
-    AgentBase class
+    Agent base class
 
-    提供Agent的生命period管理：
-    - initialize
-    - 启动
-    - stop
-    - pause/restore
-    - Statequery
+    Provides Agent lifecycle management:
+    - Initialize
+    - Start
+    - Stop
+    - Pause/Resume
+    - State query
     """
 
     def __init__(self, config: AgentConfig):
         """
-        initializeAgent
+        Initialize Agent
 
         Args:
-            config: AgentConfiguration
+            config: Agent configuration
         """
         self.config = config
         self.state = AgentState.IDLE
@@ -53,10 +53,10 @@ class Agent:
 
     async def start(self):
         """
-        启动Agent
+        Start Agent
 
         Raises:
-            Runtimeerror: 如果Agent已经在run
+            RuntimeError: If Agent is already running
         """
         if self.state == AgentState.RUNNING:
             raise RuntimeError(f"Agent {self.config.name} is already running")
@@ -65,7 +65,7 @@ class Agent:
         self._start_time = asyncio.get_event_loop().time()
 
         try:
-            # 子Class覆盖此MethodImplementation具体启动逻辑
+            # Subclass overrides this method to implement specific start logic
             await self._on_start()
 
             self.state = AgentState.RUNNING
@@ -76,10 +76,10 @@ class Agent:
 
     async def stop(self):
         """
-        stopAgent（优雅关闭）
+        Stop Agent (graceful shutdown)
 
         Raises:
-            Runtimeerror: 如果Agent未在run
+            RuntimeError: If Agent is not running
         """
         if self.state != AgentState.RUNNING:
             raise RuntimeError(f"Agent {self.config.name} is not running")
@@ -87,7 +87,7 @@ class Agent:
         self.state = AgentState.STOPPING
 
         try:
-            # 子Class覆盖此MethodImplementation具体stop逻辑
+            # Subclass overrides this method to implement specific stop logic
             await self._on_stop()
 
             self.state = AgentState.STOPPED
@@ -99,40 +99,40 @@ class Agent:
 
     async def pause(self):
         """
-        pauseAgent
+        Pause Agent
 
         Raises:
-            Runtimeerror: 如果Agent未在run
+            RuntimeError: If Agent is not running
         """
         if self.state != AgentState.RUNNING:
             raise RuntimeError(f"Agent {self.config.name} is not running")
 
         self.state = AgentState.PAUSED
 
-        # 子Class覆盖此MethodImplementation具体pause逻辑
+        # Subclass overrides this method to implement specific pause logic
         await self._on_pause()
 
     async def resume(self):
         """
-        restoreAgent
+        Resume Agent
 
         Raises:
-            Runtimeerror: 如果Agent未pause
+            RuntimeError: If Agent is not paused
         """
         if self.state != AgentState.PAUSED:
             raise RuntimeError(f"Agent {self.config.name} is not paused")
 
         self.state = AgentState.RUNNING
 
-        # 子Class覆盖此MethodImplementation具体restore逻辑
+        # Subclass overrides this method to implement specific resume logic
         await self._on_resume()
 
     def get_uptime(self) -> float:
         """
-        getrun时间（seconds）
+        Get uptime in seconds
 
         Returns:
-            float: run时间
+            float: Uptime in seconds
         """
         if self._start_time is None:
             return 0.0
@@ -141,17 +141,17 @@ class Agent:
         return end_time - self._start_time
 
     async def _on_start(self):
-        """启动时的callback（子Class覆盖）"""
+        """Callback on start (subclass override)"""
         pass
 
     async def _on_stop(self):
-        """stop时的callback（子Class覆盖）"""
+        """Callback on stop (subclass override)"""
         pass
 
     async def _on_pause(self):
-        """pause时的callback（子Class覆盖）"""
+        """Callback on pause (subclass override)"""
         pass
 
     async def _on_resume(self):
-        """restore时的callback（子Class覆盖）"""
+        """Callback on resume (subclass override)"""
         pass

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 tasks_router = APIRouter()
 
 
-# ============ data Models ============
+# ============ Data Models ============
 
 class TaskCreateRequest(BaseModel):
     """Create task request"""

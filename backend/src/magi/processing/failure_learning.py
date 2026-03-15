@@ -1,5 +1,5 @@
 """
-failurelearning机制
+Failure learning mechanism
 """
 import hashlib
 from typing import Dict, Any, List, Optional
@@ -9,28 +9,28 @@ from .base import FailureCase, Failurepattern
 
 class FailureLearner:
     """
-    failurelearning器
+    Failure Learner
 
-    从failureexperience中learning，避免重复error
+    Learns from failure experiences to avoid repeating mistakes.
     """
 
     def __init__(self, llm_adapter=None):
         """
-        initializefailurelearning器
+        Initialize the Failure Learner.
 
         Args:
-            llm_adapter: LLMAdapter（用于智能analysis）
+            llm_adapter: LLM adapter (for intelligent analysis)
         """
         self.llm_adapter = llm_adapter
 
-        # failurecasestorage（按typegroup）
+        # Failure case storage (grouped by type)
         self._failures_by_type: Dict[str, List[FailureCase]] = defaultdict(list)
 
-        # failurepatterncache
+        # Failure pattern cache
         self._patterns: Dict[str, Failurepattern] = {}
 
-        # pattern识别阈Value
-        self.pattern_recognition_threshold = 5  # 5个同Classfailure触发pattern识别
+        # Pattern recognition threshold
+        self.pattern_recognition_threshold = 5  # 5 failures of the same type trigger pattern recognition
 
     async def record_failure(
         self,
@@ -39,17 +39,17 @@ class FailureLearner:
         execution_steps: List[Dict]
     ):
         """
-        recordfailurecase
+        Record a failure case.
 
         Args:
-            task: 任务Description
-            error: error
-            execution_steps: Executestep
+            task: Task description
+            error: Error
+            execution_steps: Execution steps
         """
-        # Generation failedtype
+        # Generate failure type
         failure_type = self._classify_failure(task, error)
 
-        # createfailurecase
+        # Create failure case
         case = FailureCase(
             task_description=task.get("description", ""),
             failure_reason=str(error),
@@ -57,47 +57,47 @@ class FailureLearner:
             execution_steps=execution_steps,
         )
 
-        # storagefailurecase
+        # Store failure case
         self._failures_by_type[failure_type].append(case)
 
-        # checkis not需要识别pattern
+        # Check whether pattern recognition is needed
         if await self._should_recognize_pattern(failure_type):
             await self._recognize_pattern(failure_type)
 
     async def should_request_help(self, task: Dict[str, Any]) -> bool:
         """
-        判断is not应该request人Class帮助
+        Determine whether to request human help.
 
         Args:
-            task: 任务Description
+            task: Task description
 
         Returns:
-            is not需要帮助
+            Whether help is needed
         """
         failure_type = self._classify_failure_type(task)
 
-        # 如果该type有failurepattern，checkis not匹配
+        # If this type has a failure pattern, check for a match
         if failure_type in self._patterns:
             pattern = self._patterns[failure_type]
-            # TODO: 更精细的匹配逻辑
+            # TODO: More refined matching logic
             return True
 
-        # checkhistoryfailurecount
+        # Check historical failure count
         failures = self._failures_by_type.get(failure_type, [])
-        return len(failures) >= 3  # 同Classfailure3次以上request帮助
+        return len(failures) >= 3  # Request help after 3+ failures of the same type
 
     async def get_avoidance_strategy(
         self,
         task: Dict[str, Any]
     ) -> Optional[str]:
         """
-        get避免strategy
+        Get avoidance strategy.
 
         Args:
-            task: 任务Description
+            task: Task description
 
         Returns:
-            避免strategy或None
+            Avoidance strategy or None
         """
         failure_type = self._classify_failure_type(task)
 
@@ -109,72 +109,72 @@ class FailureLearner:
 
     def _classify_failure(self, task: Dict, error: Exception) -> str:
         """
-        分Classfailuretype
+        Classify failure type.
 
         Args:
-            task: 任务
-            error: error
+            task: Task
+            error: Error
 
         Returns:
-            failuretype
+            Failure type
         """
-        # 基于errortype分Class
+        # Classify based on error type
         error_type = error.__class__.__name__
 
-        # 可以进一步结合任务info分Class
+        # Can be further refined by combining task info
         task_type = task.get("type", "")
 
         return f"{task_type}:{error_type}"
 
     def _classify_failure_type(self, task: Dict) -> str:
         """
-        prediction任务可能的failuretype
+        Predict the likely failure type for a task.
 
         Args:
-            task: 任务Description
+            task: Task description
 
         Returns:
-            failuretype
+            Failure type
         """
-        # 简化版：基于任务type
+        # Simplified: based on task type
         task_type = task.get("type", "")
         return f"{task_type}:Unknotttwn"
 
     async def _should_recognize_pattern(self, failure_type: str) -> bool:
-        """判断is not应该识别failurepattern"""
+        """Determine whether failure pattern recognition should be triggered."""
         failures = self._failures_by_type.get(failure_type, [])
         return len(failures) >= self.pattern_recognition_threshold
 
     async def _recognize_pattern(self, failure_type: str):
         """
-        识别failurepattern
+        Recognize failure patterns.
 
         Args:
-            failure_type: failuretype
+            failure_type: Failure type
         """
         failures = self._failures_by_type.get(failure_type, [])
 
         if not failures:
             return
 
-        # 简化版：基于failurereasongenerationpattern
-        # 实际Implementation可以使用LLM进row智能analysis
+        # Simplified: generate pattern based on failure reasons
+        # Actual implementation could use LLM for intelligent analysis
 
-        # statistics最常见的failurereason
+        # Find the most common failure reason
         reason_count = defaultdict(int)
         for case in failures:
             reason_count[case.failure_reason] += 1
 
         most_common_reason = max(reason_count.items(), key=lambda x: x[1])[0]
 
-        # generationpatternid
+        # Generate pattern ID
         pattern_id = hashlib.md5(failure_type.encode()).hexdigest()[:8]
 
-        # createfailurepattern
+        # Create failure pattern
         pattern = Failurepattern(
             pattern_id=pattern_id,
-            description=f"failurepattern：{failure_type}",
-            avoidance_strategy=f"避免：{most_common_reason}",
+            description=f"Failure pattern: {failure_type}",
+            avoidance_strategy=f"Avoid: {most_common_reason}",
             case_count=len(failures),
         )
 

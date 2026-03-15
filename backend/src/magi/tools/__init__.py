@@ -21,7 +21,7 @@ from .recommender import ToolRecommender, ScenarioType
 from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
 from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
 
-# importBuilt-in tools
+# Import built-in tools
 from .builtin.bash_tool import BashTool
 from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
@@ -37,7 +37,7 @@ from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.agent_tool import AgentTool
 from .memory_query import MemoryQueryTool
 
-# import Skills module
+# Import skills module
 from ..skills.indexer import SkillIndexer
 from ..skills.loader import SkillLoader
 from ..skills.executor import SkillExecutor
@@ -62,22 +62,22 @@ __all__ = [
     "ContextDecider",
     "ContextDecision",
 
-    # recommended引擎
+    # Recommendation engine
     "ToolRecommender",
     "ScenarioType",
 
-    # Executeplan器
+    # Execution planner
     "ExecutionPlanner",
     "ExecutionPlan",
     "PlanNode",
     "TaskStatus",
 
-    # version管理
+    # Version management
     "ToolVersionManager",
     "ToolVersion",
     "VersionCompatibility",
 
-    # dynamictool
+    # Dynamic tool
     "DynamicTool",
     "create_dynamic_tool",
 

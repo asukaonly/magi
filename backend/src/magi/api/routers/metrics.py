@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 metrics_router = APIRouter()
 
 
-# ============ data Models ============
+# ============ Data Models ============
 
 class SystemMetrics(BaseModel):
     """System metrics"""
@@ -31,7 +31,7 @@ class SystemMetrics(BaseModel):
 
 
 class AgentMetrics(BaseModel):
-    """Agentmetric"""
+    """Agent metrics"""
 
     agent_id: str
     agent_name: str

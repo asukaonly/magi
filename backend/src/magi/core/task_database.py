@@ -1,11 +1,11 @@
 """
-任务database - SQLite持久化storage
+Task database - SQLite persistent storage
 
-support：
-- 任务持久化storage
-- 任务Stateupdate
-- 任务restore（系统重启后）
-- 任务queryandstatistics
+Supports:
+- Task persistent storage
+- Task state updates
+- Task recovery (after system restart)
+- Task query and statistics
 """
 import asyncio
 import aiosqlite
@@ -28,7 +28,7 @@ class TaskStatus(Enum):
 
 
 class TaskPriority(Enum):
-    """任务priority"""
+    """Task priority"""
     LOW = 1
     NORMAL = 2
     HIGH = 3
@@ -37,30 +37,30 @@ class TaskPriority(Enum):
 
 
 class TaskType(Enum):
-    """任务type"""
-    QUERY = "query"              # queryClass
-    COMPUTATION = "computation"  # calculateClass
-    INTERACTIVE = "interactive"  # 交互Class
-    BATCH = "batch"              # 批processClass
+    """Task type"""
+    QUERY = "query"              # Query type
+    COMPUTATION = "computation"  # Computation type
+    INTERACTIVE = "interactive"  # Interactive type
+    BATCH = "batch"              # Batch processing type
 
 
 @dataclass
 class Task:
-    """任务datastructure"""
+    """Task data structure"""
     task_id: str
     type: str                    # TaskType.value
     status: str                  # TaskStatus.value
     priority: int                # TaskPriority.value
-    data: Dict[str, Any]         # 任务data
-    assigned_to: Optional[str] = None  # 分配给的TaskAgent id
-    parent_id: Optional[str] = None    # 父任务id（用于子任务）
-    retry_count: int = 0               # 重试count
-    max_retries: int = 3               # maximum重试count
-    timeout: float = 60.0              # timeout时间（seconds）
-    created_at: float = 0.0            # created at
-    started_at: Optional[float] = None  # Start时间
-    completed_at: Optional[float] = None  # complete时间
-    error_message: Optional[str] = None  # errorinfo
+    data: Dict[str, Any]         # Task data
+    assigned_to: Optional[str] = None  # Assigned TaskAgent ID
+    parent_id: Optional[str] = None    # Parent task ID (for subtasks)
+    retry_count: int = 0               # Retry count
+    max_retries: int = 3               # Maximum retry count
+    timeout: float = 60.0              # Timeout duration (seconds)
+    created_at: float = 0.0            # Creation time
+    started_at: Optional[float] = None  # Start time
+    completed_at: Optional[float] = None  # Completion time
+    error_message: Optional[str] = None  # Error message
     result: Optional[Dict[str, Any]] = None  # Execution result
 
     def __post_init__(self):
@@ -68,9 +68,9 @@ class Task:
             self.created_at = time.time()
 
     def to_dict(self) -> Dict[str, Any]:
-        """convert为dictionary"""
+        """Convert to dictionary"""
         data = asdict(self)
-        # serializedatafield为JSONstring
+        # Serialize data field to JSON string
         if self.data is not None:
             data['data'] = json.dumps(self.data)
         if self.result is not None:
@@ -79,8 +79,8 @@ class Task:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Task":
-        """从dictionarycreateTask"""
-        # deserializedataandresultfield
+        """Create task from dictionary"""
+        # Deserialize data and result fields
         if isinstance(data.get('data'), str):
             data['data'] = json.loads(data['data'])
         if isinstance(data.get('result'), str):
@@ -90,17 +90,17 @@ class Task:
 
 class TaskDatabase:
     """
-    任务database
+    Task database
 
-    使用SQLite持久化storage任务，support任务restore
+    Uses SQLite for persistent task storage with task recovery support.
     """
 
     def __init__(self, db_path: str = "~/.magi/data/tasks.db"):
         """
-        initialize任务database
+        Initialize task database
 
         Args:
-            db_path: databasefilepath
+            db_path: Database file path
         """
         self.db_path = db_path
         self._lock = asyncio.Lock()
@@ -113,12 +113,12 @@ class TaskDatabase:
         return str(Path(self.db_path).expanduser())
 
     async def _init_db(self):
-        """initializedatabasetable"""
+        """Initialize database tables"""
         if self._initialized:
             return
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            # create任务table
+            # Create tasks table
             await db.execute("""
                 create table IF NOT EXISTS tasks (
                     task_id TEXT primary key,
@@ -139,7 +139,7 @@ class TaskDatabase:
                 )
             """)
 
-            # createindex
+            # Create indexes
             await db.execute("""
                 create index IF NOT EXISTS idx_tasks_status_priority
                 ON tasks(status, priority DESC, created_at asC)
@@ -168,7 +168,7 @@ class TaskDatabase:
         timeout: float = 60.0,
         max_retries: int = 3,
     ) -> Task:
-        """createnew任务"""
+        """Create a new task"""
         await self._init_db()
 
         task_id = str(uuid.uuid4())
@@ -201,7 +201,7 @@ class TaskDatabase:
         return task
 
     async def get_task(self, task_id: str) -> Optional[Task]:
-        """get任务"""
+        """Get a task"""
         await self._init_db()
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -224,7 +224,7 @@ class TaskDatabase:
         error_message: str = None,
         result: Dict[str, Any] = None,
     ) -> bool:
-        """update任务State"""
+        """Update task status"""
         await self._init_db()
 
         update_fields = ["status = ?"]
@@ -264,7 +264,7 @@ class TaskDatabase:
         return True
 
     async def increment_retry_count(self, task_id: str) -> int:
-        """增加任务重试count"""
+        """Increment task retry count"""
         await self._init_db()
 
         async with self._lock:
@@ -283,7 +283,7 @@ class TaskDatabase:
         limit: int = 100,
         assigned_to: str = None,
     ) -> List[Task]:
-        """getpending任务"""
+        """Get pending tasks"""
         await self._init_db()
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -311,7 +311,7 @@ class TaskDatabase:
         status: TaskStatus,
         limit: int = 100,
     ) -> List[Task]:
-        """按Stateget任务"""
+        """Get tasks by status"""
         await self._init_db()
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -327,7 +327,7 @@ class TaskDatabase:
             return [self._row_to_task(row) for row in rows]
 
     async def get_child_tasks(self, parent_id: str) -> List[Task]:
-        """get子任务"""
+        """Get child tasks"""
         await self._init_db()
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -342,21 +342,21 @@ class TaskDatabase:
             return [self._row_to_task(row) for row in rows]
 
     async def get_stats(self) -> Dict[str, Any]:
-        """get任务statisticsinfo"""
+        """Get task statistics"""
         await self._init_db()
 
         async with aiosqlite.connect(self._expanded_db_path) as db:
-            # 总任务数
+            # Total task count
             cursor = await db.execute("SELECT COUNT(*) FROM tasks")
             total = (await cursor.fetchone())[0]
 
-            # 各State任务数
+            # Task count by status
             cursor = await db.execute("""
                 SELECT status, COUNT(*) FROM tasks group BY status
             """)
             status_counts = {row[0]: row[1] for row in await cursor.fetchall()}
 
-            # 各priority任务数
+            # Task count by priority
             cursor = await db.execute("""
                 SELECT priority, COUNT(*) FROM tasks group BY priority
             """)
@@ -373,7 +373,7 @@ class TaskDatabase:
         days: int = 7,
         keep_status: List[TaskStatus] = None,
     ) -> int:
-        """清理old任务"""
+        """Clean up old tasks"""
         await self._init_db()
 
         keep_status = keep_status or [TaskStatus.PENDING, TaskStatus.PROCESSING]
@@ -382,7 +382,7 @@ class TaskDatabase:
 
         async with self._lock:
             async with aiosqlite.connect(self._expanded_db_path) as db:
-                # buildSQL
+                # Build SQL
                 status_list = ', '.join(f"'{s.value}'" for s in keep_status)
                 cursor = await db.execute(f"""
                     delete FROM tasks
@@ -396,7 +396,7 @@ class TaskDatabase:
         return deleted_count
 
     def _row_to_task(self, row) -> Task:
-        """将databaserowconvert为TaskObject"""
+        """Convert a database row to a Task object"""
         columns = [
             'task_id', 'type', 'status', 'priority', 'data', 'assigned_to',
             'parent_id', 'retry_count', 'max_retries', 'timeout',
@@ -405,7 +405,7 @@ class TaskDatabase:
 
         data_dict = dict(zip(columns, row))
 
-        # deserializeJSONfield
+        # Deserialize JSON fields
         if data_dict.get('data'):
             data_dict['data'] = json.loads(data_dict['data'])
         else:
@@ -417,6 +417,6 @@ class TaskDatabase:
         return Task(**data_dict)
 
     async def close(self):
-        """关闭databaseconnection"""
-        # SQLite不需要显式关闭connection池
+        """Close database connection"""
+        # SQLite does not require explicit connection pool closure
         pass

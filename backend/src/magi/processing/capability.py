@@ -1,5 +1,5 @@
 """
-Capability ExtractionandValidate机制
+Capability extraction and verification mechanism
 """
 import asyncio
 import hashlib
@@ -9,35 +9,35 @@ from .base import Capability, TaskComplexity
 
 class CapabilityExtractor:
     """
-    Capability Extraction器
+    Capability Extractor
 
-    从successexperience中提取capability
+    Extracts capabilities from successful experiences.
     """
 
     def __init__(self, llm_adapter=None):
         """
-        initializeCapability Extraction器
+        Initialize the Capability Extractor.
 
         Args:
-            llm_adapter: LLMAdapter（用于智能analysis）
+            llm_adapter: LLM adapter (for intelligent analysis)
         """
         self.llm_adapter = llm_adapter
 
-        # successcasecache（任务Description -> Executecount）
+        # Success case cache (task description -> execution count)
         self._success_cases: Dict[str, List[Dict]] = {}
 
-        # 提取阈Value
-        self.extraction_threshold = 3  # success3次触发提取
+        # Extraction threshold
+        self.extraction_threshold = 3  # Trigger extraction after 3 successes
 
     async def record_success(self, task: Dict[str, Any], execution: Dict[str, Any]):
         """
-        recordsuccesscase
+        Record a success case.
 
         Args:
-            task: 任务Description
-            execution: Execute过程
+            task: Task description
+            execution: Execution process
         """
-        # generation任务指纹
+        # Generate task fingerprint
         fingerprint = self._generate_fingerprint(task)
 
         if fingerprint not in self._success_cases:
@@ -50,13 +50,13 @@ class CapabilityExtractor:
 
     async def should_extract(self, task: Dict[str, Any]) -> bool:
         """
-        判断is not应该提取capability
+        Determine whether a capability should be extracted.
 
         Args:
-            task: 任务Description
+            task: Task description
 
         Returns:
-            is not应该提取
+            Whether extraction should proceed
         """
         fingerprint = self._generate_fingerprint(task)
         cases = self._success_cases.get(fingerprint, [])
@@ -68,14 +68,14 @@ class CapabilityExtractor:
         memory_store=None
     ) -> Optional[Capability]:
         """
-        提取capability
+        Extract a capability.
 
         Args:
-            task: 任务Description
-            memory_store: Memory Storage（用于storagecapability）
+            task: Task description
+            memory_store: Memory store (for persisting capabilities)
 
         Returns:
-            提取的capability或None
+            Extracted capability or None
         """
         fingerprint = self._generate_fingerprint(task)
         cases = self._success_cases.get(fingerprint, [])
@@ -83,47 +83,47 @@ class CapabilityExtractor:
         if not cases:
             return None
 
-        # analysissuccesscase
+        # Analyze success cases
         capability = await self._analyze_cases(cases)
 
         if capability and memory_store:
-            # storage到L5层
+            # Store in L5 layer
             await memory_store.store_capability(capability)
 
         return capability
 
     async def _analyze_cases(self, cases: List[Dict]) -> Optional[Capability]:
         """
-        analysissuccesscase，generationcapability定义
+        Analyze success cases and generate a capability definition.
 
         Args:
-            cases: successcaselist
+            cases: List of success cases
 
         Returns:
-            capability定义或None
+            Capability definition or None
         """
         if not cases:
             return None
 
-        # 简化版：从第一个case提取
+        # Simplified: extract from the first case
         first_case = cases[0]
         task = first_case["task"]
         execution = first_case["execution"]
 
-        # generationcapabilityName（简化版）
+        # Generate capability name (simplified)
         name = self._generate_capability_name(task)
 
-        # 提取触发pattern
+        # Extract trigger pattern
         trigger_pattern = task.get("description", task.get("type", ""))
 
-        # 提取所需tool
+        # Extract required tools
         required_tools = task.get("tools", [])
 
-        # 提取Executestep
+        # Extract execution steps
         execution_steps = execution.get("steps", [])
 
-        # generationDescription
-        description = f"process {name} 任务的capability"
+        # Generate description
+        description = f"Capability for handling {name} tasks"
 
         return Capability(
             name=name,
@@ -131,36 +131,36 @@ class CapabilityExtractor:
             trigger_pattern=trigger_pattern,
             required_tools=required_tools,
             execution_steps=execution_steps,
-            success_rate=1.0,  # 初始success率为100%
+            success_rate=1.0,  # Initial success rate is 100%
             usage_count=len(cases),
         )
 
     def _generate_fingerprint(self, task: Dict[str, Any]) -> str:
-        """generation任务指纹"""
-        # 基于任务typeandDescriptiongeneration指纹
+        """Generate task fingerprint."""
+        # Generate fingerprint based on task type and description
         task_type = task.get("type", "")
         description = task.get("description", "")
         content = f"{task_type}:{description}"
         return hashlib.md5(content.encode()).hexdigest()
 
     def _generate_capability_name(self, task: Dict[str, Any]) -> str:
-        """generationcapabilityName"""
+        """Generate capability name."""
         task_type = task.get("type", "unknown")
         return f"handle_{task_type}"
 
 
 class CapabilityVerifier:
     """
-    capabilityValidate器
+    Capability Verifier
 
-    Validate提取的capabilityvalid性
+    Verifies the validity of extracted capabilities.
     """
 
     def __init__(self):
-        """initializecapabilityValidate器"""
-        self.verification_threshold = 0.8  # Validate阈Value 80%
-        self淘汰_threshold = 0.6  # 淘汰阈Value 60%
-        self.max_failures = 5  # maximum连续failurecount
+        """Initialize the Capability Verifier."""
+        self.verification_threshold = 0.8  # Verification threshold 80%
+        self.elimination_threshold = 0.6  # Elimination threshold 60%
+        self.max_failures = 5  # Maximum consecutive failure count
 
     async def verify(
         self,
@@ -169,26 +169,26 @@ class CapabilityVerifier:
         executor=None
     ) -> bool:
         """
-        Validatecapability
+        Verify a capability.
 
         Args:
-            capability: 待Validate的capability
-            test_tasks: Test任务list
-            executor: Execute器
+            capability: Capability to verify
+            test_tasks: List of test tasks
+            executor: Executor
 
         Returns:
-            is not通过Validate
+            Whether verification passed
         """
         if not test_tasks:
-            return True  # 无Test任务，default通过
+            return True  # No test tasks, pass by default
 
-        # calculatesuccess率
+        # Calculate success rate
         success_count = 0
         total_count = len(test_tasks)
 
         for task in test_tasks:
             try:
-                # Execute任务
+                # Execute task
                 result = await self._execute_with_capability(
                     capability,
                     task,
@@ -205,21 +205,21 @@ class CapabilityVerifier:
 
         return capability.verified
 
-    async def should淘汰(self, capability: Capability) -> bool:
+    async def should_eliminate(self, capability: Capability) -> bool:
         """
-        判断is not应该淘汰capability
+        Determine whether a capability should be eliminated.
 
         Args:
-            capability: capability
+            capability: Capability
 
         Returns:
-            is not应该淘汰
+            Whether the capability should be eliminated
         """
-        # success率过低
-        if capability.success_rate < self.淘汰_threshold:
+        # Success rate too low
+        if capability.success_rate < self.elimination_threshold:
             return True
 
-        # TODO: check连续failurecount（需要额外record）
+        # TODO: Check consecutive failure count (requires additional tracking)
         return False
 
     async def _execute_with_capability(
@@ -228,7 +228,7 @@ class CapabilityVerifier:
         task: Dict,
         executor=None
     ) -> bool:
-        """使用capabilityExecute任务"""
-        # 简化版：直接ReturnTrue
-        # 实际Implementation需要调用executorExecute任务
+        """Execute a task using a capability."""
+        # Simplified: return True directly
+        # Actual implementation needs to call the executor to run the task
         return True

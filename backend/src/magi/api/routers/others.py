@@ -28,7 +28,7 @@ def get_other_memory() -> OtherMemory:
     return _other_memory
 
 
-# ============ data Models ============
+# ============ Data Models ============
 
 class UserProfileResponse(BaseModel):
     """User profile response"""

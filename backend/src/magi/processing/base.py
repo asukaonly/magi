@@ -1,5 +1,5 @@
 """
-Self-processing Module - coredatastructure
+Self-processing Module - Core Data Structures
 """
 from enum import Enum
 from dataclasses import dataclass, field
@@ -8,49 +8,49 @@ import time
 
 
 class ComplexityLevel(Enum):
-    """complex度level"""
-    LOW = "low"                  # 自主process
-    MEDIUM = "medium"            # 可自主
-    HIGH = "high"                # 需确认
-    CRITICAL = "critical"        # 必须人Class
+    """Complexity level"""
+    LOW = "low"                  # Handle autonomously
+    MEDIUM = "medium"            # Can handle autonomously
+    HIGH = "high"                # Needs confirmation
+    CRITICAL = "critical"        # Requires human involvement
 
 
 class LearningStage(Enum):
-    """learning阶段"""
-    INITIAL = "initial"          # 初始阶段（前100次）
-    GROWTH = "growth"            # growth阶段（100-1000次）
-    MATURE = "mature"            # 成熟阶段（1000次以上）
+    """Learning stage"""
+    INITIAL = "initial"          # Initial stage (first 100 interactions)
+    GROWTH = "growth"            # Growth stage (100-1000 interactions)
+    MATURE = "mature"            # Mature stage (over 1000 interactions)
 
 
 @dataclass
 class TaskComplexity:
-    """任务complex度"""
+    """Task complexity"""
     level: ComplexityLevel
-    score: float                        # complex度score (0-100)
-    tool_count: int = 0                 # toolquantity
-    step_count: int = 0                 # stepquantity
-    parameter_uncertainty: float = 0.0  # Parameter不确定性 (0-1)
-    dependency_count: int = 0           # dependencyrelationship数
+    score: float                        # Complexity score (0-100)
+    tool_count: int = 0                 # Number of tools
+    step_count: int = 0                 # Number of steps
+    parameter_uncertainty: float = 0.0  # Parameter uncertainty (0-1)
+    dependency_count: int = 0           # Number of dependencies
 
 
 @dataclass
 class Capability:
-    """提取的capability"""
+    """Extracted capability"""
     name: str
     description: str
-    trigger_pattern: str               # 触发pattern
-    required_tools: List[str]          # 所需tool
-    execution_steps: List[Dict]        # Executestep
-    success_rate: float = 0.0          # success率
-    usage_count: int = 0               # 使用count
-    verified: bool = False             # is not已Validate
+    trigger_pattern: str               # Trigger pattern
+    required_tools: List[str]          # Required tools
+    execution_steps: List[Dict]        # Execution steps
+    success_rate: float = 0.0          # Success rate
+    usage_count: int = 0               # Usage count
+    verified: bool = False             # Whether verified
     created_at: float = field(default_factory=time.time)
     last_used_at: float = field(default_factory=time.time)
 
 
 @dataclass
 class FailureCase:
-    """failurecase"""
+    """Failure case"""
     task_description: str
     failure_reason: str
     error_stack: str
@@ -60,7 +60,7 @@ class FailureCase:
 
 @dataclass
 class Failurepattern:
-    """failurepattern"""
+    """Failure pattern"""
     pattern_id: str
     description: str
     avoidance_strategy: str
@@ -70,18 +70,18 @@ class Failurepattern:
 
 @dataclass
 class processingContext:
-    """processcontext"""
-    user_status: Dict[str, Any]        # userState
-    system_status: Dict[str, Any]      # 系统State
-    recent_tasks: List[Dict]           # 最近任务
+    """Processing context"""
+    user_status: Dict[str, Any]        # User status
+    system_status: Dict[str, Any]      # System status
+    recent_tasks: List[Dict]           # Recent tasks
     current_time: float = field(default_factory=time.time)
 
 
 @dataclass
 class processingResult:
-    """processResult"""
-    action: Dict[str, Any]             # action
-    needs_human_help: bool = False     # is not需要人Class帮助
+    """Processing result"""
+    action: Dict[str, Any]             # Action
+    needs_human_help: bool = False     # Whether human help is needed
     complexity: TaskComplexity = None
-    human_help_context: Dict = None    # 人Class帮助context
+    human_help_context: Dict = None    # Human help context
     metadata: Dict = field(default_factory=dict)

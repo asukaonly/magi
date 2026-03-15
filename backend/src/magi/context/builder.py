@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Internal note.
 
 class Scenario:
-    """交互scenarioConstant"""
+    """Interaction scenario constants"""
     CHAT = "chat"
     code = "code"
     ANALYSIS = "analysis"
@@ -111,7 +111,7 @@ class ContextBuilder:
     # Internal note.
 
     def _build_personality_section(self, config: PersonalityConfig) -> str:
-        """buildcorepersonality层Description - 直接使用New Schemafield"""
+        """Build core personality layer description - directly uses new schema fields"""
         lines = [
             f"## Your Identity",
             f"",
@@ -186,7 +186,7 @@ class ContextBuilder:
         behavior: TaskBehaviorProfile,
         scenario: str
     ) -> str:
-        """buildrow为preference层Description"""
+        """Build behavior preference layer description"""
         lines = [
             f"## Behavior Preferences",
             f"",
@@ -210,7 +210,7 @@ class ContextBuilder:
         return "\n".join(lines)
 
     def _build_emotional_section(self, emotion: EmotionalState) -> str:
-        """buildemotionState层Description"""
+        """Build emotional state layer description"""
         lines = [
             f"## Current State",
             f"",
@@ -242,7 +242,7 @@ class ContextBuilder:
         growth: GrowthMemory,
         user_profile: Dict[str, Any] = None
     ) -> str:
-        """buildgrowthmemory层Description"""
+        """Build growth memory layer description"""
         lines = [
             f"## Your Experience",
             f"",
@@ -289,7 +289,7 @@ class ContextBuilder:
         return "\n".join(lines) if len(lines) > 3 else ""
 
     def _build_user_section(self, user_profile: Dict[str, Any]) -> str:
-        """builduser档案Description"""
+        """Build user profile description"""
         lines = [
             f"## About the User",
             f"",
@@ -317,7 +317,7 @@ class ContextBuilder:
     # Internal note.
 
     def _build_chat_context(self, **kwargs) -> str:
-        """聊daysscenariocontext"""
+        """Chat scenario context"""
         return """
 **Chat Guidelines:**
 - Be conversational and engage naturally
@@ -327,7 +327,7 @@ class ContextBuilder:
 """.strip()
 
     def _build_code_context(self, **kwargs) -> str:
-        """codescenariocontext"""
+        """Code scenario context"""
         return """
 **Code Guidelines:**
 - Focus on clean, maintainable code
@@ -338,7 +338,7 @@ class ContextBuilder:
 """.strip()
 
     def _build_analysis_context(self, **kwargs) -> str:
-        """analysisscenariocontext"""
+        """Analysis scenario context"""
         return """
 **Analysis Guidelines:**
 - Break down complex problems systematically
@@ -349,7 +349,7 @@ class ContextBuilder:
 """.strip()
 
     def _build_creative_context(self, **kwargs) -> str:
-        """创意scenariocontext"""
+        """Creative scenario context"""
         return """
 **Creative Guidelines:**
 - Think outside the box
@@ -360,7 +360,7 @@ class ContextBuilder:
 """.strip()
 
     def _build_task_context(self, **kwargs) -> str:
-        """任务scenariocontext"""
+        """Task scenario context"""
         return """
 **Task Guidelines:**
 - Focus on efficiency and accuracy
@@ -371,7 +371,7 @@ class ContextBuilder:
 """.strip()
 
     def _build_debug_context(self, **kwargs) -> str:
-        """Debugscenariocontext"""
+        """Debug scenario context"""
         return """
 **Debug Guidelines:**
 - Be systematic in troubleshooting
@@ -384,7 +384,7 @@ class ContextBuilder:
     # Internal note.
 
     def _get_behavior_guidance(self, behavior: TaskBehaviorProfile) -> str:
-        """根据row为preferencegeneration指导"""
+        """Generate guidance based on behavior preferences"""
         guidance_parts = []
 
         # Internal note.
@@ -414,7 +414,7 @@ class ContextBuilder:
         return " ".join([g for g in guidance_parts if g])
 
     def _describe_relationship(self, depth: float) -> str:
-        """Descriptionrelationshipdepth"""
+        """Describe relationship depth"""
         if depth < 0.2:
             return "New acquaintance"
         elif depth < 0.4:
@@ -427,7 +427,7 @@ class ContextBuilder:
             return "Close connection"
 
     def _get_scenario_guidance(self, scenario: str) -> str:
-        """getscenario特定指导"""
+        """Get scenario-specific guidance"""
         builder = self._scenario_templates.get(scenario)
         if builder:
             return builder()

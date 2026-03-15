@@ -1,5 +1,5 @@
 """
-LLMAdapter - AnthropicImplementation
+LLM Adapter - Anthropic implementation
 """
 from typing import Optional, Dict, Any, AsyncIterator
 from anthropic import AsyncAnthropic
@@ -9,9 +9,9 @@ from ..config.constants import DEFAULT_MAX_TOKENS
 
 class AnthropicAdapter(LLMAdapter):
     """
-    Anthropic Claude APIAdapter
+    Anthropic Claude API Adapter
 
-    support的model：
+    Supported models:
     - Claude 3 Opus
     - Claude 3 Sonnet
     - Claude 3 Haiku
@@ -26,19 +26,19 @@ class AnthropicAdapter(LLMAdapter):
         timeout: int = 60,
     ):
         """
-        initializeAnthropicAdapter
+        Initialize Anthropic Adapter
 
         Args:
-            api_key: Anthropic APIkey
-            model: modelName
-            base_url: customAPI endpoint（optional，如使用proxy或中转service）
-            api_base: compatibleoldConfiguration，等同于base_url
-            timeout: requesttimeout时间（seconds）
+            api_key: Anthropic API key
+            model: Model name
+            base_url: Custom API endpoint (optional, for proxy or relay services)
+            api_base: Compatible with legacy configuration, equivalent to base_url
+            timeout: Request timeout duration (seconds)
         """
         self._model = model
         self._timeout = timeout
 
-        # 优先使用base_url，nottt则使用api_base（compatibleoldConfiguration）
+        # Prefer base_url; fall back to api_base (backward compatible with legacy configuration)
         api_endpoint = base_url or api_base
 
         client_kwargs = {"api_key": api_key, "timeout": timeout}
@@ -55,16 +55,16 @@ class AnthropicAdapter(LLMAdapter):
         **kwargs
     ) -> str:
         """
-        generation文本（非流式）
+        Generate text (non-streaming)
 
         Args:
-            prompt: Inputprompt
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter
-            **kwargs: otherParameter
+            prompt: Input prompt
+            max_tokens: Maximum token count
+            temperature: Temperature parameter
+            **kwargs: Additional parameters
 
         Returns:
-            str: generation的文本
+            str: Generated text
         """
         response = await self._client.messages.create(
             model=self._model,
@@ -86,16 +86,16 @@ class AnthropicAdapter(LLMAdapter):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        generation文本（流式）
+        Generate text (streaming)
 
         Args:
-            prompt: Inputprompt
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter
-            **kwargs: otherParameter
+            prompt: Input prompt
+            max_tokens: Maximum token count
+            temperature: Temperature parameter
+            **kwargs: Additional parameters
 
         Yields:
-            str: generation的文本片段
+            str: Generated text chunks
         """
         stream = await self._client.messages.create(
             model=self._model,
@@ -118,16 +118,16 @@ class AnthropicAdapter(LLMAdapter):
         **kwargs
     ) -> str:
         """
-        dialoguegeneration（非流式）
+        Dialogue generation (non-streaming)
 
         Args:
-            messages: dialoguehistory
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter
-            **kwargs: otherParameter
+            messages: Dialogue history
+            max_tokens: Maximum token count
+            temperature: Temperature parameter
+            **kwargs: Additional parameters
 
         Returns:
-            str: 助手的response
+            str: Assistant's response
         """
         response = await self._client.messages.create(
             model=self._model,
@@ -149,16 +149,16 @@ class AnthropicAdapter(LLMAdapter):
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        dialoguegeneration（流式）
+        Dialogue generation (streaming)
 
         Args:
-            messages: dialoguehistory
-            max_tokens: maximumtoken数
-            temperature: temperatureParameter
-            **kwargs: otherParameter
+            messages: Dialogue history
+            max_tokens: Maximum token count
+            temperature: Temperature parameter
+            **kwargs: Additional parameters
 
         Yields:
-            str: generation的文本片段
+            str: Generated text chunks
         """
         stream = await self._client.messages.create(
             model=self._model,
@@ -175,10 +175,10 @@ class AnthropicAdapter(LLMAdapter):
 
     @property
     def model_name(self) -> str:
-        """getmodelName"""
+        """Get model name"""
         return self._model
 
     @property
     def provider_name(self) -> str:
-        """get提供商Name"""
+        """Get provider name"""
         return "anthropic"

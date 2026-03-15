@@ -1,6 +1,6 @@
 """
-message bus - SQLitebackend implementation
-基于aiosqlite的persistent queue
+message bus - SQLite backend implementation
+Persistent queue based on aiosqlite
 """
 import asyncio
 import aiosqlite
@@ -23,14 +23,14 @@ STATUS_FAILED = "failed"
 
 class SQLiteMessageBackend(MessageBusBackend):
     """
-    基于SQLite的持久化messagequeue后端
+    SQLite-based persistent message queue backend
 
-    特点：
-    - 使用SQLitepersist events
-    - Agent重启后can restore unprocessed events
-    - supportpriorityqueue（order BY priority DESC, created_at asC）
-    - Worker池concurrently process events
-    - 支持消息重试机制
+    Features:
+    - Uses SQLite to persist events
+    - Can restore unprocessed events after agent restart
+    - Supports priority queue (ORDER BY priority DESC, created_at ASC)
+    - Worker pool for concurrent event processing
+    - Message retry mechanism
     """
 
     def __init__(
@@ -48,8 +48,8 @@ class SQLiteMessageBackend(MessageBusBackend):
         initialize SQLite message backend
 
         Args:
-            db_path: databasefilepath
-            max_queue_size: queuemaximumlength
+            db_path: database file path
+            max_queue_size: maximum queue length
             num_workers: number of worker threads
             memory_cache_size: memory cache size (reduce database queries)
             broadcast_max_concurrency: max concurrent broadcast handlers
@@ -66,7 +66,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         self.max_retries = max_retries
         self.retry_delay_seconds = retry_delay_seconds
 
-        # subscribeinfo
+        # Subscription info
         self._subscriptions: Dict[str, List[Dict]] = defaultdict(list)
         self._subscription_index: Dict[str, Dict] = {}
 
@@ -80,7 +80,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         # semaphore for broadcast concurrency
         self._broadcast_semaphore: Optional[asyncio.Semaphore] = None
 
-        # statisticsinfo
+        # Statistics
         self._stats = {
             "published_count": 0,
             "dropped_count": 0,
@@ -100,7 +100,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         return str(Path(self.db_path).expanduser())
 
     async def _init_db(self):
-        """initializedatabasetable"""
+        """Initialize database tables"""
         # expand ~ to user home directory
         from pathlib import Path
         db_path = Path(self._expanded_db_path)
@@ -206,7 +206,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             event: Event to publish
 
         Returns:
-            bool: is notsuccessrelease
+            bool: Whether publish was successful
         """
         try:
             async with aiosqlite.connect(self._expanded_db_path) as db:
@@ -230,7 +230,7 @@ class SQLiteMessageBackend(MessageBusBackend):
                     """, (STATUS_PENDING,))
                     self._stats["dropped_count"] += 1
 
-                # insertnewevent
+                # Insert new event
                 await db.execute("""
                     INSERT INTO message_queue (
                         event_type, event_data, priority, source,
@@ -263,7 +263,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         propagation_mode: str = "broadcast",
         filter_func: Optional[Callable[[Event], bool]] = None,
     ) -> str:
-        """subscribeevent"""
+        """Subscribe to event"""
         subscription_id = f"{event_type}_{id(handler)}_{time.time()}"
 
         subscription = {
@@ -280,7 +280,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         return subscription_id
 
     async def unsubscribe(self, subscription_id: str) -> bool:
-        """cancelsubscribe"""
+        """Unsubscribe"""
         if subscription_id not in self._subscription_index:
             return False
 
@@ -299,7 +299,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         if self._running:
             return
 
-        # initializedatabase
+        # Initialize database
         await self._init_db()
 
         self._running = True
@@ -332,7 +332,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
             await asyncio.sleep(0.1)
 
-        # cancelworker
+        # Cancel workers
         for worker in self._workers:
             worker.cancel()
 
@@ -351,7 +351,7 @@ class SQLiteMessageBackend(MessageBusBackend):
 
                 event_id, event = result
 
-                # processevent
+                # Process event
                 success = await self._process_event(event)
 
                 # Update message status based on result
@@ -542,7 +542,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             self._handler_pending[handler] -= 1
 
     async def get_stats(self) -> dict:
-        """getstatisticsinfo"""
+        """Get statistics"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM message_queue WHERE status = ?",
