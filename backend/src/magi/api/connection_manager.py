@@ -87,7 +87,7 @@ class ConnectionManager:
         log_method = logger.info if event in {"agent_response", "execution_trace_update"} else logger.debug
         log_method(
             "Broadcast dispatched",
-            event=event,
+            ws_event=event,
             room=room or "__all__",
             targets=len(targets),
             success=success_count,
