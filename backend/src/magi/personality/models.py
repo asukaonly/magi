@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 # Internal note.
 
 class LanguageStyle(Enum):
-    """语言style"""
+    """Language style"""
     CONCISE = "concise"
     VERBOSE = "verbose"
     FORMAL = "formal"
@@ -44,7 +44,7 @@ class ValueAlignment(Enum):
 
 
 class RiskPreference(Enum):
-    """风险preference"""
+    """Risk preference"""
     CONSERVATIVE = "conservative"
     BALANCED = "balanced"
     ADVENTUROUS = "adventurous"
@@ -59,7 +59,7 @@ class ThinkingStyle(Enum):
 
 
 class AmbiguityTolerance(Enum):
-    """模糊容忍度"""
+    """Ambiguity tolerance"""
     IMPATIENT = "impatient"
     CAUTIOUS = "cautious"
     ADAPTIVE = "adaptive"
@@ -69,7 +69,7 @@ class AmbiguityTolerance(Enum):
 
 @dataclass
 class CorePersonality:
-    """corepersonality层 - AI的基本Property"""
+    """Core personality layer"""
     name: str
     role: str
     backstory: str = ""
@@ -90,7 +90,7 @@ class CorePersonality:
 
 @dataclass
 class DomainExpertise:
-    """领域专精"""
+    """Domain expertise"""
     domain: str
     level: float
     confidence: float = 0.5
@@ -98,7 +98,7 @@ class DomainExpertise:
 
 @dataclass
 class CognitionProfile:
-    """认知capability层"""
+    """Cognitive capability layer"""
     primary_style: ThinkingStyle = ThinkingStyle.LOGICAL
     secondary_style: ThinkingStyle = ThinkingStyle.INTUITIVE
     risk_preference: RiskPreference = RiskPreference.BALANCED
@@ -112,7 +112,7 @@ class CognitionProfile:
 
 @dataclass
 class TaskBehaviorProfile:
-    """row为preference层"""
+    """Behavior preference layer"""
     task_category: str
     information_density: str = "medium"
     ambiguity_tolerance: AmbiguityTolerance = AmbiguityTolerance.ADAPTIVE
@@ -124,7 +124,7 @@ class TaskBehaviorProfile:
 
 @dataclass
 class EmotionalState:
-    """emotionState层"""
+    """Emotional state layer"""
     current_mood: str = "neutral"
     mood_intensity: float = 0.5
     energy_level: float = 0.7
@@ -136,7 +136,7 @@ class EmotionalState:
 
 @dataclass
 class GrowthMemory:
-    """growthmemory层"""
+    """Growth memory layer"""
     milestones: List[Dict] = field(default_factory=list)
     total_interactions: int = 0
     interaction_days: int = 0

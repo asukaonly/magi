@@ -1,7 +1,7 @@
 """
-metricmonitorAPIroute
+Metrics Monitoring API Routes
 
-提供系统performance、AgentState等monitormetric
+Provides system performance, agent state, and other monitoring metrics.
 """
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
@@ -19,7 +19,7 @@ metrics_router = APIRouter()
 # ============ data Models ============
 
 class SystemMetrics(BaseModel):
-    """系统metric"""
+    """System metrics"""
 
     cpu_percent: float
     memory_percent: float
@@ -47,21 +47,21 @@ class AgentMetrics(BaseModel):
 @metrics_router.get("/system", response_model=SystemMetrics)
 async def get_system_metrics():
     """
-    get系统metric
+    Get system metrics
 
     Returns:
-        系统metric
+        System metrics
     """
-    # CPU使用率
+    # CPU usage
     cpu_percent = psutil.cpu_percent(interval=0.1)
 
-    # 内存使用率
+    # Memory usage
     memory = psutil.virtual_memory()
     memory_percent = memory.percent
     memory_used = memory.used / (1024**3)  # GB
     memory_total = memory.total / (1024**3)  # GB
 
-    # 磁盘使用率
+    # Disk usage
     disk = psutil.disk_usage('/')
     disk_percent = disk.percent
     disk_used = disk.used / (1024**3)  # GB
@@ -81,13 +81,13 @@ async def get_system_metrics():
 @metrics_router.get("/agents", response_model=List[AgentMetrics])
 async def get_agents_metrics():
     """
-    getallAgent的metric
+    Get all agent metrics
 
     Returns:
-        Agentmetriclist
+        Agent metrics list
     """
-    # TODO: 从实际的Agent Managergetmetric
-    # 这里Return模拟data
+    # TODO: Get metrics from actual Agent Manager
+    # Returning simulated data here
     return [
         {
             "agent_id": "agent_1",
@@ -113,15 +113,15 @@ async def get_agents_metrics():
 @metrics_router.get("/agents/{agent_id}", response_model=AgentMetrics)
 async def get_agent_metrics(agent_id: str):
     """
-    get指定Agent的metric
+    Get metrics for a specific agent
 
     Args:
-        agent_id: Agent id
+        agent_id: Agent ID
 
     Returns:
-        Agentmetric
+        Agent metrics
     """
-    # TODO: 从实际的Agent Managergetmetric
+    # TODO: Get metrics from actual Agent Manager
     return {
         "agent_id": agent_id,
         "agent_name": f"agent-{agent_id}",
@@ -136,12 +136,12 @@ async def get_agent_metrics(agent_id: str):
 @metrics_router.get("/performance")
 async def get_performance_metrics():
     """
-    getperformancemetric
+    Get performance metrics
 
     Returns:
-        performancemetric
+        Performance metrics
     """
-    # TODO: 从monitor系统get实际performancedata
+    # TODO: Get actual performance data from monitoring system
     return {
         "success": True,
         "data": {
@@ -157,16 +157,16 @@ async def get_performance_metrics():
 @metrics_router.get("/health")
 async def get_health_status():
     """
-    get系统健康State
+    Get system health status
 
     Returns:
-        健康State
+        Health status
     """
-    # CPU使用率
+    # CPU usage
     cpu_percent = psutil.cpu_percent(interval=0.1)
     memory = psutil.virtual_memory()
 
-    # 判断健康State
+    # Determine health status
     is_healthy = cpu_percent < 90 and memory.percent < 90
 
     status = "healthy" if is_healthy else "warning"

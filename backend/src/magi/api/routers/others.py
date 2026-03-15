@@ -1,7 +1,7 @@
 """
-他人memoryAPIroute
+Other Person Memory API Routes
 
-提供user画像（他人memory）的query、update、delete等function
+Provides query, update, delete and other functions for user profiles (other person memory).
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 others_router = APIRouter()
 
-# global他人memoryInstance
+# Global other person memory instance
 _other_memory: Optional[OtherMemory] = None
 
 
 def get_other_memory() -> OtherMemory:
-    """get他人memoryInstance"""
+    """Get other person memory instance"""
     global _other_memory
     if _other_memory is None:
         runtime_paths = get_runtime_paths()
@@ -31,14 +31,14 @@ def get_other_memory() -> OtherMemory:
 # ============ data Models ============
 
 class UserProfileResponse(BaseModel):
-    """user画像response"""
+    """User profile response"""
     success: bool
     message: str
     data: Optional[Dict[str, Any]] = None
 
 
 class UserProfileListResponse(BaseModel):
-    """user画像listresponse"""
+    """User profile list response"""
     success: bool
     message: str
     data: Optional[Dict[str, Any]] = None
@@ -49,10 +49,10 @@ class UserProfileListResponse(BaseModel):
 @others_router.get("/list", response_model=UserProfileListResponse)
 async def list_profiles():
     """
-    column出alluser画像
+    List all user profiles
 
     Returns:
-        user画像list
+        User profile list
     """
     try:
         other_memory = get_other_memory()
@@ -62,7 +62,7 @@ async def list_profiles():
 
         return UserProfileListResponse(
             success=True,
-            message=f"Found {len(profiles)} 个user画像",
+            message=f"Found {len(profiles)} user profiles",
             data={
                 "profiles": profiles_data,
                 "count": len(profiles),
@@ -76,13 +76,13 @@ async def list_profiles():
 @others_router.get("/{user_id}", response_model=UserProfileResponse)
 async def get_profile(user_id: str):
     """
-    getuser画像
+    Get user profile
 
     Args:
-        user_id: userid
+        user_id: User ID
 
     Returns:
-        user画像
+        User profile
     """
     try:
         other_memory = get_other_memory()
@@ -91,13 +91,13 @@ async def get_profile(user_id: str):
         if profile is None:
             return UserProfileResponse(
                 success=False,
-                message=f"user {user_id} 的画像not found",
+                message=f"Profile for user {user_id} not found",
                 data=None
             )
 
         return UserProfileResponse(
             success=True,
-            message="getsuccess",
+            message="Retrieved successfully",
             data=profile.to_dict()
         )
     except Exception as e:
@@ -108,24 +108,24 @@ async def get_profile(user_id: str):
 @others_router.post("/{user_id}", response_model=UserProfileResponse)
 async def update_profile(user_id: str, profile_data: Dict[str, Any]):
     """
-    updateuser画像
+    Update user profile
 
     Args:
-        user_id: userid
-        profile_data: 画像data
+        user_id: User ID
+        profile_data: Profile data
 
     Returns:
-        updateResult
+        Update result
     """
     try:
         other_memory = get_other_memory()
         profile = other_memory.get_profile(user_id)
 
         if profile is None:
-            # createnew画像
+            # Create new profile
             profile = OtherProfile(user_id=user_id, **profile_data)
         else:
-            # update现有画像
+            # Update existing profile
             profile_data["user_id"] = user_id
             profile = OtherProfile.from_dict({**profile.to_dict(), **profile_data})
 
@@ -134,7 +134,7 @@ async def update_profile(user_id: str, profile_data: Dict[str, Any]):
         if success:
             return UserProfileResponse(
                 success=True,
-                message="user画像已save",
+                message="User profile saved",
                 data=profile.to_dict()
             )
         else:
@@ -150,10 +150,10 @@ async def update_profile(user_id: str, profile_data: Dict[str, Any]):
 @others_router.delete("/{user_id}", response_model=UserProfileResponse)
 async def delete_profile(user_id: str):
     """
-    deleteuser画像
+    Delete user profile
 
     Args:
-        user_id: userid
+        user_id: User ID
 
     Returns:
         Deletion result
@@ -165,11 +165,11 @@ async def delete_profile(user_id: str):
         if success:
             return UserProfileResponse(
                 success=True,
-                message=f"user {user_id} 的画像deleted",
+                message=f"Profile for user {user_id} deleted",
                 data=None
             )
         else:
-            raise HTTPException(status_code=500, detail="deletefailure")
+            raise HTTPException(status_code=500, detail="Delete failed")
 
     except HTTPException:
         raise
@@ -181,17 +181,17 @@ async def delete_profile(user_id: str):
 @others_router.post("/{user_id}/interaction", response_model=UserProfileResponse)
 async def record_interaction(user_id: str, interaction: Dict[str, Any]):
     """
-    record交互并updateuser画像
+    Record interaction and update user profile
 
     Args:
-        user_id: userid
-        interaction: 交互data
-            - interaction_type: 交互type
-            - outcome: Result（positive/negative/neutral）
-            - notes: note
+        user_id: User ID
+        interaction: Interaction data
+            - interaction_type: Interaction type
+            - outcome: Outcome (positive/negative/neutral)
+            - notes: Notes
 
     Returns:
-        update后的画像
+        Updated profile
     """
     try:
         other_memory = get_other_memory()
@@ -205,7 +205,7 @@ async def record_interaction(user_id: str, interaction: Dict[str, Any]):
 
         return UserProfileResponse(
             success=True,
-            message="交互已record",
+            message="Interaction recorded",
             data=profile.to_dict()
         )
     except Exception as e:

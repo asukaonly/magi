@@ -4,7 +4,7 @@ Internal note.
 Internal note.
 Internal note.
 
-evolutionrule：
+evolution rules:
 Internal note.
 Internal note.
 Internal note.
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Internal note.
 
 class MoodType(Enum):
-    """emotiontype"""
+    """Emotion type"""
     NEUTRAL = "neutral"
     HAPPY = "happy"
     EXCITED = "excited"
@@ -41,22 +41,22 @@ class MoodType(Enum):
 
 
 class InteractionOutcome(Enum):
-    """交互Resulttype"""
-    SUCCESS = "success"              # successcomplete任务
+    """Interaction result type"""
+    SUCCESS = "success"              # Successfully completed task
     PARTIAL_SUCCESS = "partial"      # partsuccess
     FAILURE = "failure"              # failure
-    REJECTED = "rejected"            # 被拒绝
-    ERROR = "error"                  # 发生error
+    REJECTED = "rejected"            # Rejected
+    ERROR = "error"                  # Error occurred
     TIMEOUT = "timeout"              # timeout
 
 
 class EngagementLevel(Enum):
-    """user参与度"""
-    NONE = "none"                    # 无参与
-    LOW = "low"                      # 低参与
-    MEDIUM = "medium"                # 中等参与
-    HIGH = "high"                    # 高参与
-    VERY_HIGH = "very_high"          # 很高参与
+    """User engagement level"""
+    NONE = "none"                    # No engagement
+    LOW = "low"                      # Low
+    MEDIUM = "medium"                # Medium
+    HIGH = "high"                    # High
+    VERY_HIGH = "very_high"          # Very high
 
 
 # ===== evolutionParameter =====
@@ -86,12 +86,12 @@ class EmotionalConfig:
 class Emotionalevent:
     """emotioneventrecord"""
     timestamp: float
-    event_type: str                 # 交互/任务/时间流逝
+    event_type: str                 # interaction/task/time elapsed
     previous_mood: str
     new_mood: str
-    mood_delta: float               # emotion变化量
-    energy_delta: float             # energy变化量
-    stress_delta: float             # stress变化量
+    mood_delta: float               # Mood delta
+    energy_delta: float             # Energy delta
+    stress_delta: float             # Stress delta
     cause: str                      # reasonDescription
 
 
@@ -176,7 +176,7 @@ class EmotionalStateEngine:
         return self._current_state
 
     async def _load_current_state(self) -> None:
-        """从databaseloadcurrentState"""
+        """Load current state from database"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT value FROM emotional_state WHERE key = 'current'"
@@ -308,7 +308,7 @@ class EmotionalStateEngine:
         state.updated_at = time.time()
 
         # Internal note.
-        if duration > 3600:  # 超过1hours
+        if duration > 3600:  # Over 1 hour
             state.energy_level = max(0.0, state.energy_level - 0.1)
             if state.current_mood == MoodType.NEUTRAL.value:
                 state.current_mood = MoodType.TIRED.value
@@ -380,7 +380,7 @@ class EmotionalStateEngine:
         Internal note.
 
         Args:
-            recovery_type: restoretype（rest/sleep/deep_sleep）
+            recovery_type: Recovery type (rest/sleep/deep_sleep)
 
         Returns:
             Internal note.
@@ -430,7 +430,7 @@ class EmotionalStateEngine:
         engagement: EngagementLevel,
         complexity: float
     ) -> float:
-        """calculateemotion变化量"""
+        """Calculate mood delta"""
         # Internal note.
         base_changes = {
             InteractionOutcome.SUCCESS: 0.15,
@@ -460,7 +460,7 @@ class EmotionalStateEngine:
         return base_change * multiplier * complexity_factor
 
     def _calculate_energy_change(self, outcome: InteractionOutcome, complexity: float) -> float:
-        """calculateenergy变化量"""
+        """Calculate energy delta"""
         # Internal note.
         if outcome in [InteractionOutcome.FAILURE, InteractionOutcome.ERROR]:
             return -0.1 * complexity
@@ -469,10 +469,10 @@ class EmotionalStateEngine:
         if outcome == InteractionOutcome.SUCCESS:
             return 0.05 * complexity
 
-        return -0.02 * complexity  # default少量消耗
+        return -0.02 * complexity  # Default: small consumption
 
     def _calculate_stress_change(self, outcome: InteractionOutcome, complexity: float) -> float:
-        """calculatestress变化量"""
+        """Calculate stress delta"""
         # Internal note.
         if outcome == InteractionOutcome.SUCCESS:
             return -0.1 * complexity
@@ -484,7 +484,7 @@ class EmotionalStateEngine:
         return 0.05 * complexity
 
     def _apply_mood_change(self, current_mood: str, change: float) -> str:
-        """应用emotion变化，Returnnewemotion"""
+        """Apply mood change, return new mood"""
         moods = list(MoodType)
 
         # Internal note.
@@ -517,7 +517,7 @@ class EmotionalStateEngine:
         return moods[new_idx].value
 
     def _determine_focus_state(self, state: EmotionalState) -> str:
-        """根据State确定noteState"""
+        """Determine focus state from current state"""
         if state.stress_level > 0.8:
             return "distracted"
         elif state.energy_level > 0.8 and state.stress_level < 0.3:
@@ -525,7 +525,7 @@ class EmotionalStateEngine:
         return "normal"
 
     def _determine_social_state(self, engagement: EngagementLevel, current: str) -> str:
-        """根据参与度确定社交State"""
+        """Determine social state from engagement level"""
         if engagement in [EngagementLevel.HIGH, EngagementLevel.VERY_HIGH]:
             return "engaged"
         elif engagement == EngagementLevel.NONE:
@@ -559,7 +559,7 @@ class EmotionalStateEngine:
     # ===== historyquery =====
 
     async def get_recent_events(self, limit: int = 50) -> List[Emotionalevent]:
-        """get最近的emotionevent"""
+        """Get recent emotional events"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT timestamp, event_type, previous_mood, new_mood,
@@ -589,7 +589,7 @@ class EmotionalStateEngine:
     # ===== reset =====
 
     async def reset(self) -> None:
-        """resetemotionState到初始Value"""
+        """Reset emotional state to initial values"""
         self._current_state = EmotionalState()
         await self._save_current_state()
 

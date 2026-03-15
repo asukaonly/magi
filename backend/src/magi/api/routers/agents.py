@@ -1,7 +1,7 @@
 """
-Agent管理APIroute
+Agent Management API Routes
 
-提供Agent的CRUDoperationand启停控制
+Provides CRUD operations and start/stop controls for agents.
 """
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
@@ -17,7 +17,7 @@ agents_router = APIRouter()
 # ============ data Models ============
 
 class AgentCreateRequest(BaseModel):
-    """createAgentrequest"""
+    """Create agent request"""
 
     name: str = Field(..., description="AgentName")
     agent_type: str = Field(..., description="Agenttype: master/task/worker")
@@ -25,7 +25,7 @@ class AgentCreateRequest(BaseModel):
 
 
 class AgentUpdateRequest(BaseModel):
-    """updateAgentrequest"""
+    """Update agent request"""
 
     name: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
@@ -44,14 +44,14 @@ class AgentResponse(BaseModel):
 
 
 class AgentActionRequest(BaseModel):
-    """Agentoperationrequest"""
+    """Agent action request"""
 
     action: str = Field(..., description="operationtype: start/stop/restart")
 
 
-# ============ 内存storage（开发用） ============
+# ============ In-memory storage (development use) ============
 
-# TODO: replace为实际的Agent Manager
+# TODO: Replace with actual Agent Manager
 _agents_store: Dict[str, Dict] = {}
 
 
@@ -65,16 +65,16 @@ async def list_agents(
     offset: int = 0,
 ):
     """
-    getAgentlist
+    Get agent list
 
     Args:
-        agent_type: filterAgenttype
-        state: filterAgentState
-        limit: Returnquantitylimitation
-        offset: offset量
+        agent_type: Filter by agent type
+        state: Filter by agent state
+        limit: Return count limit
+        offset: Offset
 
     Returns:
-        Agentlist
+        Agent list
     """
     agents = list(_agents_store.values())
 
@@ -84,7 +84,7 @@ async def list_agents(
     if state:
         agents = [a for a in agents if a["state"] == state]
 
-    # 分页
+    # Pagination
     total = len(agents)
     agents = agents[offset:offset + limit]
 
@@ -94,13 +94,13 @@ async def list_agents(
 @agents_router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(agent_id: str):
     """
-    getAgent详情
+    Get agent details
 
     Args:
-        agent_id: Agent id
+        agent_id: Agent ID
 
     Returns:
-        Agent详情
+        Agent details
     """
     if agent_id not in _agents_store:
         raise HTTPException(
@@ -114,13 +114,13 @@ async def get_agent(agent_id: str):
 @agents_router.post("/", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
 async def create_agent(request: AgentCreateRequest):
     """
-    createAgent
+    Create agent
 
     Args:
-        request: createrequest
+        request: Create request
 
     Returns:
-        create的Agent
+        Created agent
     """
     agent_id = f"agent_{len(_agents_store) + 1}"
 
@@ -143,14 +143,14 @@ async def create_agent(request: AgentCreateRequest):
 @agents_router.put("/{agent_id}", response_model=AgentResponse)
 async def update_agent(agent_id: str, request: AgentUpdateRequest):
     """
-    updateAgent
+    Update agent
 
     Args:
-        agent_id: Agent id
-        request: updaterequest
+        agent_id: Agent ID
+        request: Update request
 
     Returns:
-        update后的Agent
+        Updated agent
     """
     if agent_id not in _agents_store:
         raise HTTPException(
@@ -175,10 +175,10 @@ async def update_agent(agent_id: str, request: AgentUpdateRequest):
 @agents_router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_agent(agent_id: str):
     """
-    deleteAgent
+    Delete agent
 
     Args:
-        agent_id: Agent id
+        agent_id: Agent ID
     """
     if agent_id not in _agents_store:
         raise HTTPException(
@@ -193,11 +193,11 @@ async def delete_agent(agent_id: str):
 @agents_router.post("/{agent_id}/action")
 async def agent_action(agent_id: str, request: AgentActionRequest):
     """
-    ExecuteAgentoperation（启动/stop/重启）
+    Execute agent operation (start/stop/restart)
 
     Args:
-        agent_id: Agent id
-        request: operationrequest
+        agent_id: Agent ID
+        request: Action request
 
     Returns:
         operationResult
@@ -265,7 +265,7 @@ async def get_agent_stats(agent_id: str):
             detail=f"Agent {agent_id} not found",
         )
 
-    # TODO: Return实际的statisticsinfo（pending任务数、processcount等）
+    # TODO: Return actual statistics (pending task count, processing count, etc.)
     return {
         "success": True,
         "data": {

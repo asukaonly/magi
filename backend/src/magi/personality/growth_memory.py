@@ -4,7 +4,7 @@ Internal note.
 Internal note.
 Internal note.
 
-evolutionrule：
+evolution rules:
 Internal note.
 Internal note.
 Internal note.
@@ -26,22 +26,22 @@ logger = logging.getLogger(__name__)
 
 class MilestoneType(Enum):
     """milestonetype"""
-    FIRST_USE = "first_use"              # 首次使用某capability
-    strEAK = "streak"                    # 连续工作/交互
-    masterY = "mastery"                  # 掌握某skill
+    FIRST_USE = "first_use"              # First use of a capability
+    strEAK = "streak"                    # Consecutive work/interaction streak
+    masterY = "mastery"                  # Mastered a skill
     relationship = "relationship"        # relationshipmilestone
     ACHIEVEMENT = "achievement"          # achievement
-    PERSONALITY_CHANGE = "personality"   # personality变化
-    SPECIAL = "special"                  # 特殊event
+    PERSONALITY_CHANGE = "personality"   # Personality change
+    SPECIAL = "special"                  # Special event
 
 
 class InteractionType(Enum):
-    """交互type"""
-    CHAT = "chat"                        # 聊days
-    task = "task"                        # 任务
+    """Interaction type"""
+    CHAT = "chat"                        # Chat
+    task = "task"                        # task
     code = "code"                        # code
     ANALYSIS = "analysis"                # analysis
-    CREATIVE = "creative"                # 创意
+    CREATIVE = "creative"                # Creative
     LEARNING = "learning"                # learning
 
 
@@ -60,15 +60,15 @@ class Milestone:
 
 @dataclass
 class RelationshipProfile:
-    """relationship档案"""
+    """Relationship profile"""
     user_id: str
     depth: float                         # relationshipdepth 0-1
-    first_interaction: float             # 首次交互时间
-    last_interaction: float              # 最近交互时间
-    total_interactions: int              # 交互count
-    interaction_types: Dict[str, int]    # 各type交互count
-    sentiment_score: float               # 情感score -1到1
-    trust_level: float                   # trust度 0-1
+    first_interaction: float             # First interaction time
+    last_interaction: float              # Last interaction time
+    total_interactions: int              # Interaction count
+    interaction_types: Dict[str, int]    # Interaction count by type
+    sentiment_score: float               # Sentiment score (-1 to 1)
+    trust_level: float                   # Trust level (0-1)
     notes: List[str] = field(default_factory=list)  # note
 
 
@@ -76,11 +76,11 @@ class RelationshipProfile:
 class PersonalityEvolution:
     """personalityevolutionrecord"""
     timestamp: float
-    aspect: str                          # 变化的方面
+    aspect: str                          # Aspect of change
     previous_value: Any
     new_value: Any
-    confidence: float                    # 置信度 0-1
-    reason: str                          # 变化reason
+    confidence: float                    # Confidence (0-1)
+    reason: str                          # Reason for change
 
 
 # Internal note.
@@ -302,7 +302,7 @@ class GrowthMemoryEngine:
         Args:
             user_id: userid
             Internal note.
-            outcome: Result（success/failure/neutral）
+            outcome: Result (success/failure/neutral)
             Internal note.
             notes: note
 
@@ -336,7 +336,7 @@ class GrowthMemoryEngine:
         profile.interaction_types[type_key] = profile.interaction_types.get(type_key, 0) + 1
 
         # Internal note.
-        alpha = 0.2  # 平滑因子
+        alpha = 0.2  # Smoothing factor
         profile.sentiment_score = (1 - alpha) * profile.sentiment_score + alpha * sentiment
 
         # Internal note.
@@ -616,7 +616,7 @@ class GrowthMemoryEngine:
             return stats
 
     async def _increment_stat(self, key: str, value: Any = 1) -> None:
-        """增加statisticsValue"""
+        """Increment statistic value"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute("SELECT value FROM growth_statistics WHERE key = ?", (key,))
             row = await cursor.fetchone()
@@ -645,7 +645,7 @@ class GrowthMemoryEngine:
             await db.commit()
 
     async def _save_relationship(self, profile: RelationshipProfile) -> None:
-        """saverelationship档案"""
+        """Save relationship profile"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute(
                 """INSERT OR REPLACE intO relationships

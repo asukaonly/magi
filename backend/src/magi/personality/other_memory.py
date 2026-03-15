@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Internal note.
 
 class OtherProfile:
-    """他人画像"""
+    """Other person profile"""
 
     def __init__(
         self,
@@ -30,7 +30,7 @@ class OtherProfile:
         interests: List[str] = None,
         habits: List[str] = None,
         personality_traits: List[str] = None,
-        communication_style: str = "友好",
+        communication_style: str = "friendly",
         relationship_depth: float = 0.0,
         trust_level: float = 0.5,
         first_met: float = None,
@@ -57,7 +57,7 @@ class OtherProfile:
         self.notes = notes
 
     def to_dict(self) -> Dict[str, Any]:
-        """convert为dictionary"""
+        """Convert to dictionary"""
         return {
             "user_id": self.user_id,
             "name": self.name,
@@ -78,36 +78,36 @@ class OtherProfile:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "OtherProfile":
-        """从dictionarycreate"""
+        """Create from dictionary"""
         return cls(**data)
 
 
 # Internal note.
 
 class OtherProfileFormatter:
-    """他人画像 Markdown format化器"""
+    """Other person profile Markdown formatter"""
 
     @staticmethod
     def to_markdown(profile: OtherProfile) -> str:
-        """将画像convert为 Markdown format"""
+        """Convert profile to Markdown format"""
         lines = [
             f"# {profile.name}",
             "",
             f"> userid: `{profile.user_id}`",
-            f"> 昵称: {profile.nickname or '无'}",
+            f"> Nickname: {profile.nickname or 'None'}",
             f"> relationshipdepth: `{profile.relationship_depth:.2f}`",
-            f"> trust度: `{profile.trust_level:.2f}`",
-            f"> 交互count: `{profile.total_interactions}`",
-            f"> 初次见面: `{datetime.fromtimestamp(profile.first_met).strftime('%Y-%m-%d %H:%M')}`",
-            f"> 最近互动: `{datetime.fromtimestamp(profile.last_interacted).strftime('%Y-%m-%d %H:%M')}`",
+            f"> Trust level: `{profile.trust_level:.2f}`",
+            f"> Interaction count: `{profile.total_interactions}`",
+            f"> First met: `{datetime.fromtimestamp(profile.first_met).strftime('%Y-%m-%d %H:%M')}`",
+            f"> Last interaction: `{datetime.fromtimestamp(profile.last_interacted).strftime('%Y-%m-%d %H:%M')}`",
             "",
-            "## 基本info",
+            "## Basic Info",
             "",
-            f"- **姓名**: {profile.name}",
-            f"- **昵称**: {profile.nickname or '无'}",
-            f"- **沟通style**: {profile.communication_style}",
+            f"- **Name**: {profile.name}",
+            f"- **Nickname**: {profile.nickname or 'None'}",
+            f"- **Communication style**: {profile.communication_style}",
             "",
-            "## 兴趣爱好",
+            "## Interests & Hobbies",
             "",
         ]
 
@@ -115,11 +115,11 @@ class OtherProfileFormatter:
             for interest in profile.interests:
                 lines.append(f"- {interest}")
         else:
-            lines.append("*暂无record*")
+            lines.append("*No records yet*")
 
         lines.extend([
             "",
-            "## habit特点",
+            "## Habits & Traits",
             "",
         ])
 
@@ -127,11 +127,11 @@ class OtherProfileFormatter:
             for habit in profile.habits:
                 lines.append(f"- {habit}")
         else:
-            lines.append("*暂无record*")
+            lines.append("*No records yet*")
 
         lines.extend([
             "",
-            "## character特征",
+            "## Character Traits",
             "",
         ])
 
@@ -139,7 +139,7 @@ class OtherProfileFormatter:
             for trait in profile.personality_traits:
                 lines.append(f"- {trait}")
         else:
-            lines.append("*暂无record*")
+            lines.append("*No records yet*")
 
         # preferenceSetting
         if profile.preferences:
@@ -155,13 +155,13 @@ class OtherProfileFormatter:
         if profile.important_events:
             lines.extend([
                 "",
-                "## 重要event",
+                "## Important Events",
                 "",
             ])
-            for event in profile.important_events[-10:]:  # 最近10条
+            for event in profile.important_events[-10:]:  # Last 10 entries
                 timestamp = event.get("timestamp", 0)
-                date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d') if timestamp else "未知"
-                lines.append(f"- **{date_str}**: {event.get('description', event.get('title', '无Description'))}")
+                date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d') if timestamp else "Unknown"
+                lines.append(f"- **{date_str}**: {event.get('description', event.get('title', 'No description'))}")
 
         # note
         if profile.notes:
@@ -176,7 +176,7 @@ class OtherProfileFormatter:
 
     @staticmethod
     def parse_markdown(content: str, user_id: str) -> OtherProfile:
-        """从 Markdown Contentparse画像"""
+        """Parse profile from Markdown content"""
         import re
 
         data = {
@@ -194,13 +194,13 @@ class OtherProfileFormatter:
             data["name"] = name_match.group(1).strip()
 
         # parsemetadata
-        nickname_match = re.search(r'昵称: ([^\n]+)', content)
+        nickname_match = re.search(r'Nickname: ([^\n]+)', content)
         relationship_match = re.search(r'relationshipdepth: `([\d.]+)`', content)
-        trust_match = re.search(r'trust度: `([\d.]+)`', content)
-        interactions_match = re.search(r'交互count: `(\d+)`', content)
-        first_met_match = re.search(r'初次见面: `([\d\-: ]+)`', content)
-        last_interacted_match = re.search(r'最近互动: `([\d\-: ]+)`', content)
-        style_match = re.search(r'\*\*沟通style\*\*: ([^\n]+)', content)
+        trust_match = re.search(r'Trust level: `([\d.]+)`', content)
+        interactions_match = re.search(r'Interaction count: `(\d+)`', content)
+        first_met_match = re.search(r'First met: `([\d\-: ]+)`', content)
+        last_interacted_match = re.search(r'Last interaction: `([\d\-: ]+)`', content)
+        style_match = re.search(r'\*\*Communication style\*\*: ([^\n]+)', content)
 
         if nickname_match:
             data["nickname"] = nickname_match.group(1).strip()
@@ -232,7 +232,7 @@ class OtherProfileFormatter:
 
             if line.startswith('## '):
                 section = line[3:].strip()
-                if '兴趣' in section:
+                if 'Interests' in section:
                     current_section = 'interests'
                 elif 'habit' in section:
                     current_section = 'habits'
@@ -302,7 +302,7 @@ class OtherMemory:
         self.formatter = OtherProfileFormatter()
 
     def _get_profile_path(self, user_id: str) -> Path:
-        """getuser画像filepath"""
+        """Get user profile file path"""
         # Internal note.
         safe_name = user_id.replace("/", "_").replace("\\", "_").replace(":", "_")
         return self.others_dir / f"{safe_name}.md"
@@ -369,7 +369,7 @@ class OtherMemory:
         Args:
             user_id: userid
             Internal note.
-            outcome: Result（positive/negative/neutral）
+            outcome: Result (positive/negative/neutral)
             notes: note
 
         Returns:

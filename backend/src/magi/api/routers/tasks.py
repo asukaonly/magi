@@ -1,7 +1,7 @@
 """
-任务管理APIroute
+Task Management API Routes
 
-提供任务的create、query、重试等function
+Provides task creation, query, retry, and other functions.
 """
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
@@ -17,16 +17,16 @@ tasks_router = APIRouter()
 # ============ data Models ============
 
 class TaskCreateRequest(BaseModel):
-    """create任务request"""
+    """Create task request"""
 
-    type: str = Field(..., description="任务type")
-    data: Dict[str, Any] = Field(default_factory=dict, description="任务data")
-    priority: str = Field(default="normal", description="任务priority: low/normal/high")
-    assignee: Optional[str] = Field(None, description="指定ExecuteAgent id")
+    type: str = Field(..., description="Task type")
+    data: Dict[str, Any] = Field(default_factory=dict, description="Task data")
+    priority: str = Field(default="normal", description="Task priority: low/normal/high")
+    assignee: Optional[str] = Field(None, description="Assigned executor agent ID")
 
 
 class TaskResponse(BaseModel):
-    """任务response"""
+    """Task response"""
 
     id: str
     type: str
@@ -39,12 +39,12 @@ class TaskResponse(BaseModel):
 
 
 class TaskRetryRequest(BaseModel):
-    """重试任务request"""
+    """Retry task request"""
 
-    retry_count: int = Field(default=1, description="重试count")
+    retry_count: int = Field(default=1, description="Retry count")
 
 
-# ============ 内存storage（开发用） ============
+# ============ In-memory storage (development use) ============
 
 _tasks_store: Dict[str, Dict] = {}
 
@@ -60,17 +60,17 @@ async def list_tasks(
     offset: int = 0,
 ):
     """
-    get任务list
+    Get task list
 
     Args:
-        status: filter任务State
-        priority: filter任务priority
-        assignee: filterExecuteAgent
-        limit: Returnquantitylimitation
-        offset: offset量
+        status: Filter by task state
+        priority: Filter by task priority
+        assignee: Filter by executor agent
+        limit: Return count limit
+        offset: Offset
 
     Returns:
-        任务list
+        Task list
     """
     tasks = list(_tasks_store.values())
 
@@ -82,10 +82,10 @@ async def list_tasks(
     if assignee:
         tasks = [t for t in tasks if t["assignee"] == assignee]
 
-    # sort（按created at倒序）
+    # Sort (by creation time, descending)
     tasks.sort(key=lambda x: x["created_at"], reverse=True)
 
-    # 分页
+    # Pagination
     total = len(tasks)
     tasks = tasks[offset:offset + limit]
 
@@ -95,13 +95,13 @@ async def list_tasks(
 @tasks_router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(task_id: str):
     """
-    get任务详情
+    Get task details
 
     Args:
-        task_id: 任务id
+        task_id: Task ID
 
     Returns:
-        任务详情
+        Task details
     """
     if task_id not in _tasks_store:
         raise HTTPException(
@@ -115,13 +115,13 @@ async def get_task(task_id: str):
 @tasks_router.post("/", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(request: TaskCreateRequest):
     """
-    create任务
+    Create task
 
     Args:
-        request: createrequest
+        request: Create request
 
     Returns:
-        create的任务
+        Created task
     """
     task_id = f"task_{len(_tasks_store) + 1}"
 
@@ -145,14 +145,14 @@ async def create_task(request: TaskCreateRequest):
 @tasks_router.post("/{task_id}/retry")
 async def retry_task(task_id: str, request: TaskRetryRequest):
     """
-    重试任务
+    Retry task
 
     Args:
-        task_id: 任务id
-        request: 重试request
+        task_id: Task ID
+        request: Retry request
 
     Returns:
-        重试Result
+        Retry result
     """
     if task_id not in _tasks_store:
         raise HTTPException(
@@ -168,7 +168,7 @@ async def retry_task(task_id: str, request: TaskRetryRequest):
             detail=f"Task {task_id} status is {task['status']}, cannot retry",
         )
 
-    # reset任务State
+    # Reset task state
     task["status"] = "pending"
     task["updated_at"] = datetime.now()
 
@@ -188,10 +188,10 @@ async def retry_task(task_id: str, request: TaskRetryRequest):
 @tasks_router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(task_id: str):
     """
-    delete任务
+    Delete task
 
     Args:
-        task_id: 任务id
+        task_id: Task ID
     """
     if task_id not in _tasks_store:
         raise HTTPException(
@@ -206,10 +206,10 @@ async def delete_task(task_id: str):
 @tasks_router.get("/stats/summary")
 async def get_task_stats():
     """
-    get任务statisticssummary
+    Get task statistics summary
 
     Returns:
-        任务statisticsinfo
+        Task statistics
     """
     total = len(_tasks_store)
     pending = sum(1 for t in _tasks_store.values() if t["status"] == "pending")

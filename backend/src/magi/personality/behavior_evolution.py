@@ -4,7 +4,7 @@ Behavior Evolution Layer (L3) - Behavior Evolution Layer
 Records AI behavior pattern evolution when processing different task types。
 These preferences are formed through user interaction and dynamically adjusted based on user feedback。
 
-evolutionrule：
+evolution rules:
 Internal note.
 Internal note.
 Internal note.
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ===== data Models =====
 
 class SatisfactionLevel(Enum):
-    """usersatisfactiongrade"""
+    """User satisfaction level"""
     VERY_LOW = "very_low"
     LOW = "low"
     NEUTRAL = "neutral"
@@ -36,14 +36,14 @@ class SatisfactionLevel(Enum):
 
 @dataclass
 class TaskInteractionRecord:
-    """任务交互record"""
+    """Task interaction record"""
     task_id: str
     task_category: str
     timestamp: float
     # Internal note.
-    clarification_count: int  # user追问count
-    confirmation_count: int   # user确认count
-    correction_count: int     # user纠正count
+    clarification_count: int  # User follow-up count
+    confirmation_count: int   # User confirmation count
+    correction_count: int     # User correction count
     # Internal note.
     satisfaction: SatisfactionLevel
     # Internal note.
@@ -55,7 +55,7 @@ class TaskInteractionRecord:
 
 @dataclass
 class CategoryStatistics:
-    """Class别statisticsinfo"""
+    """Category statistics"""
     category: str
     total_tasks: int = 0
     accepted_tasks: int = 0
@@ -66,9 +66,9 @@ class CategoryStatistics:
     avg_complexity: float = 0.0
 
     # preferencemetric
-    cautious_score: float = 0.5    # 谨慎度（0-1）
-    impatient_score: float = 0.5   # 急进度（0-1）
-    dense_score: float = 0.5       # info密度preference（0-1）
+    cautious_score: float = 0.5    # Cautiousness (0-1)
+    impatient_score: float = 0.5   # Aggressiveness (0-1)
+    dense_score: float = 0.5       # Information density preference (0-1)
 
 
 # Internal note.
@@ -330,7 +330,7 @@ class BehaviorEvolutionEngine:
         return await self.get_category_statistics(task_category)
 
     async def get_all_categories(self) -> List[str]:
-        """getall任务Class别"""
+        """Get all task categories"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 "SELECT DISTINCT task_category FROM task_interactions order BY task_category"
@@ -341,7 +341,7 @@ class BehaviorEvolutionEngine:
     # ===== internalMethod =====
 
     async def _update_category_statistics(self, task_category: str) -> None:
-        """updateClass别statisticsinfo"""
+        """Update category statistics"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             cursor = await db.execute(
                 """SELECT
@@ -463,9 +463,9 @@ class BehaviorEvolutionEngine:
 
         # Internal note.
         if stats.avg_corrections > 1:
-            proactivity = "proactive"  # user经常纠正，需要更主动
+            proactivity = "proactive"  # User frequently corrects, need to be more proactive
         elif stats.avg_confirmations > 2:
-            proactivity = "passive"  # user经常确认，可以更保守
+            proactivity = "passive"  # User frequently confirms, can be more conservative
         else:
             proactivity = "reactive"
 
@@ -484,7 +484,7 @@ class BehaviorEvolutionEngine:
         )
 
     async def _save_behavior_profile(self, task_category: str, profile: TaskBehaviorProfile) -> None:
-        """saverow为preference"""
+        """Save behavior preferences"""
         # Internal note.
         data = asdict(profile)
         if "ambiguity_tolerance" in data:
@@ -502,7 +502,7 @@ class BehaviorEvolutionEngine:
     # ===== resetandexport =====
 
     async def reset_category(self, task_category: str) -> None:
-        """resetClass别的row为evolution"""
+        """Reset category behavior evolution"""
         async with aiosqlite.connect(self._expanded_db_path) as db:
             await db.execute("delete FROM task_interactions WHERE task_category = ?", (task_category,))
             await db.execute("delete FROM category_statistics WHERE category = ?", (task_category,))

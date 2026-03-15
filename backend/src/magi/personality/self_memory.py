@@ -166,7 +166,7 @@ class SelfMemory:
         task_duration: float = 0.0,
         accepted: bool = True,
     ):
-        """record任务交互Result"""
+        """Record task interaction result"""
         if self.enable_evolution and self._behavior_engine:
             await self._behavior_engine.record_task_outcome(
                 task_id=task_id,
@@ -183,7 +183,7 @@ class SelfMemory:
     # Internal note.
 
     async def get_emotional_state(self) -> EmotionalState:
-        """getcurrentemotionState"""
+        """Get current emotional state"""
         if not self.enable_evolution or self._emotion_engine is None:
             return EmotionalState()
 
@@ -195,7 +195,7 @@ class SelfMemory:
         user_engagement: EngagementLevel = EngagementLevel.MEDIUM,
         complexity: float = 0.5,
     ):
-        """交互后updateemotionState"""
+        """Update emotional state after interaction"""
         if self.enable_evolution and self._emotion_engine:
             await self._emotion_engine.update_after_interaction(
                 outcome=outcome,
@@ -249,7 +249,7 @@ class SelfMemory:
         sentiment: float = 0.0,
         notes: str = ""
     ):
-        """record与user的交互"""
+        """Record interaction with user"""
         if self.enable_evolution and self._growth_engine:
             await self._growth_engine.record_interaction(
                 user_id=user_id,
@@ -260,7 +260,7 @@ class SelfMemory:
             )
 
     async def get_relationship(self, user_id: str) -> Optional[Dict]:
-        """get与user的relationship"""
+        """Get relationship with user"""
         if not self.enable_evolution or self._growth_engine is None:
             return None
 
