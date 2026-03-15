@@ -3,6 +3,7 @@ FastAPI应用主file
 
 createandConfigurationFastAPI应用Instance
 """
+import os
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
@@ -15,27 +16,37 @@ from .websocket import register_websocket
 from ..core.logger import configure_logging, get_logger
 
 logger = get_logger(__name__, category="API")
+_ENV_LOADED_SENTINEL = "MAGI_ENV_LOADED"
 
-# load .env file
-try:
-    from dotenv import load_dotenv
-    # 优先load backend/.env（app.py 位于 backend/src/magi/api）
+
+def _load_env_file_once() -> None:
+    """Load .env once per process and avoid import-time side effects."""
+    if os.getenv(_ENV_LOADED_SENTINEL) == "1":
+        return
+
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        logger.warning("python-dotenv not installed, .env file will not be loaded automatically")
+        return
+
     candidate_paths = [
         Path(__file__).resolve().parents[3] / ".env",  # backend/.env
-        Path.cwd() / ".env",                           # current工作directory
+        Path.cwd() / ".env",
     ]
-    loaded = False
     for env_path in candidate_paths:
         if env_path.exists():
             load_dotenv(env_path, override=False)
-            logger.info(f"Loaded environment variables from {env_path}")
-            loaded = True
-            break
-    if not loaded:
-        load_dotenv(override=False)
-        logger.info("No explicit .env path found, attempted default dotenv lookup")
-except ImportError:
-    logger.warning("python-dotenv not installed, .env file will not be loaded automatically")
+            os.environ[_ENV_LOADED_SENTINEL] = "1"
+            logger.info("Loaded environment variables from .env", path=str(env_path))
+            return
+
+    if load_dotenv(override=False):
+        os.environ[_ENV_LOADED_SENTINEL] = "1"
+        logger.info("Loaded environment variables from implicit dotenv lookup")
+        return
+
+    logger.info("No .env file loaded; proceeding with existing environment variables")
 
 
 def _build_custom_openapi(app: FastAPI):
@@ -89,6 +100,7 @@ def create_app() -> FastAPI:
         log_file=str(log_file),
         json_logs=False,
     )
+    _load_env_file_once()
 
     app = FastAPI(
         title="Magi AI Agent Framework API",

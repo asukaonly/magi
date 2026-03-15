@@ -51,6 +51,11 @@ _llm_usage_store = None
 _scheduler_service: SchedulerService | None = None
 _scheduler_bootstrap: SchedulerBootstrap | None = None
 
+_REQUIRED_RUNTIME_LLM_SCENARIOS = (
+    LLMScenario.CONTEXT_DECIDER.value,
+    LLMScenario.CORE.value,
+)
+
 
 def _get_nested_setting(payload: dict[str, Any], path: str, default: Any) -> Any:
     current: Any = payload
@@ -208,6 +213,19 @@ def _create_core_llm_adapter(llm_pool: ScenarioLLMPool):
     return llm_adapter
 
 
+def _is_llm_selection_pending(config: AppConfig) -> bool:
+    """Whether required runtime LLM selections are still blank (pre-onboarding state)."""
+    for scenario_name in _REQUIRED_RUNTIME_LLM_SCENARIOS:
+        selection = config.llm.selections.get(scenario_name)
+        if selection is None:
+            return True
+        if not str(selection.provider_id or "").strip():
+            return True
+        if not str(selection.model or "").strip():
+            return True
+    return False
+
+
 def refresh_runtime_llm_config(config: AppConfig | None = None) -> None:
     """Refresh cached runtime LLM adapters after configuration changes."""
     global _scenario_llm_pool
@@ -235,11 +253,17 @@ async def initialize_chat_agent():
         _scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
         llm_adapter = _create_core_llm_adapter(_scenario_llm_pool)
     except Exception as exc:
-        logger.warning("=" * 60)
-        logger.warning("LLM runtime configuration is incomplete: %s", exc)
-        logger.warning("Agent runtime will NOT be initialized.")
-        logger.warning("Configure an enabled core provider and model selection to enable AI responses.")
-        logger.warning("=" * 60)
+        if _is_llm_selection_pending(config):
+            logger.info(
+                "LLM runtime initialization deferred: required selections are incomplete "
+                "(context_decider/core provider+model)."
+            )
+        else:
+            logger.warning("=" * 60)
+            logger.warning("LLM runtime configuration is incomplete: %s", exc)
+            logger.warning("Agent runtime will NOT be initialized.")
+            logger.warning("Configure an enabled core provider and model selection to enable AI responses.")
+            logger.warning("=" * 60)
         return
 
     try:

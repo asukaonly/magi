@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
+from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventTypes
 from . import UnifiedMemoryStore
 from .event_contracts import normalize_runtime_event
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 WORKER_AGENT_EVENT_TYPES: Set[str] = {
     "WORKER_AGENT_PROGRESS",

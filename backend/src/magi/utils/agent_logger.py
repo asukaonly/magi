@@ -22,7 +22,7 @@ class AgentFormatter(logging.Formatter):
     def __init__(self):
         super().__init__(
             fmt='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            datefmt='%Y-%m-%d %H:%M:%S%z'
         )
 
 

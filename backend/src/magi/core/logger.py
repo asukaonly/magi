@@ -69,7 +69,7 @@ def configure_logging(
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S%z", utc=False),
         structlog.stdlib.PositionalArgumentsFormatter(),
     ]
 
