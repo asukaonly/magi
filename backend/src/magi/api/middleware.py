@@ -180,13 +180,21 @@ def add_cors_middleware(app):
     """
     Add CORS middleware to the FastAPI application.
 
+    Uses cors_origins from server config. When wildcard "*" is present,
+    credentials are disabled per CORS spec.
+
     Args:
         app: FastAPI application instance
     """
+    config = get_config()
+    origins = getattr(getattr(config, "server", None), "cors_origins", ["*"])
+    # Per CORS spec, allow_credentials cannot be True with wildcard origin
+    allow_creds = "*" not in origins
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # In production, restrict to specific domains
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=allow_creds,
         allow_methods=["*"],
         allow_headers=["*"],
     )

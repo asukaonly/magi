@@ -17,7 +17,7 @@ class MemoryMessageBackend(MessageBusBackend):
 
     Features:
     - Uses asyncio.priorityQueue for priority queue implementation
-    - Fully async event processing, notttn-blocking publisher
+    - Fully async event processing, non-blocking publisher
     - Worker pool for concurrent event processing
     - error isolation: single handler failure does not affect others
 

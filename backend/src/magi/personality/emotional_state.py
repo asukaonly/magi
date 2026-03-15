@@ -29,12 +29,12 @@ logger = logging.getLogger(__name__)
 class MoodType(Enum):
     """emotiontype"""
     NEUTRAL = "neutral"
-    happy = "happy"
+    HAPPY = "happy"
     EXCITED = "excited"
     SATISFIED = "satisfied"
     CURIOUS = "curious"
     TIRED = "tired"
-    strESSED = "stressed"
+    STRESSED = "stressed"
     CONFUSED = "confused"
     FOCUSED = "focused"
     PLAYFUL = "playful"
@@ -44,15 +44,15 @@ class InteractionOutcome(Enum):
     """交互Resulttype"""
     SUCCESS = "success"              # successcomplete任务
     PARTIAL_SUCCESS = "partial"      # partsuccess
-    failURE = "failure"              # failure
-    rejectED = "rejected"            # 被拒绝
-    error = "error"                  # 发生error
-    timeout = "timeout"              # timeout
+    FAILURE = "failure"              # failure
+    REJECTED = "rejected"            # 被拒绝
+    ERROR = "error"                  # 发生error
+    TIMEOUT = "timeout"              # timeout
 
 
 class EngagementLevel(Enum):
     """user参与度"""
-    notttne = "notttne"                    # 无参与
+    NONE = "none"                    # 无参与
     LOW = "low"                      # 低参与
     MEDIUM = "medium"                # 中等参与
     HIGH = "high"                    # 高参与
@@ -402,7 +402,7 @@ class EmotionalStateEngine:
         if state.current_mood in [MoodType.TIRED.value, MoodType.STRESSED.value]:
             state.current_mood = MoodType.NEUTRAL.value
 
-        state.focus_state = "notttrmal"
+        state.focus_state = "normal"
         state.updated_at = time.time()
 
         await self._save_current_state()
@@ -435,17 +435,17 @@ class EmotionalStateEngine:
         base_changes = {
             InteractionOutcome.SUCCESS: 0.15,
             InteractionOutcome.PARTIAL_SUCCESS: 0.05,
-            InteractionOutcome.failURE: -0.1,
-            InteractionOutcome.rejectED: -0.05,
-            InteractionOutcome.error: -0.15,
-            InteractionOutcome.timeout: -0.1,
+            InteractionOutcome.FAILURE: -0.1,
+            InteractionOutcome.REJECTED: -0.05,
+            InteractionOutcome.ERROR: -0.15,
+            InteractionOutcome.TIMEOUT: -0.1,
         }
 
         base_change = base_changes.get(outcome, 0)
 
         # Internal note.
         engagement_multiplier = {
-            EngagementLevel.notttne: 0.5,
+            EngagementLevel.NONE: 0.5,
             EngagementLevel.LOW: 0.8,
             EngagementLevel.MEDIUM: 1.0,
             EngagementLevel.HIGH: 1.2,
@@ -462,7 +462,7 @@ class EmotionalStateEngine:
     def _calculate_energy_change(self, outcome: InteractionOutcome, complexity: float) -> float:
         """calculateenergy变化量"""
         # Internal note.
-        if outcome in [InteractionOutcome.failURE, InteractionOutcome.error]:
+        if outcome in [InteractionOutcome.FAILURE, InteractionOutcome.ERROR]:
             return -0.1 * complexity
 
         # Internal note.
@@ -478,7 +478,7 @@ class EmotionalStateEngine:
             return -0.1 * complexity
 
         # Internal note.
-        if outcome in [InteractionOutcome.failURE, InteractionOutcome.error]:
+        if outcome in [InteractionOutcome.FAILURE, InteractionOutcome.ERROR]:
             return 0.15 * complexity
 
         return 0.05 * complexity
@@ -492,7 +492,7 @@ class EmotionalStateEngine:
             if change > 0.2:
                 return MoodType.EXCITED.value
             elif change > 0.1:
-                return MoodType.happy.value
+                return MoodType.HAPPY.value
             elif change < -0.15:
                 return MoodType.STRESSED.value
             elif change < -0.05:
@@ -522,13 +522,13 @@ class EmotionalStateEngine:
             return "distracted"
         elif state.energy_level > 0.8 and state.stress_level < 0.3:
             return "flow"
-        return "notttrmal"
+        return "normal"
 
     def _determine_social_state(self, engagement: EngagementLevel, current: str) -> str:
         """根据参与度确定社交State"""
         if engagement in [EngagementLevel.HIGH, EngagementLevel.VERY_HIGH]:
             return "engaged"
-        elif engagement == EngagementLevel.notttne:
+        elif engagement == EngagementLevel.NONE:
             return "withdrawn"
         return current if current in ["engaged", "neutral", "withdrawn"] else "neutral"
 

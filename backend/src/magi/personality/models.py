@@ -129,7 +129,7 @@ class EmotionalState:
     mood_intensity: float = 0.5
     energy_level: float = 0.7
     stress_level: float = 0.2
-    focus_state: str = "notttrmal"
+    focus_state: str = "normal"
     social_state: str = "neutral"
     updated_at: float = field(default_factory=time.time)
 

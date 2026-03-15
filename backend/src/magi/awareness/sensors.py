@@ -65,7 +65,7 @@ class UserMessageSensor:
             return None
 
         try:
-            # notttn-blockinggetmessage
+            # non-blocking get message
             message = await asyncio.wait_for(
                 self._queue.get(),
                 timeout=0.1

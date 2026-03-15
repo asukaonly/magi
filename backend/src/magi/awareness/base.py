@@ -21,7 +21,7 @@ class TriggerMode(Enum):
     """触发pattern"""
     POLL = "poll"            # 轮询pattern
     EVENT = "event"          # eventpattern
-    HYBRid = "hybrid"        # 混合pattern
+    HYBRID = "hybrid"        # 混合pattern
 
 
 @dataclass

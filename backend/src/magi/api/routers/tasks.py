@@ -21,7 +21,7 @@ class TaskCreateRequest(BaseModel):
 
     type: str = Field(..., description="任务type")
     data: Dict[str, Any] = Field(default_factory=dict, description="任务data")
-    priority: str = Field(default="notttrmal", description="任务priority: low/notttrmal/high")
+    priority: str = Field(default="normal", description="任务priority: low/normal/high")
     assignee: Optional[str] = Field(None, description="指定ExecuteAgent id")
 
 

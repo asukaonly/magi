@@ -117,6 +117,8 @@ class OpenAIAdapter(LLMAdapter):
             **kwargs
         )
 
+        if not response.choices:
+            return ""
         return response.choices[0].message.content or ""
 
     async def generate_stream(
@@ -182,6 +184,8 @@ class OpenAIAdapter(LLMAdapter):
             **kwargs
         )
 
+        if not response.choices:
+            return ""
         return response.choices[0].message.content or ""
 
     async def chat_stream(

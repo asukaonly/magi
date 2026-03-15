@@ -85,7 +85,7 @@ class LLMProviderBridge:
         event_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
-        Unified notttn-tool chat call with system prompt.
+        Unified non-tool chat call with system prompt.
         """
         response = await self.chat_response(
             system_prompt=system_prompt,

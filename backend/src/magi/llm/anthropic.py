@@ -74,6 +74,8 @@ class AnthropicAdapter(LLMAdapter):
             **kwargs
         )
 
+        if not response.content:
+            return ""
         return response.content[0].text
 
     async def generate_stream(
@@ -135,6 +137,8 @@ class AnthropicAdapter(LLMAdapter):
             **kwargs
         )
 
+        if not response.content:
+            return ""
         return response.content[0].text
 
     async def chat_stream(
