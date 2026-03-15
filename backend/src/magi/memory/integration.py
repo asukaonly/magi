@@ -43,6 +43,7 @@ class MemoryIntegrationConfig:
     subscribed_events: Set[str] = field(
         default_factory=lambda: {
             EventTypes.USER_MESSAGE,
+            EventTypes.AI_RESPONSE,
             EventTypes.ACTION_EXECUTED,
             EventTypes.TASK_COMPLETED,
             EventTypes.TASK_FAILED,

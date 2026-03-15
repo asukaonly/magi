@@ -46,6 +46,7 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
             "WORKER_AGENT_FAILED",
         ):
             self.assertIn(event_type, cfg.subscribed_events)
+        self.assertIn(EventTypes.AI_RESPONSE, cfg.subscribed_events)
 
     async def test_worker_progress_event_is_not_stored_in_l1(self):
         integration = MemoryIntegrationModule(
