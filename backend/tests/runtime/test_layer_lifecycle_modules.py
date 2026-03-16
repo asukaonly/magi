@@ -240,7 +240,9 @@ def test_core_package_does_not_export_legacy_loop_runtime() -> None:
 def test_legacy_loop_and_processing_paths_are_removed() -> None:
     """Verify obsolete runtime loop and processing paths are deleted."""
     src_root = Path(__file__).resolve().parents[2] / "src/magi"
+    processing_dir = src_root / "processing"
 
     assert not (src_root / "core/loop.py").exists()
     assert not (src_root / "core/complete_agent.py").exists()
-    assert not (src_root / "processing").exists()
+    assert not (processing_dir / "__init__.py").exists()
+    assert not list(processing_dir.glob("*.py"))

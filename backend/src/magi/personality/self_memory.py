@@ -212,8 +212,8 @@ class SelfMemory:
             action: Action
             result: Result
         """
-        # Experience storage is notttw primarily handled by the L1-L5 memory system
-        # This method is a compatibility shim for LoopEngine's reflect phase
+        # Experience storage is primarily handled by the current memory system.
+        # This hook remains only for legacy callers that still forward experience tuples.
         logger = logging.getLogger(__name__)
 
         # Extract interaction information if available

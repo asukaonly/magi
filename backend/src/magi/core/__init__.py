@@ -1,10 +1,9 @@
 """
 Agent core module
 
-Contains Agent base class, MasterAgent, TaskAgent, WorkerAgent and other core components.
+Contains current infrastructure-facing core components.
 """
 from .agent import Agent, AgentConfig, AgentState
-from .loop import LoopEngine, LoopStrategy
 from .task_database import (
     TaskDatabase,
     Task,
@@ -18,10 +17,6 @@ __all__ = [
     "Agent",
     "AgentConfig",
     "AgentState",
-
-    # Loop Engine
-    "LoopEngine",
-    "LoopStrategy",
 
     # Task database
     "TaskDatabase",
