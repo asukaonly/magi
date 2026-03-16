@@ -183,7 +183,7 @@ async def _start_explore_task_agent(
         correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
     )
     try:
-        from ....runtime import get_agent_runtime
+        from ....bootstrap import get_agent_runtime
 
         runtime = get_agent_runtime()
         manager = runtime.get_task_agent_manager()

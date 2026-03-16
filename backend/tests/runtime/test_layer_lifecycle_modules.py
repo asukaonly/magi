@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 
@@ -168,3 +170,10 @@ def test_skills_service_access_lives_in_skills() -> None:
 
     assert init_skills_module.__module__ == "magi.skills.service_access"
     assert get_skill_executor.__module__ == "magi.skills.service_access"
+
+
+def test_runtime_package_is_removed() -> None:
+    """Verify the legacy top-level runtime package no longer exposes runtime APIs."""
+    runtime_pkg = importlib.import_module("magi.runtime")
+
+    assert not hasattr(runtime_pkg, "get_agent_runtime")

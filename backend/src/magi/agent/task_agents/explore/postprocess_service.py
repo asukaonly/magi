@@ -53,7 +53,7 @@ class ExplorePostProcessService:
         correlation_id: Optional[str],
     ) -> None:
         try:
-            from ....runtime import get_agent_runtime
+            from ....bootstrap import get_agent_runtime
 
             runtime = get_agent_runtime()
             manager = runtime.get_task_agent_manager()

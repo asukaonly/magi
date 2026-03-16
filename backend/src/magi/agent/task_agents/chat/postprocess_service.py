@@ -273,7 +273,7 @@ class ChatPostProcessService:
             correlation_id=str(payload.get("tool_call_id") or str(uuid.uuid4())),
         )
         try:
-            from ....runtime import get_agent_runtime
+            from ....bootstrap import get_agent_runtime
 
             runtime = get_agent_runtime()
             manager = runtime.get_task_agent_manager()
@@ -349,7 +349,7 @@ class ChatPostProcessService:
         if not user_message and not assistant_message:
             return
         try:
-            from ....runtime import get_agent_runtime
+            from ....bootstrap import get_agent_runtime
 
             runtime = get_agent_runtime()
             sensor_hub = runtime.get_sensor_hub()
