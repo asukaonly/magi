@@ -1,6 +1,7 @@
 """
 structured Logging System - Based on structlog
 """
+from datetime import datetime
 import logging
 import sys
 from typing import Any
@@ -32,6 +33,38 @@ def _format_log_event(logger, method_name, event_dict):
     return f"{timestamp} [{level}] [{logger_name}] {event}{extra_str}"
 
 
+def _add_timestamp_millis(logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+    """Attach local timestamp with millisecond precision."""
+    now = datetime.now().astimezone()
+    event_dict["timestamp"] = (
+        f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{now.microsecond // 1000:03d}{now.strftime('%z')}"
+    )
+    return event_dict
+
+
+def _build_processor_formatter(
+    *,
+    shared_processors: list[Any],
+    json_logs: bool,
+) -> structlog.stdlib.ProcessorFormatter:
+    """Build a formatter that handles both structlog and stdlib logging."""
+    if json_logs:
+        processors = [
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            structlog.processors.JSONRenderer(),
+        ]
+    else:
+        processors = [
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            _format_log_event,
+        ]
+
+    return structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=shared_processors,
+        processors=processors,
+    )
+
+
 def configure_logging(
     level: str = "INFO",
     log_file: str | None = None,
@@ -49,42 +82,37 @@ def configure_logging(
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
 
-    # Configure standard library logging
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=log_level,
-    )
-
-    # Set log levels for noisy libraries
-    logging.getLogger("uvicorn").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
-
-    # Shared processors
     shared_processors = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S%z", utc=False),
+        _add_timestamp_millis,
         structlog.stdlib.PositionalArgumentsFormatter(),
     ]
 
+    root_logger = logging.getLogger()
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+        handler.close()
+    root_logger.setLevel(log_level)
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(log_level)
+    stream_handler.setFormatter(
+        _build_processor_formatter(shared_processors=shared_processors, json_logs=json_logs)
+    )
+    root_logger.addHandler(stream_handler)
+
     if json_logs:
-        # JSON format output (for production environment)
         processors = shared_processors + [
             structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer(),
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ]
     else:
-        # Plain text format (no colors)
         processors = shared_processors + [
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
-            _format_log_event,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ]
 
     structlog.configure(
@@ -102,7 +130,18 @@ def configure_logging(
 
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(log_level)
-        logging.getLogger().addHandler(file_handler)
+        file_handler.setFormatter(
+            _build_processor_formatter(shared_processors=shared_processors, json_logs=json_logs)
+        )
+        root_logger.addHandler(file_handler)
+
+    # Set log levels for noisy libraries
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 
 
 def get_logger(name: str | None = None, category: str | None = None) -> structlog.stdlib.BoundLogger:
