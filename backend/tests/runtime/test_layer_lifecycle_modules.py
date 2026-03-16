@@ -103,13 +103,13 @@ def test_runtime_domain_layers_own_their_lifecycle_modules() -> None:
     from magi.awareness.action_emitter import ActionEmitter
     from magi.awareness.action_scheduler_contrib import ActionSchedulerContrib
     from magi.agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
-    from magi.awareness.lifecycle import SensorHubModule, ActionScheduleRegistrationModule
+    from magi.awareness.lifecycle import SensorsAndActionsModule, ActionScheduleRegistrationModule
     from magi.scheduler.lifecycle import SchedulerModule
     from magi.timeline.lifecycle import TimelineModule, TimelineScheduleRegistrationModule
 
     assert ActionEmitter.__module__ == "magi.awareness.action_emitter"
     assert ActionSchedulerContrib.__module__ == "magi.awareness.action_scheduler_contrib"
-    assert SensorHubModule.__module__ == "magi.awareness.lifecycle"
+    assert SensorsAndActionsModule.__module__ == "magi.awareness.lifecycle"
     assert ActionScheduleRegistrationModule.__module__ == "magi.awareness.lifecycle"
     assert AgentRuntimeModule.__module__ == "magi.agent.lifecycle"
     assert AgentScheduleRegistrationModule.__module__ == "magi.agent.lifecycle"
@@ -218,7 +218,17 @@ def test_awareness_lifecycle_owns_action_runtime_primitives() -> None:
     source = awareness_lifecycle.read_text(encoding="utf-8")
 
     assert "core.runtime.action_executor" not in source
-    assert "core.runtime.action_scheduler_contrib" not in source
+
+
+def test_bootstrap_builder_uses_sensors_and_actions_module_name() -> None:
+    builder_source = (Path(__file__).resolve().parents[2] / "src/magi/bootstrap/builder.py").read_text(encoding="utf-8")
+    awareness_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/lifecycle.py").read_text(encoding="utf-8")
+
+    assert "SensorHubModule" not in builder_source
+    assert "class SensorHubModule" not in awareness_source
+    assert "SensorsAndActionsModule" in builder_source
+    assert "class SensorsAndActionsModule" in awareness_source
+    assert "core.runtime.action_scheduler_contrib" not in awareness_source
 
 
 def test_core_runtime_no_longer_exports_action_executor() -> None:

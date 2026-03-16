@@ -12,7 +12,7 @@ from .action_scheduler_contrib import ActionSchedulerContrib
 logger = get_logger(__name__)
 
 
-class SensorHubModule(LifecycleModule):
+class SensorsAndActionsModule(LifecycleModule):
     """Initialize SensorHub and ActionEmitter (L9 - Sensors/Actuators layer)."""
 
     def __init__(self, context: RuntimeBootstrapContext):
