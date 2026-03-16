@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from magi.agent.task_agents.chat.prompt_service import ChatPromptService
 from magi.personality.models import EmotionalState
@@ -24,7 +24,16 @@ class _FakeMemory:
 
 
 class TestChatPromptServiceMemoryRetrieval(unittest.IsolatedAsyncioTestCase):
-    async def test_build_prompt_context_includes_hybrid_memory_payload(self):
+    async def test_build_prompt_context_uses_context_retrieval_provider(self):
+        retrieval_memory_provider = AsyncMock(
+            return_value={
+                "l0_workbench": [{"summary": "Current goal"}],
+                "l2_entity_cards": [{"entity_id": "user:u1"}],
+                "l3_reflection_memory": [{"summary": "User wants to switch jobs"}],
+                "l4_procedural_memory": [{"skill_name": "browser.open"}],
+                "preference_memory": {},
+            }
+        )
         service = ChatPromptService(
             agent_id="chat-agent",
             agent_type="chat",
@@ -32,54 +41,21 @@ class TestChatPromptServiceMemoryRetrieval(unittest.IsolatedAsyncioTestCase):
             prompt_context_renderer=PromptContextRenderer(),
             memory=_FakeMemory(),
             other_memory=None,
+            retrieval_memory_provider=retrieval_memory_provider,
         )
 
-        detail_payload = type(
-            "Payload",
-            (),
-            {
-                "l0_workbench": [{"summary": "Current goal"}],
-                "l2_entity_cards": [{"entity_id": "user:u1"}],
-                "l3_reflections": [],
-                "l4_procedures": [],
-                "trace": {"query_mode": "detail"},
-            },
-        )()
-        summary_payload = type(
-            "Payload",
-            (),
-            {
-                "l0_workbench": [],
-                "l2_entity_cards": [],
-                "l3_reflections": [{"summary": "User wants to switch jobs"}],
-                "l4_procedures": [],
-                "trace": {"query_mode": "summary"},
-            },
-        )()
-        experience_payload = type(
-            "Payload",
-            (),
-            {
-                "l0_workbench": [],
-                "l2_entity_cards": [],
-                "l3_reflections": [],
-                "l4_procedures": [{"skill_name": "browser.open"}],
-                "trace": {"query_mode": "experience"},
-            },
-        )()
+        context = await service.build_prompt_context(
+            user_id="u1",
+            session_id="s1",
+            task_category="chat",
+            tools=[],
+        )
 
-        with patch("magi.agent.task_agents.chat.prompt_service.get_unified_memory", return_value=object()):
-            with patch("magi.agent.task_agents.chat.prompt_service.HybridRetrievalService") as service_cls:
-                service_cls.return_value.query = AsyncMock(
-                    side_effect=[detail_payload, summary_payload, experience_payload]
-                )
-
-                context = await service.build_prompt_context(
-                    user_id="u1",
-                    session_id="s1",
-                    task_category="chat",
-                    tools=[],
-                )
+        retrieval_memory_provider.assert_awaited_once_with(
+            user_id="u1",
+            session_id="s1",
+            task_category="chat",
+        )
 
         retrieval = context.self_memory.retrieval_memory
         self.assertEqual(retrieval.l0_workbench[0]["summary"], "Current goal")
