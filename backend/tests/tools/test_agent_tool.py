@@ -324,7 +324,7 @@ def test_agent_tool_explore_prompt_uses_backend_profile():
     )
 
     assert "SUBTASK PROFILE: Backend Modules" in prompt
-    assert "Start from backend runtime/bootstrap/app entry files" in prompt
+    assert "Start from backend bootstrap/backend.py and app entry files" in prompt
     assert "Do not drift into frontend structure or docs" in prompt
 
 

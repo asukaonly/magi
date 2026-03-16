@@ -194,11 +194,12 @@ def test_tools_module_does_not_initialize_shared_skills_runtime() -> None:
     assert "init_skills_module" not in source
 
 
-def test_runtime_package_is_removed() -> None:
-    """Verify the legacy top-level runtime package no longer exposes runtime APIs."""
-    runtime_pkg = importlib.import_module("magi.runtime")
+def test_legacy_runtime_package_files_are_removed() -> None:
+    """Verify the obsolete top-level runtime package files are deleted."""
+    src_root = Path(__file__).resolve().parents[2] / "src/magi"
 
-    assert not hasattr(runtime_pkg, "get_agent_runtime")
+    assert not (src_root / "runtime/__init__.py").exists()
+    assert not (src_root / "runtime/bootstrap.py").exists()
 
 
 def test_scheduler_module_does_not_import_domain_contributors() -> None:

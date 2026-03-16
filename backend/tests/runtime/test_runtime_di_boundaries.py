@@ -70,3 +70,20 @@ def test_timeline_handler_does_not_use_plugin_runtime_globals() -> None:
 
     assert "get_plugin_manager" not in source
     assert "get_sensor_registry" not in source
+
+
+def test_bootstrap_and_agent_exports_do_not_keep_chat_runtime_aliases() -> None:
+    bootstrap_source = (BACKEND_SRC / "bootstrap/__init__.py").read_text(encoding="utf-8")
+    backend_source = (BACKEND_SRC / "bootstrap/backend.py").read_text(encoding="utf-8")
+    agent_source = (BACKEND_SRC / "agent/__init__.py").read_text(encoding="utf-8")
+    config_router = (BACKEND_SRC / "api/routers/config.py").read_text(encoding="utf-8")
+
+    assert "initialize_chat_agent" not in bootstrap_source
+    assert "shutdown_chat_agent" not in bootstrap_source
+    assert "get_master_agent" not in bootstrap_source
+    assert "initialize_chat_agent" not in backend_source
+    assert "shutdown_chat_agent" not in backend_source
+    assert "get_master_agent" not in backend_source
+    assert "initialize_chat_agent" not in agent_source
+    assert "shutdown_chat_agent" not in agent_source
+    assert "from ...bootstrap import initialize_chat_agent" not in config_router
