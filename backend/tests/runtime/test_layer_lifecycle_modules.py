@@ -225,3 +225,22 @@ def test_core_runtime_no_longer_exports_action_executor() -> None:
     source = runtime_init.read_text(encoding="utf-8")
 
     assert "ActionExecutor" not in source
+
+
+def test_core_package_does_not_export_legacy_loop_runtime() -> None:
+    """Verify core package no longer exports legacy loop runtime symbols."""
+    core_init = Path(__file__).resolve().parents[2] / "src/magi/core/__init__.py"
+    source = core_init.read_text(encoding="utf-8")
+
+    assert "LoopEngine" not in source
+    assert "LoopStrategy" not in source
+    assert "CompleteAgent" not in source
+
+
+def test_legacy_loop_and_processing_paths_are_removed() -> None:
+    """Verify obsolete runtime loop and processing paths are deleted."""
+    src_root = Path(__file__).resolve().parents[2] / "src/magi"
+
+    assert not (src_root / "core/loop.py").exists()
+    assert not (src_root / "core/complete_agent.py").exists()
+    assert not (src_root / "processing").exists()
