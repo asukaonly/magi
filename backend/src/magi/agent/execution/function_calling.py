@@ -1,5 +1,5 @@
 """
-Function Calling Executor - LLM native function calling support
+Function Calling Orchestrator - LLM native function calling support
 
 Handles tool execution using LLM's native function calling capability:
 1. Builds tools parameter in OpenAI/Claude format
@@ -87,9 +87,9 @@ class ExecutionOutcome:
         }
 
 
-class FunctionCallingExecutor:
+class FunctionCallingOrchestrator:
     """
-    Function Calling Executor
+    Function Calling Orchestrator
 
     Manages tool execution using LLM's native function calling.
     Supports continuous tool calling with multi-turn conversations.
@@ -156,7 +156,7 @@ class FunctionCallingExecutor:
                 self.llm = llm
                 self.provider_bridge = LLMProviderBridge(llm)
         if self.llm is None or self.provider_bridge is None:
-            raise ValueError("FunctionCallingExecutor requires an LLM adapter or llm_pool")
+            raise ValueError("FunctionCallingOrchestrator requires an LLM adapter or llm_pool")
         return self.llm
 
     async def execute_with_tools(

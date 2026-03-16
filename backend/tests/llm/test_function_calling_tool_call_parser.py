@@ -10,7 +10,7 @@ from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import ProviderResponse
 from magi.agent.execution.function_calling_postprocessor import FunctionCallingPostprocessor
 from magi.agent.execution import function_calling as function_calling_module
-from magi.agent.execution.function_calling import FunctionCallingExecutor, ToolCall, ToolCallResult
+from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
 from magi.tools.schema import ToolResult
 
 
@@ -150,7 +150,7 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
             ]
         )
     )
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=llm,
         tool_registry=registry,  # type: ignore[arg-type]
     )
@@ -236,7 +236,7 @@ def test_build_tool_message_payload_keeps_structured_worker_result() -> None:
 @pytest.mark.asyncio
 async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
     registry = _RecordingToolRegistry()
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=registry,  # type: ignore[arg-type]
     )
@@ -283,7 +283,7 @@ async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
 @pytest.mark.asyncio
 async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_tool_calls() -> None:
     registry = _RecordingToolRegistry()
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=registry,  # type: ignore[arg-type]
     )
@@ -366,7 +366,7 @@ def test_build_tool_message_payload_compacts_agent_run_state() -> None:
 
 
 def test_compact_message_history_preserves_protocol_for_multi_tool_blocks() -> None:
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
     )
@@ -444,7 +444,7 @@ def test_compact_message_history_preserves_protocol_for_multi_tool_blocks() -> N
 
 
 def test_build_final_response_system_prompt_removes_tool_guidance() -> None:
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
     )
@@ -471,7 +471,7 @@ def test_build_final_response_system_prompt_removes_tool_guidance() -> None:
 @pytest.mark.asyncio
 async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
     registry = _RecordingToolRegistry()
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=registry,  # type: ignore[arg-type]
     )
@@ -534,7 +534,7 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
             ],
         }
     )
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=registry,  # type: ignore[arg-type]
     )
@@ -613,7 +613,7 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
             ]
         }
     )
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=registry,  # type: ignore[arg-type]
     )
@@ -660,7 +660,7 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
 
 @pytest.mark.asyncio
 async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
     )
@@ -700,7 +700,7 @@ async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest
 
 @pytest.mark.asyncio
 async def test_call_llm_without_tools_forwards_json_mode_and_timeout() -> None:
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
     )
@@ -728,7 +728,7 @@ async def test_call_llm_without_tools_forwards_json_mode_and_timeout() -> None:
 
 @pytest.mark.asyncio
 async def test_call_llm_with_tools_uses_extended_timeout_when_thinking_enabled() -> None:
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
     )

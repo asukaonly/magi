@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from ...agent.orchestration import WorkerEvidence, WorkerFinding, WorkerResult, get_orchestration_store
 from ...core.logger import get_logger
 from ...events.events import Event, EventLevel
-from ...agent.execution.function_calling import FunctionCallingExecutor
+from ...agent.execution.function_calling import FunctionCallingOrchestrator
 from ...tools.registry import ToolRegistry, tool_registry
 from ...tools.schema import (
     ParameterType,
@@ -545,7 +545,7 @@ class WorkerAgentManager(Tool):
         )
 
         try:
-            executor = FunctionCallingExecutor(
+            executor = FunctionCallingOrchestrator(
                 llm_adapter=self._llm_adapter,
                 tool_registry=self._tool_registry,
                 skill_executor=None,

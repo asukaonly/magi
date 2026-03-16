@@ -14,7 +14,7 @@ from ...context import ContextRetrievalService, PromptContextAssembler, PromptCo
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry
 from ...utils.runtime import get_runtime_paths
-from ..execution.function_calling import FunctionCallingExecutor
+from ..execution.function_calling import FunctionCallingOrchestrator
 from .chat import (
     ChatExecutionCoordinator,
     ChatFactClassifier,
@@ -129,7 +129,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             max_fact_memory=self._max_fact_memory,
             trace_read_service=trace_read_service,
         )
-        self.function_calling_executor = FunctionCallingExecutor(
+        self.function_calling_executor = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
             tool_registry=tool_registry,

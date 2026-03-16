@@ -21,7 +21,7 @@ from ..llm.provider_bridge import LLMProviderBridge
 from ..config.constants import DEFAULT_SKILL_MAX_TOKENS
 
 if TYPE_CHECKING:
-    from ..agent.execution.function_calling import FunctionCallingExecutor
+    from ..agent.execution.function_calling import FunctionCallingOrchestrator
     from ..tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -33,10 +33,10 @@ def _get_tool_registry():
     return tool_registry
 
 
-def _get_function_calling_executor(llm_adapter, tool_registry, skill_executor, tool_result_callback):
+def _get_function_calling_orchestrator(llm_adapter, tool_registry, skill_executor, tool_result_callback):
     """Lazy import to avoid circular dependency."""
-    from ..agent.execution.function_calling import FunctionCallingExecutor
-    return FunctionCallingExecutor(
+    from ..agent.execution.function_calling import FunctionCallingOrchestrator
+    return FunctionCallingOrchestrator(
         llm_adapter=llm_adapter,
         tool_registry=tool_registry,
         skill_executor=skill_executor,
@@ -220,7 +220,7 @@ class SkillSubagent:
         # Lazy init function calling executor
         if self._function_calling_executor is None:
             registry = _get_tool_registry()
-            self._function_calling_executor = _get_function_calling_executor(
+            self._function_calling_executor = _get_function_calling_orchestrator(
                 llm_adapter=self.llm,
                 tool_registry=registry,
                 skill_executor=None,

@@ -32,7 +32,7 @@ class _FakeToolRegistry:
         return ["glob", "grep", "file_read", "bash", "web-search", "agent"]
 
 
-class _FakeFunctionCallingExecutor:
+class _FakeFunctionCallingOrchestrator:
     def __init__(self, llm_adapter, tool_registry, skill_executor=None, tool_result_callback=None):
         self._tool_result_callback = tool_result_callback
 
@@ -107,7 +107,7 @@ class _FakeFunctionCallingExecutor:
 async def test_agent_tool_launch_foreground(monkeypatch):
     from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _FakeFunctionCallingExecutor)
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -146,7 +146,7 @@ async def test_agent_tool_launch_foreground(monkeypatch):
 async def test_agent_tool_background_then_await(monkeypatch):
     from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _FakeFunctionCallingExecutor)
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -202,7 +202,7 @@ async def test_agent_tool_background_then_await(monkeypatch):
 async def test_agent_tool_batch_workers(monkeypatch):
     from magi.agent.workers import worker_manager as worker_manager_module
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _FakeFunctionCallingExecutor)
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -419,7 +419,7 @@ async def test_empty_worker_result_is_marked_failed(monkeypatch):
                 iterations=2,
             )
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _EmptyExecutor)
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _EmptyExecutor)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -465,7 +465,7 @@ async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
                 iterations=1,
             )
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _InvalidJsonExecutor)
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _InvalidJsonExecutor)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
@@ -522,7 +522,7 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
                 iterations=1,
             )
 
-    monkeypatch.setattr(worker_manager_module, "FunctionCallingExecutor", _StructuredFailureExecutor)
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _StructuredFailureExecutor)
     tool = AgentTool()
     tool.configure(llm_adapter=_FakeLLMAdapter(), tool_registry_instance=_FakeToolRegistry())
 
