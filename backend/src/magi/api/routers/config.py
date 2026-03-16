@@ -78,7 +78,6 @@ class LoopConfigModel(BaseModel):
 
 
 class MessageBusConfigModel(BaseModel):
-    backend: str = Field(default="sqlite")
     max_size: Optional[int] = Field(default=1000)
 
 
@@ -698,7 +697,6 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             interval=float(raw.get("loop", {}).get("interval", runtime_config.agent.loop_interval)),
         ),
         message_bus=MessageBusConfigModel(
-            backend=runtime_config.agent.message_bus.backend.value,
             max_size=runtime_config.agent.message_bus.max_queue_size,
         ),
         memory=_build_memory_config(raw, runtime_config),
@@ -824,7 +822,6 @@ def _build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "loop.strategy": config.loop.strategy,
         "loop.interval": config.loop.interval,
         "agent.loop_interval": config.loop.interval,
-        "agent.message_bus.backend": config.message_bus.backend,
         "agent.message_bus.max_queue_size": config.message_bus.max_size,
         "memory.backend": config.memory.backend,
         "agent.memory.db_path": config.memory.path,

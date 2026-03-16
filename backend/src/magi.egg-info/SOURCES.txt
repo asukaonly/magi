@@ -122,11 +122,9 @@ src/magi/core/maintenance.py
 src/magi/core/runtime_bindings.py
 src/magi/events/__init__.py
 src/magi/events/backend.py
-src/magi/events/enhanced_backend.py
 src/magi/events/events.py
 src/magi/events/lifecycle.py
 src/magi/events/memory_backend.py
-src/magi/events/service_access.py
 src/magi/events/sqlite_backend.py
 src/magi/llm/__init__.py
 src/magi/llm/anthropic.py

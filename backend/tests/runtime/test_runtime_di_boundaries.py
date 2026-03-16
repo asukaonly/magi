@@ -23,10 +23,7 @@ def test_bootstrap_package_no_longer_exports_runtime_getters() -> None:
 
 
 def test_events_service_access_has_no_global_fallback() -> None:
-    source = (BACKEND_SRC / "events/service_access.py").read_text(encoding="utf-8")
-
-    assert "_message_bus: Any = None" not in source
-    assert "def set_message_bus" not in source
+    assert not (BACKEND_SRC / "events/service_access.py").exists()
 
 
 def test_skills_service_access_has_no_module_level_runtime_globals() -> None:
@@ -43,6 +40,10 @@ def test_skills_service_access_has_no_module_level_runtime_globals() -> None:
 
 def test_scheduler_runtime_shim_is_removed() -> None:
     assert not (BACKEND_SRC / "scheduler/runtime.py").exists()
+
+
+def test_events_package_does_not_keep_unused_enhanced_backend_variant() -> None:
+    assert not (BACKEND_SRC / "events/enhanced_backend.py").exists()
 
 
 def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None:
@@ -248,3 +249,15 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "sensor_hub" in awareness_lifecycle
     assert "agent.runtime" in bootstrap_context
     assert "class ActionEmissionRecord" in awareness_contracts
+
+
+def test_config_models_do_not_expose_message_bus_backend_selection() -> None:
+    config_models = (BACKEND_SRC / "config/models.py").read_text(encoding="utf-8")
+    config_router = (BACKEND_SRC / "api/routers/config.py").read_text(encoding="utf-8")
+    config_example = BACKEND_SRC.parents[1] / "configs/config.example.yaml"
+    config_example_source = config_example.read_text(encoding="utf-8")
+
+    assert "class MessageBusBackend" not in config_models
+    assert "agent.message_bus.backend" not in config_router
+    assert "class MessageBusConfigModel(BaseModel):\n    backend:" not in config_router
+    assert "backend: \"sqlite\"" not in config_example_source

@@ -134,25 +134,3 @@ class EventTypes:
     USER_MESSAGE = "UserMessage"
     AI_RESPONSE = "AIResponse"
     LLM_CALL_COMPLETED = "LLMCallCompleted"
-
-
-# Business event type constants (used by L1 layer storage)
-class BusinessEventTypes:
-    """
-    Business event type constants
-
-    These are filtered and transformed business events
-    used for L1 layer storage, focusing on user behavior analysis.
-    """
-
-    # User input event (from USER_MESSAGE)
-    USER_INPUT = "USER_INPUT"
-
-    # AI response event (from ACTION_EXECUTED, when action_type=ChatResponseAction)
-    AI_RESPONSE = "AI_RESPONSE"
-
-    # Tool invocation event (from ACTION_EXECUTED, when action_type is a tool call)
-    TOOL_INVOKED = "TOOL_INVOKED"
-
-    # System error event (only records critical errors, level >= ERROR)
-    SYSTEM_ERROR = "SYSTEM_ERROR"

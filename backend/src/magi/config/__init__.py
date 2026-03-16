@@ -62,7 +62,6 @@ from .models import (
 
     # Message bus configuration
     MessageBusSettings,
-    MessageBusBackend,
 
     # Tool settings
     WeatherToolSettings,
@@ -136,7 +135,6 @@ __all__ = [
     "EmbeddingSettings",
     "EmbeddingBackend",
     "MessageBusSettings",
-    "MessageBusBackend",
     "WeatherToolSettings",
     "WebSearchToolSettings",
     "PersonalitySettings",

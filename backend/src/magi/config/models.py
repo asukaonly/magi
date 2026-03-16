@@ -40,13 +40,6 @@ class LLMLimitsSettings(BaseModel):
     max_output_tokens: Optional[int] = Field(default=None, ge=1)
 
 
-class MessageBusBackend(str, Enum):
-    """Message bus backend type."""
-    MEMORY = "memory"
-    SQLITE = "sqlite"
-    REDIS = "redis"
-
-
 class MemoryBackend(str, Enum):
     """Memory storage backend type."""
     MEMORY = "memory"
@@ -222,7 +215,6 @@ class PersonalitySettings(BaseModel):
 
 class MessageBusSettings(BaseModel):
     """Message bus configuration."""
-    backend: MessageBusBackend = Field(default=MessageBusBackend.SQLITE)
     max_queue_size: int = Field(default=1000, ge=1)
     num_workers: int = Field(default=4, ge=1)
     db_path: str = Field(default="~/.magi/data/message_queue.db")

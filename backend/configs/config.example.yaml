@@ -48,7 +48,6 @@ agent:
     enable_evolution: true
 
   message_bus:
-    backend: "sqlite"
     max_queue_size: 1000
     num_workers: 4
     db_path: "~/.magi/data/message_queue.db"
