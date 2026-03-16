@@ -1,5 +1,6 @@
 """Connection and transport layer exports."""
 
+from .bridge_lifecycle import WebSocketBridgeLifecycleModule
 from .connection_manager import (
     ConnectionManager,
     broadcast_agent_update,
@@ -9,6 +10,7 @@ from .connection_manager import (
     manager,
 )
 from .handlers import MessageHandlerRegistry, WebSocketContext, handler_registry
+from .http_app import create_transport_app
 from .router import register_websocket, websocket_endpoint
 
 __all__ = [
@@ -21,6 +23,8 @@ __all__ = [
     "MessageHandlerRegistry",
     "WebSocketContext",
     "handler_registry",
+    "WebSocketBridgeLifecycleModule",
+    "create_transport_app",
     "register_websocket",
     "websocket_endpoint",
 ]
