@@ -17,6 +17,7 @@ def test_runtime_bootstrap_context_exposes_layer_slices() -> None:
     assert hasattr(context, "core")
     assert hasattr(context, "llm")
     assert hasattr(context, "memory")
+    assert hasattr(context, "skills")
     assert hasattr(context, "agent_runtime")
     assert hasattr(context, "scheduler")
 
@@ -80,8 +81,8 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
 
     modules = build_runtime_modules(RuntimeBootstrapContext())
 
-    # Check that modules 0-9 match expected order
-    assert [module.name for module in modules[:10]] == [
+    # Check that modules 0-10 match expected order
+    assert [module.name for module in modules[:11]] == [
         "runtime_core_dependencies",
         "runtime_configuration",
         "runtime_message_bus",
@@ -89,6 +90,7 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
         "runtime_llm",
         "runtime_memory",
         "runtime_tools",
+        "runtime_skills",
         "runtime_personality",
         "runtime_sensor_executor",
         "runtime_context",
@@ -126,6 +128,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_llm",
         "runtime_memory",
         "runtime_tools",
+        "runtime_skills",
         "runtime_personality",
         "runtime_sensor_executor",
         "runtime_context",
@@ -177,6 +180,14 @@ def test_skills_service_access_lives_in_skills() -> None:
 
     assert init_skills_module.__module__ == "magi.skills.service_access"
     assert get_skill_executor.__module__ == "magi.skills.service_access"
+
+
+def test_tools_module_does_not_initialize_shared_skills_runtime() -> None:
+    """Verify tools lifecycle does not own shared skills initialization."""
+    tools_lifecycle = Path(__file__).resolve().parents[2] / "src/magi/tools/lifecycle.py"
+    source = tools_lifecycle.read_text(encoding="utf-8")
+
+    assert "init_skills_module" not in source
 
 
 def test_runtime_package_is_removed() -> None:
