@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.config import AppConfig
+from magi.timeline import TimelineContentBlock, TimelineEvent
 from magi.timeline.handler import build_timeline_handler
 
 
@@ -24,10 +25,59 @@ class _FakeUnifiedMemory:
         self.edges.append(kwargs)
 
 
+class _FakeChatSensor:
+    async def build_timeline_event(self, payload):  # type: ignore[no-untyped-def]
+        turn_id = str(payload["turn_id"])
+        return TimelineEvent(
+            event_id=f"chat:{turn_id}",
+            source_type="chat",
+            source_item_id=turn_id,
+            occurred_at=float(payload["timestamp"]),
+            captured_at=float(payload["timestamp"]),
+            title="Chat Turn",
+            summary=str(payload["message"]),
+            retention_mode="analyze_only",
+            content_blocks=[
+                TimelineContentBlock(kind="text", value=f"User: {payload['message']}"),
+                TimelineContentBlock(kind="text", value=f"Assistant: {payload['assistant_message']}"),
+            ],
+            processing_status={"stored": True},
+            provenance={"session_id": str(payload.get("session_id") or "")},
+            tags=["chat"],
+        )
+
+    async def extract_candidates(self, payload):  # type: ignore[no-untyped-def]
+        return {
+            "entities": [],
+            "tags": ["chat"],
+            "relation_candidates": list(payload.get("relation_candidates", [])),
+        }
+
+
+class _FakeSensorRegistry:
+    def resolve_domain_sensor(self, domain: str, source_type: str):
+        if domain != "timeline" or source_type != "chat":
+            return None
+        spec = type("Spec", (), {"metadata": {"default_settings": {"enabled": True, "edge_whitelist": []}}})()
+        return ("core-timeline", "timeline.chat", _FakeChatSensor(), spec)
+
+
+class _FakePluginManager:
+    def get_package(self, plugin_id: str):
+        if plugin_id != "core-timeline":
+            return None
+        return type("Package", (), {"current_settings": {"sensors": {"chat": {"enabled": True}}}})()
+
+
 @pytest.mark.asyncio
 async def test_runtime_timeline_handler_persists_chat_turn_and_user_graph_edges() -> None:
     memory = _FakeUnifiedMemory()
-    handler = build_timeline_handler(AppConfig(), memory)
+    handler = build_timeline_handler(
+        AppConfig(),
+        memory,
+        sensor_registry=_FakeSensorRegistry(),
+        plugin_manager=_FakePluginManager(),
+    )
 
     result = await handler(
         {

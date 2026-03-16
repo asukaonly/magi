@@ -63,3 +63,10 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "core.runtime_bindings" in timeline_router
     assert "core.runtime_bindings" in websocket_handlers
     assert "core.runtime_bindings" in memory_query_tool
+
+
+def test_timeline_handler_does_not_use_plugin_runtime_globals() -> None:
+    source = (BACKEND_SRC / "timeline/handler.py").read_text(encoding="utf-8")
+
+    assert "get_plugin_manager" not in source
+    assert "get_sensor_registry" not in source
