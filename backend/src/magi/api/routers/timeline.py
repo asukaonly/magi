@@ -7,8 +7,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ...config import get_config
-from ...core.runtime_bindings import require_scheduler_service, require_unified_memory
-from ...plugins import get_plugin_manager, get_sensor_registry
+from ...core.runtime_bindings import (
+    require_plugin_manager,
+    require_scheduler_service,
+    require_sensor_registry,
+    require_unified_memory,
+)
 from ...scheduler import (
     ScheduledTargetType,
 )
@@ -123,8 +127,8 @@ async def create_manual_entry(request: TimelineManualEntryRequest):
 async def get_timeline_source_status():
     get_config()
     runtime_paths = get_runtime_paths()
-    manager = get_plugin_manager()
-    sensor_registry = get_sensor_registry()
+    manager = require_plugin_manager()
+    sensor_registry = require_sensor_registry()
     try:
         scheduler_service = require_scheduler_service()
     except RuntimeError:
@@ -266,7 +270,7 @@ async def get_timeline_source_status():
 @timeline_router.post("/sources/{source_name}/sync")
 async def trigger_timeline_source_sync(source_name: str):
     _ = get_config()
-    sensor_registry = get_sensor_registry()
+    sensor_registry = require_sensor_registry()
     resolved = sensor_registry.resolve_domain_sensor("timeline", source_name)
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline source not found")

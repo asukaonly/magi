@@ -6,7 +6,6 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..config import get_config
 from ..core.logger import get_logger
-from ..plugins import get_plugin_manager, get_sensor_registry
 from .service import TimelineService
 from .scheduler_contrib import TimelineSchedulerContrib, set_timeline_scheduler_contrib
 
@@ -48,10 +47,12 @@ class TimelineScheduleRegistrationModule(LifecycleModule):
         scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
         timeline_service = require_initialized(self._context.timeline.timeline_service, "timeline service")
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+        sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
+        plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
         self._contrib = TimelineSchedulerContrib(
             scheduler_service=scheduler_service,
-            sensor_registry=get_sensor_registry(),
-            plugin_manager=get_plugin_manager(),
+            sensor_registry=sensor_registry,
+            plugin_manager=plugin_manager,
             timeline_service=timeline_service,
             runtime_paths=runtime_paths,
             get_config=get_config,

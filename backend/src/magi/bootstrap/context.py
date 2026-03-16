@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from ..events.sqlite_backend import SQLiteMessageBackend
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
+    from ..plugins import PluginManager, SensorRegistry
     from ..personality.self_memory import SelfMemory
     from ..personality.other_memory import OtherMemory
     from ..context.scenario_prompts import ScenarioPromptsStore
@@ -65,6 +66,14 @@ class MessageBusBootstrapState:
     """L3 Message Bus state slice."""
 
     message_bus: SQLiteMessageBackend | None = None
+
+
+@dataclass
+class PluginBootstrapState:
+    """L4 Plugin runtime state slice."""
+
+    plugin_manager: PluginManager | None = None
+    sensor_registry: SensorRegistry | None = None
 
 
 @dataclass
@@ -140,6 +149,7 @@ class RuntimeBootstrapContext:
 
     core: CoreBootstrapState = field(default_factory=CoreBootstrapState)
     message_bus: MessageBusBootstrapState = field(default_factory=MessageBusBootstrapState)
+    plugins: PluginBootstrapState = field(default_factory=PluginBootstrapState)
     llm: LLMBootstrapState = field(default_factory=LLMBootstrapState)
     memory: MemoryBootstrapState = field(default_factory=MemoryBootstrapState)
     skills: SkillsBootstrapState = field(default_factory=SkillsBootstrapState)

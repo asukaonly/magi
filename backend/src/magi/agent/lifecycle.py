@@ -25,6 +25,7 @@ class AgentRuntimeModule(LifecycleModule):
                 "runtime_memory",
                 "runtime_skills",
                 "runtime_llm",
+                "runtime_plugin_system",
                 "runtime_configuration",
             ),
         )
@@ -41,6 +42,8 @@ class AgentRuntimeModule(LifecycleModule):
         scenario_prompts_store = require_initialized(self._context.context.scenario_prompts_store, "scenario prompts store")
         sensor_hub = require_initialized(self._context.agent_runtime.sensor_hub, "sensor hub")
         action_emitter = require_initialized(self._context.agent_runtime.action_emitter, "action emitter")
+        plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
+        sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
 
         task_agent_manager = TaskAgentManager(
             create_chat_agent=create_chat_agent_factory(
@@ -59,6 +62,8 @@ class AgentRuntimeModule(LifecycleModule):
                 llm_pool=llm_pool,
                 config=config,
                 unified_memory=unified_memory,
+                plugin_manager=plugin_manager,
+                sensor_registry=sensor_registry,
             ),
             idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
             max_dynamic_instances=config.agent.runtime.task_agent_manager_max_dynamic_instances,

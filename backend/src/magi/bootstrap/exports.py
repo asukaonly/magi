@@ -22,6 +22,7 @@ class RuntimeExportsModule(LifecycleModule):
                 "runtime_agent_core",
                 "runtime_memory",
                 "runtime_message_bus",
+                "runtime_plugin_system",
                 "runtime_scheduler",
                 "runtime_llm",
             ),
@@ -34,6 +35,8 @@ class RuntimeExportsModule(LifecycleModule):
         memory_integration = require_initialized(self._context.memory.memory_integration, "memory integration")
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
         other_memory = require_initialized(self._context.personality.other_memory, "other memory")
+        plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
+        sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
 
         container = get_container()
         container.message_bus.override(providers.Object(message_bus))
@@ -41,6 +44,8 @@ class RuntimeExportsModule(LifecycleModule):
         container.memory_integration.override(providers.Object(memory_integration))
         container.unified_memory.override(providers.Object(unified_memory))
         container.other_memory.override(providers.Object(other_memory))
+        container.plugin_manager.override(providers.Object(plugin_manager))
+        container.sensor_registry.override(providers.Object(sensor_registry))
 
         if self._context.scheduler.scheduler_service is not None:
             container.scheduler_service.override(providers.Object(self._context.scheduler.scheduler_service))
@@ -70,6 +75,8 @@ class RuntimeExportsModule(LifecycleModule):
         container.scheduler_service.reset_override()
         container.scenario_llm_pool.reset_override()
         container.other_memory.reset_override()
+        container.plugin_manager.reset_override()
+        container.sensor_registry.reset_override()
         container.skill_indexer.reset_override()
         container.skill_loader.reset_override()
         container.skill_executor.reset_override()

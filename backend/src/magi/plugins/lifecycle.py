@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext
 from ..core.logger import get_logger
-from . import initialize_plugin_manager
+from . import get_sensor_registry, initialize_plugin_manager
 
 logger = get_logger(__name__)
 
@@ -21,4 +21,9 @@ class PluginSystemModule(LifecycleModule):
         self._context = context
 
     async def init(self) -> None:
-        initialize_plugin_manager(force=True)
+        self._context.plugins.plugin_manager = initialize_plugin_manager(force=True)
+        self._context.plugins.sensor_registry = get_sensor_registry()
+
+    async def shutdown(self) -> None:
+        self._context.plugins.plugin_manager = None
+        self._context.plugins.sensor_registry = None

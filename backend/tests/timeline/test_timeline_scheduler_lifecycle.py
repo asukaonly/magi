@@ -155,14 +155,10 @@ async def test_timeline_schedule_registration_module_registers_handler_and_syncs
 
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
+    context.plugins.sensor_registry = _build_sensor_registry()
+    context.plugins.plugin_manager = _FakePluginManager()
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
-
-    sensor_registry = _build_sensor_registry()
-    plugin_manager = _FakePluginManager()
-
-    monkeypatch.setattr("magi.timeline.lifecycle.get_sensor_registry", lambda: sensor_registry)
-    monkeypatch.setattr("magi.timeline.lifecycle.get_plugin_manager", lambda: plugin_manager)
     monkeypatch.setattr(
         "magi.timeline.lifecycle.get_config",
         lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),
@@ -190,11 +186,10 @@ async def test_timeline_schedule_registration_module_supports_manual_sync(monkey
 
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
+    context.plugins.sensor_registry = _build_sensor_registry()
+    context.plugins.plugin_manager = _FakePluginManager()
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
-
-    monkeypatch.setattr("magi.timeline.lifecycle.get_sensor_registry", _build_sensor_registry)
-    monkeypatch.setattr("magi.timeline.lifecycle.get_plugin_manager", _FakePluginManager)
     monkeypatch.setattr(
         "magi.timeline.lifecycle.get_config",
         lambda: type("Config", (), {"timeline": type("Timeline", (), {"enabled": True})()})(),

@@ -141,12 +141,12 @@ def _build_client(monkeypatch):
     )()
     monkeypatch.setattr(
         timeline_module,
-        "get_plugin_manager",
+        "require_plugin_manager",
         lambda: type("Manager", (), {"list_packages": lambda self: [plugin_state]})(),
     )
     monkeypatch.setattr(
         timeline_module,
-        "get_sensor_registry",
+        "require_sensor_registry",
         lambda: type(
             "Registry",
             (),
@@ -311,12 +311,12 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
     )()
     monkeypatch.setattr(
         timeline_module,
-        "get_plugin_manager",
+        "require_plugin_manager",
         lambda: type("Manager", (), {"list_packages": lambda self: [plugin_state]})(),
     )
     monkeypatch.setattr(
         timeline_module,
-        "get_sensor_registry",
+        "require_sensor_registry",
         lambda: type(
             "Registry",
             (),

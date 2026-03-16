@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from ..config import AppConfig
 from ..memory import UnifiedMemoryStore
-from ..plugins import get_plugin_manager, get_sensor_registry
+from ..plugins import PluginManager, SensorRegistry
 from .service import TimelineService
 
 
@@ -21,14 +21,12 @@ def _get_nested_setting(payload: dict[str, Any], path: str, default: Any) -> Any
     return current
 
 
-def _resolve_timeline_contribution(source_type: str):
-    registry = get_sensor_registry()
-    return registry.resolve_domain_sensor("timeline", source_type)
-
-
 def build_timeline_handler(
     config: AppConfig,
     unified_memory: UnifiedMemoryStore,
+    *,
+    sensor_registry: SensorRegistry,
+    plugin_manager: PluginManager,
 ) -> Callable[[dict[str, Any]], Any]:
     """Build an async handler that processes incoming timeline payloads."""
     service = TimelineService(unified_memory)
@@ -37,11 +35,11 @@ def build_timeline_handler(
         source_type = str(payload.get("source_type") or "").strip()
         if not config.timeline.enabled:
             return {"handled": False, "reason": "timeline_disabled"}
-        resolved = _resolve_timeline_contribution(source_type)
+        resolved = sensor_registry.resolve_domain_sensor("timeline", source_type)
         if resolved is None:
             return {"handled": False, "reason": "unsupported_source", "source_type": source_type}
         plugin_id, _sensor_id, sensor, spec = resolved
-        package_state = get_plugin_manager().get_package(plugin_id)
+        package_state = plugin_manager.get_package(plugin_id)
         current_settings = package_state.current_settings if package_state is not None else {}
         sensor_settings_path = f"sensors.{source_type}"
         default_settings = dict(spec.metadata.get("default_settings", {}))

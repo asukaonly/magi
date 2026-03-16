@@ -58,7 +58,7 @@ class _FakeSensorRegistry:
     def resolve_domain_sensor(self, domain: str, source_type: str):
         if domain != "timeline" or source_type != "chat":
             return None
-        spec = type("Spec", (), {"metadata": {"default_settings": {"enabled": True, "edge_whitelist": []}}})()
+        spec = type("Spec", (), {"metadata": {"default_settings": {"enabled": True, "edge_whitelist": ["LIKES"]}}})()
         return ("core-timeline", "timeline.chat", _FakeChatSensor(), spec)
 
 

@@ -46,6 +46,16 @@ def require_other_memory():
     return _require_binding("other_memory")
 
 
+def require_plugin_manager():
+    """Return the active plugin manager binding."""
+    return _require_binding("plugin_manager")
+
+
+def require_sensor_registry():
+    """Return the active sensor registry binding."""
+    return _require_binding("sensor_registry")
+
+
 def require_skill_indexer():
     """Return the shared skill indexer binding."""
     return _require_binding("skill_indexer")

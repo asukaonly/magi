@@ -50,6 +50,8 @@ def create_default_agent_factory(
     llm_pool: Any,
     config: AppConfig,
     unified_memory: UnifiedMemoryStore,
+    plugin_manager: Any,
+    sensor_registry: Any,
 ) -> Callable[[str, str], Any]:
     """Return a factory callable that creates non-chat task agent instances."""
 
@@ -59,7 +61,12 @@ def create_default_agent_factory(
         if agent_type == TaskAgentType.TIMELINE.value:
             return TimelineTaskAgent(
                 agent_id=agent_id,
-                timeline_handler=build_timeline_handler(config, unified_memory),
+                timeline_handler=build_timeline_handler(
+                    config,
+                    unified_memory,
+                    sensor_registry=sensor_registry,
+                    plugin_manager=plugin_manager,
+                ),
                 config=config,
                 unified_memory=unified_memory,
             )

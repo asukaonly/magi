@@ -17,6 +17,7 @@ def test_runtime_bootstrap_context_exposes_layer_slices() -> None:
     assert hasattr(context, "core")
     assert hasattr(context, "llm")
     assert hasattr(context, "memory")
+    assert hasattr(context, "plugins")
     assert hasattr(context, "skills")
     assert hasattr(context, "agent_runtime")
     assert hasattr(context, "scheduler")
