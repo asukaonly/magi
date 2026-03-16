@@ -6,6 +6,7 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from ..core.runtime import AgentRuntime, RouterAgent, TaskAgentManager
+from .scheduler_contrib import AgentSchedulerContrib
 from .task_agents.factory import create_chat_agent_factory, create_default_agent_factory
 
 logger = get_logger(__name__)
@@ -83,3 +84,33 @@ class AgentRuntimeModule(LifecycleModule):
             await self._context.agent_runtime.agent_runtime.stop()
             self._context.agent_runtime.agent_runtime = None
         self._context.agent_runtime.task_agent_manager = None
+
+
+class AgentScheduleRegistrationModule(LifecycleModule):
+    """Register agent-owned scheduled handlers after scheduler startup."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_agent_scheduler",
+            dependencies=("runtime_agent_core", "runtime_scheduler"),
+        )
+        self._context = context
+        self._contrib: AgentSchedulerContrib | None = None
+
+    async def init(self) -> None:
+        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        task_agent_manager = require_initialized(
+            self._context.agent_runtime.task_agent_manager,
+            "task agent manager",
+        )
+        self._contrib = AgentSchedulerContrib(
+            scheduler_service=scheduler_service,
+            task_agent_manager=task_agent_manager,
+        )
+        await self._contrib.register_schedules(scheduler_service)
+
+    async def shutdown(self) -> None:
+        if self._contrib is None or self._context.scheduler.scheduler_service is None:
+            return
+        await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        self._contrib = None

@@ -17,7 +17,7 @@ from ..tools.lifecycle import ToolsModule
 from ..personality.lifecycle import PersonalityModule
 from ..awareness.lifecycle import SensorExecutorModule
 from ..context.lifecycle import ContextModule
-from ..agent.lifecycle import AgentRuntimeModule
+from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..timeline.lifecycle import TimelineModule
 from ..scheduler.lifecycle import SchedulerModule
 
@@ -39,8 +39,9 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
     L11 AgentRuntimeModule        - Agent runtime
     L12 TimelineModule            - Timeline service
     L13 SchedulerModule           - Scheduler engine
-    L14 RuntimeExportsModule      - DI container exports
-    L15 OtherDependenciesModule   - Maintenance daemon
+    L14 AgentScheduleRegistrationModule - Agent schedule registration
+    L15 RuntimeExportsModule      - DI container exports
+    L16 OtherDependenciesModule   - Maintenance daemon
 
     Args:
         context: The shared bootstrap context containing layer state slices
@@ -62,6 +63,7 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
         AgentRuntimeModule(context),          # L11
         TimelineModule(context),              # L12
         SchedulerModule(context),             # L13 (scheduler engine)
-        RuntimeExportsModule(context),        # L14
-        OtherDependenciesModule(context),     # L15
+        AgentScheduleRegistrationModule(context),  # L14
+        RuntimeExportsModule(context),        # L15
+        OtherDependenciesModule(context),     # L16
     ]
