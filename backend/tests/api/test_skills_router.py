@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from magi.api.routers import skills as skills_router_module
+from magi.core.container import get_container
 from magi.skills import service_access as skills_runtime_service
 from magi.tools.context_decider import ContextDecider
 from magi.tools.registry import tool_registry
@@ -33,6 +34,7 @@ def _write_skill(skill_root: Path, name: str, description: str) -> None:
 
 @pytest.fixture
 def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    container = get_container()
     original_registry_skills = dict(tool_registry._skills)
     original_registry_indexer = tool_registry._skill_indexer
     original_service_indexer = skills_runtime_service._skill_indexer
@@ -62,6 +64,9 @@ def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     skills_runtime_service._skill_indexer = None
     skills_runtime_service._skill_loader = None
     skills_runtime_service._skill_executor = None
+    container.skill_indexer.reset_override()
+    container.skill_loader.reset_override()
+    container.skill_executor.reset_override()
 
     yield config_path
 
@@ -70,6 +75,9 @@ def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     skills_runtime_service._skill_indexer = original_service_indexer
     skills_runtime_service._skill_loader = original_service_loader
     skills_runtime_service._skill_executor = original_service_executor
+    container.skill_indexer.reset_override()
+    container.skill_loader.reset_override()
+    container.skill_executor.reset_override()
 
 
 def test_init_skills_module_registers_only_enabled_skills(isolated_skills_state: Path) -> None:

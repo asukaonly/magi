@@ -13,11 +13,11 @@ from typing import List, Optional, Dict, Any
 import logging
 import getpass
 
-from ...skills.service_access import (
+from ..services.skills_runtime_service import (
     get_enabled_skill_names as _get_enabled_skill_names_service,
-    get_skill_executor as _get_skill_executor_service,
-    get_skill_indexer as _get_skill_indexer_service,
-    get_skill_loader as _get_skill_loader_service,
+    require_skill_executor as _require_skill_executor_service,
+    require_skill_indexer as _require_skill_indexer_service,
+    require_skill_loader as _require_skill_loader_service,
     init_skills_module as _init_skills_module_service,
     register_enabled_skills as _register_enabled_skills_service,
 )
@@ -81,7 +81,10 @@ def init_skills_module(llm_adapter=None):
 
 def get_skill_executor():
     """Get SkillExecutor instance from shared skills runtime service."""
-    return _get_skill_executor_service()
+    try:
+        return _require_skill_executor_service()
+    except RuntimeError:
+        return None
 
 
 # ============ API endpoints ============
@@ -94,8 +97,9 @@ async def list_skills():
     Returns:
         List of skill metadata.
     """
-    skill_indexer = _get_skill_indexer_service()
-    if skill_indexer is None:
+    try:
+        skill_indexer = _require_skill_indexer_service()
+    except RuntimeError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skills module not initialized",
@@ -129,8 +133,9 @@ async def refresh_skills():
     Returns:
         Updated list of skills.
     """
-    skill_indexer = _get_skill_indexer_service()
-    if skill_indexer is None:
+    try:
+        skill_indexer = _require_skill_indexer_service()
+    except RuntimeError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skills module not initialized",
@@ -168,8 +173,9 @@ async def get_skill_detail(skill_name: str):
     Returns:
         Skill detail.
     """
-    skill_loader = _get_skill_loader_service()
-    if skill_loader is None:
+    try:
+        skill_loader = _require_skill_loader_service()
+    except RuntimeError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skills module not initialized",
@@ -208,8 +214,9 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
     Returns:
         Execution result.
     """
-    skill_executor = _get_skill_executor_service()
-    if skill_executor is None:
+    try:
+        skill_executor = _require_skill_executor_service()
+    except RuntimeError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skills module not initialized",
@@ -264,8 +271,9 @@ async def list_skill_categories():
     Returns:
         List of category names.
     """
-    skill_indexer = _get_skill_indexer_service()
-    if skill_indexer is None:
+    try:
+        skill_indexer = _require_skill_indexer_service()
+    except RuntimeError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Skills module not initialized",

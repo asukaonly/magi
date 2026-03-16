@@ -17,9 +17,9 @@ from pydantic import BaseModel, Field
 
 from ..llm_draft import resolve_adapter_for_scenario
 from ..avatar_paths import resolve_avatar_public_url
-from ...personality.current_state import (
-    get_current_personality as _get_current_personality_service,
-    set_current_personality as _set_current_personality_service,
+from ..services.personality_state_service import (
+    get_current_personality_name,
+    set_current_personality_name,
 )
 from ...config import get_config
 from ...config.models import LLMScenario, LLMSettings
@@ -390,18 +390,6 @@ Target Language: {target_language}  (Ensure the 'cached_phrases' feel natural an
         raise
 
 
-# ============ Current Personality Management ============
-
-def get_current_personality() -> str:
-    """Compatibility wrapper for shared personality state service."""
-    return _get_current_personality_service()
-
-
-def set_current_personality(name: str) -> bool:
-    """Compatibility wrapper for shared personality state service."""
-    return _set_current_personality_service(name)
-
-
 # ============ API Endpoints ============
 
 @personality_config_router.get(
@@ -415,7 +403,7 @@ async def api_get_current_personality():
         return PersonalityResponse(
             success=True,
             message="Successfully retrieved current personality",
-            data={"current": get_current_personality()},
+            data={"current": get_current_personality_name()},
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -438,7 +426,7 @@ async def api_set_current_personality(request: Dict[str, str]):
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=f"Personality '{name}' not found") from exc
 
-        if not set_current_personality(name):
+        if not set_current_personality_name(name):
             raise HTTPException(status_code=500, detail="Setting failed")
 
         try:
@@ -472,7 +460,7 @@ async def api_set_current_personality(request: Dict[str, str]):
 )
 async def api_get_greeting():
     try:
-        current_name = get_current_personality()
+        current_name = get_current_personality_name()
         config = get_personality_loader().load(current_name)
         greetings = config.cached_phrases.on_wake or config.cached_phrases.on_init
         greeting = random.choice(greetings) if greetings else f"Hello, I am {config.name}."
