@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from .context import RuntimeBootstrapContext
 from .lifecycle import LifecycleModule
+from .exports import RuntimeExportsModule
+from .maintenance import OtherDependenciesModule
 
 from ..core.lifecycle import CoreDependenciesModule
 from ..config.lifecycle import ConfigurationModule
@@ -15,6 +17,9 @@ from ..tools.lifecycle import ToolsModule
 from ..personality.lifecycle import PersonalityModule
 from ..awareness.lifecycle import SensorExecutorModule
 from ..context.lifecycle import ContextModule
+from ..agent.lifecycle import AgentRuntimeModule
+from ..timeline.lifecycle import TimelineModule
+from ..scheduler.lifecycle import SchedulerModule
 
 
 def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleModule]:
@@ -31,7 +36,11 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
     L8  PersonalityModule         - Personality layer
     L9  SensorExecutorModule      - Sensors and actuators
     L10 ContextModule             - Context/prompt assembly
-    L11+ ...                      - Additional layers added incrementally
+    L11 AgentRuntimeModule        - Agent runtime
+    L12 TimelineModule            - Timeline service
+    L13 SchedulerModule           - Scheduler engine
+    L14 RuntimeExportsModule      - DI container exports
+    L15 OtherDependenciesModule   - Maintenance daemon
 
     Args:
         context: The shared bootstrap context containing layer state slices
@@ -50,4 +59,9 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
         PersonalityModule(context),           # L8
         SensorExecutorModule(context),        # L9
         ContextModule(context),               # L10
+        AgentRuntimeModule(context),          # L11
+        TimelineModule(context),              # L12
+        SchedulerModule(context),             # L13 (scheduler engine)
+        RuntimeExportsModule(context),        # L14
+        OtherDependenciesModule(context),     # L15
     ]

@@ -1,0 +1,85 @@
+"""L11 Agent Runtime lifecycle module."""
+
+from __future__ import annotations
+
+from ..bootstrap.lifecycle import LifecycleModule
+from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
+from ..core.logger import get_logger
+from ..core.runtime import AgentRuntime, RouterAgent, TaskAgentManager
+from .task_agents.factory import create_chat_agent_factory, create_default_agent_factory
+
+logger = get_logger(__name__)
+
+
+class AgentRuntimeModule(LifecycleModule):
+    """Initialize TaskAgentManager, RouterAgent, and AgentRuntime (L11 - Agent Runtime layer)."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_agent_core",
+            dependencies=(
+                "runtime_sensor_executor",
+                "runtime_context",
+                "runtime_personality",
+                "runtime_memory",
+                "runtime_llm",
+                "runtime_configuration",
+            ),
+        )
+        self._context = context
+
+    async def init(self) -> None:
+        config = require_initialized(self._context.core.config, "runtime config")
+        llm_adapter = require_initialized(self._context.llm.llm_adapter, "llm adapter")
+        llm_pool = require_initialized(self._context.llm.scenario_llm_pool, "llm pool")
+        memory = require_initialized(self._context.personality.self_memory, "self memory")
+        other_memory = require_initialized(self._context.personality.other_memory, "other memory")
+        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        memory_integration = require_initialized(self._context.memory.memory_integration, "memory integration")
+        scenario_prompts_store = require_initialized(self._context.context.scenario_prompts_store, "scenario prompts store")
+        sensor_hub = require_initialized(self._context.agent_runtime.sensor_hub, "sensor hub")
+        action_executor = require_initialized(self._context.agent_runtime.action_executor, "action executor")
+
+        task_agent_manager = TaskAgentManager(
+            create_chat_agent=create_chat_agent_factory(
+                llm_adapter=llm_adapter,
+                llm_pool=llm_pool,
+                memory=memory,
+                other_memory=other_memory,
+                unified_memory=unified_memory,
+                memory_integration=memory_integration,
+                scenario_prompts_store=scenario_prompts_store,
+                config=config,
+            ),
+            create_default_agent=create_default_agent_factory(
+                llm_adapter=llm_adapter,
+                llm_pool=llm_pool,
+                config=config,
+                unified_memory=unified_memory,
+            ),
+            idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
+            max_dynamic_instances=config.agent.runtime.task_agent_manager_max_dynamic_instances,
+        )
+        router_agent = RouterAgent(
+            sensor_hub=sensor_hub,
+            task_agent_manager=task_agent_manager,
+            batch_size=max(8, config.agent.num_task_agents * 4),
+            poll_timeout_seconds=0.2,
+            restart_backoff_seconds=config.agent.runtime.router_restart_backoff_seconds,
+        )
+
+        self._context.agent_runtime.task_agent_manager = task_agent_manager
+        self._context.agent_runtime.agent_runtime = AgentRuntime(
+            sensor_hub=sensor_hub,
+            router_agent=router_agent,
+            task_agent_manager=task_agent_manager,
+            action_executor=action_executor,
+        )
+        await self._context.agent_runtime.agent_runtime.start()
+        logger.info("AgentRuntime started (L11)")
+
+    async def shutdown(self) -> None:
+        if self._context.agent_runtime.agent_runtime is not None:
+            await self._context.agent_runtime.agent_runtime.stop()
+            self._context.agent_runtime.agent_runtime = None
+        self._context.agent_runtime.task_agent_manager = None

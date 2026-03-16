@@ -90,3 +90,42 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
         "runtime_sensor_executor",
         "runtime_context",
     ]
+
+
+def test_runtime_domain_layers_own_their_lifecycle_modules() -> None:
+    """Verify runtime-domain layers own their lifecycle modules."""
+    from magi.agent.lifecycle import AgentRuntimeModule
+    from magi.awareness.lifecycle import SensorExecutorModule
+    from magi.scheduler.lifecycle import SchedulerModule
+    from magi.timeline.lifecycle import TimelineModule
+
+    assert SensorExecutorModule.__module__ == "magi.awareness.lifecycle"
+    assert AgentRuntimeModule.__module__ == "magi.agent.lifecycle"
+    assert TimelineModule.__module__ == "magi.timeline.lifecycle"
+    assert SchedulerModule.__module__ == "magi.scheduler.lifecycle"
+
+
+def test_bootstrap_builds_expected_full_layer_order() -> None:
+    """Verify bootstrap builds all lifecycle modules in expected order."""
+    from magi.bootstrap.builder import build_runtime_modules
+    from magi.bootstrap.context import RuntimeBootstrapContext
+
+    modules = build_runtime_modules(RuntimeBootstrapContext())
+
+    assert [module.name for module in modules] == [
+        "runtime_core_dependencies",
+        "runtime_configuration",
+        "runtime_message_bus",
+        "runtime_plugin_system",
+        "runtime_llm",
+        "runtime_memory",
+        "runtime_tools",
+        "runtime_personality",
+        "runtime_sensor_executor",
+        "runtime_context",
+        "runtime_agent_core",
+        "runtime_timeline",
+        "runtime_scheduler",
+        "runtime_exports",
+        "runtime_other_dependencies",
+    ]
