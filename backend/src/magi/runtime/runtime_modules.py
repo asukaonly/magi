@@ -8,6 +8,7 @@ from typing import Any, Optional
 from dependency_injector import providers
 
 from ..agent.task_agents.factory import create_chat_agent_factory, create_default_agent_factory
+from ..agent.scheduler_contrib import AgentSchedulerContrib
 from ..config import AppConfig, get_config
 from ..core.container import get_container
 from ..core.database_initializer import DatabaseInitializer, set_database_initializer
@@ -19,6 +20,7 @@ from ..core.runtime import (
     SensorHub,
     TaskAgentManager,
 )
+from ..core.runtime.action_scheduler_contrib import ActionSchedulerContrib
 from ..events.sqlite_backend import SQLiteMessageBackend
 from ..llm import LLMScenario, ScenarioLLMPool, get_llm_usage_store
 from ..llm.factory import create_core_llm_adapter, create_scenario_llm_pool, is_llm_selection_pending
@@ -70,9 +72,11 @@ class RuntimeBootstrapState:
     unified_memory: UnifiedMemoryStore | None = None
     memory_integration: MemoryIntegrationModule | None = None
     scenario_prompts_store: ScenarioPromptsStore | None = None
-    agent_runtime: AgentRuntime | None = None
+    sensor_hub: SensorHub | None = None
     action_executor: ActionExecutor | None = None
+    agent_runtime: AgentRuntime | None = None
     task_agent_manager: TaskAgentManager | None = None
+    timeline_service: TimelineService | None = None
     scheduler_service: SchedulerService | None = None
     scheduler_bootstrap: SchedulerBootstrap | None = None
     maintenance_daemon: MaintenanceDaemon | None = None
@@ -351,13 +355,35 @@ class ToolsModule(LifecycleModule):
             logger.info("Skills module initialized")
 
 
-class AgentRuntimeCoreModule(LifecycleModule):
-    """Initialize and run SensorHub/Router/TaskAgentManager/AgentRuntime."""
+class SensorExecutorModule(LifecycleModule):
+    """Initialize SensorHub and ActionExecutor (L9 - Sensors/Actuators layer)."""
+
+    def __init__(self, state: RuntimeBootstrapState):
+        super().__init__(
+            name="runtime_sensor_executor",
+            dependencies=("runtime_message_bus",),
+        )
+        self._state = state
+
+    async def init(self) -> None:
+        message_bus = _require(self._state.message_bus, "message bus is required")
+
+        self._state.sensor_hub = SensorHub(message_bus=message_bus)
+        self._state.action_executor = ActionExecutor(message_bus=message_bus)
+        logger.info("SensorHub and ActionExecutor initialized (L9)")
+
+    async def shutdown(self) -> None:
+        self._state.sensor_hub = None
+        self._state.action_executor = None
+
+
+class AgentRuntimeModule(LifecycleModule):
+    """Initialize TaskAgentManager, RouterAgent, and AgentRuntime (L11 - Agent Runtime layer)."""
 
     def __init__(self, state: RuntimeBootstrapState):
         super().__init__(
             name="runtime_agent_core",
-            dependencies=("runtime_context", "runtime_personality", "runtime_memory", "runtime_llm", "runtime_message_bus", "runtime_configuration"),
+            dependencies=("runtime_sensor_executor", "runtime_context", "runtime_personality", "runtime_memory", "runtime_llm", "runtime_configuration"),
         )
         self._state = state
 
@@ -365,15 +391,14 @@ class AgentRuntimeCoreModule(LifecycleModule):
         config = _require(self._state.config, "runtime config is required")
         llm_adapter = _require(self._state.llm_adapter, "llm adapter is required")
         llm_pool = _require(self._state.scenario_llm_pool, "llm pool is required")
-        message_bus = _require(self._state.message_bus, "message bus is required")
         memory = _require(self._state.self_memory, "self memory is required")
         other_memory = _require(self._state.other_memory, "other memory is required")
         unified_memory = _require(self._state.unified_memory, "unified memory is required")
         memory_integration = _require(self._state.memory_integration, "memory integration is required")
         scenario_prompts_store = _require(self._state.scenario_prompts_store, "scenario prompts store is required")
+        sensor_hub = _require(self._state.sensor_hub, "sensor hub is required")
+        action_executor = _require(self._state.action_executor, "action executor is required")
 
-        sensor_hub = SensorHub(message_bus=message_bus)
-        action_executor = ActionExecutor(message_bus=message_bus)
         task_agent_manager = TaskAgentManager(
             create_chat_agent=create_chat_agent_factory(
                 llm_adapter=llm_adapter,
@@ -402,7 +427,6 @@ class AgentRuntimeCoreModule(LifecycleModule):
             restart_backoff_seconds=config.agent.runtime.router_restart_backoff_seconds,
         )
 
-        self._state.action_executor = action_executor
         self._state.task_agent_manager = task_agent_manager
         self._state.agent_runtime = AgentRuntime(
             sensor_hub=sensor_hub,
@@ -411,38 +435,59 @@ class AgentRuntimeCoreModule(LifecycleModule):
             action_executor=action_executor,
         )
         await self._state.agent_runtime.start()
+        logger.info("AgentRuntime started (L11)")
 
     async def shutdown(self) -> None:
         if self._state.agent_runtime is not None:
             await self._state.agent_runtime.stop()
             self._state.agent_runtime = None
         self._state.task_agent_manager = None
-        self._state.action_executor = None
 
 
-class SchedulerModule(LifecycleModule):
-    """Initialize runtime scheduler and timeline sync hooks."""
+class TimelineModule(LifecycleModule):
+    """Initialize TimelineService and timeline scheduler contributor (L12 - Timeline layer)."""
 
     def __init__(self, state: RuntimeBootstrapState):
         super().__init__(
-            name="runtime_scheduler",
-            dependencies=("runtime_agent_core", "runtime_memory", "runtime_plugin_system", "runtime_configuration", "runtime_core_dependencies"),
+            name="runtime_timeline",
+            dependencies=("runtime_memory", "runtime_plugin_system", "runtime_core_dependencies"),
         )
         self._state = state
 
     async def init(self) -> None:
-        runtime_paths = _require(self._state.runtime_paths, "runtime paths are required")
         unified_memory = _require(self._state.unified_memory, "unified memory is required")
+
+        self._state.timeline_service = TimelineService(unified_memory)
+        logger.info("TimelineService initialized (L12)")
+
+    async def shutdown(self) -> None:
+        self._state.timeline_service = None
+
+
+class SchedulerModule(LifecycleModule):
+    """Initialize runtime scheduler and coordinate schedule contributors."""
+
+    def __init__(self, state: RuntimeBootstrapState):
+        super().__init__(
+            name="runtime_scheduler",
+            dependencies=("runtime_agent_core", "runtime_timeline", "runtime_plugin_system", "runtime_configuration", "runtime_core_dependencies"),
+        )
+        self._state = state
+        self._agent_contrib: AgentSchedulerContrib | None = None
+        self._action_contrib: ActionSchedulerContrib | None = None
+
+    async def init(self) -> None:
+        runtime_paths = _require(self._state.runtime_paths, "runtime paths are required")
         task_agent_manager = _require(self._state.task_agent_manager, "task agent manager is required")
         action_executor = _require(self._state.action_executor, "action executor is required")
+        timeline_service = _require(self._state.timeline_service, "timeline service is required")
 
-        timeline_service = TimelineService(unified_memory)
         scheduler_service = SchedulerService(
             db_path=runtime_paths.scheduler_db_path,
             runtime_dir=runtime_paths.base_dir,
         )
 
-        # Timeline layer registers its own scheduler handler
+        # Timeline layer contributor
         timeline_contrib = TimelineSchedulerContrib(
             scheduler_service=scheduler_service,
             sensor_registry=get_sensor_registry(),
@@ -451,9 +496,24 @@ class SchedulerModule(LifecycleModule):
             runtime_paths=runtime_paths,
             get_config=get_config,
         )
-        timeline_contrib.register_handler()
+        await timeline_contrib.register_schedules(scheduler_service)
 
-        # Generic agent_task + action_dispatch handlers
+        # Agent layer contributor (AGENT_TASK handler)
+        self._agent_contrib = AgentSchedulerContrib(
+            scheduler_service=scheduler_service,
+            task_agent_manager=task_agent_manager,
+        )
+        await self._agent_contrib.register_schedules(scheduler_service)
+
+        # Action executor contributor (ACTION_DISPATCH handler)
+        self._action_contrib = ActionSchedulerContrib(
+            scheduler_service=scheduler_service,
+            action_registry=get_action_registry(),
+            action_executor=action_executor,
+        )
+        await self._action_contrib.register_schedules(scheduler_service)
+
+        # Legacy bootstrap kept for backward compatibility
         scheduler_bootstrap = SchedulerBootstrap(
             scheduler_service=scheduler_service,
             action_registry=get_action_registry(),
@@ -461,16 +521,14 @@ class SchedulerModule(LifecycleModule):
             task_agent_manager=task_agent_manager,
             action_executor=action_executor,
         )
-        scheduler_bootstrap.register_handlers()
 
         await scheduler_service.start()
-        await timeline_contrib.sync_schedules()
         set_scheduler_runtime(scheduler_service, scheduler_bootstrap)
         set_timeline_scheduler_contrib(timeline_contrib)
 
         self._state.scheduler_service = scheduler_service
         self._state.scheduler_bootstrap = scheduler_bootstrap
-        logger.info("Scheduler service started")
+        logger.info("Scheduler service started with contributors: timeline, agent, action")
 
     async def shutdown(self) -> None:
         if self._state.scheduler_service is not None:
@@ -563,19 +621,39 @@ class OtherDependenciesModule(LifecycleModule):
 
 
 def build_runtime_modules(state: RuntimeBootstrapState) -> list[LifecycleModule]:
-    """Build ordered runtime lifecycle modules."""
+    """Build ordered runtime lifecycle modules.
+
+    Order aligns with the 15-layer architecture:
+    L1  CoreDependenciesModule    - Application-level infrastructure
+    L2  ConfigurationModule       - Configuration loading
+    L3  MessageBusModule          - Message bus
+    L4  PluginSystemModule        - Plugin system
+    L5  LLMRuntimeModule          - LLM runtime
+    L6  MemoryStoreModule         - Memory stores (L0-L5)
+    L7  ToolsModule               - Tool integrations
+    L8  PersonalityModule         - Personality layer
+    L9  SensorExecutorModule      - Sensors and actuators
+    L10 ContextModule             - Context/prompt assembly
+    L11 AgentRuntimeModule        - Agent runtime
+    L12 TimelineModule            - Timeline service
+    L13 SchedulerModule           - Scheduler engine
+    L14 RuntimeExportsModule      - DI container exports
+    L15 OtherDependenciesModule   - Maintenance daemon
+    """
     return [
-        CoreDependenciesModule(state),
-        ConfigurationModule(state),
-        MessageBusModule(state),
-        PluginSystemModule(state),
-        LLMRuntimeModule(state),
-        MemoryStoreModule(state),
-        ToolsModule(state),
-        PersonalityModule(state),
-        ContextModule(state),
-        AgentRuntimeCoreModule(state),
-        SchedulerModule(state),
-        RuntimeExportsModule(state),
-        OtherDependenciesModule(state),
+        CoreDependenciesModule(state),      # L1
+        ConfigurationModule(state),         # L2
+        MessageBusModule(state),            # L3
+        PluginSystemModule(state),          # L4
+        LLMRuntimeModule(state),            # L5
+        MemoryStoreModule(state),           # L6
+        ToolsModule(state),                 # L7
+        PersonalityModule(state),           # L8
+        SensorExecutorModule(state),        # L9
+        ContextModule(state),               # L10
+        AgentRuntimeModule(state),          # L11
+        TimelineModule(state),              # L12
+        SchedulerModule(state),             # L13 (scheduler engine)
+        RuntimeExportsModule(state),        # L14
+        OtherDependenciesModule(state),     # L15
     ]

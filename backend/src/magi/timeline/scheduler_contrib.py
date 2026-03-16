@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..plugins.sensors import SensorRegistry
 from ..utils.runtime import RuntimePaths
@@ -15,8 +15,13 @@ from ..scheduler.contracts import (
     ScheduledExecutionContext,
     ScheduledExecutionResult,
     ScheduledTargetType,
+    build_timeline_schedule_id,
+    build_timeline_target_key,
 )
 from ..scheduler.service import SchedulerService
+
+if TYPE_CHECKING:
+    from ..scheduler.contracts import ScheduleContributor
 
 
 _timeline_contrib: TimelineSchedulerContrib | None = None
@@ -33,18 +38,12 @@ def set_timeline_scheduler_contrib(contrib: TimelineSchedulerContrib | None) -> 
     _timeline_contrib = contrib
 
 
-def build_timeline_target_key(plugin_id: str, source_type: str) -> str:
-    """Build stable scheduler target key for a timeline source."""
-    return f"{plugin_id}:{source_type}"
-
-
-def build_timeline_schedule_id(plugin_id: str, source_type: str) -> str:
-    """Build stable recurring schedule id for a timeline source."""
-    return f"timeline-sync:{plugin_id}:{source_type}"
-
-
 class TimelineSchedulerContrib:
-    """Registers timeline-specific scheduled sync handlers and manages sensor schedules."""
+    """Timeline layer's scheduler contributor.
+
+    Implements ScheduleContributor protocol to register/unregister timeline
+    scheduled tasks with the unified scheduler.
+    """
 
     def __init__(
         self,
@@ -62,6 +61,34 @@ class TimelineSchedulerContrib:
         self._timeline_service = timeline_service
         self._runtime_paths = runtime_paths
         self._get_config = get_config
+        self._registered_schedule_ids: set[str] = set()
+
+    # --- ScheduleContributor protocol implementation ---
+
+    async def register_schedules(self, scheduler: SchedulerService) -> None:
+        """Register timeline sync handler and sync schedules (ScheduleContributor protocol)."""
+        # Register the handler
+        scheduler.register_handler(
+            ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+            self._handle_timeline_sensor_sync,
+        )
+        # Sync schedules based on plugin config
+        await self.sync_schedules()
+
+    async def unregister_schedules(self, scheduler: SchedulerService) -> None:
+        """Unregister all timeline schedules (ScheduleContributor protocol)."""
+        for schedule_id in list(self._registered_schedule_ids):
+            try:
+                await scheduler.unschedule(
+                    schedule_id,
+                    target_type=ScheduledTargetType.TIMELINE_SENSOR_SYNC,
+                    target_key="",  # Will be matched by schedule_id
+                )
+            except Exception:
+                pass
+        self._registered_schedule_ids.clear()
+
+    # --- Internal methods ---
 
     def register_handler(self) -> None:
         """Register the TIMELINE_SENSOR_SYNC handler with the scheduler service."""
@@ -96,6 +123,7 @@ class TimelineSchedulerContrib:
                     target_type=ScheduledTargetType.TIMELINE_SENSOR_SYNC,
                     target_key=build_timeline_target_key(plugin_id, source_type),
                 )
+                self._registered_schedule_ids.discard(schedule_id)
                 continue
             if sync_mode == "watch" and not bool(getattr(sensor, "supports_watch_mode", False)):
                 interval_minutes = max(1.0, interval_minutes)
@@ -111,6 +139,7 @@ class TimelineSchedulerContrib:
                 },
                 metadata={"source_type": source_type, "plugin_id": plugin_id},
             )
+            self._registered_schedule_ids.add(schedule_id)
 
     async def queue_manual_sync(self, source_type: str) -> ScheduleDefinition:
         """Queue a one-time immediate sync for a timeline source."""

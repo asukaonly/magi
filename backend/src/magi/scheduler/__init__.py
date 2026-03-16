@@ -1,6 +1,6 @@
 """Unified scheduler runtime exports."""
 
-from .bootstrap import SchedulerBootstrap, build_timeline_schedule_id, build_timeline_target_key
+from .bootstrap import SchedulerBootstrap
 from .contracts import (
     ScheduleDefinition,
     ScheduledExecutionContext,
@@ -9,6 +9,8 @@ from .contracts import (
     ScheduledTargetType,
     TriggerDefinition,
     TriggerType,
+    build_timeline_schedule_id,
+    build_timeline_target_key,
 )
 from .repository import ScheduleRepository
 from .runtime import get_scheduler_bootstrap, get_scheduler_service, request_scheduler_refresh, set_scheduler_runtime

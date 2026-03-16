@@ -4,7 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Protocol
+
+if TYPE_CHECKING:
+    from .service import SchedulerService
 
 
 class ScheduledTargetType(str, Enum):
@@ -83,4 +86,43 @@ class ScheduledExecutionResult:
     next_cursor: Optional[str] = None
     watermark_ts: Optional[float] = None
     stats: dict[str, Any] = field(default_factory=dict)
+
+
+class ScheduleContributor(Protocol):
+    """Protocol for layers that contribute scheduled tasks to the scheduler.
+
+    Each layer that needs scheduled tasks should implement this protocol
+    and register itself with the scheduler during initialization.
+
+    The scheduler orchestrator will call register_schedules() during startup
+    and unregister_schedules() during shutdown.
+    """
+
+    async def register_schedules(self, scheduler: "SchedulerService") -> None:
+        """Register this contributor's scheduled tasks with the scheduler.
+
+        Args:
+            scheduler: The scheduler service to register tasks with.
+        """
+        ...
+
+    async def unregister_schedules(self, scheduler: "SchedulerService") -> None:
+        """Unregister this contributor's scheduled tasks from the scheduler.
+
+        Args:
+            scheduler: The scheduler service to unregister tasks from.
+        """
+        ...
+
+
+# --- Timeline schedule helpers ---
+
+def build_timeline_target_key(plugin_id: str, source_type: str) -> str:
+    """Build stable scheduler target key for a timeline source."""
+    return f"{plugin_id}:{source_type}"
+
+
+def build_timeline_schedule_id(plugin_id: str, source_type: str) -> str:
+    """Build stable recurring schedule id for a timeline source."""
+    return f"timeline-sync:{plugin_id}:{source_type}"
 

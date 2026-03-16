@@ -1,4 +1,12 @@
-"""Runtime bootstrap helpers for scheduler-backed targets."""
+"""Runtime bootstrap helpers for scheduler-backed targets.
+
+Note: Handler registration has been migrated to layer-specific ScheduleContributor
+implementations in production:
+- AGENT_TASK -> AgentSchedulerContrib (agent/scheduler_contrib.py)
+- ACTION_DISPATCH -> ActionSchedulerContrib (core/runtime/action_scheduler_contrib.py)
+
+This class is retained for backward compatibility and testing scenarios.
+"""
 from __future__ import annotations
 
 from functools import partial
@@ -10,15 +18,13 @@ from .contracts import ScheduledTargetType
 from .handlers import handle_action_dispatch, handle_agent_task
 from .service import SchedulerService
 
-# Re-export for backward compatibility — canonical location is timeline.scheduler_contrib
-from ..timeline.scheduler_contrib import (  # noqa: F401
-    build_timeline_schedule_id,
-    build_timeline_target_key,
-)
-
 
 class SchedulerBootstrap:
-    """Registers generic scheduled-execution handlers (agent tasks and action dispatch)."""
+    """Legacy bootstrap class for scheduler handler registration.
+
+    In production, handlers are registered via ScheduleContributor implementations.
+    This class provides a convenience interface for testing and legacy code.
+    """
 
     def __init__(
         self,
@@ -36,6 +42,12 @@ class SchedulerBootstrap:
         self._action_executor = action_executor
 
     def register_handlers(self) -> None:
+        """Register AGENT_TASK and ACTION_DISPATCH handlers.
+
+        Note: In production runtime, these handlers are registered via
+        AgentSchedulerContrib and ActionSchedulerContrib. This method
+        is provided for testing and backward compatibility.
+        """
         self._scheduler_service.register_handler(
             ScheduledTargetType.AGENT_TASK,
             partial(handle_agent_task, self._task_agent_manager),

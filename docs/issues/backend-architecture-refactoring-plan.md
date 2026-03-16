@@ -269,3 +269,47 @@ backend/src/magi/
 ├── processing/         → 拆分后合入 personality/ 和 memory/
 └── utils/              → 通用工具
 ```
+
+---
+
+## 执行状态（2026-03-16 更新）
+
+### 已完成
+
+| 阶段 | 步骤 | 状态 |
+|------|------|------|
+| 阶段一 | 1.1 提取人格层 → `personality/` | ✅ 完成 |
+| 阶段一 | 1.2 提取上下文层 → `context/` | ✅ 完成 |
+| 阶段一 | 1.3 清理 memory/ 为纯记忆层 | ✅ 完成 |
+| 阶段二 | 2.1 DatabaseInitializer 移到 CoreDependenciesModule | ✅ 完成 |
+| 阶段二 | 2.2 MemorySystemModule 拆分为 3 个 Module | ✅ 完成 |
+| 阶段二 | 2.3 AgentRuntimeCoreModule 拆分 | ✅ 完成 → `SensorExecutorModule` + `AgentRuntimeModule` |
+| 阶段二 | 2.4 TaskAgent 工厂抽出 | ✅ 完成 → `agent/task_agents/factory.py` |
+| 阶段二 | 2.5 Timeline 业务逻辑回归 | ✅ 完成 → `timeline/scheduler_contrib.py` |
+| 阶段二 | 2.6 辅助函数归位 | ✅ 完成 → `llm/factory.py`, `scheduler/contracts.py` |
+| 阶段三 | 3.1 定义 ScheduleContributor 协议 | ✅ 完成 → `scheduler/contracts.py` |
+| 阶段三 | 3.2 各层自行注册 | ✅ 完成 → `AgentSchedulerContrib`, `ActionSchedulerContrib` |
+| 阶段三 | 3.3 精简 SchedulerBootstrap | ✅ 完成 → 保留为测试兼容层 |
+| 阶段五 | 5.1 SchedulerModule 补充 plugin 依赖 | ✅ 完成 |
+| 阶段五 | 5.2 初始化顺序对齐 | ✅ 完成 → 15 层顺序 |
+| 阶段五 | 5.3 消除全局变量冗余 | ✅ 完成 |
+
+### 延后（建议后续迭代）
+
+| 阶段 | 步骤 | 说明 |
+|------|------|------|
+| 阶段四 | 4.1 WebSocket 连接管理分离 | 需重构事件数据流，风险较高 |
+| 阶段四 | 4.2 API 层传输职责纯化 | 需修改错误处理流程 |
+
+### 新增文件
+
+- `agent/scheduler_contrib.py` — AgentSchedulerContrib
+- `core/runtime/action_scheduler_contrib.py` — ActionSchedulerContrib
+
+### 修改文件
+
+- `runtime/runtime_modules.py` — 拆分和重排 modules
+- `scheduler/contracts.py` — 新增 ScheduleContributor 协议和辅助函数
+- `scheduler/bootstrap.py` — 简化为测试兼容层
+- `timeline/scheduler_contrib.py` — 实现 ScheduleContributor 协议
+- `scheduler/__init__.py` — 更新导出

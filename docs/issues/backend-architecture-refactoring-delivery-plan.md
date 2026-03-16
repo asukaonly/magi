@@ -166,16 +166,43 @@
 
 ## 6. 进度跟踪（执行时更新）
 
-- [ ] T01
-- [ ] T02
-- [ ] T03
-- [ ] T04
-- [ ] T05
-- [ ] T06
-- [ ] T07
-- [ ] T08
-- [ ] T09
-- [ ] T10
-- [ ] T11
-- [ ] T12
+- [x] T01 ✅ 2026-03-16 — 拆分 `AgentRuntimeCoreModule` 为 `SensorExecutorModule`(L9) + `AgentRuntimeModule`(L11)
+- [x] T02 ✅ 2026-03-16 — 新增 `TimelineModule`(L12)，timeline 服务初始化从 SchedulerModule 独立
+- [x] T03 ✅ 2026-03-16 — 按 15 层架构重排 module 启动顺序，添加详细注释
+- [x] T04 ✅ 2026-03-16 — 定义 `ScheduleContributor` 协议
+- [x] T05 ✅ 2026-03-16 — timeline 接入 contributor 协议，修复循环导入（将辅助函数移至 contracts.py）
+- [x] T06 ✅ 2026-03-16 — 创建 `AgentSchedulerContrib`，迁移 AGENT_TASK handler 注册
+- [x] T07 ✅ 2026-03-16 — 创建 `ActionSchedulerContrib`，迁移 ACTION_DISPATCH handler 注册
+- [x] T08 ✅ 2026-03-16 — 精简 `SchedulerBootstrap` 为兼容层（保留 register_handlers 供测试使用）
+- [ ] T09 ⏸️ — 连接层桥接纯化（需重构事件数据流，建议后续迭代）
+- [ ] T10 ⏸️ — API 层传输职责纯化（需修改错误处理流程，建议后续迭代）
+- [x] T11 ✅ 2026-03-16 — 辅助函数归位（主要函数已在 T01-T08 中归位）
+- [x] T12 ✅ 2026-03-16 — 全量回归验证通过（453 passed, 2 skipped）
+
+---
+
+## 7. 执行总结
+
+### 完成项（10/12）
+- 批次 A（架构主干）：T01, T02, T03 ✅
+- 批次 B（调度分散化）：T04, T05, T06, T07, T08 ✅
+- 批次 C（收尾）：T11, T12 ✅
+
+### 延后项（2/12）
+- T09/T10：涉及事件数据流重构，风险较高，建议在后续迭代中处理
+
+### 关键改动
+1. **runtime_modules.py 重构**：
+   - 拆分 `AgentRuntimeCoreModule` 为 `SensorExecutorModule`(L9) + `AgentRuntimeModule`(L11)
+   - 新增 `TimelineModule`(L12)
+   - 按 15 层架构对齐初始化顺序
+
+2. **调度系统分散化**：
+   - 定义 `ScheduleContributor` 协议
+   - 创建 `AgentSchedulerContrib`, `ActionSchedulerContrib`
+   - `TimelineSchedulerContrib` 实现协议
+   - `SchedulerBootstrap` 保留为测试兼容层
+
+3. **循环导入修复**：
+   - 将 `build_timeline_schedule_id`, `build_timeline_target_key` 移至 `scheduler/contracts.py`
 
