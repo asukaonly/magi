@@ -87,3 +87,16 @@ def test_bootstrap_and_agent_exports_do_not_keep_chat_runtime_aliases() -> None:
     assert "initialize_chat_agent" not in agent_source
     assert "shutdown_chat_agent" not in agent_source
     assert "from ...bootstrap import initialize_chat_agent" not in config_router
+
+
+def test_agent_execution_package_uses_function_calling_orchestrator_name() -> None:
+    execution_init = (BACKEND_SRC / "agent/execution/__init__.py").read_text(encoding="utf-8")
+    function_calling_source = (BACKEND_SRC / "agent/execution/function_calling.py").read_text(encoding="utf-8")
+    chat_agent_source = (BACKEND_SRC / "agent/task_agents/chat_task_agent.py").read_text(encoding="utf-8")
+    worker_manager_source = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
+
+    assert "FunctionCallingExecutor" not in execution_init
+    assert "class FunctionCallingExecutor" not in function_calling_source
+    assert "FunctionCallingExecutor" not in chat_agent_source
+    assert "FunctionCallingExecutor" not in worker_manager_source
+    assert "FunctionCallingOrchestrator" in execution_init

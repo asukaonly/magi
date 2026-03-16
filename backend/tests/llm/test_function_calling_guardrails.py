@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from magi.agent.execution.function_calling import FunctionCallingExecutor
+from magi.agent.execution.function_calling import FunctionCallingOrchestrator
 from magi.config.models import LLMScenario
 from magi.llm.base import LLMAdapter
 
@@ -82,8 +82,8 @@ class _RecordingLLMPool:
         return self._adapter
 
 
-def _executor() -> FunctionCallingExecutor:
-    return FunctionCallingExecutor(
+def _executor() -> FunctionCallingOrchestrator:
+    return FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_DummyToolRegistry(),  # type: ignore[arg-type]
     )
@@ -91,7 +91,7 @@ def _executor() -> FunctionCallingExecutor:
 
 async def test_function_calling_executor_uses_core_scenario_from_pool() -> None:
     pool = _RecordingLLMPool(_DummyLLMAdapter())
-    executor = FunctionCallingExecutor(
+    executor = FunctionCallingOrchestrator(
         llm_pool=pool,
         tool_registry=_DummyToolRegistry(),  # type: ignore[arg-type]
     )
