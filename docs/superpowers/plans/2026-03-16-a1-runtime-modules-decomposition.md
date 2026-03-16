@@ -1,10 +1,10 @@
-# A1 Thin Bootstrap And Layer-Owned Lifecycle Implementation Plan
+# A1 Outer Bootstrap, Core Consolidation, And Layer-Owned Lifecycle Plan
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove `backend/src/magi/runtime/runtime_modules.py` and replace it with a thin `runtime/bootstrap.py` that only assembles lifecycle modules exposed by the owning layers.
+**Goal:** Remove `backend/src/magi/runtime/runtime_modules.py` and `backend/src/magi/runtime/bootstrap.py`, move system composition into a new outer `bootstrap/` package, and make each layer expose its own lifecycle module from the owning package so `runtime/` no longer remains a second pseudo-L1 directory.
 
-**Architecture:** Each layer owns its own lifecycle definition in its own package, for example `config/lifecycle.py`, `llm/lifecycle.py`, `memory/lifecycle.py`, and so on. `runtime/bootstrap.py` remains only as the startup/shutdown composition root that creates shared bootstrap context, collects layer-provided `LifecycleModule` instances in order, and hands them to `ModuleLifecycleOrchestrator`.
+**Architecture:** Each layer owns its own lifecycle definition in its own package, for example `config/lifecycle.py`, `llm/lifecycle.py`, `memory/lifecycle.py`, and so on. A new outer `bootstrap/` package becomes the backend composition root: it creates shared bootstrap context, collects layer-provided `LifecycleModule` instances in order, and hands them to a lifecycle orchestrator that also belongs to the composition boundary. `core/` converges toward pure `L1` infrastructure, while `runtime/` enters the deletion path instead of remaining a second pseudo-infrastructure directory.
 
 **Tech Stack:** Python 3.10+, pytest, dependency-injector, Magi runtime lifecycle modules
 
@@ -12,21 +12,24 @@
 
 ## File Structure
 
-### Shared bootstrap orchestration
+### Outer bootstrap orchestration
 
-- Modify: `backend/src/magi/runtime/bootstrap.py`
-  Reduce bootstrap to thin orchestration only. It should create bootstrap context, collect layer-owned lifecycle modules, and run the orchestrator.
-- Modify: `backend/src/magi/runtime/__init__.py`
-  Keep exports aligned if import paths or helper exposure change.
-- Modify: `backend/src/magi/runtime/lifecycle.py`
-  Only if small helper additions are needed for the new composition shape.
+- Create: `backend/src/magi/bootstrap/__init__.py`
+  Export backend bootstrap entrypoints.
+- Create: `backend/src/magi/bootstrap/context.py`
+  Define the thin shared bootstrap context used across layer lifecycle modules.
+- Create: `backend/src/magi/bootstrap/lifecycle.py`
+  Own lifecycle orchestration primitives previously tied to `runtime/`.
+- Create: `backend/src/magi/bootstrap/builder.py`
+  Build the ordered lifecycle module list from the owning layers.
+- Create: `backend/src/magi/bootstrap/backend.py`
+  Own startup/shutdown entrypoints and orchestrator wiring.
+- Delete: `backend/src/magi/runtime/bootstrap.py`
+  Remove the old runtime-owned composition root once the new bootstrap package is wired.
+- Delete: `backend/src/magi/runtime/lifecycle.py`
+  Remove lifecycle orchestration primitives from `runtime/` after the bootstrap package owns them.
 - Delete: `backend/src/magi/runtime/runtime_modules.py`
   Remove the monolithic runtime bootstrap file after all layer lifecycle entrypoints are wired.
-
-### Shared runtime bootstrap context
-
-- Create: `backend/src/magi/runtime/bootstrap_context.py`
-  Define the thin shared context used across layer lifecycle modules.
 
 Recommended context slices:
 
@@ -40,7 +43,7 @@ Recommended context slices:
   self memory, other memory, current personality
 - `context`
   scenario prompts store
-- `runtime`
+- `agent_runtime`
   sensor hub, action emitter, task agent manager, agent runtime
 - `timeline`
   timeline service
@@ -79,11 +82,11 @@ Recommended context slices:
 ### Tests
 
 - Create: `backend/tests/runtime/test_layer_lifecycle_modules.py`
-  Verify each layer exposes lifecycle modules from its own package and that bootstrap assembles them in the expected order.
+  Verify each layer exposes lifecycle modules from its own package and that the outer bootstrap assembles them in the expected order.
 - Modify: `backend/tests/runtime/test_bootstrap_llm_selection.py`
-  Only if bootstrap import paths or state helpers move.
-- Re-run: `backend/tests/runtime/test_lifecycle_orchestrator.py`
-  Guard the generic lifecycle engine.
+  Follow the bootstrap entrypoint move into `magi.bootstrap`.
+- Modify: `backend/tests/runtime/test_lifecycle_orchestrator.py`
+  Follow the lifecycle orchestrator move into `magi.bootstrap.lifecycle`.
 - Re-run: `backend/tests/api/test_backend_app_websocket_bridge.py`
   Guard backend startup wiring against bootstrap regressions.
 
@@ -92,18 +95,18 @@ Recommended context slices:
 - Reference only: `docs/issues/layered-architecture-remediation-checklist.md`
   Mark A1 progress after implementation lands.
 
-## Chunk 1: Shared Bootstrap Context
+## Chunk 1: Shared Outer Bootstrap Context
 
-### Task 1: Introduce a thin shared bootstrap context outside `runtime_modules.py`
+### Task 1: Introduce a thin shared bootstrap context in the new `bootstrap/` package
 
 **Files:**
-- Create: `backend/src/magi/runtime/bootstrap_context.py`
+- Create: `backend/src/magi/bootstrap/context.py`
 - Create: `backend/tests/runtime/test_layer_lifecycle_modules.py`
 
 - [ ] **Step 1: Write the failing bootstrap-context test**
 
 ```python
-from magi.runtime.bootstrap_context import RuntimeBootstrapContext
+from magi.bootstrap.context import RuntimeBootstrapContext
 
 
 def test_runtime_bootstrap_context_exposes_layer_slices() -> None:
@@ -112,14 +115,14 @@ def test_runtime_bootstrap_context_exposes_layer_slices() -> None:
     assert hasattr(context, "core")
     assert hasattr(context, "llm")
     assert hasattr(context, "memory")
-    assert hasattr(context, "runtime")
+    assert hasattr(context, "agent_runtime")
     assert hasattr(context, "scheduler")
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/asuka/code/magi/backend && pytest tests/runtime/test_layer_lifecycle_modules.py::test_runtime_bootstrap_context_exposes_layer_slices -v`
-Expected: FAIL because `RuntimeBootstrapContext` does not exist yet.
+Expected: FAIL because `magi.bootstrap.context` does not exist yet.
 
 - [ ] **Step 3: Create a slice-based bootstrap context**
 
@@ -136,7 +139,7 @@ class RuntimeBootstrapContext:
     core: CoreBootstrapState = field(default_factory=CoreBootstrapState)
     llm: LLMBootstrapState = field(default_factory=LLMBootstrapState)
     memory: MemoryBootstrapState = field(default_factory=MemoryBootstrapState)
-    runtime: RuntimeLayerState = field(default_factory=RuntimeLayerState)
+    agent_runtime: AgentRuntimeBootstrapState = field(default_factory=AgentRuntimeBootstrapState)
 ```
 
 - [ ] **Step 4: Add a regression test for required helper behavior**
@@ -144,7 +147,7 @@ class RuntimeBootstrapContext:
 ```python
 import pytest
 
-from magi.runtime.bootstrap_context import RuntimeBootstrapContext, require_initialized
+from magi.bootstrap.context import RuntimeBootstrapContext, require_initialized
 
 
 def test_require_initialized_raises_for_missing_value() -> None:
@@ -160,8 +163,8 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/src/magi/runtime/bootstrap_context.py backend/tests/runtime/test_layer_lifecycle_modules.py
-git commit -m "refactor: add runtime bootstrap context"
+git add backend/src/magi/bootstrap/context.py backend/tests/runtime/test_layer_lifecycle_modules.py
+git commit -m "refactor: add bootstrap context"
 ```
 
 ## Chunk 2: Layer-Owned Lifecycle Modules
@@ -211,8 +214,8 @@ class PluginSystemModule(LifecycleModule):
 - [ ] **Step 4: Add an order smoke test for the first layers**
 
 ```python
-from magi.runtime.bootstrap import build_runtime_modules
-from magi.runtime.bootstrap_context import RuntimeBootstrapContext
+from magi.bootstrap.builder import build_runtime_modules
+from magi.bootstrap.context import RuntimeBootstrapContext
 
 
 def test_bootstrap_builds_expected_front_of_layer_order() -> None:
@@ -411,29 +414,35 @@ git commit -m "refactor: move runtime lifecycle into owning layers"
 
 ## Chunk 3: Thin Bootstrap Cutover
 
-### Task 5: Rewrite `runtime/bootstrap.py` into a thin composition root
+### Task 5: Introduce the outer `bootstrap/` composition root and cut callers over
 
 **Files:**
-- Modify: `backend/src/magi/runtime/bootstrap.py`
+- Create: `backend/src/magi/bootstrap/__init__.py`
+- Create: `backend/src/magi/bootstrap/lifecycle.py`
+- Create: `backend/src/magi/bootstrap/builder.py`
+- Create: `backend/src/magi/bootstrap/backend.py`
+- Delete: `backend/src/magi/runtime/bootstrap.py`
+- Delete: `backend/src/magi/runtime/lifecycle.py`
 - Modify: `backend/tests/runtime/test_bootstrap_llm_selection.py`
 - Modify: `backend/tests/runtime/test_layer_lifecycle_modules.py`
+- Modify: `backend/tests/runtime/test_lifecycle_orchestrator.py`
 
 - [ ] **Step 1: Write the failing thin-bootstrap test**
 
 ```python
-import magi.runtime.bootstrap as bootstrap
+import magi.bootstrap.backend as backend_bootstrap
 
 
-def test_bootstrap_uses_layer_owned_lifecycle_modules() -> None:
-    assert bootstrap.RuntimeBootstrapContext.__module__ == "magi.runtime.bootstrap_context"
+def test_bootstrap_uses_outer_bootstrap_package() -> None:
+    assert backend_bootstrap.RuntimeBootstrapContext.__module__ == "magi.bootstrap.context"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/asuka/code/magi/backend && pytest tests/runtime/test_layer_lifecycle_modules.py::test_bootstrap_uses_layer_owned_lifecycle_modules -v`
-Expected: FAIL because bootstrap still imports from `magi.runtime.runtime_modules`.
+Run: `cd /Users/asuka/code/magi/backend && pytest tests/runtime/test_layer_lifecycle_modules.py::test_bootstrap_uses_outer_bootstrap_package -v`
+Expected: FAIL because the backend bootstrap package does not exist yet.
 
-- [ ] **Step 3: Rewrite bootstrap to collect modules from the owning layers**
+- [ ] **Step 3: Create the outer bootstrap package and collect modules from the owning layers**
 
 ```python
 def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleModule]:
@@ -446,10 +455,11 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
     ]
 ```
 
-- [ ] **Step 4: Keep runtime entrypoints stable while moving imports**
+- [ ] **Step 4: Move lifecycle orchestration into the outer bootstrap boundary**
 
 ```python
-from .bootstrap_context import RuntimeBootstrapContext
+class ModuleLifecycleOrchestrator:
+    ...
 ```
 
 - [ ] **Step 5: Run focused runtime regression tests**
@@ -460,8 +470,9 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/src/magi/runtime/bootstrap.py backend/src/magi/runtime/bootstrap_context.py backend/tests/runtime/test_layer_lifecycle_modules.py backend/tests/runtime/test_bootstrap_llm_selection.py
-git commit -m "refactor: thin runtime bootstrap"
+git add backend/src/magi/bootstrap/__init__.py backend/src/magi/bootstrap/context.py backend/src/magi/bootstrap/lifecycle.py backend/src/magi/bootstrap/builder.py backend/src/magi/bootstrap/backend.py backend/tests/runtime/test_layer_lifecycle_modules.py backend/tests/runtime/test_bootstrap_llm_selection.py backend/tests/runtime/test_lifecycle_orchestrator.py
+git rm backend/src/magi/runtime/bootstrap.py backend/src/magi/runtime/lifecycle.py
+git commit -m "refactor: add outer bootstrap package"
 ```
 
 ### Task 6: Delete `runtime/runtime_modules.py` and prove startup still works
@@ -501,7 +512,7 @@ git commit -m "refactor: remove monolithic runtime modules"
 - This plan intentionally does **not** include A2 scheduler ownership changes. `SchedulerModule` may temporarily stay behaviorally unchanged while its ownership moves into `scheduler/lifecycle.py`.
 - This plan intentionally does **not** include A3 transport-layer migration.
 - This plan intentionally does **not** remove runtime global fallbacks yet; that belongs to A8.
-- The success condition for A1 is structural ownership change: lifecycle logic lives in the owning layer, while `runtime/bootstrap.py` becomes thin.
+- The success condition for A1 is structural ownership change: lifecycle logic lives in the owning layer, `bootstrap/` becomes the outer composition root, `core/` is left on a path toward pure `L1`, and `runtime/` is no longer the place where the whole backend gets assembled or where generic lifecycle orchestration lives.
 
 ## Verification Handoff
 

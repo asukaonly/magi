@@ -23,6 +23,12 @@ Magi is not a single chat loop with a pile of attached utilities. It is a layere
 
 The main design goal is to keep registration, execution, orchestration, and business semantics separate so the system can evolve without collapsing into one large runtime module.
 
+One more rule follows from that goal:
+
+- the system composition root is not itself a business layer
+- startup and shutdown assembly should live in a thin outer bootstrap boundary
+- layer-owned lifecycle logic should live with the owning layer, not in a central runtime package
+
 ## Dependency Rules
 
 The default dependency rule is:
@@ -32,6 +38,12 @@ The default dependency rule is:
 - same-layer modules should communicate through typed contracts, registries, or the message bus rather than direct ad hoc coupling
 
 The layer stack describes default structural dependency, not every runtime data flow. Some business flows cross layers through events, registries, or scheduled dispatch.
+
+The composition root is a special case:
+
+- it may assemble all layers
+- it should stay thin
+- it should not become a new "super-layer" that owns business logic on behalf of the layers
 
 ## Layer Stack
 
@@ -52,6 +64,7 @@ Notes:
 
 - the scheduler engine belongs here because it is shared infrastructure
 - this layer provides scheduling capability, but it does not own domain scheduling policy
+- `core/` should converge toward this layer only; non-L1 runtime or business logic should move out
 
 ### L2. Configuration
 
@@ -281,6 +294,15 @@ The following boundary statements are part of the target architecture and should
 - if a layer needs scheduled work, it should register schedules into the scheduler through a defined contributor contract
 - scheduling policy belongs to the owning domain layer, while trigger execution belongs to the scheduler engine
 
+### Composition Root Contract
+
+- backend startup and shutdown assembly should live in a thin outer bootstrap package or boundary
+- bootstrap may collect lifecycle modules from all layers, but should not own layer-specific business logic
+- layer lifecycle definitions should live in the owning layer package
+- `core/` is the target home for L1 infrastructure concerns
+- `runtime/` should not remain a second pseudo-infrastructure package if `core/` already represents L1 infrastructure
+- if a module is not part of the outer composition root and does not belong to L1 infrastructure, it should move into its owning numbered layer instead of staying under `runtime/`
+
 ### Plugin Contract
 
 - the plugin system owns package lifecycle and contribution registration
@@ -324,7 +346,8 @@ To reduce future ambiguity, prefer the following terminology:
 
 The current codebase already roughly maps to this target model:
 
-- `core/`, `runtime/`, parts of `utils/` -> L1 application infrastructure
+- `bootstrap/` -> outer composition root, not a numbered layer
+- `core/`, parts of `utils/` -> L1 application infrastructure
 - `config/` -> L2 configuration
 - `events/` -> L3 message bus
 - `plugins/` -> L4 plugin registration
@@ -338,5 +361,7 @@ The current codebase already roughly maps to this target model:
 - `timeline/` -> L12 timeline domain
 - `api/` -> L13 external services
 - `websocket/` and connection-specific API glue -> L14 connection and transport
+
+`runtime/` should enter the deletion path as refactors land. The target package model is `bootstrap/` for the outer composition root plus `core/` for L1 infrastructure. If a module belongs to one of the numbered layers, it should eventually live there instead of remaining in a generic runtime package.
 
 This mapping is approximate and may continue to evolve during refactors, but the boundary rules above should remain stable.

@@ -25,7 +25,10 @@
 
 以下架构决策已经明确，不再重复讨论：
 
-- `runtime/runtime_modules.py` 继续做大拆分，不保留为长期中心装配枢纽
+- `bootstrap/` 作为后端最外层组合根，负责薄装配，不属于编号分层
+- `runtime/runtime_modules.py` 不做过渡性拆分，直接进入删除路径
+- `core/` 收敛为纯 `L1` 基础设施目录，非 `L1` 内容应迁出
+- `runtime/` 不作为长期目录保留；其职责要么上移到 `bootstrap/`，要么回归对应层
 - `L13 External Services` 与 `L14 Connection and Transport` 现在就做真实目录与归属迁移
 - 旧 runtime / loop / processing 路径直接删除，不保留兼容逻辑
 - `action` 相关命名向 `action emitter` / action-oriented terminology 收敛，不再沿用含糊的 executor 语义
@@ -48,19 +51,23 @@
 
 ## 4. 改造项清单
 
-### A1. 拆解 `runtime/runtime_modules.py` 中心装配枢纽
+### A1. 把组合根迁出 `runtime/`，建立层外 `bootstrap/` 并清空 `runtime/` 去留
 
 - 优先级: `P0`
 - 决策状态: `已确认，必须改`
 - 当前问题:
   - [runtime_modules.py](/Users/asuka/code/magi/backend/src/magi/runtime/runtime_modules.py) 仍直接 import 几乎所有核心层
   - `RuntimeBootstrapState` 仍是跨层实例总表
-  - 各模块虽有分层命名，但真实装配关系仍依赖一个中心文件知道全部细节
+  - [runtime/bootstrap.py](/Users/asuka/code/magi/backend/src/magi/runtime/bootstrap.py) 仍挂在 `runtime/` 下，导致 `runtime/` 同时承担“某层目录”和“全系统启动入口”两种语义
+  - `core/` 和 `runtime/` 都在承载部分基础设施语义，目录职责冲突
 - 与设计冲突:
-  - 违反“不要再次塌成单一 runtime module”的目标
-  - 使层边界停留在命名层，而不是结构层
+  - 违反“组合根在层外、各层自己拥有 lifecycle”的目标
+  - 让 `runtime/` 成为伪底层目录，并为未来反向依赖 API / WebSocket 埋下路径问题
+  - 违背“只保留一个 L1 目录”的目标，阻碍 `core/` 收敛为纯基础设施层
 - 影响面:
+  - `bootstrap/`（新）
   - `runtime/`
+  - `core/`
   - `agent/`
   - `scheduler/`
   - `timeline/`
@@ -69,7 +76,9 @@
   - `core/container.py`
 - 不改的后果:
   - 新增层能力仍会优先塞回中心装配文件
-  - 后续的调度、连接层迁移、DI 清理都会被这个中心状态对象反复牵制
+  - `runtime/` 会持续拥有不该有的跨层装配职责
+  - `core/` 会继续和 `runtime/` 共享伪 L1 身份，目录语义长期冲突
+  - 后续调度、连接层迁移、DI 清理都会被这个错误的组合根位置反复牵制
 - 依赖关系:
   - 应作为第一批主改造项之一启动
   - 会影响 A2、A3、A4、A8
@@ -90,7 +99,7 @@
   - `timeline/`
   - `agent/`
   - `core/runtime/` 中 action scheduling 相关逻辑
-  - `runtime/`
+  - `bootstrap/`
 - 不改的后果:
   - scheduler 继续成为业务编排中心
   - contributor 机制名义存在，实质仍由中心模块驱动
@@ -138,7 +147,7 @@
   - `api/routers/others.py`
   - `api/services/__init__.py`
   - `api/websocket_bridge_lifecycle.py`
-  - `runtime/services/`
+  - `runtime/services/`（进入删除或迁移路径）
   - `core/container.py`
 - 不改的后果:
   - 同一个能力会同时存在“runtime 创建”和“API 自建”两条来源
@@ -158,8 +167,7 @@
   - `L7 Tools and Skills` 应有明确单一能力入口
   - agent runtime 应消费能力层，不应私自复制一套能力生命周期
 - 影响面:
-  - `runtime/services/skills.py`
-  - `runtime/runtime_modules.py`
+  - `tools/lifecycle.py` 或后续对应能力层入口
   - `agent/task_agents/chat_task_agent.py`
   - 可能波及 `tools/registry.py` 与 `skills/`
 - 不改的后果:
@@ -218,15 +226,15 @@
 - 优先级: `P1`
 - 决策状态: `已确认，必须改`
 - 当前问题:
-  - `runtime/bootstrap.py` 仍有 `_runtime_state`、`_runtime_orchestrator`
+  - 当前启动入口仍有 `_runtime_state`、`_runtime_orchestrator` 这类全局状态
   - `runtime/services/message_bus.py` 等模块仍保留全局 fallback
   - 多个调用方先查 container，再 fallback 到 global
 - 与设计冲突:
   - 分层架构要求明确依赖边界
   - 全局 fallback 会制造隐式耦合和隐藏生命周期来源
 - 影响面:
-  - `runtime/bootstrap.py`
-  - `runtime/services/`
+  - `bootstrap/`
+  - `runtime/services/`（进入删除或迁移路径）
   - `api/`
   - `agent/`
   - `core/container.py`
@@ -319,7 +327,7 @@
 
 推荐按以下顺序推进，原因是这样能先收掉“错误扩散源”，再处理概念清理：
 
-1. `A1 runtime 总装拆解`
+1. `A1 建立层外 bootstrap 组合根并删除 runtime 总装枢纽`
 2. `A2 调度器纯引擎化`
 3. `A3 L13/L14 真实迁移`
 4. `A4 API 旁路依赖清理`
@@ -344,6 +352,7 @@
 以下改造项虽然必要，但改动面较大，执行时需要单独拆任务：
 
 - `A1` 会影响启动、依赖注入、模块初始化顺序
+- `A1` 还会影响 `core/` 与 `runtime/` 的目录职责收敛
 - `A3` 会影响 API、WebSocket、应用启动 wiring、导入路径
 - `A8` 会影响大量当前依赖 runtime global accessor 的调用方
 - `A9` 删除旧路径前必须确认没有隐性使用者
