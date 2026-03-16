@@ -64,6 +64,8 @@ Magi uses a layered backend architecture:
 - UI layer
   React app, settings, chat, task and memory-related views
 
+For the target layer model, naming guidance, and boundary contracts that define how these areas should evolve, see [Layered Agent Architecture](/Users/asuka/code/magi/docs/layered-agent-architecture.md).
+
 The extension layer now uses a unified plugin runtime for three contribution families:
 
 - tools

@@ -12,13 +12,16 @@ This folder is the active documentation home for Magi.
 2. [Product Configuration Guide](/Users/asuka/code/magi/docs/product-configuration-guide.md)
    Read this if you are working on onboarding, settings, configuration UX, language behavior, memory options, or tool management.
 
-3. [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
+3. [Layered Agent Architecture](/Users/asuka/code/magi/docs/layered-agent-architecture.md)
+   Read this if you need the target layer model, boundary rules, or naming guidance for Magi's backend architecture.
+
+4. [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
    Read this if you are working on the backend agent runtime, task orchestration, worker execution, or internal event flow.
 
-4. [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
+5. [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
    Read this if you are working on plugin loading, extension registration, timeline sensor registration, or action/tool integration.
 
-5. [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
+6. [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md)
    Read this if you want to build a new built-in or external plugin package.
 
 ## Memory Documentation
@@ -39,10 +42,10 @@ Memory architecture is split into project-level docs in `docs/` and implementati
   Read [Project Overview](/Users/asuka/code/magi/docs/project-overview.md).
 
 - New contributors
-  Read [Project Overview](/Users/asuka/code/magi/docs/project-overview.md), then [Product Configuration Guide](/Users/asuka/code/magi/docs/product-configuration-guide.md), then [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md).
+  Read [Project Overview](/Users/asuka/code/magi/docs/project-overview.md), then [Layered Agent Architecture](/Users/asuka/code/magi/docs/layered-agent-architecture.md), then [Product Configuration Guide](/Users/asuka/code/magi/docs/product-configuration-guide.md), then [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md).
 
 - Runtime and orchestration maintainers
-  Use [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md) as the primary implementation guide.
+  Use [Layered Agent Architecture](/Users/asuka/code/magi/docs/layered-agent-architecture.md) for target boundaries and [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md) for current implementation details.
 
 - Extension and plugin maintainers
   Read [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md) first, then [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md).
