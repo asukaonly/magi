@@ -39,7 +39,10 @@ async def test_websocket_bridge_subscribes_after_runtime_message_bus_ready(monke
     monkeypatch.setattr("magi.backend_app.initialize_agent_runtime", _noop_runtime_lifecycle)
     monkeypatch.setattr("magi.backend_app.shutdown_agent_runtime", _noop_runtime_lifecycle)
     monkeypatch.setattr("magi.api.services.get_chat_trace_read_service", lambda: _DummyTraceService())
-    monkeypatch.setattr("magi.backend_app.WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(
+        "magi.websocket.bridge_lifecycle.DEFAULT_WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS",
+        0.01,
+    )
 
     try:
         app = create_backend_app()

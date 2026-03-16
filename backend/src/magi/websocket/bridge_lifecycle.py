@@ -24,12 +24,13 @@ TRACE_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES + (
     "CHAT_TOOL_LOOP_STEP",
     "TOOL_INTERACTION",
 )
+DEFAULT_WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS = 0.5
 
 
 class WebSocketBridgeLifecycleModule(LifecycleModule):
     """Bridge message bus events to connected WebSocket clients."""
 
-    def __init__(self, app: FastAPI, retry_interval_seconds: float = 0.5):
+    def __init__(self, app: FastAPI, retry_interval_seconds: float = DEFAULT_WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS):
         super().__init__(
             name="websocket_bridge",
             dependencies=("runtime_system",),

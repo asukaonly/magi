@@ -18,7 +18,6 @@ from .bootstrap import (
 from .bootstrap.lifecycle import LifecycleModule, ModuleLifecycleOrchestrator
 
 logger = get_logger(__name__, category="API")
-WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS = 0.5
 
 
 class AppCoreDependenciesModule(LifecycleModule):
@@ -49,10 +48,7 @@ class RuntimeSystemModule(LifecycleModule):
 
 
 def _build_app_lifecycle_orchestrator(app: FastAPI) -> ModuleLifecycleOrchestrator:
-    websocket_bridge = WebSocketBridgeLifecycleModule(
-        app,
-        retry_interval_seconds=WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS,
-    )
+    websocket_bridge = WebSocketBridgeLifecycleModule(app)
 
     return ModuleLifecycleOrchestrator(
         modules=[

@@ -180,3 +180,11 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
     assert "require_plugin_manager" in plugins_router
     assert "require_plugin_manager" in tools_router
     assert "require_action_registry" in runtime_bindings
+
+
+def test_backend_app_does_not_forward_websocket_bridge_retry_default() -> None:
+    backend_app_source = (BACKEND_SRC / "backend_app.py").read_text(encoding="utf-8")
+
+    assert "WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS" not in backend_app_source
+    assert "retry_interval_seconds=" not in backend_app_source
+    assert "WebSocketBridgeLifecycleModule(app)" in backend_app_source
