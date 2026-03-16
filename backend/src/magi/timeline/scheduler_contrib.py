@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import uuid
 import time
+import asyncio
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..plugins.sensors import SensorRegistry
 from ..utils.runtime import RuntimePaths
+from ..core.logger import get_logger
 from .contracts import TimelineEvent
 from .service import TimelineService
 from .sync import SensorSyncContext
@@ -23,6 +25,7 @@ from ..scheduler.service import SchedulerService
 if TYPE_CHECKING:
     from ..scheduler.contracts import ScheduleContributor
 
+logger = get_logger(__name__)
 
 _timeline_contrib: TimelineSchedulerContrib | None = None
 
@@ -36,6 +39,28 @@ def set_timeline_scheduler_contrib(contrib: TimelineSchedulerContrib | None) -> 
     """Set the active timeline scheduler contrib instance."""
     global _timeline_contrib
     _timeline_contrib = contrib
+
+
+def request_timeline_schedule_refresh() -> None:
+    """Schedule a best-effort refresh of timeline-owned schedules."""
+    contrib = get_timeline_scheduler_contrib()
+    if contrib is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.debug("Skipping timeline schedule refresh because no event loop is running")
+        return
+
+    task = loop.create_task(contrib.sync_schedules())
+    task.add_done_callback(_log_refresh_failure)
+
+
+def _log_refresh_failure(task: asyncio.Task[None]) -> None:
+    try:
+        task.result()
+    except Exception as exc:  # pragma: no cover - defensive logging path
+        logger.warning("Timeline schedule refresh failed", error=str(exc))
 
 
 class TimelineSchedulerContrib:

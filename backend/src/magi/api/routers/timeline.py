@@ -267,11 +267,11 @@ async def trigger_timeline_source_sync(source_name: str):
     resolved = sensor_registry.resolve_domain_sensor("timeline", source_name)
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline source not found")
-    bootstrap = get_timeline_scheduler_contrib()
-    if bootstrap is None:
+    timeline_scheduler = get_timeline_scheduler_contrib()
+    if timeline_scheduler is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Scheduler unavailable")
     try:
-        schedule = await bootstrap.queue_manual_sync(source_name)
+        schedule = await timeline_scheduler.queue_manual_sync(source_name)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {"queued": True, "source_name": source_name, "schedule_id": schedule.schedule_id}
