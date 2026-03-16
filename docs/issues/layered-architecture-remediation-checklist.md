@@ -55,7 +55,7 @@
 
 - 优先级: `P0`
 - 决策状态: `已确认，必须改`
-- 当前问题:
+- 原问题（已解决）:
   - [runtime_modules.py](/Users/asuka/code/magi/backend/src/magi/runtime/runtime_modules.py) 仍直接 import 几乎所有核心层
   - `RuntimeBootstrapState` 仍是跨层实例总表
   - [runtime/bootstrap.py](/Users/asuka/code/magi/backend/src/magi/runtime/bootstrap.py) 仍挂在 `runtime/` 下，导致 `runtime/` 同时承担“某层目录”和“全系统启动入口”两种语义
@@ -134,7 +134,13 @@
 ### A4. 移除 API 层直接 new 领域对象 / 传感器 / runtime globals 的旁路
 
 - 优先级: `P0`
-- 决策状态: `已确认，必须改`
+- 决策状态: `已完成（2026-03-16）`
+- 完成结果:
+  - `messages.py` 已移除 `_user_message_sensor` 和 router-local message-bus wrapper
+  - `others.py` 已移除 `_other_memory` fallback
+  - `api/services/__init__.py` 不再 re-export `events.service_access`、`skills.service_access`、`personality.current_state`
+  - `websocket/handlers.py` 与 `websocket/bridge_lifecycle.py` 已改为显式 service / DI binding
+  - 边界已由 `test_runtime_bypass_boundaries.py`、`test_bridge_lifecycle.py` 和 transport boundary tests 锁定
 - 当前问题:
   - [others.py](/Users/asuka/code/magi/backend/src/magi/api/routers/others.py) 自己持有 `_other_memory`
   - [messages.py](/Users/asuka/code/magi/backend/src/magi/api/routers/messages.py) 自己持有 `_user_message_sensor`
@@ -153,8 +159,9 @@
   - 同一个能力会同时存在“runtime 创建”和“API 自建”两条来源
   - 生命周期、状态、缓存、测试替换都容易漂移
 - 依赖关系:
-  - 和 A3 一起推进收益最高
-  - 也依赖 A8 对 runtime globals 的清理
+  - 已完成主目标
+  - `skills` 生命周期统一仍留给 A5
+  - 更深层的 runtime global 删除仍由 A8 继续收尾
 
 ### A5. 统一 skills 生命周期，移除重复初始化路径
 

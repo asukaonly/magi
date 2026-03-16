@@ -1,5 +1,20 @@
 # A4 API Runtime Bypass Cleanup Implementation Plan
 
+**Status:** Completed on 2026-03-16
+
+**Completed commits:**
+- `bb23ab3` `test: cover api runtime bypass boundaries`
+- `9515dcb` `refactor: expose api runtime bindings through di`
+- `e11d582` `refactor: remove router-owned runtime fallbacks`
+- `f0a6a36` `refactor: replace api runtime reexports with services`
+- `a467960` `refactor: remove transport runtime bypass access`
+
+**Implementation result:** `api/` and `websocket/` no longer create router-owned `OtherMemory` or `UserMessageSensor` singletons, and transport consumers no longer reach into `events.service_access` or `personality.current_state` directly. Runtime-owned objects now flow through explicit service adapters and DI-backed bindings, so API and transport code consume stable contracts instead of hidden global state.
+
+**As-built deltas from the original plan:**
+- `backend/src/magi/api/services/skills_runtime_service.py` now binds initialized shared skills services into the container when API-level initialization paths are used directly in tests, so the explicit runtime binding contract remains intact even outside full bootstrap startup.
+- `backend/tests/websocket/test_transport_layer_boundaries.py` gained source-level assertions for transport-side global accessors in addition to the planned bridge lifecycle regression, which locks the new boundary more tightly.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove API and transport-layer bypass paths where routers or bridge code create their own domain objects, sensors, or talk directly to runtime/global accessors instead of using DI-backed bindings.
