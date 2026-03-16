@@ -1051,7 +1051,7 @@ retrieved_memory_payload = {
 | `integration.py` | `integration.py` | 保留入口，但重写内部流程 |
 | `query/*` | `hybrid_retrieval/*` | 重写 |
 | `prompt_context_assembler.py` | 同文件 | 保留并扩展读取新 payload |
-| `runtime/bootstrap.py` | 同文件 | 改造初始化与 wiring |
+| `bootstrap/backend.py` | 同文件 | 改造初始化与 wiring |
 
 #### 12.2.1 本轮暂不替换
 
@@ -1078,7 +1078,7 @@ retrieved_memory_payload = {
 1. 新增 `backend/src/magi/memory/event_contracts.py`
 2. 重写或替换 `backend/src/magi/memory/integration.py`
 3. 更新 `backend/src/magi/config/models.py`
-4. 更新 `backend/src/magi/runtime/bootstrap.py`
+4. 更新 `backend/src/magi/bootstrap/backend.py`
 
 验收：
 

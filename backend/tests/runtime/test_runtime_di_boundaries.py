@@ -114,3 +114,12 @@ def test_skills_package_uses_skill_runner_name() -> None:
     assert "SkillExecutor" not in tools_init
     assert "SkillRunner" in skills_init
     assert not (BACKEND_SRC / "skills/executor.py").exists()
+
+
+def test_backend_docs_do_not_reference_removed_runtime_bootstrap_path() -> None:
+    docs_root = BACKEND_SRC.parents[1] / "docs"
+    memory_design = (docs_root / "memory-system-design.md").read_text(encoding="utf-8")
+    memory_plan = (docs_root / "memory-system-execution-plan.md").read_text(encoding="utf-8")
+
+    assert "runtime/bootstrap.py" not in memory_design
+    assert "runtime/bootstrap.py" not in memory_plan

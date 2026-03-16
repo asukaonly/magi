@@ -57,7 +57,7 @@ To keep docs consistent and avoid duplicate architecture sources:
 - `backend/src/magi/memory/integration.py`
 - `backend/src/magi/memory/prompt_context_assembler.py`
 - `backend/src/magi/agent/task_agents/chat/prompt_service.py`
-- `backend/src/magi/runtime/bootstrap.py`
+- `backend/src/magi/bootstrap/backend.py`
 - `backend/src/magi/tools/memory_query.py`
 - `backend/src/magi/api/routers/memory.py`
 
@@ -261,7 +261,7 @@ git commit -m "feat: add memory event contracts"
 
 **Files:**
 - Create: `backend/src/magi/memory/l0_working_memory.py`
-- Modify: `backend/src/magi/runtime/bootstrap.py`
+- Modify: `backend/src/magi/bootstrap/backend.py`
 - Modify: `backend/src/magi/memory/__init__.py`
 - Test: `backend/tests/memory/test_l0_working_memory.py`
 
@@ -308,7 +308,7 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/src/magi/memory/l0_working_memory.py backend/src/magi/runtime/bootstrap.py backend/src/magi/memory/__init__.py backend/tests/memory/test_l0_working_memory.py
+git add backend/src/magi/memory/l0_working_memory.py backend/src/magi/bootstrap/backend.py backend/src/magi/memory/__init__.py backend/tests/memory/test_l0_working_memory.py
 git commit -m "feat: add l0 working memory"
 ```
 
@@ -676,7 +676,7 @@ git commit -m "feat: wire memory payload into prompts"
 
 **Files:**
 - Modify: `backend/src/magi/api/routers/memory.py`
-- Modify: `backend/src/magi/runtime/bootstrap.py`
+- Modify: `backend/src/magi/bootstrap/backend.py`
 - Modify: maintenance daemon related runtime files
 - Test: `backend/tests/api/test_memory_api.py`
 
@@ -724,7 +724,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/src/magi/api/routers/memory.py backend/src/magi/runtime/bootstrap.py backend/tests/api/test_memory_api.py
+git add backend/src/magi/api/routers/memory.py backend/src/magi/bootstrap/backend.py backend/tests/api/test_memory_api.py
 git commit -m "feat: finish memory runtime integration"
 ```
 
