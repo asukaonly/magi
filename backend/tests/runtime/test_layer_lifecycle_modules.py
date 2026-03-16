@@ -246,3 +246,34 @@ def test_legacy_loop_and_processing_paths_are_removed() -> None:
     assert not (src_root / "core/complete_agent.py").exists()
     assert not (processing_dir / "__init__.py").exists()
     assert not list(processing_dir.glob("*.py"))
+
+
+def test_context_package_exports_scenario_vocabulary_from_active_module() -> None:
+    """Verify prompt scenario vocabulary is owned by the active context module."""
+    from magi.context import Scenario
+
+    assert Scenario.__module__ == "magi.context.scenarios"
+
+
+def test_legacy_context_builder_path_is_removed() -> None:
+    """Verify legacy context builder implementation is deleted."""
+    src_root = Path(__file__).resolve().parents[2] / "src/magi"
+    context_dir = src_root / "context"
+
+    assert not (context_dir / "builder.py").exists()
+
+
+def test_active_chat_context_path_does_not_import_legacy_builder() -> None:
+    """Verify chat task-agent prompt flow no longer depends on context.builder."""
+    src_root = Path(__file__).resolve().parents[2] / "src/magi"
+    files = [
+        src_root / "agent/task_agents/chat/prompt_service.py",
+        src_root / "agent/task_agents/chat/handlers.py",
+        src_root / "agent/task_agents/chat/planning_service.py",
+        src_root / "context/__init__.py",
+    ]
+
+    for file_path in files:
+        source = file_path.read_text(encoding="utf-8")
+        assert "context.builder" not in source
+        assert "from .builder import Scenario" not in source
