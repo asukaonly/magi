@@ -1,25 +1,16 @@
-"""Lifecycle module for websocket bridge subscriptions.
-
-This module provides a pure event-to-websocket bridge - it subscribes to
-message bus events and forwards them to connected WebSocket clients without
-any business logic or data enrichment.
-
-Trace enrichment (trace_summary, orchestration_id) is handled by the event
-publisher (ChatPostProcessService) to ensure data completeness at the source.
-"""
+"""Lifecycle module for websocket bridge subscriptions."""
 
 from __future__ import annotations
 
 import asyncio
 import os
-from typing import Optional
 
 from fastapi import FastAPI
 
-from ..websocket.connection_manager import manager
+from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
-from ..bootstrap.lifecycle import LifecycleModule
+from .connection_manager import manager
 
 logger = get_logger(__name__, category="API")
 
@@ -35,12 +26,7 @@ TRACE_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES + (
 
 
 class WebSocketBridgeLifecycleModule(LifecycleModule):
-    """Pure event-to-websocket bridge.
-
-    Subscribes to message bus events and broadcasts them to WebSocket clients.
-    No business logic or data enrichment is performed - events are forwarded
-    as-is from the message bus.
-    """
+    """Bridge message bus events to connected WebSocket clients."""
 
     def __init__(self, app: FastAPI, retry_interval_seconds: float = 0.5):
         super().__init__(
@@ -105,11 +91,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         state.websocket_bridge_message_bus = None
 
     async def _ensure_subscriptions(self) -> bool:
-        """Subscribe to message bus events for WebSocket broadcast.
-
-        Pure forwarding - no data enrichment. Trace data is expected to be
-        included in the event payload by the publisher.
-        """
+        """Subscribe to message bus events for WebSocket broadcast."""
         from ..events.service_access import get_message_bus
 
         state = self._app.state
@@ -123,12 +105,6 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             return True
 
         async def _on_ai_response(event: Event) -> None:
-            """Forward AI_RESPONSE events to WebSocket clients.
-
-            Event payload is expected to already contain:
-            - user_id, session_id, turn_id
-            - trace_summary, trace_available, orchestration_id (if applicable)
-            """
             data = event.data if isinstance(event.data, dict) else {}
             user_id = str(data.get("user_id", "")).strip()
             session_id = str(data.get("session_id", "")).strip()
@@ -154,14 +130,9 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                 room_clients=room_clients,
                 pid=os.getpid(),
             )
-            # Forward event data as-is (no enrichment)
             await manager.broadcast("agent_response", data, room=room_name)
 
         async def _on_trace_event(event: Event) -> None:
-            """Forward trace events (WORKER_AGENT_*, TOOL_INTERACTION) to WebSocket clients.
-
-            Broadcasts execution_trace_update with event payload data.
-            """
             data = event.data if isinstance(event.data, dict) else {}
             user_id = str(data.get("user_id", "")).strip()
             session_id = str(data.get("session_id", "")).strip()
@@ -170,14 +141,12 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             if not user_id:
                 return
 
-            # Build trace update payload from event data
             trace_payload = {
                 "user_id": user_id,
                 "session_id": session_id,
                 "turn_id": turn_id,
                 "event_type": event.type,
             }
-            # Include additional fields if present
             if "orchestration_id" in data:
                 trace_payload["orchestration_id"] = data["orchestration_id"]
             if "iteration" in data:
@@ -189,7 +158,6 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                 room=f"user_{user_id}",
             )
 
-        # Clean up stale subscriptions if message bus changed
         stale_sub_id = getattr(state, "ai_response_subscription_id", None)
         stale_trace_sub_ids = getattr(state, "worker_agent_subscription_ids", None) or []
         stale_bus = getattr(state, "websocket_bridge_message_bus", None)
@@ -205,7 +173,6 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                 except Exception as exc:
                     logger.warning(f"Failed to unsubscribe stale trace bridge {stale_trace_sub_id}: {exc}")
 
-        # Subscribe to AI_RESPONSE events
         sub_id = await message_bus.subscribe(
             EventTypes.AI_RESPONSE,
             _on_ai_response,
@@ -219,7 +186,6 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             pid=os.getpid(),
         )
 
-        # Subscribe to trace events
         trace_sub_ids = []
         for trace_event_type in TRACE_EVENT_TYPES:
             worker_sub_id = await message_bus.subscribe(

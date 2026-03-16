@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 
 from .api.app import create_app as create_api_app
-from .api.websocket_bridge_lifecycle import WebSocketBridgeLifecycleModule
+from .websocket.bridge_lifecycle import WebSocketBridgeLifecycleModule
 from .core.container import wire_container
 from .core.logger import get_logger
 from .bootstrap import (
