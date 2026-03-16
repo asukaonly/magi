@@ -139,7 +139,8 @@ plugins:
             sync_interval_minutes: 1
             default_retention_mode: "retain_raw"
             storage_mode: "managed"
-            edge_whitelist: ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"]
+            edge_whitelist:
+              ["MENTIONED", "CARES_ABOUT", "LIKES", "DISLIKES", "CREATED", "RELATED_TO"]
           browser_history:
             enabled: true
             sync_mode: "interval"
