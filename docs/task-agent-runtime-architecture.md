@@ -2,54 +2,119 @@
 
 ## Purpose
 
-This document describes the current backend runtime architecture for task agents, orchestration, worker execution, and the internal typed contracts that connect them.
+This document describes the current backend runtime architecture for bootstrap, task-agent orchestration, worker execution, scheduler registration, and the service and transport boundaries around them.
 
-It is implementation-oriented and is meant for maintainers and contributors working on the runtime itself.
+It is implementation-oriented and should stay synchronized with the current codebase.
 
 ## Design Intent
 
-The current runtime is built around three ideas:
+The current runtime is built around four ideas:
 
-- Keep user-facing task logic in task agents, not in workers
-- Keep workers leaf-only and tightly scoped
-- Use typed internal contracts for execution, orchestration, worker results, and internal fact payloads
+- keep the composition root thin
+- keep user-facing task logic in task agents instead of workers
+- keep workers leaf-only and tightly scoped
+- use typed internal contracts for execution, orchestration, worker results, and classified facts
+
+## Composition Root
+
+The composition root lives in `backend/src/magi/bootstrap/`.
+
+Important files:
+
+- `backend.py`
+  Starts and stops the runtime through `ModuleLifecycleOrchestrator`
+
+- `builder.py`
+  Builds the ordered lifecycle module list from the owning layers
+
+- `context.py`
+  Defines the shared bootstrap context slices
+
+- `exports.py`
+  Exports initialized runtime services to the DI container and runtime-binding boundary
+
+### Bootstrap context slices
+
+The bootstrap context is intentionally split by ownership instead of using one generic bag of runtime state.
+
+Key slices include:
+
+- core
+- llm
+- message bus
+- memory
+- personality
+- plugins
+- timeline
+- scheduler
+- agent runtime
+
+This keeps ownership explicit and stops bootstrap assembly from becoming a hidden business layer.
+
+## Bootstrap Order
+
+Lifecycle modules are built in dependency order in `bootstrap/builder.py`.
+
+The current sequence is:
+
+1. core dependencies
+2. configuration
+3. message bus
+4. plugin system
+5. llm runtime
+6. memory stores
+7. tools
+8. skills
+9. personality
+10. sensors and actions
+11. context assembly
+12. agent runtime
+13. timeline service
+14. scheduler engine
+15. agent schedule registration
+16. action schedule registration
+17. timeline schedule registration
+18. runtime exports
+19. maintenance dependencies
+
+Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
 
 ## Main Runtime Flow
 
 ```mermaid
 flowchart TD
-    U["User Message"] --> R["Router / Runtime"]
+    U["User Message"] --> T["API or WebSocket Transport"]
+    T --> D["Shared Message Dispatch Service"]
+    D --> B["Message Bus"]
+    B --> R["Router Agent / Sensor Hub"]
     R --> C["ChatTaskAgent"]
 
-    C --> D{"Intent + Strategy"}
-    D -->|direct llm| L["DirectLLMHandler"]
-    D -->|tool use| F["FunctionCallingHandler"]
-    D -->|generic decompose| O["TaskOrchestrator"]
-    D -->|large explore| X["ExploreTaskAgent"]
+    C --> M{"Execution Mode"}
+    M -->|direct llm| L["Direct LLM Handler"]
+    M -->|tool use| F["Function Calling Handler"]
+    M -->|orchestration| O["TaskOrchestrator"]
+    M -->|large explore| X["ExploreTaskAgent"]
 
-    O --> W1["Leaf Workers"]
-    W1 --> O
+    O --> W["Leaf Workers"]
+    W --> O
     O --> C
 
-    X --> XP["Explore planning"]
-    XP --> W2["Leaf Explore Workers"]
-    W2 --> XA["Markdown dossier aggregation"]
+    X --> XW["Explore Workers"]
+    XW --> XA["Dossier Aggregation"]
     XA --> C
 
-    C --> A["Final user-facing response"]
-    L --> A
-    F --> A
+    C --> A["User-Facing Response"]
 ```
 
-## Runtime Layers
+## Agent Runtime
 
-### 1. `TaskAgent` base loop
+The L11 runtime lives under `backend/src/magi/agent/`.
 
-The shared runtime loop lives in:
+### `TaskAgent`
 
-- [task_agent.py](/Users/asuka/code/magi/backend/src/magi/core/runtime/task_agent.py)
+The shared base loop lives in `agent/runtime/task_agent.py`.
 
-It now acts as a typed pipeline over five stages:
+It acts as a typed pipeline over these stages:
 
 1. `build_context`
 2. `match_intent`
@@ -58,129 +123,69 @@ It now acts as a typed pipeline over five stages:
 5. `call_llm`
 6. `parse_result`
 
-The base class is generic over:
+The base class is generic over runtime context, intent result, tool selection, execution request, and execution result.
 
-- runtime context
-- intent result
-- tool selection
-- execution request
-- execution result
+### `ChatTaskAgent`
 
-This means specialized task agents can share one loop while keeping their own typed contracts.
-
-### 2. `ChatTaskAgent`
-
-Primary user-facing task agent:
-
-- [chat_task_agent.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/chat_task_agent.py)
+Primary user-facing task agent in `agent/task_agents/chat_task_agent.py`.
 
 Current responsibilities:
 
-- Build chat runtime context
-- Delegate execution routing to `ChatExecutionCoordinator`
-- Own chat-specific prompt/session/postprocess services
-- Render final user-facing answers
+- build chat runtime context
+- delegate execution routing to the chat execution coordinator
+- own chat-specific prompt, session, and postprocess services
+- render final user-facing answers
 
-It should not directly own detailed orchestration logic anymore.
+### `ExploreTaskAgent`
 
-### 3. `ExploreTaskAgent`
-
-Specialized task agent for large exploration requests:
-
-- [explore_task_agent.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/explore_task_agent.py)
+Specialized task agent in `agent/task_agents/explore_task_agent.py`.
 
 Current responsibilities:
 
-- Accept large exploration requests from chat
-- Plan bounded explore subtasks
-- Delegate worker orchestration to `TaskOrchestrator`
-- Aggregate completed worker results into a Markdown dossier
-- Send the dossier back upstream to `ChatTaskAgent`
+- accept large exploration requests from chat
+- plan bounded explore subtasks
+- delegate worker orchestration to `TaskOrchestrator`
+- aggregate completed worker results into a Markdown dossier
+- send the dossier back upstream to `ChatTaskAgent`
 
-### 4. `TaskOrchestrator`
+### `TaskOrchestrator`
 
-Shared parent-task orchestrator:
-
-- [task_orchestrator.py](/Users/asuka/code/magi/backend/src/magi/agent/task_orchestrator.py)
+Shared parent-task orchestrator in `agent/task_orchestrator.py`.
 
 Current responsibilities:
 
-- Start a parent orchestration
-- Persist orchestration state
-- Launch leaf workers
-- Process worker progress/completion/failure updates
-- Apply retry policy
-- Trigger final aggregation when all subtasks reach a terminal state
+- start parent orchestration
+- persist orchestration state
+- launch leaf workers
+- process worker progress, completion, and failure updates
+- apply retry policy
+- trigger final aggregation
 
-This is the main shared orchestration state machine for task agents.
+### `WorkerAgentManager`
 
-### 5. `WorkerAgentManager`
-
-Leaf worker lifecycle manager:
-
-- [worker_manager.py](/Users/asuka/code/magi/backend/src/magi/agent/workers/worker_manager.py)
+Leaf worker lifecycle manager in `agent/workers/worker_manager.py`.
 
 Current responsibilities:
 
-- Launch workers of specific types
-- Restrict available tools by worker type
-- Enforce worker result schema
-- Publish worker progress/completion/failure facts
-- Persist full worker results for parent-task recovery
+- launch workers of specific types
+- restrict available tools by worker type
+- validate worker result schema
+- publish worker progress and completion facts
+- persist worker results for parent-task recovery
 
-Workers remain leaf executors and do not recursively create new workers.
+Workers remain leaf executors and do not recursively create other workers.
 
-### 6. `SchedulerService`
+## Typed Execution Framework
 
-Persistent business-task scheduling now lives in:
+The shared execution framework lives under `agent/task_agents/common/`.
 
-- [service.py](/Users/asuka/code/magi/backend/src/magi/scheduler/service.py)
-- [bootstrap.py](/Users/asuka/code/magi/backend/src/magi/scheduler/bootstrap.py)
+Important files:
 
-Current responsibilities:
+- `contracts.py`
+- `handlers.py`
+- `llm_service.py`
 
-- Persist one-shot, interval, and cron-style schedules to a local SQLite-backed store
-- Restore recurring jobs on runtime startup
-- Track per-target runtime state such as `last_success_at`, `last_error`, cursor, and watermark
-- Persist per-execution history rows for scheduled runs in `schedule_executions`
-- Dispatch scheduled work into runtime-owned handlers instead of scattered module-specific loops
-
-This scheduler is meant for user-facing or business-facing runtime work, not system housekeeping. `MaintenanceDaemon` remains a separate mechanism for now.
-
-### 7. Unified memory runtime
-
-The runtime now includes a lifecycle-based memory subsystem centered on:
-
-- [memory/__init__.py](/Users/asuka/code/magi/backend/src/magi/memory/__init__.py)
-- [integration.py](/Users/asuka/code/magi/backend/src/magi/memory/integration.py)
-- [hybrid_retrieval/service.py](/Users/asuka/code/magi/backend/src/magi/memory/hybrid_retrieval/service.py)
-
-Current responsibilities:
-
-- keep short-lived execution state in `L0` working memory with checkpoint recovery
-- persist normalized long-term events in `L1` (`memories/l1_events.db`)
-- derive structured cognition in `L2` (stored in `memories/memory.db`)
-- generate reflective summaries in `L3` (stored in `memories/memory.db`)
-- store learned procedures and strategy heuristics in `L4` (stored in `memories/memory.db`)
-- keep vector data in layer-owned tables (`L1/L3/L4/L5`) instead of a shared embedding database
-- expose cross-layer retrieval for prompt assembly and the `memory_query` tool
-- keep message bus persistence isolated in `message_queue.db`
-
-This memory runtime is not just prompt-context caching. It is part of the core runtime boundary because timeline ingestion, worker outcomes, and chat interactions all feed the same memory lifecycle.
-
-## Current Task-Agent Execution Framework
-
-The shared execution framework lives under:
-
-- [common/](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/common/)
-
-The most important pieces are:
-
-- [contracts.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/common/contracts.py)
-- [handlers.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/common/handlers.py)
-- [llm_service.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/common/llm_service.py)
-
-### Execution mode
+### Execution modes
 
 Execution is routed by `ExecutionMode`:
 
@@ -191,126 +196,90 @@ Execution is routed by `ExecutionMode`:
 - `ORCHESTRATION_UPDATE`
 - `EXPLORE_TASK_RENDER`
 
-### Request/handler model
+### Request and handler model
 
-Each execution mode is backed by a handler. The general pattern is:
+The general pattern is:
 
-1. Coordinator chooses an `ExecutionMode`
-2. Coordinator creates an `ExecutionRequest`
-3. Handler specializes it into a mode-specific request DTO
-4. Handler executes and returns an `ExecutionResult`
+1. a coordinator chooses an `ExecutionMode`
+2. it creates an `ExecutionRequest`
+3. a handler specializes that request into a mode-specific DTO
+4. the handler returns an `ExecutionResult`
 
-### Why this matters
+This replaced older ad hoc dictionary passing with explicit typed contracts.
 
-Before the refactor, these steps passed anonymous dictionaries and string modes across many methods.
+## Internal Contracts
 
-Now the flow is much easier to reason about because:
+The most important contract families are:
 
-- execution modes are explicit enums
-- execution requests are typed DTOs
-- handler boundaries are visible
-- chat and explore task agents follow the same runtime shape
+- execution contracts in `agent/task_agents/common/contracts.py`
+- runtime context and intent contracts in `agent/task_agents/chat/contracts.py` and `agent/task_agents/explore/contracts.py`
+- orchestration contracts in `agent/orchestration.py`
+- worker result contracts in `agent/orchestration.py`
 
-## Typed Contract Families
+Transport boundaries still use dictionaries where practical, but internal runtime logic should prefer typed DTOs.
 
-There are now four main contract families.
+## Service Boundaries
 
-### 1. Execution contracts
+The product-facing service boundary lives in `backend/src/magi/api/services/`.
 
-Defined in:
+Current rules:
 
-- [common/contracts.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/common/contracts.py)
+- shared business-facing helpers belong in `api/services/`
+- transport handlers should call those services instead of reimplementing routing logic
+- runtime-domain code should not reach back into API services
 
-Examples:
+### Shared message dispatch
 
-- `ExecutionRequest`
-- `DirectLLMRequest`
-- `FunctionCallingRequest`
-- `OrchestrationLaunchRequest`
-- `OrchestrationUpdateRequest`
-- `ExploreRenderRequest`
-- `ExecutionResult`
-- `FunctionCallingExecutionResult`
+`api/services/message_dispatch_service.py` is the shared write path for user messages from both HTTP and websocket transports.
 
-### 2. Runtime context and intent contracts
+It owns:
 
-Base contracts:
+- runtime initialization checks
+- message-bus availability checks
+- session resolution for incoming messages
+- `USER_MESSAGE` event publication
+- queue-size reporting for callers
 
-- `BaseRuntimeContext`
-- `BaseIntentDecision`
+This keeps `api/routers/messages.py` and `websocket/handlers.py` transport-thin.
 
-Specialized contracts:
+### Read services
 
-- [chat/contracts.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/chat/contracts.py)
-- [explore/contracts.py](/Users/asuka/code/magi/backend/src/magi/agent/task_agents/explore/contracts.py)
+`ChatReadService` and `ChatTraceReadService` remain shared read-side services.
 
-Examples:
+They are intentionally separated from runtime orchestration, but they still use module-scoped shared instances today and are tracked in the backlog for further cleanup.
 
-- `ChatRuntimeContext`
-- `IntentDecision`
-- `ExploreRuntimeContext`
-- `ExploreIntentDecision`
+## Runtime Binding Boundary
 
-### 3. Orchestration contracts
+`core/runtime_bindings.py` is the exported boundary for selected initialized services such as:
 
-Defined in:
+- message bus
+- scheduler service
+- timeline scheduler contributor
+- plugin manager
+- other memory
+- user message sensor
+- skills bindings
 
-- [orchestration.py](/Users/asuka/code/magi/backend/src/magi/agent/orchestration.py)
+Current rule:
 
-Examples:
+- routers, transport handlers, and shared external-facing services may use runtime bindings
+- runtime-domain code should prefer explicit injection from lifecycle assembly or owning managers
 
-- `PlannedSubtask`
-- `SubtaskPlan`
-- `SubtaskDefinition`
-- `TaskOrchestrationState`
-- `OrchestrationExecutionResult`
-
-### 4. Worker result contracts
-
-Also defined in:
-
-- [orchestration.py](/Users/asuka/code/magi/backend/src/magi/agent/orchestration.py)
-
-Examples:
-
-- `WorkerResult`
-- `WorkerFinding`
-- `WorkerEvidence`
-
-These are now typed all the way through worker validation, orchestration storage, aggregation, and prompt fallbacks.
-
-## Internal Fact Payloads
-
-One of the biggest recent changes is that internal fact payloads are now typed after ingestion.
-
-The external transport is still:
-
-- `FactRecord.payload: dict[str, Any]`
-
-But once a task agent classifies an incoming fact, the payload becomes a typed domain object.
-
-Key payload DTOs:
-
-- `UserMessagePayload`
-- `WorkerUpdatePayload`
-- `ExploreTaskRequestPayload`
-- `ExploreTaskCompletedPayload`
-- `GenericFactPayload`
-
-## Unified Scheduler Targets
+## Scheduler Targets
 
 The scheduler runtime currently supports three target families:
 
 - `timeline_sensor_sync`
-  Pull-capable timeline sensors can collect source items on demand or on a recurring schedule, then normalize them through the existing timeline service
-
 - `agent_task`
-  The runtime can enqueue future work directly into a task agent without inventing a separate loop per feature
-
 - `action_dispatch`
-  Outbound actions can be delayed or repeated through the same scheduler contract while still remaining distinct from tools
 
-This keeps timer-based work attached to the runtime boundary rather than coupling it to individual domains.
+The scheduler engine lives in `scheduler/service.py`. Layer-owned schedule registration is performed by:
+
+- `AgentScheduleRegistrationModule`
+- `ActionScheduleRegistrationModule`
+- `TimelineScheduleRegistrationModule`
+
+This keeps scheduling policy with the owning layers instead of centralizing it in one runtime module.
 
 ## Memory Event Flow
 
@@ -318,46 +287,36 @@ The current memory write path is:
 
 1. runtime or timeline code emits a raw event or fact
 2. `MemoryIntegrationModule` normalizes it into a memory event contract
-3. event routing decides whether it is `l0_only`, `l0_and_l1`, or `l1_only`
-4. `UnifiedMemoryStore` writes the event into the enabled lifecycle stages
-5. downstream retrieval surfaces read from event, cognition, reflection, and procedural memory as needed
+3. routing decides whether it is `l0_only`, `l0_and_l1`, or `l1_only`
+4. `UnifiedMemoryStore` writes it into the enabled lifecycle stages
+5. retrieval surfaces read from event, cognition, reflection, and procedural memory as needed
 
-Two boundary rules matter here:
+Two rules matter here:
 
-- high-frequency runtime telemetry may exist, but should not automatically participate in long-term cognition
-- L1 is the durable source of truth for long-term memory, while L0 remains execution-scoped
+- high-frequency runtime telemetry should not automatically participate in long-term cognition
+- `L1` is the durable source of truth for long-term memory, while `L0` remains execution-scoped
 
-This is the reason worker progress signals, timeline facts, and chat messages can share one ingestion system without being treated identically downstream.
+## Timeline Pull-Sync Flow
 
-## Timeline Pull Sync Flow
+Pull-capable timeline sensors participate in the runtime like this:
 
-Timeline sensors may now expose an optional pull-sync contract:
+1. the scheduler fires a `timeline_sensor_sync` target
+2. the target handler resolves the sensor from `SensorRegistry`
+3. the sensor collects source items
+4. those items are normalized through timeline contracts
+5. `TimelineService` writes normalized events and triggers downstream memory processing
 
-- [sync.py](/Users/asuka/code/magi/backend/src/magi/timeline/sync.py)
+This is how plugin-backed local sources participate in timeline ingestion without each source inventing its own background loop.
 
-The runtime flow is:
+## Transport Boundary
 
-1. Scheduler fires a `timeline_sensor_sync` target
-2. `SchedulerBootstrap` resolves the sensor from `SensorRegistry`
-3. A pull-capable sensor runs `collect_items(...)`
-4. Returned items are normalized through `build_timeline_event(...)` and `extract_candidates(...)`
-5. `TimelineService` writes normalized memory events and updates downstream cognition extraction
+Transport handling lives in `backend/src/magi/websocket/` plus thin HTTP app wiring.
 
-This is the path that enables plugin-backed local sources such as browser history collectors to participate in timeline ingestion without adding custom background loops for each source.
+Current rule:
 
-This lets internal code stop depending on large numbers of `payload.get(...)` calls.
-
-## Important Boundary Rule
-
-Use this rule when adding new functionality:
-
-- At transport boundaries, dicts are acceptable
-  Examples: persisted JSON, tool payloads, event bus payloads, API payloads
-
-- Inside runtime domain logic, prefer typed DTOs
-  Examples: execution requests, worker results, orchestration plans, classified fact payloads
-
-This is the core boundary discipline that keeps the runtime maintainable.
+- transport code handles connection lifecycle, request translation, and push mechanics
+- product behavior belongs in `api/services/` or lower runtime layers
+- websocket and HTTP entry points should share business write paths where practical
 
 ## Explore Request Path
 

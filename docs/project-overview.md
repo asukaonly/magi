@@ -2,115 +2,136 @@
 
 ## What Magi Is
 
-Magi is a local-first AI agent framework for building controllable agent systems that can run with a web frontend or a desktop shell.
+Magi is a local-first AI agent framework that runs as a Python backend with either a web frontend or a Tauri desktop shell.
 
 At a high level, Magi combines:
 
-- A Python backend runtime for agent execution, orchestration, memory, and tools
-- A React frontend for configuration, chat, inspection, and operational workflows
-- A desktop target based on Tauri with a Python sidecar backend
+- a backend runtime for bootstrap, orchestration, memory, tools, plugins, scheduling, and transport
+- a React frontend for onboarding, settings, chat, inspection, and operational workflows
+- a desktop shell that reuses the same backend runtime through a sidecar model
 
-The project focuses on making agent infrastructure practical for local development instead of treating cloud-only orchestration as the default.
+The project is optimized for local deployment and contributor control rather than cloud-first orchestration.
 
 ## Core Goals
 
-- Local-first deployment and data control
-- A lightweight but extensible agent runtime
-- Clear boundaries between orchestration, execution, memory, and tools
-- Support for multiple model providers and local or remote model backends
-- A usable UI for interacting with and operating the runtime
+- local-first deployment and data ownership
+- a layered backend with explicit ownership boundaries
+- a pragmatic but extensible task-agent runtime
+- unified extension loading for built-ins and external packages
+- a product surface that makes the runtime operable through onboarding and settings
 
 ## Non-Goals
 
-- Magi is not trying to be a hosted multi-tenant cloud platform
-- Magi is not trying to ship one fixed end-user agent product
-- Magi is not built around distributed microservices as a baseline requirement
+- Magi is not a hosted multi-tenant platform
+- Magi is not a fixed end-user assistant product with one hardcoded workflow
+- Magi is not built around distributed services as the default deployment model
 - Magi does not treat built-in tools as the only extension path
 
-## Current Product Shape
+## Product Shape
 
-Magi currently supports two main runtime shapes:
+Magi currently supports two runtime shapes:
 
 - Web mode
-  React frontend + Python backend
+  React frontend plus Python backend
 
 - Desktop mode
-  Tauri shell + React WebView + Python backend sidecar
+  Tauri shell plus React WebView plus Python backend sidecar
 
-This lets the same agent runtime power both browser-first and desktop-first workflows.
+The same backend runtime serves both targets.
 
-## Current Architecture Summary
+## Backend Shape
 
-Magi uses a layered backend architecture:
+The backend uses a thin composition root plus layer-owned runtime modules.
 
-- Infrastructure
-  Event transport, logging, config loading, persistence helpers
+- `bootstrap/`
+  The outer composition root. It assembles lifecycle modules, owns bootstrap context slices, and exports initialized runtime services.
 
-- Core runtime
-  Sensor hub, router agent, task agents, action execution, lifecycle management, scheduler runtime
+- `core/`
+  Application infrastructure such as logging, dependency injection, runtime paths, database initialization, and maintenance dependencies.
 
-- Agent layer
-  Task orchestration, worker management, execution loops, prompt assembly
+- `agent/`
+  The task-agent runtime, orchestration, worker execution, and task-specific flows.
 
-- Memory layer
-  Lifecycle-based memory ingestion, cognition extraction, reflection, procedural memory, and prompt retrieval
+- `api/` and `websocket/`
+  Product-facing services and transport handling.
 
-- Extension layer
-  Tools, providers, memory backends, unified plugins, skills, LLM adapters
+The backend is described in more detail in [Layered Agent Architecture](./layered-agent-architecture.md) and [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md).
 
-- API layer
-  FastAPI routers, websocket bridges, read services
+## Current Runtime Highlights
 
-- UI layer
-  React app, settings, chat, task and memory-related views
+### Task-agent runtime
 
-For the target layer model, naming guidance, and boundary contracts that define how these areas should evolve, see [Layered Agent Architecture](/Users/asuka/code/magi/docs/layered-agent-architecture.md).
+The core runtime is centered on:
 
-The extension layer now uses a unified plugin runtime for three contribution families:
+- `ChatTaskAgent`
+  The main user-facing task agent
+
+- `ExploreTaskAgent`
+  A specialized task agent for large exploration-style requests
+
+- `TaskOrchestrator`
+  Shared parent-task orchestration for bounded worker plans
+
+- `WorkerAgentManager`
+  Leaf worker lifecycle and result publication
+
+### Unified plugin runtime
+
+Plugin packages now contribute three capability families through one registration path:
 
 - tools
 - sensors
 - actions
 
-This means official built-ins and external packages follow the same discovery, enablement, and registry flow instead of separate hardcoded registration paths.
+Discovery, enablement, and settings metadata are owned by the plugin runtime; execution stays in the owning runtime layers.
 
-The memory system has also been rewritten around a lifecycle model instead of the older feature-stacked L1-L5 framing.
+### Scheduler runtime
 
-Current high-level memory shape:
+`SchedulerService` is the local persistent scheduler for business-facing runtime work such as:
+
+- timeline source sync
+- agent task dispatch
+- outbound action dispatch
+
+It is intentionally distinct from housekeeping loops such as `MaintenanceDaemon`.
+
+### Lifecycle-based memory model
+
+Magi uses a lifecycle-based memory model instead of the older feature-stacked framing:
 
 - `L0`
-  In-memory working context with checkpointing for crash recovery and short-lived execution state
+  Working context and checkpointed short-lived execution state
 
 - `L1`
-  Normalized event memory as the long-term factual source of truth
+  Normalized long-term event memory
 
 - `L2`
-  Structured cognition such as entities, relationships, and defensive ToM assertions derived from L1
+  Structured cognition derived from retained events
 
 - `L3`
-  Reflection memory that compresses event streams into summaries and durable insights
+  Reflection summaries and durable insights
 
 - `L4`
-  Procedural memory that stores reusable strategies, failure lessons, and execution heuristics
+  Procedural memory and reusable execution heuristics
 
-This model lets Magi separate ephemeral runtime state from durable user memory while still supporting retrieval, timeline insighting, and future behavior adaptation.
+This separates short-lived runtime state from durable user memory while keeping retrieval and future behavior adaptation connected to the same event pipeline.
 
-Current persistence boundary:
+## Persistence Boundaries
 
 - `~/.magi/data/message_queue.db`
-  Message bus queue persistence only (`message_queue`)
+  Message-bus queue persistence only
 
 - `~/.magi/data/memories/l1_events.db`
-  Canonical L1 storage split into semantic facts and runtime observations (`fact_events`, `runtime_observations`)
+  Canonical L1 event storage
 
 - `~/.magi/data/memories/memory.db`
-  Shared L0/L2/L3/L4 storage (`l0_*`, `knowledge_graph`, `tom_*`, `summaries`, `procedural_skills`)
+  Shared L0/L2/L3/L4 storage
 
-- `~/.magi/data/scenario_prompts.db`, `~/.magi/data/llm_usage.db`
-  Runtime prompt policy and LLM usage metrics, separate from memory-layer databases
+- `~/.magi/data/scenario_prompts.db`
+  Scenario prompt policy and prompt metadata
 
-- Per-layer vector tables
-  Vectors are stored in layer-owned tables (`l1_event_vectors`, `l3_summary_vectors`, `l4_skill_vectors`, `l5_capability_vectors`) instead of a shared `embeddings.db`, so model/dimension changes can be rebuilt per layer.
+- `~/.magi/data/llm_usage.db`
+  LLM usage metrics and usage-event persistence
 
 ## Repository Structure
 
@@ -118,137 +139,56 @@ Current persistence boundary:
 magi/
 ├── backend/
 │   ├── src/magi/
-│   │   ├── agent/          # Task agents, worker orchestration, execution
-│   │   ├── api/            # FastAPI app, routers, services
-│   │   ├── awareness/      # Sensors and perception-related modules
+│   │   ├── agent/          # Task-agent runtime, orchestration, workers
+│   │   ├── api/            # Product-facing routers and services
+│   │   ├── awareness/      # Sensors, actions, action emission
+│   │   ├── bootstrap/      # Composition root and lifecycle assembly
 │   │   ├── config/         # Runtime and provider config
-│   │   ├── core/           # Runtime lifecycle and loop primitives
-│   │   ├── events/         # Event backends and event types
-│   │   ├── llm/            # Provider bridge and model adapters
-│   │   ├── memory/         # Memory ingestion, retrieval, cognition, reflection, prompt context
-│   │   ├── plugins/        # Plugin interfaces and loading
-│   │   ├── processing/     # Processing modules
-│   │   ├── runtime/        # Runtime bootstrap and wiring
-│   │   ├── scheduler/      # Unified scheduled task runtime
-│   │   ├── skills/         # Skill loading and execution
-│   │   ├── tools/          # Builtin tools and provider tools
-│   │   └── websocket/      # Websocket server support
+│   │   ├── context/        # Prompt and recall shaping
+│   │   ├── core/           # Infrastructure, DI, logging, runtime paths
+│   │   ├── events/         # Message bus and event transport
+│   │   ├── llm/            # Provider bridge and scenario model runtime
+│   │   ├── memory/         # Lifecycle-based memory stores and retrieval
+│   │   ├── personality/    # Personality state and subjective modeling
+│   │   ├── plugins/        # Plugin discovery and registration
+│   │   ├── processing/     # Legacy processing modules under review
+│   │   ├── scheduler/      # Persistent scheduler and target dispatch
+│   │   ├── skills/         # Shared skill loading and execution
+│   │   ├── timeline/       # Timeline domain and sync workflows
+│   │   ├── tools/          # Built-in and provider-backed tools
+│   │   └── websocket/      # Connection and websocket transport handling
 │   └── tests/
 ├── frontend/
-│   ├── src/
-│   └── src-tauri/
 ├── docs/
+├── openspec/
+├── plugins/
 └── scripts/
 ```
 
-## Runtime Model
+## Explore Flow
 
-The agent runtime is built around a layered agent model:
+Large explore requests currently flow like this:
 
-- Master and routing responsibilities
-  Runtime and routing components ingest external facts and send them to the correct task agent
+1. `ChatTaskAgent` classifies a request as explore-style work.
+2. It forwards the request to `ExploreTaskAgent`.
+3. `ExploreTaskAgent` plans bounded subtasks.
+4. Leaf workers execute those subtasks in parallel.
+5. The results are aggregated into a Markdown dossier.
+6. The dossier flows back to `ChatTaskAgent` for user-facing rendering.
 
-- Task agents
-  Own task-level interpretation, orchestration, and parent-task lifecycle
+This keeps workers leaf-only while preserving a conversational entry point.
 
-- Worker agents
-  Leaf executors that perform one bounded task and return a structured result
+## Technical Principles
 
-The most important specialized task agents today are:
-
-- `ChatTaskAgent`
-  The main user-facing task agent that handles chat requests, direct tool use, generic orchestration, and final answer rendering
-
-- `ExploreTaskAgent`
-  A specialized task agent for large exploration-style requests such as codebase architecture analysis
-
-The runtime also now includes a unified scheduler layer:
-
-- `SchedulerService`
-  A persistent local scheduler used for one-shot, interval, and cron-style business jobs
-
-- `scheduler.db` execution observability
-  In addition to `schedules`, `target_state`, and APScheduler job metadata, runtime execution history is persisted in `schedule_executions` for audit/debug replay.
-
-- `SchedulerBootstrap`
-  The runtime adapter that connects scheduled jobs to timeline sensor sync, task-agent dispatch, and outbound actions
-
-This scheduler is intentionally separate from housekeeping loops such as `MaintenanceDaemon`.
-
-The runtime also includes a unified memory subsystem:
-
-- `UnifiedMemoryStore`
-  Owns L0-L4 stores and the write path for normalized memory events
-
-- `MemoryIntegrationModule`
-  Bridges runtime events, timeline events, and task execution facts into the memory pipeline
-
-- `HybridRetrievalService`
-  Reads across event, cognition, reflection, and procedural memory when prompt assembly or tools need recall
-
-## Current Explore Flow
-
-Large explore requests are not handled by one giant worker anymore.
-
-The current flow is:
-  
-1. `ChatTaskAgent` recognizes a large explore-style request
-2. It routes that request to `ExploreTaskAgent`
-3. `ExploreTaskAgent` plans bounded leaf subtasks
-4. Leaf `Explore` workers run in parallel
-5. Their structured results are aggregated into a Markdown dossier
-6. The dossier is returned to `ChatTaskAgent`
-7. `ChatTaskAgent` renders the final user-facing answer
-
-This keeps worker scope bounded while preserving a user-facing conversational entry point.
-
-## Key Technical Principles
-
-- Workers stay leaf-only
-  They do not recursively create other workers
-
-- Parent orchestration is explicit
-  `TaskOrchestrator` owns the lifecycle of decomposed parent tasks
-
-- Internal contracts are typed
-  Recent refactors moved task-agent execution requests, orchestration payloads, worker results, and internal fact payloads away from ad hoc dictionaries toward explicit DTOs
-
-- External transport stays pragmatic
-  Event payloads and tool payloads may still serialize to dictionaries at process boundaries, but internal runtime logic now prefers typed contracts
-
-## Tech Stack
-
-### Backend
-
-- Python 3.10+
-- FastAPI
-- Pydantic v2
-- SQLite and related local persistence helpers
-- Structlog
-- OpenAI / Anthropic compatible model integrations
-
-### Frontend
-
-- React 18
-- TypeScript
-- Vite
-- Tailwind CSS
-- Zustand
-- React Router
-- TanStack Query
-
-### Desktop
-
-- Tauri v2
-- Python sidecar runtime
+- workers stay leaf-only
+- parent orchestration is explicit and typed
+- internal runtime logic prefers typed contracts over anonymous dictionaries
+- transport payloads remain pragmatic at process boundaries
+- bootstrap assembly stays thin; business logic stays with the owning layer
 
 ## Where To Go Next
 
-- If you want to use or evaluate the project:
-  Start from the root [README](/Users/asuka/code/magi/README.md), then read [Product Configuration Guide](/Users/asuka/code/magi/docs/product-configuration-guide.md) and [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md) when you need more detail.
-
-- If you want to work on the runtime:
-  Read [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md) next.
-
-- If you want to work on extensions or plugin-backed settings:
-  Read [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md) and [Plugin Development Guide](/Users/asuka/code/magi/docs/plugin-development-guide.md) next.
+- Runtime contributors should read [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md).
+- Product and settings contributors should read [Product Configuration Guide](./product-configuration-guide.md).
+- Extension contributors should read [Unified Plugin Extension Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
+- Memory contributors should read [Memory System Design](./memory-system-design.md) and [Memory System Execution Plan](./memory-system-execution-plan.md).

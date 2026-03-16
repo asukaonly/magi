@@ -152,7 +152,7 @@ def test_skills_package_uses_skill_runner_name() -> None:
 
 
 def test_backend_docs_do_not_reference_removed_runtime_bootstrap_path() -> None:
-    docs_root = BACKEND_SRC.parents[1] / "docs"
+    docs_root = BACKEND_SRC.parents[2] / "docs"
     memory_design = (docs_root / "memory-system-design.md").read_text(encoding="utf-8")
     memory_plan = (docs_root / "memory-system-execution-plan.md").read_text(encoding="utf-8")
 

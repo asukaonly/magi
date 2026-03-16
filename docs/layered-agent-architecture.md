@@ -2,99 +2,94 @@
 
 ## Purpose
 
-This document defines the target layered architecture for Magi's backend runtime.
+This document is the backend boundary source of truth for Magi.
 
-It exists to make layer boundaries, naming, and dependency rules explicit before or during implementation work. It is the conceptual source of truth for the architecture diagram and should be read together with:
+Use it to answer three questions:
 
-- [Project Overview](/Users/asuka/code/magi/docs/project-overview.md)
-- [Task-Agent Runtime Architecture](/Users/asuka/code/magi/docs/task-agent-runtime-architecture.md)
-- [Unified Plugin Extension Architecture](/Users/asuka/code/magi/docs/plugin-extension-architecture.md)
+- which layer owns a piece of code or runtime behavior
+- which dependencies are allowed across layers
+- where lifecycle assembly stops and business logic begins
 
-This document describes the target model. Current implementation details may lag behind it during refactors.
+Read it together with [Project Overview](./project-overview.md), [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md), and [Unified Plugin Extension Architecture](./plugin-extension-architecture.md).
 
-## Architecture Intent
-
-Magi is not a single chat loop with a pile of attached utilities. It is a layered agent system with:
-
-- infrastructure layers for configuration, transport, scheduling, and reliability
-- capability layers for models, memory, tools, sensors, and actions
-- behavior layers for personality, context assembly, and agent orchestration
-- business-domain layers for timeline and external application services
-
-The main design goal is to keep registration, execution, orchestration, and business semantics separate so the system can evolve without collapsing into one large runtime module.
-
-One more rule follows from that goal:
-
-- the system composition root is not itself a business layer
-- startup and shutdown assembly should live in a thin outer bootstrap boundary
-- layer-owned lifecycle logic should live with the owning layer, not in a central runtime package
-
-## Dependency Rules
+## Core Rules
 
 The default dependency rule is:
 
 - upper layers may depend on lower layers
 - lower layers must not depend on upper layers
-- same-layer modules should communicate through typed contracts, registries, or the message bus rather than direct ad hoc coupling
-
-The layer stack describes default structural dependency, not every runtime data flow. Some business flows cross layers through events, registries, or scheduled dispatch.
+- same-layer modules should communicate through typed contracts, registries, or the message bus rather than ad hoc reach-through
 
 The composition root is a special case:
 
 - it may assemble all layers
 - it should stay thin
-- it should not become a new "super-layer" that owns business logic on behalf of the layers
+- it should not absorb business logic on behalf of the layers
 
-## Layer Stack
+One practical rule follows from that:
 
-The target backend architecture has fourteen layers, ordered from low-level infrastructure to external-facing connection handling.
+- `bootstrap/` is outside the numbered layer stack
+- layer-owned lifecycle logic should live in the owning package
+- `core/` should stay focused on infrastructure concerns
+- runtime-domain code should prefer explicit collaborator injection over service-locator style access
+
+## Current Package Mapping
+
+The current codebase maps to the layered model like this.
+
+### Composition root
+
+- `bootstrap/`
+	Thin assembly boundary for lifecycle orchestration, bootstrap context slices, and exported runtime bindings
+
+This package is not a numbered business layer.
 
 ### L1. Application Infrastructure
 
 Responsibilities:
 
 - logging
-- DI container and runtime wiring
-- health checks
-- connection pools and shared resource management
-- scheduler engine bootstrap
+- dependency injection container
+- runtime paths
 - database initialization
+- maintenance dependencies
+- shared infrastructure exports
+
+Primary packages:
+
+- `core/`
+- selected infrastructure helpers in `bootstrap/exports.py`
 
 Notes:
 
-- the scheduler engine belongs here because it is shared infrastructure
-- this layer provides scheduling capability, but it does not own domain scheduling policy
-- `core/` should converge toward this layer only; non-L1 runtime or business logic should move out
+- the scheduler engine is infrastructure, even if bootstrap starts it later in dependency order
+- bootstrap order and ownership layer are not the same thing
 
 ### L2. Configuration
 
 Responsibilities:
 
-- application configuration
-- LLM configuration
-- plugin configuration
-- personality configuration
-- tool configuration
-- memory configuration
+- application config
+- provider config
+- memory config
+- personality selection config
+- plugin scan paths and tool and skill config
 
-Notes:
+Primary packages:
 
-- configuration is a first-class layer because most runtime behavior is product-configurable
-- global host config and plugin-owned config should remain distinct
+- `config/`
 
 ### L3. Message Bus
 
 Responsibilities:
 
 - event transport
-- consumer offsets or progress tracking
-- replay support
-- failure recovery and retry coordination
+- event persistence
+- retry and replay coordination
 
-Notes:
+Primary packages:
 
-- this layer is the default decoupling point for asynchronous cross-layer communication
-- message persistence is infrastructure, not memory
+- `events/`
 
 ### L4. Plugin Registration Layer
 
@@ -103,221 +98,206 @@ Responsibilities:
 - plugin discovery
 - plugin loading
 - contribution registration
-- plugin lifecycle management
-- plugin settings metadata exposure
+- plugin package settings metadata
 
-Contribution families currently include:
+Primary packages:
 
-- tools
-- sensors
-- actions
-- future domain-specific extensions such as memory or personality contributions
+- `plugins/`
 
 Notes:
 
-- this layer is a registration layer, not a business execution layer
-- plugin-contributed capabilities belong to their owning layers after registration
-- a plugin may contribute multiple capability families without collapsing those concepts into one runtime surface
+- this layer owns package lifecycle only
+- tools, sensors, and actions return to their owning runtime layers after registration
 
 ### L5. LLM Runtime
 
 Responsibilities:
 
-- text generation
-- streaming generation
-- embeddings
-- image generation
-- audio generation
-- video generation
-- provider and model routing
+- provider routing
+- scenario-specific model selection
+- chat and generation adapters
+- usage-event publication
 
-Notes:
+Primary packages:
 
-- this layer owns model invocation capability, not prompt business logic
-- capability-specific contracts should stay explicit because not every model supports every mode
+- `llm/`
 
 ### L6. Memory Layer
 
 Responsibilities:
 
-- working memory
-- event memory
-- structured cognition
-- reflection summaries
-- procedural memory
-- memory retrieval interfaces
+- `L0` working context
+- `L1` event memory
+- `L2` structured cognition
+- `L3` reflection summaries
+- `L4` procedural memory
+- retrieval across those layers
 
-Recommended conceptual framing:
+Primary packages:
 
-- `L0`: working context and checkpoint state
-- `L1`: event memory and canonical factual history
-- `L2`: structured cognition derived from retained events
-- `L3`: reflective summaries and durable insights
-- `L4`: procedural memory and reusable execution heuristics
-
-Notes:
-
-- memory types such as preferences, tool experience, or user facts should be treated as memory content categories, not as independent storage layers
-- the memory layer is responsible for neutral or traceable memory representations unless explicitly delegated elsewhere
+- `memory/`
 
 ### L7. Tools And Skills Layer
 
 Responsibilities:
 
 - built-in tools
-- built-in skills
-- plugin-provided tools
-- third-party skills
+- provider-backed tools
+- built-in and external skills
 
-Notes:
+Primary packages:
 
-- these are agent-callable capabilities
-- this layer should not be named as if tools belong to the LLM itself; they belong to the agent runtime
+- `tools/`
+- `skills/`
 
 ### L8. Personality Layer
 
 Responsibilities:
 
-- personality maintenance
-- state transitions
-- style and companionship behavior
-- behavior evolution
-- emotional or affective state handling
-- long-term subjective user modeling from the personality perspective
+- personality state
+- subjective user interpretation from the personality perspective
+- tone and style behavior
 
-Notes:
+Primary packages:
 
-- this layer includes system-prompt-level behavior, state machine behavior, and long-term personality-driven interpretation
-- personality memory is intentionally distinct from neutral memory-layer cognition
-- if both layers describe a user, memory should stay relatively factual while personality may maintain subjective or relational interpretation
+- `personality/`
 
 ### L9. Sensors And Actions Layer
 
 Responsibilities:
 
-- built-in sensors
-- plugin sensors
-- built-in actions
-- plugin actions
+- inbound sensors
+- outbound actions
+- action emission and action-target registration
 
-Definitions:
+Primary packages:
 
-- sensors observe or collect information from the environment or user-facing sources
-- actions produce external effects such as notifying the user, sending email, or calling a webhook
+- `awareness/`
 
 Notes:
 
-- actions are outbound capabilities and should be named as such to avoid confusion with executor internals
-- sensors and actions are peer modules in the same layer
-- this layer provides capability surfaces to higher layers but does not own task orchestration
+- plugin-contributed sensors and actions are registered in `plugins/`, but runtime execution belongs here
 
 ### L10. Context Layer
 
 Responsibilities:
 
 - prompt-context assembly
-- long-context compression
+- recall shaping
 - scenario prompt composition
-- recall shaping for downstream agent execution
 
-Notes:
+Primary packages:
 
-- this should be the primary prompt assembly boundary
-- higher layers may request context, but should avoid assembling prompts ad hoc in multiple places
+- `context/`
 
 ### L11. Agent Runtime
 
 Responsibilities:
 
-- task-agent management
-- routing and dispatch
-- execution mode selection
-- function calling orchestration
-- task decomposition and worker coordination
+- task-agent lifecycle
+- router and dispatch
+- execution-mode coordination
+- task orchestration
+- worker execution management
+
+Primary packages:
+
+- `agent/runtime/`
+- `agent/task_agents/`
+- `agent/workers/`
+- `agent/task_orchestrator.py`
 
 Notes:
 
-- this layer owns agent control flow
-- it consumes tools, memory, personality, context, sensors, and actions, but should not absorb their internal logic
+- `agent/runtime/` is the correct L11 home for runtime control flow
+- it is not a replacement for infrastructure and should not be described as a second `core/`
 
 ### L12. Timeline Domain
 
 Responsibilities:
 
 - timeline ingestion
-- timeline queries and read models
-- timeline insight extraction
-- timeline tasks and scheduled sync workflows
+- timeline queries
+- timeline normalization and insight extraction
+- scheduled source sync policy
 
-Notes:
+Primary packages:
 
-- timeline is a core business domain, not an optional accessory module
-- timeline is the primary domain for user behavior capture and event-bearing history
-- timeline facts may feed memory lifecycle processing, but timeline and memory are not identical concepts
+- `timeline/`
 
 ### L13. External Services
 
 Responsibilities:
 
-- API routers
+- product-facing routers
 - application services
-- read and write endpoints
-- backend product-facing service orchestration
+- read and write service contracts
 
-Notes:
+Primary packages:
 
-- this layer exposes product capabilities to clients
-- it should not be treated as raw transport plumbing
+- `api/routers/`
+- `api/services/`
 
-### L14. Connection And Transport Layer
+### L14. Connection And Transport
 
 Responsibilities:
 
-- HTTP transport handling
-- WebSocket connection management
-- protocol session lifecycle
-- connection-oriented event push
+- websocket connection lifecycle
+- websocket protocol handling
+- transport-side push and session handling
+- thin HTTP app and middleware wiring
 
-Notes:
+Primary packages:
 
-- this layer handles transport and connection concerns only
-- business decisions should remain below this layer
+- `websocket/`
+- thin app wiring in `backend_app.py` and related transport setup modules
 
 ## Boundary Contracts
 
-The following boundary statements are part of the target architecture and should be preserved during implementation.
+### Bootstrap contract
 
-### Scheduler Contract
+- `bootstrap/` may assemble all layers, but it should not own business behavior from those layers
+- lifecycle modules should live with the owning layer whenever possible
+- exported runtime bindings are a boundary convenience, not a license for domain code to reach back into bootstrap
 
-- the scheduler engine belongs to application infrastructure
-- domain layers do not own the scheduler engine itself
-- if a layer needs scheduled work, it should register schedules into the scheduler through a defined contributor contract
-- scheduling policy belongs to the owning domain layer, while trigger execution belongs to the scheduler engine
+### Runtime binding contract
 
-### Composition Root Contract
+- `core/runtime_bindings.py` is for boundary-facing consumers such as routers, transport handlers, and exported services
+- runtime-domain code should prefer explicit constructor or lifecycle injection
+- adding a new runtime binding requires a clear ownership reason, not just convenience
 
-- backend startup and shutdown assembly should live in a thin outer bootstrap package or boundary
-- bootstrap may collect lifecycle modules from all layers, but should not own layer-specific business logic
-- layer lifecycle definitions should live in the owning layer package
-- `core/` is the target home for L1 infrastructure concerns
-- `runtime/` should not remain a second pseudo-infrastructure package if `core/` already represents L1 infrastructure
-- if a module is not part of the outer composition root and does not belong to L1 infrastructure, it should move into its owning numbered layer instead of staying under `runtime/`
+### Scheduler contract
 
-### Plugin Contract
+- the scheduler engine is infrastructure
+- timeline, agent, and action layers own scheduling policy and target registration
+- scheduled execution should enter the owning layer through typed target handlers rather than scattered ad hoc loops
 
-- the plugin system owns package lifecycle and contribution registration
-- tools, sensors, actions, and future contribution types still belong to their runtime layers after registration
-- plugin architecture must not be used as an excuse to move domain behavior into the registration layer
+### Plugin contract
 
-### Tool Versus Action Contract
+- plugins own discovery, package lifecycle, and contribution registration
+- registries expose the registered capability surfaces
+- plugin registration must not become a place where domain behavior is reimplemented
 
-- tools are agent-callable capabilities, typically exposed to the LLM through function-calling or equivalent orchestration
-- actions are outbound side-effect capabilities that affect the outside world
-- an action may expose a tool adapter so the LLM can call it, but that does not turn the action into a tool conceptually
+### Tool versus action contract
 
-### Personality Versus Memory Contract
+- tools are agent-callable capabilities
+- actions are outbound side effects
+- an action may expose a tool adapter, but the concepts remain distinct
 
-- the personality layer owns style, companionship, state transitions, and subjective long-term interpretation
+### Personality versus memory contract
+
+- memory should stay relatively factual and traceable
+- personality may carry subjective or relational interpretation
+- configuration code should not reach through personality state when the same information can be read from owned config or runtime paths
+
+## Practical Guidance
+
+When placing new code, use this sequence:
+
+1. decide which layer owns the behavior
+2. put lifecycle logic in the owning layer or bootstrap assembly, not in a generic helper module
+3. prefer typed contracts and injected collaborators over runtime lookups
+4. only add a new boundary helper if multiple external-facing consumers genuinely need it
 - the memory layer owns neutral or traceable event retention, cognition extraction, reflection, and retrieval
 - the two layers may both describe the user, but they should not collapse into one undifferentiated profile store
 

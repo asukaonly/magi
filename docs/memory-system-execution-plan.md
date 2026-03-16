@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the current plugin-styled memory stack with the new L0-L4 lifecycle-based memory system defined in `backend/docs/memory-system-design.md`, without preserving old data or schemas.
+**Goal:** Replace the current plugin-styled memory stack with the new L0-L4 lifecycle-based memory system defined in `docs/memory-system-design.md`, without preserving old data or schemas.
 
 **Architecture:** The implementation proceeds in four chunks. First, standardize event contracts and land L0/L1 as the new memory backbone. Second, replace the split relation/user-graph model with a unified L2 cognition store and defensive ToM pipeline. Third, rebuild L3/L4 as reflection memory and procedural memory. Finally, replace retrieval, prompt integration, memory API, and housekeeping so the runtime reads from the new memory graph end-to-end.
 
@@ -86,7 +86,7 @@ To keep docs consistent and avoid duplicate architecture sources:
 
 ### Phase 0 开工清单: 事件标准与配置
 
-- [ ] 回读 [memory-system-design.md](/Users/asuka/code/magi/backend/docs/memory-system-design.md) 的第 4、6、15 节，确认 `memory_domain`、`ingest_target`、`retention_class`、LLM 开关字段不再变化。
+- [ ] 回读 [memory-system-design.md](./memory-system-design.md) 的第 4、6、15 节，确认 `memory_domain`、`ingest_target`、`retention_class`、LLM 开关字段不再变化。
 - [ ] 列出当前所有 memory 写入入口：
   `MemoryIntegrationModule`、timeline 写入入口、直接 `UnifiedMemoryStore.add_event()` 调用点。
 - [ ] 盘点当前运行时事件类型来源，至少覆盖：
@@ -734,7 +734,7 @@ git commit -m "feat: finish memory runtime integration"
 
 - [ ] Remove dead imports from `backend/src/magi/memory/__init__.py`
 - [ ] Remove old memory layer references from bootstrap logs and API labels
-- [ ] Re-read `backend/docs/memory-system-design.md` and update any terminology drift
+- [ ] Re-read `docs/memory-system-design.md` and update any terminology drift
 - [ ] Run `cd backend && pytest` if the focused suite passes and time allows
 - [ ] Commit any remaining doc-sync changes separately
 
