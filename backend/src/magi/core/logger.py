@@ -36,9 +36,7 @@ def _format_log_event(logger, method_name, event_dict):
 def _add_timestamp_millis(logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
     """Attach local timestamp with millisecond precision."""
     now = datetime.now().astimezone()
-    event_dict["timestamp"] = (
-        f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{now.microsecond // 1000:03d}{now.strftime('%z')}"
-    )
+    event_dict["timestamp"] = f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{now.microsecond // 1000:03d}"
     return event_dict
 
 

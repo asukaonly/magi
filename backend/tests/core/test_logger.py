@@ -16,7 +16,7 @@ def test_configure_logging_formats_stdlib_logs_with_milliseconds(monkeypatch) ->
     logging.getLogger("magi.test.stdlib").info("stdlib message")
 
     output = stream.getvalue().strip()
-    assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{4} \[INFO \] \[magi\.test\.stdlib\] stdlib message$", output)
+    assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[INFO \] \[magi\.test\.stdlib\] stdlib message$", output)
 
 
 def test_configure_logging_formats_structlog_logs_with_milliseconds(monkeypatch) -> None:
@@ -28,4 +28,4 @@ def test_configure_logging_formats_structlog_logs_with_milliseconds(monkeypatch)
     get_logger("magi.test.structlog").info("structlog message")
 
     output = stream.getvalue().strip()
-    assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{4} \[INFO \] \[magi\.test\.structlog\] structlog message$", output)
+    assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[INFO \] \[magi\.test\.structlog\] structlog message$", output)
