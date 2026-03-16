@@ -9,8 +9,8 @@ import uuid
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from ..core.logger import get_logger
-from ..api.middleware import get_required_desktop_session_token
 from .connection_manager import ConnectionManager, manager
+from .http_middleware import get_required_desktop_session_token
 from .handlers import WebSocketContext, handler_registry
 
 logger = get_logger(__name__)

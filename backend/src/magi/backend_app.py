@@ -7,8 +7,8 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 
-from .api.app import create_app as create_api_app
 from .websocket.bridge_lifecycle import WebSocketBridgeLifecycleModule
+from .websocket.http_app import create_transport_app
 from .core.container import wire_container
 from .core.logger import get_logger
 from .bootstrap import (
@@ -75,6 +75,6 @@ def create_backend_app() -> FastAPI:
         finally:
             await orchestrator.shutdown()
 
-    app = create_api_app(lifespan=_lifespan)
+    app = create_transport_app(lifespan=_lifespan)
 
     return app

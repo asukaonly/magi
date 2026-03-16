@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from magi.api.app import create_app
+from magi.websocket.http_app import create_transport_app
 
 
 def test_builtin_avatar_is_served_from_static_path(monkeypatch) -> None:
     monkeypatch.setattr(
-        "magi.api.middleware.get_required_desktop_session_token",
+        "magi.websocket.http_middleware.get_required_desktop_session_token",
         lambda: "desktop-secret",
     )
 
-    client = TestClient(create_app())
+    client = TestClient(create_transport_app())
 
     response = client.get("/static/avatars/system-melchior.jpg")
 
@@ -21,11 +21,11 @@ def test_builtin_avatar_is_served_from_static_path(monkeypatch) -> None:
 
 def test_personality_list_returns_static_avatar_paths(monkeypatch) -> None:
     monkeypatch.setattr(
-        "magi.api.middleware.get_required_desktop_session_token",
+        "magi.websocket.http_middleware.get_required_desktop_session_token",
         lambda: "desktop-secret",
     )
 
-    client = TestClient(create_app())
+    client = TestClient(create_transport_app())
 
     response = client.get(
         "/api/personalities/",

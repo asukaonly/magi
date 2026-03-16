@@ -1,0 +1,126 @@
+"""FastAPI HTTP application assembly for the transport layer."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import FastAPI
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from fastapi.staticfiles import StaticFiles
+
+from ..api.avatar_paths import builtin_avatar_dir, user_avatar_dir
+from ..api.routes import register_api_routes
+from ..core.logger import configure_logging, get_logger
+from ..utils.runtime import get_runtime_paths
+from .http_middleware import (
+    AuthMiddleware,
+    ErrorHandler,
+    LanguageContextMiddleware,
+    RequestLoggingMiddleware,
+    add_cors_middleware,
+)
+from .router import register_websocket
+
+logger = get_logger(__name__, category="API")
+
+
+def _build_custom_openapi(app: FastAPI):
+    """Build app-scoped OpenAPI generator."""
+
+    def custom_openapi():
+        if not app.openapi_schema:
+            openapi_schema = get_openapi(
+                title="Magi AI Agent Framework API",
+                version="1.0.0",
+                description="""
+                ## Magi AI Agent Framework API
+
+                RESTful API for the agent system: agent lifecycle, task management, tools, and more.
+
+                ### Features
+                - Agent management (create, query, start, stop)
+                - Task management (create, query, retry)
+                - Tool management (list, details, test)
+                - Memory management (search, details, delete)
+                - Metrics (performance, state)
+
+                ### Authentication
+                Production requires JWT token authentication (disabled in development).
+                """,
+                routes=app.routes,
+            )
+            openapi_schema["info"]["x-logo"] = {
+                "url": "https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png",
+            }
+            app.openapi_schema = openapi_schema
+        return app.openapi_schema
+
+    return custom_openapi
+
+
+def create_transport_app(*, lifespan: Any = None) -> FastAPI:
+    """Create the FastAPI transport app."""
+    runtime_paths = get_runtime_paths()
+    log_file = runtime_paths.logs_dir / "magi.log"
+
+    configure_logging(
+        level="INFO",
+        log_file=str(log_file),
+        json_logs=False,
+    )
+
+    app = FastAPI(
+        title="Magi AI Agent Framework API",
+        description="AI Agent Framework RESTful API",
+        version="1.0.0",
+        docs_url=None,
+        redoc_url=None,
+        lifespan=lifespan,
+    )
+
+    app.openapi = _build_custom_openapi(app)
+
+    add_cors_middleware(app)
+    app.add_middleware(ErrorHandler)
+    app.add_middleware(AuthMiddleware)
+    app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(LanguageContextMiddleware)
+
+    register_api_routes(app)
+
+    @app.get("/api/health", tags=["Health"])
+    async def health_check():
+        return {
+            "success": True,
+            "message": "System is healthy",
+            "data": {
+                "status": "healthy",
+                "version": "1.0.0",
+            },
+        }
+
+    @app.get("/api/docs", include_in_schema=False)
+    async def custom_swagger_ui_html():
+        return get_swagger_ui_html(
+            openapi_url="/api/openapi.json",
+            title="Magi API Docs",
+        )
+
+    @app.get("/api/openapi.json", include_in_schema=False)
+    async def get_openapi_endpoint():
+        return app.openapi()
+
+    register_websocket(app)
+
+    avatar_dir = builtin_avatar_dir()
+    if avatar_dir.exists():
+        app.mount("/static/avatars", StaticFiles(directory=str(avatar_dir)), name="avatars")
+        logger.info(f"Avatar static files mounted: {avatar_dir}")
+
+    custom_avatar_dir = user_avatar_dir()
+    custom_avatar_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/static/user-avatars", StaticFiles(directory=str(custom_avatar_dir)), name="user-avatars")
+    logger.info(f"User avatar static files mounted: {custom_avatar_dir}")
+
+    return app

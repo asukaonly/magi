@@ -1,19 +1,20 @@
-"""
-API middleware for error handling, authentication, CORS, and request logging.
-"""
+"""HTTP transport middleware for the connection and transport layer."""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Callable
+
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from typing import Callable
-import time
-import logging
+from starlette.middleware.cors import CORSMiddleware
 
 from ..config import get_config
-from ..plugins.i18n import set_current_language, DEFAULT_LANGUAGE, LANGUAGE_ALIASES
+from ..plugins.i18n import DEFAULT_LANGUAGE, LANGUAGE_ALIASES, set_current_language
 
 logger = logging.getLogger(__name__)
-
 
 DESKTOP_SESSION_HEADER = "X-Magi-Session-Token"
 QUIET_REQUEST_PATHS = {
@@ -26,31 +27,23 @@ QUIET_REQUEST_PATHS = {
     "/api/plugins",
     "/api/tools/config",
 }
-EXEMPT_PATH_PREFIXES = (
-    "/static/",
-)
+EXEMPT_PATH_PREFIXES = ("/static/",)
 
 
 def get_required_desktop_session_token() -> str | None:
+    """Return the configured desktop session token when present."""
     token = str(get_config().server.desktop_session_token or "").strip()
     return token or None
 
 
 class ErrorHandler(BaseHTTPMiddleware):
-    """
-    Global error handling middleware.
-
-    Catches unhandled exceptions and returns a standardized error response.
-    """
+    """Global error handling middleware."""
 
     async def dispatch(self, request: Request, call_next: Callable):
         try:
-            response = await call_next(request)
-            return response
+            return await call_next(request)
         except Exception as exc:
             logger.exception(f"Unhandled exception: {exc}")
-
-            # Return standardized error response
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
@@ -63,13 +56,8 @@ class ErrorHandler(BaseHTTPMiddleware):
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """
-    Authentication middleware.
+    """Transport-level auth middleware."""
 
-    Validates JWT tokens (optional, mainly used in production).
-    """
-
-    # Paths that do not require authentication
     EXEMPT_PATHS = {
         "/api/docs",
         "/api/redoc",
@@ -79,11 +67,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
     }
 
     async def dispatch(self, request: Request, call_next: Callable):
-        # Always allow CORS preflight requests
         if request.method.upper() == "OPTIONS":
             return await call_next(request)
 
-        # Skip authentication for exempt paths
         if request.url.path in self.EXEMPT_PATHS:
             return await call_next(request)
 
@@ -103,92 +89,55 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     },
                 )
 
-        # TODO: Implement JWT token validation
-        # Authentication is currently skipped
         return await call_next(request)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """
-    Request logging middleware.
-
-    Records basic metadata and timing information for each request.
-    """
+    """Request logging middleware."""
 
     async def dispatch(self, request: Request, call_next: Callable):
         start_time = time.time()
         should_log = request.url.path not in QUIET_REQUEST_PATHS
 
-        # Log request metadata
         if should_log:
             logger.debug(f"Request: {request.method} {request.url.path}")
 
-        # Process request
         response = await call_next(request)
-
-        # Calculate processing time
         process_time = time.time() - start_time
         response.headers["X-process-Time"] = str(process_time)
 
-        # Log response metadata
         if should_log:
-            logger.debug(
-                f"Response: {response.status_code} "
-                f"took {process_time:.3f}s"
-            )
+            logger.debug(f"Response: {response.status_code} took {process_time:.3f}s")
 
         return response
 
 
 class LanguageContextMiddleware(BaseHTTPMiddleware):
-    """
-    Middleware to set the language context for i18n.
-
-    Extracts Accept-Language header and sets thread-local language for
-    plugin translations.
-    """
+    """Set the language context for plugin i18n."""
 
     def _normalize_language(self, lang: str | None) -> str:
-        """Normalize language code to standard format."""
         if not lang:
             return DEFAULT_LANGUAGE
 
-        # Handle multiple languages (e.g., "zh-CN,zh;q=0.9,en;q=0.8")
         primary_lang = lang.split(",")[0].strip().split(";")[0].strip()
-
-        # Normalize using the same mapping as PluginI18n
         lang_lower = primary_lang.lower()
         return LANGUAGE_ALIASES.get(lang_lower, LANGUAGE_ALIASES.get(primary_lang, primary_lang))
 
     async def dispatch(self, request: Request, call_next: Callable):
-        # Extract and normalize language from Accept-Language header
         accept_language = request.headers.get("Accept-Language")
         normalized_lang = self._normalize_language(accept_language)
-
-        # Set the thread-local language context
         set_current_language(normalized_lang)
 
         try:
-            response = await call_next(request)
-            return response
+            return await call_next(request)
         finally:
-            # Clear language context after request
             set_current_language(None)
 
 
-def add_cors_middleware(app):
-    """
-    Add CORS middleware to the FastAPI application.
-
-    Uses cors_origins from server config. When wildcard "*" is present,
-    credentials are disabled per CORS spec.
-
-    Args:
-        app: FastAPI application instance
-    """
+def add_cors_middleware(app) -> None:
+    """Add CORS middleware to the FastAPI application."""
     config = get_config()
     origins = getattr(getattr(config, "server", None), "cors_origins", ["*"])
-    # Per CORS spec, allow_credentials cannot be True with wildcard origin
     allow_creds = "*" not in origins
 
     app.add_middleware(
