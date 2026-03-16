@@ -175,7 +175,7 @@
 - [x] T07 ✅ 2026-03-16 — 创建 `ActionSchedulerContrib`，迁移 ACTION_DISPATCH handler 注册
 - [x] T08 ✅ 2026-03-16 — 精简 `SchedulerBootstrap` 为兼容层（保留 register_handlers 供测试使用）
 - [x] T09 ✅ 2026-03-16 — websocket_bridge_lifecycle 纯化（移除 trace_service 调用，trace 数据由事件发布方提供）
-- [ ] T10 ⏸️ — API 层传输职责纯化（需修改错误处理流程，建议后续迭代）
+- [x] T10 ✅ 2026-03-16 — messages router 传输职责纯化（移除直接 WebSocket 推送，错误通过 HTTP 响应返回）
 - [x] T11 ✅ 2026-03-16 — 辅助函数归位（主要函数已在 T01-T08 中归位）
 - [x] T12 ✅ 2026-03-16 — 全量回归验证通过（453 passed, 2 skipped）
 
@@ -183,13 +183,11 @@
 
 ## 7. 执行总结
 
-### 完成项（11/12）
+### 完成项（12/12）✅ 全部完成
+
 - 批次 A（架构主干）：T01, T02, T03 ✅
 - 批次 B（调度分散化）：T04, T05, T06, T07, T08 ✅
-- 批次 C（收尾）：T09, T11, T12 ✅
-
-### 延后项（1/12）
-- T10：API 层传输职责纯化（需修改错误处理流程，建议后续迭代）
+- 批次 C（连接层与收尾）：T09, T10, T11, T12 ✅
 
 ### 关键改动
 1. **runtime_modules.py 重构**：
@@ -203,11 +201,16 @@
    - `TimelineSchedulerContrib` 实现协议
    - `SchedulerBootstrap` 保留为测试兼容层
 
-3. **WebSocket 桥接纯化**：
+3. **WebSocket 桥接纯化 (T09)**：
    - `websocket_bridge_lifecycle.py` 不再调用 `ChatTraceReadService`
    - `ChatPostProcessService` 在发布 `AI_RESPONSE` 事件时获取 trace 数据
    - `ActionExecutor.emit_chat_response_event` 新增 `trace_summary`, `trace_available` 参数
 
-4. **循环导入修复**：
+4. **API 层传输职责纯化 (T10)**：
+   - `messages` router 移除 `connection_manager` 导入
+   - 错误处理不再直接推送 WebSocket，通过 HTTP 响应返回
+   - 所有 WebSocket 通信由 `WebSocketBridge` 统一处理
+
+5. **循环导入修复**：
    - 将 `build_timeline_schedule_id`, `build_timeline_target_key` 移至 `scheduler/contracts.py`
 

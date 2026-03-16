@@ -2,7 +2,14 @@
 Messages API router.
 
 Provides user message send, dialogue history, and related endpoints.
-Flow: message → MessageBus → sensor subscribe → PerceptionManager → LoopEngine → Agent process → WebSocket push.
+
+Architecture flow:
+    HTTP Request → MessageBus (USER_MESSAGE event) → Agent processing →
+    MessageBus (AI_RESPONSE event) → WebSocketBridge → WebSocket clients
+
+This router is transport-pure: it only handles HTTP input/output and event publishing.
+All WebSocket communication is handled by the WebSocketBridge lifecycle module,
+which subscribes to MessageBus events and broadcasts to connected clients.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -13,7 +20,6 @@ import uuid
 
 from dependency_injector.wiring import inject, Provide
 
-from ..connection_manager import manager as ws_manager
 from ...awareness.sensors import UserMessageSensor
 from ..services import get_chat_read_service
 from ...runtime.services.message_bus import (
@@ -117,14 +123,9 @@ async def send_user_message(
             get_agent_runtime()
         except RuntimeError:
             # Agent not initialized (e.g. API key not set)
-            agent_logger.warning(f"⚠️ AgentRuntime not initialized when user {request.user_id} sent message")
-
-            # Send error to WebSocket client
-            await ws_manager.broadcast_to_user(request.user_id, {
-                "type": "error",
-                "content": "AI service is not initialized. Please complete onboarding or check configuration and restart.",
-                "timestamp": time.time(),
-            })
+            # Return error via HTTP response - frontend should handle display
+            # WebSocket broadcast is handled by WebSocketBridge, not here
+            agent_logger.warning(f"AgentRuntime not initialized when user {request.user_id} sent message")
 
             return MessageResponse(
                 success=False,
@@ -132,6 +133,7 @@ async def send_user_message(
                 data={
                     "user_id": request.user_id,
                     "error": "AgentRuntime not initialized",
+                    "error_code": "RUNTIME_NOT_INITIALIZED",
                 }
             )
 
