@@ -1,8 +1,8 @@
-"""LLM context assembly layer — prompt building, compression, scenario prompts."""
+"""LLM context assembly layer - prompt building, compression, scenario prompts."""
 
 from .assembler import PromptContextAssembler, PromptContextRenderer
-from .builder import Scenario
 from .retrieval import ContextRetrievalService
+from .scenarios import Scenario
 from .scenario_prompts import (
     DEFAULT_SCENARIO_PROMPTS,
     ScenarioPrompt,

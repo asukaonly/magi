@@ -5,10 +5,10 @@ import json
 import re
 from typing import Any
 
-from ....context.builder import Scenario
+from ....context.assembler import PromptContextAssembler, PromptContextRenderer
+from ....context.scenarios import Scenario
 from ....config.models import LLMScenario
 from ...orchestration import WorkerResult
-from ....context.assembler import PromptContextAssembler, PromptContextRenderer
 from ..common import TaskAgentLLMService
 
 
