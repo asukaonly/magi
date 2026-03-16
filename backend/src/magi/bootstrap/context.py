@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from ..core.runtime import SensorHub, AgentRuntime, TaskAgentManager
     from ..core.runtime.action_executor import ActionExecutor
     from ..timeline.service import TimelineService
-    from ..scheduler import SchedulerService, SchedulerBootstrap
+    from ..scheduler import SchedulerService
 
 
 def require_initialized(value: Any, name: str) -> Any:
@@ -112,7 +112,6 @@ class SchedulerBootstrapState:
     """Scheduler engine state slice (L1 infrastructure)."""
 
     scheduler_service: SchedulerService | None = None
-    scheduler_bootstrap: SchedulerBootstrap | None = None
 
 
 @dataclass

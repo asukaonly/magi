@@ -12,7 +12,7 @@ from .contracts import (
     build_timeline_target_key,
 )
 from .repository import ScheduleRepository
-from .runtime import get_scheduler_service, request_scheduler_refresh, set_scheduler_runtime
+from .runtime import get_scheduler_service
 from .service import SchedulerService
 
 __all__ = [
@@ -28,6 +28,4 @@ __all__ = [
     "build_timeline_schedule_id",
     "build_timeline_target_key",
     "get_scheduler_service",
-    "request_scheduler_refresh",
-    "set_scheduler_runtime",
 ]

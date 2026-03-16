@@ -5,7 +5,8 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from . import SchedulerService, set_scheduler_runtime
+from .runtime import set_scheduler_runtime
+from .service import SchedulerService
 
 logger = get_logger(__name__)
 
@@ -34,12 +35,10 @@ class SchedulerModule(LifecycleModule):
         set_scheduler_runtime(scheduler_service)
 
         self._context.scheduler.scheduler_service = scheduler_service
-        self._context.scheduler.scheduler_bootstrap = None
         logger.info("Scheduler service started")
 
     async def shutdown(self) -> None:
         if self._context.scheduler.scheduler_service is not None:
             await self._context.scheduler.scheduler_service.stop()
         self._context.scheduler.scheduler_service = None
-        self._context.scheduler.scheduler_bootstrap = None
         set_scheduler_runtime(None)
