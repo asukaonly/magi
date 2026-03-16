@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from .connection_manager import manager
 from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
-from ..runtime.lifecycle import LifecycleModule
+from ..bootstrap.lifecycle import LifecycleModule
 
 logger = get_logger(__name__, category="API")
 

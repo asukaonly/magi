@@ -11,11 +11,11 @@ from .api.app import create_app as create_api_app
 from .api.websocket_bridge_lifecycle import WebSocketBridgeLifecycleModule
 from .core.container import wire_container
 from .core.logger import get_logger
-from .runtime import (
+from .bootstrap import (
     initialize_agent_runtime,
     shutdown_agent_runtime,
 )
-from .runtime.lifecycle import LifecycleModule, ModuleLifecycleOrchestrator
+from .bootstrap.lifecycle import LifecycleModule, ModuleLifecycleOrchestrator
 
 logger = get_logger(__name__, category="API")
 WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS = 0.5

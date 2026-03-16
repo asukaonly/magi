@@ -27,7 +27,7 @@ from ...config.llm_registry import (
 from ...config.models import LLMCapabilitiesSettings, LLMLimitsSettings
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, create_llm_adapter
-from ...runtime import refresh_runtime_llm_config
+from ...bootstrap import refresh_runtime_llm_config
 
 logger = get_logger(__name__)
 config_router = APIRouter()
@@ -1195,7 +1195,7 @@ async def complete_onboarding(config: SystemConfigModel):
         refreshed_config = reload_config()
 
         # Try to initialize agent runtime if not already initialized
-        from ...runtime.bootstrap import get_agent_runtime, initialize_chat_agent
+        from ...bootstrap import get_agent_runtime, initialize_chat_agent
         try:
             get_agent_runtime()
             # Already initialized, just refresh LLM config

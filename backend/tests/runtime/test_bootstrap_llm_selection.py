@@ -1,5 +1,5 @@
 from magi.config.models import AppConfig
-from magi.runtime.bootstrap import _is_llm_selection_pending
+from magi.llm.factory import is_llm_selection_pending as _is_llm_selection_pending
 
 
 def test_is_llm_selection_pending_when_required_selection_blank() -> None:

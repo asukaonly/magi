@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.runtime.lifecycle import LifecycleModule, ModuleLifecycleOrchestrator
+from magi.bootstrap.lifecycle import LifecycleModule, ModuleLifecycleOrchestrator
 
 
 @pytest.mark.asyncio

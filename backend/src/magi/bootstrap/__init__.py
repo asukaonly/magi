@@ -38,6 +38,7 @@ from .backend import (
     get_agent_runtime,
     get_scheduler_service,
     get_unified_memory,
+    get_memory_integration,
     refresh_runtime_llm_config,
 )
 
@@ -69,5 +70,6 @@ __all__ = [
     "get_agent_runtime",
     "get_scheduler_service",
     "get_unified_memory",
+    "get_memory_integration",
     "refresh_runtime_llm_config",
 ]
