@@ -1,4 +1,4 @@
-"""Current personality state helpers shared by API/runtime layers."""
+"""Current personality state service."""
 
 from __future__ import annotations
 

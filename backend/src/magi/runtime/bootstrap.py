@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from ..config import AppConfig, get_config
 from ..core.container import get_container
@@ -24,24 +24,6 @@ logger = get_logger(__name__)
 
 _runtime_orchestrator: ModuleLifecycleOrchestrator | None = None
 _runtime_state: RuntimeBootstrapState | None = None
-
-
-@dataclass
-class RuntimeBindings:
-    """External callbacks used to bridge runtime with upper layers."""
-
-    get_current_personality: Optional[Callable[[], str]] = None
-    set_message_bus: Optional[Callable[[Any], None]] = None
-    init_skills_module: Optional[Callable[[Any], None]] = None
-
-
-_bindings = RuntimeBindings()
-
-
-def configure_runtime_bindings(bindings: RuntimeBindings | None = None) -> None:
-    """Configure runtime bridge callbacks from outer app entrypoint."""
-    global _bindings
-    _bindings = bindings or RuntimeBindings()
 
 
 def get_master_agent():
@@ -119,7 +101,7 @@ async def initialize_agent_runtime() -> None:
         logger.warning("Agent runtime already initialized")
         return
 
-    state = RuntimeBootstrapState(bindings=_bindings)
+    state = RuntimeBootstrapState()
     orchestrator = ModuleLifecycleOrchestrator(build_runtime_modules(state))
 
     try:

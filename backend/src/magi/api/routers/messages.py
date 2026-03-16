@@ -16,7 +16,7 @@ from dependency_injector.wiring import inject, Provide
 from ..connection_manager import manager as ws_manager
 from ...awareness.sensors import UserMessageSensor
 from ..services import get_chat_read_service
-from ..services.runtime_message_bus import (
+from ...runtime.services.message_bus import (
     get_message_bus as _get_message_bus_service,
     set_message_bus as _set_message_bus_service,
 )

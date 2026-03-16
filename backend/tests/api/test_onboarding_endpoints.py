@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 from magi.api.routers.personality_presets import _parse_json_preset
-from magi.api.services.skills_runtime_service import _get_enabled_skill_names
+from magi.runtime.services.skills import _get_enabled_skill_names
 
 
 def test_parse_json_preset(tmp_path: Path):
@@ -44,7 +44,7 @@ def test_get_enabled_skill_names(monkeypatch, tmp_path: Path):
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "magi.api.services.skills_runtime_service.get_config_file_path",
+        "magi.runtime.services.skills.get_config_file_path",
         lambda: config_file,
     )
     names = _get_enabled_skill_names()

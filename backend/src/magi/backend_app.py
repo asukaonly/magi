@@ -12,8 +12,6 @@ from .api.websocket_bridge_lifecycle import WebSocketBridgeLifecycleModule
 from .core.container import wire_container
 from .core.logger import get_logger
 from .runtime import (
-    RuntimeBindings,
-    configure_runtime_bindings,
     initialize_agent_runtime,
     shutdown_agent_runtime,
 )
@@ -21,21 +19,6 @@ from .runtime.lifecycle import LifecycleModule, ModuleLifecycleOrchestrator
 
 logger = get_logger(__name__, category="API")
 WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS = 0.5
-
-
-def _build_runtime_bindings() -> RuntimeBindings:
-    """Build runtime-to-API bridge callbacks."""
-    from .api.services import (
-        get_current_personality,
-        init_skills_module,
-        set_message_bus,
-    )
-
-    return RuntimeBindings(
-        get_current_personality=get_current_personality,
-        set_message_bus=set_message_bus,
-        init_skills_module=init_skills_module,
-    )
 
 
 class AppCoreDependenciesModule(LifecycleModule):
@@ -49,26 +32,13 @@ class AppCoreDependenciesModule(LifecycleModule):
         logger.info("DI container wired")
 
 
-class AppRuntimeBindingsModule(LifecycleModule):
-    """Initialize runtime bridge callbacks."""
-
-    def __init__(self) -> None:
-        super().__init__(
-            name="app_runtime_bindings",
-            dependencies=("app_core_dependencies",),
-        )
-
-    async def init(self) -> None:
-        configure_runtime_bindings(_build_runtime_bindings())
-
-
 class RuntimeSystemModule(LifecycleModule):
     """Compose runtime subsystem lifecycle behind one app-level module."""
 
     def __init__(self) -> None:
         super().__init__(
             name="runtime_system",
-            dependencies=("app_runtime_bindings",),
+            dependencies=("app_core_dependencies",),
         )
 
     async def init(self) -> None:
@@ -87,7 +57,6 @@ def _build_app_lifecycle_orchestrator(app: FastAPI) -> ModuleLifecycleOrchestrat
     return ModuleLifecycleOrchestrator(
         modules=[
             AppCoreDependenciesModule(),
-            AppRuntimeBindingsModule(),
             RuntimeSystemModule(),
             websocket_bridge,
         ]

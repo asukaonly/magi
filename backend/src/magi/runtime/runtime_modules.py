@@ -58,7 +58,6 @@ class RuntimeInitializationDeferred(Exception):
 class RuntimeBootstrapState:
     """Mutable state shared across runtime lifecycle modules."""
 
-    bindings: Any
     config: AppConfig | None = None
     runtime_paths: RuntimePaths | None = None
     current_personality: str = "default"
@@ -122,12 +121,12 @@ class ConfigurationModule(LifecycleModule):
     async def init(self) -> None:
         self._state.config = get_config()
         current_personality = "default"
-        get_current_personality = getattr(self._state.bindings, "get_current_personality", None)
-        if get_current_personality is not None:
-            try:
-                current_personality = get_current_personality() or "default"
-            except Exception as exc:
-                logger.warning("Failed to get current personality from bindings: %s", exc)
+        try:
+            from .services.personality_state import get_current_personality
+
+            current_personality = get_current_personality() or "default"
+        except Exception as exc:
+            logger.warning("Failed to get current personality: %s", exc)
         self._state.current_personality = current_personality
 
 
@@ -345,8 +344,9 @@ class ToolsModule(LifecycleModule):
             agent_tool.configure(llm_adapter=llm_adapter, tool_registry_instance=tool_registry)
             logger.info("Agent tool configured with runtime LLM adapter")
 
-        init_skills_module = getattr(self._state.bindings, "init_skills_module", None)
-        if config.features.enable_skills and init_skills_module is not None:
+        if config.features.enable_skills:
+            from .services.skills import init_skills_module
+
             init_skills_module(llm_adapter)
             logger.info("Skills module initialized")
 
@@ -510,9 +510,9 @@ class RuntimeExportsModule(LifecycleModule):
 
         logger.info("DI container providers registered")
 
-        set_message_bus = getattr(self._state.bindings, "set_message_bus", None)
-        if set_message_bus is not None:
-            set_message_bus(message_bus)
+        from .services.message_bus import set_message_bus
+
+        set_message_bus(message_bus)
 
     async def shutdown(self) -> None:
         container = get_container()

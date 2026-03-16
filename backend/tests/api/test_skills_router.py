@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from magi.api.routers import skills as skills_router_module
-from magi.api.services import skills_runtime_service
+from magi.runtime.services import skills as skills_runtime_service
 from magi.tools.context_decider import ContextDecider
 from magi.tools.registry import tool_registry
 

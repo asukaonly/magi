@@ -68,7 +68,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             finally:
                 state.websocket_bridge_retry_task = None
 
-        from .services.runtime_message_bus import get_message_bus
+        from ..runtime.services.message_bus import get_message_bus
 
         message_bus = get_message_bus()
         bridge_bus = getattr(state, "websocket_bridge_message_bus", None) or message_bus
@@ -92,7 +92,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         state.websocket_bridge_message_bus = None
 
     async def _ensure_subscriptions(self) -> bool:
-        from .services.runtime_message_bus import get_message_bus
+        from ..runtime.services.message_bus import get_message_bus
         from .services import get_chat_trace_read_service
 
         state = self._app.state

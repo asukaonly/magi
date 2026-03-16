@@ -13,7 +13,7 @@ from typing import List, Optional, Dict, Any
 import logging
 import getpass
 
-from ..services.skills_runtime_service import (
+from ...runtime.services.skills import (
     get_enabled_skill_names as _get_enabled_skill_names_service,
     get_skill_executor as _get_skill_executor_service,
     get_skill_indexer as _get_skill_indexer_service,
