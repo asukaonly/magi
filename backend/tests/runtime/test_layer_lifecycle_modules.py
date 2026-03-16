@@ -129,3 +129,10 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_exports",
         "runtime_other_dependencies",
     ]
+
+
+def test_bootstrap_uses_outer_bootstrap_package() -> None:
+    """Verify bootstrap entrypoints are exposed from magi.bootstrap."""
+    import magi.bootstrap.backend as backend_bootstrap
+
+    assert backend_bootstrap.RuntimeBootstrapContext.__module__ == "magi.bootstrap.context"
