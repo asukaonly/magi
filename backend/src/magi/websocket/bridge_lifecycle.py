@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
+from ..core.runtime_bindings import require_message_bus
 from ..events.events import Event, EventTypes
 from .connection_manager import manager
 
@@ -67,9 +68,10 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             finally:
                 state.websocket_bridge_retry_task = None
 
-        from ..events.service_access import get_message_bus
-
-        message_bus = get_message_bus()
+        try:
+            message_bus = require_message_bus()
+        except RuntimeError:
+            message_bus = None
         bridge_bus = getattr(state, "websocket_bridge_message_bus", None) or message_bus
         sub_id = getattr(state, "ai_response_subscription_id", None)
         if bridge_bus and sub_id:
@@ -92,11 +94,10 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
 
     async def _ensure_subscriptions(self) -> bool:
         """Subscribe to message bus events for WebSocket broadcast."""
-        from ..events.service_access import get_message_bus
-
         state = self._app.state
-        message_bus = get_message_bus()
-        if message_bus is None:
+        try:
+            message_bus = require_message_bus()
+        except RuntimeError:
             return False
 
         existing_sub_id = getattr(state, "ai_response_subscription_id", None)

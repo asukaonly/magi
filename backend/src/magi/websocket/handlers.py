@@ -101,11 +101,11 @@ async def handle_ping(ctx: WebSocketContext, data: dict) -> dict:
 async def handle_get_personality(ctx: WebSocketContext, data: dict) -> dict:
     """Handle personality info requests."""
     try:
-        from ..personality.current_state import get_current_personality
+        from ..api.services.personality_state_service import get_current_personality_name
         from ..personality.loader import PersonalityLoader
         from ..utils.runtime import get_runtime_paths
 
-        current_name = get_current_personality()
+        current_name = get_current_personality_name()
         runtime_paths = get_runtime_paths()
         loader = PersonalityLoader(str(runtime_paths.personalities_dir))
         config = loader.load(current_name)
@@ -133,8 +133,8 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
     try:
         from ..agent import get_agent_runtime
         from ..api.services import get_chat_read_service
+        from ..core.runtime_bindings import require_message_bus
         from ..events.events import Event, EventTypes
-        from ..events.service_access import get_message_bus
 
         user_id = data.get("user_id", "web_user")
         session_id = data.get("session_id")
@@ -162,16 +162,22 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
             "timestamp": time.time(),
         }
 
-        message_bus = get_message_bus()
-        if message_bus:
-            await message_bus.publish(
-                Event(
-                    type=EventTypes.USER_MESSAGE,
-                    data=message_data,
-                    source="websocket",
-                )
+        try:
+            message_bus = require_message_bus()
+        except RuntimeError:
+            return {
+                "type": "error",
+                "message": "Message bus not initialized. Please complete onboarding or check the saved configuration.",
+            }
+
+        await message_bus.publish(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data=message_data,
+                source="websocket",
             )
-            logger.info("Message queued via WS", sid=ctx.sid, user=user_id, session=resolved_session)
+        )
+        logger.info("Message queued via WS", sid=ctx.sid, user=user_id, session=resolved_session)
 
         return {
             "type": "message_sent",

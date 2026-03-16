@@ -39,3 +39,20 @@ def test_backend_app_builds_transport_app() -> None:
 
     assert "from .websocket.http_app import create_transport_app" in source
     assert "from .api.app import create_app" not in source
+
+
+def test_websocket_bridge_lifecycle_does_not_use_runtime_global_message_bus() -> None:
+    from magi.websocket import bridge_lifecycle
+
+    source = Path(bridge_lifecycle.__file__).read_text(encoding="utf-8")
+
+    assert "events.service_access" not in source
+
+
+def test_websocket_handlers_do_not_use_runtime_global_accessors() -> None:
+    from magi.websocket import handlers
+
+    source = Path(handlers.__file__).read_text(encoding="utf-8")
+
+    assert "events.service_access" not in source
+    assert "personality.current_state" not in source
