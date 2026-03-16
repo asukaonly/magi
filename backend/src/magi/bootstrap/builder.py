@@ -16,7 +16,7 @@ from ..memory.lifecycle import MemoryStoreModule
 from ..skills.lifecycle import SkillsModule
 from ..tools.lifecycle import ToolsModule
 from ..personality.lifecycle import PersonalityModule
-from ..awareness.lifecycle import SensorExecutorModule, ActionScheduleRegistrationModule
+from ..awareness.lifecycle import SensorHubModule, ActionScheduleRegistrationModule
 from ..context.lifecycle import ContextModule
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..timeline.lifecycle import TimelineModule, TimelineScheduleRegistrationModule
@@ -36,7 +36,7 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
     L7  ToolsModule               - Tool integrations
     L8  SkillsModule              - Shared skills lifecycle
     L9  PersonalityModule         - Personality layer
-    L10 SensorExecutorModule      - Sensors and actuators
+    L10 SensorHubModule           - Sensors and actuators
     L11 ContextModule             - Context/prompt assembly
     L12 AgentRuntimeModule        - Agent runtime
     L13 TimelineModule            - Timeline service
@@ -63,7 +63,7 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
         ToolsModule(context),                 # L7
         SkillsModule(context),                # L8
         PersonalityModule(context),           # L9
-        SensorExecutorModule(context),        # L10
+        SensorHubModule(context),             # L10
         ContextModule(context),               # L11
         AgentRuntimeModule(context),          # L12
         TimelineModule(context),              # L13

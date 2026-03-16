@@ -19,7 +19,7 @@ class AgentRuntimeModule(LifecycleModule):
         super().__init__(
             name="runtime_agent_core",
             dependencies=(
-                "runtime_sensor_executor",
+                "runtime_sensor_hub",
                 "runtime_context",
                 "runtime_personality",
                 "runtime_memory",

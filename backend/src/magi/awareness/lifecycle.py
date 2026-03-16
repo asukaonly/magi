@@ -13,12 +13,12 @@ from .action_scheduler_contrib import ActionSchedulerContrib
 logger = get_logger(__name__)
 
 
-class SensorExecutorModule(LifecycleModule):
+class SensorHubModule(LifecycleModule):
     """Initialize SensorHub and ActionEmitter (L9 - Sensors/Actuators layer)."""
 
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
-            name="runtime_sensor_executor",
+            name="runtime_sensor_hub",
             dependencies=("runtime_message_bus",),
         )
         self._context = context
@@ -41,7 +41,7 @@ class ActionScheduleRegistrationModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_action_scheduler",
-            dependencies=("runtime_sensor_executor", "runtime_scheduler"),
+            dependencies=("runtime_sensor_hub", "runtime_scheduler"),
         )
         self._context = context
         self._contrib: ActionSchedulerContrib | None = None
