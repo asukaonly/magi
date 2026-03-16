@@ -98,11 +98,12 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
 def test_runtime_domain_layers_own_their_lifecycle_modules() -> None:
     """Verify runtime-domain layers own their lifecycle modules."""
     from magi.agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
-    from magi.awareness.lifecycle import SensorExecutorModule
+    from magi.awareness.lifecycle import SensorExecutorModule, ActionScheduleRegistrationModule
     from magi.scheduler.lifecycle import SchedulerModule
     from magi.timeline.lifecycle import TimelineModule
 
     assert SensorExecutorModule.__module__ == "magi.awareness.lifecycle"
+    assert ActionScheduleRegistrationModule.__module__ == "magi.awareness.lifecycle"
     assert AgentRuntimeModule.__module__ == "magi.agent.lifecycle"
     assert AgentScheduleRegistrationModule.__module__ == "magi.agent.lifecycle"
     assert TimelineModule.__module__ == "magi.timeline.lifecycle"
@@ -131,6 +132,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_timeline",
         "runtime_scheduler",
         "runtime_agent_scheduler",
+        "runtime_action_scheduler",
         "runtime_exports",
         "runtime_other_dependencies",
     ]
