@@ -123,3 +123,29 @@ def test_backend_docs_do_not_reference_removed_runtime_bootstrap_path() -> None:
 
     assert "runtime/bootstrap.py" not in memory_design
     assert "runtime/bootstrap.py" not in memory_plan
+
+
+def test_shared_skills_runtime_uses_skill_runner_binding_name() -> None:
+    bootstrap_context = (BACKEND_SRC / "bootstrap/context.py").read_text(encoding="utf-8")
+    service_access = (BACKEND_SRC / "skills/service_access.py").read_text(encoding="utf-8")
+    lifecycle_source = (BACKEND_SRC / "skills/lifecycle.py").read_text(encoding="utf-8")
+    container_source = (BACKEND_SRC / "core/container.py").read_text(encoding="utf-8")
+    exports_source = (BACKEND_SRC / "bootstrap/exports.py").read_text(encoding="utf-8")
+    runtime_bindings = (BACKEND_SRC / "core/runtime_bindings.py").read_text(encoding="utf-8")
+    api_services = (BACKEND_SRC / "api/services/__init__.py").read_text(encoding="utf-8")
+    skills_router = (BACKEND_SRC / "api/routers/skills.py").read_text(encoding="utf-8")
+
+    assert "skill_executor" not in bootstrap_context
+    assert "skill_executor" not in service_access
+    assert "skill_executor" not in lifecycle_source
+    assert "skill_executor" not in container_source
+    assert "skill_executor" not in exports_source
+    assert "require_skill_executor" not in runtime_bindings
+    assert "skill_executor" not in api_services
+    assert "skill_executor" not in skills_router
+    assert "skill_runner" in bootstrap_context
+    assert "skill_runner" in service_access
+    assert "skill_runner" in lifecycle_source
+    assert "skill_runner" in container_source
+    assert "skill_runner" in exports_source
+    assert "require_skill_runner" in runtime_bindings

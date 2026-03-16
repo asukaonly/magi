@@ -90,7 +90,7 @@ class SkillsBootstrapState:
 
     skill_indexer: Any = None
     skill_loader: Any = None
-    skill_executor: Any = None
+    skill_runner: Any = None
 
 
 @dataclass

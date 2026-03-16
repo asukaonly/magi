@@ -16,14 +16,14 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
 
     fake_indexer = object()
     fake_loader = object()
-    fake_executor = object()
+    fake_runner = object()
 
     monkeypatch.setattr(
         "magi.skills.lifecycle.build_skills_runtime",
         lambda llm_adapter=None: SimpleNamespace(
             skill_indexer=fake_indexer,
             skill_loader=fake_loader,
-            skill_executor=fake_executor,
+            skill_runner=fake_runner,
         ),
     )
 
@@ -32,4 +32,4 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
 
     assert context.skills.skill_indexer is fake_indexer
     assert context.skills.skill_loader is fake_loader
-    assert context.skills.skill_executor is fake_executor
+    assert context.skills.skill_runner is fake_runner

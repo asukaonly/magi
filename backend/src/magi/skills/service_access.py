@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class SkillsRuntimeBindings:
     skill_indexer: Any
     skill_loader: Any
-    skill_executor: Any
+    skill_runner: Any
 
 
 def _get_enabled_skill_names() -> set[str]:
@@ -80,7 +80,7 @@ def build_skills_runtime(llm_adapter=None) -> SkillsRuntimeBindings:
 
     skill_indexer = SkillIndexer()
     skill_loader = SkillLoader(skill_indexer)
-    skill_executor = SkillRunner(skill_loader, llm_adapter)
+    skill_runner = SkillRunner(skill_loader, llm_adapter)
 
     skills = skill_indexer.scan_all()
     registered_skills = register_enabled_skills_with_indexer(skills=skills, skill_indexer=skill_indexer)
@@ -92,5 +92,5 @@ def build_skills_runtime(llm_adapter=None) -> SkillsRuntimeBindings:
     return SkillsRuntimeBindings(
         skill_indexer=skill_indexer,
         skill_loader=skill_loader,
-        skill_executor=skill_executor,
+        skill_runner=skill_runner,
     )

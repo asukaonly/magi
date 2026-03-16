@@ -33,13 +33,13 @@ def _get_tool_registry():
     return tool_registry
 
 
-def _get_function_calling_orchestrator(llm_adapter, tool_registry, skill_executor, tool_result_callback):
+def _get_function_calling_orchestrator(llm_adapter, tool_registry, skill_runner, tool_result_callback):
     """Lazy import to avoid circular dependency."""
     from ..agent.execution.function_calling import FunctionCallingOrchestrator
     return FunctionCallingOrchestrator(
         llm_adapter=llm_adapter,
         tool_registry=tool_registry,
-        skill_executor=skill_executor,
+        skill_runner=skill_runner,
         tool_result_callback=tool_result_callback,
     )
 
@@ -223,7 +223,7 @@ class SkillSubagent:
             self._function_calling_executor = _get_function_calling_orchestrator(
                 llm_adapter=self.llm,
                 tool_registry=registry,
-                skill_executor=None,
+                skill_runner=None,
                 tool_result_callback=None,
             )
 

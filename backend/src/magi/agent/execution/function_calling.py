@@ -128,7 +128,7 @@ class FunctionCallingOrchestrator:
         tool_registry: "ToolRegistry",
         llm_adapter: Optional[LLMAdapter] = None,
         llm_pool=None,
-        skill_executor=None,
+        skill_runner=None,
         tool_result_callback=None,
         loop_event_callback=None,
     ):
@@ -138,14 +138,14 @@ class FunctionCallingOrchestrator:
         Args:
             llm_adapter: LLM adapter
             tool_registry: Tool registry
-            skill_executor: Optional skill executor for skill-based tools
+            skill_runner: Optional skill runner for skill-based tools
         """
         self.llm = llm_adapter
         self._llm_pool = llm_pool
         self.provider_bridge = LLMProviderBridge(llm_adapter) if llm_adapter else None
         self.postprocessor = FunctionCallingPostprocessor()
         self.tool_registry = tool_registry
-        self.skill_executor = skill_executor
+        self.skill_runner = skill_runner
         self.tool_result_callback = tool_result_callback
         self.loop_event_callback = loop_event_callback
 
@@ -1332,12 +1332,12 @@ class FunctionCallingOrchestrator:
         user_id: str,
     ) -> ToolCallResult:
         """Execute a skill"""
-        if not self.skill_executor:
+        if not self.skill_runner:
             return ToolCallResult(
                 tool_call_id="",
                 tool_name=skill_name,
                 success=False,
-                error="Skill executor not available",
+                error="Skill runner not available",
             )
 
         import os
@@ -1352,7 +1352,7 @@ class FunctionCallingOrchestrator:
         }
 
         try:
-            # Convert arguments dict to list for skill executor
+            # Convert arguments dict to list for the skill runner
             args_list = []
             if arguments:
                 for key, value in arguments.items():
@@ -1361,7 +1361,7 @@ class FunctionCallingOrchestrator:
                     elif value is not None:
                         args_list.append(str(value))
 
-            result = await self.skill_executor.execute(
+            result = await self.skill_runner.execute(
                 skill_name=skill_name,
                 arguments=args_list,
                 context=skill_context,

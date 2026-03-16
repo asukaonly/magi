@@ -10,7 +10,7 @@ from .personality_state_service import (
 )
 from .user_message_sensor_service import require_user_message_sensor
 from ...core.runtime_bindings import (
-    require_skill_executor,
+    require_skill_runner,
     require_skill_indexer,
     require_skill_loader,
 )
@@ -25,7 +25,7 @@ __all__ = [
     "require_user_message_sensor",
     "get_current_personality_name",
     "set_current_personality_name",
-    "require_skill_executor",
+    "require_skill_runner",
     "require_skill_indexer",
     "require_skill_loader",
 ]

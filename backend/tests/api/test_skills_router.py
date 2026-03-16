@@ -61,7 +61,7 @@ def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     tool_registry._skill_indexer = None
     container.skill_indexer.reset_override()
     container.skill_loader.reset_override()
-    container.skill_executor.reset_override()
+    container.skill_runner.reset_override()
 
     yield config_path, container
 
@@ -69,13 +69,13 @@ def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     tool_registry._skill_indexer = original_registry_indexer
     container.skill_indexer.reset_override()
     container.skill_loader.reset_override()
-    container.skill_executor.reset_override()
+    container.skill_runner.reset_override()
 
 
 def _bind_skills_runtime(container, bindings) -> None:
     container.skill_indexer.override(providers.Object(bindings.skill_indexer))
     container.skill_loader.override(providers.Object(bindings.skill_loader))
-    container.skill_executor.override(providers.Object(bindings.skill_executor))
+    container.skill_runner.override(providers.Object(bindings.skill_runner))
 
 
 def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_state) -> None:

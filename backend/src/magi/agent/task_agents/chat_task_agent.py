@@ -56,7 +56,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         history_cache_max_sessions: int = 500,
         history_fetch_limit: int = 200,
         scenario_prompts_store=None,
-        skill_executor=None,
+        skill_runner=None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
@@ -133,7 +133,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
             tool_registry=tool_registry,
-            skill_executor=skill_executor,
+            skill_runner=skill_runner,
             tool_result_callback=self._postprocess_service.record_tool_interaction,
             loop_event_callback=self._postprocess_service.record_tool_loop_fact,
         )

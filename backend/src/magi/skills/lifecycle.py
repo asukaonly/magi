@@ -29,10 +29,10 @@ class SkillsModule(LifecycleModule):
         bindings = build_skills_runtime(llm_adapter)
         self._context.skills.skill_indexer = bindings.skill_indexer
         self._context.skills.skill_loader = bindings.skill_loader
-        self._context.skills.skill_executor = bindings.skill_executor
+        self._context.skills.skill_runner = bindings.skill_runner
         logger.info("Shared skills runtime initialized")
 
     async def shutdown(self) -> None:
         self._context.skills.skill_indexer = None
         self._context.skills.skill_loader = None
-        self._context.skills.skill_executor = None
+        self._context.skills.skill_runner = None

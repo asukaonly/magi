@@ -66,6 +66,6 @@ def require_skill_loader():
     return _require_binding("skill_loader")
 
 
-def require_skill_executor():
-    """Return the shared skill executor binding."""
-    return _require_binding("skill_executor")
+def require_skill_runner():
+    """Return the shared skill runner binding."""
+    return _require_binding("skill_runner")

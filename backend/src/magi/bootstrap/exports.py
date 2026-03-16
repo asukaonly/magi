@@ -60,9 +60,9 @@ class RuntimeExportsModule(LifecycleModule):
         if skill_loader is not None:
             container.skill_loader.override(providers.Object(skill_loader))
 
-        skill_executor = self._context.skills.skill_executor
-        if skill_executor is not None:
-            container.skill_executor.override(providers.Object(skill_executor))
+        skill_runner = self._context.skills.skill_runner
+        if skill_runner is not None:
+            container.skill_runner.override(providers.Object(skill_runner))
 
         logger.info("DI container providers registered")
 
@@ -79,4 +79,4 @@ class RuntimeExportsModule(LifecycleModule):
         container.sensor_registry.reset_override()
         container.skill_indexer.reset_override()
         container.skill_loader.reset_override()
-        container.skill_executor.reset_override()
+        container.skill_runner.reset_override()

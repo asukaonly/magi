@@ -33,7 +33,7 @@ class _FakeToolRegistry:
 
 
 class _FakeFunctionCallingOrchestrator:
-    def __init__(self, llm_adapter, tool_registry, skill_executor=None, tool_result_callback=None):
+    def __init__(self, llm_adapter, tool_registry, skill_runner=None, tool_result_callback=None):
         self._tool_result_callback = tool_result_callback
 
     async def execute_with_tools(

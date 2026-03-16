@@ -66,7 +66,7 @@ class Container(containers.DeclarativeContainer):
     sensor_registry: providers.Singleton[SensorRegistry] = providers.Singleton(object)
     skill_indexer: providers.Singleton[Any] = providers.Singleton(object)
     skill_loader: providers.Singleton[Any] = providers.Singleton(object)
-    skill_executor: providers.Singleton[Any] = providers.Singleton(object)
+    skill_runner: providers.Singleton[Any] = providers.Singleton(object)
     runtime_orchestrator: providers.Singleton[ModuleLifecycleOrchestrator] = providers.Singleton(object)
     runtime_bootstrap_context: providers.Singleton[RuntimeBootstrapContext] = providers.Singleton(object)
 

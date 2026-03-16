@@ -14,7 +14,7 @@ import logging
 import getpass
 
 from ...core.runtime_bindings import (
-    require_skill_executor as _require_skill_executor_service,
+    require_skill_runner as _require_skill_runner_service,
     require_skill_indexer as _require_skill_indexer_service,
     require_skill_loader as _require_skill_loader_service,
 )
@@ -201,7 +201,7 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
         Execution result.
     """
     try:
-        skill_executor = _require_skill_executor_service()
+        skill_runner = _require_skill_runner_service()
     except RuntimeError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -226,7 +226,7 @@ async def execute_skill(skill_name: str, request: SkillExecuteRequest):
     context.update(request.context)
 
     try:
-        result = await skill_executor.execute(
+        result = await skill_runner.execute(
             skill_name=skill_name,
             arguments=request.arguments,
             context=context,

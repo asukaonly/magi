@@ -548,7 +548,7 @@ class WorkerAgentManager(Tool):
             executor = FunctionCallingOrchestrator(
                 llm_adapter=self._llm_adapter,
                 tool_registry=self._tool_registry,
-                skill_executor=None,
+                skill_runner=None,
                 tool_result_callback=lambda payload: self._handle_tool_result(run_state, payload),
             )
             outcome = await executor.execute_with_tools(
