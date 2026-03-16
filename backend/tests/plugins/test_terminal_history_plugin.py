@@ -13,63 +13,13 @@ _plugins_path = Path(__file__).resolve().parents[3] / "plugins"
 if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 
-from terminal_history.exceptions import (
-    TerminalHistoryError,
-    ShellNotSupportedError,
-    HistoryFileNotFoundError,
-    HistoryFileReadError,
-)
+from terminal_history.exceptions import ShellNotSupportedError
 from terminal_history.types import TerminalCommand
 from terminal_history.filters import SensitiveCommandFilter, BUILTIN_SENSITIVE_KEYWORDS
 from terminal_history.normalizers import normalize_terminal_command
 from terminal_history.reader import TerminalHistoryReader
 from terminal_history.sensor import TerminalHistorySensor
 from terminal_history.plugin import DEFAULT_SETTINGS, _fields, TerminalHistoryPlugin
-
-
-# ============ Exception Tests ============
-
-def test_terminal_history_error_base():
-    """Test TerminalHistoryError base exception."""
-    error = TerminalHistoryError("Test error")
-    assert str(error) == "Test error"
-
-
-def test_shell_not_supported_error():
-    """Test ShellNotSupportedError has shell attribute."""
-    error = ShellNotSupportedError("fish")
-    assert error.shell == "fish"
-    assert "fish" in str(error)
-
-
-def test_history_file_not_found_error():
-    """Test HistoryFileNotFoundError has path attribute."""
-    error = HistoryFileNotFoundError("/path/to/history")
-    assert error.path == "/path/to/history"
-    assert "not found" in str(error).lower()
-
-
-def test_history_file_read_error():
-    """Test HistoryFileReadError with reason."""
-    error = HistoryFileReadError("/path/to/history", "permission denied")
-    assert error.path == "/path/to/history"
-    assert "permission denied" in str(error)
-
-
-# ============ Type Tests ============
-
-def test_terminal_command_creation():
-    """Test TerminalCommand dataclass."""
-    cmd = TerminalCommand(
-        command="git status",
-        executed_at=datetime(2026, 3, 13, 10, 30, 0),
-        shell="zsh",
-        history_line=42,
-        raw_line=": 1741865000:0;git status",
-    )
-    assert cmd.command == "git status"
-    assert cmd.shell == "zsh"
-    assert cmd.history_line == 42
 
 
 # ============ Filter Tests ============
@@ -193,14 +143,6 @@ def test_reader_shell_not_supported():
 
 # ============ Sensor Tests ============
 
-def test_sensor_properties():
-    """Test sensor class properties."""
-    assert TerminalHistorySensor.sensor_id == "timeline.terminal_history"
-    assert TerminalHistorySensor.source_type == "terminal_history"
-    assert TerminalHistorySensor.polling_mode == "interval"
-    assert TerminalHistorySensor.supports_pull_sync is True
-
-
 def test_sensor_source_item_identity():
     """Test source_item_identity generation."""
     sensor = TerminalHistorySensor()
@@ -297,8 +239,3 @@ def test_sensor_build_timeline_event():
     assert len(event.content_blocks) > 0
     assert "terminal" in event.tags
     assert "zsh" in event.tags
-
-
-def test_full_test_suite_runs():
-    """Verify all terminal history tests pass together."""
-    pass

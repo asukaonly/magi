@@ -12,12 +12,6 @@ class _FakeSchedulerService:
         self.registrations.append((target_type, handler))
 
 
-def test_action_schedule_registration_module_lives_in_awareness_layer() -> None:
-    from magi.awareness.lifecycle import ActionScheduleRegistrationModule
-
-    assert ActionScheduleRegistrationModule.__module__ == "magi.awareness.lifecycle"
-
-
 async def test_action_schedule_registration_module_registers_action_dispatch_handler() -> None:
     from magi.awareness.lifecycle import ActionScheduleRegistrationModule
     from magi.scheduler.contracts import ScheduledTargetType

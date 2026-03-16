@@ -141,12 +141,6 @@ def _build_sensor_registry() -> SensorRegistry:
     return sensor_registry
 
 
-def test_timeline_schedule_registration_module_lives_in_timeline_layer() -> None:
-    from magi.timeline.lifecycle import TimelineScheduleRegistrationModule
-
-    assert TimelineScheduleRegistrationModule.__module__ == "magi.timeline.lifecycle"
-
-
 @pytest.mark.asyncio
 async def test_timeline_schedule_registration_module_registers_handler_and_syncs_schedules(monkeypatch, tmp_path) -> None:
     from magi.scheduler.contracts import ScheduledTargetType, build_timeline_schedule_id

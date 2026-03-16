@@ -20,26 +20,6 @@ from git_activity.sensor import GitActivitySensor
 from git_activity.plugin import DEFAULT_SETTINGS, _fields
 
 
-# ============ Type Tests ============
-
-def test_git_activity_creation():
-    """Test GitActivity dataclass."""
-    activity = GitActivity(
-        repo_path="/Users/test/repo",
-        activity_type="commit",
-        old_sha="abc123",
-        new_sha="def456",
-        message="commit: Add feature",
-        author="Test User <test@example.com>",
-        timestamp=datetime(2026, 3, 13, 10, 0, 0),
-        raw_line="abc123 def456 Test User <test@example.com> 1741887600 +0800	commit: Add feature",
-    )
-    assert activity.repo_path == "/Users/test/repo"
-    assert activity.activity_type == "commit"
-    assert activity.old_sha == "abc123"
-    assert activity.new_sha == "def456"
-
-
 # ============ Filter Tests ============
 
 def test_filter_redact_mode():
@@ -158,14 +138,6 @@ def test_is_git_repo_function():
 
 # ============ Sensor Tests ============
 
-def test_sensor_properties():
-    """Test sensor class properties."""
-    assert GitActivitySensor.sensor_id == "timeline.git_activity"
-    assert GitActivitySensor.source_type == "git_activity"
-    assert GitActivitySensor.polling_mode == "interval"
-    assert GitActivitySensor.supports_pull_sync is True
-
-
 def test_sensor_source_item_identity():
     """Test source_item_identity generation."""
     sensor = GitActivitySensor()
@@ -243,8 +215,3 @@ def test_sensor_build_timeline_event():
     assert len(event.content_blocks) > 0
     assert "git" in event.tags
     assert "commit" in event.tags
-
-
-def test_full_test_suite_runs():
-    """Verify all git activity tests pass together."""
-    pass

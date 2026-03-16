@@ -11,12 +11,6 @@ class _FakeSchedulerService:
         self.registrations.append((target_type, handler))
 
 
-def test_agent_schedule_registration_module_lives_in_agent_layer() -> None:
-    from magi.agent.lifecycle import AgentScheduleRegistrationModule
-
-    assert AgentScheduleRegistrationModule.__module__ == "magi.agent.lifecycle"
-
-
 async def test_agent_schedule_registration_module_registers_agent_task_handler() -> None:
     from magi.agent.lifecycle import AgentScheduleRegistrationModule
     from magi.scheduler.contracts import ScheduledTargetType

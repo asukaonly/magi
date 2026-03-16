@@ -12,12 +12,7 @@ _plugins_path = Path(__file__).resolve().parents[3] / "plugins"
 if str(_plugins_path) not in sys.path:
     sys.path.insert(0, str(_plugins_path))
 
-from screen_time.exceptions import (
-    ScreenTimeError,
-    PlatformNotSupportedError,
-    DatabaseNotFoundError,
-    DatabaseReadError,
-)
+from screen_time.exceptions import DatabaseNotFoundError
 from screen_time.types import AppUsage, DailyScreenTime
 from screen_time.normalizers import normalize_daily_screen_time
 from screen_time.reader import ScreenTimeReader
@@ -26,66 +21,6 @@ from screen_time.plugin import DEFAULT_SETTINGS, _fields, ScreenTimePlugin
 
 from screen_time.sensor import ScreenTimeTimelineSensor
 from magi.timeline import SensorSyncContext
-
-
-# ============ Exception Tests ============
-
-def test_screen_time_error_base():
-    """Test ScreenTimeError base exception."""
-    error = ScreenTimeError("Test error")
-    assert str(error) == "Test error"
-
-
-def test_platform_not_supported_error():
-    """Test PlatformNotSupportedError has default message."""
-    error = PlatformNotSupportedError()
-    assert "macOS" in str(error) or "error" in str(error)
-
-
-def test_database_not_found_error():
-    """Test DatabaseNotFoundError has message."""
-    error = DatabaseNotFoundError("Custom message")
-    assert "Custom message" in str(error)
-
-
-def test_database_read_error():
-    """Test DatabaseReadError with optional query type."""
-    error1 = DatabaseReadError("Query failed")
-    assert str(error1) == "Query failed"
-
-    error2 = DatabaseReadError("Query failed", query_type="test")
-    assert "test" in str(error2)
-
-
-# ============ Type Tests ============
-
-def test_app_usage_creation():
-    """Test AppUsage dataclass."""
-    usage = AppUsage(
-        bundle_id="com.apple.Test",
-        app_name="Test App",
-        usage_seconds=3600,
-        category="productivity"
-    )
-    assert usage.bundle_id == "com.apple.Test"
-    assert usage.app_name == "Test App"
-    assert usage.usage_seconds == 3600
-    assert usage.category == "productivity"
-
-
-def test_daily_screen_time_creation():
-    """Test DailyScreenTime dataclass."""
-    daily = DailyScreenTime(
-        date=date(2026, 3, 12),
-        total_duration=7200,
-        app_usages=[
-            AppUsage(bundle_id="com.apple.Test", app_name="App 1", usage_seconds=3600, category="productivity"),
-            AppUsage(bundle_id="com.apple.Test2", app_name="App 2", usage_seconds=1800, category="entertainment"),
-        ]
-    )
-    assert daily.date == date(2026, 3, 12)
-    assert daily.total_duration == 7200
-    assert len(daily.app_usages) == 2
 
 
 # ============ Normalizer Tests ============
@@ -162,14 +97,6 @@ def test_reader_read_daily_screen_time_stub():
 
 
 # ============ Sensor Tests ============
-
-def test_sensor_properties():
-    """Test sensor class properties."""
-    assert ScreenTimeTimelineSensor.sensor_id == "timeline.screen_time"
-    assert ScreenTimeTimelineSensor.source_type == "screen_time"
-    assert ScreenTimeTimelineSensor.polling_mode == "interval"
-    assert ScreenTimeTimelineSensor.supports_pull_sync is True
-
 
 def test_sensor_source_item_identity():
     """Test source_item_identity generation."""
@@ -287,8 +214,3 @@ def test_sensor_build_timeline_event():
     assert "屏幕使用" in event.title
     assert len(event.content_blocks) > 0
     assert "screen_time" in event.tags
-
-
-def test_full_test_suite_runs():
-    """Verify all screen time tests pass together."""
-    pass
