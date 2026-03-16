@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ..scheduler.service import SchedulerService
     from ..awareness.sensors import UserMessageSensor
     from ..api.services import ChatReadService
+    from ..personality.other_memory import OtherMemory
 
 
 def _create_chat_read_service():
@@ -57,6 +58,10 @@ class Container(containers.DeclarativeContainer):
     unified_memory: providers.Singleton[UnifiedMemoryStore] = providers.Singleton(object)
     scheduler_service: providers.Singleton[SchedulerService] = providers.Singleton(object)
     scenario_llm_pool: providers.Singleton[ScenarioLLMPool] = providers.Singleton(object)
+    other_memory: providers.Singleton[OtherMemory] = providers.Singleton(object)
+    skill_indexer: providers.Singleton[Any] = providers.Singleton(object)
+    skill_loader: providers.Singleton[Any] = providers.Singleton(object)
+    skill_executor: providers.Singleton[Any] = providers.Singleton(object)
 
     # Factory providers for per-request instances
     chat_read_service = providers.Factory(_create_chat_read_service)
