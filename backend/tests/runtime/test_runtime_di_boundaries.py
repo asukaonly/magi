@@ -220,6 +220,7 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     postprocess_service = (BACKEND_SRC / "agent/task_agents/chat/postprocess_service.py").read_text(encoding="utf-8")
     task_factory = (BACKEND_SRC / "agent/task_agents/factory.py").read_text(encoding="utf-8")
     action_emitter = (BACKEND_SRC / "awareness/action_emitter.py").read_text(encoding="utf-8")
+    awareness_contracts = (BACKEND_SRC / "awareness/contracts.py").read_text(encoding="utf-8")
     scheduler_handlers = (BACKEND_SRC / "scheduler/handlers.py").read_text(encoding="utf-8")
 
     assert not (BACKEND_SRC / "core/runtime").exists()
@@ -240,7 +241,10 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "from ....core.runtime import SensorEvent" not in postprocess_service
     assert "core.runtime.types" not in task_factory
     assert "core.runtime.contracts" not in action_emitter
+    assert "agent.runtime.contracts" not in action_emitter
     assert "core.runtime.contracts" not in scheduler_handlers
+    assert "agent.runtime.contracts" not in scheduler_handlers
     assert "agent.runtime" in agent_lifecycle
     assert "sensor_hub" in awareness_lifecycle
     assert "agent.runtime" in bootstrap_context
+    assert "class ActionEmissionRecord" in awareness_contracts

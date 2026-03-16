@@ -1,4 +1,4 @@
-"""Contracts for awareness-owned sensor runtime primitives."""
+"""Contracts for awareness-owned sensor and action runtime primitives."""
 
 from __future__ import annotations
 
@@ -17,3 +17,13 @@ class SensorEvent:
     payload: Dict[str, Any]
     timestamp: float = field(default_factory=time.time)
     correlation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+
+@dataclass
+class ActionEmissionRecord:
+    """Awareness-layer action emission payload independent from agent runtime models."""
+
+    agent_id: str
+    event_type: str
+    payload: Dict[str, Any]
+    correlation_id: str | None = None

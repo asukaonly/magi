@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from magi.awareness.contracts import ActionEmissionRecord
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
@@ -31,7 +32,7 @@ class _FakeSessionService:
 
 class _FakeActionEmitter:
     def __init__(self) -> None:
-        self.action_events: list[tuple[object, bool, str | None]] = []
+        self.action_events: list[tuple[ActionEmissionRecord, bool, str | None]] = []
         self.chat_response_events: list[dict] = []
         self.runtime_events: list[dict] = []
 
@@ -60,8 +61,8 @@ class _FakeActionEmitter:
             }
         )
 
-    async def emit_action_event(self, fact, success: bool, error: str | None = None) -> None:
-        self.action_events.append((fact, success, error))
+    async def emit_action_event(self, record: ActionEmissionRecord, success: bool, error: str | None = None) -> None:
+        self.action_events.append((record, success, error))
 
     async def emit_runtime_event(
         self,
@@ -127,13 +128,13 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
     )
 
     assert len(action_emitter.action_events) == 1
-    fact, success, error = action_emitter.action_events[0]
+    record, success, error = action_emitter.action_events[0]
     assert success is True
     assert error is None
-    assert fact.payload["turn_id"] == "turn-1"
-    assert fact.payload["orchestration_id"] == "orch-1"
-    assert fact.payload["tool_call_id"] == "call-1"
-    assert fact.payload["iteration"] == 3
+    assert record.payload["turn_id"] == "turn-1"
+    assert record.payload["orchestration_id"] == "orch-1"
+    assert record.payload["tool_call_id"] == "call-1"
+    assert record.payload["iteration"] == 3
 
     assert len(action_emitter.runtime_events) == 1
     runtime_payload = action_emitter.runtime_events[0]["payload"]

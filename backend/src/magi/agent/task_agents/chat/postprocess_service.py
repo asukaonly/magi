@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Callable, TYPE_CHECKING
 
 from ....core.logger import get_logger
-from ....awareness.contracts import SensorEvent
+from ....awareness.contracts import ActionEmissionRecord, SensorEvent
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
 from ....events.events import EventTypes
@@ -138,7 +138,7 @@ class ChatPostProcessService:
             }
         )
         await action_emitter.emit_action_event(
-            fact=FactRecord(
+            record=ActionEmissionRecord(
                 agent_id=latest_fact.agent_id,
                 event_type=(
                     EventTypes.AI_RESPONSE
@@ -146,9 +146,6 @@ class ChatPostProcessService:
                     else latest_fact.event_type
                 ),
                 payload=action_payload,
-                agent_type=latest_fact.agent_type,
-                agent_instance_id=latest_fact.agent_instance_id,
-                timestamp=latest_fact.timestamp,
                 correlation_id=correlation_id,
             ),
             success=True,
@@ -197,7 +194,7 @@ class ChatPostProcessService:
         success = bool(payload.get("success"))
         error_text = str(payload.get("error") or "") or None
         await action_emitter.emit_action_event(
-            fact=FactRecord(
+            record=ActionEmissionRecord(
                 agent_id=self._agent_id,
                 event_type=TOOL_INTERACTION_EVENT_TYPE,
                 payload={

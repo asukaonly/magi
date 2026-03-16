@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from .contracts import ActionEmissionRecord
 from ..core.logger import get_logger
-from ..agent.runtime.contracts import FactRecord
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventLevel, EventTypes
 
@@ -63,16 +63,16 @@ class ActionEmitter:
             trace_available=trace_available,
         )
 
-    async def emit_action_event(self, fact: FactRecord, success: bool, error: str | None = None) -> None:
+    async def emit_action_event(self, record: ActionEmissionRecord, success: bool, error: str | None = None) -> None:
         try:
-            payload = fact.payload if isinstance(fact.payload, dict) else {}
+            payload = record.payload if isinstance(record.payload, dict) else {}
             action_type = payload.get("action_type")
             if not action_type:
                 action_type = payload.get("tool_name")
-            if not action_type and fact.event_type == EventTypes.USER_MESSAGE:
+            if not action_type and record.event_type == EventTypes.USER_MESSAGE:
                 action_type = "ChatResponseAction"
             if not action_type:
-                action_type = str(fact.event_type or "UnknownAction")
+                action_type = str(record.event_type or "UnknownAction")
 
             params = payload.get("params")
             if params is None:
@@ -89,8 +89,8 @@ class ActionEmitter:
                 Event(
                     type=EventTypes.ACTION_EXECUTED,
                     data={
-                        "agent_id": fact.agent_id,
-                        "event_type": fact.event_type,
+                        "agent_id": record.agent_id,
+                        "event_type": record.event_type,
                         "action_type": str(action_type),
                         "params": params if isinstance(params, dict) else {},
                         "execution_time": float(execution_time or 0.0),
@@ -104,7 +104,7 @@ class ActionEmitter:
                     },
                     source="runtime_action_emitter",
                     level=EventLevel.INFO if success else EventLevel.ERROR,
-                    correlation_id=fact.correlation_id,
+                    correlation_id=record.correlation_id,
                 )
             )
         except Exception as exc:

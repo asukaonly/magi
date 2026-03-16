@@ -14,6 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover
     pytest = _PytestFallback()
 
 from magi.awareness.action_emitter import ActionEmitter
+from magi.awareness.contracts import ActionEmissionRecord
 from magi.awareness.sensor_hub import SensorHub
 from magi.agent.runtime import (
     AgentRuntime,
@@ -66,7 +67,15 @@ class _FakeChatTaskAgent(
             return
         latest = context.latest_fact
         if isinstance(latest, FactRecord):
-            await self._action_emitter.emit_action_event(latest, success=True)
+            await self._action_emitter.emit_action_event(
+                ActionEmissionRecord(
+                    agent_id=latest.agent_id,
+                    event_type=latest.event_type,
+                    payload=latest.payload if isinstance(latest.payload, dict) else {},
+                    correlation_id=latest.correlation_id,
+                ),
+                success=True,
+            )
 
 
 @pytest.mark.asyncio

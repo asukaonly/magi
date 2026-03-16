@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from ..agent.runtime.contracts import FactRecord
+from ..awareness.contracts import ActionEmissionRecord
 from ..plugins.actions import ActionExecutionContext, ActionRegistry
 from .contracts import ScheduledExecutionContext, ScheduledExecutionResult
 
@@ -54,7 +54,7 @@ async def handle_action_dispatch(
         ),
     )
     await action_emitter.emit_action_event(
-        fact=FactRecord(
+        record=ActionEmissionRecord(
             agent_id=str(payload.get("user_id") or "scheduler"),
             event_type="ScheduledActionDispatch",
             payload={
