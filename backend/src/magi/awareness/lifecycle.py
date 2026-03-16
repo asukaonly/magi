@@ -40,7 +40,7 @@ class ActionScheduleRegistrationModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_action_scheduler",
-            dependencies=("runtime_sensor_hub", "runtime_scheduler"),
+            dependencies=("runtime_sensor_hub", "runtime_plugin_system", "runtime_scheduler"),
         )
         self._context = context
         self._contrib: ActionSchedulerContrib | None = None

@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any, Literal
 import logging
 
 from ...core.runtime_bindings import require_plugin_manager
+from ...plugins.service_access import ensure_plugin_manager_binding
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,10 @@ tools_router = APIRouter()
 
 
 def _ensure_plugins_loaded() -> None:
-    require_plugin_manager()
+    try:
+        require_plugin_manager()
+    except RuntimeError:
+        ensure_plugin_manager_binding()
 
 
 # ============ data Models ============

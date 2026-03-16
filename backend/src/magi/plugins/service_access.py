@@ -102,3 +102,17 @@ def rebuild_plugin_manager_binding() -> PluginManager:
         pass
 
     return bindings.plugin_manager
+
+
+def ensure_plugin_manager_binding() -> PluginManager:
+    """Return the active plugin manager binding, rebuilding it when absent."""
+
+    container = get_container()
+    try:
+        current_manager = container.plugin_manager()
+        if current_manager is not None and type(current_manager).__name__ != "object":
+            return current_manager
+    except Exception:
+        pass
+
+    return rebuild_plugin_manager_binding()

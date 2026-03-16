@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from magi.bootstrap.context import RuntimeBootstrapContext
+from magi.plugins.actions import ActionRegistry
 
 
 class _FakeSchedulerService:
@@ -24,6 +25,7 @@ async def test_action_schedule_registration_module_registers_action_dispatch_han
     context = RuntimeBootstrapContext()
     context.scheduler.scheduler_service = _FakeSchedulerService()
     context.agent_runtime.action_emitter = object()
+    context.plugins.action_registry = ActionRegistry()
 
     module = ActionScheduleRegistrationModule(context)
     await module.init()
