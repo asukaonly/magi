@@ -62,11 +62,11 @@ class _FakeChatTaskAgent(
         return {"response": "ok"}
 
     async def parse_result(self, context: TaskAgentRuntimeContext, raw_result):
-        if self._action_executor is None:
+        if self._action_emitter is None:
             return
         latest = context.latest_fact
         if isinstance(latest, FactRecord):
-            await self._action_executor.emit_action_event(latest, success=True)
+            await self._action_emitter.emit_action_event(latest, success=True)
 
 
 @pytest.mark.asyncio

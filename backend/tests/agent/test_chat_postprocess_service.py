@@ -29,7 +29,7 @@ class _FakeSessionService:
         _ = (history_key, record)
 
 
-class _FakeActionExecutor:
+class _FakeActionEmitter:
     def __init__(self) -> None:
         self.action_events: list[tuple[object, bool, str | None]] = []
         self.chat_response_events: list[dict] = []
@@ -99,11 +99,11 @@ class _FakeRuntime:
 
 @pytest.mark.asyncio
 async def test_record_tool_interaction_preserves_trace_identity() -> None:
-    action_executor = _FakeActionExecutor()
+    action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
         session_service=_FakeSessionService(),  # type: ignore[arg-type]
-        get_action_executor=lambda: action_executor,
+        get_action_emitter=lambda: action_emitter,
         max_fact_memory=10,
     )
 
@@ -126,8 +126,8 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
         }
     )
 
-    assert len(action_executor.action_events) == 1
-    fact, success, error = action_executor.action_events[0]
+    assert len(action_emitter.action_events) == 1
+    fact, success, error = action_emitter.action_events[0]
     assert success is True
     assert error is None
     assert fact.payload["turn_id"] == "turn-1"
@@ -135,21 +135,21 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
     assert fact.payload["tool_call_id"] == "call-1"
     assert fact.payload["iteration"] == 3
 
-    assert len(action_executor.runtime_events) == 1
-    runtime_payload = action_executor.runtime_events[0]["payload"]
+    assert len(action_emitter.runtime_events) == 1
+    runtime_payload = action_emitter.runtime_events[0]["payload"]
     assert runtime_payload["turn_id"] == "turn-1"
     assert runtime_payload["iteration"] == 3
 
 
 @pytest.mark.asyncio
 async def test_handle_emits_targeted_chat_timeline_event(monkeypatch: pytest.MonkeyPatch) -> None:
-    action_executor = _FakeActionExecutor()
+    action_emitter = _FakeActionEmitter()
     runtime = _FakeRuntime()
     monkeypatch.setattr("magi.bootstrap.get_agent_runtime", lambda: runtime)
     service = ChatPostProcessService(
         agent_id="chat:web_user",
         session_service=_FakeSessionService(),  # type: ignore[arg-type]
-        get_action_executor=lambda: action_executor,
+        get_action_emitter=lambda: action_emitter,
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
@@ -199,7 +199,7 @@ async def test_handle_emits_targeted_chat_timeline_event(monkeypatch: pytest.Mon
     outcome = await service.handle(context, result)
 
     assert outcome.emitted is True
-    assert len(action_executor.chat_response_events) == 1
+    assert len(action_emitter.chat_response_events) == 1
     assert len(runtime.sensor_hub.sensor_events) == 1
     timeline_event = runtime.sensor_hub.sensor_events[0]
     assert timeline_event.event_type == "TimelineSourceDetected"

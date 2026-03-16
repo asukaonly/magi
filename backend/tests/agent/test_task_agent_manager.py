@@ -32,7 +32,7 @@ async def test_task_agent_manager_hybrid_creation_and_dispatch():
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: _CollectTaskAgent(TaskAgentType.CHAT, agent_id),
     )
-    await manager.start_all(action_executor=None)
+    await manager.start_all(action_emitter=None)
 
     # Core instances should exist.
     assert manager.get_agent(TaskAgentType.CHAT, "default") is not None
@@ -61,7 +61,7 @@ async def test_task_agent_manager_supports_default_agent_type():
         create_chat_agent=lambda agent_id: _CollectTaskAgent(TaskAgentType.CHAT, agent_id),
         create_default_agent=lambda agent_type, agent_id: DefaultTaskAgent(agent_type, agent_id),
     )
-    await manager.start_all(action_executor=None)
+    await manager.start_all(action_emitter=None)
 
     fact = FactRecord(
         agent_id="analytics:tenant-a",

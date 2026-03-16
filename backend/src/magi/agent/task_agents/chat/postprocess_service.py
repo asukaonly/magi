@@ -36,7 +36,7 @@ class ChatPostProcessService:
         *,
         agent_id: str,
         session_service: ChatSessionService,
-        get_action_executor: Callable[[], Any],
+        get_action_emitter: Callable[[], Any],
         memory=None,
         other_memory=None,
         max_fact_memory: int = 200,
@@ -44,7 +44,7 @@ class ChatPostProcessService:
     ) -> None:
         self._agent_id = agent_id
         self._session_service = session_service
-        self._get_action_executor = get_action_executor
+        self._get_action_emitter = get_action_emitter
         self._memory = memory
         self._other_memory = other_memory
         self._local_fact_memory: list[FactRecord] = []
@@ -52,8 +52,8 @@ class ChatPostProcessService:
         self._trace_read_service = trace_read_service
 
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
-        action_executor = self._get_action_executor()
-        if action_executor is None or result.skip_emit:
+        action_emitter = self._get_action_emitter()
+        if action_emitter is None or result.skip_emit:
             return ChatParseOutcome(False, False, False, False)
         latest_fact = context.latest_fact
         if not isinstance(latest_fact, FactRecord):
@@ -112,7 +112,7 @@ class ChatPostProcessService:
             except Exception as exc:
                 logger.debug("Failed to fetch trace snapshot for AI_RESPONSE event: %s", exc)
 
-        await action_executor.emit_chat_response_event(
+        await action_emitter.emit_chat_response_event(
             user_id=context.user_id,
             session_id=context.session_id,
             response=response_text,
@@ -137,7 +137,7 @@ class ChatPostProcessService:
                 "turn_id": turn_id,
             }
         )
-        await action_executor.emit_action_event(
+        await action_emitter.emit_action_event(
             fact=FactRecord(
                 agent_id=latest_fact.agent_id,
                 event_type=(
@@ -188,15 +188,15 @@ class ChatPostProcessService:
             },
         )
 
-        action_executor = self._get_action_executor()
-        if action_executor is None:
+        action_emitter = self._get_action_emitter()
+        if action_emitter is None:
             return
         tool_name = str(payload.get("tool_name") or "unknown")
         arguments = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {}
         execution_time = float(payload.get("execution_time") or 0.0)
         success = bool(payload.get("success"))
         error_text = str(payload.get("error") or "") or None
-        await action_executor.emit_action_event(
+        await action_emitter.emit_action_event(
             fact=FactRecord(
                 agent_id=self._agent_id,
                 event_type=TOOL_INTERACTION_EVENT_TYPE,
@@ -218,7 +218,7 @@ class ChatPostProcessService:
             success=success,
             error=error_text,
         )
-        await action_executor.emit_runtime_event(
+        await action_emitter.emit_runtime_event(
             event_type=TOOL_INTERACTION_EVENT_TYPE,
             payload={
                 "tool_name": tool_name,
@@ -283,9 +283,9 @@ class ChatPostProcessService:
             self._local_fact_memory.append(fact)
             if len(self._local_fact_memory) > self._max_fact_memory:
                 self._local_fact_memory = self._local_fact_memory[-self._max_fact_memory :]
-        action_executor = self._get_action_executor()
-        if action_executor is not None:
-            await action_executor.emit_runtime_event(
+        action_emitter = self._get_action_emitter()
+        if action_emitter is not None:
+            await action_emitter.emit_runtime_event(
                 event_type=CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
                 payload=dict(fact.payload),
                 correlation_id=fact.correlation_id,

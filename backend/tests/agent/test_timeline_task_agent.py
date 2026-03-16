@@ -15,7 +15,7 @@ async def _noop_timeline_handler(payload):
 async def test_timeline_task_agent_processes_timeline_facts():
     agent = TimelineTaskAgent(agent_id="timeline-main", timeline_handler=_noop_timeline_handler)
 
-    await agent.start(action_executor=None)
+    await agent.start(action_emitter=None)
     accepted = await agent.add_fact(
         FactRecord(
             agent_id="timeline:timeline-main",
@@ -52,7 +52,7 @@ async def test_task_agent_manager_creates_timeline_agents():
         ),
     )
 
-    await manager.start_all(action_executor=None)
+    await manager.start_all(action_emitter=None)
     agent = await manager.ensure_agent(TaskAgentType.TIMELINE, "timeline-main")
     await manager.stop_all()
 

@@ -23,7 +23,7 @@ async def test_action_schedule_registration_module_registers_action_dispatch_han
 
     context = RuntimeBootstrapContext()
     context.scheduler.scheduler_service = _FakeSchedulerService()
-    context.agent_runtime.action_executor = object()
+    context.agent_runtime.action_emitter = object()
 
     module = ActionScheduleRegistrationModule(context)
     await module.init()

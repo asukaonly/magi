@@ -6,15 +6,15 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from ..core.runtime import SensorHub
-from ..core.runtime.action_scheduler_contrib import ActionSchedulerContrib
-from ..core.runtime.action_executor import ActionExecutor
 from ..plugins import get_action_registry
+from .action_emitter import ActionEmitter
+from .action_scheduler_contrib import ActionSchedulerContrib
 
 logger = get_logger(__name__)
 
 
 class SensorExecutorModule(LifecycleModule):
-    """Initialize SensorHub and ActionExecutor (L9 - Sensors/Actuators layer)."""
+    """Initialize SensorHub and ActionEmitter (L9 - Sensors/Actuators layer)."""
 
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
@@ -27,12 +27,12 @@ class SensorExecutorModule(LifecycleModule):
         message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
 
         self._context.agent_runtime.sensor_hub = SensorHub(message_bus=message_bus)
-        self._context.agent_runtime.action_executor = ActionExecutor(message_bus=message_bus)
-        logger.info("SensorHub and ActionExecutor initialized (L9)")
+        self._context.agent_runtime.action_emitter = ActionEmitter(message_bus=message_bus)
+        logger.info("SensorHub and ActionEmitter initialized (L9)")
 
     async def shutdown(self) -> None:
         self._context.agent_runtime.sensor_hub = None
-        self._context.agent_runtime.action_executor = None
+        self._context.agent_runtime.action_emitter = None
 
 
 class ActionScheduleRegistrationModule(LifecycleModule):
@@ -48,11 +48,11 @@ class ActionScheduleRegistrationModule(LifecycleModule):
 
     async def init(self) -> None:
         scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
-        action_executor = require_initialized(self._context.agent_runtime.action_executor, "action executor")
+        action_emitter = require_initialized(self._context.agent_runtime.action_emitter, "action emitter")
         self._contrib = ActionSchedulerContrib(
             scheduler_service=scheduler_service,
             action_registry=get_action_registry(),
-            action_executor=action_executor,
+            action_emitter=action_emitter,
         )
         await self._contrib.register_schedules(scheduler_service)
         logger.info("Action schedule registration initialized (L9)")

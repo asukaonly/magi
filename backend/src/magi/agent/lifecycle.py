@@ -40,7 +40,7 @@ class AgentRuntimeModule(LifecycleModule):
         memory_integration = require_initialized(self._context.memory.memory_integration, "memory integration")
         scenario_prompts_store = require_initialized(self._context.context.scenario_prompts_store, "scenario prompts store")
         sensor_hub = require_initialized(self._context.agent_runtime.sensor_hub, "sensor hub")
-        action_executor = require_initialized(self._context.agent_runtime.action_executor, "action executor")
+        action_emitter = require_initialized(self._context.agent_runtime.action_emitter, "action emitter")
 
         task_agent_manager = TaskAgentManager(
             create_chat_agent=create_chat_agent_factory(
@@ -76,7 +76,7 @@ class AgentRuntimeModule(LifecycleModule):
             sensor_hub=sensor_hub,
             router_agent=router_agent,
             task_agent_manager=task_agent_manager,
-            action_executor=action_executor,
+            action_emitter=action_emitter,
         )
         await self._context.agent_runtime.agent_runtime.start()
         logger.info("AgentRuntime started (L11)")

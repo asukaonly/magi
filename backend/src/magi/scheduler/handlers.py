@@ -34,7 +34,7 @@ async def handle_agent_task(
 
 async def handle_action_dispatch(
     action_registry: ActionRegistry,
-    action_executor: Any,
+    action_emitter: Any,
     context: ScheduledExecutionContext,
 ) -> ScheduledExecutionResult:
     """Resolve and execute a scheduled action, then emit an event."""
@@ -53,7 +53,7 @@ async def handle_action_dispatch(
             metadata={"scheduled": True, "manual": context.manual},
         ),
     )
-    await action_executor.emit_action_event(
+    await action_emitter.emit_action_event(
         fact=FactRecord(
             agent_id=str(payload.get("user_id") or "scheduler"),
             event_type="ScheduledActionDispatch",

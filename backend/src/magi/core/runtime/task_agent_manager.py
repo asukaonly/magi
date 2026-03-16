@@ -41,7 +41,7 @@ class TaskAgentManager:
         self._agents: dict[str, TaskAgent] = {}
         self._instance_metadata: dict[str, InstanceMetadata] = {}
         self._running = False
-        self._action_executor = None
+        self._action_emitter = None
         self._core_instances = (
             (TaskAgentType.CHAT, "default"),
         )
@@ -51,11 +51,11 @@ class TaskAgentManager:
         self._janitor_task: Optional[asyncio.Task] = None
         self._enqueue_rejected_count = 0
 
-    async def start_all(self, action_executor) -> None:
+    async def start_all(self, action_emitter) -> None:
         if self._running:
             return
         self._running = True
-        self._action_executor = action_executor
+        self._action_emitter = action_emitter
         for agent_type, agent_id in self._core_instances:
             await self.ensure_agent(agent_type, agent_id)
         self._janitor_task = asyncio.create_task(self._janitor_loop())
@@ -74,7 +74,7 @@ class TaskAgentManager:
         self._agents.clear()
         self._instance_metadata.clear()
         self._running = False
-        self._action_executor = None
+        self._action_emitter = None
 
     async def ensure_agent(self, agent_type: TaskAgentType | str, agent_id: str) -> TaskAgent:
         key = build_task_agent_key(agent_type, agent_id)
@@ -99,7 +99,7 @@ class TaskAgentManager:
             pending_queue_size=0,
         )
         if self._running:
-            await agent.start(self._action_executor)
+            await agent.start(self._action_emitter)
         logger.info(f"TaskAgent ensured | key={key}")
         return agent
 

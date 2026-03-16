@@ -76,17 +76,17 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
         self._fact_queue: asyncio.Queue[FactRecord] = asyncio.Queue(maxsize=queue_maxsize)
         self._task: Optional[asyncio.Task] = None
         self._running = False
-        self._action_executor = None
+        self._action_emitter = None
         self._processed = 0
         self._enqueue_rejected = 0
         self._fact_memory: list[FactRecord] = []
         self._max_fact_memory = 200
         self._batch_size = 16
 
-    async def start(self, action_executor) -> None:
+    async def start(self, action_emitter) -> None:
         if self._running:
             return
-        self._action_executor = action_executor
+        self._action_emitter = action_emitter
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
         logger.info(f"TaskAgent started | key={self.runtime_key}")

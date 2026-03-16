@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from ..personality.other_memory import OtherMemory
     from ..context.scenario_prompts import ScenarioPromptsStore
     from ..core.runtime import SensorHub, AgentRuntime, TaskAgentManager
-    from ..core.runtime.action_executor import ActionExecutor
+    from ..awareness.action_emitter import ActionEmitter
     from ..timeline.service import TimelineService
     from ..scheduler import SchedulerService
 
@@ -104,7 +104,7 @@ class AgentRuntimeBootstrapState:
     """L11 Agent Runtime state slice."""
 
     sensor_hub: SensorHub | None = None
-    action_executor: ActionExecutor | None = None
+    action_emitter: ActionEmitter | None = None
     agent_runtime: AgentRuntime | None = None
     task_agent_manager: TaskAgentManager | None = None
 

@@ -1,21 +1,20 @@
-"""
-Action executor for runtime agents.
-"""
+"""Action emitter for runtime agents."""
+
 from __future__ import annotations
 
 import time
 from typing import Any
 
-from ...core.logger import get_logger
-from ...events.backend import MessageBusBackend
-from ...events.events import Event, EventLevel, EventTypes
-from .contracts import FactRecord
+from ..core.logger import get_logger
+from ..core.runtime.contracts import FactRecord
+from ..events.backend import MessageBusBackend
+from ..events.events import Event, EventLevel, EventTypes
 
 logger = get_logger(__name__)
 
 
-class ActionExecutor:
-    """Runtime action emitter for task-agent execution results."""
+class ActionEmitter:
+    """Outbound action event emitter for task-agent execution results."""
 
     def __init__(self, message_bus: MessageBusBackend) -> None:
         self._message_bus = message_bus
@@ -48,7 +47,7 @@ class ActionExecutor:
             Event(
                 type=EventTypes.AI_RESPONSE,
                 data=response_data,
-                source="runtime_action_executor",
+                source="runtime_action_emitter",
                 level=EventLevel.INFO,
                 correlation_id=correlation_id,
             )
@@ -103,7 +102,7 @@ class ActionExecutor:
                         "success": success,
                         "error": error,
                     },
-                    source="runtime_action_executor",
+                    source="runtime_action_emitter",
                     level=EventLevel.INFO if success else EventLevel.ERROR,
                     correlation_id=fact.correlation_id,
                 )
@@ -123,7 +122,7 @@ class ActionExecutor:
             Event(
                 type=event_type,
                 data=payload,
-                source="runtime_action_executor",
+                source="runtime_action_emitter",
                 level=EventLevel.INFO if success else EventLevel.ERROR,
                 correlation_id=correlation_id,
             )
