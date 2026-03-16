@@ -12,7 +12,7 @@ from typing import Any
 
 from .avatar_paths import builtin_avatar_dir, user_avatar_dir
 from .middleware import ErrorHandler, AuthMiddleware, RequestLoggingMiddleware, LanguageContextMiddleware, add_cors_middleware
-from .websocket import register_websocket
+from ..websocket import register_websocket
 from ..core.logger import configure_logging, get_logger
 
 logger = get_logger(__name__, category="API")

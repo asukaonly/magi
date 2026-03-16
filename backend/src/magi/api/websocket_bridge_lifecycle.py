@@ -16,7 +16,7 @@ from typing import Optional
 
 from fastapi import FastAPI
 
-from .connection_manager import manager
+from ..websocket.connection_manager import manager
 from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
 from ..bootstrap.lifecycle import LifecycleModule

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import pytest
 
-from magi.api.connection_manager import ConnectionManager
+from magi.websocket.connection_manager import ConnectionManager
 
 
 class _DummyWebSocket:

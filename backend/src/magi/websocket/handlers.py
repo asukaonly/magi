@@ -1,11 +1,8 @@
 """
 WebSocket message handlers with registry pattern.
-
-Provides a modular message handling system for WebSocket connections.
 """
 from __future__ import annotations
 
-import json
 import random
 import time
 import uuid
@@ -14,11 +11,11 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from fastapi import WebSocket
 
-from ..avatar_paths import resolve_avatar_public_url
-from ...core.logger import get_logger
+from ..api.avatar_paths import resolve_avatar_public_url
+from ..core.logger import get_logger
 
 if TYPE_CHECKING:
-    from ..websocket import ConnectionManager
+    from .connection_manager import ConnectionManager
 
 logger = get_logger(__name__)
 
@@ -35,18 +32,11 @@ class WebSocketContext:
 class MessageHandlerRegistry:
     """Registry for WebSocket message handlers with decorator-based registration."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._handlers: Dict[str, Callable[[WebSocketContext, Dict[str, Any]], Any]] = {}
 
     def register(self, message_type: str) -> Callable:
-        """
-        Decorator to register a handler for a message type.
-
-        Usage:
-            @handler_registry.register("subscribe")
-            async def handle_subscribe(ctx: WebSocketContext, data: dict) -> dict | None:
-                ...
-        """
+        """Register a handler for a message type."""
 
         def decorator(func: Callable[[WebSocketContext, Dict[str, Any]], Any]) -> Callable:
             self._handlers[message_type] = func
@@ -55,16 +45,7 @@ class MessageHandlerRegistry:
         return decorator
 
     async def dispatch(self, ctx: WebSocketContext, data: dict) -> Optional[dict]:
-        """
-        Dispatch a message to the appropriate handler.
-
-        Args:
-            ctx: WebSocket context with connection details
-            data: Parsed JSON message data
-
-        Returns:
-            Response dict to send back, or None if no response needed
-        """
+        """Dispatch a message to the appropriate handler."""
         message_type = data.get("type")
         if not message_type:
             logger.warning("Message missing type field", sid=ctx.sid)
@@ -77,18 +58,12 @@ class MessageHandlerRegistry:
 
         try:
             return await handler(ctx, data)
-        except Exception as e:
-            logger.error("Handler error", sid=ctx.sid, type=message_type, error=str(e), exc_info=True)
-            return {"type": "error", "message": f"Handler error: {str(e)}"}
+        except Exception as exc:
+            logger.error("Handler error", sid=ctx.sid, type=message_type, error=str(exc), exc_info=True)
+            return {"type": "error", "message": f"Handler error: {str(exc)}"}
 
 
-# Global handler registry
 handler_registry = MessageHandlerRegistry()
-
-
-# ============================================================================
-# Built-in message handlers
-# ============================================================================
 
 
 @handler_registry.register("subscribe")
@@ -117,7 +92,7 @@ async def handle_unsubscribe(ctx: WebSocketContext, data: dict) -> dict:
 
 @handler_registry.register("ping")
 async def handle_ping(ctx: WebSocketContext, data: dict) -> dict:
-    """Handle ping requests for connection keep-alive."""
+    """Handle ping requests."""
     logger.debug("Ping received", sid=ctx.sid)
     return {"type": "pong"}
 
@@ -126,9 +101,9 @@ async def handle_ping(ctx: WebSocketContext, data: dict) -> dict:
 async def handle_get_personality(ctx: WebSocketContext, data: dict) -> dict:
     """Handle personality info requests."""
     try:
-        from ...personality.current_state import get_current_personality
-        from ...personality.loader import PersonalityLoader
-        from ...utils.runtime import get_runtime_paths
+        from ..personality.current_state import get_current_personality
+        from ..personality.loader import PersonalityLoader
+        from ..utils.runtime import get_runtime_paths
 
         current_name = get_current_personality()
         runtime_paths = get_runtime_paths()
@@ -136,8 +111,6 @@ async def handle_get_personality(ctx: WebSocketContext, data: dict) -> dict:
         config = loader.load(current_name)
         greetings = config.cached_phrases.on_wake or config.cached_phrases.on_init
         greeting = random.choice(greetings) if greetings else f"Hello, I am {config.name}."
-
-        # Handle avatar URL
         avatar = resolve_avatar_public_url(config.avatar or "")
 
         logger.info("Sent personality info", sid=ctx.sid, name=config.name)
@@ -149,19 +122,19 @@ async def handle_get_personality(ctx: WebSocketContext, data: dict) -> dict:
                 "greeting": greeting,
             },
         }
-    except Exception as e:
-        logger.error("Failed to get personality info", sid=ctx.sid, error=str(e))
-        return {"type": "error", "message": f"Failed to get personality info: {str(e)}"}
+    except Exception as exc:
+        logger.error("Failed to get personality info", sid=ctx.sid, error=str(exc))
+        return {"type": "error", "message": f"Failed to get personality info: {str(exc)}"}
 
 
 @handler_registry.register("send_message")
 async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
     """Handle user messages sent via WebSocket."""
     try:
-        from ...agent import get_agent_runtime
-        from ...events.events import Event, EventTypes
-        from ..services import get_chat_read_service
-        from ...events.service_access import get_message_bus
+        from ..agent import get_agent_runtime
+        from ..api.services import get_chat_read_service
+        from ..events.events import Event, EventTypes
+        from ..events.service_access import get_message_bus
 
         user_id = data.get("user_id", "web_user")
         session_id = data.get("session_id")
@@ -191,18 +164,14 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
 
         message_bus = get_message_bus()
         if message_bus:
-            event = Event(
-                type=EventTypes.USER_MESSAGE,
-                data=message_data,
-                source="websocket",
+            await message_bus.publish(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data=message_data,
+                    source="websocket",
+                )
             )
-            await message_bus.publish(event)
-            logger.info(
-                "Message queued via WS",
-                sid=ctx.sid,
-                user=user_id,
-                session=resolved_session,
-            )
+            logger.info("Message queued via WS", sid=ctx.sid, user=user_id, session=resolved_session)
 
         return {
             "type": "message_sent",
@@ -213,16 +182,16 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
                 "timestamp": time.time(),
             },
         }
-    except Exception as e:
-        logger.error("Failed to send message via WS", sid=ctx.sid, error=str(e))
-        return {"type": "error", "message": f"Failed to send message: {str(e)}"}
+    except Exception as exc:
+        logger.error("Failed to send message via WS", sid=ctx.sid, error=str(exc))
+        return {"type": "error", "message": f"Failed to send message: {str(exc)}"}
 
 
 @handler_registry.register("get_current_session")
 async def handle_get_current_session(ctx: WebSocketContext, data: dict) -> dict:
     """Handle current session ID requests."""
     try:
-        from ..services import get_chat_read_service
+        from ..api.services import get_chat_read_service
 
         user_id = data.get("user_id", "web_user")
         read_service = get_chat_read_service()
@@ -236,7 +205,6 @@ async def handle_get_current_session(ctx: WebSocketContext, data: dict) -> dict:
             },
         }
     except RuntimeError:
-        # Agent not initialized
         return {
             "type": "current_session",
             "data": {
@@ -244,16 +212,16 @@ async def handle_get_current_session(ctx: WebSocketContext, data: dict) -> dict:
                 "session_id": None,
             },
         }
-    except Exception as e:
-        logger.error("Failed to get current session", sid=ctx.sid, error=str(e))
-        return {"type": "error", "message": f"Failed to get current session: {str(e)}"}
+    except Exception as exc:
+        logger.error("Failed to get current session", sid=ctx.sid, error=str(exc))
+        return {"type": "error", "message": f"Failed to get current session: {str(exc)}"}
 
 
 @handler_registry.register("get_history")
 async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
     """Handle conversation history requests."""
     try:
-        from ..services import get_chat_read_service
+        from ..api.services import get_chat_read_service
 
         user_id = data.get("user_id", "web_user")
         session_id = data.get("session_id")
@@ -285,7 +253,6 @@ async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
             },
         }
     except RuntimeError:
-        # Agent not initialized
         return {
             "type": "history",
             "data": {
@@ -295,6 +262,6 @@ async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
                 "count": 0,
             },
         }
-    except Exception as e:
-        logger.error("Failed to get history", sid=ctx.sid, error=str(e))
-        return {"type": "error", "message": f"Failed to get history: {str(e)}"}
+    except Exception as exc:
+        logger.error("Failed to get history", sid=ctx.sid, error=str(exc))
+        return {"type": "error", "message": f"Failed to get history: {str(exc)}"}
