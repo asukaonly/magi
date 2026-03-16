@@ -15,17 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
-import asyncio
 import uuid
 
 from dependency_injector.wiring import inject, Provide
 
-from ...awareness.sensors import UserMessageSensor
 from ..services import get_chat_read_service
-from ...events.service_access import (
-    get_message_bus as _get_message_bus_service,
-    set_message_bus as _set_message_bus_service,
-)
+from ..services.message_bus_service import require_message_bus
+from ..services.user_message_sensor_service import require_user_message_sensor
 from ...utils.agent_logger import get_agent_logger
 from ...events.events import Event, EventTypes, EventLevel
 from ...core.logger import get_logger
@@ -54,41 +50,6 @@ class MessageResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
-def set_message_bus(message_bus):
-    """Compatibility wrapper for shared message bus service."""
-    _set_message_bus_service(message_bus)
-
-
-def get_message_bus():
-    """Compatibility wrapper for shared message bus service."""
-    return _get_message_bus_service()
-
-
-# ============ Global user message sensor ============
-
-# Global user message sensor instance (singleton)
-_user_message_sensor: Optional[UserMessageSensor] = None
-
-
-def get_user_message_sensor() -> UserMessageSensor:
-    """Get or create the global user message sensor instance."""
-    global _user_message_sensor
-    # Try container first
-    try:
-        from ...core.container import get_container
-        container = get_container()
-        instance = container.user_message_sensor()
-        if instance is not None and type(instance).__name__ != "object":
-            return instance
-    except Exception:
-        pass
-    # Fallback to creating one
-    if _user_message_sensor is None:
-        _user_message_sensor = UserMessageSensor()
-        logger.info("UserMessageSensor created")
-    return _user_message_sensor
-
-
 # ============ Dialogue history storage ============
 
 # In-memory dialogue history storage: {user_id: [messages]}
@@ -99,10 +60,8 @@ _conversation_history = {}
 
 
 @user_messages_router.post("/send", response_model=MessageResponse)
-@inject
 async def send_user_message(
     request: UserMessageRequest,
-    message_bus = Depends(Provide[Container.message_bus]),
 ):
     """
     Send user message to the message bus.
@@ -137,9 +96,7 @@ async def send_user_message(
                 }
             )
 
-        # Fallback to global if injection didn't provide a valid instance
-        if message_bus is None or type(message_bus).__name__ == "object":
-            message_bus = get_message_bus()
+        message_bus = require_message_bus()
 
         # Resolve session_id (use current session if not provided)
         read_service = get_chat_read_service()
@@ -385,7 +342,7 @@ async def get_sensor_status():
     Returns:
         Sensor state info.
     """
-    sensor = get_user_message_sensor()
+    sensor = require_user_message_sensor()
 
     return {
         "sensor_type": "user_message",
@@ -399,7 +356,7 @@ async def get_sensor_status():
 @user_messages_router.post("/sensor/enable")
 async def enable_sensor():
     """Enable the sensor."""
-    sensor = get_user_message_sensor()
+    sensor = require_user_message_sensor()
     sensor.enable()
     return {"success": True, "message": "Sensor enabled"}
 
@@ -407,6 +364,6 @@ async def enable_sensor():
 @user_messages_router.post("/sensor/disable")
 async def disable_sensor():
     """Disable the sensor."""
-    sensor = get_user_message_sensor()
+    sensor = require_user_message_sensor()
     sensor.disable()
     return {"success": True, "message": "Sensor disabled"}

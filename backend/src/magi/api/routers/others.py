@@ -8,24 +8,12 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import logging
 
-from ...personality.other_memory import OtherMemory, OtherProfile
-from ...utils.runtime import get_runtime_paths
+from ...personality.other_memory import OtherProfile
+from ..services.other_memory_service import require_other_memory
 
 logger = logging.getLogger(__name__)
 
 others_router = APIRouter()
-
-# Global other person memory instance
-_other_memory: Optional[OtherMemory] = None
-
-
-def get_other_memory() -> OtherMemory:
-    """Get other person memory instance"""
-    global _other_memory
-    if _other_memory is None:
-        runtime_paths = get_runtime_paths()
-        _other_memory = OtherMemory(str(runtime_paths.others_dir))
-    return _other_memory
 
 
 # ============ Data Models ============
@@ -55,7 +43,7 @@ async def list_profiles():
         User profile list
     """
     try:
-        other_memory = get_other_memory()
+        other_memory = require_other_memory()
         profiles = other_memory.list_profiles()
 
         profiles_data = [p.to_dict() for p in profiles]
@@ -85,7 +73,7 @@ async def get_profile(user_id: str):
         User profile
     """
     try:
-        other_memory = get_other_memory()
+        other_memory = require_other_memory()
         profile = other_memory.get_profile(user_id)
 
         if profile is None:
@@ -118,7 +106,7 @@ async def update_profile(user_id: str, profile_data: Dict[str, Any]):
         Update result
     """
     try:
-        other_memory = get_other_memory()
+        other_memory = require_other_memory()
         profile = other_memory.get_profile(user_id)
 
         if profile is None:
@@ -159,7 +147,7 @@ async def delete_profile(user_id: str):
         Deletion result
     """
     try:
-        other_memory = get_other_memory()
+        other_memory = require_other_memory()
         success = other_memory.delete_profile(user_id)
 
         if success:
@@ -194,7 +182,7 @@ async def record_interaction(user_id: str, interaction: Dict[str, Any]):
         Updated profile
     """
     try:
-        other_memory = get_other_memory()
+        other_memory = require_other_memory()
 
         profile = other_memory.update_interaction(
             user_id=user_id,
