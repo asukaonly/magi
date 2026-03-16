@@ -13,8 +13,8 @@ except ModuleNotFoundError:  # pragma: no cover
 
     pytest = _PytestFallback()
 
+from magi.awareness.action_emitter import ActionEmitter
 from magi.core.runtime import (
-    ActionExecutor,
     AgentRuntime,
     RouterAgent,
     SensorHub,
@@ -76,7 +76,7 @@ async def test_runtime_chat_dispatch_from_message_bus():
 
     fake_chat = _FakeChatTaskAgent()
     sensor_hub = SensorHub(message_bus=message_bus)
-    action_executor = ActionExecutor(message_bus=message_bus)
+    action_emitter = ActionEmitter(message_bus=message_bus)
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: fake_chat if agent_id == "u-chat" else _FakeChatTaskAgent(),
     )
@@ -85,7 +85,7 @@ async def test_runtime_chat_dispatch_from_message_bus():
         sensor_hub=sensor_hub,
         router_agent=router_agent,
         task_agent_manager=manager,
-        action_executor=action_executor,
+        action_emitter=action_emitter,
     )
 
     await orchestrator.start()

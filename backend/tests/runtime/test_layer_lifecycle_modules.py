@@ -99,11 +99,15 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
 
 def test_runtime_domain_layers_own_their_lifecycle_modules() -> None:
     """Verify runtime-domain layers own their lifecycle modules."""
+    from magi.awareness.action_emitter import ActionEmitter
+    from magi.awareness.action_scheduler_contrib import ActionSchedulerContrib
     from magi.agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
     from magi.awareness.lifecycle import SensorExecutorModule, ActionScheduleRegistrationModule
     from magi.scheduler.lifecycle import SchedulerModule
     from magi.timeline.lifecycle import TimelineModule, TimelineScheduleRegistrationModule
 
+    assert ActionEmitter.__module__ == "magi.awareness.action_emitter"
+    assert ActionSchedulerContrib.__module__ == "magi.awareness.action_scheduler_contrib"
     assert SensorExecutorModule.__module__ == "magi.awareness.lifecycle"
     assert ActionScheduleRegistrationModule.__module__ == "magi.awareness.lifecycle"
     assert AgentRuntimeModule.__module__ == "magi.agent.lifecycle"
@@ -205,3 +209,20 @@ def test_scheduler_module_does_not_import_domain_contributors() -> None:
     assert "TimelineSchedulerContrib" not in source
     assert "AgentSchedulerContrib" not in source
     assert "ActionSchedulerContrib" not in source
+
+
+def test_awareness_lifecycle_owns_action_runtime_primitives() -> None:
+    """Verify awareness lifecycle does not import action runtime primitives from core.runtime."""
+    awareness_lifecycle = Path(__file__).resolve().parents[2] / "src/magi/awareness/lifecycle.py"
+    source = awareness_lifecycle.read_text(encoding="utf-8")
+
+    assert "core.runtime.action_executor" not in source
+    assert "core.runtime.action_scheduler_contrib" not in source
+
+
+def test_core_runtime_no_longer_exports_action_executor() -> None:
+    """Verify core.runtime stops exporting the legacy ActionExecutor symbol."""
+    runtime_init = Path(__file__).resolve().parents[2] / "src/magi/core/runtime/__init__.py"
+    source = runtime_init.read_text(encoding="utf-8")
+
+    assert "ActionExecutor" not in source
