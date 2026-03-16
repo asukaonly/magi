@@ -16,7 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover
 from ..config import get_config, save_config
 from ..config.models import PluginSettings
 from ..timeline.scheduler_contrib import request_timeline_schedule_refresh
-from ..tools.registry import ToolRegistry
+from ..tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 from .actions import ActionRegistry, BaseAction, build_action_tool_class
 from .base import Plugin
 from .contracts import ContributionType, PluginContribution, PluginManifest, PluginPackageState
@@ -47,15 +47,17 @@ def _resolve_search_paths() -> list[Path]:
 
 def build_plugin_runtime(
     *,
+    tool_registry: ToolRegistry | None = None,
     sensor_registry: SensorRegistry | None = None,
     action_registry: ActionRegistry | None = None,
 ) -> PluginRuntimeBindings:
     """Build plugin runtime services for the current runtime instance."""
 
+    resolved_tool_registry = tool_registry or shared_tool_registry
     resolved_sensor_registry = sensor_registry or SensorRegistry()
     resolved_action_registry = action_registry or ActionRegistry()
     plugin_manager = PluginManager(
-        tool_registry=tool_registry,
+        tool_registry=resolved_tool_registry,
         sensor_registry=resolved_sensor_registry,
         action_registry=resolved_action_registry,
         search_paths=_resolve_search_paths(),

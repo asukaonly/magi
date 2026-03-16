@@ -6,9 +6,9 @@ import pytest
 
 from magi.plugins.actions import ActionRegistry
 from magi.config.models import AppConfig, PluginSettings
-from magi.plugins.manager import PluginManager
+from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.sensors import SensorRegistry
-from magi.tools.registry import ToolRegistry
+from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 
 
 def _apply_updates(config: AppConfig, updates: dict[str, object]) -> None:
@@ -163,3 +163,21 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     manager.activate_enabled_plugins()
 
     assert "memory_query" in tool_registry.list_tools()
+
+
+def test_build_plugin_runtime_uses_shared_tool_registry_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = AppConfig()
+
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [tmp_path])
+
+    bindings = build_plugin_runtime(
+        sensor_registry=SensorRegistry(),
+        action_registry=ActionRegistry(),
+    )
+
+    assert bindings.plugin_manager._tool_registry is shared_tool_registry
