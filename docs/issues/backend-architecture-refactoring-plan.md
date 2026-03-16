@@ -294,12 +294,12 @@ backend/src/magi/
 | 阶段五 | 5.2 初始化顺序对齐 | ✅ 完成 → 15 层顺序 |
 | 阶段五 | 5.3 消除全局变量冗余 | ✅ 完成 |
 
-### 延后（建议后续迭代）
+### 已完成（2026-03-16 补充）
 
-| 阶段 | 步骤 | 说明 |
+| 阶段 | 步骤 | 状态 |
 |------|------|------|
-| 阶段四 | 4.1 WebSocket 连接管理分离 | 需重构事件数据流，风险较高 |
-| 阶段四 | 4.2 API 层传输职责纯化 | 需修改错误处理流程 |
+| 阶段四 | 4.1 WebSocket 连接管理分离 | ✅ 完成 → `websocket_bridge_lifecycle.py` 纯化为事件转发 |
+| 阶段四 | 4.2 API 层传输职责纯化 | ✅ 完成 → `messages` router 移除 WebSocket 直推 |
 
 ### 新增文件
 
@@ -313,3 +313,8 @@ backend/src/magi/
 - `scheduler/bootstrap.py` — 简化为测试兼容层
 - `timeline/scheduler_contrib.py` — 实现 ScheduleContributor 协议
 - `scheduler/__init__.py` — 更新导出
+- `api/websocket_bridge_lifecycle.py` — 移除 trace_service 调用，纯化为事件转发
+- `api/routers/messages.py` — 移除 connection_manager 导入，错误通过 HTTP 响应返回
+- `core/runtime/action_executor.py` — emit_chat_response_event 新增 trace 参数
+- `agent/task_agents/chat/postprocess_service.py` — 新增 trace_read_service 依赖
+- `agent/task_agents/chat_task_agent.py` — 初始化 trace_read_service
