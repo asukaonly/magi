@@ -93,7 +93,7 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
         "runtime_tools",
         "runtime_skills",
         "runtime_personality",
-        "runtime_sensor_executor",
+        "runtime_sensor_hub",
         "runtime_context",
     ]
 
@@ -103,13 +103,13 @@ def test_runtime_domain_layers_own_their_lifecycle_modules() -> None:
     from magi.awareness.action_emitter import ActionEmitter
     from magi.awareness.action_scheduler_contrib import ActionSchedulerContrib
     from magi.agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
-    from magi.awareness.lifecycle import SensorExecutorModule, ActionScheduleRegistrationModule
+    from magi.awareness.lifecycle import SensorHubModule, ActionScheduleRegistrationModule
     from magi.scheduler.lifecycle import SchedulerModule
     from magi.timeline.lifecycle import TimelineModule, TimelineScheduleRegistrationModule
 
     assert ActionEmitter.__module__ == "magi.awareness.action_emitter"
     assert ActionSchedulerContrib.__module__ == "magi.awareness.action_scheduler_contrib"
-    assert SensorExecutorModule.__module__ == "magi.awareness.lifecycle"
+    assert SensorHubModule.__module__ == "magi.awareness.lifecycle"
     assert ActionScheduleRegistrationModule.__module__ == "magi.awareness.lifecycle"
     assert AgentRuntimeModule.__module__ == "magi.agent.lifecycle"
     assert AgentScheduleRegistrationModule.__module__ == "magi.agent.lifecycle"
@@ -135,7 +135,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_tools",
         "runtime_skills",
         "runtime_personality",
-        "runtime_sensor_executor",
+        "runtime_sensor_hub",
         "runtime_context",
         "runtime_agent_core",
         "runtime_timeline",
