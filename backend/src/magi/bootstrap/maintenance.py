@@ -1,11 +1,11 @@
-"""Bootstrap maintenance module for remaining runtime dependencies."""
+"""Bootstrap maintenance module for remaining infrastructure dependencies."""
 
 from __future__ import annotations
 
 from .lifecycle import LifecycleModule
 from .context import RuntimeBootstrapContext, require_initialized
+from ..core.maintenance import MaintenanceConfig, MaintenanceDaemon, set_maintenance_daemon
 from ..core.logger import get_logger
-from ..runtime.maintenance import MaintenanceConfig, MaintenanceDaemon, set_maintenance_daemon
 
 logger = get_logger(__name__)
 

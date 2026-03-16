@@ -136,3 +136,11 @@ def test_bootstrap_uses_outer_bootstrap_package() -> None:
     import magi.bootstrap.backend as backend_bootstrap
 
     assert backend_bootstrap.RuntimeBootstrapContext.__module__ == "magi.bootstrap.context"
+
+
+def test_maintenance_runtime_primitives_live_in_core() -> None:
+    """Verify maintenance primitives are no longer owned by the runtime package."""
+    from magi.core.maintenance import MaintenanceConfig, MaintenanceDaemon
+
+    assert MaintenanceConfig.__module__ == "magi.core.maintenance"
+    assert MaintenanceDaemon.__module__ == "magi.core.maintenance"

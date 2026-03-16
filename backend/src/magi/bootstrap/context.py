@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from ..config import AppConfig
     from ..utils.runtime import RuntimePaths
     from ..core.database_initializer import DatabaseInitializer
+    from ..core.maintenance import MaintenanceDaemon
     from ..llm import ScenarioLLMPool
     from ..events.sqlite_backend import SQLiteMessageBackend
     from ..memory import UnifiedMemoryStore
@@ -20,7 +21,6 @@ if TYPE_CHECKING:
     from ..core.runtime.action_executor import ActionExecutor
     from ..timeline.service import TimelineService
     from ..scheduler import SchedulerService, SchedulerBootstrap
-    from .maintenance import MaintenanceDaemon
 
 
 def require_initialized(value: Any, name: str) -> Any:

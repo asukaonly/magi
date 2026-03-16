@@ -509,7 +509,7 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
         "magi.api.routers.config._save_personality_to_user",
         lambda _: True,
     )
-    monkeypatch.setattr("magi.runtime.bootstrap.get_agent_runtime", lambda: object())
+    monkeypatch.setattr("magi.bootstrap.get_agent_runtime", lambda: object())
 
     response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
 
