@@ -1,14 +1,6 @@
-"""Bootstrap package for backend runtime composition and lifecycle orchestration.
+"""Bootstrap package for backend runtime composition and lifecycle orchestration."""
 
-This package serves as the outer composition root for the layered architecture,
-collecting layer-owned lifecycle modules and providing startup/shutdown entrypoints.
-
-Key exports:
-- RuntimeBootstrapContext: Slice-based bootstrap context for layer state
-- ModuleLifecycleOrchestrator: Orchestrates module startup/shutdown in dependency order
-- build_runtime_modules: Assembles lifecycle modules from owning layers
-- initialize_agent_runtime / shutdown_agent_runtime: Application lifecycle entrypoints
-"""
+from __future__ import annotations
 
 from .context import (
     RuntimeBootstrapContext,
@@ -27,19 +19,6 @@ from .context import (
 from .lifecycle import (
     LifecycleModule,
     ModuleLifecycleOrchestrator,
-)
-from .builder import build_runtime_modules
-from .backend import (
-    initialize_agent_runtime,
-    shutdown_agent_runtime,
-    initialize_chat_agent,
-    shutdown_chat_agent,
-    get_master_agent,
-    get_agent_runtime,
-    get_scheduler_service,
-    get_unified_memory,
-    get_memory_integration,
-    refresh_runtime_llm_config,
 )
 
 __all__ = [
@@ -73,3 +52,30 @@ __all__ = [
     "get_memory_integration",
     "refresh_runtime_llm_config",
 ]
+
+
+def __getattr__(name: str):
+    """Lazily expose builder and backend entrypoints to avoid import cycles."""
+
+    if name == "build_runtime_modules":
+        from .builder import build_runtime_modules
+
+        return build_runtime_modules
+
+    if name in {
+        "initialize_agent_runtime",
+        "shutdown_agent_runtime",
+        "initialize_chat_agent",
+        "shutdown_chat_agent",
+        "get_master_agent",
+        "get_agent_runtime",
+        "get_scheduler_service",
+        "get_unified_memory",
+        "get_memory_integration",
+        "refresh_runtime_llm_config",
+    }:
+        from . import backend as _backend
+
+        return getattr(_backend, name)
+
+    raise AttributeError(name)

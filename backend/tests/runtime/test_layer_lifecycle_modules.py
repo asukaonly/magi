@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 import pytest
 
@@ -177,3 +178,13 @@ def test_runtime_package_is_removed() -> None:
     runtime_pkg = importlib.import_module("magi.runtime")
 
     assert not hasattr(runtime_pkg, "get_agent_runtime")
+
+
+def test_scheduler_module_does_not_import_domain_contributors() -> None:
+    """Verify scheduler lifecycle no longer imports domain schedule contributors."""
+    scheduler_lifecycle = Path(__file__).resolve().parents[2] / "src/magi/scheduler/lifecycle.py"
+    source = scheduler_lifecycle.read_text(encoding="utf-8")
+
+    assert "TimelineSchedulerContrib" not in source
+    assert "AgentSchedulerContrib" not in source
+    assert "ActionSchedulerContrib" not in source

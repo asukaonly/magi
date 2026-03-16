@@ -1,37 +1,21 @@
 from __future__ import annotations
 
-import asyncio
-
-import pytest
-
-from magi.scheduler.runtime import request_scheduler_refresh, set_scheduler_runtime
+from magi.scheduler.runtime import get_scheduler_service, set_scheduler_runtime
 
 
-class _FakeBootstrap:
-    def __init__(self) -> None:
-        self.calls = 0
-        self.started = asyncio.Event()
-        self.release = asyncio.Event()
+def test_scheduler_runtime_tracks_service_without_bootstrap() -> None:
+    service = object()
 
-    async def sync_timeline_sensor_schedules(self) -> None:
-        self.calls += 1
-        self.started.set()
-        await self.release.wait()
+    set_scheduler_runtime(service)
+
+    assert get_scheduler_service() is service
+
+    set_scheduler_runtime(None)
 
 
-@pytest.mark.asyncio
-async def test_request_scheduler_refresh_serializes_and_replays_pending_work():
-    bootstrap = _FakeBootstrap()
-    set_scheduler_runtime(object(), bootstrap)  # type: ignore[arg-type]
+def test_scheduler_runtime_clears_service() -> None:
+    set_scheduler_runtime(object())
 
-    try:
-        request_scheduler_refresh()
-        await asyncio.wait_for(bootstrap.started.wait(), timeout=1.0)
+    set_scheduler_runtime(None)
 
-        request_scheduler_refresh()
-        bootstrap.release.set()
-        await asyncio.sleep(0.05)
-
-        assert bootstrap.calls == 2
-    finally:
-        set_scheduler_runtime(None, None)
+    assert get_scheduler_service() is None
