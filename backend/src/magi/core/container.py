@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from ..scheduler.service import SchedulerService
     from ..awareness.sensors import UserMessageSensor
     from ..api.services import ChatReadService
-    from ..plugins import PluginManager, SensorRegistry
+    from ..plugins import ActionRegistry, PluginManager, SensorRegistry
     from ..personality.other_memory import OtherMemory
 
 
@@ -64,6 +64,7 @@ class Container(containers.DeclarativeContainer):
     other_memory: providers.Singleton[OtherMemory] = providers.Singleton(object)
     plugin_manager: providers.Singleton[PluginManager] = providers.Singleton(object)
     sensor_registry: providers.Singleton[SensorRegistry] = providers.Singleton(object)
+    action_registry: providers.Singleton[ActionRegistry] = providers.Singleton(object)
     skill_indexer: providers.Singleton[Any] = providers.Singleton(object)
     skill_loader: providers.Singleton[Any] = providers.Singleton(object)
     skill_runner: providers.Singleton[Any] = providers.Singleton(object)

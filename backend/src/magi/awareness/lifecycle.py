@@ -6,7 +6,6 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from ..core.runtime import SensorHub
-from ..plugins import get_action_registry
 from .action_emitter import ActionEmitter
 from .action_scheduler_contrib import ActionSchedulerContrib
 
@@ -49,9 +48,10 @@ class ActionScheduleRegistrationModule(LifecycleModule):
     async def init(self) -> None:
         scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
         action_emitter = require_initialized(self._context.agent_runtime.action_emitter, "action emitter")
+        action_registry = require_initialized(self._context.plugins.action_registry, "action registry")
         self._contrib = ActionSchedulerContrib(
             scheduler_service=scheduler_service,
-            action_registry=get_action_registry(),
+            action_registry=action_registry,
             action_emitter=action_emitter,
         )
         await self._contrib.register_schedules(scheduler_service)

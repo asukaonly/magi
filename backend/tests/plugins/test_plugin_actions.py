@@ -5,9 +5,8 @@ from pathlib import Path
 import pytest
 
 from magi.config.models import AppConfig
-from magi.plugins.actions import ActionExecutionContext
+from magi.plugins.actions import ActionExecutionContext, ActionRegistry
 from magi.plugins.manager import PluginManager
-from magi.plugins.runtime import get_action_registry
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry
 from magi.tools.schema import ToolExecutionContext
@@ -20,7 +19,7 @@ async def test_core_actions_plugin_registers_actions_and_tool_adapters(
     config = AppConfig()
     tool_registry = ToolRegistry()
     sensor_registry = SensorRegistry()
-    action_registry = get_action_registry().__class__()
+    action_registry = ActionRegistry()
     repo_plugins = Path(__file__).resolve().parents[3] / "plugins"
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)

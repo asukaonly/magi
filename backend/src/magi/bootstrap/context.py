@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..events.sqlite_backend import SQLiteMessageBackend
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
-    from ..plugins import PluginManager, SensorRegistry
+    from ..plugins import ActionRegistry, PluginManager, SensorRegistry
     from ..personality.self_memory import SelfMemory
     from ..personality.other_memory import OtherMemory
     from ..context.scenario_prompts import ScenarioPromptsStore
@@ -74,6 +74,7 @@ class PluginBootstrapState:
 
     plugin_manager: PluginManager | None = None
     sensor_registry: SensorRegistry | None = None
+    action_registry: ActionRegistry | None = None
 
 
 @dataclass

@@ -12,13 +12,6 @@ from .contracts import (
     PluginPackageState,
 )
 from .manager import PluginManager
-from .runtime import (
-    get_action_registry,
-    get_plugin_manager,
-    get_sensor_registry,
-    initialize_plugin_manager,
-    reload_plugin_manager,
-)
 from .sensors import SensorRegistry, SensorSpec
 
 __all__ = [
@@ -37,9 +30,4 @@ __all__ = [
     "PluginPackageState",
     "SensorRegistry",
     "SensorSpec",
-    "get_action_registry",
-    "get_plugin_manager",
-    "get_sensor_registry",
-    "initialize_plugin_manager",
-    "reload_plugin_manager",
 ]

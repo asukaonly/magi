@@ -8,15 +8,15 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Literal
 import logging
 
+from ...core.runtime_bindings import require_plugin_manager
+
 logger = logging.getLogger(__name__)
 
 tools_router = APIRouter()
 
 
 def _ensure_plugins_loaded() -> None:
-    from ...plugins import get_plugin_manager
-
-    get_plugin_manager()
+    require_plugin_manager()
 
 
 # ============ data Models ============

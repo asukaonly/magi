@@ -56,6 +56,11 @@ def require_sensor_registry():
     return _require_binding("sensor_registry")
 
 
+def require_action_registry():
+    """Return the active action registry binding."""
+    return _require_binding("action_registry")
+
+
 def require_skill_indexer():
     """Return the shared skill indexer binding."""
     return _require_binding("skill_indexer")

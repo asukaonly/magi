@@ -64,8 +64,8 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
-    monkeypatch.setattr("magi.api.routers.plugins.get_plugin_manager", lambda: manager)
-    monkeypatch.setattr("magi.api.routers.plugins.reload_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins.require_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins.rebuild_plugin_manager_binding", lambda: manager)
     client = TestClient(app)
 
     response = client.get("/api/plugins")

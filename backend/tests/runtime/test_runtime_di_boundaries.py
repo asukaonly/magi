@@ -157,3 +157,26 @@ def test_shared_skills_runtime_uses_skill_runner_binding_name() -> None:
     assert "skill_runner" in container_source
     assert "skill_runner" in exports_source
     assert "require_skill_runner" in runtime_bindings
+
+
+def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> None:
+    plugins_init = (BACKEND_SRC / "plugins/__init__.py").read_text(encoding="utf-8")
+    plugins_lifecycle = (BACKEND_SRC / "plugins/lifecycle.py").read_text(encoding="utf-8")
+    awareness_lifecycle = (BACKEND_SRC / "awareness/lifecycle.py").read_text(encoding="utf-8")
+    plugins_router = (BACKEND_SRC / "api/routers/plugins.py").read_text(encoding="utf-8")
+    tools_router = (BACKEND_SRC / "api/routers/tools.py").read_text(encoding="utf-8")
+    runtime_bindings = (BACKEND_SRC / "core/runtime_bindings.py").read_text(encoding="utf-8")
+
+    assert not (BACKEND_SRC / "plugins/runtime.py").exists()
+    assert "get_plugin_manager" not in plugins_init
+    assert "get_sensor_registry" not in plugins_init
+    assert "get_action_registry" not in plugins_init
+    assert "initialize_plugin_manager" not in plugins_lifecycle
+    assert "get_sensor_registry" not in plugins_lifecycle
+    assert "get_action_registry" not in awareness_lifecycle
+    assert "get_plugin_manager" not in plugins_router
+    assert "reload_plugin_manager" not in plugins_router
+    assert "get_plugin_manager" not in tools_router
+    assert "require_plugin_manager" in plugins_router
+    assert "require_plugin_manager" in tools_router
+    assert "require_action_registry" in runtime_bindings

@@ -7,16 +7,17 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from ...plugins import get_plugin_manager, reload_plugin_manager
+from ...core.runtime_bindings import require_plugin_manager
 from ...plugins.contracts import PluginContribution, PluginManifest, PluginPackageState, ExtensionFieldSpec
 from ...plugins.i18n import PluginI18n, get_current_language
+from ...plugins.service_access import rebuild_plugin_manager_binding
 
 plugins_router = APIRouter()
 
 
 def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
     """Get i18n helper for a plugin, using cached instance if plugin is loaded."""
-    manager = get_plugin_manager()
+    manager = require_plugin_manager()
     plugin_instance = manager._plugin_instances.get(plugin_id)
     if plugin_instance:
         return plugin_instance.i18n
@@ -156,7 +157,7 @@ def _serialize_package(state: PluginPackageState) -> PluginPackageResponse:
 
 
 def _require_package(plugin_id: str):
-    manager = get_plugin_manager()
+    manager = require_plugin_manager()
     package = manager.get_package(plugin_id)
     if package is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin not found")
@@ -165,7 +166,7 @@ def _require_package(plugin_id: str):
 
 @plugins_router.get("", response_model=PluginsListResponse)
 async def list_plugins():
-    manager = get_plugin_manager()
+    manager = require_plugin_manager()
     packages = manager.list_packages()
     return PluginsListResponse(
         plugins=[_serialize_package(item) for item in packages],
@@ -175,7 +176,7 @@ async def list_plugins():
 
 @plugins_router.post("/rescan", response_model=PluginsListResponse)
 async def rescan_plugins():
-    manager = reload_plugin_manager()
+    manager = rebuild_plugin_manager_binding()
     packages = manager.list_packages()
     return PluginsListResponse(
         plugins=[_serialize_package(item) for item in packages],
