@@ -165,16 +165,16 @@ async def test_explore_task_agent_builds_markdown_dossier_and_emits_upstream_fac
                 worker_result=WorkerResult.from_dict(
                     {
                         "result_status": "success",
-                        "summary": "Backend is initialized through runtime/bootstrap.py.",
+                        "summary": "Backend is initialized through bootstrap/backend.py.",
                         "findings": [
                             {
                                 "title": "Bootstrap entry",
-                                "detail": "runtime/bootstrap.py wires the runtime graph.",
-                                "path": "/tmp/runtime/bootstrap.py",
+                                "detail": "bootstrap/backend.py wires the runtime graph.",
+                                "path": "/tmp/bootstrap/backend.py",
                                 "why_it_matters": "This is the main backend entry path.",
                             }
                         ],
-                        "evidence": [{"path": "/tmp/runtime/bootstrap.py", "detail": "bootstrap entry"}],
+                        "evidence": [{"path": "/tmp/bootstrap/backend.py", "detail": "bootstrap entry"}],
                         "gaps": [],
                         "next_steps": ["Inspect task agent boundaries"],
                         "failure_reason": None,
@@ -212,7 +212,7 @@ async def test_explore_task_agent_builds_markdown_dossier_and_emits_upstream_fac
     dossier = await agent._aggregation_service.aggregate_orchestration(state)
     assert state.aggregated_markdown == dossier
     assert "## Backend Modules" in dossier
-    assert "/tmp/runtime/bootstrap.py" in dossier
+    assert "/tmp/bootstrap/backend.py" in dossier
     assert "## Frontend Structure" in dossier
     assert "PATH_NOT_FOUND" in dossier
 

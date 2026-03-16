@@ -1195,7 +1195,7 @@ async def complete_onboarding(config: SystemConfigModel):
         refreshed_config = reload_config()
 
         # Try to initialize agent runtime if not already initialized
-        from ...bootstrap import initialize_chat_agent
+        from ...bootstrap import initialize_agent_runtime
         from ...core.runtime_bindings import require_agent_runtime
         try:
             require_agent_runtime()
@@ -1204,7 +1204,7 @@ async def complete_onboarding(config: SystemConfigModel):
         except RuntimeError:
             # Not initialized, try to initialize now
             logger.info("Attempting to initialize agent runtime after onboarding")
-            await initialize_chat_agent()
+            await initialize_agent_runtime()
 
         # Save the full personality config to user storage and set as current
         if config.personality:

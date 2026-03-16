@@ -194,12 +194,12 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
                         "findings": [
                             {
                                 "title": "runtime",
-                                "detail": "runtime/bootstrap.py 负责初始化",
-                                "path": "/tmp/runtime/bootstrap.py",
+                                "detail": "bootstrap/backend.py 负责初始化",
+                                "path": "/tmp/bootstrap/backend.py",
                                 "why_it_matters": "这是主入口",
                             }
                         ],
-                        "evidence": [{"path": "/tmp/runtime/bootstrap.py", "detail": "bootstrap entry"}],
+                        "evidence": [{"path": "/tmp/bootstrap/backend.py", "detail": "bootstrap entry"}],
                         "gaps": [],
                         "next_steps": [],
                         "failure_reason": None,
@@ -414,7 +414,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
             "user_id": "u-chat",
             "session_id": "s-chat",
             "root_user_message": "看下~/code/magi下的代码，分析下代码架构",
-            "markdown_dossier": "# Request\n看下~/code/magi下的代码，分析下代码架构\n\n## Backend Modules\n- runtime/bootstrap.py",
+            "markdown_dossier": "# Request\n看下~/code/magi下的代码，分析下代码架构\n\n## Backend Modules\n- bootstrap/backend.py",
             "orchestration_id": "orch_x",
         },
         agent_type="chat",

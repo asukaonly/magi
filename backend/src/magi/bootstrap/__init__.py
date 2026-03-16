@@ -43,9 +43,6 @@ __all__ = [
     # Backend entrypoints
     "initialize_agent_runtime",
     "shutdown_agent_runtime",
-    "initialize_chat_agent",
-    "shutdown_chat_agent",
-    "get_master_agent",
     "refresh_runtime_llm_config",
 ]
 
@@ -61,9 +58,6 @@ def __getattr__(name: str):
     if name in {
         "initialize_agent_runtime",
         "shutdown_agent_runtime",
-        "initialize_chat_agent",
-        "shutdown_chat_agent",
-        "get_master_agent",
         "refresh_runtime_llm_config",
     }:
         from . import backend as _backend

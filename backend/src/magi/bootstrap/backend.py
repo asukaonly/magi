@@ -16,11 +16,6 @@ from ..llm.lifecycle import RuntimeInitializationDeferred
 logger = get_logger(__name__)
 
 
-def get_master_agent():
-    """Backward-compatible API: runtime mode has no MasterAgent instance."""
-    return None
-
-
 def _resolve_from_container(attr: str):
     """Try to resolve a service from the DI container, return None on failure."""
     try:
@@ -97,13 +92,3 @@ async def shutdown_agent_runtime() -> None:
         container.runtime_orchestrator.reset_override()
         container.runtime_bootstrap_context.reset_override()
         logger.info("Agent runtime stopped")
-
-
-async def initialize_chat_agent() -> None:
-    """Backward-compatible runtime initialization entrypoint."""
-    await initialize_agent_runtime()
-
-
-async def shutdown_chat_agent() -> None:
-    """Backward-compatible runtime shutdown entrypoint."""
-    await shutdown_agent_runtime()

@@ -1061,8 +1061,8 @@ SUBTASK PROFILE: Frontend Structure
             return """
 SUBTASK PROFILE: Backend Modules
 - Primary goal: explain backend module boundaries, runtime startup, task-agent chain, APIs, and execution flow.
-- Start from backend runtime/bootstrap/app entry files, then trace the task-agent and worker chain.
-- Prefer source-of-truth files such as backend app creation, runtime bootstrap, router wiring, and agent runtime modules.
+- Start from backend bootstrap/backend.py and app entry files, then trace the task-agent and worker chain.
+- Prefer source-of-truth files such as backend app creation, bootstrap wiring, router wiring, and agent runtime modules.
 - Do not drift into frontend structure or docs unless they are required to explain a backend dependency.
 """.strip()
         if "project progress" in lowered_description or "progress" in lowered_description:
