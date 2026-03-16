@@ -49,12 +49,14 @@ class TaskAgentManager:
         self._janitor_interval_seconds = janitor_interval_seconds
         self._janitor_task: Optional[asyncio.Task] = None
         self._enqueue_rejected_count = 0
+        self._sensor_hub = None
 
-    async def start_all(self, action_emitter) -> None:
+    async def start_all(self, action_emitter, sensor_hub=None) -> None:
         if self._running:
             return
         self._running = True
         self._action_emitter = action_emitter
+        self._sensor_hub = sensor_hub
         for agent_type, agent_id in self._core_instances:
             await self.ensure_agent(agent_type, agent_id)
         self._janitor_task = asyncio.create_task(self._janitor_loop())
@@ -74,6 +76,7 @@ class TaskAgentManager:
         self._instance_metadata.clear()
         self._running = False
         self._action_emitter = None
+        self._sensor_hub = None
 
     async def ensure_agent(self, agent_type: TaskAgentType | str, agent_id: str) -> TaskAgent:
         key = build_task_agent_key(agent_type, agent_id)
@@ -97,7 +100,11 @@ class TaskAgentManager:
             pending_queue_size=0,
         )
         if self._running:
-            await agent.start(self._action_emitter)
+            await agent.start(
+                self._action_emitter,
+                task_agent_manager=self,
+                sensor_hub=self._sensor_hub,
+            )
         logger.info(f"TaskAgent ensured | key={key}")
         return agent
 

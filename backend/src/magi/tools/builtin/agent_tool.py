@@ -209,9 +209,20 @@ class AgentTool(Tool):
             tags=["agent", "worker", "planning", "exploration"],
         )
 
-    def configure(self, llm_adapter, tool_registry_instance: Optional[ToolRegistry] = None) -> None:
+    def configure(
+        self,
+        llm_adapter,
+        tool_registry_instance: Optional[ToolRegistry] = None,
+        task_agent_manager=None,
+        message_bus=None,
+    ) -> None:
         """Inject runtime dependencies after bootstrap."""
-        self._manager.configure(llm_adapter=llm_adapter, tool_registry_instance=tool_registry_instance)
+        self._manager.configure(
+            llm_adapter=llm_adapter,
+            tool_registry_instance=tool_registry_instance,
+            task_agent_manager=task_agent_manager,
+            message_bus=message_bus,
+        )
 
     async def validate_parameters(
         self,

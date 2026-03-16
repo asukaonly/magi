@@ -11,6 +11,7 @@ from ...core.runtime_bindings import (
     require_plugin_manager,
     require_scheduler_service,
     require_sensor_registry,
+    require_timeline_scheduler_contrib,
     require_unified_memory,
 )
 from ...scheduler import (
@@ -19,7 +20,6 @@ from ...scheduler import (
 from ...timeline.scheduler_contrib import (
     build_timeline_schedule_id,
     build_timeline_target_key,
-    get_timeline_scheduler_contrib,
 )
 from ...timeline.retention import RetentionService
 from ...timeline.service import TimelineService
@@ -274,8 +274,9 @@ async def trigger_timeline_source_sync(source_name: str):
     resolved = sensor_registry.resolve_domain_sensor("timeline", source_name)
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline source not found")
-    timeline_scheduler = get_timeline_scheduler_contrib()
-    if timeline_scheduler is None:
+    try:
+        timeline_scheduler = require_timeline_scheduler_contrib()
+    except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Scheduler unavailable")
     try:
         schedule = await timeline_scheduler.queue_manual_sync(source_name)

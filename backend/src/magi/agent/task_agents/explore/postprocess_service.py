@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from ....core.logger import get_logger
 from ....agent.runtime.contracts import FactRecord
@@ -15,6 +15,9 @@ logger = get_logger(__name__)
 
 class ExplorePostProcessService:
     """Emits completed Explore dossiers upstream as task-agent facts."""
+
+    def __init__(self, *, get_task_agent_manager: Callable[[], object | None]) -> None:
+        self._get_task_agent_manager = get_task_agent_manager
 
     async def handle(self, context: ExploreRuntimeContext, result: ExecutionResult) -> ExploreParseOutcome:
         if result.skip_emit:
@@ -52,13 +55,9 @@ class ExplorePostProcessService:
         payload: ExploreTaskCompletedPayload,
         correlation_id: Optional[str],
     ) -> None:
-        try:
-            from ....core.runtime_bindings import require_agent_runtime
-
-            runtime = require_agent_runtime()
-            manager = runtime.get_task_agent_manager()
-        except Exception as exc:
-            logger.warning("Failed to deliver ExploreTaskAgent result upstream | error=%s", exc)
+        manager = self._get_task_agent_manager()
+        if manager is None:
+            logger.warning("Failed to deliver ExploreTaskAgent result upstream | error=task agent manager unavailable")
             return
         fact = FactRecord(
             agent_id=f"{upstream_task_agent_type}:{upstream_task_agent_id}",

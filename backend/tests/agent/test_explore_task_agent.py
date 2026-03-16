@@ -203,11 +203,7 @@ async def test_explore_task_agent_builds_markdown_dossier_and_emits_upstream_fac
             captured["fact"] = fact
             return True
 
-    class _FakeRuntime:
-        def get_task_agent_manager(self):  # type: ignore[no-untyped-def]
-            return _FakeManager()
-
-    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: _FakeRuntime())
+    agent._task_agent_manager = _FakeManager()
 
     dossier = await agent._aggregation_service.aggregate_orchestration(state)
     assert state.aggregated_markdown == dossier

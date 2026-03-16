@@ -91,6 +91,8 @@ class WorkerAgentManager(Tool):
     def __init__(self) -> None:
         self._llm_adapter = None
         self._tool_registry: ToolRegistry = tool_registry
+        self._task_agent_manager = None
+        self._message_bus = None
         self._runs: Dict[str, WorkerRunState] = {}
         self._lock = asyncio.Lock()
         self._orchestration_store = get_orchestration_store()
@@ -265,11 +267,21 @@ class WorkerAgentManager(Tool):
             tags=["agent", "worker", "planning", "exploration"],
         )
 
-    def configure(self, llm_adapter, tool_registry_instance: Optional[ToolRegistry] = None) -> None:
+    def configure(
+        self,
+        llm_adapter,
+        tool_registry_instance: Optional[ToolRegistry] = None,
+        task_agent_manager=None,
+        message_bus=None,
+    ) -> None:
         """Inject runtime dependencies after bootstrap."""
         self._llm_adapter = llm_adapter
         if tool_registry_instance is not None:
             self._tool_registry = tool_registry_instance
+        if task_agent_manager is not None:
+            self._task_agent_manager = task_agent_manager
+        if message_bus is not None:
+            self._message_bus = message_bus
 
     async def validate_parameters(
         self,
@@ -699,10 +711,10 @@ class WorkerAgentManager(Tool):
     ) -> None:
         try:
             from ...agent.runtime.contracts import FactRecord
-            from ...core.runtime_bindings import require_agent_runtime
 
-            runtime = require_agent_runtime()
-            manager = runtime.get_task_agent_manager()
+            manager = self._task_agent_manager
+            if manager is None:
+                raise RuntimeError("task agent manager unavailable")
         except Exception as exc:
             logger.debug(
                 "Worker fact publish skipped (runtime unavailable) | worker_id=%s error=%s",
@@ -761,11 +773,8 @@ class WorkerAgentManager(Tool):
         correlation_id: str,
     ) -> None:
         try:
-            from ...core.container import get_container
-
-            container = get_container()
-            message_bus = container.message_bus()
-            if message_bus is None or type(message_bus).__name__ == "object":
+            message_bus = self._message_bus
+            if message_bus is None:
                 return
             await message_bus.publish(
                 Event(

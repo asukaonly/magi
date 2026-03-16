@@ -9,7 +9,6 @@ from typing import List, Optional, Dict, Any, Literal
 import logging
 
 from ...core.runtime_bindings import require_plugin_manager
-from ...plugins.service_access import ensure_plugin_manager_binding
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ def _ensure_plugins_loaded() -> None:
     try:
         require_plugin_manager()
     except RuntimeError:
-        ensure_plugin_manager_binding()
+        logger.debug("Plugin manager not initialized; falling back to currently registered tools")
 
 
 # ============ data Models ============
@@ -293,6 +292,22 @@ def _get_tool_display_name(tool_name: str) -> str:
     return name_map.get(tool_name, tool_name.replace("-", " ").title())
 
 
+def _resolve_tool_instance(tool_name: str):
+    from ...tools import tool_registry
+    from ...tools.core_tools import CORE_TOOL_CLASSES
+
+    tool = tool_registry.get_tool(tool_name)
+    if tool is not None:
+        return tool
+
+    for tool_class in CORE_TOOL_CLASSES:
+        instance = tool_class()
+        schema = instance.get_schema()
+        if schema and schema.name == tool_name:
+            return instance
+    return None
+
+
 def _is_multi_provider_tool(tool) -> bool:
     """Check if tool is a multi-provider tool"""
     from ...tools.schema import MultiProviderTool
@@ -437,13 +452,18 @@ async def list_tools_with_config():
         List of tools with config specs and current values
     """
     from ...tools import tool_registry
+    from ...tools.core_tools import CORE_TOOL_CLASSES
     _ensure_plugins_loaded()
 
     tools_response = []
-    tool_names = tool_registry.list_tools()
+    tool_names = set(tool_registry.list_tools())
+    for tool_class in CORE_TOOL_CLASSES:
+        schema = tool_class().get_schema()
+        if schema is not None:
+            tool_names.add(schema.name)
 
-    for tool_name in tool_names:
-        tool = tool_registry.get_tool(tool_name)
+    for tool_name in sorted(tool_names):
+        tool = _resolve_tool_instance(tool_name)
         if tool:
             tools_response.append(_build_tool_config_response(tool_name, tool))
 
@@ -464,10 +484,9 @@ async def get_tool_config(tool_name: str):
     Returns:
         Tool config details
     """
-    from ...tools import tool_registry
     _ensure_plugins_loaded()
 
-    tool = tool_registry.get_tool(tool_name)
+    tool = _resolve_tool_instance(tool_name)
     if not tool:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -489,11 +508,10 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
     Returns:
         Update result
     """
-    from ...tools import tool_registry
     from ...config import save_config, reload_config
     _ensure_plugins_loaded()
 
-    tool = tool_registry.get_tool(tool_name)
+    tool = _resolve_tool_instance(tool_name)
     if not tool:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

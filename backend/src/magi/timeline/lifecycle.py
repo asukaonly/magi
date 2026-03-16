@@ -7,7 +7,7 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..config import get_config
 from ..core.logger import get_logger
 from .service import TimelineService
-from .scheduler_contrib import TimelineSchedulerContrib, set_timeline_scheduler_contrib
+from .scheduler_contrib import TimelineSchedulerContrib
 
 logger = get_logger(__name__)
 
@@ -57,16 +57,16 @@ class TimelineScheduleRegistrationModule(LifecycleModule):
             runtime_paths=runtime_paths,
             get_config=get_config,
         )
-        set_timeline_scheduler_contrib(self._contrib)
+        self._context.timeline.timeline_scheduler_contrib = self._contrib
         await self._contrib.register_schedules(scheduler_service)
         logger.info("Timeline schedule registration initialized (L12)")
 
     async def shutdown(self) -> None:
         if self._contrib is None or self._context.scheduler.scheduler_service is None:
-            set_timeline_scheduler_contrib(None)
+            self._context.timeline.timeline_scheduler_contrib = None
             return
         await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
-        set_timeline_scheduler_contrib(None)
+        self._context.timeline.timeline_scheduler_contrib = None
         self._contrib = None
 
     async def queue_manual_sync(self, source_type: str):

@@ -56,7 +56,9 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
             register_user_message=self._session_service.append_request,
             parent_task_agent_type=TaskAgentType.EXPLORE.value,
         )
-        self._postprocess_service = ExplorePostProcessService()
+        self._postprocess_service = ExplorePostProcessService(
+            get_task_agent_manager=lambda: self._task_agent_manager,
+        )
         self._handler_registry = ExecutionHandlerRegistry()
         common_deps = CommonHandlerDependencies(task_orchestrator=self._task_orchestrator)
         for handler in (

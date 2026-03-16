@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from .base import LLMAdapter
 from .anthropic import AnthropicAdapter
 from .parsers import parse_legacy_tool_calls, sanitize_llm_text
-from .usage_events import LLMCallEventPayload, publish_llm_call_event
+from .usage_events import LLMCallEventPayload, LLMUsageEventPublisher, publish_llm_call_event
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 
 
@@ -53,8 +53,17 @@ class ProviderUsage:
 class LLMProviderBridge:
     """Unified entrypoint for provider-specific LLM calls."""
 
-    def __init__(self, llm_adapter: LLMAdapter):
+    def __init__(
+        self,
+        llm_adapter: LLMAdapter,
+        usage_event_publisher: LLMUsageEventPublisher | None = None,
+    ):
         self.llm = llm_adapter
+        self._usage_event_publisher = usage_event_publisher or getattr(
+            llm_adapter,
+            "_llm_usage_event_publisher",
+            None,
+        )
 
     def _provider_name(self) -> str:
         return (getattr(self.llm, "provider_name", "") or "").lower()
@@ -452,4 +461,4 @@ class LLMProviderBridge:
             turn_id=context.get("turn_id"),
             agent_id=context.get("agent_id"),
         )
-        await publish_llm_call_event(payload)
+        await publish_llm_call_event(payload, publisher=self._usage_event_publisher)

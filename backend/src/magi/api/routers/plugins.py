@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from ...core.runtime_bindings import require_plugin_manager
 from ...plugins.contracts import PluginContribution, PluginManifest, PluginPackageState, ExtensionFieldSpec
 from ...plugins.i18n import PluginI18n, get_current_language
-from ...plugins.service_access import rebuild_plugin_manager_binding
 
 plugins_router = APIRouter()
 
@@ -176,8 +175,8 @@ async def list_plugins():
 
 @plugins_router.post("/rescan", response_model=PluginsListResponse)
 async def rescan_plugins():
-    manager = rebuild_plugin_manager_binding()
-    packages = manager.list_packages()
+    manager = require_plugin_manager()
+    packages = manager.rescan_runtime()
     return PluginsListResponse(
         plugins=[_serialize_package(item) for item in packages],
         total=len(packages),

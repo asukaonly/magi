@@ -6,9 +6,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any
 
-import yaml
-
-from ..config.loader import get_config_file_path
+from ..config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +19,12 @@ class SkillsRuntimeBindings:
 
 
 def _get_enabled_skill_names() -> set[str]:
-    config_path = get_config_file_path()
-    if not config_path.exists():
-        return set()
     try:
-        with open(config_path, "r", encoding="utf-8") as handle:
-            raw = yaml.safe_load(handle) or {}
-        tools = raw.get("tools", {}) if isinstance(raw.get("tools"), dict) else {}
-        skills = tools.get("skills", [])
+        skills = get_config().tools.skills
         if isinstance(skills, list):
             return {str(skill) for skill in skills}
     except Exception:
-        logger.exception("Failed to read enabled skills from config file")
+        logger.exception("Failed to read enabled skills from runtime config")
     return set()
 
 

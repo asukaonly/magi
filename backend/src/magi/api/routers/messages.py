@@ -1,31 +1,12 @@
-"""
-Messages API router.
-
-Provides user message send, dialogue history, and related endpoints.
-
-Architecture flow:
-    HTTP Request → MessageBus (USER_MESSAGE event) → Agent processing →
-    MessageBus (AI_RESPONSE event) → WebSocketBridge → WebSocket clients
-
-This router is transport-pure: it only handles HTTP input/output and event publishing.
-All WebSocket communication is handled by the WebSocketBridge lifecycle module,
-which subscribes to MessageBus events and broadcasts to connected clients.
-"""
-from fastapi import APIRouter, Depends, HTTPException, Query
+"""Messages API router."""
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
-import uuid
 
-from dependency_injector.wiring import inject, Provide
-
-from ..services import get_chat_read_service
-from ..services.message_bus_service import require_message_bus
-from ..services.user_message_sensor_service import require_user_message_sensor
+from ..services import dispatch_user_message, get_chat_read_service, require_user_message_sensor
 from ...utils.agent_logger import get_agent_logger
-from ...events.events import Event, EventTypes, EventLevel
 from ...core.logger import get_logger
-from ...core.container import Container
 
 logger = get_logger(__name__)
 agent_logger = get_agent_logger('api')
@@ -50,12 +31,6 @@ class MessageResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
-# ============ Dialogue history storage ============
-
-# In-memory dialogue history storage: {user_id: [messages]}
-_conversation_history = {}
-
-
 # ============ API Endpoints ============
 
 
@@ -63,88 +38,35 @@ _conversation_history = {}
 async def send_user_message(
     request: UserMessageRequest,
 ):
-    """
-    Send user message to the message bus.
-
-    The message is published as an event; subscribers (e.g. perception sensors) receive and process it.
-
-    Args:
-        request: User message request.
-        message_bus: Injected message bus (via DI container).
-
-    Returns:
-        Acknowledgment response.
-    """
     try:
-        # check runtime is initialized
-        from ...core.runtime_bindings import require_agent_runtime
-        try:
-            require_agent_runtime()
-        except RuntimeError:
-            # Agent not initialized (e.g. API key not set)
-            # Return error via HTTP response - frontend should handle display
-            # WebSocket broadcast is handled by WebSocketBridge, not here
-            agent_logger.warning(f"AgentRuntime not initialized when user {request.user_id} sent message")
-
+        outcome = await dispatch_user_message(
+            source="api",
+            user_id=request.user_id,
+            message=request.message,
+            session_id=request.session_id,
+            client_turn_id=request.client_turn_id,
+            metadata=request.metadata or {},
+        )
+        if not outcome.success:
+            agent_logger.warning(
+                f"Message dispatch rejected | User: {request.user_id} | code: {outcome.error_code}"
+            )
             return MessageResponse(
                 success=False,
-                message="AgentRuntime not initialized. Please complete onboarding or check the saved configuration.",
+                message=outcome.error_message or "Failed to queue message",
                 data={
                     "user_id": request.user_id,
-                    "error": "AgentRuntime not initialized",
-                    "error_code": "RUNTIME_NOT_INITIALIZED",
-                }
+                    "session_id": outcome.session_id,
+                    "error": outcome.error_message,
+                    "error_code": outcome.error_code,
+                },
             )
 
-        message_bus = require_message_bus()
-
-        # Resolve session_id (use current session if not provided)
-        read_service = get_chat_read_service()
-        session_id = request.session_id or read_service.get_current_session_id(request.user_id)
-
-        # Build message payload
-        message_data = {
-            "message": request.message,
-            "user_id": request.user_id,
-            "session_id": session_id,
-            "turn_id": request.client_turn_id or f"turn_{uuid.uuid4().hex[:12]}",
-            "metadata": request.metadata,
-            "timestamp": time.time(),
-        }
-
-        # Publish event via message bus when available
-        if message_bus:
-            event = Event(
-                type=EventTypes.USER_MESSAGE,
-                data=message_data,
-                source="api",
-                level=EventLevel.INFO,
-            )
-            published = await message_bus.publish(event)
-            if not published:
-                logger.error("Message bus publish failed")
-                return MessageResponse(
-                    success=False,
-                    message="Message bus publish failed",
-                    data={
-                        "user_id": request.user_id,
-                        "session_id": session_id,
-                    },
-                )
-
-            queue_size = "unknown"
-            stats = await message_bus.get_stats()
-            if stats:
-                queue_size = stats.get("queue_size", 0)
-
-            logger.info(f"Message from {request.user_id} published to message bus | Queue size: {queue_size}")
-        else:
-            logger.error("Message bus not initialized")
-            return MessageResponse(
-                success=False,
-                message="Message bus not initialized",
-                data={"user_id": request.user_id, "session_id": session_id},
-            )
+        logger.info(
+            "Message from %s published to message bus | Queue size: %s",
+            request.user_id,
+            outcome.queue_size if outcome.queue_size is not None else "unknown",
+        )
 
         agent_logger.info(f"📥 Message received | User: {request.user_id} | Content: '{request.message[:50]}{'...' if len(request.message) > 50 else ''}' | Length: {len(request.message)}")
 
@@ -153,8 +75,8 @@ async def send_user_message(
             message="Message queued for processing",
             data={
                 "user_id": request.user_id,
-                "session_id": session_id,
-                "turn_id": message_data["turn_id"],
+                "session_id": outcome.session_id,
+                "turn_id": outcome.turn_id,
                 "message_length": len(request.message),
                 "timestamp": time.time(),
             }

@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
+from ..tools import tool_registry
 from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
 from .scheduler_contrib import AgentSchedulerContrib
 from .task_agents.factory import create_chat_agent_factory, create_default_agent_factory
@@ -83,6 +84,14 @@ class AgentRuntimeModule(LifecycleModule):
             task_agent_manager=task_agent_manager,
             action_emitter=action_emitter,
         )
+        agent_tool = tool_registry.get_tool("agent")
+        if agent_tool and hasattr(agent_tool, "configure"):
+            agent_tool.configure(
+                llm_adapter=llm_adapter,
+                tool_registry_instance=tool_registry,
+                task_agent_manager=task_agent_manager,
+                message_bus=require_initialized(self._context.message_bus.message_bus, "message bus"),
+            )
         await self._context.agent_runtime.agent_runtime.start()
         logger.info("AgentRuntime started (L11)")
 

@@ -124,6 +124,8 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             agent_id=self.agent_id,
             session_service=self._session_service,
             get_action_emitter=lambda: self._action_emitter,
+            get_task_agent_manager=lambda: self._task_agent_manager,
+            get_sensor_hub=lambda: self._sensor_hub,
             memory=memory,
             other_memory=other_memory,
             max_fact_memory=self._max_fact_memory,
@@ -144,6 +146,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             task_orchestrator=self._task_orchestrator,
             session_service=self._session_service,
             agent_id=self.agent_id,
+            get_task_agent_manager=lambda: self._task_agent_manager,
         )
         self._handler_registry = ExecutionHandlerRegistry()
         common_handler_deps = build_common_handler_dependencies(handler_deps)

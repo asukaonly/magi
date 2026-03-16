@@ -80,11 +80,15 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
         self._fact_memory: list[FactRecord] = []
         self._max_fact_memory = 200
         self._batch_size = 16
+        self._task_agent_manager = None
+        self._sensor_hub = None
 
-    async def start(self, action_emitter) -> None:
+    async def start(self, action_emitter, task_agent_manager=None, sensor_hub=None) -> None:
         if self._running:
             return
         self._action_emitter = action_emitter
+        self._task_agent_manager = task_agent_manager
+        self._sensor_hub = sensor_hub
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
         logger.info(f"TaskAgent started | key={self.runtime_key}")
@@ -98,6 +102,8 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
             except asyncio.CancelledError:
                 pass
             self._task = None
+        self._task_agent_manager = None
+        self._sensor_hub = None
         logger.info(f"TaskAgent stopped | key={self.runtime_key}")
 
     async def add_fact(self, fact: FactRecord) -> bool:

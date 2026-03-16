@@ -234,7 +234,7 @@ def _build_client(monkeypatch):
     )
     monkeypatch.setattr(
         timeline_module,
-        "get_timeline_scheduler_contrib",
+        "require_timeline_scheduler_contrib",
         lambda: _FakeTimelineSchedulerContrib(),
     )
     return TestClient(app), service
@@ -368,7 +368,7 @@ def test_get_timeline_source_status_hides_stale_errors_for_non_pull_sources(monk
             )
 
     monkeypatch.setattr(timeline_module, "require_scheduler_service", lambda: _NonPullSchedulerService())
-    monkeypatch.setattr(timeline_module, "get_timeline_scheduler_contrib", lambda: _FakeTimelineSchedulerContrib())
+    monkeypatch.setattr(timeline_module, "require_timeline_scheduler_contrib", lambda: _FakeTimelineSchedulerContrib())
 
     client = TestClient(app)
 

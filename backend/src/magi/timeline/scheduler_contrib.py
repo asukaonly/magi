@@ -6,6 +6,7 @@ import time
 import asyncio
 from typing import TYPE_CHECKING, Any, Callable
 
+from ..core.runtime_bindings import require_timeline_scheduler_contrib
 from ..plugins.sensors import SensorRegistry
 from ..utils.runtime import RuntimePaths
 from ..core.logger import get_logger
@@ -27,24 +28,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_timeline_contrib: TimelineSchedulerContrib | None = None
-
-
-def get_timeline_scheduler_contrib() -> TimelineSchedulerContrib | None:
-    """Return the active timeline scheduler contrib instance."""
-    return _timeline_contrib
-
-
-def set_timeline_scheduler_contrib(contrib: TimelineSchedulerContrib | None) -> None:
-    """Set the active timeline scheduler contrib instance."""
-    global _timeline_contrib
-    _timeline_contrib = contrib
-
 
 def request_timeline_schedule_refresh() -> None:
     """Schedule a best-effort refresh of timeline-owned schedules."""
-    contrib = get_timeline_scheduler_contrib()
-    if contrib is None:
+    try:
+        contrib = require_timeline_scheduler_contrib()
+    except RuntimeError:
         return
     try:
         loop = asyncio.get_running_loop()

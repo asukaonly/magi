@@ -145,7 +145,6 @@ def _build_sensor_registry() -> SensorRegistry:
 async def test_timeline_schedule_registration_module_registers_handler_and_syncs_schedules(monkeypatch, tmp_path) -> None:
     from magi.scheduler.contracts import ScheduledTargetType, build_timeline_schedule_id
     from magi.timeline.lifecycle import TimelineScheduleRegistrationModule
-    from magi.timeline.scheduler_contrib import get_timeline_scheduler_contrib
 
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
@@ -168,10 +167,10 @@ async def test_timeline_schedule_registration_module_registers_handler_and_syncs
         "pull-plugin",
         "pull_history",
     )
-    assert get_timeline_scheduler_contrib() is not None
+    assert context.timeline.timeline_scheduler_contrib is not None
 
     await module.shutdown()
-    assert get_timeline_scheduler_contrib() is None
+    assert context.timeline.timeline_scheduler_contrib is None
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from ..llm.usage_events import configure_llm_usage_event_publisher
+from ..llm.usage_events import LLMUsageEventPublisher
 from ..llm import get_llm_usage_store
 from . import UnifiedMemoryStore
 from .integration import MemoryIntegrationConfig, MemoryIntegrationModule
@@ -30,7 +30,15 @@ class MemoryStoreModule(LifecycleModule):
 
         await self._context.core.db_initializer.insert_default_data(persona_name=self._context.core.current_personality)
 
-        configure_llm_usage_event_publisher(message_bus)
+        publisher = LLMUsageEventPublisher(message_bus)
+        self._context.llm.llm_usage_event_publisher = publisher
+        scenario_llm_pool = require_initialized(self._context.llm.scenario_llm_pool, "scenario llm pool")
+        scenario_llm_pool.add_adapter_configurator(
+            lambda adapter: setattr(adapter, "_llm_usage_event_publisher", publisher)
+        )
+        llm_adapter = self._context.llm.llm_adapter
+        if llm_adapter is not None:
+            setattr(llm_adapter, "_llm_usage_event_publisher", publisher)
         self._context.llm.llm_usage_store = get_llm_usage_store()
         await self._context.llm.llm_usage_store.start(message_bus)
         logger.info("LLM usage store started")
@@ -78,6 +86,8 @@ class MemoryStoreModule(LifecycleModule):
         if self._context.llm.llm_usage_store is not None:
             await self._context.llm.llm_usage_store.stop()
             self._context.llm.llm_usage_store = None
-        configure_llm_usage_event_publisher(None)
+        if self._context.llm.llm_usage_event_publisher is not None:
+            self._context.llm.llm_usage_event_publisher.configure(None)
+            self._context.llm.llm_usage_event_publisher = None
 
         self._context.memory.unified_memory = None

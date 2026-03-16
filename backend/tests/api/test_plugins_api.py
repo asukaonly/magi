@@ -55,6 +55,10 @@ class _FakeManager:
     def reload_plugin(self, plugin_id: str):
         return self.state
 
+    def rescan_runtime(self, *, persist_discovery: bool = True):
+        _ = persist_discovery
+        return [self.state]
+
     def update_plugin_settings(self, plugin_id: str, updates):
         self.state.current_settings.update(updates)
         return self.state
@@ -65,7 +69,6 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
     monkeypatch.setattr("magi.api.routers.plugins.require_plugin_manager", lambda: manager)
-    monkeypatch.setattr("magi.api.routers.plugins.rebuild_plugin_manager_binding", lambda: manager)
     client = TestClient(app)
 
     response = client.get("/api/plugins")

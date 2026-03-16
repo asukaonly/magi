@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any
 import logging
 
 from ...personality.other_memory import OtherProfile
-from ..services.other_memory_service import require_other_memory
+from ..services import require_other_memory
 
 logger = logging.getLogger(__name__)
 

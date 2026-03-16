@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext
 from ..core.logger import get_logger
-from .service_access import build_plugin_runtime
+from .manager import build_plugin_runtime
 
 logger = get_logger(__name__)
 

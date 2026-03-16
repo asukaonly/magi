@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
+from .current_state import get_current_personality
 from .self_memory import SelfMemory
 from .other_memory import OtherMemory
 
@@ -23,6 +24,10 @@ class PersonalityModule(LifecycleModule):
 
     async def init(self) -> None:
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+        try:
+            self._context.core.current_personality = get_current_personality() or self._context.core.current_personality
+        except Exception as exc:
+            logger.warning("Failed to refresh current personality from personality state: %s", exc)
 
         self._context.personality.self_memory = SelfMemory(
             personality_name=self._context.core.current_personality,

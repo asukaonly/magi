@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -22,6 +23,50 @@ from .contracts import ContributionType, PluginContribution, PluginManifest, Plu
 from .sensors import SensorRegistry, SensorSpec
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PluginRuntimeBindings:
+    plugin_manager: "PluginManager"
+    sensor_registry: SensorRegistry
+    action_registry: ActionRegistry
+
+
+def _resolve_search_paths() -> list[Path]:
+    config = get_config()
+    builtin_root = Path(__file__).resolve().parents[4] / "plugins"
+    resolved: list[Path] = [builtin_root]
+    for raw_path in config.plugins.scan_paths:
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            path = (Path(__file__).resolve().parents[4] / raw_path).resolve()
+        if path not in resolved:
+            resolved.append(path)
+    return resolved
+
+
+def build_plugin_runtime(
+    *,
+    sensor_registry: SensorRegistry | None = None,
+    action_registry: ActionRegistry | None = None,
+) -> PluginRuntimeBindings:
+    """Build plugin runtime services for the current runtime instance."""
+
+    resolved_sensor_registry = sensor_registry or SensorRegistry()
+    resolved_action_registry = action_registry or ActionRegistry()
+    plugin_manager = PluginManager(
+        tool_registry=tool_registry,
+        sensor_registry=resolved_sensor_registry,
+        action_registry=resolved_action_registry,
+        search_paths=_resolve_search_paths(),
+    )
+    plugin_manager.scan(persist_discovery=True)
+    plugin_manager.activate_enabled_plugins()
+    return PluginRuntimeBindings(
+        plugin_manager=plugin_manager,
+        sensor_registry=resolved_sensor_registry,
+        action_registry=resolved_action_registry,
+    )
 
 
 class PluginManager:
@@ -93,6 +138,16 @@ class PluginManager:
         for state in self.list_packages():
             if state.enabled:
                 self.load_plugin(state.manifest.plugin_id)
+
+    def rescan_runtime(self, *, persist_discovery: bool = True) -> list[PluginPackageState]:
+        """Rescan plugin manifests and reload enabled plugins in the current runtime."""
+
+        for plugin_id in list(self._plugin_instances.keys()):
+            self.unload_plugin(plugin_id)
+        self.scan(persist_discovery=persist_discovery)
+        self.activate_enabled_plugins()
+        request_timeline_schedule_refresh()
+        return self.list_packages()
 
     def list_packages(self) -> list[PluginPackageState]:
         return sorted(self._package_states.values(), key=lambda item: item.manifest.plugin_id)

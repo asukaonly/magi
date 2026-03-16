@@ -449,18 +449,8 @@ _chat_read_service: Optional[ChatReadService] = None
 
 
 def get_chat_read_service() -> ChatReadService:
-    """Get ChatReadService instance - checks DI container first, falls back to global."""
+    """Get the shared ChatReadService instance."""
     global _chat_read_service
-    # Try container first
-    try:
-        from ...core.container import get_container
-        container = get_container()
-        instance = container.chat_read_service()
-        if instance is not None and type(instance).__name__ != "function":
-            return instance
-    except Exception:
-        pass
-    # Fallback to global
     if _chat_read_service is None:
         _chat_read_service = ChatReadService()
     return _chat_read_service

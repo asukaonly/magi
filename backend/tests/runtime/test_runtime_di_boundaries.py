@@ -26,6 +26,28 @@ def test_events_service_access_has_no_global_fallback() -> None:
     assert not (BACKEND_SRC / "events/service_access.py").exists()
 
 
+def test_timeline_and_llm_runtime_do_not_keep_module_level_singletons() -> None:
+    timeline_contrib = (BACKEND_SRC / "timeline/scheduler_contrib.py").read_text(encoding="utf-8")
+    timeline_lifecycle = (BACKEND_SRC / "timeline/lifecycle.py").read_text(encoding="utf-8")
+    timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
+    usage_events = (BACKEND_SRC / "llm/usage_events.py").read_text(encoding="utf-8")
+    memory_lifecycle = (BACKEND_SRC / "memory/lifecycle.py").read_text(encoding="utf-8")
+    provider_bridge = (BACKEND_SRC / "llm/provider_bridge.py").read_text(encoding="utf-8")
+    scheduler_service = (BACKEND_SRC / "scheduler/service.py").read_text(encoding="utf-8")
+
+    assert "_timeline_contrib" not in timeline_contrib
+    assert "def get_timeline_scheduler_contrib" not in timeline_contrib
+    assert "def set_timeline_scheduler_contrib" not in timeline_contrib
+    assert "set_timeline_scheduler_contrib" not in timeline_lifecycle
+    assert "get_timeline_scheduler_contrib" not in timeline_router
+    assert "_message_bus: MessageBusBackend | None = None" not in usage_events
+    assert "configure_llm_usage_event_publisher" not in usage_events
+    assert "configure_llm_usage_event_publisher" not in memory_lifecycle
+    assert "_llm_usage_event_publisher" in provider_bridge
+    assert "_active_scheduler_service" not in scheduler_service
+    assert "def get_active_scheduler_service" not in scheduler_service
+
+
 def test_skills_service_access_has_no_module_level_runtime_globals() -> None:
     source = (BACKEND_SRC / "skills/service_access.py").read_text(encoding="utf-8")
 
@@ -36,6 +58,8 @@ def test_skills_service_access_has_no_module_level_runtime_globals() -> None:
     assert "def get_skill_loader" not in source
     assert "def get_skill_executor" not in source
     assert "def ensure_skill_indexer" not in source
+    assert "yaml.safe_load" not in source
+    assert "get_config_file_path" not in source
 
 
 def test_scheduler_runtime_shim_is_removed() -> None:
@@ -51,6 +75,7 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
     websocket_handlers = (BACKEND_SRC / "websocket/handlers.py").read_text(encoding="utf-8")
     memory_query_tool = (BACKEND_SRC / "tools/memory_query.py").read_text(encoding="utf-8")
+    messages_router = (BACKEND_SRC / "api/routers/messages.py").read_text(encoding="utf-8")
 
     assert "from ...agent import get_unified_memory" not in memory_router
     assert "from ...agent import get_memory_integration" not in memory_router
@@ -62,8 +87,9 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "from ..agent import get_agent_runtime" not in websocket_handlers
     assert "core.runtime_bindings" in memory_router
     assert "core.runtime_bindings" in timeline_router
-    assert "core.runtime_bindings" in websocket_handlers
     assert "core.runtime_bindings" in memory_query_tool
+    assert "core.runtime_bindings" not in websocket_handlers
+    assert "core.runtime_bindings" not in messages_router
 
 
 def test_timeline_handler_does_not_use_plugin_runtime_globals() -> None:
@@ -169,6 +195,7 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
     runtime_bindings = (BACKEND_SRC / "core/runtime_bindings.py").read_text(encoding="utf-8")
 
     assert not (BACKEND_SRC / "plugins/runtime.py").exists()
+    assert not (BACKEND_SRC / "plugins/service_access.py").exists()
     assert "get_plugin_manager" not in plugins_init
     assert "get_sensor_registry" not in plugins_init
     assert "get_action_registry" not in plugins_init
@@ -215,10 +242,14 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     agent_lifecycle = (BACKEND_SRC / "agent/lifecycle.py").read_text(encoding="utf-8")
     awareness_lifecycle = (BACKEND_SRC / "awareness/lifecycle.py").read_text(encoding="utf-8")
     bootstrap_context = (BACKEND_SRC / "bootstrap/context.py").read_text(encoding="utf-8")
+    config_lifecycle = (BACKEND_SRC / "config/lifecycle.py").read_text(encoding="utf-8")
     chat_task_agent = (BACKEND_SRC / "agent/task_agents/chat_task_agent.py").read_text(encoding="utf-8")
     explore_task_agent = (BACKEND_SRC / "agent/task_agents/explore_task_agent.py").read_text(encoding="utf-8")
     timeline_task_agent = (BACKEND_SRC / "agent/task_agents/timeline_task_agent.py").read_text(encoding="utf-8")
     postprocess_service = (BACKEND_SRC / "agent/task_agents/chat/postprocess_service.py").read_text(encoding="utf-8")
+    explore_postprocess_service = (BACKEND_SRC / "agent/task_agents/explore/postprocess_service.py").read_text(encoding="utf-8")
+    chat_handlers = (BACKEND_SRC / "agent/task_agents/chat/handlers.py").read_text(encoding="utf-8")
+    worker_manager = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
     task_factory = (BACKEND_SRC / "agent/task_agents/factory.py").read_text(encoding="utf-8")
     action_emitter = (BACKEND_SRC / "awareness/action_emitter.py").read_text(encoding="utf-8")
     awareness_contracts = (BACKEND_SRC / "awareness/contracts.py").read_text(encoding="utf-8")
@@ -240,11 +271,17 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "core.runtime.contracts" not in postprocess_service
     assert "core.runtime.types" not in postprocess_service
     assert "from ....core.runtime import SensorEvent" not in postprocess_service
+    assert "core.runtime_bindings" not in postprocess_service
+    assert "core.runtime_bindings" not in explore_postprocess_service
+    assert "core.runtime_bindings" not in chat_handlers
+    assert "core.runtime_bindings" not in worker_manager
+    assert "core.container" not in worker_manager
     assert "core.runtime.types" not in task_factory
     assert "core.runtime.contracts" not in action_emitter
     assert "agent.runtime.contracts" not in action_emitter
     assert "core.runtime.contracts" not in scheduler_handlers
     assert "agent.runtime.contracts" not in scheduler_handlers
+    assert "personality.current_state" not in config_lifecycle
     assert "agent.runtime" in agent_lifecycle
     assert "sensor_hub" in awareness_lifecycle
     assert "agent.runtime" in bootstrap_context

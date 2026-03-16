@@ -45,6 +45,7 @@ class ChatHandlerDependencies:
     task_orchestrator: TaskOrchestrator
     session_service: ChatSessionService
     agent_id: str
+    get_task_agent_manager: callable
 
 
 def build_common_handler_dependencies(
@@ -182,12 +183,9 @@ async def _start_explore_task_agent(
         timestamp=time.time(),
         correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
     )
+    manager = deps.get_task_agent_manager()
     try:
-        from ....core.runtime_bindings import require_agent_runtime
-
-        runtime = require_agent_runtime()
-        manager = runtime.get_task_agent_manager()
-        enqueued = await manager.add_fact_to_agent(TaskAgentType.EXPLORE, request.context.user_id, fact)
+        enqueued = False if manager is None else await manager.add_fact_to_agent(TaskAgentType.EXPLORE, request.context.user_id, fact)
     except Exception as exc:
         logger.warning(
             "Failed to route request to ExploreTaskAgent | user_id=%s error=%s",

@@ -309,7 +309,8 @@ async def test_openai_content_parses_legacy_tool_call_blocks() -> None:
 async def test_bridge_publishes_usage_event_with_prompt_and_completion_tokens(monkeypatch) -> None:
     published_payloads = []
 
-    async def fake_publish(payload):
+    async def fake_publish(payload, publisher=None):
+        _ = publisher
         published_payloads.append(payload)
 
     monkeypatch.setattr("magi.llm.provider_bridge.publish_llm_call_event", fake_publish)

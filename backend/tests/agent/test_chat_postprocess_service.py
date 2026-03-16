@@ -105,6 +105,8 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
         agent_id="chat:web_user",
         session_service=_FakeSessionService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
         max_fact_memory=10,
     )
 
@@ -146,11 +148,12 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
 async def test_handle_emits_targeted_chat_timeline_event(monkeypatch: pytest.MonkeyPatch) -> None:
     action_emitter = _FakeActionEmitter()
     runtime = _FakeRuntime()
-    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: runtime)
     service = ChatPostProcessService(
         agent_id="chat:web_user",
         session_service=_FakeSessionService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=runtime.get_sensor_hub,
         max_fact_memory=10,
     )
     latest_fact = FactRecord(

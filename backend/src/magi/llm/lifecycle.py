@@ -7,7 +7,6 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from . import LLMScenario, ScenarioLLMPool, get_llm_usage_store
 from .factory import create_core_llm_adapter, create_scenario_llm_pool, is_llm_selection_pending
-from .usage_events import configure_llm_usage_event_publisher
 
 logger = get_logger(__name__)
 

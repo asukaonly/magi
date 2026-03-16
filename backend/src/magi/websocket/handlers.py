@@ -131,9 +131,7 @@ async def handle_get_personality(ctx: WebSocketContext, data: dict) -> dict:
 async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
     """Handle user messages sent via WebSocket."""
     try:
-        from ..api.services import get_chat_read_service
-        from ..core.runtime_bindings import require_agent_runtime, require_message_bus
-        from ..events.events import Event, EventTypes
+        from ..api.services import dispatch_user_message
 
         user_id = data.get("user_id", "web_user")
         session_id = data.get("session_id")
@@ -142,48 +140,26 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
         if not message:
             return {"type": "error", "message": "Message is required"}
 
-        try:
-            require_agent_runtime()
-        except RuntimeError:
-            return {
-                "type": "error",
-                "message": "AgentRuntime not initialized. Please complete onboarding or check the saved configuration.",
-            }
-
-        read_service = get_chat_read_service()
-        resolved_session = session_id or read_service.get_current_session_id(user_id)
-
-        message_data = {
-            "message": message,
-            "user_id": user_id,
-            "session_id": resolved_session,
-            "turn_id": str(data.get("client_turn_id") or "").strip() or f"turn_{uuid.uuid4().hex[:12]}",
-            "timestamp": time.time(),
-        }
-
-        try:
-            message_bus = require_message_bus()
-        except RuntimeError:
-            return {
-                "type": "error",
-                "message": "Message bus not initialized. Please complete onboarding or check the saved configuration.",
-            }
-
-        await message_bus.publish(
-            Event(
-                type=EventTypes.USER_MESSAGE,
-                data=message_data,
-                source="websocket",
-            )
+        outcome = await dispatch_user_message(
+            source="websocket",
+            user_id=user_id,
+            message=message,
+            session_id=session_id,
+            client_turn_id=str(data.get("client_turn_id") or "").strip() or None,
         )
-        logger.info("Message queued via WS", sid=ctx.sid, user=user_id, session=resolved_session)
+        if not outcome.success:
+            return {
+                "type": "error",
+                "message": outcome.error_message or "Failed to queue message.",
+            }
+        logger.info("Message queued via WS", sid=ctx.sid, user=user_id, session=outcome.session_id)
 
         return {
             "type": "message_sent",
             "data": {
                 "user_id": user_id,
-                "session_id": resolved_session,
-                "turn_id": message_data["turn_id"],
+                "session_id": outcome.session_id,
+                "turn_id": outcome.turn_id,
                 "timestamp": time.time(),
             },
         }

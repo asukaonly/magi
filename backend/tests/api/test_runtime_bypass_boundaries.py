@@ -28,3 +28,14 @@ def test_api_services_module_does_not_reexport_runtime_globals() -> None:
     assert "events.service_access" not in source
     assert "skills.service_access" not in source
     assert "personality.current_state" not in source
+
+
+def test_api_service_helpers_do_not_probe_container_directly() -> None:
+    chat_read_service = Path("/Users/asuka/code/magi/backend/src/magi/api/services/chat_read_service.py").read_text(encoding="utf-8")
+    chat_trace_read_service = Path("/Users/asuka/code/magi/backend/src/magi/api/services/chat_trace_read_service.py").read_text(encoding="utf-8")
+
+    assert "get_container()" not in chat_read_service
+    assert "get_container()" not in chat_trace_read_service
+    assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/user_message_sensor_service.py").exists()
+    assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/message_bus_service.py").exists()
+    assert not Path("/Users/asuka/code/magi/backend/src/magi/api/services/other_memory_service.py").exists()

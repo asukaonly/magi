@@ -14,6 +14,7 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import create_engine, event
 
+from ..core.runtime_bindings import require_scheduler_service
 from .contracts import (
     ScheduleDefinition,
     ScheduledExecutionContext,
@@ -26,22 +27,15 @@ from .repository import ScheduleRepository
 
 ScheduleHandler = Callable[[ScheduledExecutionContext], Awaitable[ScheduledExecutionResult]]
 
-_active_scheduler_service: "SchedulerService | None" = None
-
 
 async def dispatch_scheduled_job(schedule_id: str) -> None:
     """Module-level APScheduler entrypoint for persisted jobs."""
 
-    service = get_active_scheduler_service()
-    if service is None:
+    try:
+        service = require_scheduler_service()
+    except RuntimeError:
         return
     await service.execute_schedule(schedule_id)
-
-
-def get_active_scheduler_service() -> "SchedulerService | None":
-    """Return the active scheduler service when initialized."""
-
-    return _active_scheduler_service
 
 
 class SchedulerService:
@@ -84,25 +78,20 @@ class SchedulerService:
         return self._repository
 
     async def start(self) -> None:
-        global _active_scheduler_service
         if self._running:
             return
         await self._repository.initialize()
         await self._repository.reset_running_flags()
         self._scheduler.start()
-        _active_scheduler_service = self
         self._running = True
         await self._restore_persisted_jobs()
 
     async def stop(self) -> None:
-        global _active_scheduler_service
         if not self._running:
             return
         self._scheduler.shutdown(wait=False)
         self._jobstore_engine.dispose()
         self._running = False
-        if _active_scheduler_service is self:
-            _active_scheduler_service = None
 
     def register_handler(self, target_type: ScheduledTargetType, handler: ScheduleHandler) -> None:
         self._handlers[target_type] = handler

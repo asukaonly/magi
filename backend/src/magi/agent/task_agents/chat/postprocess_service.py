@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Callable, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from ....core.logger import get_logger
 from ....awareness.contracts import ActionEmissionRecord, SensorEvent
@@ -37,6 +37,8 @@ class ChatPostProcessService:
         agent_id: str,
         session_service: ChatSessionService,
         get_action_emitter: Callable[[], Any],
+        get_task_agent_manager: Callable[[], Any | None],
+        get_sensor_hub: Callable[[], Any | None],
         memory=None,
         other_memory=None,
         max_fact_memory: int = 200,
@@ -45,6 +47,8 @@ class ChatPostProcessService:
         self._agent_id = agent_id
         self._session_service = session_service
         self._get_action_emitter = get_action_emitter
+        self._get_task_agent_manager = get_task_agent_manager
+        self._get_sensor_hub = get_sensor_hub
         self._memory = memory
         self._other_memory = other_memory
         self._local_fact_memory: list[FactRecord] = []
@@ -269,17 +273,19 @@ class ChatPostProcessService:
             timestamp=time.time(),
             correlation_id=str(payload.get("tool_call_id") or str(uuid.uuid4())),
         )
-        try:
-            from ....core.runtime_bindings import require_agent_runtime
-
-            runtime = require_agent_runtime()
-            manager = runtime.get_task_agent_manager()
-            await manager.add_fact_to_agent(TaskAgentType.CHAT, user_id, fact)
-        except Exception as exc:
-            logger.debug("Failed to append loop stage fact via runtime manager: %s", exc)
+        manager = self._get_task_agent_manager()
+        if manager is None:
             self._local_fact_memory.append(fact)
             if len(self._local_fact_memory) > self._max_fact_memory:
                 self._local_fact_memory = self._local_fact_memory[-self._max_fact_memory :]
+        else:
+            try:
+                await manager.add_fact_to_agent(TaskAgentType.CHAT, user_id, fact)
+            except Exception as exc:
+                logger.debug("Failed to append loop stage fact via runtime manager: %s", exc)
+                self._local_fact_memory.append(fact)
+                if len(self._local_fact_memory) > self._max_fact_memory:
+                    self._local_fact_memory = self._local_fact_memory[-self._max_fact_memory :]
         action_emitter = self._get_action_emitter()
         if action_emitter is not None:
             await action_emitter.emit_runtime_event(
@@ -345,11 +351,10 @@ class ChatPostProcessService:
     ) -> None:
         if not user_message and not assistant_message:
             return
+        sensor_hub = self._get_sensor_hub()
+        if sensor_hub is None:
+            return
         try:
-            from ....core.runtime_bindings import require_agent_runtime
-
-            runtime = require_agent_runtime()
-            sensor_hub = runtime.get_sensor_hub()
             source_item_id = turn_id or f"chat-{uuid.uuid4().hex[:12]}"
             payload: dict[str, Any] = {
                 "target_task_agent_type": TaskAgentType.TIMELINE.value,

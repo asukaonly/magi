@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from ..core.database_initializer import DatabaseInitializer
     from ..core.maintenance import MaintenanceDaemon
     from ..llm import ScenarioLLMPool
+    from ..llm.usage_events import LLMUsageEventPublisher
     from ..events.sqlite_backend import SQLiteMessageBackend
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from ..agent.runtime import AgentRuntime, TaskAgentManager
     from ..awareness.action_emitter import ActionEmitter
     from ..timeline.service import TimelineService
+    from ..timeline.scheduler_contrib import TimelineSchedulerContrib
     from ..scheduler import SchedulerService
 
 
@@ -60,6 +62,7 @@ class LLMBootstrapState:
     scenario_llm_pool: ScenarioLLMPool | None = None
     llm_adapter: Any = None
     llm_usage_store: Any = None
+    llm_usage_event_publisher: LLMUsageEventPublisher | None = None
 
 
 @dataclass
@@ -125,6 +128,7 @@ class TimelineBootstrapState:
     """L12 Timeline Domain state slice."""
 
     timeline_service: TimelineService | None = None
+    timeline_scheduler_contrib: TimelineSchedulerContrib | None = None
 
 
 @dataclass

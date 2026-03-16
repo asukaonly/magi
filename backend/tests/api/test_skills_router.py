@@ -38,24 +38,21 @@ def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     container = get_container()
     original_registry_skills = dict(tool_registry._skills)
     original_registry_indexer = tool_registry._skill_indexer
+    enabled_skills = ["enabled-skill"]
 
     skill_root = tmp_path / "skills"
     skill_root.mkdir(parents=True, exist_ok=True)
     _write_skill(skill_root, "enabled-skill", "Enabled skill description")
     _write_skill(skill_root, "disabled-skill", "Disabled skill description")
 
-    config_path = tmp_path / "agent.yaml"
-    config_path.write_text(
-        "tools:\n"
-        "  skills:\n"
-        "    - enabled-skill\n",
-        encoding="utf-8",
-    )
-
     from magi.skills.indexer import SkillIndexer
 
     monkeypatch.setattr(SkillIndexer, "SKILL_LOCATIONS", [skill_root])
-    monkeypatch.setattr(skills_runtime_service, "get_config_file_path", lambda: config_path)
+    monkeypatch.setattr(
+        skills_runtime_service,
+        "get_config",
+        lambda: type("Config", (), {"tools": type("Tools", (), {"skills": list(enabled_skills)})()})(),
+    )
 
     tool_registry._skills = {}
     tool_registry._skill_indexer = None
@@ -63,7 +60,7 @@ def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     container.skill_loader.reset_override()
     container.skill_runner.reset_override()
 
-    yield config_path, container
+    yield enabled_skills, container
 
     tool_registry._skills = original_registry_skills
     tool_registry._skill_indexer = original_registry_indexer
@@ -102,17 +99,12 @@ def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_stat
 async def test_refresh_skills_syncs_enabled_subset_to_tool_registry(
     isolated_skills_state,
 ) -> None:
-    config_path, container = isolated_skills_state
+    enabled_skills, container = isolated_skills_state
     bindings = skills_runtime_service.build_skills_runtime(llm_adapter=None)
     _bind_skills_runtime(container, bindings)
     assert set(tool_registry.get_skill_names()) == {"enabled-skill"}
 
-    config_path.write_text(
-        "tools:\n"
-        "  skills:\n"
-        "    - disabled-skill\n",
-        encoding="utf-8",
-    )
+    enabled_skills[:] = ["disabled-skill"]
 
     await skills_router_module.refresh_skills()
 

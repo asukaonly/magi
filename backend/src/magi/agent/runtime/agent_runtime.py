@@ -30,7 +30,10 @@ class AgentRuntime:
         if self._running:
             return
         await self._sensor_hub.start()
-        await self._task_agent_manager.start_all(action_emitter=self._action_emitter)
+        await self._task_agent_manager.start_all(
+            action_emitter=self._action_emitter,
+            sensor_hub=self._sensor_hub,
+        )
         await self._router_agent.start()
         self._running = True
         logger.info("AgentRuntime started")

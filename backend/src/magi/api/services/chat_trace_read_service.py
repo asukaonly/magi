@@ -763,17 +763,8 @@ _chat_trace_read_service: Optional[ChatTraceReadService] = None
 
 
 def get_chat_trace_read_service() -> ChatTraceReadService:
-    """Get ChatTraceReadService instance - checks DI container first, falls back to global."""
+    """Get the shared ChatTraceReadService instance."""
     global _chat_trace_read_service
-    try:
-        from ...core.container import get_container
-
-        container = get_container()
-        instance = getattr(container, "chat_trace_read_service", lambda: None)()
-        if instance is not None and type(instance).__name__ != "function":
-            return instance
-    except Exception:
-        pass
     if _chat_trace_read_service is None:
         _chat_trace_read_service = ChatTraceReadService()
     return _chat_trace_read_service

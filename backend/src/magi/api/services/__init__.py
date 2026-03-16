@@ -2,17 +2,18 @@
 
 from .chat_read_service import ChatReadService, get_chat_read_service
 from .chat_trace_read_service import ChatTraceReadService, get_chat_trace_read_service
-from .message_bus_service import require_message_bus
-from .other_memory_service import require_other_memory
+from .message_dispatch_service import MessageDispatchOutcome, dispatch_user_message
 from .personality_state_service import (
     get_current_personality_name,
     set_current_personality_name,
 )
-from .user_message_sensor_service import require_user_message_sensor
 from ...core.runtime_bindings import (
+    require_message_bus,
+    require_other_memory,
     require_skill_runner,
     require_skill_indexer,
     require_skill_loader,
+    require_user_message_sensor,
 )
 
 __all__ = [
@@ -20,6 +21,8 @@ __all__ = [
     "ChatTraceReadService",
     "get_chat_read_service",
     "get_chat_trace_read_service",
+    "MessageDispatchOutcome",
+    "dispatch_user_message",
     "require_message_bus",
     "require_other_memory",
     "require_user_message_sensor",

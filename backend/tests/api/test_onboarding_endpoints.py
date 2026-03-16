@@ -3,8 +3,6 @@
 import json
 from pathlib import Path
 
-import yaml
-
 from magi.api.routers.personality_presets import _parse_json_preset
 from magi.skills.service_access import _get_enabled_skill_names
 
@@ -32,20 +30,9 @@ def test_parse_json_preset(tmp_path: Path):
 
 
 def test_get_enabled_skill_names(monkeypatch, tmp_path: Path):
-    config_file = tmp_path / "agent.yaml"
-    config_file.write_text(
-        yaml.safe_dump(
-            {
-                "tools": {
-                    "skills": ["skill-a", "skill-b"],
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
     monkeypatch.setattr(
-        "magi.skills.service_access.get_config_file_path",
-        lambda: config_file,
+        "magi.skills.service_access.get_config",
+        lambda: type("Config", (), {"tools": type("Tools", (), {"skills": ["skill-a", "skill-b"]})()})(),
     )
     names = _get_enabled_skill_names()
     assert names == {"skill-a", "skill-b"}

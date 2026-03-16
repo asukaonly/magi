@@ -51,6 +51,10 @@ class RuntimeExportsModule(LifecycleModule):
 
         if self._context.scheduler.scheduler_service is not None:
             container.scheduler_service.override(providers.Object(self._context.scheduler.scheduler_service))
+        if self._context.timeline.timeline_scheduler_contrib is not None:
+            container.timeline_scheduler_contrib.override(
+                providers.Object(self._context.timeline.timeline_scheduler_contrib)
+            )
         if self._context.llm.scenario_llm_pool is not None:
             container.scenario_llm_pool.override(providers.Object(self._context.llm.scenario_llm_pool))
 
@@ -75,6 +79,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.memory_integration.reset_override()
         container.unified_memory.reset_override()
         container.scheduler_service.reset_override()
+        container.timeline_scheduler_contrib.reset_override()
         container.scenario_llm_pool.reset_override()
         container.other_memory.reset_override()
         container.plugin_manager.reset_override()

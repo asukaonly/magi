@@ -18,6 +18,7 @@ class ScenarioLLMPool:
         self._config = config
         self._adapter_factory = adapter_factory
         self._cache: dict[LLMScenario, object] = {}
+        self._adapter_configurators: list[Callable[[object], None]] = []
 
     def get(self, scenario: LLMScenario) -> object:
         if scenario not in self._cache:
@@ -27,6 +28,11 @@ class ScenarioLLMPool:
     def refresh(self, config: AppConfig) -> None:
         self._config = config
         self._cache.clear()
+
+    def add_adapter_configurator(self, configurator: Callable[[object], None]) -> None:
+        self._adapter_configurators.append(configurator)
+        for adapter in self._cache.values():
+            configurator(adapter)
 
     def _build_adapter(self, scenario: LLMScenario) -> object:
         selection = self._config.llm.selections.get(scenario.value)
@@ -48,10 +54,13 @@ class ScenarioLLMPool:
             )
 
         provider_type = str(getattr(provider.provider_type, "value", provider.provider_type))
-        return self._adapter_factory(
+        adapter = self._adapter_factory(
             provider_type=provider_type,
             api_key=provider.api_key,
             model=selection.model,
             base_url=provider.base_url,
             timeout=self._config.llm.timeout,
         )
+        for configurator in self._adapter_configurators:
+            configurator(adapter)
+        return adapter

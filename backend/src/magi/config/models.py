@@ -407,6 +407,7 @@ class ToolsSettings(BaseModel):
     weather: WeatherToolSettings = Field(default_factory=WeatherToolSettings)
     web_search: WebSearchToolSettings = Field(default_factory=WebSearchToolSettings)
     web_fetch: WebFetchToolSettings = Field(default_factory=WebFetchToolSettings)
+    skills: List[str] = Field(default_factory=list)
 
 
 # =============================================================================

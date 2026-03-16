@@ -12,8 +12,6 @@ from ..events.events import Event, EventLevel, EventTypes
 
 logger = logging.getLogger(__name__)
 
-_message_bus: MessageBusBackend | None = None
-
 
 @dataclass(slots=True)
 class LLMCallEventPayload:
@@ -58,26 +56,38 @@ class LLMCallEventPayload:
         }
 
 
-def configure_llm_usage_event_publisher(message_bus: MessageBusBackend | None) -> None:
-    """Configure the shared message bus used for LLM usage events."""
-    global _message_bus
-    _message_bus = message_bus
+class LLMUsageEventPublisher:
+    """Runtime-scoped publisher for LLM usage events."""
 
+    def __init__(self, message_bus: MessageBusBackend | None = None) -> None:
+        self._message_bus = message_bus
 
-async def publish_llm_call_event(payload: LLMCallEventPayload) -> None:
-    """Publish an LLM usage event without surfacing recorder failures upstream."""
-    if _message_bus is None:
-        return
+    def configure(self, message_bus: MessageBusBackend | None) -> None:
+        self._message_bus = message_bus
 
-    try:
-        await _message_bus.publish(
-            Event(
-                type=EventTypes.LLM_CALL_COMPLETED,
-                data=payload.to_event_data(),
-                source="llm_provider_bridge",
-                level=EventLevel.INFO if payload.success else EventLevel.ERROR,
-                correlation_id=payload.correlation_id,
+    async def publish(self, payload: LLMCallEventPayload) -> None:
+        if self._message_bus is None:
+            return
+
+        try:
+            await self._message_bus.publish(
+                Event(
+                    type=EventTypes.LLM_CALL_COMPLETED,
+                    data=payload.to_event_data(),
+                    source="llm_provider_bridge",
+                    level=EventLevel.INFO if payload.success else EventLevel.ERROR,
+                    correlation_id=payload.correlation_id,
+                )
             )
-        )
-    except Exception as exc:
-        logger.warning("Failed to publish LLM usage event: %s", exc)
+        except Exception as exc:
+            logger.warning("Failed to publish LLM usage event: %s", exc)
+
+
+async def publish_llm_call_event(
+    payload: LLMCallEventPayload,
+    publisher: LLMUsageEventPublisher | None = None,
+) -> None:
+    """Publish an LLM usage event without surfacing recorder failures upstream."""
+    if publisher is None:
+        return
+    await publisher.publish(payload)

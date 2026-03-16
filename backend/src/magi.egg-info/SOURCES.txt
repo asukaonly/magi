@@ -78,10 +78,7 @@ src/magi/api/routers/tools.py
 src/magi/api/services/__init__.py
 src/magi/api/services/chat_read_service.py
 src/magi/api/services/chat_trace_read_service.py
-src/magi/api/services/message_bus_service.py
-src/magi/api/services/other_memory_service.py
 src/magi/api/services/personality_state_service.py
-src/magi/api/services/user_message_sensor_service.py
 src/magi/awareness/__init__.py
 src/magi/awareness/action_emitter.py
 src/magi/awareness/action_scheduler_contrib.py
@@ -176,7 +173,6 @@ src/magi/plugins/contracts.py
 src/magi/plugins/i18n.py
 src/magi/plugins/lifecycle.py
 src/magi/plugins/manager.py
-src/magi/plugins/service_access.py
 src/magi/plugins/sensors.py
 src/magi/scheduler/__init__.py
 src/magi/scheduler/contracts.py
