@@ -74,13 +74,13 @@ def register_enabled_skills_with_indexer(*, skills: dict[str, Any], skill_indexe
 def build_skills_runtime(llm_adapter=None) -> SkillsRuntimeBindings:
     """Build shared skills runtime services without storing module-level globals."""
 
-    from .executor import SkillExecutor
+    from .runner import SkillRunner
     from .indexer import SkillIndexer
     from .loader import SkillLoader
 
     skill_indexer = SkillIndexer()
     skill_loader = SkillLoader(skill_indexer)
-    skill_executor = SkillExecutor(skill_loader, llm_adapter)
+    skill_executor = SkillRunner(skill_loader, llm_adapter)
 
     skills = skill_indexer.scan_all()
     registered_skills = register_enabled_skills_with_indexer(skills=skills, skill_indexer=skill_indexer)

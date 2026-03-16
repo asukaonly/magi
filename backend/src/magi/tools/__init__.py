@@ -40,7 +40,7 @@ from .memory_query import MemoryQueryTool
 # Import skills module
 from ..skills.indexer import SkillIndexer
 from ..skills.loader import SkillLoader
-from ..skills.executor import SkillExecutor
+from ..skills.runner import SkillRunner
 from ..skills.schema import SkillMetadata, SkillContent, SkillResult
 
 __all__ = [
@@ -100,7 +100,7 @@ __all__ = [
     # Skills
     "SkillIndexer",
     "SkillLoader",
-    "SkillExecutor",
+    "SkillRunner",
     "SkillMetadata",
     "SkillContent",
     "SkillResult",
