@@ -1,4 +1,12 @@
-"""Lifecycle module for websocket bridge subscriptions."""
+"""Lifecycle module for websocket bridge subscriptions.
+
+This module provides a pure event-to-websocket bridge - it subscribes to
+message bus events and forwards them to connected WebSocket clients without
+any business logic or data enrichment.
+
+Trace enrichment (trace_summary, orchestration_id) is handled by the event
+publisher (ChatPostProcessService) to ensure data completeness at the source.
+"""
 
 from __future__ import annotations
 
@@ -27,7 +35,12 @@ TRACE_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES + (
 
 
 class WebSocketBridgeLifecycleModule(LifecycleModule):
-    """Manage websocket bridge subscriptions across app lifecycle."""
+    """Pure event-to-websocket bridge.
+
+    Subscribes to message bus events and broadcasts them to WebSocket clients.
+    No business logic or data enrichment is performed - events are forwarded
+    as-is from the message bus.
+    """
 
     def __init__(self, app: FastAPI, retry_interval_seconds: float = 0.5):
         super().__init__(
@@ -92,8 +105,12 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         state.websocket_bridge_message_bus = None
 
     async def _ensure_subscriptions(self) -> bool:
+        """Subscribe to message bus events for WebSocket broadcast.
+
+        Pure forwarding - no data enrichment. Trace data is expected to be
+        included in the event payload by the publisher.
+        """
         from ..runtime.services.message_bus import get_message_bus
-        from .services import get_chat_trace_read_service
 
         state = self._app.state
         message_bus = get_message_bus()
@@ -105,41 +122,18 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         if existing_sub_id and existing_bus is message_bus:
             return True
 
-        trace_service = get_chat_trace_read_service()
-
-        async def _broadcast_trace_update(data: dict) -> None:
-            user_id = str(data.get("user_id", "")).strip()
-            session_id = str(data.get("session_id", "")).strip()
-            turn_id = str(data.get("turn_id", "")).strip()
-            if not user_id or not session_id or not turn_id:
-                return
-
-            snapshot = trace_service.get_trace_snapshot(
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-            )
-            if not isinstance(snapshot, dict):
-                return
-
-            await manager.broadcast(
-                "execution_trace_update",
-                {
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "trace_summary": snapshot.get("summary"),
-                    "trace_available": bool(snapshot.get("summary", {}).get("trace_available")),
-                    "orchestration_id": snapshot.get("orchestration_id"),
-                },
-                room=f"user_{user_id}",
-            )
-
         async def _on_ai_response(event: Event) -> None:
+            """Forward AI_RESPONSE events to WebSocket clients.
+
+            Event payload is expected to already contain:
+            - user_id, session_id, turn_id
+            - trace_summary, trace_available, orchestration_id (if applicable)
+            """
             data = event.data if isinstance(event.data, dict) else {}
             user_id = str(data.get("user_id", "")).strip()
             session_id = str(data.get("session_id", "")).strip()
             turn_id = str(data.get("turn_id", "")).strip()
+
             if not user_id:
                 logger.warning(
                     "AI_RESPONSE missing user_id; skip websocket broadcast",
@@ -148,18 +142,6 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                     pid=os.getpid(),
                 )
                 return
-
-            enriched = dict(data)
-            if session_id and turn_id:
-                snapshot = trace_service.get_trace_snapshot(
-                    user_id=user_id,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                )
-                if isinstance(snapshot, dict):
-                    enriched["trace_summary"] = snapshot.get("summary")
-                    enriched["trace_available"] = bool(snapshot.get("summary", {}).get("trace_available"))
-                    enriched["orchestration_id"] = snapshot.get("orchestration_id")
 
             room_name = f"user_{user_id}"
             room_clients = manager.get_clients_in_room(room_name)
@@ -172,12 +154,42 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                 room_clients=room_clients,
                 pid=os.getpid(),
             )
-            await manager.broadcast("agent_response", enriched, room=room_name)
+            # Forward event data as-is (no enrichment)
+            await manager.broadcast("agent_response", data, room=room_name)
 
         async def _on_trace_event(event: Event) -> None:
-            data = event.data if isinstance(event.data, dict) else {}
-            await _broadcast_trace_update(data)
+            """Forward trace events (WORKER_AGENT_*, TOOL_INTERACTION) to WebSocket clients.
 
+            Broadcasts execution_trace_update with event payload data.
+            """
+            data = event.data if isinstance(event.data, dict) else {}
+            user_id = str(data.get("user_id", "")).strip()
+            session_id = str(data.get("session_id", "")).strip()
+            turn_id = str(data.get("turn_id", "")).strip()
+
+            if not user_id:
+                return
+
+            # Build trace update payload from event data
+            trace_payload = {
+                "user_id": user_id,
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "event_type": event.type,
+            }
+            # Include additional fields if present
+            if "orchestration_id" in data:
+                trace_payload["orchestration_id"] = data["orchestration_id"]
+            if "iteration" in data:
+                trace_payload["iteration"] = data["iteration"]
+
+            await manager.broadcast(
+                "execution_trace_update",
+                trace_payload,
+                room=f"user_{user_id}",
+            )
+
+        # Clean up stale subscriptions if message bus changed
         stale_sub_id = getattr(state, "ai_response_subscription_id", None)
         stale_trace_sub_ids = getattr(state, "worker_agent_subscription_ids", None) or []
         stale_bus = getattr(state, "websocket_bridge_message_bus", None)
@@ -193,6 +205,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                 except Exception as exc:
                     logger.warning(f"Failed to unsubscribe stale trace bridge {stale_trace_sub_id}: {exc}")
 
+        # Subscribe to AI_RESPONSE events
         sub_id = await message_bus.subscribe(
             EventTypes.AI_RESPONSE,
             _on_ai_response,
@@ -206,6 +219,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             pid=os.getpid(),
         )
 
+        # Subscribe to trace events
         trace_sub_ids = []
         for trace_event_type in TRACE_EVENT_TYPES:
             worker_sub_id = await message_bus.subscribe(

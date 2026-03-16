@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
 
 from ....core.logger import get_logger
 from ....core.runtime import SensorEvent
@@ -18,6 +18,9 @@ from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .fact_classifier import WORKER_AGENT_EVENT_TYPES
 from .session_service import ChatSessionService
+
+if TYPE_CHECKING:
+    from ....api.services.chat_trace_read_service import ChatTraceReadService
 
 logger = get_logger(__name__)
 
@@ -37,6 +40,7 @@ class ChatPostProcessService:
         memory=None,
         other_memory=None,
         max_fact_memory: int = 200,
+        trace_read_service: "ChatTraceReadService | None" = None,
     ) -> None:
         self._agent_id = agent_id
         self._session_service = session_service
@@ -45,6 +49,7 @@ class ChatPostProcessService:
         self._other_memory = other_memory
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
+        self._trace_read_service = trace_read_service
 
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
         action_executor = self._get_action_executor()
@@ -90,6 +95,23 @@ class ChatPostProcessService:
 
         correlation_id = result.correlation_id or latest_fact.correlation_id
         turn_id = result.turn_id or self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
+
+        # Fetch trace summary before emitting the response event
+        trace_summary = None
+        trace_available = False
+        if self._trace_read_service and turn_id:
+            try:
+                snapshot = self._trace_read_service.get_trace_snapshot(
+                    user_id=context.user_id,
+                    session_id=context.session_id,
+                    turn_id=turn_id,
+                )
+                if isinstance(snapshot, dict):
+                    trace_summary = snapshot.get("summary")
+                    trace_available = bool(snapshot.get("summary", {}).get("trace_available"))
+            except Exception as exc:
+                logger.debug("Failed to fetch trace snapshot for AI_RESPONSE event: %s", exc)
+
         await action_executor.emit_chat_response_event(
             user_id=context.user_id,
             session_id=context.session_id,
@@ -97,6 +119,8 @@ class ChatPostProcessService:
             correlation_id=correlation_id,
             turn_id=turn_id,
             orchestration_id=result.orchestration_id,
+            trace_summary=trace_summary,
+            trace_available=trace_available,
         )
         now = time.time()
         message_started_at = float(result.message_started_at or latest_fact.timestamp or now)

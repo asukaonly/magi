@@ -4,6 +4,7 @@ Action executor for runtime agents.
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from ...core.logger import get_logger
 from ...events.backend import MessageBusBackend
@@ -27,6 +28,8 @@ class ActionExecutor:
         correlation_id: str | None = None,
         turn_id: str | None = None,
         orchestration_id: str | None = None,
+        trace_summary: dict[str, Any] | None = None,
+        trace_available: bool = False,
     ) -> None:
         response_data = {
             "response": response,
@@ -38,6 +41,9 @@ class ActionExecutor:
             response_data["turn_id"] = turn_id
         if orchestration_id:
             response_data["orchestration_id"] = orchestration_id
+        if trace_summary is not None:
+            response_data["trace_summary"] = trace_summary
+            response_data["trace_available"] = trace_available
         await self._message_bus.publish(
             Event(
                 type=EventTypes.AI_RESPONSE,
@@ -55,6 +61,7 @@ class ActionExecutor:
             orchestration_id=orchestration_id or None,
             correlation_id=correlation_id or None,
             response_chars=len(response),
+            trace_available=trace_available,
         )
 
     async def emit_action_event(self, fact: FactRecord, success: bool, error: str | None = None) -> None:

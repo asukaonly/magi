@@ -44,6 +44,8 @@ class _FakeActionExecutor:
         correlation_id: str | None = None,
         turn_id: str | None = None,
         orchestration_id: str | None = None,
+        trace_summary: dict | None = None,
+        trace_available: bool = False,
     ) -> None:
         self.chat_response_events.append(
             {
@@ -53,6 +55,8 @@ class _FakeActionExecutor:
                 "correlation_id": correlation_id,
                 "turn_id": turn_id,
                 "orchestration_id": orchestration_id,
+                "trace_summary": trace_summary,
+                "trace_available": trace_available,
             }
         )
 
