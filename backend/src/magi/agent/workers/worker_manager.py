@@ -698,7 +698,7 @@ class WorkerAgentManager(Tool):
         public_payload: Optional[Dict[str, Any]] = None,
     ) -> None:
         try:
-            from ...core.runtime.contracts import FactRecord
+            from ...agent.runtime.contracts import FactRecord
             from ...core.runtime_bindings import require_agent_runtime
 
             runtime = require_agent_runtime()

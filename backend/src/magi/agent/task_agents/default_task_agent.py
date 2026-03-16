@@ -4,8 +4,8 @@ Default runtime task agent for non-specialized task types.
 from __future__ import annotations
 
 from ...core.logger import get_logger
-from ...core.runtime.contracts import FactRecord
-from ...core.runtime.task_agent import (
+from ...agent.runtime.contracts import FactRecord
+from ...agent.runtime.task_agent import (
     TaskAgent,
     TaskAgentExecutionRequest,
     TaskAgentIntentResult,

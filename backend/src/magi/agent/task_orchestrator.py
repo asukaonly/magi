@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from ..core.logger import get_logger
-from ..core.runtime.contracts import FactRecord
+from ..agent.runtime.contracts import FactRecord
 from ..tools.registry import ToolRegistry
 from ..tools.schema import ToolExecutionContext
 from .orchestration import (

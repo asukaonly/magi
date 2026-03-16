@@ -8,7 +8,7 @@ from magi.agent.orchestration import OrchestrationStore, SubtaskDefinition, Task
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult
 from magi.agent.task_agents.explore_task_agent import ExploreTaskAgent, EXPLORE_TASK_COMPLETED
 from magi.config.models import LLMScenario
-from magi.core.runtime.contracts import FactRecord
+from magi.agent.runtime.contracts import FactRecord
 
 
 class _FakeLLMAdapter:

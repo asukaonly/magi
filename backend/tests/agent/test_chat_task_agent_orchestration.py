@@ -17,8 +17,8 @@ from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentD
 from magi.agent.task_agents.chat import planning_service as planning_service_module
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.explore_task_agent import EXPLORE_TASK_COMPLETED
-from magi.core.runtime.contracts import FactRecord
-from magi.core.runtime.types import TaskAgentType
+from magi.agent.runtime.contracts import FactRecord
+from magi.agent.runtime.types import TaskAgentType
 from magi.events.events import EventTypes
 
 

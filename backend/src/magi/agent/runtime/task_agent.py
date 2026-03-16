@@ -1,6 +1,4 @@
-"""
-TaskAgent base abstraction for multi-instance runtime.
-"""
+"""TaskAgent base abstraction for multi-instance runtime."""
 from __future__ import annotations
 
 import asyncio

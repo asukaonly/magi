@@ -13,10 +13,10 @@ except ModuleNotFoundError:  # pragma: no cover
 
     pytest = _PytestFallback()
 
-from magi.core.runtime import (
+from magi.awareness.contracts import SensorEvent
+from magi.awareness.sensor_hub import SensorHub
+from magi.agent.runtime import (
     RouterAgent,
-    SensorEvent,
-    SensorHub,
     TaskAgent,
     TaskAgentManager,
     TaskAgentType,

@@ -6,7 +6,7 @@ from magi.agent.task_agents.chat import ChatRuntimeContext, ExecutionMode, UserM
 from magi.agent.task_agents.chat.coordinator import ChatExecutionCoordinator
 from magi.agent.task_agents.chat.fact_classifier import ChatFactClassifier, IncomingFactKind
 from magi.agent.task_agents.chat.handlers import ExecutionHandlerRegistry
-from magi.core.runtime.contracts import FactRecord
+from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
 
 

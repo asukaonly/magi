@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from ....core.logger import get_logger
-from ....core.runtime.contracts import FactRecord
+from ....agent.runtime.contracts import FactRecord
 from ..common import ExecutionResult, ExploreTaskCompletedPayload
 from .constants import EXPLORE_TASK_COMPLETED
 from .contracts import ExploreParseOutcome, ExploreRuntimeContext

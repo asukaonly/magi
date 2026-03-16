@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ....core.logger import get_logger
-from ....core.runtime.contracts import FactRecord
-from ....core.runtime.types import TaskAgentType
+from ....agent.runtime.contracts import FactRecord
+from ....agent.runtime.types import TaskAgentType
 from ....context.scenarios import Scenario
 from ..common import (
     BaseExecutionHandler,

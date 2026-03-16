@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional, TypeAlias
 
-from ....core.runtime.contracts import FactRecord
+from ....agent.runtime.contracts import FactRecord
 from ...orchestration import WorkerResult
 
 

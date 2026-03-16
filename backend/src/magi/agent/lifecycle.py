@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from ..core.runtime import AgentRuntime, RouterAgent, TaskAgentManager
+from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
 from .scheduler_contrib import AgentSchedulerContrib
 from .task_agents.factory import create_chat_agent_factory, create_default_agent_factory
 

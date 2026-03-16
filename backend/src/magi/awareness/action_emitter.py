@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from ..core.logger import get_logger
-from ..core.runtime.contracts import FactRecord
+from ..agent.runtime.contracts import FactRecord
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventLevel, EventTypes
 

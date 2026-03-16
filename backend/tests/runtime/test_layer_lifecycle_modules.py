@@ -134,6 +134,8 @@ def test_awareness_lifecycle_owns_action_runtime_primitives() -> None:
     source = awareness_lifecycle.read_text(encoding="utf-8")
 
     assert "core.runtime.action_executor" not in source
+    assert "from ..core.runtime import SensorHub" not in source
+    assert "from .sensor_hub import SensorHub" in source
 
 
 def test_bootstrap_builder_uses_sensors_and_actions_module_name() -> None:
@@ -150,9 +152,29 @@ def test_bootstrap_builder_uses_sensors_and_actions_module_name() -> None:
 def test_core_runtime_no_longer_exports_action_executor() -> None:
     """Verify core.runtime stops exporting the legacy ActionExecutor symbol."""
     runtime_init = Path(__file__).resolve().parents[2] / "src/magi/core/runtime/__init__.py"
-    source = runtime_init.read_text(encoding="utf-8")
+    assert not runtime_init.exists()
 
-    assert "ActionExecutor" not in source
+
+def test_agent_runtime_package_owns_runtime_primitives() -> None:
+    """Verify runtime primitives move from core.runtime into agent.runtime."""
+    agent_runtime_init = Path(__file__).resolve().parents[2] / "src/magi/agent/runtime/__init__.py"
+    source = agent_runtime_init.read_text(encoding="utf-8")
+
+    assert "AgentRuntime" in source
+    assert "RouterAgent" in source
+    assert "TaskAgent" in source
+    assert "TaskAgentManager" in source
+    assert "TaskAgentType" in source
+    assert "FactRecord" in source
+
+
+def test_awareness_package_owns_sensor_hub_and_sensor_event() -> None:
+    """Verify awareness package owns sensor-hub runtime primitives."""
+    sensor_hub_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/sensor_hub.py").read_text(encoding="utf-8")
+    contracts_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/contracts.py").read_text(encoding="utf-8")
+
+    assert "class SensorHub" in sensor_hub_source
+    assert "class SensorEvent" in contracts_source
 
 
 def test_core_package_does_not_export_legacy_loop_runtime() -> None:

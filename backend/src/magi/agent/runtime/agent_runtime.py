@@ -1,11 +1,9 @@
-"""
-Agent runtime for sensor hub + router agent + runtime runners.
-"""
+"""Agent runtime for sensor hub + router agent + runtime runners."""
 from __future__ import annotations
 
 from ...awareness.action_emitter import ActionEmitter
+from ...awareness.sensor_hub import SensorHub
 from ...core.logger import get_logger
-from .sensor_hub import SensorHub
 from .router_agent import RouterAgent
 from .task_agent_manager import TaskAgentManager
 

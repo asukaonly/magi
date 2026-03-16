@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from ..personality.self_memory import SelfMemory
     from ..personality.other_memory import OtherMemory
     from ..context.scenario_prompts import ScenarioPromptsStore
-    from ..core.runtime import SensorHub, AgentRuntime, TaskAgentManager
+    from ..awareness.sensor_hub import SensorHub
+    from ..agent.runtime import AgentRuntime, TaskAgentManager
     from ..awareness.action_emitter import ActionEmitter
     from ..timeline.service import TimelineService
     from ..scheduler import SchedulerService

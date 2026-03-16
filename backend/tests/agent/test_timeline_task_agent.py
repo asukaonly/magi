@@ -2,9 +2,9 @@ import pytest
 
 from magi.agent.task_agents.default_task_agent import DefaultTaskAgent
 from magi.agent.task_agents.timeline_task_agent import TimelineTaskAgent
-from magi.core.runtime.contracts import FactRecord
-from magi.core.runtime.task_agent_manager import TaskAgentManager
-from magi.core.runtime.types import TaskAgentType
+from magi.agent.runtime.contracts import FactRecord
+from magi.agent.runtime.task_agent_manager import TaskAgentManager
+from magi.agent.runtime.types import TaskAgentType
 
 
 async def _noop_timeline_handler(payload):

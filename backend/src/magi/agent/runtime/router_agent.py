@@ -1,15 +1,13 @@
-"""
-RouterAgent: infinite loop dispatcher for sensor events.
-"""
+"""RouterAgent: infinite loop dispatcher for sensor events."""
 from __future__ import annotations
 
 import asyncio
 import time
 from typing import Optional
 
+from ...awareness.sensor_hub import SensorHub
 from ...core.logger import get_logger
 from .contracts import FactRecord
-from .sensor_hub import SensorHub
 from .task_agent_manager import TaskAgentManager
 from .types import build_task_agent_key, get_task_agent_type_value
 
@@ -73,7 +71,6 @@ class RouterAgent:
         logger.info("RouterAgent stopped")
 
     async def _loop(self) -> None:
-        """Main processing loop with top-level exception protection."""
         while self._running:
             try:
                 batch = await self._sensor_hub.get_batch(
@@ -121,7 +118,6 @@ class RouterAgent:
                 raise
 
     async def _supervisor(self) -> None:
-        """Supervisor task that restarts the main loop if it crashes."""
         while self._running:
             try:
                 if self._task is None or self._task.done():

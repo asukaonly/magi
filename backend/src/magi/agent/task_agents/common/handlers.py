@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, Protocol
 
-from ....core.runtime.contracts import FactRecord
+from ....agent.runtime.contracts import FactRecord
 from ...task_orchestrator import TaskOrchestrator
 from .contracts import (
     DirectLLMRequest,

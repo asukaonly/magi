@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
-from ....core.runtime.contracts import FactRecord
-from ....core.runtime.task_agent import (
+from ....agent.runtime.contracts import FactRecord
+from ....agent.runtime.task_agent import (
     TaskAgentExecutionRequest,
     TaskAgentIntentResult,
     TaskAgentRuntimeContext,

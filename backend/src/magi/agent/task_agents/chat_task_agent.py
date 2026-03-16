@@ -7,9 +7,9 @@ from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...config import get_config
 from ...core.logger import get_logger
-from ...core.runtime.contracts import FactRecord
-from ...core.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
-from ...core.runtime.types import TaskAgentType
+from ...agent.runtime.contracts import FactRecord
+from ...agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
+from ...agent.runtime.types import TaskAgentType
 from ...context import ContextRetrievalService, PromptContextAssembler, PromptContextRenderer
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry

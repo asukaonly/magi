@@ -1,6 +1,4 @@
-"""
-TaskAgentManager for hybrid lifecycle multi-instance runtime.
-"""
+"""TaskAgentManager for hybrid lifecycle multi-instance runtime."""
 from __future__ import annotations
 
 import asyncio
@@ -8,9 +6,10 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from ...awareness.contracts import SensorEvent
 from ...events.events import EventTypes
 from ...core.logger import get_logger
-from .contracts import FactRecord, SensorEvent
+from .contracts import FactRecord
 from .task_agent import TaskAgent
 from .types import TaskAgentType, build_task_agent_key, get_task_agent_type_value
 
@@ -82,7 +81,6 @@ class TaskAgentManager:
             self._update_instance_metadata(key)
             return self._agents[key]
 
-        # Check if we need to evict before creating new instance
         if not self._is_core_instance(agent_type, agent_id):
             self._maybe_evict_idle_instances()
 
@@ -219,9 +217,8 @@ class TaskAgentManager:
         if dynamic_count < self._max_dynamic_instances:
             return
 
-        now = time.time()
         oldest_key = None
-        oldest_time = float('inf')
+        oldest_time = float("inf")
 
         for key, meta in self._instance_metadata.items():
             agent_type, agent_id = self._parse_agent_key(key)

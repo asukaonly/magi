@@ -13,9 +13,9 @@ except ModuleNotFoundError:  # pragma: no cover
 
     pytest = _PytestFallback()
 
-from magi.core.runtime import TaskAgent, TaskAgentManager, TaskAgentType
+from magi.agent.runtime import TaskAgent, TaskAgentManager, TaskAgentType
 from magi.agent.task_agents import DefaultTaskAgent
-from magi.core.runtime.contracts import FactRecord
+from magi.agent.runtime.contracts import FactRecord
 
 
 class _CollectTaskAgent(TaskAgent):

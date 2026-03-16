@@ -1,9 +1,9 @@
 """Task agent dedicated to timeline fact ingestion."""
 from __future__ import annotations
 
-from ...core.runtime.contracts import FactRecord
-from ...core.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
-from ...core.runtime.types import TaskAgentType
+from ...agent.runtime.contracts import FactRecord
+from ...agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
+from ...agent.runtime.types import TaskAgentType
 from .timeline import (
     TimelineExecutionCoordinator,
     TimelineExecutionRequest,

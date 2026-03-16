@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from ..core.runtime.contracts import FactRecord
+from ..agent.runtime.contracts import FactRecord
 from ..plugins.actions import ActionExecutionContext, ActionRegistry
 from .contracts import ScheduledExecutionContext, ScheduledExecutionResult
 

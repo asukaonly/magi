@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from ..core.runtime import SensorHub
+from .sensor_hub import SensorHub
 from .action_emitter import ActionEmitter
 from .action_scheduler_contrib import ActionSchedulerContrib
 

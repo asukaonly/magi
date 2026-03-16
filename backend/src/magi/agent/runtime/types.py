@@ -1,6 +1,4 @@
-"""
-Runtime constants and agent identifiers.
-"""
+"""Runtime constants and agent identifiers."""
 
 from enum import Enum
 

@@ -23,7 +23,7 @@ from ..services.personality_state_service import (
 )
 from ...config import get_config
 from ...config.models import LLMScenario, LLMSettings
-from ...core.runtime import TaskAgentType
+from ...agent.runtime import TaskAgentType
 from ...llm import create_llm_adapter
 from ...personality.loader import PersonalityLoader
 from ...utils.runtime import get_runtime_paths

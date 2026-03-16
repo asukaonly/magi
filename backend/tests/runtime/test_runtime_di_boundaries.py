@@ -202,9 +202,45 @@ def test_core_package_does_not_export_legacy_agent_or_task_database() -> None:
     assert '"Task"' not in core_init
     assert '"TaskStatus"' not in core_init
     assert '"TaskPriority"' not in core_init
-    assert '"AgentRuntime"' in core_init
+    assert '"AgentRuntime"' not in core_init
 
 
 def test_legacy_core_agent_and_task_database_files_are_removed() -> None:
     assert not (BACKEND_SRC / "core/agent.py").exists()
     assert not (BACKEND_SRC / "core/task_database.py").exists()
+
+
+def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
+    agent_lifecycle = (BACKEND_SRC / "agent/lifecycle.py").read_text(encoding="utf-8")
+    awareness_lifecycle = (BACKEND_SRC / "awareness/lifecycle.py").read_text(encoding="utf-8")
+    bootstrap_context = (BACKEND_SRC / "bootstrap/context.py").read_text(encoding="utf-8")
+    chat_task_agent = (BACKEND_SRC / "agent/task_agents/chat_task_agent.py").read_text(encoding="utf-8")
+    explore_task_agent = (BACKEND_SRC / "agent/task_agents/explore_task_agent.py").read_text(encoding="utf-8")
+    timeline_task_agent = (BACKEND_SRC / "agent/task_agents/timeline_task_agent.py").read_text(encoding="utf-8")
+    postprocess_service = (BACKEND_SRC / "agent/task_agents/chat/postprocess_service.py").read_text(encoding="utf-8")
+    task_factory = (BACKEND_SRC / "agent/task_agents/factory.py").read_text(encoding="utf-8")
+    action_emitter = (BACKEND_SRC / "awareness/action_emitter.py").read_text(encoding="utf-8")
+    scheduler_handlers = (BACKEND_SRC / "scheduler/handlers.py").read_text(encoding="utf-8")
+
+    assert not (BACKEND_SRC / "core/runtime").exists()
+    assert "from ..core.runtime import AgentRuntime, RouterAgent, TaskAgentManager" not in agent_lifecycle
+    assert "from ..core.runtime import SensorHub" not in awareness_lifecycle
+    assert "from ..core.runtime import SensorHub, AgentRuntime, TaskAgentManager" not in bootstrap_context
+    assert "core.runtime.contracts" not in chat_task_agent
+    assert "core.runtime.contracts" not in explore_task_agent
+    assert "core.runtime.contracts" not in timeline_task_agent
+    assert "core.runtime.types" not in chat_task_agent
+    assert "core.runtime.types" not in explore_task_agent
+    assert "core.runtime.types" not in timeline_task_agent
+    assert "core.runtime.task_agent" not in chat_task_agent
+    assert "core.runtime.task_agent" not in explore_task_agent
+    assert "core.runtime.task_agent" not in timeline_task_agent
+    assert "core.runtime.contracts" not in postprocess_service
+    assert "core.runtime.types" not in postprocess_service
+    assert "from ....core.runtime import SensorEvent" not in postprocess_service
+    assert "core.runtime.types" not in task_factory
+    assert "core.runtime.contracts" not in action_emitter
+    assert "core.runtime.contracts" not in scheduler_handlers
+    assert "agent.runtime" in agent_lifecycle
+    assert "sensor_hub" in awareness_lifecycle
+    assert "agent.runtime" in bootstrap_context

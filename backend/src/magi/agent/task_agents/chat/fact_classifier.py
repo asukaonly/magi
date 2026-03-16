@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from ....core.runtime.contracts import FactRecord
+from ....agent.runtime.contracts import FactRecord
 from ....events.events import EventTypes
 from ..common import (
     ExploreTaskCompletedPayload,

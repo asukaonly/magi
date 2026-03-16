@@ -6,9 +6,9 @@ import uuid
 from typing import Any, Callable, TYPE_CHECKING
 
 from ....core.logger import get_logger
-from ....core.runtime import SensorEvent
-from ....core.runtime.contracts import FactRecord
-from ....core.runtime.types import TaskAgentType
+from ....awareness.contracts import SensorEvent
+from ....agent.runtime.contracts import FactRecord
+from ....agent.runtime.types import TaskAgentType
 from ....events.events import EventTypes
 from ....personality.behavior_evolution import SatisfactionLevel
 from ....personality.emotional_state import EngagementLevel, InteractionOutcome

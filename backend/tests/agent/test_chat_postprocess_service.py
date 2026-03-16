@@ -5,7 +5,7 @@ import pytest
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
-from magi.core.runtime.contracts import FactRecord
+from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
 
 

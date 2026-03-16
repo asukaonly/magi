@@ -1,14 +1,12 @@
-"""
-Sensor hub: aggregates sensor events into a unified queue.
-"""
+"""Sensor hub: aggregates sensor events into a unified queue."""
 from __future__ import annotations
 
 import asyncio
 from typing import Optional
 
-from ...core.logger import get_logger
-from ...events.backend import MessageBusBackend
-from ...events.events import Event, EventTypes
+from ..core.logger import get_logger
+from ..events.backend import MessageBusBackend
+from ..events.events import Event, EventTypes
 from .contracts import SensorEvent
 
 logger = get_logger(__name__)

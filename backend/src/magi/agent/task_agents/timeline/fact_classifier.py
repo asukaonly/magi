@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from ....core.runtime.contracts import FactRecord
+from ....agent.runtime.contracts import FactRecord
 from .contracts import TimelinePayload
 
 

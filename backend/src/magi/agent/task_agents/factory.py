@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ...config import AppConfig
-from ...core.runtime.types import TaskAgentType
+from ...agent.runtime.types import TaskAgentType
 from ...memory import UnifiedMemoryStore
 from ...memory.integration import MemoryIntegrationModule
 from ...timeline.handler import build_timeline_handler

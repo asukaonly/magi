@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ....core.runtime.contracts import FactRecord
+from ....agent.runtime.contracts import FactRecord
 from ..common import (
     ExploreTaskRequestPayload,
     GenericFactPayload,
