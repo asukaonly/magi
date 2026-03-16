@@ -81,7 +81,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             finally:
                 state.websocket_bridge_retry_task = None
 
-        from ..runtime.services.message_bus import get_message_bus
+        from ..events.service_access import get_message_bus
 
         message_bus = get_message_bus()
         bridge_bus = getattr(state, "websocket_bridge_message_bus", None) or message_bus
@@ -110,7 +110,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         Pure forwarding - no data enrichment. Trace data is expected to be
         included in the event payload by the publisher.
         """
-        from ..runtime.services.message_bus import get_message_bus
+        from ..events.service_access import get_message_bus
 
         state = self._app.state
         message_bus = get_message_bus()

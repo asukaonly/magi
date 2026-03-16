@@ -1,4 +1,4 @@
-"""Shared message-bus service for API/runtime bridges."""
+"""Shared message-bus access helpers for bridge and API integrations."""
 
 from __future__ import annotations
 
@@ -8,15 +8,17 @@ _message_bus: Any = None
 
 
 def set_message_bus(message_bus: Any) -> None:
-    """Set message bus instance for API-layer access."""
+    """Set message bus instance for transport- or API-layer access."""
+
     global _message_bus
     _message_bus = message_bus
 
 
 def get_message_bus():
     """Get message bus instance from DI container, with global fallback."""
+
     try:
-        from ...core.container import get_container
+        from ..core.container import get_container
 
         container = get_container()
         instance = container.message_bus()

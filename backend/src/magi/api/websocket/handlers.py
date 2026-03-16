@@ -161,7 +161,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
         from ...agent import get_agent_runtime
         from ...events.events import Event, EventTypes
         from ..services import get_chat_read_service
-        from ...runtime.services.message_bus import get_message_bus
+        from ...events.service_access import get_message_bus
 
         user_id = data.get("user_id", "web_user")
         session_id = data.get("session_id")

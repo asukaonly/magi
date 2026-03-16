@@ -47,7 +47,7 @@ class RuntimeExportsModule(LifecycleModule):
 
         logger.info("DI container providers registered")
 
-        from ..runtime.services.message_bus import set_message_bus
+        from ..events.service_access import set_message_bus
 
         set_message_bus(message_bus)
 

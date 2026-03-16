@@ -144,3 +144,11 @@ def test_maintenance_runtime_primitives_live_in_core() -> None:
 
     assert MaintenanceConfig.__module__ == "magi.core.maintenance"
     assert MaintenanceDaemon.__module__ == "magi.core.maintenance"
+
+
+def test_message_bus_service_access_lives_in_events() -> None:
+    """Verify message bus service access is owned by the events layer."""
+    from magi.events.service_access import get_message_bus, set_message_bus
+
+    assert get_message_bus.__module__ == "magi.events.service_access"
+    assert set_message_bus.__module__ == "magi.events.service_access"
