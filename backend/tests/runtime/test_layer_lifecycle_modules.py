@@ -160,3 +160,11 @@ def test_current_personality_state_lives_in_personality() -> None:
 
     assert get_current_personality.__module__ == "magi.personality.current_state"
     assert set_current_personality.__module__ == "magi.personality.current_state"
+
+
+def test_skills_service_access_lives_in_skills() -> None:
+    """Verify shared skills service access is owned by the skills layer."""
+    from magi.skills.service_access import init_skills_module, get_skill_executor
+
+    assert init_skills_module.__module__ == "magi.skills.service_access"
+    assert get_skill_executor.__module__ == "magi.skills.service_access"

@@ -1,13 +1,13 @@
-"""Runtime skill module lifecycle service."""
+"""Shared skills service access for runtime wiring and API routes."""
 
 from __future__ import annotations
 
-from typing import Any, Dict
 import logging
+from typing import Any
 
 import yaml
 
-from ...config.loader import get_config_file_path
+from ..config.loader import get_config_file_path
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +21,12 @@ def _get_enabled_skill_names() -> set[str]:
     if not config_path.exists():
         return set()
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
+        with open(config_path, "r", encoding="utf-8") as handle:
+            raw = yaml.safe_load(handle) or {}
         tools = raw.get("tools", {}) if isinstance(raw.get("tools"), dict) else {}
         skills = tools.get("skills", [])
         if isinstance(skills, list):
-            return set(str(s) for s in skills)
+            return {str(skill) for skill in skills}
     except Exception:
         logger.exception("Failed to read enabled skills from config file")
     return set()
@@ -34,12 +34,14 @@ def _get_enabled_skill_names() -> set[str]:
 
 def get_enabled_skill_names() -> set[str]:
     """Get enabled skill names configured in runtime config."""
+
     return _get_enabled_skill_names()
 
 
-def register_enabled_skills(skills: Dict[str, Any]) -> Dict[str, Any]:
+def register_enabled_skills(skills: dict[str, Any]) -> dict[str, Any]:
     """Register only enabled skills into the shared tool registry."""
-    from ...tools.registry import tool_registry
+
+    from ..tools.registry import tool_registry
 
     enabled_skills = _get_enabled_skill_names()
     filtered_skills = (
@@ -60,12 +62,13 @@ def register_enabled_skills(skills: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def init_skills_module(llm_adapter=None) -> None:
-    """Initialize skills runtime module."""
+    """Initialize shared skills runtime module."""
+
     global _skill_indexer, _skill_loader, _skill_executor
 
-    from ...skills.executor import SkillExecutor
-    from ...skills.indexer import SkillIndexer
-    from ...skills.loader import SkillLoader
+    from .executor import SkillExecutor
+    from .indexer import SkillIndexer
+    from .loader import SkillLoader
 
     _skill_indexer = SkillIndexer()
     _skill_loader = SkillLoader(_skill_indexer)
@@ -82,14 +85,16 @@ def init_skills_module(llm_adapter=None) -> None:
 
 def get_skill_indexer():
     """Get active skill indexer instance."""
+
     return _skill_indexer
 
 
 def ensure_skill_indexer():
     """Get or create a shared skill indexer for metadata-only APIs."""
+
     global _skill_indexer
     if _skill_indexer is None:
-        from ...skills.indexer import SkillIndexer
+        from .indexer import SkillIndexer
 
         _skill_indexer = SkillIndexer()
     return _skill_indexer
@@ -97,9 +102,11 @@ def ensure_skill_indexer():
 
 def get_skill_loader():
     """Get active skill loader instance."""
+
     return _skill_loader
 
 
 def get_skill_executor():
     """Get active skill executor instance."""
+
     return _skill_executor

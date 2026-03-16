@@ -31,7 +31,7 @@ class ToolsModule(LifecycleModule):
             logger.info("Agent tool configured with runtime LLM adapter")
 
         if config.features.enable_skills:
-            from ..runtime.services.skills import init_skills_module
+            from ..skills.service_access import init_skills_module
 
             init_skills_module(llm_adapter)
             logger.info("Skills module initialized")
