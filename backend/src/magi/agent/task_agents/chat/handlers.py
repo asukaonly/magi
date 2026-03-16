@@ -183,9 +183,9 @@ async def _start_explore_task_agent(
         correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
     )
     try:
-        from ....bootstrap import get_agent_runtime
+        from ....core.runtime_bindings import require_agent_runtime
 
-        runtime = get_agent_runtime()
+        runtime = require_agent_runtime()
         manager = runtime.get_task_agent_manager()
         enqueued = await manager.add_fact_to_agent(TaskAgentType.EXPLORE, request.context.user_id, fact)
     except Exception as exc:

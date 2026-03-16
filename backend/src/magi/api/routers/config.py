@@ -1195,9 +1195,10 @@ async def complete_onboarding(config: SystemConfigModel):
         refreshed_config = reload_config()
 
         # Try to initialize agent runtime if not already initialized
-        from ...bootstrap import get_agent_runtime, initialize_chat_agent
+        from ...bootstrap import initialize_chat_agent
+        from ...core.runtime_bindings import require_agent_runtime
         try:
-            get_agent_runtime()
+            require_agent_runtime()
             # Already initialized, just refresh LLM config
             refresh_runtime_llm_config(refreshed_config)
         except RuntimeError:

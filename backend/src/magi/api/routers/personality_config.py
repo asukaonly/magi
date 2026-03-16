@@ -430,9 +430,9 @@ async def api_set_current_personality(request: Dict[str, str]):
             raise HTTPException(status_code=500, detail="Setting failed")
 
         try:
-            from ...agent import get_agent_runtime
+            from ...core.runtime_bindings import require_agent_runtime
 
-            runtime = get_agent_runtime()
+            runtime = require_agent_runtime()
             manager = runtime.get_task_agent_manager()
             chat_agent = await manager.ensure_agent(TaskAgentType.CHAT, "default")
             memory = getattr(chat_agent, "memory", None)

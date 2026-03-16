@@ -699,9 +699,9 @@ class WorkerAgentManager(Tool):
     ) -> None:
         try:
             from ...core.runtime.contracts import FactRecord
-            from ...bootstrap import get_agent_runtime
+            from ...core.runtime_bindings import require_agent_runtime
 
-            runtime = get_agent_runtime()
+            runtime = require_agent_runtime()
             manager = runtime.get_task_agent_manager()
         except Exception as exc:
             logger.debug(

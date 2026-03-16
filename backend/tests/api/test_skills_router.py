@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from dependency_injector import providers
 
 from magi.api.routers import skills as skills_router_module
 from magi.core.container import get_container
@@ -37,9 +38,6 @@ def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     container = get_container()
     original_registry_skills = dict(tool_registry._skills)
     original_registry_indexer = tool_registry._skill_indexer
-    original_service_indexer = skills_runtime_service._skill_indexer
-    original_service_loader = skills_runtime_service._skill_loader
-    original_service_executor = skills_runtime_service._skill_executor
 
     skill_root = tmp_path / "skills"
     skill_root.mkdir(parents=True, exist_ok=True)
@@ -61,29 +59,30 @@ def isolated_skills_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
     tool_registry._skills = {}
     tool_registry._skill_indexer = None
-    skills_runtime_service._skill_indexer = None
-    skills_runtime_service._skill_loader = None
-    skills_runtime_service._skill_executor = None
     container.skill_indexer.reset_override()
     container.skill_loader.reset_override()
     container.skill_executor.reset_override()
 
-    yield config_path
+    yield config_path, container
 
     tool_registry._skills = original_registry_skills
     tool_registry._skill_indexer = original_registry_indexer
-    skills_runtime_service._skill_indexer = original_service_indexer
-    skills_runtime_service._skill_loader = original_service_loader
-    skills_runtime_service._skill_executor = original_service_executor
     container.skill_indexer.reset_override()
     container.skill_loader.reset_override()
     container.skill_executor.reset_override()
 
 
-def test_init_skills_module_registers_only_enabled_skills(isolated_skills_state: Path) -> None:
-    _ = isolated_skills_state
+def _bind_skills_runtime(container, bindings) -> None:
+    container.skill_indexer.override(providers.Object(bindings.skill_indexer))
+    container.skill_loader.override(providers.Object(bindings.skill_loader))
+    container.skill_executor.override(providers.Object(bindings.skill_executor))
 
-    skills_router_module.init_skills_module(llm_adapter=None)
+
+def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_state) -> None:
+    _, container = isolated_skills_state
+
+    bindings = skills_runtime_service.build_skills_runtime(llm_adapter=None)
+    _bind_skills_runtime(container, bindings)
 
     assert set(tool_registry.get_skill_names()) == {"enabled-skill"}
 
@@ -101,10 +100,11 @@ def test_init_skills_module_registers_only_enabled_skills(isolated_skills_state:
 
 @pytest.mark.asyncio
 async def test_refresh_skills_syncs_enabled_subset_to_tool_registry(
-    isolated_skills_state: Path,
+    isolated_skills_state,
 ) -> None:
-    config_path = isolated_skills_state
-    skills_router_module.init_skills_module(llm_adapter=None)
+    config_path, container = isolated_skills_state
+    bindings = skills_runtime_service.build_skills_runtime(llm_adapter=None)
+    _bind_skills_runtime(container, bindings)
     assert set(tool_registry.get_skill_names()) == {"enabled-skill"}
 
     config_path.write_text(
@@ -121,7 +121,8 @@ async def test_refresh_skills_syncs_enabled_subset_to_tool_registry(
 
 @pytest.mark.asyncio
 async def test_list_skills_returns_503_when_module_uninitialized(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(skills_runtime_service, "_skill_indexer", None)
+    container = get_container()
+    container.skill_indexer.reset_override()
 
     with pytest.raises(HTTPException) as exc_info:
         await skills_router_module.list_skills()

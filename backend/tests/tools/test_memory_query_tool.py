@@ -41,7 +41,7 @@ class TestMemoryQueryTool:
         from magi.tools.memory_query import MemoryQueryTool
 
         fake_unified_memory = MagicMock()
-        monkeypatch.setattr(memory_query_module, "get_unified_memory", lambda: fake_unified_memory)
+        monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: fake_unified_memory)
 
         tool = MemoryQueryTool()
 

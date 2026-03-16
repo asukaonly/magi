@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from dependency_injector import providers
 
 from ..config import AppConfig, get_config
 from ..core.container import get_container
 from ..core.logger import get_logger
-from ..memory import UnifiedMemoryStore
-from ..memory.integration import MemoryIntegrationModule
-from ..scheduler import SchedulerService
 from ..llm.factory import is_llm_selection_pending
 from .context import RuntimeBootstrapContext
 from .lifecycle import ModuleLifecycleOrchestrator
@@ -18,16 +15,13 @@ from ..llm.lifecycle import RuntimeInitializationDeferred
 
 logger = get_logger(__name__)
 
-_runtime_orchestrator: ModuleLifecycleOrchestrator | None = None
-_runtime_context: RuntimeBootstrapContext | None = None
-
 
 def get_master_agent():
     """Backward-compatible API: runtime mode has no MasterAgent instance."""
     return None
 
 
-def _resolve_from_container(attr: str) -> Any:
+def _resolve_from_container(attr: str):
     """Try to resolve a service from the DI container, return None on failure."""
     try:
         container = get_container()
@@ -37,35 +31,6 @@ def _resolve_from_container(attr: str) -> Any:
     except Exception:
         pass
     return None
-
-
-def get_memory_integration() -> MemoryIntegrationModule:
-    """Get memory integration module."""
-    instance = _resolve_from_container("memory_integration")
-    if instance is not None:
-        return instance
-    raise RuntimeError("MemoryIntegrationModule not initialized. Call initialize_agent_runtime() first.")
-
-
-def get_unified_memory() -> UnifiedMemoryStore:
-    """Get unified memory store."""
-    return get_memory_integration().unified_memory
-
-
-def get_agent_runtime():
-    """Get agent runtime."""
-    instance = _resolve_from_container("agent_runtime")
-    if instance is not None:
-        return instance
-    raise RuntimeError("AgentRuntime not initialized. Call initialize_agent_runtime() first.")
-
-
-def get_scheduler_service() -> SchedulerService:
-    """Get the active scheduler service."""
-    instance = _resolve_from_container("scheduler_service")
-    if instance is not None:
-        return instance
-    raise RuntimeError("SchedulerService not initialized. Call initialize_agent_runtime() first.")
 
 
 def refresh_runtime_llm_config(config: AppConfig | None = None) -> None:
@@ -81,13 +46,11 @@ def refresh_runtime_llm_config(config: AppConfig | None = None) -> None:
 
 def _is_runtime_initialized() -> bool:
     """Check whether agent runtime has been initialized."""
-    return _runtime_context is not None and _runtime_context.agent_runtime.agent_runtime is not None
+    return _resolve_from_container("agent_runtime") is not None
 
 
 async def initialize_agent_runtime() -> None:
     """Initialize agent runtime on application startup."""
-    global _runtime_orchestrator, _runtime_context
-
     if _is_runtime_initialized():
         logger.warning("Agent runtime already initialized")
         return
@@ -110,32 +73,29 @@ async def initialize_agent_runtime() -> None:
             logger.warning("Agent runtime will NOT be initialized.")
             logger.warning("Configure an enabled core provider and model selection to enable AI responses.")
             logger.warning("=" * 60)
-        _runtime_orchestrator = None
-        _runtime_context = None
         return
     except Exception as exc:
         logger.error("Failed to initialize agent runtime: %s", exc, exc_info=True)
-        _runtime_orchestrator = None
-        _runtime_context = None
         raise
 
-    _runtime_orchestrator = orchestrator
-    _runtime_context = context
+    container = get_container()
+    container.runtime_orchestrator.override(providers.Object(orchestrator))
+    container.runtime_bootstrap_context.override(providers.Object(context))
     logger.info("Agent runtime initialized successfully")
 
 
 async def shutdown_agent_runtime() -> None:
     """Shutdown agent runtime."""
-    global _runtime_orchestrator, _runtime_context
-
+    orchestrator = _resolve_from_container("runtime_orchestrator")
     try:
-        if _runtime_orchestrator is not None:
-            await _runtime_orchestrator.shutdown()
+        if orchestrator is not None:
+            await orchestrator.shutdown()
     except Exception as exc:
         logger.error("Failed to stop agent runtime: %s", exc, exc_info=True)
     finally:
-        _runtime_orchestrator = None
-        _runtime_context = None
+        container = get_container()
+        container.runtime_orchestrator.reset_override()
+        container.runtime_bootstrap_context.reset_override()
         logger.info("Agent runtime stopped")
 
 

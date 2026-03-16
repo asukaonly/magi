@@ -145,7 +145,7 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
 async def test_handle_emits_targeted_chat_timeline_event(monkeypatch: pytest.MonkeyPatch) -> None:
     action_emitter = _FakeActionEmitter()
     runtime = _FakeRuntime()
-    monkeypatch.setattr("magi.bootstrap.get_agent_runtime", lambda: runtime)
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: runtime)
     service = ChatPostProcessService(
         agent_id="chat:web_user",
         session_service=_FakeSessionService(),  # type: ignore[arg-type]

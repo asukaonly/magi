@@ -164,10 +164,9 @@ def test_maintenance_runtime_primitives_live_in_core() -> None:
 
 def test_message_bus_service_access_lives_in_events() -> None:
     """Verify message bus service access is owned by the events layer."""
-    from magi.events.service_access import get_message_bus, set_message_bus
+    from magi.events.service_access import get_message_bus
 
     assert get_message_bus.__module__ == "magi.events.service_access"
-    assert set_message_bus.__module__ == "magi.events.service_access"
 
 
 def test_current_personality_state_lives_in_personality() -> None:
@@ -180,10 +179,10 @@ def test_current_personality_state_lives_in_personality() -> None:
 
 def test_skills_service_access_lives_in_skills() -> None:
     """Verify shared skills service access is owned by the skills layer."""
-    from magi.skills.service_access import init_skills_module, get_skill_executor
+    from magi.skills.service_access import build_skills_runtime, register_enabled_skills
 
-    assert init_skills_module.__module__ == "magi.skills.service_access"
-    assert get_skill_executor.__module__ == "magi.skills.service_access"
+    assert build_skills_runtime.__module__ == "magi.skills.service_access"
+    assert register_enabled_skills.__module__ == "magi.skills.service_access"
 
 
 def test_tools_module_does_not_initialize_shared_skills_runtime() -> None:

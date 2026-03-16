@@ -77,8 +77,8 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory.get_unified_memory", lambda: _FakeUnifiedMemory())
-    monkeypatch.setattr("magi.api.routers.memory.get_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.get("/api/memory/statistics")
@@ -93,8 +93,8 @@ def test_memory_procedures_api_lists_skills(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory.get_unified_memory", lambda: _FakeUnifiedMemory())
-    monkeypatch.setattr("magi.api.routers.memory.get_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.get("/api/memory/procedures")

@@ -131,9 +131,8 @@ async def handle_get_personality(ctx: WebSocketContext, data: dict) -> dict:
 async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
     """Handle user messages sent via WebSocket."""
     try:
-        from ..agent import get_agent_runtime
         from ..api.services import get_chat_read_service
-        from ..core.runtime_bindings import require_message_bus
+        from ..core.runtime_bindings import require_agent_runtime, require_message_bus
         from ..events.events import Event, EventTypes
 
         user_id = data.get("user_id", "web_user")
@@ -144,7 +143,7 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
             return {"type": "error", "message": "Message is required"}
 
         try:
-            get_agent_runtime()
+            require_agent_runtime()
         except RuntimeError:
             return {
                 "type": "error",

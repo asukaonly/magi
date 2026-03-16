@@ -53,9 +53,9 @@ class ExplorePostProcessService:
         correlation_id: Optional[str],
     ) -> None:
         try:
-            from ....bootstrap import get_agent_runtime
+            from ....core.runtime_bindings import require_agent_runtime
 
-            runtime = get_agent_runtime()
+            runtime = require_agent_runtime()
             manager = runtime.get_task_agent_manager()
         except Exception as exc:
             logger.warning("Failed to deliver ExploreTaskAgent result upstream | error=%s", exc)

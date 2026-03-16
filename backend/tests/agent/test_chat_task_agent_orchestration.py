@@ -250,7 +250,7 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
         def get_task_agent_manager(self):  # type: ignore[no-untyped-def]
             return _FakeManager()
 
-    monkeypatch.setattr("magi.bootstrap.get_agent_runtime", lambda: _FakeRuntime())
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: _FakeRuntime())
 
     user_fact = FactRecord(
         agent_id="chat:u-chat",

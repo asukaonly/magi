@@ -61,10 +61,6 @@ class RuntimeExportsModule(LifecycleModule):
 
         logger.info("DI container providers registered")
 
-        from ..events.service_access import set_message_bus
-
-        set_message_bus(message_bus)
-
     async def shutdown(self) -> None:
         container = get_container()
         container.message_bus.reset_override()

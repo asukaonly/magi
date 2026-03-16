@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict
 
-from ..agent import get_unified_memory
+from ..core.runtime_bindings import require_unified_memory
 from ..memory.hybrid_retrieval import HybridRetrievalService, build_query
 from .schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
@@ -67,8 +67,8 @@ class MemoryQueryTool(Tool):
     def _build_service(self) -> HybridRetrievalService:
         unified_memory = None
         try:
-            unified_memory = get_unified_memory()
-        except Exception:
+            unified_memory = require_unified_memory()
+        except RuntimeError:
             unified_memory = None
         return HybridRetrievalService(unified_memory)
 

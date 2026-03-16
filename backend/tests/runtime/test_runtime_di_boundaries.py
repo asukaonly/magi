@@ -25,16 +25,16 @@ def test_bootstrap_package_no_longer_exports_runtime_getters() -> None:
 def test_events_service_access_has_no_global_fallback() -> None:
     source = (BACKEND_SRC / "events/service_access.py").read_text(encoding="utf-8")
 
-    assert "_message_bus" not in source
-    assert "set_message_bus" not in source
+    assert "_message_bus: Any = None" not in source
+    assert "def set_message_bus" not in source
 
 
 def test_skills_service_access_has_no_module_level_runtime_globals() -> None:
     source = (BACKEND_SRC / "skills/service_access.py").read_text(encoding="utf-8")
 
-    assert "_skill_indexer" not in source
-    assert "_skill_loader" not in source
-    assert "_skill_executor" not in source
+    assert "_skill_indexer = None" not in source
+    assert "_skill_loader = None" not in source
+    assert "_skill_executor = None" not in source
     assert "def get_skill_indexer" not in source
     assert "def get_skill_loader" not in source
     assert "def get_skill_executor" not in source

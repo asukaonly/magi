@@ -18,10 +18,14 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     fake_loader = object()
     fake_executor = object()
 
-    monkeypatch.setattr("magi.skills.lifecycle.init_skills_module", lambda llm_adapter=None: None)
-    monkeypatch.setattr("magi.skills.lifecycle.get_skill_indexer", lambda: fake_indexer)
-    monkeypatch.setattr("magi.skills.lifecycle.get_skill_loader", lambda: fake_loader)
-    monkeypatch.setattr("magi.skills.lifecycle.get_skill_executor", lambda: fake_executor)
+    monkeypatch.setattr(
+        "magi.skills.lifecycle.build_skills_runtime",
+        lambda llm_adapter=None: SimpleNamespace(
+            skill_indexer=fake_indexer,
+            skill_loader=fake_loader,
+            skill_executor=fake_executor,
+        ),
+    )
 
     module = SkillsModule(context)
     await module.init()

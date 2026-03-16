@@ -46,10 +46,6 @@ __all__ = [
     "initialize_chat_agent",
     "shutdown_chat_agent",
     "get_master_agent",
-    "get_agent_runtime",
-    "get_scheduler_service",
-    "get_unified_memory",
-    "get_memory_integration",
     "refresh_runtime_llm_config",
 ]
 
@@ -68,10 +64,6 @@ def __getattr__(name: str):
         "initialize_chat_agent",
         "shutdown_chat_agent",
         "get_master_agent",
-        "get_agent_runtime",
-        "get_scheduler_service",
-        "get_unified_memory",
-        "get_memory_integration",
         "refresh_runtime_llm_config",
     }:
         from . import backend as _backend

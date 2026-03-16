@@ -8,16 +8,13 @@ from .personality_state_service import (
     get_current_personality_name,
     set_current_personality_name,
 )
-from .skills_runtime_service import (
-    ensure_skill_indexer,
-    get_enabled_skill_names,
-    init_skills_module,
-    register_enabled_skills,
+from .user_message_sensor_service import require_user_message_sensor
+from ...core.runtime_bindings import (
     require_skill_executor,
     require_skill_indexer,
     require_skill_loader,
 )
-from .user_message_sensor_service import require_user_message_sensor
+from ...skills.service_access import get_enabled_skill_names, register_enabled_skills
 
 __all__ = [
     "ChatReadService",
@@ -29,10 +26,8 @@ __all__ = [
     "require_user_message_sensor",
     "get_current_personality_name",
     "set_current_personality_name",
-    "init_skills_module",
     "register_enabled_skills",
     "get_enabled_skill_names",
-    "ensure_skill_indexer",
     "require_skill_executor",
     "require_skill_indexer",
     "require_skill_loader",

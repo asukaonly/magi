@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
-from .service_access import get_skill_executor, get_skill_indexer, get_skill_loader, init_skills_module
+from .service_access import build_skills_runtime
 
 logger = get_logger(__name__)
 
@@ -26,10 +26,10 @@ class SkillsModule(LifecycleModule):
             return
 
         llm_adapter = require_initialized(self._context.llm.llm_adapter, "llm adapter")
-        init_skills_module(llm_adapter)
-        self._context.skills.skill_indexer = get_skill_indexer()
-        self._context.skills.skill_loader = get_skill_loader()
-        self._context.skills.skill_executor = get_skill_executor()
+        bindings = build_skills_runtime(llm_adapter)
+        self._context.skills.skill_indexer = bindings.skill_indexer
+        self._context.skills.skill_loader = bindings.skill_loader
+        self._context.skills.skill_executor = bindings.skill_executor
         logger.info("Shared skills runtime initialized")
 
     async def shutdown(self) -> None:

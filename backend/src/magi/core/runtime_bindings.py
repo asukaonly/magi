@@ -21,6 +21,26 @@ def require_message_bus():
     return _require_binding("message_bus")
 
 
+def require_agent_runtime():
+    """Return the active agent runtime binding."""
+    return _require_binding("agent_runtime")
+
+
+def require_memory_integration():
+    """Return the active memory integration binding."""
+    return _require_binding("memory_integration")
+
+
+def require_unified_memory():
+    """Return the active unified memory binding."""
+    return _require_binding("unified_memory")
+
+
+def require_scheduler_service():
+    """Return the active scheduler service binding."""
+    return _require_binding("scheduler_service")
+
+
 def require_other_memory():
     """Return the runtime-owned other-memory binding."""
     return _require_binding("other_memory")

@@ -77,9 +77,9 @@ async def send_user_message(
     """
     try:
         # check runtime is initialized
-        from ...agent import get_agent_runtime
+        from ...core.runtime_bindings import require_agent_runtime
         try:
-            get_agent_runtime()
+            require_agent_runtime()
         except RuntimeError:
             # Agent not initialized (e.g. API key not set)
             # Return error via HTTP response - frontend should handle display

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ...core.logger import get_logger
+from ...core.runtime_bindings import require_memory_integration, require_unified_memory
 from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
 
 logger = get_logger(__name__)
@@ -36,20 +37,16 @@ class ProcedureResponse(BaseModel):
     circuit_breaker_state: str
 
 
-def get_unified_memory():
+def _resolve_unified_memory():
     try:
-        from ...agent import get_unified_memory
-
-        return get_unified_memory()
+        return require_unified_memory()
     except RuntimeError:
         return None
 
 
-def get_memory_integration():
+def _resolve_memory_integration():
     try:
-        from ...agent import get_memory_integration
-
-        return get_memory_integration()
+        return require_memory_integration()
     except RuntimeError:
         return None
 
@@ -61,7 +58,7 @@ def get_memory_integration():
 @memory_router.get("/l0/sessions")
 async def list_l0_sessions():
     """List all active L0 sessions with stats."""
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l0:
         return {"sessions": [], "stats": {"active_sessions": 0, "total_goals": 0, "total_entities": 0, "total_tactics": 0}}
 
@@ -103,7 +100,7 @@ async def list_l0_sessions():
 @memory_router.get("/l0/workbench/{session_id}")
 async def get_l0_workbench(session_id: str):
     """Get the workbench (goals, entities, tactics) for a session."""
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l0:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -126,7 +123,7 @@ async def get_l0_workbench(session_id: str):
 @memory_router.get("/l2/statistics")
 async def get_l2_statistics():
     """Get L2 cognition statistics."""
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"relation_count": 0, "assertion_count": 0, "db_path": None}
 
@@ -142,7 +139,7 @@ async def get_l2_statistics():
 @memory_router.get("/l2/relations")
 async def list_l2_relations(limit: int = Query(default=100, ge=1, le=500)):
     """List knowledge graph relations."""
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return []
     return await unified_memory.l2.get_relationships(limit=limit)
@@ -151,7 +148,7 @@ async def list_l2_relations(limit: int = Query(default=100, ge=1, le=500)):
 @memory_router.get("/l2/assertions")
 async def list_l2_assertions(limit: int = Query(default=100, ge=1, le=500)):
     """List ToM trait assertions."""
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return []
     return await unified_memory.l2.list_tom_assertions(limit=limit)
@@ -167,7 +164,7 @@ async def list_l3_summaries(
     summary_type: Optional[str] = Query(default=None, description="Filter by type: temporal, thematic, insight"),
 ):
     """List L3 reflection summaries."""
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l3:
         return []
 
@@ -184,8 +181,8 @@ async def list_l3_summaries(
 @memory_router.get("/statistics")
 async def get_memory_statistics():
     """Return per-layer memory statistics in L0-L4 format."""
-    unified_memory = get_unified_memory()
-    memory_integration = get_memory_integration()
+    unified_memory = _resolve_unified_memory()
+    memory_integration = _resolve_memory_integration()
 
     if not unified_memory:
         raise HTTPException(
@@ -267,7 +264,7 @@ async def get_l1_events(
     user_id: Optional[str] = Query(default=None),
     session_id: Optional[str] = Query(default=None),
 ):
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l1:
         return {"events": [], "stats": {"total": 0}}
 
@@ -283,7 +280,7 @@ async def get_l1_events(
 
 @memory_router.post("/search")
 async def search_memory(request: RetrievalRequest):
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -308,7 +305,7 @@ async def search_memory(request: RetrievalRequest):
 
 @memory_router.get("/procedures", response_model=List[ProcedureResponse])
 async def list_procedures(limit: int = Query(default=100, ge=1, le=500)):
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l4:
         return []
 
@@ -328,7 +325,7 @@ async def list_procedures(limit: int = Query(default=100, ge=1, le=500)):
 
 @memory_router.get("/tom/{entity_id}")
 async def get_tom_snapshot(entity_id: str, entity_type: str = Query(default="user")):
-    unified_memory = get_unified_memory()
+    unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

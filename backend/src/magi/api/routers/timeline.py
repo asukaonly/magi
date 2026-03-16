@@ -7,10 +7,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ...config import get_config
+from ...core.runtime_bindings import require_scheduler_service, require_unified_memory
 from ...plugins import get_plugin_manager, get_sensor_registry
 from ...scheduler import (
     ScheduledTargetType,
-    get_scheduler_service,
 )
 from ...timeline.scheduler_contrib import (
     build_timeline_schedule_id,
@@ -20,7 +20,6 @@ from ...timeline.scheduler_contrib import (
 from ...timeline.retention import RetentionService
 from ...timeline.service import TimelineService
 from ...utils.runtime import get_runtime_paths
-from ..routers.memory import get_unified_memory
 
 timeline_router = APIRouter()
 
@@ -33,12 +32,13 @@ class TimelineManualEntryRequest(BaseModel):
 
 
 def get_timeline_service() -> TimelineService:
-    unified_memory = get_unified_memory()
-    if unified_memory is None:
+    try:
+        unified_memory = require_unified_memory()
+    except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Timeline service unavailable",
-        )
+        ) from exc
     return TimelineService(unified_memory)
 
 
@@ -125,7 +125,10 @@ async def get_timeline_source_status():
     runtime_paths = get_runtime_paths()
     manager = get_plugin_manager()
     sensor_registry = get_sensor_registry()
-    scheduler_service = get_scheduler_service()
+    try:
+        scheduler_service = require_scheduler_service()
+    except RuntimeError:
+        scheduler_service = None
     packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
     contributions = [
         contribution

@@ -11,6 +11,8 @@ from dependency_injector import containers, providers
 
 if TYPE_CHECKING:
     from ..agent.runtime import AgentRuntime
+    from ..bootstrap.context import RuntimeBootstrapContext
+    from ..bootstrap.lifecycle import ModuleLifecycleOrchestrator
     from ..events.sqlite_backend import SQLiteMessageBackend
     from ..llm.scenario_pool import ScenarioLLMPool
     from ..memory.integration import MemoryIntegrationModule
@@ -62,6 +64,8 @@ class Container(containers.DeclarativeContainer):
     skill_indexer: providers.Singleton[Any] = providers.Singleton(object)
     skill_loader: providers.Singleton[Any] = providers.Singleton(object)
     skill_executor: providers.Singleton[Any] = providers.Singleton(object)
+    runtime_orchestrator: providers.Singleton[ModuleLifecycleOrchestrator] = providers.Singleton(object)
+    runtime_bootstrap_context: providers.Singleton[RuntimeBootstrapContext] = providers.Singleton(object)
 
     # Factory providers for per-request instances
     chat_read_service = providers.Factory(_create_chat_read_service)

@@ -12,7 +12,6 @@ from .contracts import (
     build_timeline_target_key,
 )
 from .repository import ScheduleRepository
-from .runtime import get_scheduler_service
 from .service import SchedulerService
 
 __all__ = [
@@ -27,5 +26,4 @@ __all__ = [
     "TriggerType",
     "build_timeline_schedule_id",
     "build_timeline_target_key",
-    "get_scheduler_service",
 ]
