@@ -23,6 +23,7 @@ class AgentRuntimeModule(LifecycleModule):
                 "runtime_context",
                 "runtime_personality",
                 "runtime_memory",
+                "runtime_skills",
                 "runtime_llm",
                 "runtime_configuration",
             ),
@@ -50,6 +51,7 @@ class AgentRuntimeModule(LifecycleModule):
                 unified_memory=unified_memory,
                 memory_integration=memory_integration,
                 scenario_prompts_store=scenario_prompts_store,
+                skill_executor=self._context.skills.skill_executor,
                 config=config,
             ),
             create_default_agent=create_default_agent_factory(

@@ -11,9 +11,6 @@ from ...core.runtime.contracts import FactRecord
 from ...core.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
 from ...core.runtime.types import TaskAgentType
 from ...context.assembler import PromptContextAssembler, PromptContextRenderer
-from ...skills.executor import SkillExecutor
-from ...skills.indexer import SkillIndexer
-from ...skills.loader import SkillLoader
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry
 from ...utils.runtime import get_runtime_paths
@@ -59,6 +56,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         history_cache_max_sessions: int = 500,
         history_fetch_limit: int = 200,
         scenario_prompts_store=None,
+        skill_executor=None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
@@ -77,10 +75,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             scenario_prompts_store=scenario_prompts_store,
         )
         self.prompt_context_renderer = PromptContextRenderer()
-
-        self._skill_indexer = SkillIndexer()
-        self._skill_loader = SkillLoader(self._skill_indexer)
-        self._skill_executor = SkillExecutor(self._skill_loader, llm_adapter)
 
         runtime_paths = get_runtime_paths()
         self._session_service = ChatSessionService(
@@ -137,7 +131,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
             tool_registry=tool_registry,
-            skill_executor=self._skill_executor,
+            skill_executor=skill_executor,
             tool_result_callback=self._postprocess_service.record_tool_interaction,
             loop_event_callback=self._postprocess_service.record_tool_loop_fact,
         )

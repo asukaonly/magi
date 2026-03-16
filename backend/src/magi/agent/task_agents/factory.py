@@ -21,6 +21,7 @@ def create_chat_agent_factory(
     unified_memory: UnifiedMemoryStore,
     memory_integration: MemoryIntegrationModule,
     scenario_prompts_store: Any,
+    skill_executor: Any,
     config: AppConfig,
 ) -> Callable[[str], ChatTaskAgent]:
     """Return a factory callable that creates ChatTaskAgent instances."""
@@ -37,6 +38,7 @@ def create_chat_agent_factory(
             history_cache_max_sessions=config.agent.runtime.chat_history_cache_max_sessions,
             history_fetch_limit=config.agent.runtime.chat_history_fetch_limit,
             scenario_prompts_store=scenario_prompts_store,
+            skill_executor=skill_executor,
         )
 
     return _create
