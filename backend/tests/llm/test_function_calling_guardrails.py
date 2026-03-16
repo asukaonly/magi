@@ -89,7 +89,7 @@ def _executor() -> FunctionCallingOrchestrator:
     )
 
 
-async def test_function_calling_executor_uses_core_scenario_from_pool() -> None:
+async def test_function_calling_orchestrator_uses_core_scenario_from_pool() -> None:
     pool = _RecordingLLMPool(_DummyLLMAdapter())
     executor = FunctionCallingOrchestrator(
         llm_pool=pool,

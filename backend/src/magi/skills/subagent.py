@@ -77,8 +77,8 @@ class SkillSubagent:
         # Create restricted tool registry view
         self._available_tools = self._build_available_tools()
 
-        # Create function calling executor with restricted tools (lazy)
-        self._function_calling_executor = None
+        # Create function calling orchestrator with restricted tools (lazy)
+        self._function_calling_orchestrator = None
 
         logger.info(
             f"SkillSubagent created | id={self.subagent_id} | "
@@ -217,10 +217,10 @@ class SkillSubagent:
         Returns:
             Result content
         """
-        # Lazy init function calling executor
-        if self._function_calling_executor is None:
+        # Lazy init function calling orchestrator
+        if self._function_calling_orchestrator is None:
             registry = _get_tool_registry()
-            self._function_calling_executor = _get_function_calling_orchestrator(
+            self._function_calling_orchestrator = _get_function_calling_orchestrator(
                 llm_adapter=self.llm,
                 tool_registry=registry,
                 skill_runner=None,
@@ -238,7 +238,7 @@ class SkillSubagent:
             full_system_prompt = full_system_prompt + tool_notice
 
         # Execute with tools
-        result = await self._function_calling_executor.execute_with_tools(
+        result = await self._function_calling_orchestrator.execute_with_tools(
             user_message=user_message,
             system_prompt=full_system_prompt,
             selected_tools=self._available_tools,

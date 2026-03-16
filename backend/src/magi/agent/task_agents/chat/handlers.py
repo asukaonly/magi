@@ -41,7 +41,7 @@ class ChatHandlerDependencies:
 
     prompt_service: ChatPromptService
     planning_service: ChatPlanningService
-    function_calling_executor: any
+    function_calling_orchestrator: any
     task_orchestrator: TaskOrchestrator
     session_service: ChatSessionService
     agent_id: str
@@ -129,7 +129,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
         )
 
     async def execute(self, request: FunctionCallingRequest) -> ExecutionResult:
-        execution_outcome = await self._deps.function_calling_executor.execute_with_tools(
+        execution_outcome = await self._deps.function_calling_orchestrator.execute_with_tools(
             user_message=request.context.latest_user_message,
             system_prompt=request.system_prompt,
             selected_tools=request.selected_tools,

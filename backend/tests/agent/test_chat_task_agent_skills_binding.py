@@ -12,4 +12,4 @@ def test_chat_task_agent_uses_injected_shared_skill_runner() -> None:
         skill_runner=shared_runner,
     )
 
-    assert agent.function_calling_executor.skill_runner is shared_runner
+    assert agent.function_calling_orchestrator.skill_runner is shared_runner

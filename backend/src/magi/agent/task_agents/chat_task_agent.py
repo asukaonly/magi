@@ -129,7 +129,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             max_fact_memory=self._max_fact_memory,
             trace_read_service=trace_read_service,
         )
-        self.function_calling_executor = FunctionCallingOrchestrator(
+        self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
             tool_registry=tool_registry,
@@ -140,7 +140,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         handler_deps = ChatHandlerDependencies(
             prompt_service=self._prompt_service,
             planning_service=self._planning_service,
-            function_calling_executor=self.function_calling_executor,
+            function_calling_orchestrator=self.function_calling_orchestrator,
             task_orchestrator=self._task_orchestrator,
             session_service=self._session_service,
             agent_id=self.agent_id,
