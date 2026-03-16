@@ -8,7 +8,6 @@ from .lifecycle import LifecycleModule
 from .context import RuntimeBootstrapContext, require_initialized
 from ..core.container import get_container
 from ..core.logger import get_logger
-from ..skills.service_access import get_skill_executor, get_skill_indexer, get_skill_loader
 
 logger = get_logger(__name__)
 
@@ -48,15 +47,15 @@ class RuntimeExportsModule(LifecycleModule):
         if self._context.llm.scenario_llm_pool is not None:
             container.scenario_llm_pool.override(providers.Object(self._context.llm.scenario_llm_pool))
 
-        skill_indexer = get_skill_indexer()
+        skill_indexer = self._context.skills.skill_indexer
         if skill_indexer is not None:
             container.skill_indexer.override(providers.Object(skill_indexer))
 
-        skill_loader = get_skill_loader()
+        skill_loader = self._context.skills.skill_loader
         if skill_loader is not None:
             container.skill_loader.override(providers.Object(skill_loader))
 
-        skill_executor = get_skill_executor()
+        skill_executor = self._context.skills.skill_executor
         if skill_executor is not None:
             container.skill_executor.override(providers.Object(skill_executor))
 

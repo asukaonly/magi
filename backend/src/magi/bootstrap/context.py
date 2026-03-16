@@ -76,6 +76,15 @@ class MemoryBootstrapState:
 
 
 @dataclass
+class SkillsBootstrapState:
+    """L7 shared skills runtime state slice."""
+
+    skill_indexer: Any = None
+    skill_loader: Any = None
+    skill_executor: Any = None
+
+
+@dataclass
 class PersonalityBootstrapState:
     """L8 Personality Layer state slice."""
 
@@ -133,6 +142,7 @@ class RuntimeBootstrapContext:
     message_bus: MessageBusBootstrapState = field(default_factory=MessageBusBootstrapState)
     llm: LLMBootstrapState = field(default_factory=LLMBootstrapState)
     memory: MemoryBootstrapState = field(default_factory=MemoryBootstrapState)
+    skills: SkillsBootstrapState = field(default_factory=SkillsBootstrapState)
     personality: PersonalityBootstrapState = field(default_factory=PersonalityBootstrapState)
     context: ContextBootstrapState = field(default_factory=ContextBootstrapState)
     agent_runtime: AgentRuntimeBootstrapState = field(default_factory=AgentRuntimeBootstrapState)

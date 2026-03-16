@@ -13,6 +13,7 @@ from ..events.lifecycle import MessageBusModule
 from ..plugins.lifecycle import PluginSystemModule
 from ..llm.lifecycle import LLMRuntimeModule
 from ..memory.lifecycle import MemoryStoreModule
+from ..skills.lifecycle import SkillsModule
 from ..tools.lifecycle import ToolsModule
 from ..personality.lifecycle import PersonalityModule
 from ..awareness.lifecycle import SensorExecutorModule, ActionScheduleRegistrationModule
@@ -33,17 +34,18 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
     L5  LLMRuntimeModule          - LLM runtime
     L6  MemoryStoreModule         - Memory stores (L0-L5)
     L7  ToolsModule               - Tool integrations
-    L8  PersonalityModule         - Personality layer
-    L9  SensorExecutorModule      - Sensors and actuators
-    L10 ContextModule             - Context/prompt assembly
-    L11 AgentRuntimeModule        - Agent runtime
-    L12 TimelineModule            - Timeline service
-    L13 SchedulerModule           - Scheduler engine
-    L14 AgentScheduleRegistrationModule - Agent schedule registration
-    L15 ActionScheduleRegistrationModule - Action schedule registration
-    L16 TimelineScheduleRegistrationModule - Timeline schedule registration
-    L17 RuntimeExportsModule      - DI container exports
-    L18 OtherDependenciesModule   - Maintenance daemon
+    L8  SkillsModule              - Shared skills lifecycle
+    L9  PersonalityModule         - Personality layer
+    L10 SensorExecutorModule      - Sensors and actuators
+    L11 ContextModule             - Context/prompt assembly
+    L12 AgentRuntimeModule        - Agent runtime
+    L13 TimelineModule            - Timeline service
+    L14 SchedulerModule           - Scheduler engine
+    L15 AgentScheduleRegistrationModule - Agent schedule registration
+    L16 ActionScheduleRegistrationModule - Action schedule registration
+    L17 TimelineScheduleRegistrationModule - Timeline schedule registration
+    L18 RuntimeExportsModule      - DI container exports
+    L19 OtherDependenciesModule   - Maintenance daemon
 
     Args:
         context: The shared bootstrap context containing layer state slices
@@ -59,15 +61,16 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
         LLMRuntimeModule(context),            # L5
         MemoryStoreModule(context),           # L6
         ToolsModule(context),                 # L7
-        PersonalityModule(context),           # L8
-        SensorExecutorModule(context),        # L9
-        ContextModule(context),               # L10
-        AgentRuntimeModule(context),          # L11
-        TimelineModule(context),              # L12
-        SchedulerModule(context),             # L13 (scheduler engine)
-        AgentScheduleRegistrationModule(context),  # L14
-        ActionScheduleRegistrationModule(context),  # L15
-        TimelineScheduleRegistrationModule(context),  # L16
-        RuntimeExportsModule(context),        # L17
-        OtherDependenciesModule(context),     # L18
+        SkillsModule(context),                # L8
+        PersonalityModule(context),           # L9
+        SensorExecutorModule(context),        # L10
+        ContextModule(context),               # L11
+        AgentRuntimeModule(context),          # L12
+        TimelineModule(context),              # L13
+        SchedulerModule(context),             # L14 (scheduler engine)
+        AgentScheduleRegistrationModule(context),  # L15
+        ActionScheduleRegistrationModule(context),  # L16
+        TimelineScheduleRegistrationModule(context),  # L17
+        RuntimeExportsModule(context),        # L18
+        OtherDependenciesModule(context),     # L19
     ]
