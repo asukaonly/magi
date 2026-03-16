@@ -152,3 +152,11 @@ def test_message_bus_service_access_lives_in_events() -> None:
 
     assert get_message_bus.__module__ == "magi.events.service_access"
     assert set_message_bus.__module__ == "magi.events.service_access"
+
+
+def test_current_personality_state_lives_in_personality() -> None:
+    """Verify current personality state access is owned by the personality layer."""
+    from magi.personality.current_state import get_current_personality, set_current_personality
+
+    assert get_current_personality.__module__ == "magi.personality.current_state"
+    assert set_current_personality.__module__ == "magi.personality.current_state"

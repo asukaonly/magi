@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from ..llm_draft import resolve_adapter_for_scenario
 from ..avatar_paths import resolve_avatar_public_url
-from ...runtime.services.personality_state import (
+from ...personality.current_state import (
     get_current_personality as _get_current_personality_service,
     set_current_personality as _set_current_personality_service,
 )

@@ -2,7 +2,7 @@
 
 from .chat_read_service import ChatReadService, get_chat_read_service
 from .chat_trace_read_service import ChatTraceReadService, get_chat_trace_read_service
-from ...runtime.services.personality_state import get_current_personality, set_current_personality
+from ...personality.current_state import get_current_personality, set_current_personality
 from ...events.service_access import get_message_bus, set_message_bus
 from ...runtime.services.skills import (
     ensure_skill_indexer,

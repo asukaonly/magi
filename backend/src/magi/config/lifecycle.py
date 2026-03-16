@@ -24,7 +24,7 @@ class ConfigurationModule(LifecycleModule):
         self._context.core.config = get_config()
         current_personality = "default"
         try:
-            from ..runtime.services.personality_state import get_current_personality
+            from ..personality.current_state import get_current_personality
 
             current_personality = get_current_personality() or "default"
         except Exception as exc:

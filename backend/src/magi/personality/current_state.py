@@ -1,9 +1,9 @@
-"""Current personality state service."""
+"""Current personality selection state access."""
 
 from __future__ import annotations
 
-from ...core.logger import get_logger
-from ...utils.runtime import get_runtime_paths
+from ..core.logger import get_logger
+from ..utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
 
@@ -13,6 +13,7 @@ CURRENT_PERSONALITY_FILE = "current"
 
 def get_current_personality() -> str:
     """Get current personality name from runtime state."""
+
     runtime_paths = get_runtime_paths()
     current_file = runtime_paths.personalities_dir / CURRENT_PERSONALITY_FILE
     if current_file.exists():
@@ -22,6 +23,7 @@ def get_current_personality() -> str:
 
 def set_current_personality(name: str) -> bool:
     """Set current personality name in runtime state."""
+
     runtime_paths = get_runtime_paths()
     current_file = runtime_paths.personalities_dir / CURRENT_PERSONALITY_FILE
     try:
