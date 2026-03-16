@@ -5,9 +5,7 @@ import json
 import re
 from typing import Any
 
-from ....agent import get_unified_memory
 from ....context.builder import Scenario
-from ....memory.hybrid_retrieval import HybridRetrievalService, build_query
 from ....config.models import LLMScenario
 from ...orchestration import WorkerResult
 from ....context.assembler import PromptContextAssembler, PromptContextRenderer
@@ -26,6 +24,7 @@ class ChatPromptService:
         llm_pool=None,
         prompt_context_assembler: PromptContextAssembler,
         prompt_context_renderer: PromptContextRenderer,
+        retrieval_memory_provider,
         memory=None,
         other_memory=None,
     ) -> None:
@@ -35,6 +34,7 @@ class ChatPromptService:
         self._llm_pool = llm_pool
         self._prompt_context_assembler = prompt_context_assembler
         self._prompt_context_renderer = prompt_context_renderer
+        self._retrieval_memory_provider = retrieval_memory_provider
         self._memory = memory
         self._other_memory = other_memory
         self._llm_service = TaskAgentLLMService(
@@ -53,7 +53,7 @@ class ChatPromptService:
         tools: list[str],
         scenario: str = Scenario.CHAT,
     ) -> dict[str, Any]:
-        retrieved_memory_payload = await self._build_retrieved_memory_payload(
+        retrieved_memory_payload = await self._retrieval_memory_provider(
             user_id=user_id,
             session_id=session_id,
             task_category=task_category,
@@ -80,7 +80,7 @@ class ChatPromptService:
         task_category: str,
         scenario: str = Scenario.CHAT,
     ) -> str:
-        retrieved_memory_payload = await self._build_retrieved_memory_payload(
+        retrieved_memory_payload = await self._retrieval_memory_provider(
             user_id=user_id,
             session_id=session_id,
             task_category=task_category,
@@ -324,69 +324,3 @@ class ChatPromptService:
 
     def prefers_chinese_response(self, text: str) -> bool:
         return any("\u4e00" <= char <= "\u9fff" for char in text)
-
-    async def _build_retrieved_memory_payload(
-        self,
-        *,
-        user_id: str,
-        session_id: str | None,
-        task_category: str,
-    ) -> dict[str, Any]:
-        try:
-            unified_memory = get_unified_memory()
-        except Exception:
-            unified_memory = None
-
-        if unified_memory is None:
-            return {
-                "l0_workbench": [],
-                "l2_entity_cards": [],
-                "l3_reflection_memory": [],
-                "l4_procedural_memory": [],
-                "preference_memory": {},
-            }
-
-        retrieval = HybridRetrievalService(unified_memory)
-        detail_payload = await retrieval.query(
-            build_query(
-                query=task_category,
-                user_id=user_id,
-                session_id=session_id,
-                time_range={},
-                query_mode="detail",
-                source_filters=[],
-                domain_filters=[],
-                limit=5,
-            )
-        )
-        summary_payload = await retrieval.query(
-            build_query(
-                query=task_category,
-                user_id=user_id,
-                session_id=session_id,
-                time_range={},
-                query_mode="summary",
-                source_filters=[],
-                domain_filters=[],
-                limit=3,
-            )
-        )
-        experience_payload = await retrieval.query(
-            build_query(
-                query=task_category,
-                user_id=user_id,
-                session_id=session_id,
-                time_range={},
-                query_mode="experience",
-                source_filters=[],
-                domain_filters=[],
-                limit=3,
-            )
-        )
-        return {
-            "l0_workbench": detail_payload.l0_workbench,
-            "l2_entity_cards": detail_payload.l2_entity_cards,
-            "l3_reflection_memory": summary_payload.l3_reflections,
-            "l4_procedural_memory": experience_payload.l4_procedures,
-            "preference_memory": {},
-        }

@@ -2,6 +2,7 @@
 
 from .assembler import PromptContextAssembler, PromptContextRenderer
 from .builder import Scenario
+from .retrieval import ContextRetrievalService
 from .scenario_prompts import (
     DEFAULT_SCENARIO_PROMPTS,
     ScenarioPrompt,
@@ -19,6 +20,7 @@ from .schema import (
 )
 
 __all__ = [
+    "ContextRetrievalService",
     "DEFAULT_SCENARIO_PROMPTS",
     "IdentityConstraintContext",
     "ProfileMemoryContext",

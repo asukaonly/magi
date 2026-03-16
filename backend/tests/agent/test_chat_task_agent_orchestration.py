@@ -460,6 +460,7 @@ def test_chat_prompt_service_formats_dense_explore_render_text() -> None:
         llm_adapter=_FakeLLMAdapter(),
         prompt_context_assembler=None,  # type: ignore[arg-type]
         prompt_context_renderer=None,  # type: ignore[arg-type]
+        retrieval_memory_provider=None,
     )
 
     raw = "第一段总览。1. 项目概况与布局整体说明2. 技术栈说明- FastAPI- React3. 总结"

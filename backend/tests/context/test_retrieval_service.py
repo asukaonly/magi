@@ -8,7 +8,7 @@ from magi.context.retrieval import ContextRetrievalService
 
 class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
     async def test_build_retrieved_memory_payload_queries_hybrid_retrieval(self) -> None:
-        service = ContextRetrievalService()
+        service = ContextRetrievalService(unified_memory=object())
 
         detail_payload = type(
             "Payload",
@@ -41,17 +41,16 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
             },
         )()
 
-        with patch("magi.context.retrieval.get_unified_memory", return_value=object()):
-            with patch("magi.context.retrieval.HybridRetrievalService") as service_cls:
-                service_cls.return_value.query = AsyncMock(
-                    side_effect=[detail_payload, summary_payload, experience_payload]
-                )
+        with patch("magi.context.retrieval.HybridRetrievalService") as service_cls:
+            service_cls.return_value.query = AsyncMock(
+                side_effect=[detail_payload, summary_payload, experience_payload]
+            )
 
-                payload = await service.build_retrieved_memory_payload(
-                    user_id="u1",
-                    session_id="s1",
-                    task_category="chat",
-                )
+            payload = await service.build_retrieved_memory_payload(
+                user_id="u1",
+                session_id="s1",
+                task_category="chat",
+            )
 
         self.assertEqual(payload["l0_workbench"][0]["summary"], "Current goal")
         self.assertEqual(payload["l2_entity_cards"][0]["entity_id"], "user:u1")

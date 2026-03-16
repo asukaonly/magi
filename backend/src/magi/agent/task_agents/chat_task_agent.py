@@ -10,7 +10,7 @@ from ...core.logger import get_logger
 from ...core.runtime.contracts import FactRecord
 from ...core.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
 from ...core.runtime.types import TaskAgentType
-from ...context.assembler import PromptContextAssembler, PromptContextRenderer
+from ...context import ContextRetrievalService, PromptContextAssembler, PromptContextRenderer
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry
 from ...utils.runtime import get_runtime_paths
@@ -75,6 +75,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             scenario_prompts_store=scenario_prompts_store,
         )
         self.prompt_context_renderer = PromptContextRenderer()
+        self._context_retrieval_service = ContextRetrievalService(unified_memory=unified_memory)
 
         runtime_paths = get_runtime_paths()
         self._session_service = ChatSessionService(
@@ -91,6 +92,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             llm_pool=llm_pool,
             prompt_context_assembler=self.prompt_context_assembler,
             prompt_context_renderer=self.prompt_context_renderer,
+            retrieval_memory_provider=self._context_retrieval_service.build_retrieved_memory_payload,
             memory=memory,
             other_memory=other_memory,
         )
