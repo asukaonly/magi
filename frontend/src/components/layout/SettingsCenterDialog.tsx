@@ -9,7 +9,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { SettingsPage, type SettingsPageHandle } from '@/types/settings';
+import { SettingsPage } from '@/pages/Settings';
+import type { SettingsPageHandle } from '@/types/settings';
 
 interface SettingsCenterDialogProps {
   open: boolean;
