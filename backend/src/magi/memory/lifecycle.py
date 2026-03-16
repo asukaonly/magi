@@ -1,0 +1,83 @@
+"""L6 Memory Layer lifecycle module."""
+
+from __future__ import annotations
+
+from ..bootstrap.lifecycle import LifecycleModule
+from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
+from ..core.logger import get_logger
+from ..llm.usage_events import configure_llm_usage_event_publisher
+from ..llm import get_llm_usage_store
+from . import UnifiedMemoryStore
+from .integration import MemoryIntegrationConfig, MemoryIntegrationModule
+
+logger = get_logger(__name__)
+
+
+class MemoryStoreModule(LifecycleModule):
+    """Initialize persistence, memory stores, usage metrics, and memory integration (L6)."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_memory",
+            dependencies=("runtime_llm", "runtime_message_bus", "runtime_configuration", "runtime_core_dependencies"),
+        )
+        self._context = context
+
+    async def init(self) -> None:
+        config = require_initialized(self._context.core.config, "runtime config")
+        runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+
+        await self._context.core.db_initializer.insert_default_data(persona_name=self._context.core.current_personality)
+
+        configure_llm_usage_event_publisher(message_bus)
+        self._context.llm.llm_usage_store = get_llm_usage_store()
+        await self._context.llm.llm_usage_store.start(message_bus)
+        logger.info("LLM usage store started")
+
+        self._context.memory.unified_memory = UnifiedMemoryStore(
+            l1_db_path=str(runtime_paths.l1_memory_db_path),
+            memory_db_path=str(runtime_paths.memory_db_path),
+            persist_dir=str(runtime_paths.memories_dir),
+            enable_l0=config.agent.memory.enable_l0,
+            enable_l1=config.agent.memory.enable_l1,
+            enable_l2=config.agent.memory.enable_l2,
+            enable_l3=config.agent.memory.enable_l3,
+            enable_l4=config.agent.memory.enable_l4,
+            l0_checkpoint_interval_seconds=config.agent.memory.l0_checkpoint_interval_seconds,
+        )
+        await self._context.memory.unified_memory.initialize()
+        logger.info("UnifiedMemoryStore initialized (L0-L4)")
+
+        memory_integration_config = MemoryIntegrationConfig(
+            enable_l0=config.agent.memory.enable_l0,
+            enable_l1=config.agent.memory.enable_l1,
+            enable_l2=config.agent.memory.enable_l2,
+            enable_l3=config.agent.memory.enable_l3,
+            enable_l4=config.agent.memory.enable_l4,
+            enable_l1_raw=config.agent.memory.enable_l1,
+            enable_l2_relations=config.agent.memory.enable_l2,
+            enable_l3_embeddings=config.agent.memory.enable_l3,
+            enable_l4_summaries=config.agent.memory.enable_l3,
+            enable_l5_capabilities=config.agent.memory.enable_l4,
+            summary_interval_minutes=config.agent.memory.summary_interval_minutes,
+        )
+        self._context.memory.memory_integration = MemoryIntegrationModule(
+            unified_memory=self._context.memory.unified_memory,
+            message_bus=message_bus,
+            config=memory_integration_config,
+        )
+        await self._context.memory.memory_integration.start()
+        logger.info("MemoryIntegrationModule started")
+
+    async def shutdown(self) -> None:
+        if self._context.memory.memory_integration is not None:
+            await self._context.memory.memory_integration.stop()
+            self._context.memory.memory_integration = None
+
+        if self._context.llm.llm_usage_store is not None:
+            await self._context.llm.llm_usage_store.stop()
+            self._context.llm.llm_usage_store = None
+        configure_llm_usage_event_publisher(None)
+
+        self._context.memory.unified_memory = None

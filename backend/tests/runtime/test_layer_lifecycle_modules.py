@@ -53,3 +53,40 @@ def test_bootstrap_builds_expected_front_of_layer_order() -> None:
         "runtime_message_bus",
         "runtime_plugin_system",
     ]
+
+
+def test_capability_and_memory_layers_own_their_lifecycle_modules() -> None:
+    """Verify capability and memory layers own their lifecycle modules."""
+    from magi.context.lifecycle import ContextModule
+    from magi.llm.lifecycle import LLMRuntimeModule
+    from magi.memory.lifecycle import MemoryStoreModule
+    from magi.personality.lifecycle import PersonalityModule
+    from magi.tools.lifecycle import ToolsModule
+
+    assert LLMRuntimeModule.__module__ == "magi.llm.lifecycle"
+    assert ToolsModule.__module__ == "magi.tools.lifecycle"
+    assert MemoryStoreModule.__module__ == "magi.memory.lifecycle"
+    assert PersonalityModule.__module__ == "magi.personality.lifecycle"
+    assert ContextModule.__module__ == "magi.context.lifecycle"
+
+
+def test_bootstrap_builds_expected_middle_layer_order() -> None:
+    """Verify bootstrap builds lifecycle modules through context layer."""
+    from magi.bootstrap.builder import build_runtime_modules
+    from magi.bootstrap.context import RuntimeBootstrapContext
+
+    modules = build_runtime_modules(RuntimeBootstrapContext())
+
+    # Check that modules 0-9 match expected order
+    assert [module.name for module in modules[:10]] == [
+        "runtime_core_dependencies",
+        "runtime_configuration",
+        "runtime_message_bus",
+        "runtime_plugin_system",
+        "runtime_llm",
+        "runtime_memory",
+        "runtime_tools",
+        "runtime_personality",
+        "runtime_sensor_executor",
+        "runtime_context",
+    ]
