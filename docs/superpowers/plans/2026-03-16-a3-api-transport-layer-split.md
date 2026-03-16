@@ -1,5 +1,21 @@
 # A3 API And Transport Layer Split Implementation Plan
 
+**Status:** Completed on 2026-03-16
+
+**Completed commits:**
+- `c3a9dc6` `test: cover transport layer ownership`
+- `b866464` `refactor: move websocket transport into transport layer`
+- `85f5586` `refactor: move websocket bridge lifecycle to transport`
+- `2b34cbf` `refactor: move http app assembly to transport layer`
+- `d881249` `refactor: finalize api and transport split`
+
+**Implementation result:** `api/` now owns external-service concerns only: routers, responses, route registration, and API-side service adapters. The real transport surface now lives under `websocket/`, including the FastAPI app factory, HTTP middleware, native WebSocket connection management, transport message handlers, and the event-bus bridge lifecycle.
+
+**As-built deltas from the original plan:**
+- `backend/src/magi/api/routes.py` was introduced during the first transport migration commit, before the HTTP app factory cutover, so ownership tests could validate `api/` without waiting for the larger Task 4 move.
+- `backend/tests/api/test_personality_presets_router.py` remained under `tests/api/` because it still verifies an API-facing behavior, even though it now boots the transport-layer app factory.
+- `backend/src/magi/api/avatar_paths.py` intentionally stayed in `api/` for now because it still produces product-facing avatar URLs consumed by API responses; A3 did not need to move it to complete the L13/L14 split.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Separate `L13 External Services` from `L14 Connection And Transport` so `api/` only owns product-facing service endpoints while HTTP/WebSocket transport concerns live under `websocket/`.
@@ -421,4 +437,6 @@ After the last task, run the full A3 regression suite once more:
 Run: `cd /Users/asuka/code/magi/backend && PYTHONPATH=src pytest tests/websocket/test_transport_layer_boundaries.py tests/websocket/test_connection_manager.py tests/websocket/test_bridge_lifecycle.py tests/websocket/test_http_app.py tests/api/test_personality_presets_router.py -q`
 Expected: PASS
 
-Plan complete and saved to `docs/superpowers/plans/2026-03-16-a3-api-transport-layer-split.md`. Ready to execute?
+**Actual verification result:** PASS (`10 passed`).
+
+Plan complete and saved to `docs/superpowers/plans/2026-03-16-a3-api-transport-layer-split.md`.
