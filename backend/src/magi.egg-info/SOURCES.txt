@@ -105,14 +105,12 @@ src/magi/context/scenarios.py
 src/magi/context/scenario_prompts.py
 src/magi/context/schema.py
 src/magi/core/__init__.py
-src/magi/core/agent.py
 src/magi/core/container.py
 src/magi/core/database_initializer.py
 src/magi/core/lifecycle.py
 src/magi/core/logger.py
 src/magi/core/maintenance.py
 src/magi/core/runtime_bindings.py
-src/magi/core/task_database.py
 src/magi/core/runtime/__init__.py
 src/magi/core/runtime/agent_runtime.py
 src/magi/core/runtime/contracts.py

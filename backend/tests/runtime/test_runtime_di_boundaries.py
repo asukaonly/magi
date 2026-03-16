@@ -188,3 +188,23 @@ def test_backend_app_does_not_forward_websocket_bridge_retry_default() -> None:
     assert "WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS" not in backend_app_source
     assert "retry_interval_seconds=" not in backend_app_source
     assert "WebSocketBridgeLifecycleModule(app)" in backend_app_source
+
+
+def test_core_package_does_not_export_legacy_agent_or_task_database() -> None:
+    core_init = (BACKEND_SRC / "core/__init__.py").read_text(encoding="utf-8")
+
+    assert "from .agent import Agent, AgentConfig, AgentState" not in core_init
+    assert "from .task_database import" not in core_init
+    assert '"Agent"' not in core_init
+    assert '"AgentConfig"' not in core_init
+    assert '"AgentState"' not in core_init
+    assert '"TaskDatabase"' not in core_init
+    assert '"Task"' not in core_init
+    assert '"TaskStatus"' not in core_init
+    assert '"TaskPriority"' not in core_init
+    assert '"AgentRuntime"' in core_init
+
+
+def test_legacy_core_agent_and_task_database_files_are_removed() -> None:
+    assert not (BACKEND_SRC / "core/agent.py").exists()
+    assert not (BACKEND_SRC / "core/task_database.py").exists()
