@@ -100,3 +100,16 @@ def test_agent_execution_package_uses_function_calling_orchestrator_name() -> No
     assert "FunctionCallingExecutor" not in chat_agent_source
     assert "FunctionCallingExecutor" not in worker_manager_source
     assert "FunctionCallingOrchestrator" in execution_init
+
+
+def test_skills_package_uses_skill_runner_name() -> None:
+    skills_init = (BACKEND_SRC / "skills/__init__.py").read_text(encoding="utf-8")
+    skills_source = (BACKEND_SRC / "skills/executor.py").read_text(encoding="utf-8")
+    skills_service_access = (BACKEND_SRC / "skills/service_access.py").read_text(encoding="utf-8")
+    tools_init = (BACKEND_SRC / "tools/__init__.py").read_text(encoding="utf-8")
+
+    assert "SkillExecutor" not in skills_init
+    assert "class SkillExecutor" not in skills_source
+    assert "SkillExecutor" not in skills_service_access
+    assert "SkillExecutor" not in tools_init
+    assert "SkillRunner" in skills_init
