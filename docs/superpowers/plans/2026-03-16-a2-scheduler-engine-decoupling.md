@@ -1,5 +1,22 @@
 # A2 Scheduler Engine Decoupling Implementation Plan
 
+**Status:** Completed on 2026-03-16
+
+**Completed commits:**
+- `e375999` `refactor: reduce scheduler to engine layer`
+- `c91798f` `refactor: move agent schedule registration to agent layer`
+- `4b34731` `refactor: move action schedule registration to awareness`
+- `110f777` `refactor: move timeline schedule registration to timeline`
+- `41a997c` `refactor: finalize scheduler engine decoupling`
+
+**Implementation result:** `scheduler/` now only owns engine startup, persistence, runtime service exposure, and generic scheduling contracts. Domain-owned registration has moved to the owning layers: `agent` owns `AGENT_TASK`, `awareness` owns `ACTION_DISPATCH`, and `timeline` owns timeline sync registration plus schedule refresh.
+
+**As-built deltas from the original plan:**
+- `backend/src/magi/agent/scheduler_contrib.py` did not need a functional change. Ownership moved by introducing `AgentScheduleRegistrationModule` in `agent/lifecycle.py`, while the existing contributor implementation remained valid.
+- `backend/src/magi/core/runtime/action_scheduler_contrib.py` also did not need a functional change. Ownership moved by introducing `ActionScheduleRegistrationModule` in `awareness/lifecycle.py`.
+- `backend/tests/scheduler/test_scheduler_bootstrap.py` was deleted and replaced by owner-specific lifecycle coverage in `backend/tests/timeline/test_timeline_scheduler_lifecycle.py`, together with the existing API regression coverage in `backend/tests/api/test_timeline_api.py`.
+- `backend/tests/scheduler/test_scheduler_service.py` did not require code changes during the final cleanup because it already covered engine-level scheduler behavior and remained valid as regression coverage.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reduce `scheduler/` to a pure engine layer that only starts the scheduler service and exposes engine-level contracts, while timeline, agent, and action layers register their own handlers and schedules from their owning packages.
@@ -439,4 +456,6 @@ After the last task, run the full scheduler-adjacent regression set once more:
 Run: `cd /Users/asuka/code/magi/backend && PYTHONPATH=src pytest tests/runtime/test_layer_lifecycle_modules.py tests/scheduler/test_scheduler_runtime.py tests/scheduler/test_scheduler_service.py tests/timeline/test_timeline_scheduler_lifecycle.py tests/api/test_timeline_api.py tests/agent/test_agent_scheduler_lifecycle.py tests/awareness/test_action_scheduler_lifecycle.py -q`
 Expected: PASS
 
-Plan complete and saved to `docs/superpowers/plans/2026-03-16-a2-scheduler-engine-decoupling.md`. Ready to execute?
+**Actual verification result:** PASS (`37 passed`).
+
+Plan complete and saved to `docs/superpowers/plans/2026-03-16-a2-scheduler-engine-decoupling.md`.
