@@ -78,6 +78,50 @@ export interface L2Assertion {
   last_validated_at: number;
 }
 
+export interface L2Entity {
+  entity_id: string;
+  canonical_name: string;
+  entity_type: string;
+  aliases: string[];
+}
+
+export interface L2Mention {
+  mention_id: number;
+  mention_text: string;
+  normalized_surface?: string;
+  entity_type?: string;
+  evidence_event_ids?: string[];
+  evidence_text?: string | null;
+  resolved_entity_id?: string | null;
+  confidence?: number | null;
+}
+
+export interface L2Snapshot {
+  snapshot_id: string;
+  entity_id: string;
+  entity_type: string;
+  core_traits: Record<string, unknown>;
+  preferences: Record<string, unknown>;
+  relationship_topology?: Record<string, unknown>;
+  current_stress_level?: number;
+  current_mood?: string | null;
+  current_engagement?: number;
+}
+
+export interface ManualL2EventPayload {
+  text: string;
+  user_id: string;
+  session_id?: string;
+  source?: string;
+  entity_focus_hint?: string;
+}
+
+export interface L2QueuedActionResponse {
+  queued: boolean;
+  event_id?: string;
+  entity_ids?: string[];
+}
+
 // L3 Summary Types
 export interface L3Summary {
   summary_id: string;
@@ -151,6 +195,20 @@ export const memoryApi = {
     api.get<L2Relation[]>('/memory/l2/relations', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Relation[]>,
   getL2Assertions: (limit?: number) =>
     api.get<L2Assertion[]>('/memory/l2/assertions', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Assertion[]>,
+  getL2Entities: (limit?: number) =>
+    api.get<L2Entity[]>('/memory/l2/entities', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Entity[]>,
+  getL2Mentions: (limit?: number) =>
+    api.get<L2Mention[]>('/memory/l2/mentions', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Mention[]>,
+  getL2Snapshots: (limit?: number) =>
+    api.get<L2Snapshot[]>('/memory/l2/snapshots', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Snapshot[]>,
+  createManualL2Event: (payload: ManualL2EventPayload) =>
+    api.post<L2QueuedActionResponse>('/memory/l2/manual-event', payload) as unknown as Promise<L2QueuedActionResponse>,
+  replayL2Extraction: (eventId: string) =>
+    api.post<L2QueuedActionResponse>(`/memory/l2/extract/${eventId}`) as unknown as Promise<L2QueuedActionResponse>,
+  reconcileL2Entities: (entityIds: string[]) =>
+    api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds }) as unknown as Promise<L2QueuedActionResponse>,
+  refreshL2Snapshots: (entityIds: string[]) =>
+    api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds }) as unknown as Promise<L2QueuedActionResponse>,
 
   // L3 Reflection
   getL3Summaries: (params?: { limit?: number; summary_type?: string }) =>

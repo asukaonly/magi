@@ -18,6 +18,10 @@ import type {
   L1Event,
   L2Relation,
   L2Assertion,
+  L2Entity,
+  L2Mention,
+  L2Snapshot,
+  ManualL2EventPayload,
   L3Summary,
   L4Skill,
   MemoryStatistics,
@@ -46,6 +50,14 @@ export interface UseMemoryReturn {
   // L2 data
   l2Relations: L2Relation[];
   l2Assertions: L2Assertion[];
+  l2Entities: L2Entity[];
+  l2Mentions: L2Mention[];
+  l2Snapshots: L2Snapshot[];
+  l2ActionLoading: boolean;
+  submitManualL2Event: (payload: ManualL2EventPayload) => Promise<void>;
+  replayL2Extraction: (eventId: string) => Promise<void>;
+  runL2Reconcile: (entityIds: string[]) => Promise<void>;
+  runL2SnapshotRefresh: (entityIds: string[]) => Promise<void>;
 
   // L3 data
   l3Summaries: L3Summary[];
@@ -105,6 +117,10 @@ export function useMemory(): UseMemoryReturn {
   // L2 data
   const [l2Relations, setL2Relations] = useState<L2Relation[]>([]);
   const [l2Assertions, setL2Assertions] = useState<L2Assertion[]>([]);
+  const [l2Entities, setL2Entities] = useState<L2Entity[]>([]);
+  const [l2Mentions, setL2Mentions] = useState<L2Mention[]>([]);
+  const [l2Snapshots, setL2Snapshots] = useState<L2Snapshot[]>([]);
+  const [l2ActionLoading, setL2ActionLoading] = useState(false);
 
   // L3 data
   const [l3Summaries, setL3Summaries] = useState<L3Summary[]>([]);
@@ -164,16 +180,97 @@ export function useMemory(): UseMemoryReturn {
 
   const loadL2Data = useCallback(async () => {
     try {
-      const [relations, assertions] = await Promise.all([
+      const [relations, assertions, entities, mentions, snapshots] = await Promise.all([
         memoryApi.getL2Relations(100),
         memoryApi.getL2Assertions(100),
+        memoryApi.getL2Entities(100),
+        memoryApi.getL2Mentions(100),
+        memoryApi.getL2Snapshots(100),
       ]);
       setL2Relations(relations);
       setL2Assertions(assertions);
+      setL2Entities(entities);
+      setL2Mentions(mentions);
+      setL2Snapshots(snapshots);
     } catch (error) {
       console.error('Failed to load L2 data:', error);
     }
   }, []);
+
+  const refreshL2Lab = useCallback(async () => {
+    await Promise.all([loadStatistics(), loadL1Events(), loadL2Data()]);
+  }, [loadStatistics, loadL1Events, loadL2Data]);
+
+  const submitManualL2Event = useCallback(
+    async (payload: ManualL2EventPayload) => {
+      setL2ActionLoading(true);
+      try {
+        await memoryApi.createManualL2Event(payload);
+        await refreshL2Lab();
+        toast.success(t('memory.l2.lab.manualEventQueued'));
+      } catch (error) {
+        console.error('Failed to queue manual L2 event:', error);
+        toast.error(t('memory.l2.lab.actionFailed'));
+      } finally {
+        setL2ActionLoading(false);
+      }
+    },
+    [refreshL2Lab, t]
+  );
+
+  const replayL2Extraction = useCallback(
+    async (eventId: string) => {
+      if (!eventId) return;
+      setL2ActionLoading(true);
+      try {
+        await memoryApi.replayL2Extraction(eventId);
+        await refreshL2Lab();
+        toast.success(t('memory.l2.lab.replayQueued'));
+      } catch (error) {
+        console.error('Failed to replay L2 extraction:', error);
+        toast.error(t('memory.l2.lab.actionFailed'));
+      } finally {
+        setL2ActionLoading(false);
+      }
+    },
+    [refreshL2Lab, t]
+  );
+
+  const runL2Reconcile = useCallback(
+    async (entityIds: string[]) => {
+      if (entityIds.length === 0) return;
+      setL2ActionLoading(true);
+      try {
+        await memoryApi.reconcileL2Entities(entityIds);
+        await refreshL2Lab();
+        toast.success(t('memory.l2.lab.reconcileQueued'));
+      } catch (error) {
+        console.error('Failed to queue L2 reconcile:', error);
+        toast.error(t('memory.l2.lab.actionFailed'));
+      } finally {
+        setL2ActionLoading(false);
+      }
+    },
+    [refreshL2Lab, t]
+  );
+
+  const runL2SnapshotRefresh = useCallback(
+    async (entityIds: string[]) => {
+      if (entityIds.length === 0) return;
+      setL2ActionLoading(true);
+      try {
+        await memoryApi.refreshL2Snapshots(entityIds);
+        await refreshL2Lab();
+        toast.success(t('memory.l2.lab.snapshotQueued'));
+      } catch (error) {
+        console.error('Failed to queue L2 snapshot refresh:', error);
+        toast.error(t('memory.l2.lab.actionFailed'));
+      } finally {
+        setL2ActionLoading(false);
+      }
+    },
+    [refreshL2Lab, t]
+  );
 
   const loadL3Summaries = useCallback(async () => {
     try {
@@ -339,6 +436,14 @@ export function useMemory(): UseMemoryReturn {
     // L2 data
     l2Relations,
     l2Assertions,
+    l2Entities,
+    l2Mentions,
+    l2Snapshots,
+    l2ActionLoading,
+    submitManualL2Event,
+    replayL2Extraction,
+    runL2Reconcile,
+    runL2SnapshotRefresh,
 
     // L3 data
     l3Summaries,

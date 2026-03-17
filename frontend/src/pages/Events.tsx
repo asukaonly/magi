@@ -38,6 +38,14 @@ const EventsPage: React.FC = () => {
     l1Events,
     l2Relations,
     l2Assertions,
+    l2Entities,
+    l2Mentions,
+    l2Snapshots,
+    l2ActionLoading,
+    submitManualL2Event,
+    replayL2Extraction,
+    runL2Reconcile,
+    runL2SnapshotRefresh,
     l3Summaries,
     l4Skills,
     searchQuery,
@@ -127,7 +135,20 @@ const EventsPage: React.FC = () => {
           {loading ? (
             <LoadingSpinner />
           ) : (
-            <L2Tab stats={stats.l2} relations={l2Relations} assertions={l2Assertions} />
+            <L2Tab
+              stats={stats.l2}
+              relations={l2Relations}
+              assertions={l2Assertions}
+              entities={l2Entities}
+              mentions={l2Mentions}
+              snapshots={l2Snapshots}
+              events={l1Events}
+              actionLoading={l2ActionLoading}
+              onSubmitManualEvent={submitManualL2Event}
+              onReplayExtraction={replayL2Extraction}
+              onRunReconcile={runL2Reconcile}
+              onRunSnapshotRefresh={runL2SnapshotRefresh}
+            />
           )}
         </TabsContent>
         <TabsContent value="l3" className="mt-4">
