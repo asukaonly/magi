@@ -3,12 +3,15 @@ structured Logging System - Based on structlog
 """
 from datetime import datetime
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 from typing import Any
 import structlog
 from pathlib import Path
 
 _LOGGING_CONFIGURED = False
+DEFAULT_LOG_FILE_MAX_BYTES = 100 * 1024 * 1024
+DEFAULT_LOG_FILE_BACKUP_COUNT = 10
 
 
 def _format_log_event(logger, method_name, event_dict):
@@ -129,7 +132,12 @@ def configure_logging(
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=DEFAULT_LOG_FILE_MAX_BYTES,
+            backupCount=DEFAULT_LOG_FILE_BACKUP_COUNT,
+            encoding="utf-8",
+        )
         file_handler.setLevel(log_level)
         file_handler.setFormatter(
             _build_processor_formatter(shared_processors=shared_processors, json_logs=json_logs)
