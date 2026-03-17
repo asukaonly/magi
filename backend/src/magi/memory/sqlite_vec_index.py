@@ -147,7 +147,13 @@ class SqliteVecIndex:
             )
             await db.commit()
 
-    async def search(self, *, embedding: EmbeddingResult, limit: int) -> list[VectorSearchHit]:
+    async def search(
+        self,
+        *,
+        embedding: EmbeddingResult,
+        limit: int,
+        max_distance: float | None = None,
+    ) -> list[VectorSearchHit]:
         await self.initialize()
         vec_table = self._vec_table_name(embedding.model_name, embedding.dimension)
         async with self._db_lock:
@@ -155,10 +161,14 @@ class SqliteVecIndex:
             if not await self._table_exists(db, vec_table):
                 return []
 
-            async with db.execute(
-                f'SELECT rowid, distance FROM "{vec_table}" WHERE embedding MATCH ? ORDER BY distance LIMIT ?',
-                (sqlite_vec.serialize_float32(embedding.vector), int(limit)),
-            ) as cursor:
+            if max_distance is not None:
+                sql = f'SELECT rowid, distance FROM "{vec_table}" WHERE embedding MATCH ? AND distance < ? ORDER BY distance LIMIT ?'
+                params = (sqlite_vec.serialize_float32(embedding.vector), float(max_distance), int(limit))
+            else:
+                sql = f'SELECT rowid, distance FROM "{vec_table}" WHERE embedding MATCH ? ORDER BY distance LIMIT ?'
+                params = (sqlite_vec.serialize_float32(embedding.vector), int(limit))
+
+            async with db.execute(sql, params) as cursor:
                 vector_rows = await cursor.fetchall()
 
             if not vector_rows:
