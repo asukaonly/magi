@@ -748,6 +748,11 @@ class L1EventStore:
             entity_focus_hint = structured_payload.get("entity_focus_hint")
         if not entity_focus_hint and isinstance(metadata, dict):
             entity_focus_hint = metadata.get("entity_focus_hint")
+        derived_from_event_ids: list[str] = []
+        if isinstance(metadata, dict):
+            raw_derived = metadata.get("derived_from_event_ids")
+            if isinstance(raw_derived, list):
+                derived_from_event_ids = [text for item in raw_derived if (text := str(item).strip())]
 
         return MemoryEvent(
             event_id=str(row["event_id"]),
@@ -777,6 +782,11 @@ class L1EventStore:
             level=int(row["level"]),
             media_path=row["media_path"],
             entity_focus_hint=str(entity_focus_hint).strip() if entity_focus_hint else None,
+            speaker_role=str(metadata.get("speaker_role")).strip() if isinstance(metadata, dict) and metadata.get("speaker_role") else None,
+            grounding_type=str(metadata.get("grounding_type")).strip() if isinstance(metadata, dict) and metadata.get("grounding_type") else None,
+            derived_from_event_ids=derived_from_event_ids,
+            semantic_owner_hint=str(metadata.get("semantic_owner_hint")).strip() if isinstance(metadata, dict) and metadata.get("semantic_owner_hint") else None,
+            originality_type=str(metadata.get("originality_type")).strip() if isinstance(metadata, dict) and metadata.get("originality_type") else None,
         )
 
 
