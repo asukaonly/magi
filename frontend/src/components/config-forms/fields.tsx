@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import { Check, ChevronDown } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 
 interface OptionItem {
   label: string;
@@ -30,7 +31,11 @@ export function SelectField({
   menuClassName?: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const [openUpward, setOpenUpward] = useState(false);
   // Case-insensitive matching for selected option
   const selectedOption = options.find(
     (opt) => opt.value.toLowerCase() === (value || '').toLowerCase()
@@ -38,7 +43,10 @@ export function SelectField({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedTrigger = rootRef.current?.contains(target);
+      const clickedMenu = menuRef.current?.contains(target);
+      if (!clickedTrigger && !clickedMenu) {
         setOpen(false);
       }
     };
@@ -46,14 +54,63 @@ export function SelectField({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useLayoutEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const updateMenuPosition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) {
+        return;
+      }
+
+      const rect = trigger.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const padding = 8;
+      const sideOffset = 4;
+      const preferredMaxHeight = 240;
+
+      const availableBelow = viewportHeight - rect.bottom - padding - sideOffset;
+      const availableAbove = rect.top - padding - sideOffset;
+      const shouldOpenUpward = availableBelow < 160 && availableAbove > availableBelow;
+      const availableHeight = shouldOpenUpward ? availableAbove : availableBelow;
+      const maxHeight = Math.max(120, Math.min(preferredMaxHeight, availableHeight));
+
+      const width = Math.min(rect.width, viewportWidth - padding * 2);
+      const left = Math.max(padding, Math.min(rect.left, viewportWidth - padding - width));
+
+      setOpenUpward(shouldOpenUpward);
+      setMenuStyle({
+        position: 'fixed',
+        left,
+        width,
+        maxHeight,
+        zIndex: 1000,
+        top: shouldOpenUpward ? rect.top - sideOffset : rect.bottom + sideOffset,
+        transform: shouldOpenUpward ? 'translateY(-100%)' : undefined,
+      });
+    };
+
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [open]);
+
   const handleSelect = (optValue: string) => {
     onChange?.(optValue);
     setOpen(false);
   };
 
   return (
-    <div ref={ref} className={cn('relative', className)}>
+    <div ref={rootRef} className={cn('relative', className)}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
@@ -70,44 +127,50 @@ export function SelectField({
       </button>
 
       {open && (
-        <div
-          className={cn(
-            'absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border border-border bg-background shadow-[0_12px_24px_rgba(15,23,42,0.08)]',
-            menuClassName
-          )}
-        >
-          {allowEmpty && (
-            <button
-              type="button"
-              onClick={() => handleSelect('')}
-              className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/50"
-            >
-              <span className="text-muted-foreground">{placeholder}</span>
-              {!value && <Check className="h-4 w-4 text-primary-600" />}
-            </button>
-          )}
-          {options.map((opt) => (
-            <button
-              type="button"
-              key={opt.value}
-              onClick={() => {
-                if (!opt.disabled) {
-                  handleSelect(opt.value);
-                }
-              }}
-              disabled={opt.disabled}
-              className={cn(
-                'flex w-full items-center justify-between px-3 py-2 text-sm',
-                opt.disabled
-                  ? 'cursor-not-allowed text-muted-foreground/60'
-                  : 'hover:bg-muted/50'
-              )}
-            >
-              <span>{opt.label}</span>
-              {value === opt.value && <Check className="h-4 w-4 text-primary-600" />}
-            </button>
-          ))}
-        </div>
+        createPortal(
+          <div
+            ref={menuRef}
+            style={menuStyle}
+            className={cn(
+              'overflow-auto rounded-md border border-border bg-background shadow-[0_12px_24px_rgba(15,23,42,0.08)]',
+              openUpward ? 'origin-bottom' : 'origin-top',
+              menuClassName
+            )}
+          >
+            {allowEmpty && (
+              <button
+                type="button"
+                onClick={() => handleSelect('')}
+                className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/50"
+              >
+                <span className="text-muted-foreground">{placeholder}</span>
+                {!value && <Check className="h-4 w-4 text-primary-600" />}
+              </button>
+            )}
+            {options.map((opt) => (
+              <button
+                type="button"
+                key={opt.value}
+                onClick={() => {
+                  if (!opt.disabled) {
+                    handleSelect(opt.value);
+                  }
+                }}
+                disabled={opt.disabled}
+                className={cn(
+                  'flex w-full items-center justify-between px-3 py-2 text-sm',
+                  opt.disabled
+                    ? 'cursor-not-allowed text-muted-foreground/60'
+                    : 'hover:bg-muted/50'
+                )}
+              >
+                <span>{opt.label}</span>
+                {value === opt.value && <Check className="h-4 w-4 text-primary-600" />}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )
       )}
     </div>
   );
