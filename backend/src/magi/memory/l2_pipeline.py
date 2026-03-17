@@ -16,7 +16,14 @@ from .l2_cognition_store import L2CognitionStore
 from .l2_evidence_classifier import classify_event_evidence
 from .l2_evidence_policy import resolve_l2_policy
 from .l2_entity_catalog import L2EntityCatalog
+from .l2_extraction_profiles import ExtractionProfile, resolve_extraction_profile
 from .l2_llm_service import L2LLMService
+from .l2_ontology import (
+    coerce_unknown_entity_type,
+    is_leaf_fact_duplicate,
+    validate_assertion_candidate,
+    validate_graph_candidate,
+)
 
 _POSITIVE_PREFERENCE_MARKERS = (" like ", " likes ", "喜欢", "love ", "loves ")
 _NEGATIVE_PREFERENCE_MARKERS = (" dislike ", " dislikes ", "不喜欢", "do not like", "don't like")
@@ -325,53 +332,69 @@ class L2Pipeline:
 
         context_texts = (
             await self._load_context_texts(stored_event)
-            if policy.allow_entity_extraction or policy.allow_assertion_write
+            if policy.allow_entity_extraction or policy.allow_assertion_write or policy.allow_graph_write
             else []
+        )
+        extraction_profile = resolve_extraction_profile(stored_event)
+        unified_result = await self._llm_service.extract_unified_candidates(
+            event_window={
+                "event_ids": [stored_event.event_id],
+                "texts": [stored_event.raw_content],
+                "context_texts": context_texts,
+            },
+            profile=extraction_profile,
+            focal_subject={
+                "entity_ref": f"user:{stored_event.user_id}" if stored_event.user_id else None,
+                "entity_type": "user" if stored_event.user_id else None,
+            },
+        )
+
+        raw_mentions = (
+            list(stored_event.structured_entity_hints)
+            if stored_event.structured_entity_hints
+            else list(unified_result.get("mentions", []))
         )
         resolved_mentions: list[dict[str, Any]] = []
         if policy.allow_entity_extraction:
-            mentions = await self._llm_service.extract_entity_mentions(
-                event_text=stored_event.raw_content,
-                context_texts=context_texts,
-            )
-            resolved_mentions = await self._resolve_mentions(stored_event, mentions)
+            resolved_mentions = await self._resolve_mentions(stored_event, raw_mentions)
             logger.debug(
                 "L2 mentions resolved",
                 event_id=stored_event.event_id,
-                mention_count=len(mentions),
+                profile_id=extraction_profile.profile_id,
+                mention_count=len(raw_mentions),
                 resolved_mention_count=len(resolved_mentions),
             )
 
-        graph_candidates: list[dict[str, Any]] = []
-        if policy.allow_graph_write and policy.graph_scope == "full":
+        graph_candidates = self._prepare_unified_graph_candidates(
+            event=stored_event,
+            profile=extraction_profile,
+            policy=policy,
+            resolved_mentions=resolved_mentions,
+            raw_candidates=(
+                list(stored_event.structured_graph_hints)
+                if stored_event.structured_graph_hints
+                else list(unified_result.get("graph_candidates", []))
+            ),
+        )
+        if policy.allow_graph_write and policy.graph_scope == "full" and not graph_candidates:
             graph_candidates = self._build_graph_candidates(stored_event, resolved_mentions)
             if not graph_candidates:
                 graph_candidates = self._cognition_store.extract_graph_candidates(stored_event)
 
         focal_entities = self._build_focal_entities(stored_event, resolved_mentions)
-        assertion_candidates: list[dict[str, Any]] = []
-        if policy.allow_assertion_write:
-            llm_assertions = await self._llm_service.extract_tom_assertions(
-                event_window={
-                    "event_ids": [stored_event.event_id],
-                    "texts": [stored_event.raw_content],
-                    "context_texts": context_texts,
-                },
-                focal_entities=focal_entities,
-            )
-            scoped_assertions = self._apply_assertion_scope(
-                raw_candidates=llm_assertions,
-                assertion_scope=policy.assertion_scope,
-            )
-            if scoped_assertions:
-                assertion_candidates = [
-                    self._normalize_assertion_candidate(stored_event, candidate) for candidate in scoped_assertions
-                ]
-            elif policy.assertion_scope == "full":
-                assertion_candidates = self._cognition_store.extract_assertion_candidates(stored_event)
+        assertion_candidates = self._prepare_unified_assertion_candidates(
+            event=stored_event,
+            profile=extraction_profile,
+            policy=policy,
+            graph_candidates=graph_candidates,
+            raw_candidates=list(unified_result.get("assertion_candidates", [])),
+        )
+        if policy.allow_assertion_write and not assertion_candidates and policy.assertion_scope == "full":
+            assertion_candidates = self._cognition_store.extract_assertion_candidates(stored_event)
         logger.debug(
             "L2 candidates built",
             event_id=stored_event.event_id,
+            profile_id=extraction_profile.profile_id,
             graph_candidate_count=len(graph_candidates),
             assertion_candidate_count=len(assertion_candidates),
             focal_entity_count=len(focal_entities),
@@ -609,6 +632,131 @@ class L2Pipeline:
             seen.add(str(entity_id))
         return focal_entities
 
+    def _prepare_unified_graph_candidates(
+        self,
+        *,
+        event: MemoryEvent,
+        profile: ExtractionProfile,
+        policy: Any,
+        resolved_mentions: list[dict[str, Any]],
+        raw_candidates: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
+            return []
+
+        prepared: list[dict[str, Any]] = []
+        for raw_candidate in raw_candidates:
+            if not isinstance(raw_candidate, dict):
+                continue
+            object_type = self._normalize_entity_type(raw_candidate.get("object_type"))
+            predicate = self._normalize_predicate(raw_candidate.get("predicate"))
+            if object_type not in profile.allowed_entity_types:
+                continue
+            if predicate not in profile.allowed_predicates:
+                continue
+            is_valid, _ = validate_graph_candidate(
+                {
+                    "predicate": predicate,
+                    "object_type": object_type,
+                }
+            )
+            if not is_valid:
+                continue
+
+            subject_id = self._resolve_subject_id(event=event, raw_candidate=raw_candidate)
+            if not subject_id:
+                continue
+            object_id = self._resolve_graph_object_id(
+                raw_object_ref=raw_candidate.get("object_ref"),
+                object_type=object_type,
+                resolved_mentions=resolved_mentions,
+            )
+            if not object_id:
+                continue
+            prepared.append(
+                {
+                    "subject_id": subject_id,
+                    "subject_type": str(raw_candidate.get("subject_type", "user")).strip() or "user",
+                    "predicate": predicate,
+                    "object_id": object_id,
+                    "object_type": object_type,
+                    "evidence_event_ids": [event.event_id],
+                    "confidence": float(raw_candidate.get("confidence", 0.0) or 0.0),
+                    "observed_at": event.timestamp,
+                    "source_type": event.source,
+                    "extraction_method": "llm_unified_extraction",
+                }
+            )
+        return prepared
+
+    def _prepare_unified_assertion_candidates(
+        self,
+        *,
+        event: MemoryEvent,
+        profile: ExtractionProfile,
+        policy: Any,
+        graph_candidates: list[dict[str, Any]],
+        raw_candidates: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not policy.allow_assertion_write or not profile.allow_assertion:
+            return []
+
+        scoped_assertions = self._apply_assertion_scope(
+            raw_candidates=raw_candidates,
+            assertion_scope=policy.assertion_scope,
+        )
+        prepared: list[dict[str, Any]] = []
+        duplicate_check_candidates = [
+            {
+                "predicate": candidate["predicate"],
+                "object_ref": candidate["object_id"],
+            }
+            for candidate in graph_candidates
+        ]
+        for raw_candidate in scoped_assertions:
+            if not isinstance(raw_candidate, dict):
+                continue
+            if str(raw_candidate.get("trait_family", "")).strip().lower() not in profile.allowed_assertion_families:
+                continue
+            is_valid, _ = validate_assertion_candidate(raw_candidate)
+            if not is_valid:
+                continue
+            if is_leaf_fact_duplicate(duplicate_check_candidates, raw_candidate):
+                continue
+            prepared.append(self._normalize_assertion_candidate(event, raw_candidate))
+        return prepared
+
+    def _resolve_subject_id(self, *, event: MemoryEvent, raw_candidate: dict[str, Any]) -> str | None:
+        subject_ref = self._non_empty_text(raw_candidate.get("subject_ref"))
+        if subject_ref:
+            return subject_ref
+        if event.user_id:
+            return f"user:{event.user_id}"
+        return None
+
+    def _resolve_graph_object_id(
+        self,
+        *,
+        raw_object_ref: Any,
+        object_type: str,
+        resolved_mentions: list[dict[str, Any]],
+    ) -> str | None:
+        object_ref = self._non_empty_text(raw_object_ref)
+        if not object_ref:
+            return None
+        if ":" in object_ref:
+            return object_ref
+        object_ref_casefold = object_ref.casefold()
+        for mention in resolved_mentions:
+            surfaces = {
+                str(mention.get("mention_text", "")).strip().casefold(),
+                str(mention.get("normalized_surface", "")).strip().casefold(),
+            }
+            resolved_entity_id = self._non_empty_text(mention.get("resolved_entity_id"))
+            if object_ref_casefold in surfaces and resolved_entity_id:
+                return resolved_entity_id
+        return self._build_concept_node(entity_type=object_type, normalized_surface=object_ref)
+
     def _normalize_assertion_candidate(
         self,
         event: MemoryEvent,
@@ -679,7 +827,13 @@ class L2Pipeline:
 
     def _normalize_entity_type(self, raw_value: Any) -> Optional[str]:
         text = self._non_empty_text(raw_value)
-        return text.casefold() if text else None
+        if text is None:
+            return None
+        return coerce_unknown_entity_type(text)
+
+    def _normalize_predicate(self, raw_value: Any) -> Optional[str]:
+        text = self._non_empty_text(raw_value)
+        return text.upper() if text else None
 
     def _build_concept_node(self, *, entity_type: str, normalized_surface: str) -> Optional[str]:
         surface = self._non_empty_text(normalized_surface)
