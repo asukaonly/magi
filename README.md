@@ -1,168 +1,154 @@
-# Magi - AI Agent Framework
+# Magi
 
-一个轻量级、可本地部署的AI Agent框架，支持自循环执行、自感知状态和自处理逻辑。
+Local-first desktop AI agent for macOS.
 
-## 特性
+**Status:** Alpha (fast-moving, interfaces and behavior may change)
 
-- **自循环执行**: 基于Sense-Plan-Act-Reflect循环模型，Agent可持续自主运行
-- **自感知能力**: 支持多种感知源（用户消息、传感器、摄像头、麦克风等）
-- **自处理机制**: 从经验中学习，沉淀可复用能力，支持人机协作
-- **插件系统**: 灵活的插件接口，支持自定义工具和扩展
-- **本地优先**: 支持完全本地部署，数据完全可控
-- **Web UI**: 提供可视化管理界面，实时监控Agent状态
+Language: English | [简体中文](./README.zh-CN.md)
 
-## 快速开始
+## For Users (macOS)
 
-### 环境要求
+Magi is distributed as a packaged desktop app.
+You do not need to install Python, Node.js, or run source code.
+
+### Install
+
+1. Open GitHub Releases for this repository.
+2. Download `Magi-0.1.0-macos.dmg`.
+3. Open the DMG and drag `Magi` into `Applications`.
+4. Launch `Magi` from `Applications`.
+
+### Launch and First Run
+
+1. Open `Magi`.
+2. Complete onboarding (language, model/provider setup, basic preferences).
+3. Start chatting and configuring your agent from the desktop app.
+
+### Update
+
+1. Download the latest DMG from GitHub Releases.
+2. Replace the existing app in `Applications`.
+
+### Uninstall
+
+1. Remove `Magi` from `Applications`.
+2. Optional: remove local data directory `~/.magi/` if you want a full cleanup.
+
+### Local Data Directory
+
+Magi stores runtime/app data at:
+
+- `~/.magi/`
+
+## For Contributors
+
+### Prerequisites
 
 - Python 3.10+
 - Node.js 18+
+- npm
+- Rust toolchain (required for Tauri desktop development)
 
-### 安装
+### Quick Start (Source Development)
 
-#### 后端
+#### Option A: Web + Backend hot reload
+
+```bash
+./scripts/dev-hot.sh
+```
+
+#### Option B: Desktop (Tauri) + Backend hot reload
+
+```bash
+./scripts/dev-tauri-hot.sh
+```
+
+### Manual Setup
+
+#### Backend
 
 ```bash
 cd backend
 pip install -r requirements.txt
+python run_server.py
 ```
 
-#### 前端
+#### Frontend
 
 ```bash
 cd frontend
 npm install
-```
-
-### 配置
-
-复制示例配置文件并修改：
-
-```bash
-cp configs/agent.yaml.example configs/agent.yaml
-# 编辑 configs/agent.yaml，设置LLM API密钥等
-```
-
-### 启动
-
-#### 启动后端
-
-```bash
-cd backend
-uvicorn src.api.main:app --reload --port 8000
-```
-
-#### 启动前端
-
-```bash
-cd frontend
 npm run dev
 ```
 
-访问 http://localhost:5173 查看Web UI。
+### Validation Commands
 
-## 项目结构
+#### Frontend
 
+```bash
+cd frontend
+npm run type-check
+npm run test
+npm run lint
 ```
+
+#### Backend
+
+```bash
+cd backend
+pytest
+```
+
+## Architecture At A Glance
+
+Magi is built as a local-first agent runtime with clear layering and ownership boundaries.
+
+- Runtime loop: Sense -> Plan -> Act -> Reflect
+- Agent layering: MasterAgent -> TaskAgent -> WorkerAgent
+- Core task runtime:
+  - `ChatTaskAgent` for user-facing flows
+  - `ExploreTaskAgent` for large exploration workflows
+  - `TaskOrchestrator` for bounded orchestration
+  - `WorkerAgentManager` for leaf worker execution
+- Memory model: lifecycle-based `L0` to `L4`
+- Extension model: tools, plugins, skills, sensors/actions
+- Runtime shapes:
+  - Web mode: React frontend + Python backend
+  - Desktop mode: Tauri shell + React WebView + Python sidecar backend
+
+## Repository Layout
+
+```text
 magi/
-├── backend/               # Python后端
-│   ├── src/
-│   │   ├── magi/         # 框架核心包
-│   │   │   ├── core/     # 核心模块
-│   │   │   ├── awareness/# 自感知模块
-│   │   │   ├── processing/# 自处理模块
-│   │   │   ├── plugins/  # 插件系统
-│   │   │   ├── tools/    # 工具系统
-│   │   │   ├── memory/   # 记忆系统
-│   │   │   ├── llm/      # LLM适配器
-│   │   │   ├── events/   # 事件系统
-│   │   │   └── config/   # 配置管理
-│   │   └── api/          # API层
-│   └── requirements.txt
-├── frontend/             # TypeScript前端
-│   ├── src/
-│   │   ├── components/   # React组件
-│   │   ├── pages/        # 页面
-│   │   └── ...
-│   └── package.json
-└── configs/              # 配置文件
+├── backend/        # Python runtime, API, orchestration, memory, tools, plugins
+├── frontend/       # React UI and Tauri desktop host
+├── docs/           # Architecture and product documentation
+├── plugins/        # Plugin packages
+├── scripts/        # Dev/build helper scripts
+└── openspec/       # Specs and planning artifacts
 ```
 
-## 开发指南
+## Documentation
 
-### 开发自定义工具
+- [Documentation Index](./docs/README.md)
+- [Project Overview](./docs/project-overview.md)
+- [Product Configuration Guide](./docs/product-configuration-guide.md)
+- [Task-Agent Runtime Architecture](./docs/task-agent-runtime-architecture.md)
+- [Plugin Extension Architecture](./docs/plugin-extension-architecture.md)
+- [Plugin Development Guide](./docs/plugin-development-guide.md)
+- [Memory System Design](./docs/memory-system-design.md)
 
-```python
-from magi.tools import Tool, ToolResult
+## Contributing
 
-class MyTool(Tool):
-    async def execute(self, params: dict) -> ToolResult:
-        # 实现工具逻辑
-        result = await self.do_something(params)
-        return ToolResult(success=True, data=result)
+Issues and Pull Requests are welcome.
 
-    @property
-    def schema(self):
-        return {
-            "name": "my_tool",
-            "description": "My custom tool",
-            "parameters": {
-                "param1": {"type": "string", "required": true}
-            }
-        }
-```
+Before opening a PR, please:
 
-### 开发自定义传感器
+1. Align changes with architecture/product docs in `docs/`
+2. Keep changes atomic and independently verifiable
+3. Add tests or explicit validation evidence
+4. Follow Conventional Commits
 
-```python
-from magi.awareness import Sensor, Perception, PerceptionType
+## License
 
-class MySensor(Sensor):
-    @property
-    def perception_type(self) -> PerceptionType:
-        return PerceptionType.CUSTOM
-
-    async def sense(self) -> Optional[Perception]:
-        # 实现感知逻辑
-        data = await self.collect_data()
-        return Perception(
-            type="custom",
-            source="my_sensor",
-            data=data,
-            timestamp=time.time()
-        )
-```
-
-### 开发插件
-
-```python
-from magi.plugins import Plugin
-
-class MyPlugin(Plugin):
-    async def before_sense(self, context):
-        # 在感知前执行
-        pass
-
-    async def after_act(self, result):
-        # 在执行后执行
-        pass
-
-    def get_tools(self) -> List[Tool]:
-        # 返回插件提供的工具
-        return [MyTool()]
-```
-
-## 文档
-
-- [文档索引](./docs/README.md)
-- [项目总览](./docs/project-overview.md)
-- [产品与配置指南](./docs/product-configuration-guide.md)
-- [Task-Agent Runtime 架构](./docs/task-agent-runtime-architecture.md)
-
-## 许可证
-
-MIT License
-
-## 贡献
-
-欢迎提交Issue和Pull Request！
+MIT
