@@ -16,6 +16,7 @@ interface StartBackendResult {
 }
 
 const DEFAULT_API_BASE_URL = "http://localhost:8000/api";
+const RESTRICTED_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
 
 let runtimeConfig: RuntimeConfig = {
   isDesktop: false,
@@ -34,12 +35,38 @@ function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
 }
 
-function normalizeApiBaseUrl(raw: string): string {
-  const value = (raw || DEFAULT_API_BASE_URL).trim().replace(/\/+$/, "");
+function resolvePreferredHost(preferredHost?: string): string {
+  const browserHost = typeof window === "undefined" ? "" : window.location.hostname || "";
+  const candidate = (preferredHost || browserHost).trim();
+  if (candidate && !RESTRICTED_HOSTS.has(candidate)) {
+    return candidate;
+  }
+  return "127.0.0.1";
+}
+
+export function normalizeConnectableUrl(raw: string, preferredHost?: string): string {
+  const value = (raw || "").trim().replace(/\/+$/, "");
+  if (!value) {
+    return value;
+  }
+
+  try {
+    const url = new URL(value);
+    if (RESTRICTED_HOSTS.has(url.hostname)) {
+      url.hostname = resolvePreferredHost(preferredHost);
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return value;
+  }
+}
+
+export function normalizeApiBaseUrl(raw: string, preferredHost?: string): string {
+  const value = normalizeConnectableUrl(raw || DEFAULT_API_BASE_URL, preferredHost);
   return value.endsWith("/api") ? value : `${value}/api`;
 }
 
-function buildWsBaseUrl(apiBaseUrl: string): string {
+export function buildWsBaseUrl(apiBaseUrl: string): string {
   const origin = apiBaseUrl.replace(/\/api$/, "");
   return origin.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
 }

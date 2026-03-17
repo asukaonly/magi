@@ -23,6 +23,11 @@ PY
 )"
 IFS='|' read -r BACKEND_HOST BACKEND_PORT BACKEND_RELOAD DESKTOP_TOKEN <<< "${BACKEND_SETTINGS}"
 
+CONNECT_HOST="${MAGI_CONNECT_HOST:-${BACKEND_HOST}}"
+if [[ "${CONNECT_HOST}" == "0.0.0.0" || "${CONNECT_HOST}" == "::" || "${CONNECT_HOST}" == "[::]" ]]; then
+  CONNECT_HOST="127.0.0.1"
+fi
+
 BACKEND_PID=""
 
 kill_listeners_on_port() {
@@ -102,17 +107,18 @@ echo "Starting backend for Tauri..."
 BACKEND_PID=$!
 echo "Backend logs: ${BACKEND_LOG_FILE}"
 echo "Tail backend logs manually: tail -f ${BACKEND_LOG_FILE}"
-echo "Backend endpoint(from config): http://${BACKEND_HOST}:${BACKEND_PORT}"
+echo "Backend bind host(from config): ${BACKEND_HOST}:${BACKEND_PORT}"
+echo "Backend connect endpoint: http://${CONNECT_HOST}:${BACKEND_PORT}"
 echo "Backend reload(from config): ${BACKEND_RELOAD}"
 
 echo "Starting Tauri desktop window (frontend HMR enabled by Vite)..."
 (
   cd "${FRONTEND_DIR}"
   MAGI_TAURI_EXTERNAL_BACKEND=1 \
-  MAGI_TAURI_EXTERNAL_BACKEND_HOST="${BACKEND_HOST}" \
+  MAGI_TAURI_EXTERNAL_BACKEND_HOST="${CONNECT_HOST}" \
   MAGI_TAURI_EXTERNAL_BACKEND_PORT="${BACKEND_PORT}" \
-  MAGI_TAURI_EXTERNAL_BACKEND_API_BASE="http://${BACKEND_HOST}:${BACKEND_PORT}/api" \
-  MAGI_TAURI_EXTERNAL_BACKEND_WS_BASE="ws://${BACKEND_HOST}:${BACKEND_PORT}" \
+  MAGI_TAURI_EXTERNAL_BACKEND_API_BASE="http://${CONNECT_HOST}:${BACKEND_PORT}/api" \
+  MAGI_TAURI_EXTERNAL_BACKEND_WS_BASE="ws://${CONNECT_HOST}:${BACKEND_PORT}" \
   MAGI_DESKTOP_SESSION_TOKEN="${DESKTOP_TOKEN}" \
   VITE_DEV_SERVER_PORT="${FRONTEND_PORT}" \
   npm run tauri:dev
