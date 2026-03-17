@@ -14,7 +14,7 @@
 
 - Keep `L1` storage behavior unchanged: user, assistant, external, and runtime events may still be archived in `L1` for traceability.
 - Do not let `assistant_freeform` or `assistant_quote` create new `L2` evidence by default.
-- Do not let `assistant_tool_grounded` write user ToM or directly affect `tom_snapshots`.
+- Do not let `assistant_tool_grounded` create new `L2` evidence in phase 1; keep it archived in `L1` only unless a future whitelist is added.
 - Preserve backlinks from any derived or quoted `L2` artifact to the original `L1 event_id` set.
 - Keep phase 1 fully rule-based; do not add an LLM-based classifier yet.
 - Avoid widening unrelated memory APIs or changing existing `L2` prompt templates unless the policy layer requires new fields.
@@ -33,7 +33,7 @@ Today `L2` work is triggered by `L1` events, but `L1` also contains assistant re
 
 1. assistant freeform replies can pollute user preferences and ToM assertions
 2. assistant summaries can inflate evidence counts by re-stating earlier user messages
-3. assistant tool-grounded world facts can leak into user modeling instead of staying world-scoped
+3. assistant tool-grounded replies can be mistaken for durable memory evidence even though the tool remains the better source of truth
 
 The fix is to separate:
 
@@ -159,11 +159,9 @@ Use deterministic rules only.
   - count as new evidence: no
   - require backlink: yes
 - `assistant_tool_grounded`
-  - graph: yes
-  - graph scope: `world_only`
-  - assertion: no
-  - snapshot: no
-  - evidence weight: `0.3`
+  - skip all writes in phase 1
+  - evidence weight: `0.0`
+  - keep the event in `L1` for traceability only
 - `assistant_freeform`
   - skip all writes
   - evidence weight: `0.0`
@@ -314,7 +312,7 @@ git commit -m "feat: classify l2 evidence"
 Cover these cases:
 - `user_self_report` allows graph/assertion/snapshot impact with weight `1.0`
 - `assistant_freeform` denies all writes
-- `assistant_tool_grounded` allows graph only with `world_only` scope
+- `assistant_tool_grounded` is skipped by the resolver in phase 1
 - `assistant_quote` denies new evidence and requires backlinks
 - `external_observation` allows graph and `topology_only` assertion scope
 
@@ -353,7 +351,7 @@ git commit -m "feat: add l2 evidence policy"
 
 Cover these cases:
 - assistant freeform event is stored in `L1` but produces no graph/assertion writes
-- assistant tool-grounded event may create world-scoped graph edges but no assertions
+- assistant tool-grounded event is archived in `L1` but skipped by `L2` extraction
 - assistant quote event does not add new evidence counts
 - user self-report still behaves as before
 
@@ -478,7 +476,7 @@ git commit -m "fix: deduplicate derived l2 evidence"
 Cover these cases:
 - `L1` still archives assistant replies even when `L2` skips them
 - user self-report followed by assistant freeform does not inflate `L2`
-- assistant tool-grounded weather reply stays world-scoped and does not touch user ToM
+- assistant tool-grounded weather reply is retained in `L1` but does not create any `L2` evidence
 
 - [ ] **Step 2: Run the end-to-end regression tests**
 
@@ -523,7 +521,7 @@ git commit -m "test: cover l2 evidence governance"
 ## Open Questions To Resolve During Execution
 
 - Whether `speaker_role` should be inferred in `normalize_runtime_event()` or only attached by event producers
-- Whether `assistant_tool_grounded` world facts should have a TTL in phase 1 or stay durable but low-weight
+- Whether a future whitelist should allow selected `assistant_tool_grounded` events into `L2` under explicit product rules
 - Whether `external_observation` should allow any assertion writes in phase 1, or only graph writes
 - Whether `user_report_about_others` should write third-party ToM assertions immediately or only after stricter validation
 
@@ -540,6 +538,6 @@ The plan is complete when the codebase can demonstrate all of the following:
 
 - assistant freeform replies remain searchable in `L1` but do not write new `L2` cognition
 - assistant quotes do not increase effective evidence counts
-- assistant tool-grounded outputs can contribute limited world graph facts without affecting user ToM or snapshots
+- assistant tool-grounded outputs stay outside `L2` by default; if product needs change later, reintroduce them behind an explicit whitelist and dedicated tests
 - user self-reports continue to drive the existing `L2` pipeline as before
 - mixed-source evidence handling is deterministic, test-covered, and explainable from logs and policy outputs

@@ -59,17 +59,18 @@ def test_policy_blocks_new_evidence_for_assistant_quote():
     assert decision.skip_reason == "assistant_quote"
 
 
-def test_policy_keeps_assistant_tool_grounded_world_scoped():
+def test_policy_skips_assistant_tool_grounded():
     decision = resolve_l2_policy(_classification("assistant_tool_grounded"))
 
-    assert decision.allow_entity_extraction is True
-    assert decision.allow_graph_write is True
+    assert decision.allow_entity_extraction is False
+    assert decision.allow_graph_write is False
     assert decision.allow_assertion_write is False
     assert decision.allow_snapshot_impact is False
-    assert decision.graph_scope == "world_only"
+    assert decision.graph_scope == "none"
     assert decision.assertion_scope == "none"
-    assert decision.evidence_weight == 0.3
-    assert decision.count_as_new_evidence is True
+    assert decision.evidence_weight == 0.0
+    assert decision.count_as_new_evidence is False
+    assert decision.skip_reason == "assistant_tool_grounded"
 
 
 def test_policy_skips_assistant_freeform():

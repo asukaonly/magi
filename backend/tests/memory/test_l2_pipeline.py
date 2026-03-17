@@ -724,14 +724,8 @@ async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
 
 
 @pytest.mark.asyncio
-async def test_assistant_tool_grounded_event_does_not_write_assertions():
-    from magi.memory.l2_prompt_templates import ENTITY_MENTION_SYSTEM_PROMPT, TOM_EXTRACTION_SYSTEM_PROMPT
-
-    adapter = _FakeAdapter(
-        [
-            json.dumps({"mentions": []}),
-        ]
-    )
+async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
+    adapter = _FakeAdapter("{}")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
@@ -768,13 +762,15 @@ async def test_assistant_tool_grounded_event_does_not_write_assertions():
                     break
                 await asyncio.sleep(0.01)
 
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
             assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
-            system_prompts = [str(call.get("system_prompt")) for call in adapter.calls]
+            stats = store.get_l2_pipeline_stats()
 
-            assert store.get_l2_pipeline_stats()["extract_completed"] >= 1
+            assert stats["extract_completed"] >= 1
+            assert stats["extract_skipped"] >= 1
+            assert relationships == []
             assert assertions == []
-            assert ENTITY_MENTION_SYSTEM_PROMPT in system_prompts
-            assert TOM_EXTRACTION_SYSTEM_PROMPT not in system_prompts
+            assert adapter.calls == []
         finally:
             await store.shutdown()
 
