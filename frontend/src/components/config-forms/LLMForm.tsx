@@ -154,8 +154,10 @@ const applySelectionDefaults = (
       return;
     }
 
+    const preferredModelId =
+      selection.model || resolveProviderDefaultModel(registry, provider, scenario);
     // Find matching embedding model or use first available
-    const matchedModel = embeddingModels.find((model) => model.id === selection.model);
+    const matchedModel = embeddingModels.find((model) => model.id === preferredModelId);
     const fallbackModel = matchedModel || embeddingModels[0];
     if (fallbackModel) {
       selection.model = fallbackModel.id;
@@ -189,7 +191,9 @@ const applySelectionDefaults = (
   }
 
   const models = getProviderModels(registry, provider.provider_type);
-  const matchedModel = models.find((model) => model.id === selection.model);
+  const preferredModelId =
+    selection.model || resolveProviderDefaultModel(registry, provider, scenario || 'core');
+  const matchedModel = models.find((model) => model.id === preferredModelId);
   const fallbackModel = matchedModel || models[0];
   if (fallbackModel) {
     selection.model = fallbackModel.id;
