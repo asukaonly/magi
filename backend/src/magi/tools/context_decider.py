@@ -822,6 +822,10 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         """
         Evaluate if memory retrieval would help answer the user's query.
 
+        Only determines whether memory_query should be triggered.
+        Time/type inference is handled by the IntentDecider inside
+        HybridRetrievalService.
+
         Args:
             user_message: User's message
             context: Current context (date, etc.)
@@ -840,20 +844,6 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         if not trigger_matched:
             return None
 
-        # Infer time range from message
-        time_range = self._infer_time_range(message_lower)
-
-        # Build tool recommendation
-        suggested_params = {
-            "query": user_message,
-            "time_range": time_range,
-        }
-
-        # Infer data types from message
-        data_types = self._infer_memory_types(message_lower)
-        if data_types:
-            suggested_params["data_types"] = data_types
-
         return MemoryGuidance(
             recommended=True,
             inject_prompt=True,
@@ -865,13 +855,18 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 ToolRecommendation(
                     name="memory_query",
                     description="Retrieve memories from L0-L4 layers",
-                    suggested_params=suggested_params,
+                    suggested_params={"query": user_message},
                 )
             ]
         )
 
     def _infer_time_range(self, message_lower: str) -> dict:
-        """Infer time range from message content."""
+        """Infer time range from message content.
+
+        .. deprecated::
+            Time range inference has moved to IntentDecider.
+            Kept for backward compatibility; will be removed.
+        """
         if "yesterday" in message_lower or "昨天" in message_lower:
             return {"relative": "1d"}
         elif "last week" in message_lower or "上周" in message_lower:
@@ -881,10 +876,15 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         elif "recently" in message_lower or "最近" in message_lower:
             return {"relative": "7d"}
         else:
-            return {"relative": "7d"}  # Default to last week
+            return {"relative": "7d"}
 
     def _infer_memory_types(self, message_lower: str) -> Optional[list]:
-        """Infer memory types from message content."""
+        """Infer memory types from message content.
+
+        .. deprecated::
+            Memory type inference has moved to IntentDecider.
+            Kept for backward compatibility; will be removed.
+        """
         types = []
         if any(kw in message_lower for kw in ["browse", "visit", "website", "浏览", "网页"]):
             types.append("browser_history")

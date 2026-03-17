@@ -30,46 +30,23 @@ class ContextRetrievalService:
             }
 
         retrieval = HybridRetrievalService(self._unified_memory)
-        detail_payload = await retrieval.query(
+        payload = await retrieval.query(
             build_query(
                 query=task_category,
                 user_id=user_id,
                 session_id=session_id,
                 time_range={},
-                query_mode="detail",
+                query_mode=None,
                 source_filters=[],
                 domain_filters=[],
-                limit=5,
+                limit=10,
             )
         )
-        summary_payload = await retrieval.query(
-            build_query(
-                query=task_category,
-                user_id=user_id,
-                session_id=session_id,
-                time_range={},
-                query_mode="summary",
-                source_filters=[],
-                domain_filters=[],
-                limit=3,
-            )
-        )
-        experience_payload = await retrieval.query(
-            build_query(
-                query=task_category,
-                user_id=user_id,
-                session_id=session_id,
-                time_range={},
-                query_mode="experience",
-                source_filters=[],
-                domain_filters=[],
-                limit=3,
-            )
-        )
+
         return {
-            "l0_workbench": detail_payload.l0_workbench,
-            "l2_entity_cards": detail_payload.l2_entity_cards,
-            "l3_reflection_memory": summary_payload.l3_reflections,
-            "l4_procedural_memory": experience_payload.l4_procedures,
+            "l0_workbench": payload.l0_workbench,
+            "l2_entity_cards": payload.l2_entity_cards,
+            "l3_reflection_memory": payload.l3_reflections,
+            "l4_procedural_memory": payload.l4_procedures,
             "preference_memory": {},
         }

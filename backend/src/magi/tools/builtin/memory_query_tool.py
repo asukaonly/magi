@@ -45,9 +45,9 @@ class MemoryQueryTool(Tool):
                 ToolParameter(
                     name="query_mode",
                     type=ParameterType.STRING,
-                    description="detail|summary|experience|graph|strategy",
+                    description="Optional routing hint (detail|summary|experience|graph|strategy). When omitted, the intent decider selects the best layers automatically.",
                     required=False,
-                    default="detail",
+                    default=None,
                 ),
                 ToolParameter(
                     name="limit",

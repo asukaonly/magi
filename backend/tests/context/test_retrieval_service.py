@@ -10,47 +10,28 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
     async def test_build_retrieved_memory_payload_queries_hybrid_retrieval(self) -> None:
         service = ContextRetrievalService(unified_memory=object())
 
-        detail_payload = type(
+        unified_payload = type(
             "Payload",
             (),
             {
                 "l0_workbench": [{"summary": "Current goal"}],
                 "l2_entity_cards": [{"entity_id": "user:u1"}],
-                "l3_reflections": [],
-                "l4_procedures": [],
-            },
-        )()
-        summary_payload = type(
-            "Payload",
-            (),
-            {
-                "l0_workbench": [],
-                "l2_entity_cards": [],
                 "l3_reflections": [{"summary": "User wants to switch jobs"}],
-                "l4_procedures": [],
-            },
-        )()
-        experience_payload = type(
-            "Payload",
-            (),
-            {
-                "l0_workbench": [],
-                "l2_entity_cards": [],
-                "l3_reflections": [],
                 "l4_procedures": [{"skill_name": "browser.open"}],
             },
         )()
 
         with patch("magi.context.retrieval.HybridRetrievalService") as service_cls:
-            service_cls.return_value.query = AsyncMock(
-                side_effect=[detail_payload, summary_payload, experience_payload]
-            )
+            service_cls.return_value.query = AsyncMock(return_value=unified_payload)
 
             payload = await service.build_retrieved_memory_payload(
                 user_id="u1",
                 session_id="s1",
                 task_category="chat",
             )
+
+            # Should make exactly 1 query (no mode hint)
+            service_cls.return_value.query.assert_called_once()
 
         self.assertEqual(payload["l0_workbench"][0]["summary"], "Current goal")
         self.assertEqual(payload["l2_entity_cards"][0]["entity_id"], "user:u1")

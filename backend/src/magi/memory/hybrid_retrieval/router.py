@@ -5,14 +5,18 @@ from __future__ import annotations
 from .models import RetrievalQuery
 
 
-def normalize_query_mode(query_mode: str | None) -> str:
-    """Normalize retrieval mode names into the supported set."""
+def normalize_query_mode(query_mode: str | None) -> str | None:
+    """Normalize retrieval mode names into the supported set.
+
+    Returns None when no hint is provided, letting the IntentDecider
+    route purely from the query text.
+    """
     if not query_mode:
-        return "detail"
+        return None
     query_mode = query_mode.strip().lower()
     if query_mode in {"detail", "summary", "experience", "graph", "strategy"}:
         return query_mode
-    return "detail"
+    return None
 
 
 def build_query(**kwargs) -> RetrievalQuery:
