@@ -4,18 +4,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import EventsPage from '@/pages/Events';
 import { memoryApi } from '@/api/modules/memory';
-import { apiClient } from '@/api/client';
 
-vi.mock('@/api/client', () => ({
-  apiClient: {
-    get: vi.fn(),
-    post: vi.fn(),
-  },
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+  }),
 }));
 
 vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
+    getStatistics: vi.fn(),
+    getL0Sessions: vi.fn(),
+    getL0Workbench: vi.fn(),
+    getL1Events: vi.fn(),
+    getL2Relations: vi.fn(),
+    getL2Assertions: vi.fn(),
+    getL2Entities: vi.fn(),
+    getL2Mentions: vi.fn(),
+    getL2Snapshots: vi.fn(),
+    getL3Summaries: vi.fn(),
+    getL4Skills: vi.fn(),
+    search: vi.fn(),
     clearAll: vi.fn(),
+    createManualL2Event: vi.fn(),
+    replayL2Extraction: vi.fn(),
+    reconcileL2Entities: vi.fn(),
+    refreshL2Snapshots: vi.fn(),
   },
 }));
 
@@ -33,8 +47,8 @@ const L1_EVENT = {
   raw_content: 'hello',
   timestamp: 1710000000,
   source: 'assistant',
-  memory_domain: 'chat',
-  retention_class: 'default',
+  memory_domain: 'interaction',
+  retention_class: 'compressible',
   importance_score: 0.5,
   cognition_eligible: true,
 };
@@ -43,52 +57,50 @@ describe('events page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
-      if (url === '/memory/l1/events') {
-        return {
-          data: {
-            events: [L1_EVENT],
-            stats: { total: 1 },
-          },
-        } as any;
-      }
-
-      if (url === '/memory/l2/statistics') {
-        return {
-          data: {
-            total_events: 1,
-            total_relations: 2,
-          },
-        } as any;
-      }
-
-      if (url === '/memory/statistics') {
-        return {
-          data: {
-            l3_embeddings: { total_embeddings: 3, dimension: 1536 },
-            l4_summaries: { total_summaries: 2 },
-            l5_capabilities: { total_capabilities: 1 },
-          },
-        } as any;
-      }
-
-      if (url === '/memory/capabilities') {
-        return {
-          data: [
-            {
-              capability_id: 'cap-1',
-              name: 'Summarize',
-              description: 'Summarize recent activity.',
-              success_rate: 0.92,
-              usage_count: 4,
-            },
-          ],
-        } as any;
-      }
-
-      throw new Error(`Unhandled GET ${url}`);
+    vi.mocked(memoryApi.getStatistics).mockResolvedValue({
+      l0: { active_sessions: 1, total_goals: 0, total_entities: 0, total_tactics: 0 },
+      l1: { event_count: 1 },
+      l2: { relation_count: 0, assertion_count: 0 },
+      l3: { summary_count: 0 },
+      l4: { skill_count: 0, open_circuit_breakers: 0 },
     });
-
+    vi.mocked(memoryApi.getL0Sessions).mockResolvedValue({
+      sessions: [
+        {
+          session_id: 's1',
+          user_id: 'u1',
+          status: 'active',
+          started_at: 1710000000,
+          last_active_at: 1710000300,
+          goal_count: 0,
+          entity_count: 0,
+          tactic_count: 0,
+        },
+      ],
+      stats: { active_sessions: 1, total_goals: 0, total_entities: 0, total_tactics: 0 },
+    });
+    vi.mocked(memoryApi.getL0Workbench).mockResolvedValue({
+      session: { session_id: 's1' },
+      goal_stack: [],
+      active_entities: [],
+      temporary_tactics: [],
+    });
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({
+      events: [L1_EVENT],
+      stats: { total: 1 },
+    });
+    vi.mocked(memoryApi.getL2Relations).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL2Assertions).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL2Entities).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL2Mentions).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL2Snapshots).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL3Summaries).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL4Skills).mockResolvedValue([]);
+    vi.mocked(memoryApi.search).mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: [],
+    });
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,
       results: {
@@ -103,13 +115,14 @@ describe('events page', () => {
   });
 
   it('renders event cards with proper structure', async () => {
+    const user = userEvent.setup();
     render(<EventsPage />);
 
-    // Find the event badge that displays the event type
-    const eventTypeBadge = await screen.findByText('AI_RESPONSE');
+    await user.click(await screen.findByRole('tab', { name: 'L1' }));
 
-    // The badge should be inside a card container
-    const eventCard = eventTypeBadge.closest('.border');
+    const eventTypeBadge = await screen.findByText('AI_RESPONSE');
+    const eventCard = eventTypeBadge.closest('.rounded-lg');
+
     expect(eventCard).toBeInTheDocument();
     expect(eventCard).toHaveClass('rounded-lg');
   });
@@ -118,10 +131,9 @@ describe('events page', () => {
     const user = userEvent.setup();
     render(<EventsPage />);
 
-    await user.click(await screen.findByRole('button', { name: /events\.clearMemory|Clear/i }));
+    await user.click(await screen.findByRole('button', { name: 'memory.clear' }));
 
     const dialog = await screen.findByRole('dialog');
-    // Dialog uses responsive Tailwind classes - just check it dialog exists
     expect(dialog).toBeInTheDocument();
   });
 });
