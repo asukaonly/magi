@@ -14,6 +14,7 @@ from .event_contracts import IngestTarget, MemoryEvent, normalize_runtime_event
 from .l0_working_memory import L0WorkingMemoryStore
 from .l1_event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
+from .l2_pipeline import L2Pipeline
 from .l3_summary_store import L3SummaryStore
 from .l4_procedural_memory import L4ProceduralMemoryStore
 
@@ -64,6 +65,7 @@ class UnifiedMemoryStore:
         self.l0: Optional[L0WorkingMemoryStore] = None
         self.l1: Optional[L1EventStore] = None
         self.l2: Optional[L2CognitionStore] = None
+        self.l2_pipeline: Optional[L2Pipeline] = None
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
 
@@ -83,6 +85,7 @@ class UnifiedMemoryStore:
             )
         if enable_l2:
             self.l2 = L2CognitionStore(db_path=shared_memory_db)
+            self.l2_pipeline = L2Pipeline(self.l2)
         if enable_l3:
             self.l3 = L3SummaryStore(
                 db_path=shared_memory_db,
@@ -110,6 +113,8 @@ class UnifiedMemoryStore:
             if store is None:
                 continue
             await store.initialize()
+        if self.l2_pipeline is not None:
+            await self.l2_pipeline.start()
 
         self._initialized = True
         logger.info("Unified memory store initialized")
@@ -126,8 +131,8 @@ class UnifiedMemoryStore:
 
             if self.l1 is not None and memory_event.ingest_target.includes_l1:
                 await self.l1.store(memory_event)
-                if self.l2 is not None:
-                    l2_result = await self.l2.apply_memory_event(memory_event)
+                if self.l2_pipeline is not None:
+                    await self.l2_pipeline.enqueue_event(memory_event)
                 if self.l4 is not None:
                     l4_skill_id = await self.l4.record_memory_event(memory_event)
 
@@ -196,6 +201,8 @@ class UnifiedMemoryStore:
             }
         if self.l2 is not None:
             stats["l2"] = self.l2.get_statistics()
+        if self.l2_pipeline is not None:
+            stats["l2_pipeline"] = self.l2_pipeline.get_statistics()
         if self.l3 is not None:
             stats["l3"] = self.l3.get_statistics() if hasattr(self.l3, "get_statistics") else {"db_path": self.l3.db_path}
         if self.l4 is not None:
@@ -217,10 +224,32 @@ class UnifiedMemoryStore:
 
     async def shutdown(self) -> None:
         """Drain asynchronous workers and close store resources."""
+        if self.l2_pipeline is not None:
+            await self.l2_pipeline.shutdown()
         for store in (self.l1, self.l3, self.l4):
             if store is None or not hasattr(store, "shutdown"):
                 continue
             await store.shutdown()
+
+    def get_l2_pipeline_stats(self) -> Dict[str, Any]:
+        """Expose current background L2 pipeline counters."""
+        if self.l2_pipeline is None:
+            return {
+                "is_running": False,
+                "extract_enqueued": 0,
+                "extract_completed": 0,
+                "extract_failed": 0,
+                "extract_skipped": 0,
+                "reconcile_enqueued": 0,
+                "reconcile_completed": 0,
+                "reconcile_failed": 0,
+                "snapshot_enqueued": 0,
+                "snapshot_completed": 0,
+                "snapshot_failed": 0,
+                "relations_written": 0,
+                "assertions_written": 0,
+            }
+        return self.l2_pipeline.get_statistics()
 
     async def upsert_user_graph_edge(
         self,

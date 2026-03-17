@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import tempfile
+import time
+from pathlib import Path
+
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
+from magi.memory import UnifiedMemoryStore
 from magi.memory.event_contracts import normalize_runtime_event
 
 
@@ -99,3 +105,112 @@ def test_normalized_memory_event_captures_entity_focus_hint_from_payload():
     normalized = normalize_runtime_event(event)
 
     assert normalized.entity_focus_hint == "place:shanghai"
+
+
+@pytest.mark.asyncio
+async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+        )
+        await store.initialize()
+        try:
+            result = await store.ingest_event(
+                {
+                    "id": "evt-queue-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "I have been stressed about work.",
+                    },
+                }
+            )
+            assert result["l1_written"] is True
+            assert result["l2_relation_count"] == 0
+            assert result["l2_assertion_count"] == 0
+
+            stats = store.get_l2_pipeline_stats()
+            assert stats["extract_enqueued"] == 1
+
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            final_stats = store.get_l2_pipeline_stats()
+            assert final_stats["extract_completed"] == 1
+            assert final_stats["assertions_written"] >= 1
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_cognition_ineligible_event_is_not_enqueued_for_l2():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-queue-2",
+                    "type": EventTypes.TASK_COMPLETED,
+                    "timestamp": time.time(),
+                    "source": "runtime",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "task_id": "task-1",
+                        "success": True,
+                    },
+                }
+            )
+
+            stats = store.get_l2_pipeline_stats()
+            assert stats["extract_enqueued"] == 0
+            assert stats["extract_skipped"] == 1
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_drains_l2_pipeline_workers_cleanly():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+        )
+        await store.initialize()
+        await store.ingest_event(
+            {
+                "id": "evt-queue-3",
+                "type": EventTypes.USER_MESSAGE,
+                "timestamp": time.time(),
+                "source": "chat",
+                "level": EventLevel.INFO.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "message": "I feel calm now.",
+                },
+            }
+        )
+
+        await store.shutdown()
+
+        stats = store.get_l2_pipeline_stats()
+        assert stats["is_running"] is False
