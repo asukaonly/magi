@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict
 
-from ..core.runtime_bindings import require_unified_memory
-from ..memory.hybrid_retrieval import HybridRetrievalService, build_query
-from .schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
+from ...core.runtime_bindings import require_unified_memory
+from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
+from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
 
 class MemoryQueryTool(Tool):

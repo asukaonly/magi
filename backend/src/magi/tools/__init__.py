@@ -35,7 +35,7 @@ from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.agent_tool import AgentTool
-from .memory_query import MemoryQueryTool
+from .builtin.memory_query_tool import MemoryQueryTool
 
 # Import skills module
 from ..skills.indexer import SkillIndexer

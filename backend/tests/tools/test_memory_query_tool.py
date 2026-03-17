@@ -8,7 +8,7 @@ class TestMemoryQueryTool:
 
     def test_tool_schema_definition(self):
         """Should have proper schema definition."""
-        from magi.tools.memory_query import MemoryQueryTool
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
         tool = MemoryQueryTool()
         schema = tool.get_schema()
@@ -19,7 +19,7 @@ class TestMemoryQueryTool:
 
     def test_tool_parameters(self):
         """Should require query while keeping query_mode optional."""
-        from magi.tools.memory_query import MemoryQueryTool
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
         tool = MemoryQueryTool()
         schema = tool.get_schema()
@@ -37,8 +37,8 @@ class TestMemoryQueryTool:
 
     def test_tool_uses_runtime_unified_memory_for_hybrid_queries(self, monkeypatch):
         """Should build its service with a HybridRetrievalService-backed runtime memory store."""
-        import magi.tools.memory_query as memory_query_module
-        from magi.tools.memory_query import MemoryQueryTool
+        import magi.tools.builtin.memory_query_tool as memory_query_module
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
         fake_unified_memory = MagicMock()
         monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: fake_unified_memory)
@@ -50,7 +50,7 @@ class TestMemoryQueryTool:
     @pytest.mark.asyncio
     async def test_tool_execution(self, monkeypatch):
         """Should execute query and return a retrieval payload."""
-        from magi.tools.memory_query import MemoryQueryTool
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
         from magi.tools.schema import ToolExecutionContext
 
         tool = MemoryQueryTool()
@@ -76,7 +76,7 @@ class TestMemoryQueryTool:
     @pytest.mark.asyncio
     async def test_tool_to_claude_format(self):
         """Should export to Claude tool format."""
-        from magi.tools.memory_query import MemoryQueryTool
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
         tool = MemoryQueryTool()
         claude_format = tool.to_claude_format()

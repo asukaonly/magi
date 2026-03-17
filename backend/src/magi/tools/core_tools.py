@@ -13,7 +13,7 @@ from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.web_fetch_tool import WebFetchTool
 from .builtin.web_search_tool import WebSearchTool
-from .memory_query import MemoryQueryTool
+from .builtin.memory_query_tool import MemoryQueryTool
 
 CORE_TOOL_CLASSES: tuple[type, ...] = (
     BashTool,

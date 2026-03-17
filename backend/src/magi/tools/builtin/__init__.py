@@ -16,6 +16,7 @@ from .web_fetch_tool import WebFetchTool
 from .weather_tool import WeatherTool
 from .system_settings_tool import SystemSettingsTool
 from .agent_tool import AgentTool
+from .memory_query_tool import MemoryQueryTool
 
 __all__ = [
     "BashTool",
@@ -33,4 +34,5 @@ __all__ = [
     "WeatherTool",
     "SystemSettingsTool",
     "AgentTool",
+    "MemoryQueryTool",
 ]

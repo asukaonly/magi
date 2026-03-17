@@ -207,7 +207,6 @@ src/magi/tools/__init__.py
 src/magi/tools/context_decider.py
 src/magi/tools/core_tools.py
 src/magi/tools/lifecycle.py
-src/magi/tools/memory_query.py
 src/magi/tools/planner.py
 src/magi/tools/recommender.py
 src/magi/tools/registry.py
@@ -223,6 +222,7 @@ src/magi/tools/builtin/file_read_tool.py
 src/magi/tools/builtin/file_write_tool.py
 src/magi/tools/builtin/glob_tool.py
 src/magi/tools/builtin/grep_tool.py
+src/magi/tools/builtin/memory_query_tool.py
 src/magi/tools/builtin/system_settings_tool.py
 src/magi/tools/builtin/weather_tool.py
 src/magi/tools/builtin/web_fetch_tool.py

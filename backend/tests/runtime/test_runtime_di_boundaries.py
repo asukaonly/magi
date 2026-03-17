@@ -74,7 +74,7 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     memory_router = (BACKEND_SRC / "api/routers/memory.py").read_text(encoding="utf-8")
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
     websocket_handlers = (BACKEND_SRC / "websocket/handlers.py").read_text(encoding="utf-8")
-    memory_query_tool = (BACKEND_SRC / "tools/memory_query.py").read_text(encoding="utf-8")
+    memory_query_tool = (BACKEND_SRC / "tools/builtin/memory_query_tool.py").read_text(encoding="utf-8")
     messages_router = (BACKEND_SRC / "api/routers/messages.py").read_text(encoding="utf-8")
 
     assert "from ...agent import get_unified_memory" not in memory_router
