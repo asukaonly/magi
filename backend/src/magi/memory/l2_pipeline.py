@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import uuid
 from dataclasses import asdict, dataclass
@@ -11,11 +12,14 @@ from typing import Any, Optional
 from .event_contracts import MemoryEvent
 from .l1_event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
+from .l2_evidence_classifier import classify_event_evidence
+from .l2_evidence_policy import resolve_l2_policy
 from .l2_entity_catalog import L2EntityCatalog
 from .l2_llm_service import L2LLMService
 
 _POSITIVE_PREFERENCE_MARKERS = (" like ", " likes ", "喜欢", "love ", "loves ")
 _NEGATIVE_PREFERENCE_MARKERS = (" dislike ", " dislikes ", "不喜欢", "do not like", "don't like")
+_TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
 _GRAPH_ELIGIBLE_ENTITY_TYPES = {
     "place",
     "person",
@@ -141,6 +145,8 @@ class L2Pipeline:
                     break
                 result = await self._extract_and_persist(event)
                 self._stats.extract_completed += 1
+                if result.get("skipped"):
+                    self._stats.extract_skipped += 1
                 self._stats.relations_written += int(result["relation_count"])
                 self._stats.assertions_written += int(result["assertion_count"])
                 touched_entity_ids = result.get("touched_entity_ids", [])
@@ -195,45 +201,75 @@ class L2Pipeline:
 
     async def _extract_and_persist(self, event: MemoryEvent) -> dict[str, Any]:
         if self._cognition_store is None:
-            return {"relation_count": 0, "assertion_count": 0, "touched_entity_ids": []}
+            return {"relation_count": 0, "assertion_count": 0, "touched_entity_ids": [], "skipped": True}
 
         stored_event = await self._load_stored_event(event)
+        classification = classify_event_evidence(stored_event)
+        policy = resolve_l2_policy(classification)
+        if not policy.allow_graph_write and not policy.allow_assertion_write:
+            return {
+                "relation_count": 0,
+                "assertion_count": 0,
+                "touched_entity_ids": [],
+                "skipped": True,
+                "skip_reason": policy.skip_reason,
+            }
+
         if self._entity_catalog is None or self._llm_service is None:
             legacy_result = await self._cognition_store.apply_memory_event(stored_event)
             return {
                 **legacy_result,
-                "touched_entity_ids": self._collect_touched_entities(stored_event, [], []),
+                "touched_entity_ids": self._collect_touched_entities([], []),
+                "skipped": False,
             }
 
-        context_texts = await self._load_context_texts(stored_event)
-        mentions = await self._llm_service.extract_entity_mentions(
-            event_text=stored_event.raw_content,
-            context_texts=context_texts,
+        context_texts = (
+            await self._load_context_texts(stored_event)
+            if policy.allow_entity_extraction or policy.allow_assertion_write
+            else []
         )
-        resolved_mentions = await self._resolve_mentions(stored_event, mentions)
+        resolved_mentions: list[dict[str, Any]] = []
+        if policy.allow_entity_extraction:
+            mentions = await self._llm_service.extract_entity_mentions(
+                event_text=stored_event.raw_content,
+                context_texts=context_texts,
+            )
+            resolved_mentions = await self._resolve_mentions(stored_event, mentions)
 
-        graph_candidates = self._build_graph_candidates(stored_event, resolved_mentions)
-        if not graph_candidates:
-            graph_candidates = self._cognition_store.extract_graph_candidates(stored_event)
+        graph_candidates: list[dict[str, Any]] = []
+        if policy.allow_graph_write and policy.graph_scope == "full":
+            graph_candidates = self._build_graph_candidates(stored_event, resolved_mentions)
+            if not graph_candidates:
+                graph_candidates = self._cognition_store.extract_graph_candidates(stored_event)
 
         focal_entities = self._build_focal_entities(stored_event, resolved_mentions)
-        llm_assertions = await self._llm_service.extract_tom_assertions(
-            event_window={
-                "event_ids": [stored_event.event_id],
-                "texts": [stored_event.raw_content],
-                "context_texts": context_texts,
-            },
-            focal_entities=focal_entities,
-        )
-        assertion_candidates = (
-            [self._normalize_assertion_candidate(stored_event, candidate) for candidate in llm_assertions]
-            if llm_assertions
-            else self._cognition_store.extract_assertion_candidates(stored_event)
-        )
-        contradiction_hints = await self._detect_contradiction_hints(
-            event=stored_event,
-            focal_entities=focal_entities,
-        )
+        assertion_candidates: list[dict[str, Any]] = []
+        if policy.allow_assertion_write:
+            llm_assertions = await self._llm_service.extract_tom_assertions(
+                event_window={
+                    "event_ids": [stored_event.event_id],
+                    "texts": [stored_event.raw_content],
+                    "context_texts": context_texts,
+                },
+                focal_entities=focal_entities,
+            )
+            scoped_assertions = self._apply_assertion_scope(
+                raw_candidates=llm_assertions,
+                assertion_scope=policy.assertion_scope,
+            )
+            if scoped_assertions:
+                assertion_candidates = [
+                    self._normalize_assertion_candidate(stored_event, candidate) for candidate in scoped_assertions
+                ]
+            elif policy.assertion_scope == "full":
+                assertion_candidates = self._cognition_store.extract_assertion_candidates(stored_event)
+
+        contradiction_hints = []
+        if policy.count_as_new_evidence and (graph_candidates or assertion_candidates):
+            contradiction_hints = await self._detect_contradiction_hints(
+                event=stored_event,
+                focal_entities=focal_entities,
+            )
 
         relation_count = 0
         assertion_count = 0
@@ -251,7 +287,8 @@ class L2Pipeline:
         return {
             "relation_count": relation_count,
             "assertion_count": assertion_count,
-            "touched_entity_ids": self._collect_touched_entities(stored_event, resolved_mentions, assertion_candidates),
+            "touched_entity_ids": self._collect_touched_entities(graph_candidates, assertion_candidates),
+            "skipped": False,
         }
 
     async def _load_stored_event(self, event: MemoryEvent) -> MemoryEvent:
@@ -479,22 +516,41 @@ class L2Pipeline:
 
     def _collect_touched_entities(
         self,
-        event: MemoryEvent,
-        resolved_mentions: list[dict[str, Any]],
+        graph_candidates: list[dict[str, Any]],
         assertion_candidates: list[dict[str, Any]],
     ) -> list[str]:
         touched: set[str] = set()
-        if event.user_id:
-            touched.add(f"user:{event.user_id}")
-        for mention in resolved_mentions:
-            entity_id = mention.get("resolved_entity_id")
-            if entity_id:
-                touched.add(str(entity_id))
+        for candidate in graph_candidates:
+            subject_id = candidate.get("subject_id")
+            object_id = candidate.get("object_id")
+            if subject_id:
+                touched.add(str(subject_id))
+            if object_id:
+                touched.add(str(object_id))
         for candidate in assertion_candidates:
             entity_id = candidate.get("entity_id")
             if entity_id:
                 touched.add(str(entity_id))
         return sorted(touched)
+
+    def _apply_assertion_scope(
+        self,
+        *,
+        raw_candidates: list[dict[str, Any]],
+        assertion_scope: str,
+    ) -> list[dict[str, Any]]:
+        if assertion_scope == "none":
+            return []
+        if assertion_scope == "full":
+            return [candidate for candidate in raw_candidates if isinstance(candidate, dict)]
+        if assertion_scope == "topology_only":
+            return [
+                candidate
+                for candidate in raw_candidates
+                if isinstance(candidate, dict)
+                and str(candidate.get("trait_family", "")).strip().casefold() in _TOPOLOGY_ONLY_TRAIT_FAMILIES
+            ]
+        return []
 
     def _normalize_entity_type(self, raw_value: Any) -> Optional[str]:
         text = self._non_empty_text(raw_value)
