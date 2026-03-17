@@ -16,6 +16,33 @@ from ..llm.lifecycle import RuntimeInitializationDeferred
 logger = get_logger(__name__)
 
 
+def _initialize_skills_bindings_for_configuration_mode(config: AppConfig) -> None:
+    """Initialize skills bindings even when full runtime startup is deferred.
+
+    During onboarding/configuration, LLM selection may be incomplete, which defers
+    full runtime startup. The settings UI still needs skill metadata, so expose
+    lightweight skills services via DI container in that state.
+    """
+    container = get_container()
+
+    if not config.features.enable_skills:
+        container.skill_indexer.reset_override()
+        container.skill_loader.reset_override()
+        container.skill_runner.reset_override()
+        return
+
+    try:
+        from ..skills.service_access import build_skills_runtime
+
+        bindings = build_skills_runtime(llm_adapter=None)
+        container.skill_indexer.override(providers.Object(bindings.skill_indexer))
+        container.skill_loader.override(providers.Object(bindings.skill_loader))
+        container.skill_runner.override(providers.Object(bindings.skill_runner))
+        logger.info("Skills bindings initialized for configuration mode")
+    except Exception as exc:
+        logger.warning("Failed to initialize skills bindings for configuration mode: %s", exc)
+
+
 def _resolve_from_container(attr: str):
     """Try to resolve a service from the DI container, return None on failure."""
     try:
@@ -57,6 +84,7 @@ async def initialize_agent_runtime() -> None:
         logger.info("Initializing Agent Runtime...")
         await orchestrator.startup()
     except RuntimeInitializationDeferred as exc:
+        _initialize_skills_bindings_for_configuration_mode(context.core.config or get_config())
         if exc.pending_selection:
             logger.info(
                 "LLM runtime initialization deferred: required selections are incomplete "
