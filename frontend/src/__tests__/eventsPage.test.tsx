@@ -22,6 +22,7 @@ vi.mock('@/api/modules/memory', () => ({
     getL2Entities: vi.fn(),
     getL2Mentions: vi.fn(),
     getL2Snapshots: vi.fn(),
+    getL2ConflictRules: vi.fn(),
     getL3Summaries: vi.fn(),
     getL4Skills: vi.fn(),
     search: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock('@/api/modules/memory', () => ({
     replayL2Extraction: vi.fn(),
     reconcileL2Entities: vi.fn(),
     refreshL2Snapshots: vi.fn(),
+    upsertL2ConflictRule: vi.fn(),
   },
 }));
 
@@ -94,6 +96,7 @@ describe('events page', () => {
     vi.mocked(memoryApi.getL2Entities).mockResolvedValue([]);
     vi.mocked(memoryApi.getL2Mentions).mockResolvedValue([]);
     vi.mocked(memoryApi.getL2Snapshots).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL2ConflictRules).mockResolvedValue([]);
     vi.mocked(memoryApi.getL3Summaries).mockResolvedValue([]);
     vi.mocked(memoryApi.getL4Skills).mockResolvedValue([]);
     vi.mocked(memoryApi.search).mockResolvedValue({

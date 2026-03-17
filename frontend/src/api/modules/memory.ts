@@ -108,6 +108,24 @@ export interface L2Snapshot {
   current_engagement?: number;
 }
 
+export interface L2GraphConflictRule {
+  predicate: string;
+  opposite_predicates: string[];
+  opposite_resolution: string;
+  exclusive_group?: string | null;
+  exclusive_scope: string;
+  exclusive_resolution: string;
+}
+
+export interface L2GraphConflictRulePayload {
+  predicate: string;
+  opposite_predicates: string[];
+  opposite_resolution: string;
+  exclusive_group?: string | null;
+  exclusive_scope?: string;
+  exclusive_resolution: string;
+}
+
 export interface ManualL2EventPayload {
   text: string;
   user_id: string;
@@ -201,6 +219,8 @@ export const memoryApi = {
     api.get<L2Mention[]>('/memory/l2/mentions', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Mention[]>,
   getL2Snapshots: (limit?: number) =>
     api.get<L2Snapshot[]>('/memory/l2/snapshots', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Snapshot[]>,
+  getL2ConflictRules: () =>
+    api.get<L2GraphConflictRule[]>('/memory/l2/conflict-rules') as unknown as Promise<L2GraphConflictRule[]>,
   createManualL2Event: (payload: ManualL2EventPayload) =>
     api.post<L2QueuedActionResponse>('/memory/l2/manual-event', payload) as unknown as Promise<L2QueuedActionResponse>,
   replayL2Extraction: (eventId: string) =>
@@ -209,6 +229,14 @@ export const memoryApi = {
     api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds }) as unknown as Promise<L2QueuedActionResponse>,
   refreshL2Snapshots: (entityIds: string[]) =>
     api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds }) as unknown as Promise<L2QueuedActionResponse>,
+  upsertL2ConflictRule: (payload: L2GraphConflictRulePayload) =>
+    api.put<L2GraphConflictRule>(`/memory/l2/conflict-rules/${payload.predicate}`, {
+      opposite_predicates: payload.opposite_predicates,
+      opposite_resolution: payload.opposite_resolution,
+      exclusive_group: payload.exclusive_group ?? null,
+      exclusive_scope: payload.exclusive_scope ?? 'same_subject',
+      exclusive_resolution: payload.exclusive_resolution,
+    }) as unknown as Promise<L2GraphConflictRule>,
 
   // L3 Reflection
   getL3Summaries: (params?: { limit?: number; summary_type?: string }) =>

@@ -23,12 +23,14 @@ describe('L2Tab lab', () => {
         entities={[]}
         mentions={[]}
         snapshots={[]}
+        conflictRules={[]}
         events={[]}
         actionLoading={false}
         onSubmitManualEvent={onSubmitManualEvent}
         onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
         onRunReconcile={vi.fn().mockResolvedValue(undefined)}
         onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+        onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
       />
     );
 
@@ -69,17 +71,124 @@ describe('L2Tab lab', () => {
         ]}
         mentions={[]}
         snapshots={[]}
+        conflictRules={[]}
         events={[]}
         actionLoading={false}
         onSubmitManualEvent={vi.fn().mockResolvedValue(undefined)}
         onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
         onRunReconcile={onRunReconcile}
         onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+        onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
       />
     );
 
     await user.click(screen.getByRole('button', { name: 'memory.l2.lab.runReconcile' }));
 
     expect(onRunReconcile).toHaveBeenCalledWith(['user:u1']);
+  });
+
+  it('filters relations by selected conflict status', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <L2Tab
+        stats={{ relation_count: 2, assertion_count: 0 }}
+        relations={[
+          {
+            triple_id: 'rel-active',
+            subject_id: 'user:u1',
+            subject_type: 'user',
+            predicate: 'LIKES',
+            object_id: 'food:sushi',
+            object_type: 'food',
+            confidence: 0.8,
+            evidence_event_ids: ['evt-1'],
+            observation_count: 1,
+            status: 'active',
+          },
+          {
+            triple_id: 'rel-conflicted',
+            subject_id: 'user:u1',
+            subject_type: 'user',
+            predicate: 'ENDORSES',
+            object_id: 'topic:remote-work',
+            object_type: 'topic',
+            confidence: 0.7,
+            evidence_event_ids: ['evt-2'],
+            observation_count: 1,
+            status: 'conflicted',
+          },
+        ]}
+        assertions={[]}
+        entities={[]}
+        mentions={[]}
+        snapshots={[]}
+        conflictRules={[]}
+        events={[]}
+        actionLoading={false}
+        onSubmitManualEvent={vi.fn().mockResolvedValue(undefined)}
+        onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
+        onRunReconcile={vi.fn().mockResolvedValue(undefined)}
+        onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+        onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await user.selectOptions(screen.getByLabelText('memory.l2.lab.relationStatusFilter'), 'conflicted');
+
+    expect(screen.getByText('ENDORSES → topic:remote-work')).toBeInTheDocument();
+    expect(screen.queryByText('LIKES → food:sushi')).not.toBeInTheDocument();
+  });
+
+  it('renders rules and saves a conflict rule update', async () => {
+    const user = userEvent.setup();
+    const onUpsertGraphConflictRule = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <L2Tab
+        stats={{ relation_count: 0, assertion_count: 0 }}
+        relations={[]}
+        assertions={[]}
+        entities={[]}
+        mentions={[]}
+        snapshots={[]}
+        conflictRules={[
+          {
+            predicate: 'LIKES',
+            opposite_predicates: ['DISLIKES'],
+            opposite_resolution: 'mark_deprecated',
+            exclusive_group: null,
+            exclusive_scope: 'same_subject',
+            exclusive_resolution: 'mark_deprecated',
+          },
+        ]}
+        events={[]}
+        actionLoading={false}
+        onSubmitManualEvent={vi.fn().mockResolvedValue(undefined)}
+        onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
+        onRunReconcile={vi.fn().mockResolvedValue(undefined)}
+        onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+        onUpsertGraphConflictRule={onUpsertGraphConflictRule}
+      />
+    );
+
+    expect(screen.getByText('LIKES')).toBeInTheDocument();
+    expect(screen.getByText('DISLIKES')).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText('memory.l2.lab.rulePredicatePlaceholder'), 'ENDORSES');
+    await user.type(screen.getByPlaceholderText('memory.l2.lab.ruleOppositesPlaceholder'), 'REJECTS, AVOIDS');
+    await user.type(screen.getByPlaceholderText('memory.l2.lab.ruleExclusiveGroupPlaceholder'), 'stance');
+    await user.selectOptions(screen.getByLabelText('memory.l2.lab.ruleOppositeResolution'), 'mark_conflicted');
+    await user.selectOptions(screen.getByLabelText('memory.l2.lab.ruleExclusiveResolution'), 'mark_conflicted');
+    await user.click(screen.getByRole('button', { name: 'memory.l2.lab.saveRule' }));
+
+    expect(onUpsertGraphConflictRule).toHaveBeenCalledWith({
+      predicate: 'ENDORSES',
+      opposite_predicates: ['REJECTS', 'AVOIDS'],
+      opposite_resolution: 'mark_conflicted',
+      exclusive_group: 'stance',
+      exclusive_scope: 'same_subject',
+      exclusive_resolution: 'mark_conflicted',
+    });
   });
 });

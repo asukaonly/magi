@@ -14,11 +14,13 @@ import type {
   L1Event,
   L2Assertion,
   L2Entity,
+  L2GraphConflictRule,
+  L2GraphConflictRulePayload,
   L2Mention,
   L2Relation,
   L2Snapshot,
-  MemoryStatistics,
   ManualL2EventPayload,
+  MemoryStatistics,
 } from '@/api/modules/memory';
 
 interface L2TabProps {
@@ -28,12 +30,14 @@ interface L2TabProps {
   entities: L2Entity[];
   mentions: L2Mention[];
   snapshots: L2Snapshot[];
+  conflictRules: L2GraphConflictRule[];
   events: L1Event[];
   actionLoading: boolean;
   onSubmitManualEvent: (payload: ManualL2EventPayload) => Promise<void>;
   onReplayExtraction: (eventId: string) => Promise<void>;
   onRunReconcile: (entityIds: string[]) => Promise<void>;
   onRunSnapshotRefresh: (entityIds: string[]) => Promise<void>;
+  onUpsertGraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
 }
 
 const defaultManualState: ManualL2EventPayload = {
@@ -44,6 +48,15 @@ const defaultManualState: ManualL2EventPayload = {
   entity_focus_hint: '',
 };
 
+const defaultRuleState: L2GraphConflictRulePayload = {
+  predicate: '',
+  opposite_predicates: [],
+  opposite_resolution: 'mark_deprecated',
+  exclusive_group: '',
+  exclusive_scope: 'same_subject',
+  exclusive_resolution: 'mark_deprecated',
+};
+
 export const L2Tab: React.FC<L2TabProps> = ({
   stats,
   relations,
@@ -51,17 +64,22 @@ export const L2Tab: React.FC<L2TabProps> = ({
   entities,
   mentions,
   snapshots,
+  conflictRules,
   events,
   actionLoading,
   onSubmitManualEvent,
   onReplayExtraction,
   onRunReconcile,
   onRunSnapshotRefresh,
+  onUpsertGraphConflictRule,
 }) => {
   const { t } = useTranslation('app');
   const [manualEvent, setManualEvent] = useState<ManualL2EventPayload>(defaultManualState);
   const [selectedEntityId, setSelectedEntityId] = useState('');
   const [selectedEventId, setSelectedEventId] = useState('');
+  const [relationStatusFilter, setRelationStatusFilter] = useState('all');
+  const [ruleForm, setRuleForm] = useState<L2GraphConflictRulePayload>(defaultRuleState);
+  const [ruleOppositesText, setRuleOppositesText] = useState('');
 
   useEffect(() => {
     if (!selectedEntityId && entities.length > 0) {
@@ -80,6 +98,13 @@ export const L2Tab: React.FC<L2TabProps> = ({
     [entities, selectedEntityId]
   );
 
+  const filteredRelations = useMemo(() => {
+    if (relationStatusFilter === 'all') {
+      return relations;
+    }
+    return relations.filter((relation) => relation.status === relationStatusFilter);
+  }, [relationStatusFilter, relations]);
+
   const handleManualSubmit = async () => {
     if (!manualEvent.text.trim() || !manualEvent.user_id.trim()) {
       return;
@@ -92,6 +117,25 @@ export const L2Tab: React.FC<L2TabProps> = ({
       entity_focus_hint: manualEvent.entity_focus_hint?.trim() || undefined,
     });
     setManualEvent((current) => ({ ...current, text: '' }));
+  };
+
+  const handleRuleSave = async () => {
+    if (!ruleForm.predicate.trim()) {
+      return;
+    }
+    await onUpsertGraphConflictRule({
+      predicate: ruleForm.predicate.trim(),
+      opposite_predicates: ruleOppositesText
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+      opposite_resolution: ruleForm.opposite_resolution,
+      exclusive_group: ruleForm.exclusive_group?.trim() || null,
+      exclusive_scope: ruleForm.exclusive_scope ?? 'same_subject',
+      exclusive_resolution: ruleForm.exclusive_resolution,
+    });
+    setRuleForm(defaultRuleState);
+    setRuleOppositesText('');
   };
 
   return (
@@ -218,23 +262,54 @@ export const L2Tab: React.FC<L2TabProps> = ({
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <InfoCard
-          icon={<Network className="h-5 w-5" />}
-          title={t('memory.l2.relations')}
-          emptyText={t('memory.l2.noRelations')}
-        >
-          {relations.slice(0, 50).map((relation) => (
-            <div key={relation.triple_id} className="rounded-lg border p-3 text-sm">
-              <div className="font-medium">{relation.subject_id}</div>
-              <div className="mt-1 text-muted-foreground">
-                {relation.predicate} → {relation.object_id}
-              </div>
-              <Badge variant="secondary" className="mt-2">
-                {(relation.confidence * 100).toFixed(0)}%
-              </Badge>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Network className="h-5 w-5" />
+              {t('memory.l2.relations')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-2">
+              <label htmlFor="l2-relation-status-filter" className="text-sm font-medium">
+                {t('memory.l2.lab.relationStatusFilter')}
+              </label>
+              <select
+                id="l2-relation-status-filter"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={relationStatusFilter}
+                onChange={(event) => setRelationStatusFilter(event.target.value)}
+              >
+                <option value="all">{t('memory.l2.lab.relationStatusOptions.all')}</option>
+                <option value="active">{t('memory.l2.lab.relationStatusOptions.active')}</option>
+                <option value="conflicted">{t('memory.l2.lab.relationStatusOptions.conflicted')}</option>
+                <option value="deprecated">{t('memory.l2.lab.relationStatusOptions.deprecated')}</option>
+              </select>
             </div>
-          ))}
-        </InfoCard>
+            {filteredRelations.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground">{t('memory.l2.noRelations')}</div>
+            ) : (
+              <div className="space-y-2">
+                {filteredRelations.slice(0, 50).map((relation) => (
+                  <div key={relation.triple_id} className="rounded-lg border p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium">{relation.subject_id}</div>
+                      <Badge variant={relation.status === 'active' ? 'secondary' : 'outline'}>
+                        {relation.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-muted-foreground">
+                      {relation.predicate} → {relation.object_id}
+                    </div>
+                    <Badge variant="secondary" className="mt-2">
+                      {(relation.confidence * 100).toFixed(0)}%
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <InfoCard
           icon={<Brain className="h-5 w-5" />}
@@ -272,7 +347,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
         </InfoCard>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-3">
         <InfoCard
           icon={<GitMerge className="h-5 w-5" />}
           title={t('memory.l2.lab.entities')}
@@ -316,6 +391,95 @@ export const L2Tab: React.FC<L2TabProps> = ({
             </div>
           ))}
         </InfoCard>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <GitMerge className="h-5 w-5" />
+              {t('memory.l2.lab.conflictRules')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {conflictRules.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground">{t('memory.l2.lab.noConflictRules')}</div>
+              ) : (
+                conflictRules.map((rule) => (
+                  <div key={rule.predicate} className="rounded-lg border p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{rule.predicate}</span>
+                      <Badge variant="outline">
+                        {rule.exclusive_group || t('memory.l2.lab.noExclusiveGroup')}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 text-muted-foreground">
+                      {rule.opposite_predicates.length > 0
+                        ? rule.opposite_predicates.join(', ')
+                        : t('memory.l2.lab.noOpposites')}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-3 rounded-xl border bg-muted/20 p-3">
+              <label className="text-sm font-medium">{t('memory.l2.lab.ruleEditorTitle')}</label>
+              <Input
+                value={ruleForm.predicate}
+                onChange={(event) => setRuleForm((current) => ({ ...current, predicate: event.target.value }))}
+                placeholder={t('memory.l2.lab.rulePredicatePlaceholder')}
+              />
+              <Input
+                value={ruleOppositesText}
+                onChange={(event) => setRuleOppositesText(event.target.value)}
+                placeholder={t('memory.l2.lab.ruleOppositesPlaceholder')}
+              />
+              <Input
+                value={ruleForm.exclusive_group || ''}
+                onChange={(event) => setRuleForm((current) => ({ ...current, exclusive_group: event.target.value }))}
+                placeholder={t('memory.l2.lab.ruleExclusiveGroupPlaceholder')}
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label htmlFor="l2-rule-opposite-resolution" className="text-sm font-medium">
+                    {t('memory.l2.lab.ruleOppositeResolution')}
+                  </label>
+                  <select
+                    id="l2-rule-opposite-resolution"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={ruleForm.opposite_resolution}
+                    onChange={(event) =>
+                      setRuleForm((current) => ({ ...current, opposite_resolution: event.target.value }))
+                    }
+                  >
+                    <option value="mark_deprecated">{t('memory.l2.lab.ruleResolutionOptions.mark_deprecated')}</option>
+                    <option value="mark_conflicted">{t('memory.l2.lab.ruleResolutionOptions.mark_conflicted')}</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="l2-rule-exclusive-resolution" className="text-sm font-medium">
+                    {t('memory.l2.lab.ruleExclusiveResolution')}
+                  </label>
+                  <select
+                    id="l2-rule-exclusive-resolution"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={ruleForm.exclusive_resolution}
+                    onChange={(event) =>
+                      setRuleForm((current) => ({ ...current, exclusive_resolution: event.target.value }))
+                    }
+                  >
+                    <option value="mark_deprecated">{t('memory.l2.lab.ruleResolutionOptions.mark_deprecated')}</option>
+                    <option value="mark_conflicted">{t('memory.l2.lab.ruleResolutionOptions.mark_conflicted')}</option>
+                  </select>
+                </div>
+              </div>
+              <Button onClick={handleRuleSave} disabled={actionLoading || !ruleForm.predicate.trim()}>
+                <GitMerge className="mr-2 h-4 w-4" />
+                {t('memory.l2.lab.saveRule')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

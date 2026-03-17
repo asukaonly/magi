@@ -19,6 +19,8 @@ import type {
   L2Relation,
   L2Assertion,
   L2Entity,
+  L2GraphConflictRule,
+  L2GraphConflictRulePayload,
   L2Mention,
   L2Snapshot,
   ManualL2EventPayload,
@@ -53,11 +55,13 @@ export interface UseMemoryReturn {
   l2Entities: L2Entity[];
   l2Mentions: L2Mention[];
   l2Snapshots: L2Snapshot[];
+  l2ConflictRules: L2GraphConflictRule[];
   l2ActionLoading: boolean;
   submitManualL2Event: (payload: ManualL2EventPayload) => Promise<void>;
   replayL2Extraction: (eventId: string) => Promise<void>;
   runL2Reconcile: (entityIds: string[]) => Promise<void>;
   runL2SnapshotRefresh: (entityIds: string[]) => Promise<void>;
+  upsertL2GraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
 
   // L3 data
   l3Summaries: L3Summary[];
@@ -120,6 +124,7 @@ export function useMemory(): UseMemoryReturn {
   const [l2Entities, setL2Entities] = useState<L2Entity[]>([]);
   const [l2Mentions, setL2Mentions] = useState<L2Mention[]>([]);
   const [l2Snapshots, setL2Snapshots] = useState<L2Snapshot[]>([]);
+  const [l2ConflictRules, setL2ConflictRules] = useState<L2GraphConflictRule[]>([]);
   const [l2ActionLoading, setL2ActionLoading] = useState(false);
 
   // L3 data
@@ -180,18 +185,20 @@ export function useMemory(): UseMemoryReturn {
 
   const loadL2Data = useCallback(async () => {
     try {
-      const [relations, assertions, entities, mentions, snapshots] = await Promise.all([
+      const [relations, assertions, entities, mentions, snapshots, conflictRules] = await Promise.all([
         memoryApi.getL2Relations(100),
         memoryApi.getL2Assertions(100),
         memoryApi.getL2Entities(100),
         memoryApi.getL2Mentions(100),
         memoryApi.getL2Snapshots(100),
+        memoryApi.getL2ConflictRules(),
       ]);
       setL2Relations(relations);
       setL2Assertions(assertions);
       setL2Entities(entities);
       setL2Mentions(mentions);
       setL2Snapshots(snapshots);
+      setL2ConflictRules(conflictRules);
     } catch (error) {
       console.error('Failed to load L2 data:', error);
     }
@@ -264,6 +271,28 @@ export function useMemory(): UseMemoryReturn {
         toast.success(t('memory.l2.lab.snapshotQueued'));
       } catch (error) {
         console.error('Failed to queue L2 snapshot refresh:', error);
+        toast.error(t('memory.l2.lab.actionFailed'));
+      } finally {
+        setL2ActionLoading(false);
+      }
+    },
+    [refreshL2Lab, t]
+  );
+
+  const upsertL2GraphConflictRule = useCallback(
+    async (payload: L2GraphConflictRulePayload) => {
+      if (!payload.predicate.trim()) return;
+      setL2ActionLoading(true);
+      try {
+        await memoryApi.upsertL2ConflictRule({
+          ...payload,
+          predicate: payload.predicate.trim(),
+          exclusive_group: payload.exclusive_group?.trim() || null,
+        });
+        await refreshL2Lab();
+        toast.success(t('memory.l2.lab.ruleSaved'));
+      } catch (error) {
+        console.error('Failed to update graph conflict rule:', error);
         toast.error(t('memory.l2.lab.actionFailed'));
       } finally {
         setL2ActionLoading(false);
@@ -439,11 +468,13 @@ export function useMemory(): UseMemoryReturn {
     l2Entities,
     l2Mentions,
     l2Snapshots,
+    l2ConflictRules,
     l2ActionLoading,
     submitManualL2Event,
     replayL2Extraction,
     runL2Reconcile,
     runL2SnapshotRefresh,
+    upsertL2GraphConflictRule,
 
     // L3 data
     l3Summaries,
