@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Any, Dict, Iterable, Mapping, Literal
 
 GraphConflictAction = Literal["mark_deprecated", "mark_conflicted"]
@@ -24,6 +25,15 @@ class GraphConflictRule:
     def from_mapping(cls, payload: Mapping[str, Any]) -> "GraphConflictRule":
         """Build a rule from a plain mapping."""
         opposite_predicates = payload.get("opposite_predicates", ())
+        if isinstance(opposite_predicates, str):
+            try:
+                decoded = json.loads(opposite_predicates)
+                if isinstance(decoded, list):
+                    opposite_predicates = decoded
+                else:
+                    opposite_predicates = [opposite_predicates]
+            except json.JSONDecodeError:
+                opposite_predicates = [item.strip() for item in opposite_predicates.split(",") if item.strip()]
         return cls(
             predicate=str(payload["predicate"]),
             opposite_predicates=tuple(str(item) for item in opposite_predicates),
@@ -34,6 +44,17 @@ class GraphConflictRule:
             exclusive_scope=str(payload.get("exclusive_scope", "same_subject")),  # type: ignore[arg-type]
             exclusive_resolution=str(payload.get("exclusive_resolution", "mark_deprecated")),  # type: ignore[arg-type]
         )
+
+    def to_record(self) -> Dict[str, Any]:
+        """Return a JSON-safe representation for storage or API responses."""
+        return {
+            "predicate": self.predicate,
+            "opposite_predicates": list(self.opposite_predicates),
+            "opposite_resolution": self.opposite_resolution,
+            "exclusive_group": self.exclusive_group,
+            "exclusive_scope": self.exclusive_scope,
+            "exclusive_resolution": self.exclusive_resolution,
+        }
 
 
 DEFAULT_GRAPH_CONFLICT_RULES: dict[str, GraphConflictRule] = {

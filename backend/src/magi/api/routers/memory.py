@@ -50,6 +50,14 @@ class L2EntityActionBody(BaseModel):
     entity_ids: List[str] = Field(..., description="Canonical entity ids")
 
 
+class GraphConflictRuleBody(BaseModel):
+    opposite_predicates: List[str] = Field(default_factory=list, description="Predicates that conflict as logical opposites")
+    opposite_resolution: str = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
+    exclusive_group: Optional[str] = Field(default=None, description="Optional mutual-exclusion group")
+    exclusive_scope: str = Field(default="same_subject", description="Conflict scope")
+    exclusive_resolution: str = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
+
+
 def _resolve_unified_memory():
     try:
         return require_unified_memory()
@@ -192,6 +200,39 @@ async def list_l2_snapshots(limit: int = Query(default=100, ge=1, le=500)):
     if not unified_memory or not unified_memory.l2:
         return []
     return await unified_memory.l2.list_tom_snapshots(limit=limit)
+
+
+@memory_router.get("/l2/conflict-rules")
+async def list_l2_conflict_rules():
+    """List persisted graph conflict rules."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return []
+    return await unified_memory.l2.list_graph_conflict_rules()
+
+
+@memory_router.put("/l2/conflict-rules/{predicate}")
+async def upsert_l2_conflict_rule(predicate: str, body: GraphConflictRuleBody):
+    """Create or update a persisted graph conflict rule."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+    normalized_predicate = predicate.strip()
+    if not normalized_predicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Predicate is required")
+    return await unified_memory.l2.upsert_graph_conflict_rule(
+        {
+            "predicate": normalized_predicate,
+            "opposite_predicates": body.opposite_predicates,
+            "opposite_resolution": body.opposite_resolution,
+            "exclusive_group": body.exclusive_group,
+            "exclusive_scope": body.exclusive_scope,
+            "exclusive_resolution": body.exclusive_resolution,
+        }
+    )
 
 
 @memory_router.post("/l2/manual-event")

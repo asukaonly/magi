@@ -46,6 +46,28 @@ class _FakeL2Store:
             return {"snapshot_id": "snapshot-1", "entity_id": entity_id, "entity_type": entity_type}
         return None
 
+    async def list_graph_conflict_rules(self):
+        return [
+            {
+                "predicate": "LIKES",
+                "opposite_predicates": ["DISLIKES"],
+                "opposite_resolution": "mark_deprecated",
+                "exclusive_group": None,
+                "exclusive_scope": "same_subject",
+                "exclusive_resolution": "mark_deprecated",
+            }
+        ]
+
+    async def upsert_graph_conflict_rule(self, payload):
+        return {
+            "predicate": payload["predicate"],
+            "opposite_predicates": payload.get("opposite_predicates", []),
+            "opposite_resolution": payload.get("opposite_resolution", "mark_deprecated"),
+            "exclusive_group": payload.get("exclusive_group"),
+            "exclusive_scope": payload.get("exclusive_scope", "same_subject"),
+            "exclusive_resolution": payload.get("exclusive_resolution", "mark_deprecated"),
+        }
+
 
 class _FakeL2EntityCatalog:
     async def list_entities(self, limit: int = 100):
@@ -156,6 +178,7 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     entities_response = client.get("/api/memory/l2/entities")
     mentions_response = client.get("/api/memory/l2/mentions")
     snapshots_response = client.get("/api/memory/l2/snapshots")
+    rules_response = client.get("/api/memory/l2/conflict-rules")
     manual_response = client.post(
         "/api/memory/l2/manual-event",
         json={"text": "I like Shanghai.", "user_id": "u1", "source": "l2_lab"},
@@ -163,6 +186,15 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     replay_response = client.post("/api/memory/l2/extract/evt-manual-1")
     reconcile_response = client.post("/api/memory/l2/reconcile", json={"entity_ids": ["user:u1"]})
     materialize_response = client.post("/api/memory/l2/snapshot-refresh", json={"entity_ids": ["user:u1"]})
+    update_rule_response = client.put(
+        "/api/memory/l2/conflict-rules/ENDORSES",
+        json={
+            "opposite_predicates": ["REJECTS"],
+            "opposite_resolution": "mark_conflicted",
+            "exclusive_group": "stance",
+            "exclusive_resolution": "mark_conflicted",
+        },
+    )
 
     assert entities_response.status_code == 200
     assert entities_response.json()[0]["entity_id"] == "user:u1"
@@ -170,8 +202,13 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     assert mentions_response.json()[0]["mention_text"] == "魔都"
     assert snapshots_response.status_code == 200
     assert snapshots_response.json()[0]["snapshot_id"] == "snapshot-1"
+    assert rules_response.status_code == 200
+    assert rules_response.json()[0]["predicate"] == "LIKES"
     assert manual_response.status_code == 200
     assert manual_response.json()["event_id"] == "evt-manual-1"
     assert replay_response.status_code == 200
     assert reconcile_response.status_code == 200
     assert materialize_response.status_code == 200
+    assert update_rule_response.status_code == 200
+    assert update_rule_response.json()["predicate"] == "ENDORSES"
+    assert update_rule_response.json()["exclusive_group"] == "stance"

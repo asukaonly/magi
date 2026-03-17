@@ -11,12 +11,7 @@ from typing import Any, Dict, List, Mapping, Optional
 import aiosqlite
 
 from .event_contracts import MemoryEvent, TomDepth
-from .l2_graph_conflicts import (
-    GraphConflictRule,
-    build_exclusive_group_index,
-    build_graph_conflict_matrix,
-    iter_opposite_predicates,
-)
+from .l2_graph_conflicts import DEFAULT_GRAPH_CONFLICT_RULES, GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix, iter_opposite_predicates
 from .l2_models import ContradictionHint, ReconciledTraitOutcome
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
@@ -34,7 +29,8 @@ class L2CognitionStore:
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._initialized = False
-        self._graph_conflict_rules = build_graph_conflict_matrix(graph_conflict_rules)
+        self._seed_graph_conflict_rules = build_graph_conflict_matrix(graph_conflict_rules)
+        self._graph_conflict_rules = dict(self._seed_graph_conflict_rules)
         self._exclusive_group_index = build_exclusive_group_index(self._graph_conflict_rules)
 
     async def initialize(self) -> None:
@@ -110,10 +106,66 @@ class L2CognitionStore:
                     created_at REAL NOT NULL,
                     UNIQUE(entity_id, entity_type)
                 );
+
+                CREATE TABLE IF NOT EXISTS graph_conflict_rules (
+                    predicate TEXT PRIMARY KEY,
+                    opposite_predicates TEXT NOT NULL DEFAULT '[]',
+                    opposite_resolution TEXT NOT NULL DEFAULT 'mark_deprecated',
+                    exclusive_group TEXT,
+                    exclusive_scope TEXT NOT NULL DEFAULT 'same_subject',
+                    exclusive_resolution TEXT NOT NULL DEFAULT 'mark_deprecated',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
                 """
             )
+            await self._seed_default_graph_conflict_rules(db)
+            await self._reload_graph_conflict_rules(db)
             await db.commit()
         self._initialized = True
+
+    async def list_graph_conflict_rules(self) -> List[Dict[str, Any]]:
+        """List graph conflict rules from the persisted matrix."""
+        await self.initialize()
+        return [rule.to_record() for _, rule in sorted(self._graph_conflict_rules.items())]
+
+    async def upsert_graph_conflict_rule(
+        self,
+        rule: GraphConflictRule | Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """Persist and activate a graph conflict rule."""
+        normalized = rule if isinstance(rule, GraphConflictRule) else GraphConflictRule.from_mapping(rule)
+        now = time.time()
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO graph_conflict_rules(
+                    predicate, opposite_predicates, opposite_resolution, exclusive_group,
+                    exclusive_scope, exclusive_resolution, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(predicate) DO UPDATE SET
+                    opposite_predicates = excluded.opposite_predicates,
+                    opposite_resolution = excluded.opposite_resolution,
+                    exclusive_group = excluded.exclusive_group,
+                    exclusive_scope = excluded.exclusive_scope,
+                    exclusive_resolution = excluded.exclusive_resolution,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    normalized.predicate,
+                    json.dumps(list(normalized.opposite_predicates), ensure_ascii=False),
+                    normalized.opposite_resolution,
+                    normalized.exclusive_group,
+                    normalized.exclusive_scope,
+                    normalized.exclusive_resolution,
+                    now,
+                    now,
+                ),
+            )
+            await self._reload_graph_conflict_rules(db)
+            await db.commit()
+        return normalized.to_record()
 
     async def apply_memory_event(self, event: MemoryEvent) -> Dict[str, int]:
         """Extract graph and ToM candidates from a normalized memory event."""
@@ -1055,6 +1107,51 @@ class L2CognitionStore:
         if action == "mark_conflicted":
             return "conflicted"
         return "deprecated"
+
+    async def _seed_default_graph_conflict_rules(self, db: aiosqlite.Connection) -> None:
+        now = time.time()
+        seed_rules = build_graph_conflict_matrix(self._seed_graph_conflict_rules)
+        for predicate, rule in seed_rules.items():
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO graph_conflict_rules(
+                    predicate, opposite_predicates, opposite_resolution, exclusive_group,
+                    exclusive_scope, exclusive_resolution, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    predicate,
+                    json.dumps(list(rule.opposite_predicates), ensure_ascii=False),
+                    rule.opposite_resolution,
+                    rule.exclusive_group,
+                    rule.exclusive_scope,
+                    rule.exclusive_resolution,
+                    now,
+                    now,
+                ),
+            )
+
+    async def _reload_graph_conflict_rules(self, db: aiosqlite.Connection) -> None:
+        db.row_factory = aiosqlite.Row
+        rules: dict[str, GraphConflictRule] = {}
+        async with db.execute(
+            """
+            SELECT predicate, opposite_predicates, opposite_resolution,
+                   exclusive_group, exclusive_scope, exclusive_resolution
+            FROM graph_conflict_rules
+            ORDER BY predicate ASC
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for row in rows:
+            rule = GraphConflictRule.from_mapping(dict(row))
+            rules[rule.predicate] = rule
+
+        if not rules:
+            rules = dict(DEFAULT_GRAPH_CONFLICT_RULES)
+
+        self._graph_conflict_rules = rules
+        self._exclusive_group_index = build_exclusive_group_index(self._graph_conflict_rules)
 
     def _entity_identity(self, event: MemoryEvent) -> tuple[Optional[str], Optional[str]]:
         if event.user_id:

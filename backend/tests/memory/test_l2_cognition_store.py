@@ -308,3 +308,98 @@ async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
     assert len(deprecated_edges) == 1
     assert deprecated_edges[0]["predicate"] == "PRIMARY_BASED_IN"
     assert deprecated_edges[0]["deprecated_by"] == live_id
+
+
+@pytest.mark.asyncio
+async def test_default_graph_conflict_rules_are_seeded_and_listed(tmp_path):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    rules = await store.list_graph_conflict_rules()
+
+    likes_rule = next(rule for rule in rules if rule["predicate"] == "LIKES")
+    residence_rule = next(rule for rule in rules if rule["predicate"] == "CURRENT_LIVES_IN")
+
+    assert "DISLIKES" in likes_rule["opposite_predicates"]
+    assert likes_rule["opposite_resolution"] == "mark_deprecated"
+    assert residence_rule["exclusive_group"] == "current_residence"
+
+
+@pytest.mark.asyncio
+async def test_upserted_graph_conflict_rule_persists_across_store_instances(tmp_path):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+
+    db_path = str(tmp_path / "l2.db")
+    store = L2CognitionStore(db_path=db_path)
+    await store.initialize()
+
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "ALLY_OF",
+            "opposite_predicates": ["OPPOSES"],
+            "opposite_resolution": "mark_conflicted",
+            "exclusive_group": "active_alignment",
+            "exclusive_resolution": "mark_conflicted",
+        }
+    )
+
+    reloaded_store = L2CognitionStore(db_path=db_path)
+    await reloaded_store.initialize()
+    rules = await reloaded_store.list_graph_conflict_rules()
+    ally_rule = next(rule for rule in rules if rule["predicate"] == "ALLY_OF")
+
+    assert ally_rule["opposite_predicates"] == ["OPPOSES"]
+    assert ally_rule["opposite_resolution"] == "mark_conflicted"
+    assert ally_rule["exclusive_group"] == "active_alignment"
+
+
+@pytest.mark.asyncio
+async def test_upserted_graph_conflict_rule_changes_runtime_conflict_behavior(tmp_path):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "ENDORSES",
+            "opposite_predicates": ["REJECTS"],
+            "opposite_resolution": "mark_conflicted",
+        }
+    )
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "REJECTS",
+            "opposite_predicates": ["ENDORSES"],
+            "opposite_resolution": "mark_conflicted",
+        }
+    )
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="ENDORSES",
+        object_id="topic:hybrid-work",
+        object_type="topic",
+        evidence_event_ids=["evt-1"],
+        confidence=0.7,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="REJECTS",
+        object_id="topic:hybrid-work",
+        object_type="topic",
+        evidence_event_ids=["evt-2"],
+        confidence=0.72,
+        observed_at=1710090000.0,
+        source_type="chat",
+    )
+
+    conflicted_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="conflicted")
+
+    assert len(conflicted_edges) == 1
+    assert conflicted_edges[0]["predicate"] == "ENDORSES"
