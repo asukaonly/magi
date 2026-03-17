@@ -32,7 +32,7 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
     L3  MessageBusModule          - Message bus
     L4  PluginSystemModule        - Plugin system
     L5  LLMRuntimeModule          - LLM runtime
-    L6  MemoryStoreModule         - Memory stores (L0-L5)
+    L6  MemoryStoreModule         - Memory stores (L0-L4)
     L7  ToolsModule               - Tool integrations
     L8  SkillsModule              - Shared skills lifecycle
     L9  PersonalityModule         - Personality layer

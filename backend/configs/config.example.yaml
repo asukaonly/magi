@@ -29,11 +29,6 @@ agent:
     enable_l2_llm_extraction: true
     enable_l3_llm_summary: true
     enable_l4_skill_extraction: true
-    enable_l1_raw: true
-    enable_l2_relations: true
-    enable_l3_embeddings: true
-    enable_l4_summaries: true
-    enable_l5_capabilities: true
     async_embeddings: true
     auto_extract_relations: true
     summary_interval_minutes: 60

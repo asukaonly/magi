@@ -41,7 +41,7 @@ class ContextDecision:
         self.deep_thinking = deep_thinking  # Whether to use extended reasoning mode
         self.reasoning = reasoning  # Why these tools were selected
         self.orchestration_strategy = orchestration_strategy or {}
-        self.memory_layer = memory_layer  # Which memory layer to use (L1-L5)
+        self.memory_layer = memory_layer  # Which memory layer to use (L1-L4)
 
 
 @dataclass
@@ -864,7 +864,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             recommended_tools=[
                 ToolRecommendation(
                     name="memory_query",
-                    description="Retrieve memories from L1-L5 layers",
+                    description="Retrieve memories from L0-L4 layers",
                     suggested_params=suggested_params,
                 )
             ]

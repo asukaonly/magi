@@ -193,12 +193,6 @@ class MemorySettings(BaseModel):
     enable_l3_llm_summary: bool = Field(default=True)
     enable_l4_skill_extraction: bool = Field(default=True)
 
-    # L1-L5 layers
-    enable_l1_raw: bool = Field(default=True)
-    enable_l2_relations: bool = Field(default=True)
-    enable_l3_embeddings: bool = Field(default=True)
-    enable_l4_summaries: bool = Field(default=True)
-    enable_l5_capabilities: bool = Field(default=True)
     async_embeddings: bool = Field(default=True)
     auto_extract_relations: bool = Field(default=True)
     summary_interval_minutes: int = Field(default=60, ge=1)

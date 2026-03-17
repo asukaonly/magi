@@ -63,11 +63,6 @@ class MemoryStoreModule(LifecycleModule):
             enable_l2=config.agent.memory.enable_l2,
             enable_l3=config.agent.memory.enable_l3,
             enable_l4=config.agent.memory.enable_l4,
-            enable_l1_raw=config.agent.memory.enable_l1,
-            enable_l2_relations=config.agent.memory.enable_l2,
-            enable_l3_embeddings=config.agent.memory.enable_l3,
-            enable_l4_summaries=config.agent.memory.enable_l3,
-            enable_l5_capabilities=config.agent.memory.enable_l4,
             summary_interval_minutes=config.agent.memory.summary_interval_minutes,
         )
         self._context.memory.memory_integration = MemoryIntegrationModule(

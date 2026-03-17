@@ -32,12 +32,6 @@ class MemoryIntegrationConfig:
     enable_l3: bool = True
     enable_l4: bool = True
 
-    enable_l1_raw: bool = True
-    enable_l2_relations: bool = True
-    enable_l3_embeddings: bool = True
-    enable_l4_summaries: bool = True
-    enable_l5_capabilities: bool = True
-
     summary_interval_minutes: int = 60
 
     subscribed_events: Set[str] = field(

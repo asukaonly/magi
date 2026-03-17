@@ -207,7 +207,7 @@ Current storage implementation notes:
 - `message_queue.db` is reserved for message bus queue persistence, not long-term L1 memory.
 - L1 is stored in `memories/l1_events.db`.
 - L0/L2/L3/L4 are consolidated into `memories/memory.db` (multi-table layout).
-- Layer vectors are stored per layer (`L1/L3/L4/L5` vector tables) instead of a shared `embeddings.db`.
+- Layer vectors are stored per layer (`L1/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - `scenario_prompts.db` and `llm_usage.db` are runtime/system databases under `~/.magi/data/`, not memory-layer databases.
 
 ## Tool And Extension Management
