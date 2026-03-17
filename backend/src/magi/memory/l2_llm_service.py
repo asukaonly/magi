@@ -8,10 +8,14 @@ from typing import Any, Optional
 
 from ..llm import LLMScenario, ScenarioLLMPool
 from .l2_prompt_templates import (
+    CONTRADICTION_HINT_SYSTEM_PROMPT,
+    ENTITY_RECONCILE_SYSTEM_PROMPT,
     ENTITY_MENTION_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
     TOM_EXTRACTION_SYSTEM_PROMPT,
+    render_contradiction_hint_prompt,
     render_entity_mention_prompt,
+    render_entity_reconcile_prompt,
     render_entity_resolution_prompt,
     render_tom_extraction_prompt,
 )
@@ -97,6 +101,39 @@ class L2LLMService:
             candidate["confidence"] = round(confidence, 4)
             normalized.append(candidate)
         return normalized
+
+    async def detect_contradiction_hints(
+        self,
+        *,
+        new_event: dict[str, Any],
+        existing_records: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        payload = await self._generate_json(
+            system_prompt=CONTRADICTION_HINT_SYSTEM_PROMPT,
+            prompt=render_contradiction_hint_prompt(new_event=new_event, existing_records=existing_records),
+        )
+        hints = payload.get("contradiction_hints")
+        return hints if isinstance(hints, list) else []
+
+    async def reconcile_entity_state(
+        self,
+        *,
+        entity: dict[str, Any],
+        graph_facts: list[dict[str, Any]],
+        assertions: list[dict[str, Any]],
+        recent_events: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        payload = await self._generate_json(
+            system_prompt=ENTITY_RECONCILE_SYSTEM_PROMPT,
+            prompt=render_entity_reconcile_prompt(
+                entity=entity,
+                graph_facts=graph_facts,
+                assertions=assertions,
+                recent_events=recent_events,
+            ),
+        )
+        outcomes = payload.get("reconciled_traits")
+        return outcomes if isinstance(outcomes, list) else []
 
     async def _generate_json(self, *, system_prompt: str, prompt: str) -> dict[str, Any]:
         adapter = self._get_adapter()

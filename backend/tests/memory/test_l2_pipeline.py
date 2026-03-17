@@ -257,6 +257,29 @@ def test_entity_mention_prompt_rendering_is_deterministic():
     assert prompt.count("Event text:") == 1
 
 
+def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
+    from magi.memory.l2_prompt_templates import (
+        render_contradiction_hint_prompt,
+        render_entity_reconcile_prompt,
+    )
+
+    contradiction_prompt = render_contradiction_hint_prompt(
+        new_event={"event_id": "evt-1", "text": "I do not like sushi anymore."},
+        existing_records=[{"record_id": "triple-1", "predicate": "LIKES", "object_id": "food:sushi"}],
+    )
+    reconcile_prompt = render_entity_reconcile_prompt(
+        entity={"entity_id": "user:u1", "entity_type": "user"},
+        graph_facts=[{"predicate": "LIKES", "object_id": "food:sushi"}],
+        assertions=[{"trait_name": "stress_level", "trait_value": "high"}],
+        recent_events=[{"event_id": "evt-1", "raw_content": "I am stressed."}],
+    )
+
+    assert '"event_id": "evt-1"' in contradiction_prompt
+    assert '"predicate": "LIKES"' in contradiction_prompt
+    assert '"entity_id": "user:u1"' in reconcile_prompt
+    assert '"trait_name": "stress_level"' in reconcile_prompt
+
+
 @pytest.mark.asyncio
 async def test_invalid_json_from_llm_fails_closed():
     from magi.memory.l2_llm_service import L2LLMService
@@ -328,6 +351,27 @@ async def test_single_event_tom_candidates_are_capped_to_low_confidence():
     )
 
     assert assertions[0]["confidence"] == 0.3
+
+
+@pytest.mark.asyncio
+async def test_invalid_json_from_contradiction_and_reconcile_llm_fails_closed():
+    from magi.memory.l2_llm_service import L2LLMService
+
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(["not-json", "still-not-json"])))
+
+    hints = await service.detect_contradiction_hints(
+        new_event={"event_id": "evt-1"},
+        existing_records=[{"record_id": "triple-1"}],
+    )
+    outcomes = await service.reconcile_entity_state(
+        entity={"entity_id": "user:u1", "entity_type": "user"},
+        graph_facts=[],
+        assertions=[],
+        recent_events=[],
+    )
+
+    assert hints == []
+    assert outcomes == []
 
 
 @pytest.mark.asyncio

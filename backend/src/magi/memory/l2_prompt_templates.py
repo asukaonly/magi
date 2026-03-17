@@ -37,6 +37,24 @@ Be cautious:
 - Return JSON only.
 """
 
+CONTRADICTION_HINT_SYSTEM_PROMPT = """You are a contradiction detection assistant for a memory system.
+
+Your task is to compare a new memory event with existing graph facts or ToM assertions and identify possible contradiction signals.
+Do not make final database decisions.
+Only emit contradiction hints with evidence and confidence.
+Return JSON only.
+"""
+
+ENTITY_RECONCILE_SYSTEM_PROMPT = """You are an entity-level reconciliation engine for a memory system.
+
+Your job is to review multiple evidence-bound records for the same entity and estimate which candidate traits are currently supported, contradicted, unstable, or still uncertain.
+Be conservative:
+- Respect evidence count and time span.
+- Do not overfit to a single recent statement if long-term evidence disagrees.
+- Separate stable traits from temporary states.
+- Return JSON only.
+"""
+
 
 def render_entity_mention_prompt(*, event_text: str, context_texts: list[str]) -> str:
     payload = {
@@ -85,11 +103,50 @@ def render_tom_extraction_prompt(*, event_window: dict[str, Any], focal_entities
     )
 
 
+def render_contradiction_hint_prompt(*, new_event: dict[str, Any], existing_records: list[dict[str, Any]]) -> str:
+    return (
+        "Compare the new event against existing memory records and identify possible contradiction hints.\n\n"
+        f"New event:\n{json.dumps(new_event, ensure_ascii=False, indent=2)}\n\n"
+        f"Existing records:\n{json.dumps(existing_records, ensure_ascii=False, indent=2)}\n\n"
+        "Return JSON with this schema:\n"
+        '{\n  "contradiction_hints": [\n    {\n      "target_record_id": "string",\n      "target_record_type": "knowledge_graph|tom_trait_assertion",\n'
+        '      "contradiction_kind": "direct_negation|state_reversal|temporal_expiration|exclusive_role_conflict|preference_reversal|weak_tension",\n'
+        '      "confidence": 0.0,\n      "evidence_text": "string",\n      "recommended_action": "downgrade_confidence|mark_conflicted|mark_deprecated|revalidate_only"\n'
+        "    }\n  ]\n}"
+    )
+
+
+def render_entity_reconcile_prompt(
+    *,
+    entity: dict[str, Any],
+    graph_facts: list[dict[str, Any]],
+    assertions: list[dict[str, Any]],
+    recent_events: list[dict[str, Any]],
+) -> str:
+    return (
+        "Reconcile the following evidence for one entity.\n\n"
+        f"Entity:\n{json.dumps(entity, ensure_ascii=False, indent=2)}\n\n"
+        f"Related graph facts:\n{json.dumps(graph_facts, ensure_ascii=False, indent=2)}\n\n"
+        f"Related assertion candidates:\n{json.dumps(assertions, ensure_ascii=False, indent=2)}\n\n"
+        f"Recent events:\n{json.dumps(recent_events, ensure_ascii=False, indent=2)}\n\n"
+        "Return JSON with this schema:\n"
+        '{\n  "reconciled_traits": [\n    {\n      "trait_name": "string",\n      "winning_value": "string or JSON string",\n'
+        '      "status": "stable|corroborated|tentative|contradicted|expired",\n      "confidence": 0.0,\n      "evidence_event_ids": ["string"],\n'
+        '      "time_span_hours": 0.0,\n      "stability_kind": "stable_trait|temporary_state|volatile_pattern",\n'
+        '      "recommended_snapshot_field": "core_traits|preferences|sensitive_triggers|public_sentiment_profile|relationship_topology|current_context|current_mood|current_stress_level|current_engagement|none"\n'
+        "    }\n  ]\n}"
+    )
+
+
 __all__ = [
     "ENTITY_MENTION_SYSTEM_PROMPT",
+    "ENTITY_RECONCILE_SYSTEM_PROMPT",
     "ENTITY_RESOLUTION_SYSTEM_PROMPT",
+    "CONTRADICTION_HINT_SYSTEM_PROMPT",
     "TOM_EXTRACTION_SYSTEM_PROMPT",
+    "render_contradiction_hint_prompt",
     "render_entity_mention_prompt",
+    "render_entity_reconcile_prompt",
     "render_entity_resolution_prompt",
     "render_tom_extraction_prompt",
 ]

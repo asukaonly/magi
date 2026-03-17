@@ -15,6 +15,15 @@ from .l2_models import ReconciledTraitOutcome
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
+_OPPOSITE_PREDICATES = {
+    "LIKES": "DISLIKES",
+    "DISLIKES": "LIKES",
+}
+_EXCLUSIVE_PREDICATES = {
+    "CURRENT_WORKS_AT",
+    "CURRENT_LIVES_IN",
+    "CURRENT_RELATIONSHIP_WITH",
+}
 
 
 class L2CognitionStore:
@@ -212,6 +221,15 @@ class L2CognitionStore:
                         now,
                     ),
                 )
+            await self._resolve_graph_conflicts(
+                db=db,
+                triple_id=triple_id,
+                subject_id=subject_id,
+                predicate=predicate,
+                object_id=object_id,
+                observed_at=float(observed_at),
+                now=now,
+            )
             await db.commit()
         return triple_id
 
@@ -284,12 +302,13 @@ class L2CognitionStore:
         *,
         subject_id: Optional[str] = None,
         object_id: Optional[str] = None,
+        status: str = "active",
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """Query the knowledge graph."""
         await self.initialize()
-        query = "SELECT * FROM knowledge_graph WHERE status = 'active'"
-        args: list[Any] = []
+        query = "SELECT * FROM knowledge_graph WHERE status = ?"
+        args: list[Any] = [status]
         if subject_id:
             query += " AND subject_id = ?"
             args.append(subject_id)
@@ -864,6 +883,54 @@ class L2CognitionStore:
             return float(normalized)
         except ValueError:
             return 0.5
+
+    async def _resolve_graph_conflicts(
+        self,
+        *,
+        db: aiosqlite.Connection,
+        triple_id: str,
+        subject_id: str,
+        predicate: str,
+        object_id: str,
+        observed_at: float,
+        now: float,
+    ) -> None:
+        opposite_predicate = _OPPOSITE_PREDICATES.get(predicate)
+        if opposite_predicate:
+            await db.execute(
+                """
+                UPDATE knowledge_graph
+                SET status = 'deprecated', deprecated_by = ?, deprecated_at = ?, updated_at = ?
+                WHERE subject_id = ? AND object_id = ? AND predicate = ? AND triple_id != ? AND status = 'active'
+                """,
+                (
+                    triple_id,
+                    observed_at,
+                    now,
+                    subject_id,
+                    object_id,
+                    opposite_predicate,
+                    triple_id,
+                ),
+            )
+
+        if predicate in _EXCLUSIVE_PREDICATES:
+            await db.execute(
+                """
+                UPDATE knowledge_graph
+                SET status = 'deprecated', deprecated_by = ?, deprecated_at = ?, updated_at = ?
+                WHERE subject_id = ? AND predicate = ? AND object_id != ? AND triple_id != ? AND status = 'active'
+                """,
+                (
+                    triple_id,
+                    observed_at,
+                    now,
+                    subject_id,
+                    predicate,
+                    object_id,
+                    triple_id,
+                ),
+            )
 
     def _entity_identity(self, event: MemoryEvent) -> tuple[Optional[str], Optional[str]]:
         if event.user_id:

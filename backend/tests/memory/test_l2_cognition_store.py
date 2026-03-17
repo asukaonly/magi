@@ -159,3 +159,44 @@ async def test_group_content_avoids_deep_psychology(tmp_path):
     assertions = await store.list_tom_assertions(entity_id="user:u1")
 
     assert assertions == []
+
+
+@pytest.mark.asyncio
+async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:sushi",
+        object_type="food",
+        evidence_event_ids=["evt-like-1"],
+        confidence=0.82,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="DISLIKES",
+        object_id="food:sushi",
+        object_type="food",
+        evidence_event_ids=["evt-dislike-1"],
+        confidence=0.86,
+        observed_at=1710090000.0,
+        source_type="chat",
+    )
+
+    active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
+
+    assert len(active_edges) == 1
+    assert active_edges[0]["predicate"] == "DISLIKES"
+
+    deprecated_like_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="deprecated")
+    assert len(deprecated_like_edges) == 1
+    assert deprecated_like_edges[0]["predicate"] == "LIKES"
+    assert deprecated_like_edges[0]["deprecated_by"] == active_edges[0]["triple_id"]
