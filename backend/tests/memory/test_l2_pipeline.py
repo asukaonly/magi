@@ -135,6 +135,116 @@ def test_normalized_memory_event_captures_entity_focus_hint_from_payload():
     assert normalized.entity_focus_hint == "place:shanghai"
 
 
+def test_normalized_memory_event_captures_extraction_profile_metadata():
+    event = Event(
+        type=EventTypes.USER_MESSAGE,
+        data={
+            "user_id": "u1",
+            "message": "hello",
+            "structured_entity_hints": [
+                {
+                    "mention_text": "GitHub",
+                    "entity_type": "software",
+                    "canonical_name_hint": "GitHub",
+                }
+            ],
+            "structured_graph_hints": [
+                {
+                    "subject_ref": "user:u1",
+                    "predicate": "VISITED",
+                    "object_ref": "product:github",
+                    "object_type": "product",
+                }
+            ],
+        },
+        source="timeline",
+        level=EventLevel.INFO,
+        correlation_id="corr-l2-profile",
+        metadata={"extraction_profile_id": "timeline.chrome_history"},
+    )
+
+    normalized = normalize_runtime_event(event)
+    metadata = json.loads(normalized.metadata)
+
+    assert normalized.extraction_profile_id == "timeline.chrome_history"
+    assert normalized.structured_entity_hints == [
+        {
+            "mention_text": "GitHub",
+            "entity_type": "software",
+            "canonical_name_hint": "GitHub",
+        }
+    ]
+    assert normalized.structured_graph_hints == [
+        {
+            "subject_ref": "user:u1",
+            "predicate": "VISITED",
+            "object_ref": "product:github",
+            "object_type": "product",
+        }
+    ]
+    assert metadata["extraction_profile_id"] == "timeline.chrome_history"
+
+
+@pytest.mark.asyncio
+async def test_l1_round_trip_preserves_extraction_profile_metadata():
+    from magi.memory.l1_event_store import L1EventStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = L1EventStore(db_path=str(Path(temp_dir) / "l1_events.db"), vector_enabled=False)
+        await store.initialize()
+        try:
+            normalized = normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "hello",
+                        "structured_entity_hints": [
+                            {
+                                "mention_text": "GitHub",
+                                "entity_type": "software",
+                            }
+                        ],
+                        "structured_graph_hints": [
+                            {
+                                "subject_ref": "user:u1",
+                                "predicate": "VISITED",
+                                "object_ref": "product:github",
+                                "object_type": "product",
+                            }
+                        ],
+                    },
+                    source="timeline",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-l2-profile-roundtrip",
+                    metadata={"extraction_profile_id": "timeline.chrome_history"},
+                )
+            )
+
+            await store.store(normalized)
+            restored = await store.get_memory_event(normalized.event_id)
+
+            assert restored is not None
+            assert restored.extraction_profile_id == "timeline.chrome_history"
+            assert restored.structured_entity_hints == [
+                {
+                    "mention_text": "GitHub",
+                    "entity_type": "software",
+                }
+            ]
+            assert restored.structured_graph_hints == [
+                {
+                    "subject_ref": "user:u1",
+                    "predicate": "VISITED",
+                    "object_ref": "product:github",
+                    "object_type": "product",
+                }
+            ]
+        finally:
+            await store.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts():
     with tempfile.TemporaryDirectory() as temp_dir:

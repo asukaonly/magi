@@ -749,10 +749,21 @@ class L1EventStore:
         if not entity_focus_hint and isinstance(metadata, dict):
             entity_focus_hint = metadata.get("entity_focus_hint")
         derived_from_event_ids: list[str] = []
+        extraction_profile_id = None
+        structured_entity_hints: list[dict[str, Any]] = []
+        structured_graph_hints: list[dict[str, Any]] = []
         if isinstance(metadata, dict):
             raw_derived = metadata.get("derived_from_event_ids")
             if isinstance(raw_derived, list):
                 derived_from_event_ids = [text for item in raw_derived if (text := str(item).strip())]
+            if metadata.get("extraction_profile_id"):
+                extraction_profile_id = str(metadata["extraction_profile_id"]).strip() or None
+            raw_entity_hints = metadata.get("structured_entity_hints")
+            if isinstance(raw_entity_hints, list):
+                structured_entity_hints = [dict(item) for item in raw_entity_hints if isinstance(item, dict)]
+            raw_graph_hints = metadata.get("structured_graph_hints")
+            if isinstance(raw_graph_hints, list):
+                structured_graph_hints = [dict(item) for item in raw_graph_hints if isinstance(item, dict)]
 
         return MemoryEvent(
             event_id=str(row["event_id"]),
@@ -787,6 +798,9 @@ class L1EventStore:
             derived_from_event_ids=derived_from_event_ids,
             semantic_owner_hint=str(metadata.get("semantic_owner_hint")).strip() if isinstance(metadata, dict) and metadata.get("semantic_owner_hint") else None,
             originality_type=str(metadata.get("originality_type")).strip() if isinstance(metadata, dict) and metadata.get("originality_type") else None,
+            extraction_profile_id=extraction_profile_id,
+            structured_entity_hints=structured_entity_hints,
+            structured_graph_hints=structured_graph_hints,
         )
 
 
