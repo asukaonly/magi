@@ -1254,6 +1254,96 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
 
 
 @pytest.mark.asyncio
+async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_fact():
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "mentions": [
+                    {
+                        "mention_text": "西湖醋鱼",
+                        "normalized_surface": "西湖醋鱼",
+                        "entity_type": "dish",
+                        "canonical_name_hint": "西湖醋鱼",
+                        "alias_signals": [],
+                        "evidence_text": "但我讨厌吃西湖醋鱼",
+                        "confidence": 0.95,
+                    }
+                ],
+                "graph_candidates": [
+                    {
+                        "subject_ref": "user:u1",
+                        "subject_type": "user",
+                        "predicate": "DISLIKES",
+                        "object_ref": "food:xi-hu-cu-yu",
+                        "object_type": "dish",
+                        "fact_kind": "stable_preference",
+                        "polarity": "negative",
+                        "evidence_text": "但我讨厌吃西湖醋鱼",
+                        "confidence": 0.88,
+                    }
+                ],
+                "assertion_candidates": [
+                    {
+                        "entity_ref": "user:u1",
+                        "entity_type": "user",
+                        "trait_family": "taste_profile",
+                        "trait_name": "taste_profile",
+                        "trait_value": "avoids_vinegar_heavy_dishes",
+                        "inference_depth": "defensive_psychology",
+                        "volatility_index": 0.4,
+                        "confidence": 0.7,
+                        "validation_state": "tentative",
+                        "evidence_texts": ["但我讨厌吃西湖醋鱼"],
+                        "supporting_event_ids": ["evt-unified-food-high-order-1"],
+                    }
+                ],
+                "diagnostics": {"entity_status": "found"},
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-unified-food-high-order-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "但我讨厌吃西湖醋鱼",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1 and stats["assertions_written"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+
+            assert [item["predicate"] for item in relationships] == ["DISLIKES"]
+            assert [item["trait_name"] for item in assertions] == ["taste_profile"]
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_unified_extraction_respects_chrome_history_profile_restrictions():
     adapter = _FakeAdapter(
         json.dumps(

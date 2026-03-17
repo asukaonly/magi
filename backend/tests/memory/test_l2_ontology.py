@@ -95,3 +95,41 @@ def test_validator_can_identify_leaf_level_duplicates():
     )
 
     assert duplicate is True
+
+
+def test_validator_can_identify_generic_leaf_preference_duplicates():
+    from magi.memory.l2_ontology import is_leaf_fact_duplicate
+
+    duplicate = is_leaf_fact_duplicate(
+        graph_candidates=[
+            {
+                "predicate": "LIKES",
+                "object_ref": "technology:rust",
+            }
+        ],
+        assertion_candidate={
+            "trait_name": "preference",
+            "trait_value": "likes_technology:technology:rust",
+        },
+    )
+
+    assert duplicate is True
+
+
+def test_validator_allows_higher_order_assertion_alongside_graph_fact():
+    from magi.memory.l2_ontology import is_leaf_fact_duplicate
+
+    duplicate = is_leaf_fact_duplicate(
+        graph_candidates=[
+            {
+                "predicate": "DISLIKES",
+                "object_ref": "food:west-lake-vinegar-fish",
+            }
+        ],
+        assertion_candidate={
+            "trait_name": "taste_profile",
+            "trait_value": "avoids_vinegar_heavy_dishes",
+        },
+    )
+
+    assert duplicate is False

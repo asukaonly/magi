@@ -191,9 +191,18 @@ def is_leaf_fact_duplicate(
     for candidate in graph_candidates:
         predicate = str(candidate.get("predicate", "")).strip().upper()
         object_ref = str(candidate.get("object_ref", "")).strip().lower()
-        if predicate == "DISLIKES" and trait_value == f"dislikes_food:{object_ref}":
+        object_type, _, _ = object_ref.partition(":")
+        if predicate == "DISLIKES" and trait_value in {
+            f"dislikes_food:{object_ref}",
+            f"dislikes_{object_type}:{object_ref}" if object_type else "",
+            f"dislikes:{object_ref}",
+        }:
             return True
-        if predicate == "LIKES" and trait_value == f"likes_food:{object_ref}":
+        if predicate == "LIKES" and trait_value in {
+            f"likes_food:{object_ref}",
+            f"likes_{object_type}:{object_ref}" if object_type else "",
+            f"likes:{object_ref}",
+        }:
             return True
     return False
 
