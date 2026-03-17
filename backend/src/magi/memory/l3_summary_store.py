@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 import time
 import uuid
 from pathlib import Path
@@ -26,15 +27,25 @@ class L3SummaryStore:
         *,
         db_path: str = "~/.magi/data/memories/memory.db",
         embedding_service: MemoryEmbeddingService | None = None,
+        vector_enabled: bool = True,
+        async_embeddings: bool = True,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
-        self._vector_index = SqliteVecIndex(
-            db_path=self.db_path,
-            registry_table="l3_summary_vectors",
-            entity_column="summary_id",
-            vec_table_prefix="l3_summary_vec",
+        self._vector_enabled = bool(vector_enabled and embedding_service is not None)
+        self._async_embeddings = bool(async_embeddings)
+        self._vector_index = (
+            SqliteVecIndex(
+                db_path=self.db_path,
+                registry_table="l3_summary_vectors",
+                entity_column="summary_id",
+                vec_table_prefix="l3_summary_vec",
+            )
+            if self._vector_enabled
+            else None
         )
+        self._embedding_queue: asyncio.Queue[Dict[str, Any] | None] | None = asyncio.Queue() if self._vector_enabled and self._async_embeddings else None
+        self._embedding_worker: asyncio.Task[None] | None = None
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -83,9 +94,20 @@ class L3SummaryStore:
                 CREATE INDEX IF NOT EXISTS idx_l3_summary_vectors_model ON l3_summary_vectors(embedding_model);
                 """
             )
-            await self._vector_index.initialize()
+            if self._vector_enabled:
+                await self._vector_index.initialize()
             await db.commit()
+        if self._embedding_queue is not None and self._embedding_worker is None:
+            self._embedding_worker = asyncio.create_task(self._run_embedding_worker())
         self._initialized = True
+
+    async def shutdown(self) -> None:
+        if self._embedding_queue is not None and self._embedding_worker is not None:
+            await self._embedding_queue.put(None)
+            await self._embedding_worker
+            self._embedding_worker = None
+        if self._vector_index is not None:
+            await self._vector_index.close()
 
     async def generate_temporal_summary(
         self,
@@ -182,6 +204,8 @@ class L3SummaryStore:
                 count = int(row[0]) if row else 0
             await db.execute("DELETE FROM summaries")
             await db.commit()
+        if self._vector_index is not None:
+            await self._vector_index.clear()
         return count
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -221,7 +245,7 @@ class L3SummaryStore:
                 ),
             )
             await db.commit()
-            await self._maybe_upsert_summary_embedding(summary)
+        await self._schedule_summary_embedding(summary)
 
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         return {
@@ -246,7 +270,7 @@ class L3SummaryStore:
         }
 
     async def _maybe_upsert_summary_embedding(self, summary: Dict[str, Any]) -> None:
-        if self._embedding_service is None:
+        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None:
             return
         embedding = await self._embedding_service.embed_text(str(summary.get("content") or ""))
         if embedding is None:
@@ -267,7 +291,7 @@ class L3SummaryStore:
         summary_type: Optional[str],
         limit: int,
     ) -> List[Dict[str, Any]]:
-        if self._embedding_service is None or not query.strip():
+        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None or not query.strip():
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
@@ -301,6 +325,27 @@ class L3SummaryStore:
             if len(ranked) >= limit:
                 break
         return ranked
+
+    async def _schedule_summary_embedding(self, summary: Dict[str, Any]) -> None:
+        if not self._vector_enabled:
+            return
+        if self._embedding_queue is not None:
+            await self._embedding_queue.put(dict(summary))
+            return
+        await self._maybe_upsert_summary_embedding(summary)
+
+    async def _run_embedding_worker(self) -> None:
+        if self._embedding_queue is None:
+            return
+        while True:
+            item = await self._embedding_queue.get()
+            if item is None:
+                self._embedding_queue.task_done()
+                break
+            try:
+                await self._maybe_upsert_summary_embedding(item)
+            finally:
+                self._embedding_queue.task_done()
 
 
 __all__ = ["L3SummaryStore"]

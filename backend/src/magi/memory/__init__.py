@@ -38,6 +38,10 @@ class UnifiedMemoryStore:
         l0_checkpoint_interval_seconds: int = 30,
         session_timeout_seconds: int = 3600,
         embedding_service: MemoryEmbeddingService | None = None,
+        async_embeddings: bool = True,
+        enable_l1_vectors: bool = True,
+        enable_l3_vectors: bool = True,
+        enable_l4_vectors: bool = True,
     ) -> None:
         from ..utils.runtime import get_runtime_paths
 
@@ -71,13 +75,28 @@ class UnifiedMemoryStore:
                 restore_on_restart=True,
             )
         if enable_l1:
-            self.l1 = L1EventStore(db_path=l1_db, embedding_service=embedding_service)
+            self.l1 = L1EventStore(
+                db_path=l1_db,
+                embedding_service=embedding_service,
+                vector_enabled=enable_l1_vectors,
+                async_embeddings=async_embeddings,
+            )
         if enable_l2:
             self.l2 = L2CognitionStore(db_path=shared_memory_db)
         if enable_l3:
-            self.l3 = L3SummaryStore(db_path=shared_memory_db, embedding_service=embedding_service)
+            self.l3 = L3SummaryStore(
+                db_path=shared_memory_db,
+                embedding_service=embedding_service,
+                vector_enabled=enable_l3_vectors,
+                async_embeddings=async_embeddings,
+            )
         if enable_l4:
-            self.l4 = L4ProceduralMemoryStore(db_path=shared_memory_db, embedding_service=embedding_service)
+            self.l4 = L4ProceduralMemoryStore(
+                db_path=shared_memory_db,
+                embedding_service=embedding_service,
+                vector_enabled=enable_l4_vectors,
+                async_embeddings=async_embeddings,
+            )
 
         self._initialized = False
         self._write_lock = asyncio.Lock()
@@ -195,6 +214,13 @@ class UnifiedMemoryStore:
     async def run_maintenance(self, retention_days: int = 30) -> Dict[str, int]:
         """Run periodic maintenance."""
         return await self.cleanup_old_data(older_than_days=retention_days)
+
+    async def shutdown(self) -> None:
+        """Drain asynchronous workers and close store resources."""
+        for store in (self.l1, self.l3, self.l4):
+            if store is None or not hasattr(store, "shutdown"):
+                continue
+            await store.shutdown()
 
     async def upsert_user_graph_edge(
         self,

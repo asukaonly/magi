@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -48,15 +49,25 @@ class L1EventStore:
         *,
         db_path: str = "~/.magi/data/memories/l1_events.db",
         embedding_service: MemoryEmbeddingService | None = None,
+        vector_enabled: bool = True,
+        async_embeddings: bool = True,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
-        self._vector_index = SqliteVecIndex(
-            db_path=self.db_path,
-            registry_table="l1_event_vectors",
-            entity_column="event_id",
-            vec_table_prefix="l1_event_vec",
+        self._vector_enabled = bool(vector_enabled and embedding_service is not None)
+        self._async_embeddings = bool(async_embeddings)
+        self._vector_index = (
+            SqliteVecIndex(
+                db_path=self.db_path,
+                registry_table="l1_event_vectors",
+                entity_column="event_id",
+                vec_table_prefix="l1_event_vec",
+            )
+            if self._vector_enabled
+            else None
         )
+        self._embedding_queue: asyncio.Queue[MemoryEvent | None] | None = asyncio.Queue() if self._vector_enabled and self._async_embeddings else None
+        self._embedding_worker: asyncio.Task[None] | None = None
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -163,10 +174,21 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_l1_event_vectors_model ON l1_event_vectors(embedding_model);
                 """
             )
-            await self._vector_index.initialize()
+            if self._vector_enabled:
+                await self._vector_index.initialize()
             await db.commit()
 
+        if self._embedding_queue is not None and self._embedding_worker is None:
+            self._embedding_worker = asyncio.create_task(self._run_embedding_worker())
         self._initialized = True
+
+    async def shutdown(self) -> None:
+        if self._embedding_queue is not None and self._embedding_worker is not None:
+            await self._embedding_queue.put(None)
+            await self._embedding_worker
+            self._embedding_worker = None
+        if self._vector_index is not None:
+            await self._vector_index.close()
 
     async def store(self, event: MemoryEvent) -> str:
         """Persist a normalized memory event."""
@@ -215,7 +237,7 @@ class L1EventStore:
                 ),
             )
             await db.commit()
-        await self._maybe_upsert_event_embedding(event)
+        await self._schedule_event_embedding(event)
         return event.event_id
 
     async def search_events(
@@ -401,7 +423,8 @@ class L1EventStore:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(f"DELETE FROM {FACT_EVENTS_TABLE}")
             await db.commit()
-        await self._vector_index.clear()
+        if self._vector_index is not None:
+            await self._vector_index.clear()
         return count
 
     async def clear_runtime_observations(self) -> int:
@@ -421,7 +444,7 @@ class L1EventStore:
                 (float(deleted_at or time.time()), event_id),
             )
             await db.commit()
-        if cursor.rowcount > 0:
+        if cursor.rowcount > 0 and self._vector_index is not None:
             await self._vector_index.delete_entity(entity_id=event_id)
         return cursor.rowcount > 0
 
@@ -474,7 +497,7 @@ class L1EventStore:
         return FACT_EVENTS_TABLE
 
     async def _maybe_upsert_event_embedding(self, event: MemoryEvent) -> None:
-        if self._embedding_service is None:
+        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None:
             return
         if event.memory_domain in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}:
             return
@@ -491,7 +514,7 @@ class L1EventStore:
             logger.warning("Failed to upsert event embedding for %s: %s", event.event_id, exc)
 
     async def _semantic_search_event_hits(self, *, query: str, limit: int) -> list[VectorSearchHit]:
-        if self._embedding_service is None or not query.strip():
+        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None or not query.strip():
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
@@ -501,6 +524,27 @@ class L1EventStore:
         except Exception as exc:
             logger.warning("Failed semantic search over L1 events: %s", exc)
             return []
+
+    async def _schedule_event_embedding(self, event: MemoryEvent) -> None:
+        if not self._vector_enabled:
+            return
+        if self._embedding_queue is not None:
+            await self._embedding_queue.put(event)
+            return
+        await self._maybe_upsert_event_embedding(event)
+
+    async def _run_embedding_worker(self) -> None:
+        if self._embedding_queue is None:
+            return
+        while True:
+            item = await self._embedding_queue.get()
+            if item is None:
+                self._embedding_queue.task_done()
+                break
+            try:
+                await self._maybe_upsert_event_embedding(item)
+            finally:
+                self._embedding_queue.task_done()
 
     async def _fetch_ranked_events(
         self,

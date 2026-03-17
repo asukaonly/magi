@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 import time
 import uuid
 from pathlib import Path
@@ -26,17 +27,27 @@ class L4ProceduralMemoryStore:
         *,
         db_path: str = "~/.magi/data/memories/memory.db",
         embedding_service: MemoryEmbeddingService | None = None,
+        vector_enabled: bool = True,
+        async_embeddings: bool = True,
         breaker_failure_threshold: int = 3,
         breaker_recovery_successes: int = 2,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
-        self._vector_index = SqliteVecIndex(
-            db_path=self.db_path,
-            registry_table="l4_skill_vectors",
-            entity_column="skill_id",
-            vec_table_prefix="l4_skill_vec",
+        self._vector_enabled = bool(vector_enabled and embedding_service is not None)
+        self._async_embeddings = bool(async_embeddings)
+        self._vector_index = (
+            SqliteVecIndex(
+                db_path=self.db_path,
+                registry_table="l4_skill_vectors",
+                entity_column="skill_id",
+                vec_table_prefix="l4_skill_vec",
+            )
+            if self._vector_enabled
+            else None
         )
+        self._embedding_queue: asyncio.Queue[dict[str, Any] | None] | None = asyncio.Queue() if self._vector_enabled and self._async_embeddings else None
+        self._embedding_worker: asyncio.Task[None] | None = None
         self.breaker_failure_threshold = int(breaker_failure_threshold)
         self.breaker_recovery_successes = int(breaker_recovery_successes)
         self._initialized = False
@@ -97,9 +108,20 @@ class L4ProceduralMemoryStore:
                 CREATE INDEX IF NOT EXISTS idx_l4_skill_vectors_model ON l4_skill_vectors(embedding_model);
                 """
             )
-            await self._vector_index.initialize()
+            if self._vector_enabled:
+                await self._vector_index.initialize()
             await db.commit()
+        if self._embedding_queue is not None and self._embedding_worker is None:
+            self._embedding_worker = asyncio.create_task(self._run_embedding_worker())
         self._initialized = True
+
+    async def shutdown(self) -> None:
+        if self._embedding_queue is not None and self._embedding_worker is not None:
+            await self._embedding_queue.put(None)
+            await self._embedding_worker
+            self._embedding_worker = None
+        if self._vector_index is not None:
+            await self._vector_index.close()
 
     async def record_memory_event(self, event: MemoryEvent) -> Optional[str]:
         """Update procedural memory based on a normalized event."""
@@ -177,7 +199,7 @@ class L4ProceduralMemoryStore:
                     ),
                 )
                 await db.commit()
-                await self._maybe_upsert_skill_embedding(
+                await self._schedule_skill_embedding(
                     skill_id=skill_id,
                     skill_name=skill_name,
                     skill_category=skill_category,
@@ -252,7 +274,7 @@ class L4ProceduralMemoryStore:
                 ),
             )
             await db.commit()
-            await self._maybe_upsert_skill_embedding(
+            await self._schedule_skill_embedding(
                 skill_id=str(existing["skill_id"]),
                 skill_name=skill_name,
                 skill_category=skill_category,
@@ -314,7 +336,8 @@ class L4ProceduralMemoryStore:
                 count = int(row[0]) if row else 0
             await db.execute("DELETE FROM procedural_skills")
             await db.commit()
-        await self._vector_index.clear()
+        if self._vector_index is not None:
+            await self._vector_index.clear()
         return count
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -417,7 +440,7 @@ class L4ProceduralMemoryStore:
         skill_category: str,
         optimized_prompt: Optional[str],
     ) -> None:
-        if self._embedding_service is None:
+        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None:
             return
         text = self._build_skill_embedding_text(
             skill_name=skill_name,
@@ -437,7 +460,7 @@ class L4ProceduralMemoryStore:
             logger.warning("Failed to upsert skill embedding for %s: %s", skill_id, exc)
 
     async def _semantic_query_strategies(self, *, query: str, limit: int) -> List[Dict[str, Any]]:
-        if self._embedding_service is None or not query.strip():
+        if not self._vector_enabled or self._embedding_service is None or self._vector_index is None or not query.strip():
             return []
         embedding = await self._embedding_service.embed_text(query)
         if embedding is None:
@@ -481,6 +504,51 @@ class L4ProceduralMemoryStore:
         if optimized_prompt:
             parts.append(optimized_prompt)
         return "\n".join(part for part in parts if part)
+
+    async def _schedule_skill_embedding(
+        self,
+        *,
+        skill_id: str,
+        skill_name: str,
+        skill_category: str,
+        optimized_prompt: Optional[str],
+    ) -> None:
+        if not self._vector_enabled:
+            return
+        if self._embedding_queue is not None:
+            await self._embedding_queue.put(
+                {
+                    "skill_id": skill_id,
+                    "skill_name": skill_name,
+                    "skill_category": skill_category,
+                    "optimized_prompt": optimized_prompt,
+                }
+            )
+            return
+        await self._maybe_upsert_skill_embedding(
+            skill_id=skill_id,
+            skill_name=skill_name,
+            skill_category=skill_category,
+            optimized_prompt=optimized_prompt,
+        )
+
+    async def _run_embedding_worker(self) -> None:
+        if self._embedding_queue is None:
+            return
+        while True:
+            item = await self._embedding_queue.get()
+            if item is None:
+                self._embedding_queue.task_done()
+                break
+            try:
+                await self._maybe_upsert_skill_embedding(
+                    skill_id=str(item["skill_id"]),
+                    skill_name=str(item["skill_name"]),
+                    skill_category=str(item["skill_category"]),
+                    optimized_prompt=item.get("optimized_prompt"),
+                )
+            finally:
+                self._embedding_queue.task_done()
 
 
 __all__ = ["L4ProceduralMemoryStore"]

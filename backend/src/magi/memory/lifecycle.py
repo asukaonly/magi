@@ -7,6 +7,7 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from ..llm.usage_events import LLMUsageEventPublisher
 from ..llm import get_llm_usage_store
+from ..config.models import EmbeddingBackend
 from . import UnifiedMemoryStore
 from .embedding_service import MemoryEmbeddingService
 from .integration import MemoryIntegrationConfig, MemoryIntegrationModule
@@ -44,11 +45,18 @@ class MemoryStoreModule(LifecycleModule):
         await self._context.llm.llm_usage_store.start(message_bus)
         logger.info("LLM usage store started")
 
+        vector_backend_enabled = config.agent.memory.embedding.backend == EmbeddingBackend.SQLITE_VEC
+        embedding_service = MemoryEmbeddingService(scenario_llm_pool) if vector_backend_enabled else None
+
         self._context.memory.unified_memory = UnifiedMemoryStore(
             l1_db_path=str(runtime_paths.l1_memory_db_path),
             memory_db_path=str(runtime_paths.memory_db_path),
             persist_dir=str(runtime_paths.memories_dir),
-            embedding_service=MemoryEmbeddingService(scenario_llm_pool),
+            embedding_service=embedding_service,
+            async_embeddings=config.agent.memory.async_embeddings,
+            enable_l1_vectors=vector_backend_enabled and config.agent.memory.enable_l1,
+            enable_l3_vectors=vector_backend_enabled and config.agent.memory.enable_l3,
+            enable_l4_vectors=vector_backend_enabled and config.agent.memory.enable_l4,
             enable_l0=config.agent.memory.enable_l0,
             enable_l1=config.agent.memory.enable_l1,
             enable_l2=config.agent.memory.enable_l2,
@@ -79,6 +87,9 @@ class MemoryStoreModule(LifecycleModule):
         if self._context.memory.memory_integration is not None:
             await self._context.memory.memory_integration.stop()
             self._context.memory.memory_integration = None
+
+        if self._context.memory.unified_memory is not None:
+            await self._context.memory.unified_memory.shutdown()
 
         if self._context.llm.llm_usage_store is not None:
             await self._context.llm.llm_usage_store.stop()

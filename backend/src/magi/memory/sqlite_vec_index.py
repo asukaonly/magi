@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import re
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -41,9 +42,18 @@ class SqliteVecIndex:
         self._registry_table = registry_table
         self._entity_column = entity_column
         self._vec_table_prefix = self._sanitize_identifier(vec_table_prefix)
+        self._db: aiosqlite.Connection | None = None
+        self._db_lock = asyncio.Lock()
+        self._initialized = False
 
     async def initialize(self) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        if self._initialized:
+            return
+        self._db = await aiosqlite.connect(self._db_path)
+        self._db.row_factory = aiosqlite.Row
+        await self._load_extension(self._db)
+        async with self._db_lock:
+            db = self._require_db()
             await db.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {self._registry_table} (
@@ -66,12 +76,21 @@ class SqliteVecIndex:
                 f"CREATE INDEX IF NOT EXISTS idx_{self._registry_table}_model ON {self._registry_table}(embedding_model)"
             )
             await db.commit()
+        self._initialized = True
+
+    async def close(self) -> None:
+        async with self._db_lock:
+            if self._db is None:
+                return
+            await self._db.close()
+            self._db = None
+            self._initialized = False
 
     async def upsert(self, *, entity_id: str, embedding: EmbeddingResult, metadata: Optional[dict[str, Any]] = None) -> None:
+        await self.initialize()
         vec_table = self._vec_table_name(embedding.model_name, embedding.dimension)
-        async with aiosqlite.connect(self._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            await self._load_extension(db)
+        async with self._db_lock:
+            db = self._require_db()
             await self._ensure_vec_table(db, vec_table, embedding.dimension)
 
             now = await self._current_timestamp(db)
@@ -129,10 +148,10 @@ class SqliteVecIndex:
             await db.commit()
 
     async def search(self, *, embedding: EmbeddingResult, limit: int) -> list[VectorSearchHit]:
+        await self.initialize()
         vec_table = self._vec_table_name(embedding.model_name, embedding.dimension)
-        async with aiosqlite.connect(self._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            await self._load_extension(db)
+        async with self._db_lock:
+            db = self._require_db()
             if not await self._table_exists(db, vec_table):
                 return []
 
@@ -163,9 +182,9 @@ class SqliteVecIndex:
         return hits
 
     async def delete_entity(self, *, entity_id: str) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            await self._load_extension(db)
+        await self.initialize()
+        async with self._db_lock:
+            db = self._require_db()
             async with db.execute(
                 f"SELECT vec_rowid, vec_table FROM {self._registry_table} WHERE {self._entity_column} = ?",
                 (entity_id,),
@@ -180,8 +199,9 @@ class SqliteVecIndex:
             await db.commit()
 
     async def clear(self) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
-            await self._load_extension(db)
+        await self.initialize()
+        async with self._db_lock:
+            db = self._require_db()
             async with db.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ?",
                 (f"{self._vec_table_prefix}%",),
@@ -230,3 +250,8 @@ class SqliteVecIndex:
 
     def _sanitize_identifier(self, value: str) -> str:
         return _SAFE_IDENTIFIER.sub("_", value.lower()).strip("_")
+
+    def _require_db(self) -> aiosqlite.Connection:
+        if self._db is None:
+            raise RuntimeError("SqliteVecIndex is not initialized")
+        return self._db
