@@ -354,6 +354,12 @@ class L2Pipeline:
             if stored_event.structured_entity_hints
             else list(unified_result.get("mentions", []))
         )
+        if stored_event.structured_entity_hints:
+            logger.debug(
+                "L2 structured entity hints applied",
+                event_id=stored_event.event_id,
+                hint_count=len(stored_event.structured_entity_hints),
+            )
         resolved_mentions: list[dict[str, Any]] = []
         if policy.allow_entity_extraction:
             resolved_mentions = await self._resolve_mentions(stored_event, raw_mentions)
@@ -376,6 +382,12 @@ class L2Pipeline:
                 else list(unified_result.get("graph_candidates", []))
             ),
         )
+        if stored_event.structured_graph_hints:
+            logger.debug(
+                "L2 structured graph hints applied",
+                event_id=stored_event.event_id,
+                hint_count=len(stored_event.structured_graph_hints),
+            )
         if policy.allow_graph_write and policy.graph_scope == "full" and not graph_candidates:
             graph_candidates = self._build_graph_candidates(stored_event, resolved_mentions)
             if not graph_candidates:

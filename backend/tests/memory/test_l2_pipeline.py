@@ -1448,6 +1448,176 @@ async def test_unified_extraction_respects_chrome_history_profile_restrictions()
 
 
 @pytest.mark.asyncio
+async def test_structured_entity_hints_bypass_llm_mention_extraction():
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "mentions": [],
+                "graph_candidates": [
+                    {
+                        "subject_ref": "user:u1",
+                        "subject_type": "user",
+                        "predicate": "VISITED",
+                        "object_ref": "GitHub",
+                        "object_type": "product",
+                        "fact_kind": "explicit_fact",
+                        "polarity": "positive",
+                        "evidence_text": "Visited GitHub today",
+                        "confidence": 0.9,
+                    }
+                ],
+                "assertion_candidates": [],
+                "diagnostics": {"entity_status": "none"},
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-structured-hint-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "timeline",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "Visited GitHub today",
+                        "structured_entity_hints": [
+                            {
+                                "mention_text": "GitHub",
+                                "normalized_surface": "github",
+                                "entity_type": "product",
+                                "canonical_name_hint": "GitHub",
+                                "confidence": 0.95,
+                            }
+                        ],
+                    },
+                    "metadata": {
+                        "extraction_profile_id": "timeline.chrome_history",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            mentions = await store.l2_entity_catalog.list_mentions() if store.l2_entity_catalog is not None else []
+
+            assert [item["predicate"] for item in relationships] == ["VISITED"]
+            assert mentions[0]["mention_text"] == "GitHub"
+            assert len(adapter.calls) == 1
+            prompt = str(adapter.calls[0]["prompt"])
+            assert '"allowed_entity_types": [' in prompt
+            assert '"product"' in prompt
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_structured_graph_hints_are_validated_before_persistence():
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "mentions": [],
+                "graph_candidates": [],
+                "assertion_candidates": [],
+                "diagnostics": {"entity_status": "none"},
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-structured-graph-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "timeline",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "Visited GitHub today",
+                        "structured_entity_hints": [
+                            {
+                                "mention_text": "GitHub",
+                                "normalized_surface": "github",
+                                "entity_type": "product",
+                                "canonical_name_hint": "GitHub",
+                                "confidence": 0.95,
+                            }
+                        ],
+                        "structured_graph_hints": [
+                            {
+                                "subject_ref": "user:u1",
+                                "subject_type": "user",
+                                "predicate": "VISITED",
+                                "object_ref": "GitHub",
+                                "object_type": "product",
+                                "fact_kind": "explicit_fact",
+                                "polarity": "positive",
+                                "evidence_text": "Visited GitHub today",
+                                "confidence": 0.9,
+                            },
+                            {
+                                "subject_ref": "user:u1",
+                                "subject_type": "user",
+                                "predicate": "LIKES",
+                                "object_ref": "GitHub",
+                                "object_type": "product",
+                                "fact_kind": "stable_preference",
+                                "polarity": "positive",
+                                "evidence_text": "Visited GitHub today",
+                                "confidence": 0.9,
+                            },
+                        ],
+                    },
+                    "metadata": {
+                        "extraction_profile_id": "timeline.chrome_history",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+
+            assert [item["predicate"] for item in relationships] == ["VISITED"]
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(caplog: pytest.LogCaptureFixture):
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
