@@ -53,6 +53,7 @@ class MemoryStoreModule(LifecycleModule):
             memory_db_path=str(runtime_paths.memory_db_path),
             persist_dir=str(runtime_paths.memories_dir),
             embedding_service=embedding_service,
+            scenario_llm_pool=scenario_llm_pool,
             async_embeddings=config.agent.memory.async_embeddings,
             enable_l1_vectors=vector_backend_enabled and config.agent.memory.enable_l1,
             enable_l3_vectors=vector_backend_enabled and config.agent.memory.enable_l3,

@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any, Dict, Optional
 
 from ..events.events import Event, EventLevel
@@ -14,10 +15,17 @@ from .event_contracts import IngestTarget, MemoryEvent, normalize_runtime_event
 from .l0_working_memory import L0WorkingMemoryStore
 from .l1_event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
+from .l2_entity_catalog import L2EntityCatalog
+from .l2_llm_service import L2LLMService
+from .l2_models import ManualL2EventRequest
+from .l2_pipeline import L2Pipeline
 from .l3_summary_store import L3SummaryStore
 from .l4_procedural_memory import L4ProceduralMemoryStore
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from ..llm import ScenarioLLMPool
 
 
 class UnifiedMemoryStore:
@@ -38,6 +46,7 @@ class UnifiedMemoryStore:
         l0_checkpoint_interval_seconds: int = 30,
         session_timeout_seconds: int = 3600,
         embedding_service: MemoryEmbeddingService | None = None,
+        scenario_llm_pool: "ScenarioLLMPool | None" = None,
         async_embeddings: bool = True,
         enable_l1_vectors: bool = True,
         enable_l3_vectors: bool = True,
@@ -64,6 +73,9 @@ class UnifiedMemoryStore:
         self.l0: Optional[L0WorkingMemoryStore] = None
         self.l1: Optional[L1EventStore] = None
         self.l2: Optional[L2CognitionStore] = None
+        self.l2_entity_catalog: Optional[L2EntityCatalog] = None
+        self.l2_llm_service: Optional[L2LLMService] = None
+        self.l2_pipeline: Optional[L2Pipeline] = None
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
 
@@ -83,6 +95,14 @@ class UnifiedMemoryStore:
             )
         if enable_l2:
             self.l2 = L2CognitionStore(db_path=shared_memory_db)
+            self.l2_entity_catalog = L2EntityCatalog(db_path=shared_memory_db)
+            self.l2_llm_service = L2LLMService(scenario_llm_pool)
+            self.l2_pipeline = L2Pipeline(
+                self.l2,
+                l1_store=self.l1,
+                entity_catalog=self.l2_entity_catalog,
+                llm_service=self.l2_llm_service,
+            )
         if enable_l3:
             self.l3 = L3SummaryStore(
                 db_path=shared_memory_db,
@@ -106,10 +126,12 @@ class UnifiedMemoryStore:
         if self._initialized:
             return
 
-        for store in (self.l0, self.l1, self.l2, self.l3, self.l4):
+        for store in (self.l0, self.l1, self.l2, self.l2_entity_catalog, self.l3, self.l4):
             if store is None:
                 continue
             await store.initialize()
+        if self.l2_pipeline is not None:
+            await self.l2_pipeline.start()
 
         self._initialized = True
         logger.info("Unified memory store initialized")
@@ -126,8 +148,8 @@ class UnifiedMemoryStore:
 
             if self.l1 is not None and memory_event.ingest_target.includes_l1:
                 await self.l1.store(memory_event)
-                if self.l2 is not None:
-                    l2_result = await self.l2.apply_memory_event(memory_event)
+                if self.l2_pipeline is not None:
+                    await self.l2_pipeline.enqueue_event(memory_event)
                 if self.l4 is not None:
                     l4_skill_id = await self.l4.record_memory_event(memory_event)
 
@@ -148,6 +170,51 @@ class UnifiedMemoryStore:
     async def add_event(self, event: Dict[str, Any] | Event | MemoryEvent) -> str:
         """Store an event in the unified pipeline."""
         return await self.store_event(event)
+
+    async def ingest_manual_l2_event(self, request: ManualL2EventRequest) -> Dict[str, Any]:
+        """Inject a manual event into the normal L1 -> L2 path for testing."""
+        payload = {
+            "user_id": request.user_id,
+            "session_id": request.session_id or f"manual-{request.user_id}",
+            "message": request.text,
+            "entity_focus_hint": request.entity_focus_hint,
+        }
+        metadata = {
+            "manual_l2_lab": True,
+            "entity_focus_hint": request.entity_focus_hint,
+        }
+        return await self.ingest_event(
+            Event(
+                type="USER_MESSAGE",
+                data=payload,
+                timestamp=time.time(),
+                source=request.source,
+                level=EventLevel.INFO,
+                metadata=metadata,
+                correlation_id=f"manual_{int(time.time() * 1000)}",
+            )
+        )
+
+    async def replay_l2_extraction(self, event_id: str) -> bool:
+        """Replay L2 extraction for an already stored L1 event."""
+        if self.l1 is None or self.l2_pipeline is None:
+            return False
+        event = await self.l1.get_memory_event(event_id)
+        if event is None:
+            return False
+        return await self.l2_pipeline.enqueue_event(event)
+
+    async def reconcile_entities(self, entity_ids: list[str]) -> bool:
+        """Trigger entity-level reconcile for one or more entities."""
+        if self.l2_pipeline is None:
+            return False
+        return await self.l2_pipeline.enqueue_entities(entity_ids)
+
+    async def refresh_l2_snapshots(self, entity_ids: list[str]) -> bool:
+        """Trigger snapshot materialization for one or more entities."""
+        if self.l2_pipeline is None:
+            return False
+        return await self.l2_pipeline.enqueue_snapshot_refresh(entity_ids)
 
     async def generate_summary(
         self,
@@ -196,6 +263,8 @@ class UnifiedMemoryStore:
             }
         if self.l2 is not None:
             stats["l2"] = self.l2.get_statistics()
+        if self.l2_pipeline is not None:
+            stats["l2_pipeline"] = self.l2_pipeline.get_statistics()
         if self.l3 is not None:
             stats["l3"] = self.l3.get_statistics() if hasattr(self.l3, "get_statistics") else {"db_path": self.l3.db_path}
         if self.l4 is not None:
@@ -217,10 +286,34 @@ class UnifiedMemoryStore:
 
     async def shutdown(self) -> None:
         """Drain asynchronous workers and close store resources."""
+        if self.l2_pipeline is not None:
+            await self.l2_pipeline.shutdown()
         for store in (self.l1, self.l3, self.l4):
             if store is None or not hasattr(store, "shutdown"):
                 continue
             await store.shutdown()
+
+    def get_l2_pipeline_stats(self) -> Dict[str, Any]:
+        """Expose current background L2 pipeline counters."""
+        if self.l2_pipeline is None:
+            return {
+                "is_running": False,
+                "extract_enqueued": 0,
+                "extract_completed": 0,
+                "extract_failed": 0,
+                "extract_skipped": 0,
+                "reconcile_enqueued": 0,
+                "reconcile_completed": 0,
+                "reconcile_failed": 0,
+                "snapshot_enqueued": 0,
+                "snapshot_completed": 0,
+                "snapshot_failed": 0,
+                "relations_written": 0,
+                "assertions_written": 0,
+                "extract_by_evidence_class": {},
+                "skip_by_reason": {},
+            }
+        return self.l2_pipeline.get_statistics()
 
     async def upsert_user_graph_edge(
         self,

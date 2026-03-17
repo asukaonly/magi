@@ -336,6 +336,18 @@ class L1EventStore:
                 row = await cursor.fetchone()
         return self._row_to_dict(row) if row else None
 
+    async def get_memory_event(self, event_id: str) -> Optional[MemoryEvent]:
+        """Fetch a single event as the canonical MemoryEvent contract."""
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE event_id = ?",
+                (event_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._row_to_memory_event(row) if row else None
+
     async def list_events(self, *, limit: int = 100, event_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """List the newest events, optionally constrained by event type."""
         return await self.query_events(event_type=event_type, limit=limit)
@@ -727,6 +739,55 @@ class L1EventStore:
             "media_path": row["media_path"],
             "deleted_at": float(row["deleted_at"]) if row["deleted_at"] is not None else None,
         }
+
+    def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent:
+        structured_payload = json.loads(row["structured_payload"] or "{}")
+        metadata = json.loads(row["metadata"] or "{}")
+        entity_focus_hint = None
+        if isinstance(structured_payload, dict):
+            entity_focus_hint = structured_payload.get("entity_focus_hint")
+        if not entity_focus_hint and isinstance(metadata, dict):
+            entity_focus_hint = metadata.get("entity_focus_hint")
+        derived_from_event_ids: list[str] = []
+        if isinstance(metadata, dict):
+            raw_derived = metadata.get("derived_from_event_ids")
+            if isinstance(raw_derived, list):
+                derived_from_event_ids = [text for item in raw_derived if (text := str(item).strip())]
+
+        return MemoryEvent(
+            event_id=str(row["event_id"]),
+            correlation_id=str(row["correlation_id"]),
+            parent_event_id=row["parent_event_id"],
+            timestamp=float(row["timestamp"]),
+            created_at=float(row["created_at"]),
+            event_type=str(row["event_type"]),
+            source=str(row["source"]),
+            source_item_id=row["source_item_id"],
+            memory_domain=MemoryDomain.from_value(row["memory_domain"]),
+            ingest_target=IngestTarget.from_value(row["ingest_target"]),
+            cognition_eligible=bool(row["cognition_eligible"]),
+            tom_depth=TomDepth.from_value(row["tom_depth"]),
+            retention_class=RetentionClass.from_value(row["retention_class"]),
+            session_id=row["session_id"],
+            user_id=row["user_id"],
+            task_id=row["task_id"],
+            goal_id=row["goal_id"],
+            raw_content=str(row["raw_content"]),
+            structured_payload=json.dumps(structured_payload, ensure_ascii=False),
+            metadata=json.dumps(metadata, ensure_ascii=False),
+            importance_score=float(row["importance_score"]),
+            importance_t0_base=float(row["importance_t0_base"] or 0.0),
+            importance_t1_score=float(row["importance_t1_score"]) if row["importance_t1_score"] is not None else None,
+            importance_version=int(row["importance_version"]),
+            level=int(row["level"]),
+            media_path=row["media_path"],
+            entity_focus_hint=str(entity_focus_hint).strip() if entity_focus_hint else None,
+            speaker_role=str(metadata.get("speaker_role")).strip() if isinstance(metadata, dict) and metadata.get("speaker_role") else None,
+            grounding_type=str(metadata.get("grounding_type")).strip() if isinstance(metadata, dict) and metadata.get("grounding_type") else None,
+            derived_from_event_ids=derived_from_event_ids,
+            semantic_owner_hint=str(metadata.get("semantic_owner_hint")).strip() if isinstance(metadata, dict) and metadata.get("semantic_owner_hint") else None,
+            originality_type=str(metadata.get("originality_type")).strip() if isinstance(metadata, dict) and metadata.get("originality_type") else None,
+        )
 
 
 __all__ = ["L1EventStore"]

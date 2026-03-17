@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, Dict, Optional
 
@@ -136,6 +136,12 @@ class MemoryEvent:
     importance_version: int
     level: int
     media_path: Optional[str] = None
+    entity_focus_hint: Optional[str] = None
+    speaker_role: Optional[str] = None
+    grounding_type: Optional[str] = None
+    derived_from_event_ids: list[str] = field(default_factory=list)
+    semantic_owner_hint: Optional[str] = None
+    originality_type: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -165,6 +171,12 @@ class MemoryEvent:
             "importance_version": self.importance_version,
             "level": self.level,
             "media_path": self.media_path,
+            "entity_focus_hint": self.entity_focus_hint,
+            "speaker_role": self.speaker_role,
+            "grounding_type": self.grounding_type,
+            "derived_from_event_ids": list(self.derived_from_event_ids),
+            "semantic_owner_hint": self.semantic_owner_hint,
+            "originality_type": self.originality_type,
         }
 
 
@@ -182,6 +194,16 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
     user_id = _first_non_empty(payload.get("user_id"), metadata.get("user_id"))
     goal_id = _first_non_empty(payload.get("goal_id"), metadata.get("goal_id"))
     source_item_id = _first_non_empty(payload.get("source_item_id"), metadata.get("source_item_id"))
+    entity_focus_hint = _first_non_empty(payload.get("entity_focus_hint"), metadata.get("entity_focus_hint"))
+    evidence_metadata = _build_evidence_metadata(event, payload=payload, metadata=metadata)
+    persisted_metadata = {
+        **metadata,
+        "speaker_role": evidence_metadata["speaker_role"],
+        "grounding_type": evidence_metadata["grounding_type"],
+        "derived_from_event_ids": evidence_metadata["derived_from_event_ids"],
+        "semantic_owner_hint": evidence_metadata["semantic_owner_hint"],
+        "originality_type": evidence_metadata["originality_type"],
+    }
 
     return MemoryEvent(
         event_id=str(event_id or f"evt_{uuid.uuid4().hex}"),
@@ -203,13 +225,19 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
         goal_id=goal_id,
         raw_content=_build_raw_content(event),
         structured_payload=json.dumps(payload, ensure_ascii=False),
-        metadata=json.dumps(metadata, ensure_ascii=False),
+        metadata=json.dumps(persisted_metadata, ensure_ascii=False),
         importance_score=float(rule["importance"]),
         importance_t0_base=float(rule["importance"]),
         importance_t1_score=None,
         importance_version=1,
         level=int(level_value),
         media_path=metadata.get("media_path"),
+        entity_focus_hint=entity_focus_hint,
+        speaker_role=evidence_metadata["speaker_role"],
+        grounding_type=evidence_metadata["grounding_type"],
+        derived_from_event_ids=evidence_metadata["derived_from_event_ids"],
+        semantic_owner_hint=evidence_metadata["semantic_owner_hint"],
+        originality_type=evidence_metadata["originality_type"],
     )
 
 
@@ -234,6 +262,81 @@ def _build_raw_content(event: Event) -> str:
         if isinstance(value, str) and value.strip():
             parts.append(value.strip())
     return " ".join(parts).strip()
+
+
+def _normalize_string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [text for item in value if (text := str(item).strip())]
+    if isinstance(value, tuple):
+        return [text for item in value if (text := str(item).strip())]
+    if value is None:
+        return []
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _build_evidence_metadata(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    event_type = str(event.type)
+    source = str(event.source or "").strip().lower()
+    rule = _classify_event(event)
+
+    speaker_role = _first_non_empty(payload.get("speaker_role"), metadata.get("speaker_role"))
+    if speaker_role is None:
+        if event_type == EventTypes.USER_MESSAGE:
+            speaker_role = "user"
+        elif event_type == EventTypes.AI_RESPONSE:
+            speaker_role = "assistant"
+        elif event_type == "TIMELINE_EVENT":
+            speaker_role = "timeline"
+        elif rule["memory_domain"] == MemoryDomain.RUNTIME_TELEMETRY or source == "system":
+            speaker_role = "system"
+        elif source in {"sensor", "location"}:
+            speaker_role = "sensor"
+        elif source in {"calendar", "timeline", "external_feed"}:
+            speaker_role = "external"
+
+    derived_from_event_ids = _normalize_string_list(
+        payload.get("derived_from_event_ids", metadata.get("derived_from_event_ids"))
+    )
+
+    grounding_type = _first_non_empty(payload.get("grounding_type"), metadata.get("grounding_type"))
+    if grounding_type is None:
+        if event_type == EventTypes.USER_MESSAGE:
+            grounding_type = "self_reported"
+        elif derived_from_event_ids:
+            grounding_type = "quoted_from_history"
+        elif metadata.get("tool_name") or metadata.get("tool_call_id") or metadata.get("tool_result_ref"):
+            grounding_type = "tool_grounded"
+        elif event_type == EventTypes.AI_RESPONSE:
+            grounding_type = "freeform_generated"
+        else:
+            grounding_type = "observed"
+
+    semantic_owner_hint = _first_non_empty(payload.get("semantic_owner_hint"), metadata.get("semantic_owner_hint"))
+    if semantic_owner_hint is None:
+        if speaker_role == "user":
+            semantic_owner_hint = "user"
+        elif grounding_type == "tool_grounded":
+            semantic_owner_hint = "world"
+        elif speaker_role in {"timeline", "sensor", "external", "system"}:
+            semantic_owner_hint = "world"
+        elif speaker_role == "assistant":
+            semantic_owner_hint = "assistant"
+
+    originality_type = _first_non_empty(payload.get("originality_type"), metadata.get("originality_type"))
+    if originality_type is None:
+        if derived_from_event_ids:
+            originality_type = "quoted" if grounding_type == "quoted_from_history" else "derived"
+        else:
+            originality_type = "primary"
+
+    return {
+        "speaker_role": speaker_role,
+        "grounding_type": grounding_type,
+        "derived_from_event_ids": derived_from_event_ids,
+        "semantic_owner_hint": semantic_owner_hint,
+        "originality_type": originality_type,
+    }
 
 
 def _classify_event(event: Event) -> Dict[str, Any]:

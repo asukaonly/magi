@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_memory_integration, require_unified_memory
 from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
+from ...memory.l2_models import ManualL2EventRequest
 
 logger = get_logger(__name__)
 
@@ -35,6 +36,43 @@ class ProcedureResponse(BaseModel):
     success_rate: float
     total_attempts: int
     circuit_breaker_state: str
+
+
+class ManualL2EventBody(BaseModel):
+    text: str = Field(..., description="Manual event text")
+    user_id: str = Field(..., description="User id for the synthetic event")
+    session_id: Optional[str] = Field(default=None, description="Optional session id")
+    source: str = Field(default="l2_lab", description="Synthetic event source label")
+    entity_focus_hint: Optional[str] = Field(default=None, description="Optional focus entity id")
+
+
+class L2EntityActionBody(BaseModel):
+    entity_ids: List[str] = Field(..., description="Canonical entity ids")
+
+
+class GraphConflictRuleBody(BaseModel):
+    opposite_predicates: List[str] = Field(default_factory=list, description="Predicates that conflict as logical opposites")
+    opposite_resolution: Literal["mark_deprecated", "mark_conflicted"] = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
+    exclusive_group: Optional[str] = Field(default=None, description="Optional mutual-exclusion group")
+    exclusive_scope: Literal["same_subject"] = Field(default="same_subject", description="Conflict scope")
+    exclusive_resolution: Literal["mark_deprecated", "mark_conflicted"] = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
+
+    @field_validator("opposite_predicates", mode="before")
+    @classmethod
+    def _normalize_opposites(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("opposite_predicates must be a list of strings")
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    @field_validator("exclusive_group", mode="before")
+    @classmethod
+    def _normalize_exclusive_group(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 def _resolve_unified_memory():
@@ -125,13 +163,24 @@ async def get_l2_statistics():
     """Get L2 cognition statistics."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        return {"relation_count": 0, "assertion_count": 0, "db_path": None}
+        return {
+            "relation_count": 0,
+            "assertion_count": 0,
+            "extract_skipped": 0,
+            "extract_by_evidence_class": {},
+            "skip_by_reason": {},
+            "db_path": None,
+        }
 
     relations = await unified_memory.l2.get_relationships(limit=10000)
     assertions = await unified_memory.l2.list_tom_assertions(limit=10000)
+    pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     return {
         "relation_count": len(relations),
         "assertion_count": len(assertions),
+        "extract_skipped": int(pipeline_stats.get("extract_skipped", 0)),
+        "extract_by_evidence_class": dict(pipeline_stats.get("extract_by_evidence_class", {})),
+        "skip_by_reason": dict(pipeline_stats.get("skip_by_reason", {})),
         "db_path": unified_memory.l2.db_path,
     }
 
@@ -152,6 +201,135 @@ async def list_l2_assertions(limit: int = Query(default=100, ge=1, le=500)):
     if not unified_memory or not unified_memory.l2:
         return []
     return await unified_memory.l2.list_tom_assertions(limit=limit)
+
+
+@memory_router.get("/l2/entities")
+async def list_l2_entities(limit: int = Query(default=100, ge=1, le=500)):
+    """List canonical L2 entities for the frontend lab picker."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2_entity_catalog:
+        return []
+    return await unified_memory.l2_entity_catalog.list_entities(limit=limit)
+
+
+@memory_router.get("/l2/mentions")
+async def list_l2_mentions(limit: int = Query(default=100, ge=1, le=500)):
+    """List recent entity mentions and their resolution state."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2_entity_catalog:
+        return []
+    return await unified_memory.l2_entity_catalog.list_mentions(limit=limit)
+
+
+@memory_router.get("/l2/snapshots")
+async def list_l2_snapshots(limit: int = Query(default=100, ge=1, le=500)):
+    """List materialized L2 snapshots."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return []
+    return await unified_memory.l2.list_tom_snapshots(limit=limit)
+
+
+@memory_router.get("/l2/conflict-rules")
+async def list_l2_conflict_rules():
+    """List persisted graph conflict rules."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return []
+    return await unified_memory.l2.list_graph_conflict_rules()
+
+
+@memory_router.put("/l2/conflict-rules/{predicate}")
+async def upsert_l2_conflict_rule(predicate: str, body: GraphConflictRuleBody):
+    """Create or update a persisted graph conflict rule."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+    normalized_predicate = predicate.strip()
+    if not normalized_predicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Predicate is required")
+    try:
+        return await unified_memory.l2.upsert_graph_conflict_rule(
+            {
+                "predicate": normalized_predicate,
+                "opposite_predicates": body.opposite_predicates,
+                "opposite_resolution": body.opposite_resolution,
+                "exclusive_group": body.exclusive_group,
+                "exclusive_scope": body.exclusive_scope,
+                "exclusive_resolution": body.exclusive_resolution,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@memory_router.post("/l2/manual-event")
+async def create_manual_l2_event(body: ManualL2EventBody):
+    """Inject a manual event into the L1 -> L2 write path."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+    result = await unified_memory.ingest_manual_l2_event(
+        ManualL2EventRequest(
+            text=body.text,
+            user_id=body.user_id,
+            session_id=body.session_id,
+            source=body.source,
+            entity_focus_hint=body.entity_focus_hint,
+        )
+    )
+    return {"queued": True, **result}
+
+
+@memory_router.post("/l2/extract/{event_id}")
+async def replay_l2_extraction(event_id: str):
+    """Replay event extraction for an existing L1 event."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+    queued = await unified_memory.replay_l2_extraction(event_id)
+    if not queued:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found or pipeline unavailable")
+    return {"queued": True, "event_id": event_id}
+
+
+@memory_router.post("/l2/reconcile")
+async def trigger_l2_reconcile(body: L2EntityActionBody):
+    """Manually enqueue entity reconcile work."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+    queued = await unified_memory.reconcile_entities(body.entity_ids)
+    if not queued:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid entities to reconcile")
+    return {"queued": True, "entity_ids": body.entity_ids}
+
+
+@memory_router.post("/l2/snapshot-refresh")
+async def trigger_l2_snapshot_refresh(body: L2EntityActionBody):
+    """Manually enqueue snapshot refresh work."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+    queued = await unified_memory.refresh_l2_snapshots(body.entity_ids)
+    if not queued:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid entities to materialize")
+    return {"queued": True, "entity_ids": body.entity_ids}
 
 
 # =============================================================================

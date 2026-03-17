@@ -67,6 +67,10 @@ class MemoryIntegrationStats:
     l1_filtered: int = 0
     l2_relations_written: int = 0
     l2_assertions_written: int = 0
+    l2_extract_enqueued: int = 0
+    l2_extract_completed: int = 0
+    l2_extract_failed: int = 0
+    l2_extract_skipped: int = 0
     l3_summaries_generated: int = 0
     l4_skills_updated: int = 0
 
@@ -192,8 +196,23 @@ class MemoryIntegrationModule:
 
     def get_statistics(self) -> Dict[str, Any]:
         """Expose integration counters and active config."""
+        stats = asdict(self._stats)
+        pipeline_stats = self.unified_memory.get_l2_pipeline_stats()
+        if pipeline_stats:
+            stats["l2_extract_enqueued"] = int(pipeline_stats["extract_enqueued"])
+            stats["l2_extract_completed"] = int(pipeline_stats["extract_completed"])
+            stats["l2_extract_failed"] = int(pipeline_stats["extract_failed"])
+            stats["l2_extract_skipped"] = int(pipeline_stats["extract_skipped"])
+            stats["l2_relations_written"] = max(
+                int(stats["l2_relations_written"]),
+                int(pipeline_stats["relations_written"]),
+            )
+            stats["l2_assertions_written"] = max(
+                int(stats["l2_assertions_written"]),
+                int(pipeline_stats["assertions_written"]),
+            )
         return {
-            **asdict(self._stats),
+            **stats,
             "config": {
                 "enable_l0": self.config.enable_l0,
                 "enable_l1": self.config.enable_l1,
