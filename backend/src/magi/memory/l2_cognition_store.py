@@ -10,12 +10,14 @@ from typing import Any, Dict, List, Mapping, Optional
 
 import aiosqlite
 
+from ..core.logger import get_logger
 from .event_contracts import MemoryEvent, TomDepth
 from .l2_graph_conflicts import DEFAULT_GRAPH_CONFLICT_RULES, GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix, iter_opposite_predicates
 from .l2_models import ContradictionHint, ReconciledTraitOutcome
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
+logger = get_logger(__name__)
 
 
 class L2CognitionStore:
@@ -276,7 +278,7 @@ class L2CognitionStore:
                         now,
                         now,
                     ),
-                )
+            )
             await self._resolve_graph_conflicts(
                 db=db,
                 triple_id=triple_id,
@@ -287,6 +289,16 @@ class L2CognitionStore:
                 now=now,
             )
             await db.commit()
+        logger.debug(
+            "L2 knowledge edge upserted",
+            triple_id=triple_id,
+            subject_id=subject_id,
+            predicate=predicate,
+            object_id=object_id,
+            confidence=float(confidence),
+            source_type=source_type,
+            extraction_method=extraction_method,
+        )
         return triple_id
 
     async def list_tom_assertions(
@@ -452,6 +464,14 @@ class L2CognitionStore:
                     ),
                 )
                 await db.commit()
+                logger.info(
+                    "L2 contradiction applied",
+                    target_record_type=target_record_type,
+                    target_record_id=target_record_id,
+                    action=action,
+                    next_state=next_state,
+                    next_confidence=next_confidence,
+                )
                 return True
 
             if target_record_type == "knowledge_graph":
@@ -471,6 +491,13 @@ class L2CognitionStore:
                     ),
                 )
                 await db.commit()
+                logger.info(
+                    "L2 contradiction applied",
+                    target_record_type=target_record_type,
+                    target_record_id=target_record_id,
+                    action=action,
+                    next_status=next_status,
+                )
                 return True
 
         return False
@@ -545,6 +572,17 @@ class L2CognitionStore:
                     ).to_dict()
                 )
             await db.commit()
+        status_counts: dict[str, int] = {}
+        for item in outcomes:
+            status = str(item.get("status", "unknown"))
+            status_counts[status] = status_counts.get(status, 0) + 1
+        logger.info(
+            "L2 reconcile entity completed",
+            entity_id=entity_id,
+            entity_type=normalized_entity_type,
+            outcome_count=len(outcomes),
+            status_counts=status_counts,
+        )
         return outcomes
 
     async def refresh_entity_snapshot(
@@ -575,6 +613,17 @@ class L2CognitionStore:
             outgoing_relations=outgoing,
             incoming_relations=incoming,
         )
+        if snapshot is not None:
+            logger.info(
+                "L2 snapshot refreshed",
+                entity_id=entity_id,
+                entity_type=normalized_entity_type,
+                active_assertion_count=len(active_assertions),
+                stable_assertion_count=len(stable_assertions),
+                outgoing_relation_count=len(outgoing),
+                incoming_relation_count=len(incoming),
+                snapshot_version=snapshot.get("snapshot_version"),
+            )
         return snapshot
 
     def _extract_graph_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
@@ -689,6 +738,16 @@ class L2CognitionStore:
                     ),
                 )
                 await db.commit()
+                logger.debug(
+                    "L2 assertion upserted",
+                    assertion_id=assertion_id,
+                    entity_id=candidate["entity_id"],
+                    trait_name=candidate["trait_name"],
+                    validation_state=candidate["validation_state"],
+                    confidence=float(candidate["confidence_score"]),
+                    evidence_count=len(candidate["evidence_events"]),
+                    action="inserted",
+                )
                 return assertion_id
 
             evidence = sorted(
@@ -726,6 +785,16 @@ class L2CognitionStore:
                 ),
             )
             await db.commit()
+        logger.debug(
+            "L2 assertion upserted",
+            assertion_id=str(existing["assertion_id"]),
+            entity_id=candidate["entity_id"],
+            trait_name=candidate["trait_name"],
+            validation_state=validation_state,
+            confidence=confidence,
+            evidence_count=len(evidence),
+            action="updated",
+        )
 
         if validation_state == "stable":
             await self._materialize_snapshot(
@@ -1092,7 +1161,7 @@ class L2CognitionStore:
         query: str,
         args: tuple[Any, ...],
     ) -> None:
-        await db.execute(
+        cursor = await db.execute(
             query,
             (
                 status,
@@ -1102,6 +1171,13 @@ class L2CognitionStore:
                 *args,
             ),
         )
+        if int(cursor.rowcount or 0) > 0:
+            logger.debug(
+                "L2 graph conflict applied",
+                source_triple_id=triple_id,
+                next_status=status,
+                affected_count=int(cursor.rowcount or 0),
+            )
 
     def _status_from_action(self, action: str) -> str:
         if action == "mark_conflicted":

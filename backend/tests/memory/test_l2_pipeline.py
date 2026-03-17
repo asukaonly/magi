@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import tempfile
 import time
 from pathlib import Path
@@ -934,7 +935,51 @@ async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
 
 
 @pytest.mark.asyncio
-async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots():
+async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.LogCaptureFixture):
+    adapter = _FakeAdapter("{}")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            with caplog.at_level(logging.INFO, logger="magi.memory.l2_pipeline"):
+                await store.ingest_event(
+                    {
+                        "id": "evt-ai-freeform-log-1",
+                        "type": EventTypes.AI_RESPONSE,
+                        "timestamp": time.time(),
+                        "source": "assistant",
+                        "level": EventLevel.INFO.value,
+                        "data": {
+                            "user_id": "u1",
+                            "session_id": "s1",
+                            "response": "You might enjoy sushi tonight.",
+                        },
+                    }
+                )
+
+                for _ in range(50):
+                    stats = store.get_l2_pipeline_stats()
+                    if stats["extract_completed"] >= 1:
+                        break
+                    await asyncio.sleep(0.01)
+
+            messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2_pipeline"]
+            assert any("L2 extract started" in message for message in messages)
+            assert any("L2 extract skipped" in message for message in messages)
+            assert any("assistant_freeform" in message for message in messages)
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(caplog: pytest.LogCaptureFixture):
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
         store = UnifiedMemoryStore(
@@ -949,48 +994,51 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots():
             assert store.l2_pipeline is not None
 
             timestamps = [1710000000.0, 1710090000.0, 1710185000.0]
-            for index, ts in enumerate(timestamps, start=1):
-                memory_event = normalize_runtime_event(
-                    Event(
-                        type=EventTypes.USER_MESSAGE,
-                        data={"user_id": "u1", "session_id": "s1", "message": f"Stress signal {index}"},
-                        source="chat",
-                        level=EventLevel.INFO,
-                        correlation_id=f"evt-reconcile-{index}",
-                        timestamp=ts,
-                        metadata={"user_id": "u1"},
-                    ),
-                    event_id=f"evt-reconcile-{index}",
+            with caplog.at_level(logging.INFO, logger="magi.memory.l2_pipeline"), caplog.at_level(
+                logging.INFO, logger="magi.memory.l2_cognition_store"
+            ):
+                for index, ts in enumerate(timestamps, start=1):
+                    memory_event = normalize_runtime_event(
+                        Event(
+                            type=EventTypes.USER_MESSAGE,
+                            data={"user_id": "u1", "session_id": "s1", "message": f"Stress signal {index}"},
+                            source="chat",
+                            level=EventLevel.INFO,
+                            correlation_id=f"evt-reconcile-{index}",
+                            timestamp=ts,
+                            metadata={"user_id": "u1"},
+                        ),
+                        event_id=f"evt-reconcile-{index}",
+                    )
+                    await store.l1.store(memory_event)
+
+                await store.l2.upsert_assertion_candidate(
+                    {
+                        "entity_id": "user:u1",
+                        "entity_type": "user",
+                        "trait_name": "stress_level",
+                        "trait_value": "high",
+                        "confidence_score": 0.3,
+                        "evidence_events": [
+                            "evt-reconcile-1",
+                            "evt-reconcile-2",
+                            "evt-reconcile-3",
+                        ],
+                        "volatility_index": 0.7,
+                        "source_domain": "user_authored",
+                        "inference_depth": "defensive_psychology",
+                        "validation_state": "tentative",
+                        "first_inferred_at": timestamps[0],
+                        "last_validated_at": timestamps[-1],
+                    }
                 )
-                await store.l1.store(memory_event)
 
-            await store.l2.upsert_assertion_candidate(
-                {
-                    "entity_id": "user:u1",
-                    "entity_type": "user",
-                    "trait_name": "stress_level",
-                    "trait_value": "high",
-                    "confidence_score": 0.3,
-                    "evidence_events": [
-                        "evt-reconcile-1",
-                        "evt-reconcile-2",
-                        "evt-reconcile-3",
-                    ],
-                    "volatility_index": 0.7,
-                    "source_domain": "user_authored",
-                    "inference_depth": "defensive_psychology",
-                    "validation_state": "tentative",
-                    "first_inferred_at": timestamps[0],
-                    "last_validated_at": timestamps[-1],
-                }
-            )
-
-            await store.l2_pipeline.enqueue_entities(["user:u1"])
-            for _ in range(50):
-                stats = store.get_l2_pipeline_stats()
-                if stats["reconcile_completed"] >= 1 and stats["snapshot_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
+                await store.l2_pipeline.enqueue_entities(["user:u1"])
+                for _ in range(50):
+                    stats = store.get_l2_pipeline_stats()
+                    if stats["reconcile_completed"] >= 1 and stats["snapshot_completed"] >= 1:
+                        break
+                    await asyncio.sleep(0.01)
 
             assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
             snapshot = await store.l2.get_tom_snapshot(entity_id="user:u1", entity_type="user")
@@ -1000,5 +1048,9 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots():
             assert snapshot is not None
             assert snapshot["core_traits"]["stress_level"] == "high"
             assert snapshot["current_stress_level"] == 1.0
+            messages = [record.getMessage() for record in caplog.records]
+            assert any("L2 reconcile completed" in message for message in messages)
+            assert any("L2 snapshot completed" in message for message in messages)
+            assert any("L2 snapshot refreshed" in message for message in messages)
         finally:
             await store.shutdown()

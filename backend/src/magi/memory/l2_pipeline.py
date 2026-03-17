@@ -9,6 +9,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
+from ..core.logger import get_logger
 from .event_contracts import MemoryEvent
 from .l1_event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
@@ -32,6 +33,7 @@ _GRAPH_ELIGIBLE_ENTITY_TYPES = {
     "media",
     "other",
 }
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -145,10 +147,35 @@ class L2Pipeline:
             try:
                 if event is None:
                     break
+                logger.info(
+                    "L2 extract started",
+                    event_id=event.event_id,
+                    event_type=event.event_type,
+                    source=event.source,
+                    queue_size=self._extract_queue.qsize(),
+                )
                 result = await self._extract_and_persist(event)
                 self._stats.extract_completed += 1
                 if result.get("skipped"):
                     self._stats.extract_skipped += 1
+                    logger.info(
+                        "L2 extract skipped",
+                        event_id=event.event_id,
+                        evidence_class=result.get("evidence_class"),
+                        skip_reason=result.get("skip_reason"),
+                        queue_size=self._extract_queue.qsize(),
+                    )
+                else:
+                    logger.info(
+                        "L2 extract completed",
+                        event_id=event.event_id,
+                        evidence_class=result.get("evidence_class"),
+                        relation_count=int(result["relation_count"]),
+                        assertion_count=int(result["assertion_count"]),
+                        contradiction_hint_count=int(result.get("contradiction_hint_count", 0)),
+                        touched_entity_count=len(result.get("touched_entity_ids", [])),
+                        queue_size=self._extract_queue.qsize(),
+                    )
                 self._stats.relations_written += int(result["relation_count"])
                 self._stats.assertions_written += int(result["assertion_count"])
                 touched_entity_ids = result.get("touched_entity_ids", [])
@@ -156,6 +183,11 @@ class L2Pipeline:
                     await self.enqueue_entities(touched_entity_ids)
             except Exception:
                 self._stats.extract_failed += 1
+                logger.exception(
+                    "L2 extract failed",
+                    event_id=getattr(event, "event_id", None),
+                    queue_size=self._extract_queue.qsize(),
+                )
             finally:
                 self._extract_queue.task_done()
 
@@ -165,7 +197,13 @@ class L2Pipeline:
             try:
                 if entity_ids is None:
                     break
+                logger.info(
+                    "L2 reconcile started",
+                    entity_ids=entity_ids,
+                    queue_size=self._reconcile_queue.qsize(),
+                )
                 snapshot_candidates: set[str] = set()
+                total_outcomes = 0
                 if self._cognition_store is not None:
                     for entity_id in entity_ids:
                         outcomes = await self._cognition_store.reconcile_entity(
@@ -173,13 +211,26 @@ class L2Pipeline:
                             entity_type=self._entity_type_from_id(entity_id),
                             evidence_timestamps=await self._load_evidence_timestamps(entity_id),
                         )
+                        total_outcomes += len(outcomes)
                         if outcomes:
                             snapshot_candidates.add(entity_id)
                 if snapshot_candidates:
                     await self.enqueue_snapshot_refresh(sorted(snapshot_candidates))
                 self._stats.reconcile_completed += 1
+                logger.info(
+                    "L2 reconcile completed",
+                    entity_ids=entity_ids,
+                    outcome_count=total_outcomes,
+                    snapshot_candidate_count=len(snapshot_candidates),
+                    queue_size=self._reconcile_queue.qsize(),
+                )
             except Exception:
                 self._stats.reconcile_failed += 1
+                logger.exception(
+                    "L2 reconcile failed",
+                    entity_ids=entity_ids,
+                    queue_size=self._reconcile_queue.qsize(),
+                )
             finally:
                 self._reconcile_queue.task_done()
 
@@ -189,15 +240,34 @@ class L2Pipeline:
             try:
                 if entity_ids is None:
                     break
+                logger.info(
+                    "L2 snapshot started",
+                    entity_ids=entity_ids,
+                    queue_size=self._snapshot_queue.qsize(),
+                )
+                refreshed_count = 0
                 if self._cognition_store is not None:
                     for entity_id in entity_ids:
-                        await self._cognition_store.refresh_entity_snapshot(
+                        snapshot = await self._cognition_store.refresh_entity_snapshot(
                             entity_id=entity_id,
                             entity_type=self._entity_type_from_id(entity_id),
                         )
+                        if snapshot is not None:
+                            refreshed_count += 1
                 self._stats.snapshot_completed += 1
+                logger.info(
+                    "L2 snapshot completed",
+                    entity_ids=entity_ids,
+                    refreshed_count=refreshed_count,
+                    queue_size=self._snapshot_queue.qsize(),
+                )
             except Exception:
                 self._stats.snapshot_failed += 1
+                logger.exception(
+                    "L2 snapshot failed",
+                    entity_ids=entity_ids,
+                    queue_size=self._snapshot_queue.qsize(),
+                )
             finally:
                 self._snapshot_queue.task_done()
 
@@ -208,7 +278,28 @@ class L2Pipeline:
         stored_event = await self._load_stored_event(event)
         classification = classify_event_evidence(stored_event)
         self._increment_bucket(self._stats.extract_by_evidence_class, classification.evidence_class)
+        logger.debug(
+            "L2 evidence classified",
+            event_id=stored_event.event_id,
+            evidence_class=classification.evidence_class,
+            grounding_type=classification.grounding_type,
+            semantic_owner=classification.semantic_owner,
+            originality_type=classification.originality_type,
+            source_event_ids=classification.source_event_ids,
+        )
         policy = resolve_l2_policy(classification)
+        logger.debug(
+            "L2 policy resolved",
+            event_id=stored_event.event_id,
+            evidence_class=classification.evidence_class,
+            allow_entity_extraction=policy.allow_entity_extraction,
+            allow_graph_write=policy.allow_graph_write,
+            allow_assertion_write=policy.allow_assertion_write,
+            allow_snapshot_impact=policy.allow_snapshot_impact,
+            graph_scope=policy.graph_scope,
+            assertion_scope=policy.assertion_scope,
+            skip_reason=policy.skip_reason,
+        )
         if not policy.allow_graph_write and not policy.allow_assertion_write:
             if policy.skip_reason:
                 self._increment_bucket(self._stats.skip_by_reason, policy.skip_reason)
@@ -218,6 +309,8 @@ class L2Pipeline:
                 "touched_entity_ids": [],
                 "skipped": True,
                 "skip_reason": policy.skip_reason,
+                "evidence_class": classification.evidence_class,
+                "contradiction_hint_count": 0,
             }
 
         if self._entity_catalog is None or self._llm_service is None:
@@ -226,6 +319,8 @@ class L2Pipeline:
                 **legacy_result,
                 "touched_entity_ids": self._collect_touched_entities([], []),
                 "skipped": False,
+                "evidence_class": classification.evidence_class,
+                "contradiction_hint_count": 0,
             }
 
         context_texts = (
@@ -240,6 +335,12 @@ class L2Pipeline:
                 context_texts=context_texts,
             )
             resolved_mentions = await self._resolve_mentions(stored_event, mentions)
+            logger.debug(
+                "L2 mentions resolved",
+                event_id=stored_event.event_id,
+                mention_count=len(mentions),
+                resolved_mention_count=len(resolved_mentions),
+            )
 
         graph_candidates: list[dict[str, Any]] = []
         if policy.allow_graph_write and policy.graph_scope == "full":
@@ -268,12 +369,24 @@ class L2Pipeline:
                 ]
             elif policy.assertion_scope == "full":
                 assertion_candidates = self._cognition_store.extract_assertion_candidates(stored_event)
+        logger.debug(
+            "L2 candidates built",
+            event_id=stored_event.event_id,
+            graph_candidate_count=len(graph_candidates),
+            assertion_candidate_count=len(assertion_candidates),
+            focal_entity_count=len(focal_entities),
+        )
 
         contradiction_hints = []
         if policy.count_as_new_evidence and (graph_candidates or assertion_candidates):
             contradiction_hints = await self._detect_contradiction_hints(
                 event=stored_event,
                 focal_entities=focal_entities,
+            )
+            logger.debug(
+                "L2 contradiction hints detected",
+                event_id=stored_event.event_id,
+                contradiction_hint_count=len(contradiction_hints),
             )
 
         relation_count = 0
@@ -294,6 +407,8 @@ class L2Pipeline:
             "assertion_count": assertion_count,
             "touched_entity_ids": self._collect_touched_entities(graph_candidates, assertion_candidates),
             "skipped": False,
+            "evidence_class": classification.evidence_class,
+            "contradiction_hint_count": len(contradiction_hints),
         }
 
     async def _load_stored_event(self, event: MemoryEvent) -> MemoryEvent:
