@@ -17,7 +17,6 @@ from magi.api.routers.config import (
 from magi.config.loader import get_config
 from magi.config.models import LLMProviderSettings, LLMSelectionSettings, LLMSettings
 from magi.config.llm_registry import (
-    LLMProviderRegistryModel,
     build_runtime_llm_defaults,
     resolve_llm_profile,
 )
@@ -155,14 +154,17 @@ def test_build_update_paths_applies_builtin_provider_defaults_before_save():
     }
     config.llm.selections["context_decider"] = LLMSelectionConfigModel(provider_id="glm", model="")
     config.llm.selections["core"] = LLMSelectionConfigModel(provider_id="glm", model="")
+    config.llm.selections["embedding"] = LLMSelectionConfigModel(provider_id="glm", model="")
 
     updates = _build_update_paths(config)
 
     assert updates["llm.providers"]["glm"]["provider_type"] == "glm"
     assert updates["llm.providers"]["glm"]["display_name"] == "Z.ai"
     assert updates["llm.providers"]["glm"]["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
-    assert updates["llm.selections"]["context_decider"]["model"] == "glm-5"
+    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.7-flash"
     assert updates["llm.selections"]["core"]["model"] == "glm-5"
+    assert updates["llm.selections"]["embedding"]["model"] == "embedding-3"
+    assert updates["llm.selections"]["embedding"]["embedding_dimension"] == 1024
 
 
 def test_build_update_paths_does_not_depend_on_legacy_llm_env_vars(monkeypatch: pytest.MonkeyPatch):
@@ -195,9 +197,9 @@ def test_default_registry_exposes_model_metadata():
     registry = _default_llm_provider_registry()
 
     assert registry.providers
-    assert registry.providers[0].models
-    assert registry.providers[0].models[0].capabilities.tool_calling is True
-    assert registry.providers[0].models[0].limits.max_output_tokens is not None
+    assert registry.providers[0].chat_models
+    assert registry.providers[0].chat_models[0].capabilities.tool_calling is True
+    assert registry.providers[0].chat_models[0].limits.max_output_tokens is not None
 
 
 def test_default_registry_includes_extended_builtin_providers():
@@ -209,20 +211,22 @@ def test_default_registry_includes_extended_builtin_providers():
     assert providers_by_id["deepseek"].default_base_url == "https://api.deepseek.com"
     assert providers_by_id["kimi"].default_base_url == "https://api.moonshot.cn/v1"
     assert providers_by_id["minimax"].default_base_url == "https://api.minimaxi.com/v1"
+    assert providers_by_id["glm"].default_classify_model == "glm-4.7-flash"
+    assert providers_by_id["openai"].embedding_models[0].dimensions[0] == 1536
 
 
-def test_registry_supports_legacy_model_options_shape():
-    registry = LLMProviderRegistryModel(
-        providers=[
-            {
-                "id": "legacy",
-                "model_options": ["legacy-model"],
-            }
-        ],
+def test_build_update_paths_assigns_embedding_dimension_from_registry_default():
+    config = SystemConfigModel()
+    config.llm.providers["openai"].enabled = True
+    config.llm.selections["embedding"] = LLMSelectionConfigModel(
+        provider_id="openai",
+        model="text-embedding-3-small",
+        embedding_dimension=None,
     )
 
-    assert registry.providers[0].models[0].id == "legacy-model"
-    assert registry.providers[0].models[0].capabilities.reasoning is True
+    updates = _build_update_paths(config)
+
+    assert updates["llm.selections"]["embedding"]["embedding_dimension"] == 1536
 
 
 def test_resolve_llm_profile_prefers_registry_defaults_until_override_enabled():

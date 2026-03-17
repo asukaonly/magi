@@ -40,6 +40,7 @@ export interface LLMProviderConfig {
 export interface LLMSelectionConfig {
   provider_id: string;
   model: string;
+  embedding_dimension?: number | null;
   capability_override_enabled: boolean;
   capabilities: LLMCapabilities;
   limits: LLMLimits;
@@ -77,9 +78,12 @@ export interface LLMProviderMeta {
   description?: string;
   icon?: string;
   default_model?: string;
+  default_classify_model?: string;
   default_base_url?: string;
-  model_options?: string[];
-  models?: LLMModelMeta[];
+  chat_models?: LLMChatModelMeta[];
+  embedding_models?: LLMEmbeddingModelMeta[];
+  image_generation_models?: LLMGenerationModelMeta[];
+  audio_generation_models?: LLMGenerationModelMeta[];
   fields?: Record<string, LLMProviderFieldConfig>;
 }
 
@@ -94,11 +98,31 @@ export interface LLMCustomProviderMeta {
   provider_options_example?: Record<string, any>;
 }
 
-export interface LLMModelMeta {
+export interface LLMChatCapabilities {
+  vision: boolean;
+  image_output: boolean;
+  tool_calling: boolean;
+  reasoning: boolean;
+}
+
+export interface LLMChatModelMeta {
   id: string;
   label?: string;
-  capabilities: LLMCapabilities;
+  capabilities: LLMChatCapabilities;
   limits: LLMLimits;
+  provider_options_example?: Record<string, any>;
+}
+
+export interface LLMEmbeddingModelMeta {
+  id: string;
+  label?: string;
+  dimensions: number[];
+  provider_options_example?: Record<string, any>;
+}
+
+export interface LLMGenerationModelMeta {
+  id: string;
+  label?: string;
   provider_options_example?: Record<string, any>;
 }
 
@@ -284,6 +308,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       context_decider: {
         provider_id: '',
         model: '',
+        embedding_dimension: null,
         capability_override_enabled: false,
         capabilities: DEFAULT_LLM_CAPABILITIES,
         limits: DEFAULT_LLM_LIMITS,
@@ -292,6 +317,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       core: {
         provider_id: '',
         model: '',
+        embedding_dimension: null,
         capability_override_enabled: false,
         capabilities: DEFAULT_LLM_CAPABILITIES,
         limits: DEFAULT_LLM_LIMITS,
@@ -300,6 +326,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       embedding: {
         provider_id: '',
         model: '',
+        embedding_dimension: null,
         capability_override_enabled: false,
         capabilities: { ...DEFAULT_LLM_CAPABILITIES, embedding: true },
         limits: DEFAULT_LLM_LIMITS,

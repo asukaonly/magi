@@ -60,6 +60,7 @@
       "desc": "为不同场景挑选对应模型。当前先区分意图识别和核心对话。",
       "empty": "请先启用至少一个供应商，再回来选择模型。",
       "selectEmbeddingModel": "选择向量模型",
+      "selectEmbeddingDimension": "选择向量维度",
       "noEmbeddingModels": "当前已启用的供应商没有向量模型，请启用支持向量的供应商（如 OpenAI）。"
     },
     "providerConfiguration": {
@@ -100,6 +101,7 @@
     "fields": {
       "provider": "供应商",
       "model": "模型",
+      "embeddingDimension": "向量维度",
       "defaultModel": "默认模型",
       "modelManualEntry": "添加模型",
       "modelManualEntryPlaceholder": "输入模型 ID",

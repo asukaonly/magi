@@ -4,8 +4,9 @@ providers:
     description: General purpose, strongest ecosystem
     icon: openai
     default_model: gpt-5.2
+    default_classify_model: gpt-5.2
     default_base_url: https://api.openai.com/v1
-    models:
+    chat_models:
       - id: gpt-5
         label: GPT-5
         capabilities:
@@ -13,7 +14,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 400000
           max_output_tokens: 128000
@@ -24,7 +24,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 400000
           max_output_tokens: 128000
@@ -35,32 +34,22 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 200000
           max_output_tokens: 100000
+    embedding_models:
       - id: text-embedding-3-small
         label: Text Embedding 3 Small
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: false
-          reasoning: false
-          embedding: true
-        limits:
-          context_window: 8191
-          max_output_tokens: 8191
+        dimensions: [1536, 512]
       - id: text-embedding-3-large
         label: Text Embedding 3 Large
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: false
-          reasoning: false
-          embedding: true
-        limits:
-          context_window: 8191
-          max_output_tokens: 8191
+        dimensions: [3072, 1024, 256]
+    image_generation_models:
+      - id: gpt-image-1
+        label: GPT Image 1
+    audio_generation_models:
+      - id: gpt-4o-mini-tts
+        label: GPT-4o Mini TTS
     fields:
       model:
         visible: true
@@ -77,8 +66,9 @@ providers:
     description: Stable for long context and reasoning-heavy tasks
     icon: anthropic
     default_model: claude-sonnet-4-6
+    default_classify_model: claude-haiku-4-5
     default_base_url: https://api.anthropic.com/v1
-    models:
+    chat_models:
       - id: claude-sonnet-4-6
         label: Claude Sonnet 4.6
         capabilities:
@@ -86,7 +76,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 200000
           max_output_tokens: 64000
@@ -97,7 +86,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 200000
           max_output_tokens: 64000
@@ -108,7 +96,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 200000
           max_output_tokens: 32000
@@ -128,8 +115,9 @@ providers:
     description: Fast general-purpose models from Z.ai
     icon: zai
     default_model: glm-5
+    default_classify_model: glm-4.7-flash
     default_base_url: https://open.bigmodel.cn/api/paas/v4
-    models:
+    chat_models:
       - id: glm-5
         label: GLM-5
         capabilities:
@@ -137,7 +125,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 204800
           max_output_tokens: 131072
@@ -151,7 +138,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 128000
           max_output_tokens: 65536
@@ -165,7 +151,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 128000
           max_output_tokens: 32768
@@ -179,24 +164,16 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 128000
           max_output_tokens: 131072
         provider_options_example:
           thinking:
             type: disabled
+    embedding_models:
       - id: embedding-3
         label: Embedding-3
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: false
-          reasoning: false
-          embedding: true
-        limits:
-          context_window: 8192
-          max_output_tokens: 8192
+        dimensions: [1024, 2048]
     fields:
       model:
         visible: true
@@ -213,8 +190,9 @@ providers:
     description: Multimodal models from Google
     icon: gemini
     default_model: gemini-2.5-flash
+    default_classify_model: gemini-2.5-flash-lite
     default_base_url: https://generativelanguage.googleapis.com/v1beta/openai
-    models:
+    chat_models:
       - id: gemini-2.5-pro
         label: Gemini 2.5 Pro
         capabilities:
@@ -222,7 +200,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 1048576
           max_output_tokens: 65536
@@ -233,7 +210,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 1048576
           max_output_tokens: 65536
@@ -244,32 +220,16 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 1048576
           max_output_tokens: 32768
+    embedding_models:
       - id: text-embedding-004
         label: Text Embedding 004
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: false
-          reasoning: false
-          embedding: true
-        limits:
-          context_window: 2048
-          max_output_tokens: 768
+        dimensions: [768]
       - id: gemini-embedding-exp-03-07
         label: Gemini Embedding Exp
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: false
-          reasoning: false
-          embedding: true
-        limits:
-          context_window: 8192
-          max_output_tokens: 3072
+        dimensions: [3072, 1536, 768]
     fields:
       model:
         visible: true
@@ -286,8 +246,9 @@ providers:
     description: Reasoning and coding models
     icon: deepseek
     default_model: deepseek-chat
+    default_classify_model: deepseek-chat
     default_base_url: https://api.deepseek.com
-    models:
+    chat_models:
       - id: deepseek-chat
         label: DeepSeek Chat
         capabilities:
@@ -295,7 +256,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 128000
           max_output_tokens: 8192
@@ -306,7 +266,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 128000
           max_output_tokens: 8192
@@ -326,8 +285,9 @@ providers:
     description: Long-context models from Moonshot AI
     icon: kimi
     default_model: moonshot-v1-32k
+    default_classify_model: moonshot-v1-8k
     default_base_url: https://api.moonshot.cn/v1
-    models:
+    chat_models:
       - id: moonshot-v1-8k
         label: Moonshot V1 8K
         capabilities:
@@ -335,7 +295,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 8192
           max_output_tokens: 8192
@@ -346,7 +305,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 32768
           max_output_tokens: 8192
@@ -357,21 +315,13 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 128000
           max_output_tokens: 8192
+    embedding_models:
       - id: moonshot-v1-8k-embedding
         label: Moonshot Embedding
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: false
-          reasoning: false
-          embedding: true
-        limits:
-          context_window: 8192
-          max_output_tokens: 8192
+        dimensions: [1024]
     fields:
       model:
         visible: true
@@ -388,8 +338,9 @@ providers:
     description: Multimodal models from MiniMax
     icon: minimax
     default_model: MiniMax-M2.5
+    default_classify_model: MiniMax-M2.1
     default_base_url: https://api.minimaxi.com/v1
-    models:
+    chat_models:
       - id: MiniMax-M2.5
         label: MiniMax M2.5
         capabilities:
@@ -397,7 +348,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 1000192
           max_output_tokens: 8192
@@ -408,7 +358,6 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 1000192
           max_output_tokens: 8192
@@ -419,21 +368,13 @@ providers:
           image_output: false
           tool_calling: true
           reasoning: true
-          embedding: false
         limits:
           context_window: 262144
           max_output_tokens: 8192
+    embedding_models:
       - id: abab-6.5e-001
         label: MiniMax Embedding
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: false
-          reasoning: false
-          embedding: true
-        limits:
-          context_window: 8192
-          max_output_tokens: 8192
+        dimensions: [1536]
     fields:
       model:
         visible: true

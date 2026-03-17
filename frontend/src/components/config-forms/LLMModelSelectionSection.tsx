@@ -14,6 +14,7 @@ interface LLMModelSelectionSectionProps {
   showSectionIntro?: boolean;
   onScenarioProviderChange: (scenario: LLMScenario, providerId: string) => void;
   onScenarioModelChange: (scenario: LLMScenario, model: string) => void;
+  onScenarioEmbeddingDimensionChange: (scenario: LLMScenario, dimension: number | null) => void;
 }
 
 const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
@@ -26,6 +27,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   showSectionIntro = true,
   onScenarioProviderChange,
   onScenarioModelChange,
+  onScenarioEmbeddingDimensionChange,
 }) => {
   const { t } = useTranslation('onboarding');
   const enabledProviders = Object.entries(value.providers).filter(([, provider]) => provider.enabled);
@@ -37,7 +39,13 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
   // Collect all embedding models from all enabled providers
   const allEmbeddingModels = useMemo(() => {
-    const models: Array<{ providerId: string; providerName: string; modelId: string; modelLabel: string }> = [];
+    const models: Array<{
+      providerId: string;
+      providerName: string;
+      modelId: string;
+      modelLabel: string;
+      dimensions: number[];
+    }> = [];
     for (const [providerId, provider] of enabledProviders) {
       const isCustomProvider = provider.provider_type === 'custom';
       const providerMeta = isCustomProvider
@@ -46,17 +54,16 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
 
       const providerModels = isCustomProvider
         ? [] // Custom providers don't have embedding models in registry
-        : providerMeta?.models || [];
+        : providerMeta?.embedding_models || [];
 
       for (const model of providerModels) {
-        if (model.capabilities?.embedding) {
-          models.push({
-            providerId,
-            providerName: provider.display_name || providerMeta?.display_name || providerId,
-            modelId: model.id,
-            modelLabel: model.label || model.id,
-          });
-        }
+        models.push({
+          providerId,
+          providerName: provider.display_name || providerMeta?.display_name || providerId,
+          modelId: model.id,
+          modelLabel: model.label || model.id,
+          dimensions: model.dimensions || [],
+        });
       }
     }
     return models;
@@ -105,6 +112,12 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             const currentEmbeddingModel = allEmbeddingModels.find(
               (m) => m.providerId === selection.provider_id && m.modelId === selection.model
             );
+            const activeEmbeddingModel = currentEmbeddingModel || allEmbeddingModels[0];
+            const availableDimensions = activeEmbeddingModel?.dimensions || [];
+            const selectedDimension =
+              availableDimensions.includes(selection.embedding_dimension || -1)
+                ? selection.embedding_dimension
+                : (availableDimensions[0] ?? null);
 
             return (
               <article
@@ -115,9 +128,9 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                 <div className="space-y-1 mb-4">
                   <div className="flex items-center justify-between gap-3">
                     <h4 className="text-sm font-semibold text-foreground">{t(`llm.scenarios.${scenario}.title`)}</h4>
-                    {currentEmbeddingModel && (
+                    {activeEmbeddingModel && (
                       <span className="rounded-full border border-border/60 bg-transparent px-2 py-0.5 text-xs text-muted-foreground">
-                        {currentEmbeddingModel.providerName}
+                        {activeEmbeddingModel.providerName}
                       </span>
                     )}
                   </div>
@@ -142,6 +155,13 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                         // First change provider, then model
                         onScenarioProviderChange(scenario, providerId);
                         onScenarioModelChange(scenario, modelId);
+                        const matched = allEmbeddingModels.find(
+                          (item) => item.providerId === providerId && item.modelId === modelId
+                        );
+                        onScenarioEmbeddingDimensionChange(
+                          scenario,
+                          matched?.dimensions?.[0] ?? null
+                        );
                       }}
                     />
                   </label>
@@ -151,6 +171,29 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                     <span>{t('llm.modelSelection.noEmbeddingModels')}</span>
                   </div>
                 )}
+
+                {allEmbeddingModels.length > 0 ? (
+                  <label className="space-y-2 mt-3">
+                    <span className="text-sm font-medium">{t('llm.fields.embeddingDimension')}</span>
+                    <SelectField
+                      className="w-full"
+                      triggerClassName={inputClassName}
+                      value={selectedDimension ? String(selectedDimension) : ''}
+                      allowEmpty={false}
+                      placeholder={t('llm.modelSelection.selectEmbeddingDimension')}
+                      options={availableDimensions.map((dimension) => ({
+                        label: String(dimension),
+                        value: String(dimension),
+                      }))}
+                      onChange={(nextValue) =>
+                        onScenarioEmbeddingDimensionChange(
+                          scenario,
+                          nextValue ? Number(nextValue) : null
+                        )
+                      }
+                    />
+                  </label>
+                ) : null}
               </article>
             );
           }
@@ -159,9 +202,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           // Custom providers don't have embedding models in registry, so no need to filter
           const models = isCustomProvider
             ? (provider?.custom_models || []).map((model) => ({ id: model, label: model }))
-            : (registry.providers.find((item) => item.id === provider?.provider_type)?.models || []).filter(
-                (model) => !model.capabilities?.embedding
-              );
+            : registry.providers.find((item) => item.id === provider?.provider_type)?.chat_models || [];
 
           return (
             <article

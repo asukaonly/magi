@@ -112,6 +112,7 @@ class LLMSelectionSettings(BaseModel):
 
     provider_id: str = Field(default="openai")
     model: str = Field(default="gpt-4o-mini")
+    embedding_dimension: Optional[int] = Field(default=None, ge=1)
     capability_override_enabled: bool = Field(default=False)
     capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)

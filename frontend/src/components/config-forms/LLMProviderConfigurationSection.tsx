@@ -516,11 +516,11 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   </>
                 )}
 
-                {activeProviderMeta?.models?.length ? (
+                {activeProviderMeta?.chat_models?.length ? (
                   <div className={cn('space-y-2 pt-1', !isSettingsSurface && 'lg:col-span-2')}>
                     <div className="text-sm font-medium text-foreground">{t('llm.providerConfiguration.availableModels')}</div>
                     <div className="flex flex-wrap gap-2">
-                      {activeProviderMeta.models.map((model) => (
+                      {activeProviderMeta.chat_models.map((model) => (
                         <span key={model.id} className={badgeClassName}>
                           {model.label || model.id}
                         </span>

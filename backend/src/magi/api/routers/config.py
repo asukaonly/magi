@@ -16,13 +16,19 @@ from ..llm_draft import build_adapter_from_provider
 from ...config.loader import get_config, get_config_file_path, reload_config, save_config
 from ...config.models import LLMProviderSettings
 from ...config.llm_registry import (
+    LLMAudioGenerationModelMetaModel,
+    LLMChatCapabilitiesModel,
     LLMCustomProviderMetaModel,
+    LLMEmbeddingModelMetaModel,
+    LLMImageGenerationModelMetaModel,
     LLMModelMetaModel,
     LLMProviderFieldModel,
     LLMProviderMetaModel,
     LLMProviderRegistryModel,
+    find_embedding_model_meta,
     find_provider_meta,
     load_llm_provider_registry,
+    resolve_embedding_dimension,
     resolve_llm_profile,
 )
 from ...config.models import LLMCapabilitiesSettings, LLMLimitsSettings
@@ -54,6 +60,7 @@ class LLMProviderConfigModel(BaseModel):
 class LLMSelectionConfigModel(BaseModel):
     provider_id: str = Field(default="openai")
     model: str = Field(default="gpt-4o-mini")
+    embedding_dimension: Optional[int] = Field(default=None, ge=1)
     capability_override_enabled: bool = Field(default=False)
     capabilities: LLMCapabilitiesSettings = Field(default_factory=LLMCapabilitiesSettings)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
@@ -70,6 +77,15 @@ class LLMConfigModel(BaseModel):
         default_factory=lambda: {
             "context_decider": LLMSelectionConfigModel(),
             "core": LLMSelectionConfigModel(),
+            "embedding": LLMSelectionConfigModel(
+                capabilities=LLMCapabilitiesSettings(
+                    vision=False,
+                    image_output=False,
+                    tool_calling=False,
+                    reasoning=False,
+                    embedding=True,
+                ),
+            ),
         }
     )
 
@@ -292,254 +308,71 @@ def _llm_provider_registry_path() -> Path:
 
 
 def _default_llm_provider_registry() -> LLMProviderRegistryModel:
-    return LLMProviderRegistryModel(
-        providers=[
-            LLMProviderMetaModel(
-                id="openai",
-                display_name="OpenAI",
-                description="General purpose, strongest ecosystem",
-                icon="openai",
-                default_model="gpt-5.2",
-                default_base_url="https://api.openai.com/v1",
-                models=[
-                    LLMModelMetaModel(
-                        id="gpt-5",
-                        label="gpt-5",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=400000, max_output_tokens=128000),
-                    ),
-                    LLMModelMetaModel(
-                        id="gpt-5.2",
-                        label="gpt-5.2",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=400000, max_output_tokens=128000),
-                    ),
-                    LLMModelMetaModel(
-                        id="o3",
-                        label="o3",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=200000, max_output_tokens=100000),
-                    ),
-                ],
-                fields={
-                    "model": LLMProviderFieldModel(visible=True, required=True),
-                    "api_key": LLMProviderFieldModel(visible=True, required=True),
-                    "base_url": LLMProviderFieldModel(visible=True, required=False),
-                },
-            ),
-            LLMProviderMetaModel(
-                id="anthropic",
-                display_name="Anthropic",
-                description="Stable for long context and reasoning-heavy tasks",
-                icon="anthropic",
-                default_model="claude-sonnet-4-6",
-                default_base_url="https://api.anthropic.com/v1",
-                models=[
-                    LLMModelMetaModel(
-                        id="claude-sonnet-4-6",
-                        label="Claude Sonnet 4.6",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=200000, max_output_tokens=64000),
-                    ),
-                    LLMModelMetaModel(
-                        id="claude-opus-4-6",
-                        label="Claude Opus 4.6",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=200000, max_output_tokens=64000),
-                    ),
-                    LLMModelMetaModel(
-                        id="claude-haiku-4-5",
-                        label="Claude Haiku 4.5",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=200000, max_output_tokens=32000),
-                    ),
-                ],
-                fields={
-                    "model": LLMProviderFieldModel(visible=True, required=True),
-                    "api_key": LLMProviderFieldModel(visible=True, required=True),
-                    "base_url": LLMProviderFieldModel(visible=True, required=False),
-                },
-            ),
-            LLMProviderMetaModel(
-                id="glm",
-                display_name="Z.ai",
-                description="Fast general-purpose models from Z.ai",
-                icon="zai",
-                default_model="glm-5",
-                default_base_url="https://open.bigmodel.cn/api/paas/v4",
-                models=[
-                    LLMModelMetaModel(
-                        id="glm-5",
-                        label="GLM-5",
-                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=204800, max_output_tokens=131072),
-                        provider_options_example={"thinking": {"type": "disabled"}},
-                    ),
-                    LLMModelMetaModel(
-                        id="glm-4.7",
-                        label="GLM-4.7",
-                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=128000, max_output_tokens=65536),
-                        provider_options_example={"thinking": {"type": "disabled"}},
-                    ),
-                    LLMModelMetaModel(
-                        id="glm-4.7-flash",
-                        label="GLM-4.7 Flash",
-                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=128000, max_output_tokens=32768),
-                        provider_options_example={"thinking": {"type": "disabled"}},
-                    ),
-                ],
-                fields={
-                    "model": LLMProviderFieldModel(visible=True, required=True),
-                    "api_key": LLMProviderFieldModel(visible=True, required=True),
-                    "base_url": LLMProviderFieldModel(visible=True, required=False),
-                },
-            ),
-            LLMProviderMetaModel(
-                id="gemini",
-                display_name="Google Gemini",
-                description="Multimodal models from Google",
-                icon="gemini",
-                default_model="gemini-2.5-flash",
-                default_base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-                models=[
-                    LLMModelMetaModel(
-                        id="gemini-2.5-pro",
-                        label="Gemini 2.5 Pro",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=1048576, max_output_tokens=65536),
-                    ),
-                    LLMModelMetaModel(
-                        id="gemini-2.5-flash",
-                        label="Gemini 2.5 Flash",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=1048576, max_output_tokens=65536),
-                    ),
-                    LLMModelMetaModel(
-                        id="gemini-2.5-flash-lite",
-                        label="Gemini 2.5 Flash Lite",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=1048576, max_output_tokens=32768),
-                    ),
-                ],
-                fields={
-                    "model": LLMProviderFieldModel(visible=True, required=True),
-                    "api_key": LLMProviderFieldModel(visible=True, required=True),
-                    "base_url": LLMProviderFieldModel(visible=True, required=False),
-                },
-            ),
-            LLMProviderMetaModel(
-                id="deepseek",
-                display_name="DeepSeek",
-                description="Reasoning and coding models",
-                icon="deepseek",
-                default_model="deepseek-chat",
-                default_base_url="https://api.deepseek.com",
-                models=[
-                    LLMModelMetaModel(
-                        id="deepseek-chat",
-                        label="DeepSeek Chat",
-                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=128000, max_output_tokens=8192),
-                    ),
-                    LLMModelMetaModel(
-                        id="deepseek-reasoner",
-                        label="DeepSeek Reasoner",
-                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=128000, max_output_tokens=8192),
-                    ),
-                ],
-                fields={
-                    "model": LLMProviderFieldModel(visible=True, required=True),
-                    "api_key": LLMProviderFieldModel(visible=True, required=True),
-                    "base_url": LLMProviderFieldModel(visible=True, required=False),
-                },
-            ),
-            LLMProviderMetaModel(
-                id="kimi",
-                display_name="Kimi",
-                description="Long-context models from Moonshot AI",
-                icon="kimi",
-                default_model="moonshot-v1-32k",
-                default_base_url="https://api.moonshot.cn/v1",
-                models=[
-                    LLMModelMetaModel(
-                        id="moonshot-v1-8k",
-                        label="Moonshot V1 8K",
-                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=8192, max_output_tokens=8192),
-                    ),
-                    LLMModelMetaModel(
-                        id="moonshot-v1-32k",
-                        label="Moonshot V1 32K",
-                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=32768, max_output_tokens=8192),
-                    ),
-                    LLMModelMetaModel(
-                        id="moonshot-v1-128k",
-                        label="Moonshot V1 128K",
-                        capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=128000, max_output_tokens=8192),
-                    ),
-                ],
-                fields={
-                    "model": LLMProviderFieldModel(visible=True, required=True),
-                    "api_key": LLMProviderFieldModel(visible=True, required=True),
-                    "base_url": LLMProviderFieldModel(visible=True, required=False),
-                },
-            ),
-            LLMProviderMetaModel(
-                id="minimax",
-                display_name="MiniMax",
-                description="Multimodal models from MiniMax",
-                icon="minimax",
-                default_model="MiniMax-M2.5",
-                default_base_url="https://api.minimaxi.com/v1",
-                models=[
-                    LLMModelMetaModel(
-                        id="MiniMax-M2.5",
-                        label="MiniMax M2.5",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=1000192, max_output_tokens=8192),
-                    ),
-                    LLMModelMetaModel(
-                        id="MiniMax-M2.5-highspeed",
-                        label="MiniMax M2.5 Highspeed",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=1000192, max_output_tokens=8192),
-                    ),
-                    LLMModelMetaModel(
-                        id="MiniMax-M2.1",
-                        label="MiniMax M2.1",
-                        capabilities=LLMCapabilitiesSettings(vision=True, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-                        limits=LLMLimitsSettings(context_window=262144, max_output_tokens=8192),
-                    ),
-                ],
-                fields={
-                    "model": LLMProviderFieldModel(visible=True, required=True),
-                    "api_key": LLMProviderFieldModel(visible=True, required=True),
-                    "base_url": LLMProviderFieldModel(visible=True, required=False),
-                },
-            ),
-        ],
-        custom_provider=LLMCustomProviderMetaModel(
-            enabled=True,
-            display_name="Custom Provider",
-            description="Connect OpenAI-compatible or Anthropic-compatible endpoints",
-            icon="custom",
-            capabilities=LLMCapabilitiesSettings(vision=False, image_output=False, tool_calling=True, reasoning=True, embedding=False),
-            fields={
-                "custom_name": LLMProviderFieldModel(visible=True, required=True, placeholder="My Provider"),
-                "api_format": LLMProviderFieldModel(
-                    visible=True, required=True, options=["openai", "anthropic"]
+    try:
+        with open(_llm_provider_registry_path(), "r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+        return LLMProviderRegistryModel(**data)
+    except Exception:
+        return LLMProviderRegistryModel(
+            providers=[
+                LLMProviderMetaModel(
+                    id="openai",
+                    display_name="OpenAI",
+                    description="General purpose, strongest ecosystem",
+                    icon="openai",
+                    default_model="gpt-5.2",
+                    default_classify_model="gpt-5.2",
+                    default_base_url="https://api.openai.com/v1",
+                    chat_models=[
+                        LLMModelMetaModel(
+                            id="gpt-5.2",
+                            label="GPT-5.2",
+                            capabilities=LLMChatCapabilitiesModel(
+                                vision=True,
+                                image_output=False,
+                                tool_calling=True,
+                                reasoning=True,
+                            ),
+                            limits=LLMLimitsSettings(context_window=400000, max_output_tokens=128000),
+                        )
+                    ],
+                    embedding_models=[
+                        LLMEmbeddingModelMetaModel(
+                            id="text-embedding-3-small",
+                            label="Text Embedding 3 Small",
+                            dimensions=[1536, 512],
+                        )
+                    ],
+                    image_generation_models=[LLMImageGenerationModelMetaModel(id="gpt-image-1", label="GPT Image 1")],
+                    audio_generation_models=[LLMAudioGenerationModelMetaModel(id="gpt-4o-mini-tts", label="GPT-4o Mini TTS")],
+                    fields={
+                        "model": LLMProviderFieldModel(visible=True, required=True),
+                        "api_key": LLMProviderFieldModel(visible=True, required=True),
+                        "base_url": LLMProviderFieldModel(visible=True, required=False),
+                    },
+                )
+            ],
+            custom_provider=LLMCustomProviderMetaModel(
+                enabled=True,
+                display_name="Custom Provider",
+                description="Connect OpenAI-compatible or Anthropic-compatible endpoints",
+                icon="custom",
+                capabilities=LLMCapabilitiesSettings(
+                    vision=False,
+                    image_output=False,
+                    tool_calling=True,
+                    reasoning=True,
+                    embedding=False,
                 ),
-                "model": LLMProviderFieldModel(visible=True, required=True),
-                "api_key": LLMProviderFieldModel(visible=True, required=True),
-                "base_url": LLMProviderFieldModel(visible=True, required=False),
-            },
-        ),
-    )
+                fields={
+                    "custom_name": LLMProviderFieldModel(visible=True, required=True, placeholder="My Provider"),
+                    "api_format": LLMProviderFieldModel(visible=True, required=True, options=["openai", "anthropic"]),
+                    "model": LLMProviderFieldModel(visible=True, required=True),
+                    "api_key": LLMProviderFieldModel(visible=True, required=True),
+                    "base_url": LLMProviderFieldModel(visible=True, required=False),
+                },
+            ),
+        )
 
 
 def _load_llm_provider_registry() -> LLMProviderRegistryModel:
@@ -660,10 +493,49 @@ def _build_llm_config_model(
 
     selections: Dict[str, LLMSelectionConfigModel] = {}
     for selection_id, selection in getattr(runtime_config.llm, "selections", {}).items():
+        if selection_id == "embedding":
+            embedding_meta = find_embedding_model_meta(
+                registry,
+                selection.provider_id,
+                selection.model,
+            )
+            resolved_dimension = resolve_embedding_dimension(
+                embedding_meta,
+                getattr(selection, "embedding_dimension", None),
+            )
+            if not bool(selection.capability_override_enabled):
+                capabilities = LLMCapabilitiesSettings(
+                    vision=False,
+                    image_output=False,
+                    tool_calling=False,
+                    reasoning=False,
+                    embedding=True,
+                )
+                provider_options = (
+                    dict(embedding_meta.provider_options_example)
+                    if embedding_meta is not None
+                    else dict(selection.provider_options or {})
+                )
+            else:
+                capabilities = selection.capabilities
+                provider_options = dict(selection.provider_options or {})
+
+            selections[selection_id] = LLMSelectionConfigModel(
+                provider_id=selection.provider_id,
+                model=selection.model,
+                embedding_dimension=resolved_dimension,
+                capability_override_enabled=bool(selection.capability_override_enabled),
+                capabilities=capabilities,
+                limits=selection.limits,
+                provider_options=provider_options,
+            )
+            continue
+
         resolved = resolve_llm_profile(selection, registry)
         selections[selection_id] = LLMSelectionConfigModel(
             provider_id=selection.provider_id,
             model=selection.model,
+            embedding_dimension=getattr(selection, "embedding_dimension", None),
             capability_override_enabled=bool(selection.capability_override_enabled),
             capabilities=resolved.capabilities,
             limits=resolved.limits,
@@ -739,16 +611,61 @@ def _apply_llm_registry_defaults(config: SystemConfigModel, registry: LLMProvide
         if provider_meta is None:
             continue
 
-        if not selection.model:
-            selection.model = provider_meta.default_model or (
-                provider_meta.models[0].id if provider_meta.models else ""
+        if selection_id == "embedding":
+            embedding_model_meta = find_embedding_model_meta(
+                registry,
+                selection.provider_id,
+                selection.model,
             )
+            if embedding_model_meta is None and provider_meta.embedding_models:
+                selection.model = provider_meta.embedding_models[0].id
+                embedding_model_meta = provider_meta.embedding_models[0]
+
+            selection.embedding_dimension = resolve_embedding_dimension(
+                embedding_model_meta,
+                selection.embedding_dimension,
+            )
+
+            if not selection.capability_override_enabled:
+                config.llm.selections[selection_id] = LLMSelectionConfigModel(
+                    provider_id=selection.provider_id,
+                    model=selection.model,
+                    embedding_dimension=selection.embedding_dimension,
+                    capability_override_enabled=False,
+                    capabilities=LLMCapabilitiesSettings(
+                        vision=False,
+                        image_output=False,
+                        tool_calling=False,
+                        reasoning=False,
+                        embedding=True,
+                    ),
+                    limits=selection.limits,
+                    provider_options=(
+                        dict(embedding_model_meta.provider_options_example)
+                        if embedding_model_meta is not None
+                        else {}
+                    ),
+                )
+            continue
+
+        if not selection.model:
+            if selection_id == "context_decider":
+                selection.model = (
+                    provider_meta.default_classify_model
+                    or provider_meta.default_model
+                    or (provider_meta.chat_models[0].id if provider_meta.chat_models else "")
+                )
+            else:
+                selection.model = provider_meta.default_model or (
+                    provider_meta.chat_models[0].id if provider_meta.chat_models else ""
+                )
 
         if not selection.capability_override_enabled and selection.model:
             resolved = resolve_llm_profile(selection, registry)
             config.llm.selections[selection_id] = LLMSelectionConfigModel(
                 provider_id=selection.provider_id,
                 model=selection.model,
+                embedding_dimension=selection.embedding_dimension,
                 capability_override_enabled=False,
                 capabilities=resolved.capabilities,
                 limits=resolved.limits,
@@ -907,10 +824,11 @@ def _build_onboarding_template() -> SystemConfigModel:
             )
             for provider in registry.providers
         }
-        for selection_id in ("context_decider", "core"):
+        for selection_id in ("context_decider", "core", "embedding"):
             selection = template.llm.selections[selection_id]
             selection.provider_id = ""
             selection.model = ""
+            selection.embedding_dimension = None
             selection.provider_options = {}
 
     template.preferences.onboarding_completed = False

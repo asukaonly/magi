@@ -11,14 +11,12 @@ from .models import LLMCapabilitiesSettings, LLMLimitsSettings, LLMSelectionSett
 from .constants import DEFAULT_MAX_TOKENS
 
 
-def _default_legacy_capabilities() -> LLMCapabilitiesSettings:
-    """Fallback capabilities when older registry entries only list model names."""
-    return LLMCapabilitiesSettings(
+def _default_chat_capabilities() -> "LLMChatCapabilitiesModel":
+    return LLMChatCapabilitiesModel(
         vision=False,
         image_output=False,
         tool_calling=True,
         reasoning=True,
-        embedding=False,
     )
 
 
@@ -30,9 +28,11 @@ class LLMProviderFieldModel(BaseModel):
 
 
 class LLMModelMetaModel(BaseModel):
+    """Metadata for chat/inference models."""
+
     id: str
     label: Optional[str] = Field(default=None)
-    capabilities: LLMCapabilitiesSettings = Field(default_factory=_default_legacy_capabilities)
+    capabilities: "LLMChatCapabilitiesModel" = Field(default_factory=_default_chat_capabilities)
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
 
@@ -49,20 +49,20 @@ class LLMProviderMetaModel(BaseModel):
     description: Optional[str] = Field(default=None)
     icon: Optional[str] = Field(default=None)
     default_model: Optional[str] = Field(default=None)
+    default_classify_model: Optional[str] = Field(default=None)
     default_base_url: Optional[str] = Field(default=None)
-    model_options: list[str] = Field(default_factory=list)
-    models: list[LLMModelMetaModel] = Field(default_factory=list)
+    chat_models: list[LLMModelMetaModel] = Field(default_factory=list)
+    embedding_models: list["LLMEmbeddingModelMetaModel"] = Field(default_factory=list)
+    image_generation_models: list["LLMImageGenerationModelMetaModel"] = Field(default_factory=list)
+    audio_generation_models: list["LLMAudioGenerationModelMetaModel"] = Field(default_factory=list)
     fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def normalize_models(self) -> "LLMProviderMetaModel":
-        if not self.models and self.model_options:
-            self.models = [
-                LLMModelMetaModel(id=model_id, label=model_id)
-                for model_id in self.model_options
-            ]
-        if not self.default_model and self.models:
-            self.default_model = self.models[0].id
+        if not self.default_model and self.chat_models:
+            self.default_model = self.chat_models[0].id
+        if not self.default_classify_model:
+            self.default_classify_model = self.default_model
         return self
 
 
@@ -72,7 +72,15 @@ class LLMCustomProviderMetaModel(BaseModel):
     description: Optional[str] = Field(default=None)
     icon: Optional[str] = Field(default=None)
     fields: Dict[str, LLMProviderFieldModel] = Field(default_factory=dict)
-    capabilities: LLMCapabilitiesSettings = Field(default_factory=_default_legacy_capabilities)
+    capabilities: LLMCapabilitiesSettings = Field(
+        default_factory=lambda: LLMCapabilitiesSettings(
+            vision=False,
+            image_output=False,
+            tool_calling=True,
+            reasoning=True,
+            embedding=False,
+        )
+    )
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     provider_options_example: Dict[str, Any] = Field(default_factory=dict)
 
@@ -91,6 +99,60 @@ class ResolvedLLMProfile(BaseModel):
     limits: LLMLimitsSettings = Field(default_factory=LLMLimitsSettings)
     provider_options: Dict[str, Any] = Field(default_factory=dict)
     capability_override_enabled: bool = Field(default=False)
+
+
+class LLMChatCapabilitiesModel(BaseModel):
+    """Chat model capabilities in provider registry."""
+
+    vision: bool = Field(default=False)
+    image_output: bool = Field(default=False)
+    tool_calling: bool = Field(default=True)
+    reasoning: bool = Field(default=True)
+
+
+class LLMEmbeddingModelMetaModel(BaseModel):
+    """Metadata for embedding/vector models."""
+
+    id: str
+    label: Optional[str] = Field(default=None)
+    dimensions: list[int] = Field(default_factory=list)
+    provider_options_example: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def ensure_embedding_meta(self) -> "LLMEmbeddingModelMetaModel":
+        if not self.label:
+            self.label = self.id
+        if not self.dimensions:
+            self.dimensions = [1536]
+        return self
+
+
+class LLMImageGenerationModelMetaModel(BaseModel):
+    """Metadata for image generation models."""
+
+    id: str
+    label: Optional[str] = Field(default=None)
+    provider_options_example: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def ensure_label(self) -> "LLMImageGenerationModelMetaModel":
+        if not self.label:
+            self.label = self.id
+        return self
+
+
+class LLMAudioGenerationModelMetaModel(BaseModel):
+    """Metadata for audio generation models."""
+
+    id: str
+    label: Optional[str] = Field(default=None)
+    provider_options_example: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def ensure_label(self) -> "LLMAudioGenerationModelMetaModel":
+        if not self.label:
+            self.label = self.id
+        return self
 
 
 def load_llm_provider_registry(path: Path, *, fallback: LLMProviderRegistryModel) -> LLMProviderRegistryModel:
@@ -117,7 +179,7 @@ def find_provider_meta(
     return None
 
 
-def find_model_meta(
+def find_chat_model_meta(
     registry: LLMProviderRegistryModel,
     provider_id: str,
     model_id: str,
@@ -127,10 +189,42 @@ def find_model_meta(
         return None
 
     lowered_model = str(model_id or "").strip().lower()
-    for model in provider.models:
+    for model in provider.chat_models:
         if model.id.lower() == lowered_model:
             return model
     return None
+
+
+def find_embedding_model_meta(
+    registry: LLMProviderRegistryModel,
+    provider_id: str,
+    model_id: str,
+) -> Optional[LLMEmbeddingModelMetaModel]:
+    provider = find_provider_meta(registry, provider_id)
+    if provider is None:
+        return None
+
+    lowered_model = str(model_id or "").strip().lower()
+    for model in provider.embedding_models:
+        if model.id.lower() == lowered_model:
+            return model
+    return None
+
+
+def resolve_embedding_dimension(
+    model_meta: Optional[LLMEmbeddingModelMetaModel],
+    preferred_dimension: Optional[int],
+) -> Optional[int]:
+    """Resolve embedding dimension against model-supported dimensions."""
+    if model_meta is None:
+        return preferred_dimension
+
+    if preferred_dimension is not None and preferred_dimension in model_meta.dimensions:
+        return preferred_dimension
+
+    if model_meta.dimensions:
+        return model_meta.dimensions[0]
+    return preferred_dimension
 
 
 def resolve_llm_profile(
@@ -140,10 +234,16 @@ def resolve_llm_profile(
     """Resolve effective capabilities for the active selection."""
     provider_name = str(getattr(llm.provider_id, "value", llm.provider_id) or "").strip()
     model_name = str(llm.model or "").strip()
-    model_meta = find_model_meta(registry, provider_name, model_name)
+    model_meta = find_chat_model_meta(registry, provider_name, model_name)
 
     if model_meta is not None:
-        capabilities = model_meta.capabilities.model_copy(deep=True)
+        capabilities = LLMCapabilitiesSettings(
+            vision=model_meta.capabilities.vision,
+            image_output=model_meta.capabilities.image_output,
+            tool_calling=model_meta.capabilities.tool_calling,
+            reasoning=model_meta.capabilities.reasoning,
+            embedding=False,
+        )
         limits = model_meta.limits.model_copy(deep=True)
         provider_options = dict(model_meta.provider_options_example)
     else:
@@ -210,6 +310,7 @@ def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, 
             "max_output_tokens": None,
         },
         "provider_options": {},
+        "embedding_dimension": None,
     }
 
     embedding_selection = {

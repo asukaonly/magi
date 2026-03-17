@@ -22,8 +22,9 @@ vi.mock('../api/modules/config', async () => {
               description: 'General purpose',
               icon: 'openai',
               default_model: 'gpt-5.2',
+              default_classify_model: 'gpt-4.1-mini',
               default_base_url: 'https://api.openai.com/v1',
-              models: [
+              chat_models: [
                 {
                   id: 'gpt-5.2',
                   label: 'GPT-5.2',
@@ -57,6 +58,13 @@ vi.mock('../api/modules/config', async () => {
                   provider_options_example: {},
                 },
               ],
+              embedding_models: [
+                {
+                  id: 'text-embedding-3-small',
+                  label: 'Text Embedding 3 Small',
+                  dimensions: [1536, 512],
+                },
+              ],
               fields: {
                 api_key: { visible: true, required: true },
                 base_url: { visible: true, required: false },
@@ -69,7 +77,7 @@ vi.mock('../api/modules/config', async () => {
               icon: 'anthropic',
               default_model: 'claude-sonnet-4-6',
               default_base_url: 'https://api.anthropic.com/v1',
-              models: [
+              chat_models: [
                 {
                   id: 'claude-sonnet-4-6',
                   label: 'Claude Sonnet 4.6',
@@ -98,8 +106,9 @@ vi.mock('../api/modules/config', async () => {
               description: 'Fast',
               icon: 'zai',
               default_model: 'glm-5',
+              default_classify_model: 'glm-5',
               default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
-              models: [
+              chat_models: [
                 {
                   id: 'glm-5',
                   label: 'GLM-5',
@@ -119,6 +128,13 @@ vi.mock('../api/modules/config', async () => {
                   },
                 },
               ],
+              embedding_models: [
+                {
+                  id: 'embedding-3',
+                  label: 'Embedding-3',
+                  dimensions: [1024],
+                },
+              ],
               fields: {
                 api_key: { visible: true, required: true },
                 base_url: { visible: true, required: false },
@@ -131,7 +147,7 @@ vi.mock('../api/modules/config', async () => {
               icon: 'gemini',
               default_model: 'gemini-2.5-flash',
               default_base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
-              models: [
+              chat_models: [
                 {
                   id: 'gemini-2.5-flash',
                   label: 'Gemini 2.5 Flash',
@@ -161,7 +177,7 @@ vi.mock('../api/modules/config', async () => {
               icon: 'deepseek',
               default_model: 'deepseek-chat',
               default_base_url: 'https://api.deepseek.com',
-              models: [
+              chat_models: [
                 {
                   id: 'deepseek-chat',
                   label: 'DeepSeek Chat',
@@ -191,7 +207,7 @@ vi.mock('../api/modules/config', async () => {
               icon: 'kimi',
               default_model: 'moonshot-v1-32k',
               default_base_url: 'https://api.moonshot.cn/v1',
-              models: [
+              chat_models: [
                 {
                   id: 'moonshot-v1-32k',
                   label: 'Moonshot V1 32K',
@@ -221,7 +237,7 @@ vi.mock('../api/modules/config', async () => {
               icon: 'minimax',
               default_model: 'MiniMax-M2.5',
               default_base_url: 'https://api.minimaxi.com/v1',
-              models: [
+              chat_models: [
                 {
                   id: 'MiniMax-M2.5',
                   label: 'MiniMax M2.5',

@@ -58,6 +58,7 @@ const cloneProvider = (value?: Partial<LLMProviderConfig>): LLMProviderConfig =>
 const cloneSelection = (value?: Partial<LLMSelectionConfig>): LLMSelectionConfig => ({
   provider_id: value?.provider_id || '',
   model: value?.model || '',
+  embedding_dimension: value?.embedding_dimension ?? null,
   capability_override_enabled: Boolean(value?.capability_override_enabled),
   capabilities: cloneCapabilities(value?.capabilities),
   limits: cloneLimits(value?.limits),
@@ -81,7 +82,10 @@ const getProviderMeta = (registry: LLMProviderRegistry, providerId?: string) =>
   registry.providers.find((provider) => provider.id === providerId);
 
 const getProviderModels = (registry: LLMProviderRegistry, providerId?: string) =>
-  getProviderMeta(registry, providerId)?.models || [];
+  getProviderMeta(registry, providerId)?.chat_models || [];
+
+const getProviderEmbeddingModels = (registry: LLMProviderRegistry, providerId?: string) =>
+  getProviderMeta(registry, providerId)?.embedding_models || [];
 
 const getCustomProviderModels = (provider?: LLMProviderConfig): string[] => provider?.custom_models || [];
 
@@ -99,7 +103,8 @@ const resolveProviderActionBaseUrl = (
 
 const resolveProviderDefaultModel = (
   registry: LLMProviderRegistry,
-  provider: LLMProviderConfig | undefined
+  provider: LLMProviderConfig | undefined,
+  scenario: LLMScenario
 ): string => {
   if (!provider) {
     return '';
@@ -107,7 +112,22 @@ const resolveProviderDefaultModel = (
   if (provider.provider_type === 'custom') {
     return provider.custom_default_model || getCustomProviderModels(provider)[0] || '';
   }
-  return getProviderMeta(registry, provider.provider_type)?.default_model || getProviderModels(registry, provider.provider_type)[0]?.id || '';
+  const providerMeta = getProviderMeta(registry, provider.provider_type);
+  if (!providerMeta) {
+    return '';
+  }
+  if (scenario === 'embedding') {
+    return providerMeta.embedding_models?.[0]?.id || '';
+  }
+  if (scenario === 'context_decider') {
+    return (
+      providerMeta.default_classify_model ||
+      providerMeta.default_model ||
+      providerMeta.chat_models?.[0]?.id ||
+      ''
+    );
+  }
+  return providerMeta.default_model || providerMeta.chat_models?.[0]?.id || '';
 };
 
 const applySelectionDefaults = (
@@ -122,13 +142,15 @@ const applySelectionDefaults = (
 
   // For embedding scenario, only set defaults if provider has embedding models
   if (scenario === 'embedding') {
-    const models = getProviderModels(registry, provider.provider_type);
-    const embeddingModels = models.filter((model) => model.capabilities?.embedding === true);
-
+    const embeddingModels =
+      provider.provider_type === 'custom'
+        ? []
+        : getProviderEmbeddingModels(registry, provider.provider_type);
     if (embeddingModels.length === 0) {
       // No embedding models available, don't set any defaults
       selection.provider_id = '';
       selection.model = '';
+      selection.embedding_dimension = null;
       return;
     }
 
@@ -137,9 +159,18 @@ const applySelectionDefaults = (
     const fallbackModel = matchedModel || embeddingModels[0];
     if (fallbackModel) {
       selection.model = fallbackModel.id;
-      if (!selection.capability_override_enabled && fallbackModel.capabilities) {
-        selection.capabilities = cloneCapabilities(fallbackModel.capabilities);
-        selection.limits = cloneLimits(fallbackModel.limits);
+      if (!fallbackModel.dimensions.includes(selection.embedding_dimension || -1)) {
+        selection.embedding_dimension = fallbackModel.dimensions[0] ?? null;
+      }
+      if (!selection.capability_override_enabled) {
+        selection.capabilities = cloneCapabilities({
+          vision: false,
+          image_output: false,
+          tool_calling: false,
+          reasoning: false,
+          embedding: true,
+        });
+        selection.limits = cloneLimits(selection.limits);
         selection.provider_options = { ...(fallbackModel.provider_options_example || {}) };
       }
     }
@@ -147,7 +178,7 @@ const applySelectionDefaults = (
   }
 
   if (provider.provider_type === 'custom') {
-    const fallbackModel = selection.model || resolveProviderDefaultModel(registry, provider);
+    const fallbackModel = selection.model || resolveProviderDefaultModel(registry, provider, scenario || 'core');
     selection.model = fallbackModel;
     if (!selection.capability_override_enabled) {
       selection.capabilities = cloneCapabilities(registry.custom_provider.capabilities);
@@ -162,8 +193,15 @@ const applySelectionDefaults = (
   const fallbackModel = matchedModel || models[0];
   if (fallbackModel) {
     selection.model = fallbackModel.id;
+    selection.embedding_dimension = null;
     if (!selection.capability_override_enabled) {
-      selection.capabilities = cloneCapabilities(fallbackModel.capabilities);
+      selection.capabilities = cloneCapabilities({
+        vision: fallbackModel.capabilities.vision,
+        image_output: fallbackModel.capabilities.image_output,
+        tool_calling: fallbackModel.capabilities.tool_calling,
+        reasoning: fallbackModel.capabilities.reasoning,
+        embedding: false,
+      });
       selection.limits = cloneLimits(fallbackModel.limits);
       selection.provider_options = { ...(fallbackModel.provider_options_example || {}) };
     }
@@ -192,18 +230,50 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
   }
 
   const firstEnabledProviderId = Object.entries(next.providers).find(([, provider]) => provider.enabled)?.[0] || '';
+  const firstEnabledEmbeddingProviderId =
+    Object.entries(next.providers).find(([, provider]) => {
+      if (!provider.enabled || provider.provider_type === 'custom') {
+        return false;
+      }
+      const providerMeta = getProviderMeta(registry, provider.provider_type);
+      return Boolean((providerMeta?.embedding_models || []).length);
+    })?.[0] || '';
 
   for (const scenario of BUILTIN_SCENARIOS) {
     const selection = cloneSelection(next.selections[scenario]);
     const hasEnabledSelection =
       Boolean(selection.provider_id) &&
       Boolean(next.providers[selection.provider_id]?.enabled);
+    const hasEnabledEmbeddingSelection =
+      scenario !== 'embedding'
+        ? hasEnabledSelection
+        : (hasEnabledSelection &&
+            Boolean(
+              getProviderEmbeddingModels(
+                registry,
+                next.providers[selection.provider_id]?.provider_type
+              ).length
+            ));
 
-    if (!firstEnabledProviderId) {
+    const firstAvailableProviderId =
+      scenario === 'embedding' ? firstEnabledEmbeddingProviderId : firstEnabledProviderId;
+
+    if (!firstAvailableProviderId) {
       selection.provider_id = '';
       selection.model = '';
+      selection.embedding_dimension = null;
       if (!selection.capability_override_enabled) {
-        selection.capabilities = cloneCapabilities();
+        selection.capabilities = cloneCapabilities(
+          scenario === 'embedding'
+            ? {
+                vision: false,
+                image_output: false,
+                tool_calling: false,
+                reasoning: false,
+                embedding: true,
+              }
+            : undefined
+        );
         selection.limits = cloneLimits();
         selection.provider_options = {};
       }
@@ -211,11 +281,13 @@ const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegistry): LL
       continue;
     }
 
-    const selectedProvider = hasEnabledSelection
+    const selectedProvider = hasEnabledEmbeddingSelection
       ? next.providers[selection.provider_id]
-      : next.providers[firstEnabledProviderId];
+      : next.providers[firstAvailableProviderId];
 
-    selection.provider_id = hasEnabledSelection ? selection.provider_id : firstEnabledProviderId;
+    selection.provider_id = hasEnabledEmbeddingSelection
+      ? selection.provider_id
+      : firstAvailableProviderId;
 
     applySelectionDefaults(selection, registry, selectedProvider, scenario);
     next.selections[scenario] = selection;
@@ -315,7 +387,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
       const selection = cloneSelection(draft.selections[scenario]);
       selection.provider_id = providerId;
       const provider = draft.providers[providerId];
-      selection.model = resolveProviderDefaultModel(registry, provider);
+      selection.model = resolveProviderDefaultModel(registry, provider, scenario);
       applySelectionDefaults(selection, registry, provider, scenario);
       draft.selections[scenario] = selection;
     });
@@ -329,6 +401,14 @@ const LLMForm: React.FC<LLMFormProps> = ({
       const selection = cloneSelection(draft.selections[scenario]);
       selection.model = model;
       applySelectionDefaults(selection, registry, draft.providers[selection.provider_id], scenario);
+      draft.selections[scenario] = selection;
+    });
+  };
+
+  const handleScenarioEmbeddingDimensionChange = (scenario: LLMScenario, dimension: number | null) => {
+    updateValue((draft) => {
+      const selection = cloneSelection(draft.selections[scenario]);
+      selection.embedding_dimension = dimension;
       draft.selections[scenario] = selection;
     });
   };
@@ -459,7 +539,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
       return referencedSelection.model;
     }
 
-    return resolveProviderDefaultModel(registry, currentValue.providers[providerId]);
+    return resolveProviderDefaultModel(registry, currentValue.providers[providerId], 'core');
   };
 
   const handleTestProviderConnection = async (providerId: string) => {
@@ -579,6 +659,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
           showSectionIntro={showSectionIntro}
           onScenarioProviderChange={handleScenarioProviderChange}
           onScenarioModelChange={handleScenarioModelChange}
+          onScenarioEmbeddingDimensionChange={handleScenarioEmbeddingDimensionChange}
         />
       ) : null}
     </div>
