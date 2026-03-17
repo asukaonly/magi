@@ -21,7 +21,7 @@ Language: English | [简体中文](./README.zh-CN.md)
 
 ## Why Magi
 
-Magi takes inspiration from the intelligent computer system in *Evangelion*, and can also be read as `My Agent Get It`.
+Magi takes inspiration from the intelligent computer system in *Evangelion*, and can also be read as `My Agent Gets It`.
 
 Most AI products are built around instant answers and short-lived context. Magi is designed differently: as a local desktop agent that can continuously sense, remember, and interact with you over time.
 
