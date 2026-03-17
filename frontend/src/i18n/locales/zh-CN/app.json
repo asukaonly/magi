@@ -340,6 +340,7 @@
       },
       "form": {
         "title": "记忆配置",
+        "description": "配置 L0-L4 各层记忆的启用状态与抽取策略。",
         "l1DependencyTitle": "原始事件记忆是长期记忆的基础",
         "l1DependencyDescription": "关闭后，下游的知识、反思和策略记忆都会保持停用。",
         "restoreL1": "重新启用"

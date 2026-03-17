@@ -340,6 +340,7 @@
       },
       "form": {
         "title": "Memory Configuration",
+        "description": "Configure enablement and extraction strategy across L0-L4 memory layers.",
         "l1DependencyTitle": "Raw event memory is the long-term foundation",
         "l1DependencyDescription": "When disabled, downstream knowledge, reflection, and strategy memory stay disabled.",
         "restoreL1": "Re-enable"

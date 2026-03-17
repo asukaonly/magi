@@ -190,7 +190,7 @@ export function SwitchField({
   ariaLabel?: string;
 }): JSX.Element {
   return (
-    <label className="inline-flex items-center gap-2 text-sm">
+    <label className="inline-flex items-center text-sm">
       <input
         type="checkbox"
         checked={!!checked}
@@ -198,7 +198,6 @@ export function SwitchField({
         disabled={disabled}
         aria-label={ariaLabel}
       />
-      <span>{checked ? 'Enabled' : 'Off'}</span>
     </label>
   );
 }

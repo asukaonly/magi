@@ -94,7 +94,7 @@
       },
       "embedding": {
         "title": "Embedding Model",
-        "desc": "Used for memory vectorization storage and semantic search."
+        "desc": "Used for memory vectorization storage and semantic search. This section only configures model and dimension selection; enablement is controlled in Memory settings."
       }
     },
     "fields": {

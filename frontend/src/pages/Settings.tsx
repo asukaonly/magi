@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronRight,
@@ -26,6 +26,7 @@ import ActionsSection from '@/components/settings/ActionsSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
 import { SystemConfig } from '@/api/modules/config';
+import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -35,6 +36,9 @@ import { toast } from 'sonner';
 
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
   const { t } = useTranslation('app');
+  const [skills, setSkills] = useState<SkillItem[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
 
   const {
     loading,
@@ -89,12 +93,38 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
   useImperativeHandle(ref, getHandle, [getHandle]);
 
-  const handleSectionSelect = (sectionId: string) => {
-    if (sectionId === 'timeline') {
-      setTimelineSelection(null);
-      void fetchTimelineStatuses();
+  useEffect(() => {
+    if (activeSection !== 'tools') {
+      return;
     }
-  };
+
+    let cancelled = false;
+    const loadSkills = async () => {
+      setSkillsLoading(true);
+      setSkillsError(null);
+      try {
+        const data = await skillsApi.list();
+        if (!cancelled) {
+          setSkills(Array.isArray(data) ? data : []);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : t('settings.errorUnknown');
+          setSkillsError(message);
+          setSkills([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setSkillsLoading(false);
+        }
+      }
+    };
+
+    void loadSkills();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, t]);
 
   if (loading) {
     return (
@@ -518,6 +548,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         );
 
       case 'tools':
+        const selectedSkills = draftConfig.tools.skills || [];
+        const skillsEnabled = selectedSkills.length > 0;
         return (
           <div className="space-y-6">
             <DynamicToolsConfig
@@ -528,6 +560,74 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               onUpdateConfig={handleToolDraftChange}
               onUpdateEnabled={handleToolEnabledChange}
             />
+
+            <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/80">
+              <div className="border-b border-border/60 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">{t('tools.skills.label', { ns: 'onboarding' })}</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {skills.length > 0
+                        ? t('tools.skills.desc', { ns: 'onboarding', count: skills.length })
+                        : t('tools.skills.empty', { ns: 'onboarding' })}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{t('tools.skills.enable', { ns: 'onboarding' })}</span>
+                    <Switch
+                      checked={skillsEnabled}
+                      disabled={skills.length === 0}
+                      onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                        draft.tools.skills = checked ? skills.map((skill) => skill.name) : [];
+                      })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="max-h-64 space-y-2 overflow-auto p-4">
+                {skillsLoading ? (
+                  <div className="text-xs text-muted-foreground">{t('settings.loadingTools')}</div>
+                ) : null}
+
+                {!skillsLoading && skillsError ? (
+                  <div className="text-xs text-destructive">{skillsError}</div>
+                ) : null}
+
+                {!skillsLoading && !skillsError && skills.length > 0
+                  ? skills.map((skill) => {
+                      const checked = selectedSkills.includes(skill.name);
+                      return (
+                        <label
+                          key={skill.name}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/60 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">{skill.name}</div>
+                            <div className="truncate text-xs text-muted-foreground">{skill.description}</div>
+                          </div>
+                          <Switch
+                            checked={checked}
+                            onCheckedChange={(nextChecked) => patchDraftConfig((draft) => {
+                              const current = new Set(draft.tools.skills || []);
+                              if (nextChecked) {
+                                current.add(skill.name);
+                              } else {
+                                current.delete(skill.name);
+                              }
+                              draft.tools.skills = Array.from(current);
+                            })}
+                          />
+                        </label>
+                      );
+                    })
+                  : null}
+
+                {!skillsLoading && !skillsError && skills.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">{t('tools.skills.emptyHint', { ns: 'onboarding' })}</div>
+                ) : null}
+              </div>
+            </div>
           </div>
         );
 
@@ -703,7 +803,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                             type="button"
                             onClick={() => {
                               setGroupExpanded(item.id, true);
-                              handleSectionSelect(child.id);
+                              handleNavItemClick(child.id, false);
                             }}
                             aria-current={isChildActive ? 'page' : undefined}
                             className={cn(
