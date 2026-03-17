@@ -6,7 +6,8 @@ Provides dedicated logging for agent processing chains.
 import logging
 import os
 from logging.handlers import RotatingFileHandler
-from datetime import datetime
+
+AGENT_CHAIN_LOGGER_BASE = "magi.agent.chain"
 
 
 def _get_agent_log_file() -> str:
@@ -14,16 +15,6 @@ def _get_agent_log_file() -> str:
     from ..utils.runtime import get_runtime_paths
     runtime_paths = get_runtime_paths()
     return str(runtime_paths.logs_dir / 'agent_chain.log')
-
-
-class AgentFormatter(logging.Formatter):
-    """Agent log formatter with timestamp and chain trace info."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S%z'
-        )
 
 
 def setup_agent_logger() -> logging.Logger:
@@ -34,7 +25,7 @@ def setup_agent_logger() -> logging.Logger:
         Agent-specific logger instance.
     """
     # Create logger
-    agent_logger = logging.getLogger('magi.agent')
+    agent_logger = logging.getLogger(AGENT_CHAIN_LOGGER_BASE)
     agent_logger.setLevel(logging.DEBUG)
 
     # Avoid adding duplicate handlers
@@ -54,16 +45,15 @@ def setup_agent_logger() -> logging.Logger:
         encoding='utf-8'
     )
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(AgentFormatter())
-
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(AgentFormatter())
+    file_handler.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
 
     # Add handlers
     agent_logger.addHandler(file_handler)
-    agent_logger.addHandler(console_handler)
 
     return agent_logger
 
@@ -83,7 +73,7 @@ def get_agent_logger(name: str | None = None) -> logging.Logger:
         Agent logger instance.
     """
     if name:
-        return logging.getLogger(f'magi.agent.{name}')
+        return logging.getLogger(f"{AGENT_CHAIN_LOGGER_BASE}.{name}")
     return agent_logger
 
 

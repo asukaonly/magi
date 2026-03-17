@@ -8,22 +8,14 @@ import os
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
+LLM_CALL_LOGGER_BASE = "magi.llm.calls"
+
 
 def _get_llm_log_file() -> str:
     """Get LLM log file path (uses runtime directory)."""
     from ..utils.runtime import get_runtime_paths
     runtime_paths = get_runtime_paths()
     return str(runtime_paths.logs_dir / 'llm_calls.log')
-
-
-class LLMFormatter(logging.Formatter):
-    """LLM log formatter with structured format."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s | %(levelname)-8s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S%z'
-        )
 
 
 def setup_llm_logger() -> logging.Logger:
@@ -34,7 +26,7 @@ def setup_llm_logger() -> logging.Logger:
         LLM-specific logger instance.
     """
     # Create logger
-    llm_logger = logging.getLogger('magi.llm')
+    llm_logger = logging.getLogger(LLM_CALL_LOGGER_BASE)
     llm_logger.setLevel(logging.DEBUG)
 
     # Avoid adding duplicate handlers
@@ -54,7 +46,12 @@ def setup_llm_logger() -> logging.Logger:
         encoding='utf-8'
     )
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(LLMFormatter())
+    file_handler.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
 
     # Add handler
     llm_logger.addHandler(file_handler)
@@ -77,7 +74,7 @@ def get_llm_logger(name: str | None = None) -> logging.Logger:
         LLM logger instance.
     """
     if name:
-        return logging.getLogger(f'magi.llm.{name}')
+        return logging.getLogger(f"{LLM_CALL_LOGGER_BASE}.{name}")
     return llm_logger
 
 

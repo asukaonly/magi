@@ -8,12 +8,14 @@ from typing import Any
 import structlog
 from pathlib import Path
 
+_LOGGING_CONFIGURED = False
+
 
 def _format_log_event(logger, method_name, event_dict):
     """Custom formatter for plain text output."""
     # Extract fields
     timestamp = event_dict.pop("timestamp", "")
-    level = str(event_dict.pop("level", "")).upper().ljust(5)
+    level = str(event_dict.pop("level", "")).upper()
     logger_name = event_dict.pop("logger", event_dict.pop("logger_name", ""))
     event = event_dict.pop("event", "")
 
@@ -78,6 +80,7 @@ def configure_logging(
         log_file: Log file path (optional)
         json_logs: Whether to output JSON format logs
     """
+    global _LOGGING_CONFIGURED
     log_level = getattr(logging, level.upper(), logging.INFO)
 
     shared_processors = [
@@ -140,6 +143,7 @@ def configure_logging(
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+    _LOGGING_CONFIGURED = True
 
 
 def get_logger(name: str | None = None, category: str | None = None) -> structlog.stdlib.BoundLogger:
@@ -153,6 +157,9 @@ def get_logger(name: str | None = None, category: str | None = None) -> structlo
     Returns:
         BoundLogger: structlog logger instance
     """
+    if not _LOGGING_CONFIGURED:
+        configure_logging(level="INFO", json_logs=False)
+
     log = structlog.get_logger(name)
     if category:
         log = log.bind(category=category)
