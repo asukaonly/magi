@@ -780,6 +780,106 @@ async def test_assistant_tool_grounded_event_does_not_write_assertions():
 
 
 @pytest.mark.asyncio
+async def test_assistant_quote_does_not_add_new_evidence_weight():
+    adapter = _FakeAdapter(
+        [
+            json.dumps({"mentions": []}),
+            json.dumps(
+                {
+                    "assertion_candidates": [
+                        {
+                            "entity_ref": "user:u1",
+                            "entity_type": "user",
+                            "trait_family": "stress",
+                            "trait_name": "stress_level",
+                            "trait_value": "high",
+                            "inference_depth": "defensive_psychology",
+                            "volatility_index": 0.7,
+                            "confidence": 0.88,
+                            "validation_state": "tentative",
+                            "evidence_texts": ["I am stressed about work today."],
+                            "supporting_event_ids": ["evt-user-stress-1"],
+                            "notes": None,
+                        }
+                    ]
+                }
+            ),
+        ]
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-user-stress-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "I am stressed about work today.",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["assertions_written"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            before_assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            before_call_count = len(adapter.calls)
+
+            await store.ingest_event(
+                {
+                    "id": "evt-ai-quote-1",
+                    "type": EventTypes.AI_RESPONSE,
+                    "timestamp": time.time() + 1,
+                    "source": "assistant",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "response": "You mentioned earlier that you feel stressed about work today.",
+                    },
+                    "metadata": {
+                        "derived_from_event_ids": ["evt-user-stress-1"],
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 2:
+                    break
+                await asyncio.sleep(0.01)
+
+            after_assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            stats = store.get_l2_pipeline_stats()
+
+            assert len(before_assertions) == 1
+            assert len(after_assertions) == 1
+            assert after_assertions[0]["assertion_id"] == before_assertions[0]["assertion_id"]
+            assert after_assertions[0]["evidence_events"] == ["evt-user-stress-1"]
+            assert after_assertions[0]["confidence_score"] == before_assertions[0]["confidence_score"]
+            assert len(adapter.calls) == before_call_count
+            assert stats["extract_skipped"] >= 1
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots():
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
