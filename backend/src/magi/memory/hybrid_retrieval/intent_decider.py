@@ -590,3 +590,130 @@ class LLMIntentDecider:
 
         reasoning = data.get("reasoning", "")
         return IntentDecision(plans=plans, reasoning=reasoning, source="llm")
+
+
+# ---------------------------------------------------------------------------
+# Combined IntentDecider (LLM primary + rule shadow)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class EvaluationRecord:
+    """Shadow evaluation record for logging."""
+
+    query: str
+    user_id: Optional[str]
+    session_id: Optional[str]
+    rule_decision: IntentDecision
+    llm_decision: Optional[IntentDecision]
+    final_decision: IntentDecision
+    decision_source: str
+    llm_latency_ms: Optional[float]
+    llm_error: Optional[str]
+    layers_match: bool
+    diff_summary: str
+
+
+def compute_diff(
+    rule_decision: IntentDecision,
+    llm_decision: Optional[IntentDecision],
+) -> tuple[bool, str]:
+    """Compare rule and LLM decisions. Returns (match, diff_summary)."""
+    if llm_decision is None:
+        return False, "llm_failed"
+
+    rule_layers = sorted({p.layer for p in rule_decision.plans if not p.is_fallback})
+    llm_layers = sorted({p.layer for p in llm_decision.plans if not p.is_fallback})
+
+    if rule_layers == llm_layers:
+        return True, "match"
+
+    return False, f"rule={'+'.join(rule_layers)}, llm={'+'.join(llm_layers)}"
+
+
+class IntentDecider:
+    """Combined intent decider: LLM primary + rule shadow + evaluation logging."""
+
+    def __init__(
+        self,
+        *,
+        rule_engine: RuleBasedIntentDecider,
+        llm_decider: Optional[LLMIntentDecider] = None,
+        llm_enabled: bool = True,
+        shadow_eval_enabled: bool = True,
+        eval_callback: Optional[Any] = None,
+    ):
+        self._rule_engine = rule_engine
+        self._llm_decider = llm_decider
+        self._llm_enabled = llm_enabled and llm_decider is not None
+        self._shadow_eval_enabled = shadow_eval_enabled
+        self._eval_callback = eval_callback  # async callable(EvaluationRecord)
+
+    async def decide(self, inp: IntentDeciderInput) -> IntentDecision:
+        """Produce final intent decision using LLM primary + rule shadow."""
+        # 1. Rule layer always runs (sync) — time parsing + shadow baseline
+        rule_decision = self._rule_engine.evaluate(inp)
+        time_range = rule_decision.time_range
+
+        # 2. LLM decision (primary path)
+        llm_decision: Optional[IntentDecision] = None
+        llm_latency_ms: Optional[float] = None
+        llm_error: Optional[str] = None
+
+        if self._llm_enabled and self._llm_decider is not None:
+            t0 = time.monotonic()
+            try:
+                llm_decision = await self._llm_decider.evaluate(inp)
+            except Exception as exc:
+                llm_error = str(exc)
+                logger.warning("LLM intent decider error: %s", exc)
+            llm_latency_ms = (time.monotonic() - t0) * 1000
+
+        # 3. Determine final decision
+        if llm_decision is not None:
+            # LLM succeeded: use LLM routing + rule time range
+            final_decision = self._merge_decisions(llm_decision, time_range)
+            decision_source = "llm"
+        else:
+            final_decision = rule_decision
+            decision_source = "rule_fallback"
+
+        final_decision.source = decision_source
+
+        # 4. Shadow evaluation (async, non-blocking)
+        if self._shadow_eval_enabled and self._eval_callback is not None:
+            layers_match, diff_summary = compute_diff(rule_decision, llm_decision)
+            record = EvaluationRecord(
+                query=inp.query,
+                user_id=inp.user_id,
+                session_id=inp.session_id,
+                rule_decision=rule_decision,
+                llm_decision=llm_decision,
+                final_decision=final_decision,
+                decision_source=decision_source,
+                llm_latency_ms=llm_latency_ms,
+                llm_error=llm_error,
+                layers_match=layers_match,
+                diff_summary=diff_summary,
+            )
+            asyncio.create_task(self._safe_log(record))
+
+        return final_decision
+
+    def _merge_decisions(
+        self,
+        llm_routing: IntentDecision,
+        rule_time_range: Optional[TimeRange],
+    ) -> IntentDecision:
+        """Merge LLM routing with rule-derived time range."""
+        for plan in llm_routing.plans:
+            plan.time_range = rule_time_range
+        llm_routing.time_range = rule_time_range
+        return llm_routing
+
+    async def _safe_log(self, record: EvaluationRecord) -> None:
+        """Log evaluation, swallowing errors."""
+        try:
+            await self._eval_callback(record)
+        except Exception:
+            logger.debug("Shadow eval logging error", exc_info=True)
