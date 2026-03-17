@@ -230,6 +230,10 @@ class L2Pipeline:
             if llm_assertions
             else self._cognition_store.extract_assertion_candidates(stored_event)
         )
+        contradiction_hints = await self._detect_contradiction_hints(
+            event=stored_event,
+            focal_entities=focal_entities,
+        )
 
         relation_count = 0
         assertion_count = 0
@@ -240,6 +244,9 @@ class L2Pipeline:
         for candidate in assertion_candidates:
             await self._cognition_store.upsert_assertion_candidate(candidate)
             assertion_count += 1
+
+        for hint in contradiction_hints:
+            await self._cognition_store.apply_contradiction_hint(hint)
 
         return {
             "relation_count": relation_count,
@@ -516,6 +523,82 @@ class L2Pipeline:
             return None
         text = str(value).strip()
         return text or None
+
+    async def _detect_contradiction_hints(
+        self,
+        *,
+        event: MemoryEvent,
+        focal_entities: list[dict[str, str]],
+    ) -> list[dict[str, Any]]:
+        if self._cognition_store is None or self._llm_service is None:
+            return []
+
+        existing_records = await self._load_existing_records(focal_entities)
+        if not existing_records:
+            return []
+
+        return await self._llm_service.detect_contradiction_hints(
+            new_event={
+                "event_id": event.event_id,
+                "event_type": event.event_type,
+                "raw_content": event.raw_content,
+                "source": event.source,
+                "timestamp": event.timestamp,
+            },
+            existing_records=existing_records,
+        )
+
+    async def _load_existing_records(self, focal_entities: list[dict[str, str]]) -> list[dict[str, Any]]:
+        if self._cognition_store is None:
+            return []
+
+        records: list[dict[str, Any]] = []
+        seen_record_ids: set[str] = set()
+        for entity in focal_entities:
+            entity_id = entity["entity_id"]
+            entity_type = entity["entity_type"]
+            assertions = await self._cognition_store.list_tom_assertions(
+                entity_id=entity_id,
+                entity_type=entity_type,
+                limit=50,
+            )
+            for assertion in assertions:
+                record_id = str(assertion["assertion_id"])
+                if record_id in seen_record_ids:
+                    continue
+                seen_record_ids.add(record_id)
+                records.append(
+                    {
+                        "record_id": record_id,
+                        "record_type": "tom_trait_assertion",
+                        "entity_id": assertion["entity_id"],
+                        "entity_type": assertion["entity_type"],
+                        "trait_name": assertion["trait_name"],
+                        "trait_value": assertion["trait_value"],
+                        "validation_state": assertion["validation_state"],
+                        "confidence": assertion["confidence_score"],
+                    }
+                )
+
+            relations = await self._cognition_store.get_relationships(subject_id=entity_id, limit=50)
+            relations.extend(await self._cognition_store.get_relationships(object_id=entity_id, limit=50))
+            for relation in relations:
+                record_id = str(relation["triple_id"])
+                if record_id in seen_record_ids:
+                    continue
+                seen_record_ids.add(record_id)
+                records.append(
+                    {
+                        "record_id": record_id,
+                        "record_type": "knowledge_graph",
+                        "subject_id": relation["subject_id"],
+                        "predicate": relation["predicate"],
+                        "object_id": relation["object_id"],
+                        "status": relation["status"],
+                        "confidence": relation["confidence"],
+                    }
+                )
+        return records
 
     async def _load_evidence_timestamps(self, entity_id: str) -> dict[str, float]:
         if self._l1_store is None or self._cognition_store is None:

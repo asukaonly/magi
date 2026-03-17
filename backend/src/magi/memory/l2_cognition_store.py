@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 import aiosqlite
 
 from .event_contracts import MemoryEvent, TomDepth
-from .l2_models import ReconciledTraitOutcome
+from .l2_models import ContradictionHint, ReconciledTraitOutcome
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
@@ -350,6 +350,74 @@ class L2CognitionStore:
             )
             await db.commit()
         return count
+
+    async def apply_contradiction_hint(self, hint: Dict[str, Any] | ContradictionHint) -> bool:
+        """Apply a contradiction hint to an existing graph edge or ToM assertion."""
+        payload = hint.to_dict() if isinstance(hint, ContradictionHint) else dict(hint)
+        target_record_type = str(payload.get("target_record_type", ""))
+        target_record_id = str(payload.get("target_record_id", ""))
+        action = str(payload.get("recommended_action", ""))
+        confidence = float(payload.get("confidence", 0.0) or 0.0)
+        if not target_record_id or not target_record_type:
+            return False
+
+        now = time.time()
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            if target_record_type == "tom_trait_assertion":
+                async with db.execute(
+                    "SELECT assertion_id, confidence_score FROM tom_trait_assertions WHERE assertion_id = ?",
+                    (target_record_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is None:
+                    return False
+
+                existing_confidence = float(row["confidence_score"])
+                next_confidence = self._contradicted_confidence(
+                    current_confidence=existing_confidence,
+                    hint_confidence=confidence,
+                    action=action,
+                )
+                next_state = "contradicted" if action in {"downgrade_confidence", "mark_conflicted"} else "corroborated"
+                await db.execute(
+                    """
+                    UPDATE tom_trait_assertions
+                    SET confidence_score = ?, validation_state = ?, last_validated_at = ?, updated_at = ?
+                    WHERE assertion_id = ?
+                    """,
+                    (
+                        next_confidence,
+                        next_state,
+                        now,
+                        now,
+                        target_record_id,
+                    ),
+                )
+                await db.commit()
+                return True
+
+            if target_record_type == "knowledge_graph":
+                next_status = "deprecated" if action == "mark_deprecated" else "conflicted"
+                await db.execute(
+                    """
+                    UPDATE knowledge_graph
+                    SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?
+                    WHERE triple_id = ?
+                    """,
+                    (
+                        next_status,
+                        f"hint:{target_record_id}",
+                        now,
+                        now,
+                        target_record_id,
+                    ),
+                )
+                await db.commit()
+                return True
+
+        return False
 
     async def reconcile_entity(
         self,
@@ -883,6 +951,15 @@ class L2CognitionStore:
             return float(normalized)
         except ValueError:
             return 0.5
+
+    def _contradicted_confidence(self, *, current_confidence: float, hint_confidence: float, action: str) -> float:
+        base = current_confidence * 0.35
+        if action == "mark_conflicted":
+            return round(max(0.1, min(base, 0.35)), 4)
+        if action == "revalidate_only":
+            return round(max(0.15, current_confidence * 0.75), 4)
+        confidence_weight = 1.0 - min(max(hint_confidence, 0.0), 1.0) * 0.45
+        return round(max(0.1, min(current_confidence * confidence_weight, 0.35)), 4)
 
     async def _resolve_graph_conflicts(
         self,

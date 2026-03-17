@@ -593,6 +593,89 @@ async def test_extract_worker_persists_llm_tom_assertions():
 
 
 @pytest.mark.asyncio
+async def test_extract_worker_applies_contradiction_hints_to_existing_assertions():
+    adapter = _FakeAdapter("{}")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l2 is not None
+            await store.l2.upsert_assertion_candidate(
+                {
+                    "assertion_id": "assert-existing",
+                    "entity_id": "user:u1",
+                    "entity_type": "user",
+                    "trait_name": "stress_level",
+                    "trait_value": "high",
+                    "confidence_score": 0.84,
+                    "evidence_events": ["evt-old-1", "evt-old-2", "evt-old-3"],
+                    "volatility_index": 0.7,
+                    "source_domain": "user_authored",
+                    "inference_depth": "defensive_psychology",
+                    "validation_state": "stable",
+                    "first_inferred_at": 1710000000.0,
+                    "last_validated_at": 1710185000.0,
+                }
+            )
+            existing_assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+            existing_assertion_id = existing_assertions[0]["assertion_id"]
+            adapter._responses = [
+                json.dumps({"mentions": []}),
+                json.dumps({"assertion_candidates": []}),
+                json.dumps(
+                    {
+                        "contradiction_hints": [
+                            {
+                                "target_record_id": existing_assertion_id,
+                                "target_record_type": "tom_trait_assertion",
+                                "contradiction_kind": "state_reversal",
+                                "confidence": 0.88,
+                                "evidence_text": "I feel calm and relaxed now.",
+                                "recommended_action": "downgrade_confidence",
+                            }
+                        ]
+                    }
+                ),
+            ]
+
+            await store.ingest_event(
+                {
+                    "id": "evt-calm-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "I feel calm and relaxed now.",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+
+            assert assertions[0]["assertion_id"] == existing_assertion_id
+            assert assertions[0]["validation_state"] == "contradicted"
+            assert assertions[0]["confidence_score"] < 0.84
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots():
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
