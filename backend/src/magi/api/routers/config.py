@@ -1,6 +1,7 @@
 """System configuration API router."""
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
@@ -31,6 +32,7 @@ from ...bootstrap import refresh_runtime_llm_config
 
 logger = get_logger(__name__)
 config_router = APIRouter()
+QUICK_MODE_DEFAULT_PERSONALITY_PRESET_ID = "echo_ai_ssistant"
 
 
 class AgentConfigModel(BaseModel):
@@ -916,6 +918,34 @@ def _build_onboarding_template() -> SystemConfigModel:
     return template
 
 
+def _resolve_personality_language_code(language: str) -> str:
+    normalized = (language or "zh").lower()
+    if normalized.startswith("zh"):
+        return "zh"
+    if normalized.startswith("en"):
+        return "en"
+    return normalized
+
+
+def _load_quick_mode_default_personality(language: str) -> Optional[FullPersonalityConfigModel]:
+    """Load quick-mode default personality preset with language fallback."""
+    root = Path(__file__).resolve().parents[4] / "personalities"
+    language_candidates = [_resolve_personality_language_code(language)]
+    if "zh" not in language_candidates:
+        language_candidates.append("zh")
+
+    for lang in language_candidates:
+        preset_file = root / lang / f"{QUICK_MODE_DEFAULT_PERSONALITY_PRESET_ID}.json"
+        if not preset_file.exists():
+            continue
+        try:
+            payload = json.loads(preset_file.read_text(encoding="utf-8"))
+            return FullPersonalityConfigModel.model_validate(payload)
+        except Exception as exc:
+            logger.warning("Failed to load quick-mode default personality preset from %s: %s", preset_file, exc)
+    return None
+
+
 async def _discover_openai_compatible_models(
     base_url: str,
     api_key: Optional[str],
@@ -1180,6 +1210,16 @@ def _save_personality_to_user(personality: FullPersonalityConfigModel) -> bool:
 @config_router.post("/onboarding-complete", response_model=ConfigResponse)
 async def complete_onboarding(config: SystemConfigModel):
     try:
+        if config.preferences.user_mode == "quick":
+            quick_mode_personality = _load_quick_mode_default_personality(config.preferences.language)
+            if quick_mode_personality is not None:
+                config.personality = quick_mode_personality
+            else:
+                logger.warning(
+                    "Quick mode default personality preset '%s' was not found; using submitted personality payload",
+                    QUICK_MODE_DEFAULT_PERSONALITY_PRESET_ID,
+                )
+
         config.preferences.onboarding_completed = True
         updates = _build_update_paths(config)
         if not save_config(updates):

@@ -45,6 +45,7 @@ describe('OnboardingFlow', () => {
     expect(container.innerHTML).toContain('h-[clamp(620px,82vh,840px)]');
     expect(screen.getByText('steps.language')).toBeInTheDocument();
     expect(screen.getByText('steps.llmProviders')).toBeInTheDocument();
+    expect(screen.queryByText('steps.personality')).not.toBeInTheDocument();
     expect(screen.queryByText('steps.llmModels')).not.toBeInTheDocument();
   });
 

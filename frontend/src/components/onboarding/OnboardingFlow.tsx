@@ -57,7 +57,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     const shared = [t('steps.language'), t('steps.mode'), t('steps.llmProviders')];
     return mode === 'expert'
       ? [...shared, t('steps.llmModels'), t('steps.personality'), t('steps.memory'), t('steps.tools'), t('steps.complete')]
-      : [...shared, t('steps.personality'), t('steps.complete')];
+      : [...shared, t('steps.complete')];
   }, [mode, t, activeLanguage]);
 
   const isLastStep = current === steps.length - 1;
@@ -312,12 +312,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
 
     const language = form.getFieldValue(['preferences', 'language']) || 'zh';
-    const quickSteps = [2, 3, 4];
+    const quickSteps = [2, 3];
     const expertSteps = [2, 3, 4, 5, 6, 7];
 
     if (isQuickMode && current === quickSteps[0]) return <LLMForm quickMode view="providers" />;
-    if (isQuickMode && current === quickSteps[1]) return <PersonalityForm quickMode language={language} />;
-    if (isQuickMode && current === quickSteps[2]) return <CompletionScreen onFinish={handleFinish} />;
+    if (isQuickMode && current === quickSteps[1]) return <CompletionScreen onFinish={handleFinish} />;
 
     if (!isQuickMode && current === expertSteps[0]) return <LLMForm quickMode={false} view="providers" />;
     if (!isQuickMode && current === expertSteps[1]) return <LLMForm quickMode={false} view="models" />;
