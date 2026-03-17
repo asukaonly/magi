@@ -36,3 +36,62 @@ def test_predicate_compatibility_matrix(predicate: str, object_type: str, expect
 
     assert is_predicate_compatible(predicate, object_type) is expected
 
+
+def test_validator_rejects_unknown_graph_predicate():
+    from magi.memory.l2_ontology import validate_graph_candidate
+
+    is_valid, reason = validate_graph_candidate(
+        {
+            "predicate": "ADORES",
+            "object_type": "food",
+        }
+    )
+
+    assert is_valid is False
+    assert reason == "invalid_predicate"
+
+
+def test_validator_rejects_illegal_graph_object_type_combination():
+    from magi.memory.l2_ontology import validate_graph_candidate
+
+    is_valid, reason = validate_graph_candidate(
+        {
+            "predicate": "DISLIKES",
+            "object_type": "health_metric",
+        }
+    )
+
+    assert is_valid is False
+    assert reason == "invalid_object_type"
+
+
+def test_validator_rejects_unsupported_assertion_family():
+    from magi.memory.l2_ontology import validate_assertion_candidate
+
+    is_valid, reason = validate_assertion_candidate(
+        {
+            "trait_family": "personality_core",
+        }
+    )
+
+    assert is_valid is False
+    assert reason == "invalid_trait_family"
+
+
+def test_validator_can_identify_leaf_level_duplicates():
+    from magi.memory.l2_ontology import is_leaf_fact_duplicate
+
+    duplicate = is_leaf_fact_duplicate(
+        graph_candidates=[
+            {
+                "predicate": "DISLIKES",
+                "object_ref": "food:west-lake-vinegar-fish",
+            }
+        ],
+        assertion_candidate={
+            "trait_name": "taste_preference",
+            "trait_value": "dislikes_food:food:west-lake-vinegar-fish",
+        },
+    )
+
+    assert duplicate is True
