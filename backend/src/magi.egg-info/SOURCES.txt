@@ -223,11 +223,12 @@ src/magi/tools/builtin/file_read_tool.py
 src/magi/tools/builtin/file_write_tool.py
 src/magi/tools/builtin/glob_tool.py
 src/magi/tools/builtin/grep_tool.py
-src/magi/tools/builtin/path_utils.py
 src/magi/tools/builtin/system_settings_tool.py
 src/magi/tools/builtin/weather_tool.py
 src/magi/tools/builtin/web_fetch_tool.py
 src/magi/tools/builtin/web_search_tool.py
+src/magi/tools/utils/__init__.py
+src/magi/tools/utils/path_utils.py
 src/magi/tools/providers/__init__.py
 src/magi/tools/providers/base.py
 src/magi/tools/providers/weather/__init__.py

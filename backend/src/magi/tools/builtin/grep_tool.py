@@ -6,7 +6,7 @@ import re
 import fnmatch
 from typing import Dict, Any, List
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
-from .path_utils import (
+from ..utils.path_utils import (
     DEFAULT_EXCLUDE_PATTERNS,
     expand_input_path,
     matches_exclude_path,

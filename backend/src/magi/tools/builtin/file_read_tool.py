@@ -4,7 +4,7 @@ File read tool
 import os
 from typing import Dict, Any
 from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
-from .path_utils import expand_input_path
+from ..utils.path_utils import expand_input_path
 
 
 class FileReadTool(Tool):
