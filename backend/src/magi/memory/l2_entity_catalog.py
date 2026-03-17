@@ -9,9 +9,29 @@ from typing import Any, Optional
 
 import aiosqlite
 
+from .l2_ontology import coerce_unknown_entity_type
+
 
 def _normalize_alias(text: str) -> str:
     return text.strip().casefold()
+
+
+def _normalize_catalog_entity_type(entity_type: Optional[str]) -> Optional[str]:
+    if entity_type is None:
+        return None
+    return coerce_unknown_entity_type(entity_type)
+
+
+def _normalize_entity_ref(entity_id: Optional[str], entity_type: Optional[str]) -> Optional[str]:
+    if entity_id is None:
+        return None
+    text = entity_id.strip()
+    if not text or not entity_type or ":" not in text:
+        return text or None
+    _, _, suffix = text.partition(":")
+    if not suffix:
+        return text
+    return f"{entity_type}:{suffix}"
 
 
 class L2EntityCatalog:
@@ -77,6 +97,8 @@ class L2EntityCatalog:
         entity_id: str,
     ) -> str:
         await self.initialize()
+        normalized_entity_type = _normalize_catalog_entity_type(entity_type)
+        normalized_entity_id = _normalize_entity_ref(entity_id, normalized_entity_type) or entity_id
         now = time.time()
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
@@ -88,10 +110,10 @@ class L2EntityCatalog:
                     entity_type = excluded.entity_type,
                     updated_at = excluded.updated_at
                 """,
-                (entity_id, canonical_name, entity_type, now, now),
+                (normalized_entity_id, canonical_name, normalized_entity_type, now, now),
             )
             await db.commit()
-        return entity_id
+        return normalized_entity_id
 
     async def add_alias(self, *, entity_id: str, alias_text: str, confidence: float = 1.0) -> None:
         await self.initialize()
@@ -128,9 +150,10 @@ class L2EntityCatalog:
             WHERE a.normalized_alias = ?
         """
         args: list[Any] = [normalized_alias]
-        if entity_type:
+        normalized_entity_type = _normalize_catalog_entity_type(entity_type)
+        if normalized_entity_type:
             query += " AND c.entity_type = ?"
-            args.append(entity_type)
+            args.append(normalized_entity_type)
         query += " ORDER BY a.confidence DESC, c.entity_id ASC"
 
         async with aiosqlite.connect(self.db_path) as db:
@@ -182,6 +205,8 @@ class L2EntityCatalog:
         confidence: Optional[float],
     ) -> int:
         await self.initialize()
+        normalized_entity_type = _normalize_catalog_entity_type(entity_type)
+        normalized_resolved_entity_id = _normalize_entity_ref(resolved_entity_id, normalized_entity_type)
         now = time.time()
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
@@ -200,10 +225,10 @@ class L2EntityCatalog:
                 (
                     mention_text,
                     normalized_surface,
-                    entity_type,
+                    normalized_entity_type,
                     json.dumps(evidence_event_ids, ensure_ascii=False),
                     evidence_text,
-                    resolved_entity_id,
+                    normalized_resolved_entity_id,
                     float(confidence) if confidence is not None else None,
                     now,
                 ),
@@ -273,7 +298,7 @@ class L2EntityCatalog:
 
     async def list_entities_by_type(self, *, entity_type: str, limit: int = 100) -> list[dict[str, Any]]:
         await self.initialize()
-        return await self._list_entities(limit=limit, entity_type=entity_type)
+        return await self._list_entities(limit=limit, entity_type=_normalize_catalog_entity_type(entity_type))
 
     async def _list_entities(
         self,

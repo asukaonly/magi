@@ -14,10 +14,34 @@ from ..core.logger import get_logger
 from .event_contracts import MemoryEvent, TomDepth
 from .l2_graph_conflicts import DEFAULT_GRAPH_CONFLICT_RULES, GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix, iter_opposite_predicates
 from .l2_models import ContradictionHint, ReconciledTraitOutcome
+from .l2_ontology import coerce_unknown_entity_type
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
 logger = get_logger(__name__)
+
+
+def _normalize_store_entity_type(entity_type: str | None) -> str | None:
+    if entity_type is None:
+        return None
+    text = str(entity_type).strip().lower()
+    if not text:
+        return None
+    if text in {"user", "assistant", "system"}:
+        return text
+    return coerce_unknown_entity_type(text)
+
+
+def _normalize_store_entity_ref(entity_id: str | None, entity_type: str | None) -> str | None:
+    if entity_id is None:
+        return None
+    text = str(entity_id).strip()
+    if not text or not entity_type or ":" not in text:
+        return text or None
+    _, _, suffix = text.partition(":")
+    if not suffix:
+        return text
+    return f"{entity_type}:{suffix}"
 
 
 class L2CognitionStore:
@@ -213,8 +237,11 @@ class L2CognitionStore:
     ) -> str:
         """Insert or refresh a knowledge-graph edge."""
         await self.initialize()
+        normalized_subject_type = _normalize_store_entity_type(subject_type) or subject_type
+        normalized_object_type = _normalize_store_entity_type(object_type) or object_type
+        normalized_object_id = _normalize_store_entity_ref(object_id, normalized_object_type) or object_id
         now = time.time()
-        triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{subject_id}:{predicate}:{object_id}')}"
+        triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{subject_id}:{predicate}:{normalized_object_id}')}"
 
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -263,10 +290,10 @@ class L2CognitionStore:
                     (
                         triple_id,
                         subject_id,
-                        subject_type,
+                        normalized_subject_type,
                         predicate,
-                        object_id,
-                        object_type,
+                        normalized_object_id,
+                        normalized_object_type,
                         float(confidence),
                         json.dumps(sorted(set(evidence_event_ids)), ensure_ascii=False),
                         1,
@@ -284,7 +311,7 @@ class L2CognitionStore:
                 triple_id=triple_id,
                 subject_id=subject_id,
                 predicate=predicate,
-                object_id=object_id,
+                object_id=normalized_object_id,
                 observed_at=float(observed_at),
                 now=now,
             )
@@ -294,7 +321,7 @@ class L2CognitionStore:
             triple_id=triple_id,
             subject_id=subject_id,
             predicate=predicate,
-            object_id=object_id,
+            object_id=normalized_object_id,
             confidence=float(confidence),
             source_type=source_type,
             extraction_method=extraction_method,
@@ -695,6 +722,9 @@ class L2CognitionStore:
     async def _upsert_assertion(self, candidate: Dict[str, Any]) -> str:
         now = time.time()
         await self.initialize()
+        normalized_entity_type = _normalize_store_entity_type(candidate.get("entity_type")) or "other"
+        normalized_candidate = dict(candidate)
+        normalized_candidate["entity_type"] = normalized_entity_type
 
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -703,7 +733,7 @@ class L2CognitionStore:
                 SELECT * FROM tom_trait_assertions
                 WHERE entity_id = ? AND entity_type = ? AND trait_name = ?
                 """,
-                (candidate["entity_id"], candidate["entity_type"], candidate["trait_name"]),
+                (normalized_candidate["entity_id"], normalized_candidate["entity_type"], normalized_candidate["trait_name"]),
             ) as cursor:
                 existing = await cursor.fetchone()
 
@@ -720,18 +750,18 @@ class L2CognitionStore:
                     """,
                     (
                         assertion_id,
-                        candidate["entity_id"],
-                        candidate["entity_type"],
-                        candidate["trait_name"],
-                        candidate["trait_value"],
-                        float(candidate["confidence_score"]),
-                        json.dumps(candidate["evidence_events"], ensure_ascii=False),
-                        float(candidate["volatility_index"]),
-                        candidate["source_domain"],
-                        candidate["inference_depth"],
-                        candidate["validation_state"],
-                        float(candidate["first_inferred_at"]),
-                        float(candidate["last_validated_at"]),
+                        normalized_candidate["entity_id"],
+                        normalized_candidate["entity_type"],
+                        normalized_candidate["trait_name"],
+                        normalized_candidate["trait_value"],
+                        float(normalized_candidate["confidence_score"]),
+                        json.dumps(normalized_candidate["evidence_events"], ensure_ascii=False),
+                        float(normalized_candidate["volatility_index"]),
+                        normalized_candidate["source_domain"],
+                        normalized_candidate["inference_depth"],
+                        normalized_candidate["validation_state"],
+                        float(normalized_candidate["first_inferred_at"]),
+                        float(normalized_candidate["last_validated_at"]),
                         None,
                         now,
                         now,
@@ -741,22 +771,22 @@ class L2CognitionStore:
                 logger.debug(
                     "L2 assertion upserted",
                     assertion_id=assertion_id,
-                    entity_id=candidate["entity_id"],
-                    trait_name=candidate["trait_name"],
-                    validation_state=candidate["validation_state"],
-                    confidence=float(candidate["confidence_score"]),
-                    evidence_count=len(candidate["evidence_events"]),
+                    entity_id=normalized_candidate["entity_id"],
+                    trait_name=normalized_candidate["trait_name"],
+                    validation_state=normalized_candidate["validation_state"],
+                    confidence=float(normalized_candidate["confidence_score"]),
+                    evidence_count=len(normalized_candidate["evidence_events"]),
                     action="inserted",
                 )
                 return assertion_id
 
             evidence = sorted(
-                set(json.loads(existing["evidence_events"] or "[]")).union(candidate["evidence_events"])
+                set(json.loads(existing["evidence_events"] or "[]")).union(normalized_candidate["evidence_events"])
             )
             first_inferred_at = float(existing["first_inferred_at"])
-            last_validated_at = float(candidate["last_validated_at"])
+            last_validated_at = float(normalized_candidate["last_validated_at"])
             existing_value = str(existing["trait_value"])
-            next_value = str(candidate["trait_value"])
+            next_value = str(normalized_candidate["trait_value"])
 
             if existing_value != next_value:
                 confidence = max(0.15, float(existing["confidence_score"]) * 0.35)
@@ -788,8 +818,8 @@ class L2CognitionStore:
         logger.debug(
             "L2 assertion upserted",
             assertion_id=str(existing["assertion_id"]),
-            entity_id=candidate["entity_id"],
-            trait_name=candidate["trait_name"],
+            entity_id=normalized_candidate["entity_id"],
+            trait_name=normalized_candidate["trait_name"],
             validation_state=validation_state,
             confidence=confidence,
             evidence_count=len(evidence),
@@ -798,9 +828,9 @@ class L2CognitionStore:
 
         if validation_state == "stable":
             await self._materialize_snapshot(
-                entity_id=candidate["entity_id"],
-                entity_type=candidate["entity_type"],
-                trait_name=candidate["trait_name"],
+                entity_id=normalized_candidate["entity_id"],
+                entity_type=normalized_candidate["entity_type"],
+                trait_name=normalized_candidate["trait_name"],
                 trait_value=next_value,
                 assertion_ids=[str(existing["assertion_id"])],
                 last_interaction_at=last_validated_at,

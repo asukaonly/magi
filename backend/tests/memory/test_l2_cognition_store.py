@@ -202,6 +202,60 @@ async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upsert_knowledge_edge_normalizes_alias_object_type(tmp_path):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="DISLIKES",
+        object_id="dish:west-lake-vinegar-fish",
+        object_type="dish",
+        evidence_event_ids=["evt-food-1"],
+        confidence=0.85,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+
+    active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
+
+    assert active_edges[0]["object_type"] == "food"
+    assert active_edges[0]["object_id"] == "food:west-lake-vinegar-fish"
+
+
+@pytest.mark.asyncio
+async def test_upsert_assertion_normalizes_unknown_entity_type_to_other(tmp_path):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "mystery:thing",
+            "entity_type": "unknown_type",
+            "trait_name": "mood",
+            "trait_value": "curious",
+            "confidence_score": 0.2,
+            "evidence_events": ["evt-assert-1"],
+            "volatility_index": 0.5,
+            "source_domain": "user_authored",
+            "inference_depth": "defensive_psychology",
+            "validation_state": "tentative",
+            "first_inferred_at": 1710000000.0,
+            "last_validated_at": 1710000000.0,
+        }
+    )
+
+    assertions = await store.list_tom_assertions(entity_id="mystery:thing", limit=10)
+
+    assert assertions[0]["entity_type"] == "other"
+
+
+@pytest.mark.asyncio
 async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
     from magi.memory.l2_cognition_store import L2CognitionStore
     from magi.memory.l2_graph_conflicts import GraphConflictRule
