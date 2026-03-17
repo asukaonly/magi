@@ -240,16 +240,63 @@ class L2EntityCatalog:
 
     async def list_entities(self, *, limit: int = 100) -> list[dict[str, Any]]:
         await self.initialize()
+        return await self._list_entities(limit=limit)
+
+    async def list_mentions(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        await self.initialize()
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
-                SELECT entity_id, canonical_name, entity_type
-                FROM entity_catalog
-                ORDER BY entity_id ASC
+                SELECT mention_id, mention_text, normalized_surface, entity_type,
+                       evidence_event_ids, evidence_text, resolved_entity_id, confidence
+                FROM entity_mentions
+                ORDER BY mention_id DESC
                 LIMIT ?
                 """,
                 (int(limit),),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "mention_id": int(row["mention_id"]),
+                "mention_text": str(row["mention_text"]),
+                "normalized_surface": str(row["normalized_surface"]),
+                "entity_type": row["entity_type"],
+                "evidence_event_ids": json.loads(row["evidence_event_ids"] or "[]"),
+                "evidence_text": row["evidence_text"],
+                "resolved_entity_id": row["resolved_entity_id"],
+                "confidence": float(row["confidence"]) if row["confidence"] is not None else None,
+            }
+            for row in rows
+        ]
+
+    async def list_entities_by_type(self, *, entity_type: str, limit: int = 100) -> list[dict[str, Any]]:
+        await self.initialize()
+        return await self._list_entities(limit=limit, entity_type=entity_type)
+
+    async def _list_entities(
+        self,
+        *,
+        limit: int,
+        entity_type: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        query = """
+            SELECT entity_id, canonical_name, entity_type
+            FROM entity_catalog
+        """
+        args: list[Any] = []
+        if entity_type:
+            query += " WHERE entity_type = ?"
+            args.append(entity_type)
+        query += " ORDER BY entity_id ASC LIMIT ?"
+        args.append(int(limit))
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                query,
+                tuple(args),
             ) as cursor:
                 entities = await cursor.fetchall()
 

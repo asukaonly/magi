@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any, Dict, Optional
 
 from ..events.events import Event, EventLevel
@@ -14,11 +15,16 @@ from .event_contracts import IngestTarget, MemoryEvent, normalize_runtime_event
 from .l0_working_memory import L0WorkingMemoryStore
 from .l1_event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
+from .l2_entity_catalog import L2EntityCatalog
+from .l2_llm_service import L2LLMService
 from .l2_pipeline import L2Pipeline
 from .l3_summary_store import L3SummaryStore
 from .l4_procedural_memory import L4ProceduralMemoryStore
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from ..llm import ScenarioLLMPool
 
 
 class UnifiedMemoryStore:
@@ -39,6 +45,7 @@ class UnifiedMemoryStore:
         l0_checkpoint_interval_seconds: int = 30,
         session_timeout_seconds: int = 3600,
         embedding_service: MemoryEmbeddingService | None = None,
+        scenario_llm_pool: "ScenarioLLMPool | None" = None,
         async_embeddings: bool = True,
         enable_l1_vectors: bool = True,
         enable_l3_vectors: bool = True,
@@ -65,6 +72,8 @@ class UnifiedMemoryStore:
         self.l0: Optional[L0WorkingMemoryStore] = None
         self.l1: Optional[L1EventStore] = None
         self.l2: Optional[L2CognitionStore] = None
+        self.l2_entity_catalog: Optional[L2EntityCatalog] = None
+        self.l2_llm_service: Optional[L2LLMService] = None
         self.l2_pipeline: Optional[L2Pipeline] = None
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
@@ -85,7 +94,14 @@ class UnifiedMemoryStore:
             )
         if enable_l2:
             self.l2 = L2CognitionStore(db_path=shared_memory_db)
-            self.l2_pipeline = L2Pipeline(self.l2)
+            self.l2_entity_catalog = L2EntityCatalog(db_path=shared_memory_db)
+            self.l2_llm_service = L2LLMService(scenario_llm_pool)
+            self.l2_pipeline = L2Pipeline(
+                self.l2,
+                l1_store=self.l1,
+                entity_catalog=self.l2_entity_catalog,
+                llm_service=self.l2_llm_service,
+            )
         if enable_l3:
             self.l3 = L3SummaryStore(
                 db_path=shared_memory_db,
@@ -109,7 +125,7 @@ class UnifiedMemoryStore:
         if self._initialized:
             return
 
-        for store in (self.l0, self.l1, self.l2, self.l3, self.l4):
+        for store in (self.l0, self.l1, self.l2, self.l2_entity_catalog, self.l3, self.l4):
             if store is None:
                 continue
             await store.initialize()

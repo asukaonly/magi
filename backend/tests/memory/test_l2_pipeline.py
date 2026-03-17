@@ -14,13 +14,19 @@ from magi.memory.event_contracts import normalize_runtime_event
 
 
 class _FakeAdapter:
-    def __init__(self, response: str) -> None:
-        self._response = response
+    def __init__(self, response: str | list[str]) -> None:
+        if isinstance(response, list):
+            self._responses = list(response)
+        else:
+            self._responses = [response]
+        self._fallback_response = self._responses[-1] if self._responses else "{}"
         self.calls: list[dict[str, object]] = []
 
     async def generate(self, prompt: str, **kwargs):  # type: ignore[no-untyped-def]
         self.calls.append({"prompt": prompt, **kwargs})
-        return self._response
+        if self._responses:
+            return self._responses.pop(0)
+        return self._fallback_response
 
 
 class _FakeScenarioPool:
@@ -322,3 +328,221 @@ async def test_single_event_tom_candidates_are_capped_to_low_confidence():
     )
 
     assert assertions[0]["confidence"] == 0.3
+
+
+@pytest.mark.asyncio
+async def test_extract_worker_records_mentions_and_resolved_graph_edge():
+    responses = [
+        json.dumps(
+            {
+                "mentions": [
+                    {
+                        "mention_text": "魔都",
+                        "normalized_surface": "魔都",
+                        "entity_type": "place",
+                        "canonical_name_hint": "上海",
+                        "alias_signals": ["魔都"],
+                        "evidence_text": "我好喜欢魔都",
+                        "confidence": 0.96,
+                    }
+                ]
+            }
+        ),
+        json.dumps({"assertion_candidates": []}),
+    ]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
+        )
+        await store.initialize()
+        try:
+            assert store.l2_entity_catalog is not None
+            await store.l2_entity_catalog.upsert_entity(
+                entity_id="place:shanghai",
+                canonical_name="Shanghai",
+                entity_type="place",
+            )
+            await store.l2_entity_catalog.add_alias(
+                entity_id="place:shanghai",
+                alias_text="魔都",
+                confidence=0.98,
+            )
+
+            await store.ingest_event(
+                {
+                    "id": "evt-graph-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "我好喜欢魔都",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            mentions = await store.l2_entity_catalog.list_mentions(limit=10)
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+
+            assert mentions[0]["mention_text"] == "魔都"
+            assert mentions[0]["resolved_entity_id"] == "place:shanghai"
+            assert any(
+                edge["predicate"] == "LIKES" and edge["object_id"] == "place:shanghai"
+                for edge in relationships
+            )
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
+    from magi.memory.l2_prompt_templates import ENTITY_MENTION_SYSTEM_PROMPT
+
+    adapter = _FakeAdapter(
+        [
+            json.dumps({"mentions": []}),
+            json.dumps({"assertion_candidates": []}),
+            json.dumps({"mentions": []}),
+            json.dumps({"assertion_candidates": []}),
+        ]
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-context-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time() - 30,
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "I call Shanghai Modu sometimes.",
+                    },
+                }
+            )
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            await store.ingest_event(
+                {
+                    "id": "evt-context-2",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "I like Shanghai.",
+                    },
+                }
+            )
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 2:
+                    break
+                await asyncio.sleep(0.01)
+
+            mention_prompts = [
+                str(call["prompt"])
+                for call in adapter.calls
+                if call.get("system_prompt") == ENTITY_MENTION_SYSTEM_PROMPT
+            ]
+
+            assert len(mention_prompts) == 2
+            assert "I like Shanghai." in mention_prompts[1]
+            assert "I call Shanghai Modu sometimes." in mention_prompts[1]
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_extract_worker_persists_llm_tom_assertions():
+    responses = [
+        json.dumps({"mentions": []}),
+        json.dumps(
+            {
+                "assertion_candidates": [
+                    {
+                        "entity_ref": "user:u1",
+                        "entity_type": "user",
+                        "trait_family": "stress",
+                        "trait_name": "stress_level",
+                        "trait_value": "high",
+                        "inference_depth": "defensive_psychology",
+                        "volatility_index": 0.7,
+                        "confidence": 0.94,
+                        "validation_state": "tentative",
+                        "evidence_texts": ["I am stressed about work today."],
+                        "supporting_event_ids": ["evt-stress-1"],
+                        "notes": None,
+                    }
+                ]
+            }
+        ),
+    ]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-stress-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "I am stressed about work today.",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["assertions_written"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+
+            assert len(assertions) == 1
+            assert assertions[0]["trait_name"] == "stress_level"
+            assert assertions[0]["validation_state"] == "tentative"
+            assert assertions[0]["confidence_score"] == 0.3
+            assert store.get_l2_pipeline_stats()["reconcile_enqueued"] >= 1
+        finally:
+            await store.shutdown()
