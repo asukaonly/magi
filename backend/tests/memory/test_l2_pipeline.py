@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import time
 from pathlib import Path
@@ -10,6 +11,26 @@ import pytest
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory import UnifiedMemoryStore
 from magi.memory.event_contracts import normalize_runtime_event
+
+
+class _FakeAdapter:
+    def __init__(self, response: str) -> None:
+        self._response = response
+        self.calls: list[dict[str, object]] = []
+
+    async def generate(self, prompt: str, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls.append({"prompt": prompt, **kwargs})
+        return self._response
+
+
+class _FakeScenarioPool:
+    def __init__(self, adapter: _FakeAdapter) -> None:
+        self.adapter = adapter
+        self.requested_scenarios: list[object] = []
+
+    def get(self, scenario):  # type: ignore[no-untyped-def]
+        self.requested_scenarios.append(scenario)
+        return self.adapter
 
 
 def test_extraction_job_payload_can_be_created_from_event_id():
@@ -214,3 +235,90 @@ async def test_shutdown_drains_l2_pipeline_workers_cleanly():
 
         stats = store.get_l2_pipeline_stats()
         assert stats["is_running"] is False
+
+
+def test_entity_mention_prompt_rendering_is_deterministic():
+    from magi.memory.l2_llm_service import L2LLMService
+
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
+    prompt = service.render_entity_mention_prompt(
+        event_text="I like Shanghai.",
+        context_texts=["I also call it Modu."],
+    )
+
+    assert "I like Shanghai." in prompt
+    assert "I also call it Modu." in prompt
+    assert prompt.count("Event text:") == 1
+
+
+@pytest.mark.asyncio
+async def test_invalid_json_from_llm_fails_closed():
+    from magi.memory.l2_llm_service import L2LLMService
+
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
+
+    mentions = await service.extract_entity_mentions(event_text="I like Shanghai.", context_texts=[])
+
+    assert mentions == []
+
+
+@pytest.mark.asyncio
+async def test_low_confidence_resolution_is_returned_as_unresolved():
+    from magi.memory.l2_llm_service import L2LLMService
+
+    response = json.dumps(
+        {
+            "resolution": {
+                "decision": "match",
+                "matched_entity_id": "place:shanghai",
+                "matched_entity_name": "Shanghai",
+                "confidence": 0.4,
+                "reason_tags": ["nickname_match"],
+                "should_merge": True,
+                "canonical_name_suggestion": "Shanghai",
+            }
+        }
+    )
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
+
+    resolution = await service.resolve_entity(
+        mention={"mention_text": "魔都", "entity_type": "place", "context_text": "我好喜欢魔都"},
+        candidate_entities=[{"entity_id": "place:shanghai", "canonical_name": "Shanghai", "entity_type": "place"}],
+    )
+
+    assert resolution["decision"] == "unresolved"
+    assert resolution["matched_entity_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_single_event_tom_candidates_are_capped_to_low_confidence():
+    from magi.memory.l2_llm_service import L2LLMService
+
+    response = json.dumps(
+        {
+            "assertion_candidates": [
+                {
+                    "entity_ref": "user:u1",
+                    "entity_type": "user",
+                    "trait_family": "stress",
+                    "trait_name": "stress_level",
+                    "trait_value": "high",
+                    "inference_depth": "defensive_psychology",
+                    "volatility_index": 0.7,
+                    "confidence": 0.92,
+                    "validation_state": "tentative",
+                    "evidence_texts": ["I am stressed about work."],
+                    "supporting_event_ids": ["evt-1"],
+                    "notes": None,
+                }
+            ]
+        }
+    )
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
+
+    assertions = await service.extract_tom_assertions(
+        event_window={"event_ids": ["evt-1"], "texts": ["I am stressed about work."]},
+        focal_entities=[{"entity_id": "user:u1", "entity_type": "user"}],
+    )
+
+    assert assertions[0]["confidence"] == 0.3
