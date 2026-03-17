@@ -115,7 +115,7 @@ providers:
     description: Fast general-purpose models from Z.ai
     icon: zai
     default_model: glm-5
-    default_classify_model: glm-4.7-flash
+    default_classify_model: glm-4.6
     default_base_url: https://open.bigmodel.cn/api/paas/v4
     chat_models:
       - id: glm-5
