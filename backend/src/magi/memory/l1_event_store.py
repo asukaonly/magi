@@ -7,7 +7,7 @@ import logging
 import asyncio
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
@@ -15,6 +15,7 @@ from ..events.events import Event, EventLevel, EventTypes
 from ..timeline.contracts import TimelineEvent
 from .embedding_service import MemoryEmbeddingService
 from .event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
+from .hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from .sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
@@ -172,6 +173,12 @@ class L1EventStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_l1_event_vectors_event ON l1_event_vectors(event_id);
                 CREATE INDEX IF NOT EXISTS idx_l1_event_vectors_model ON l1_event_vectors(embedding_model);
+
+                CREATE VIRTUAL TABLE IF NOT EXISTS l1_events_fts USING fts5(
+                    event_id UNINDEXED,
+                    raw_content,
+                    tokenize='unicode61'
+                );
                 """
             )
             if self._vector_enabled:
@@ -235,6 +242,16 @@ class L1EventStore:
                     event.media_path,
                     None,
                 ),
+            )
+            # Sync FTS5 index
+            tokenized = tokenize_for_fts(event.raw_content)
+            await db.execute(
+                "DELETE FROM l1_events_fts WHERE event_id = ?",
+                (event.event_id,),
+            )
+            await db.execute(
+                "INSERT INTO l1_events_fts(event_id, raw_content) VALUES (?, ?)",
+                (event.event_id, tokenized),
             )
             await db.commit()
         await self._schedule_event_embedding(event)
@@ -422,6 +439,7 @@ class L1EventStore:
         count = await self.count_events()
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(f"DELETE FROM {FACT_EVENTS_TABLE}")
+            await db.execute("DELETE FROM l1_events_fts")
             await db.commit()
         if self._vector_index is not None:
             await self._vector_index.clear()
@@ -442,6 +460,10 @@ class L1EventStore:
             cursor = await db.execute(
                 f"UPDATE {FACT_EVENTS_TABLE} SET deleted_at = ? WHERE event_id = ?",
                 (float(deleted_at or time.time()), event_id),
+            )
+            await db.execute(
+                "DELETE FROM l1_events_fts WHERE event_id = ?",
+                (event_id,),
             )
             await db.commit()
         if cursor.rowcount > 0 and self._vector_index is not None:
@@ -487,6 +509,78 @@ class L1EventStore:
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
+
+    async def bm25_search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> List[Tuple[str, float]]:
+        """Search L1 events via FTS5 BM25 ranking.
+
+        Returns a list of (event_id, bm25_score) tuples ordered by relevance.
+        Lower bm25 scores indicate higher relevance in SQLite FTS5.
+        """
+        await self.initialize()
+        tokenized = tokenize_for_fts(query)
+        if not tokenized:
+            return []
+        escaped = escape_fts_query(tokenized)
+        if not escaped:
+            return []
+        async with aiosqlite.connect(self.db_path) as db:
+            try:
+                async with db.execute(
+                    """
+                    SELECT event_id, bm25(l1_events_fts) AS score
+                    FROM l1_events_fts
+                    WHERE l1_events_fts MATCH ?
+                    ORDER BY score
+                    LIMIT ?
+                    """,
+                    (escaped, limit),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                return [(str(row[0]), float(row[1])) for row in rows]
+            except Exception as exc:
+                logger.warning("FTS5 BM25 search failed: %s", exc)
+                return []
+
+    async def backfill_fts(self, *, batch_size: int = 500) -> int:
+        """Backfill the FTS5 index from existing fact_events rows.
+
+        Returns the number of rows indexed.
+        """
+        await self.initialize()
+        indexed = 0
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                f"""
+                SELECT event_id, raw_content FROM {FACT_EVENTS_TABLE}
+                WHERE deleted_at IS NULL
+                AND event_id NOT IN (SELECT event_id FROM l1_events_fts)
+                """
+            ) as cursor:
+                batch: list[tuple[str, str]] = []
+                async for row in cursor:
+                    event_id = str(row[0])
+                    raw = str(row[1])
+                    batch.append((event_id, tokenize_for_fts(raw)))
+                    if len(batch) >= batch_size:
+                        await db.executemany(
+                            "INSERT INTO l1_events_fts(event_id, raw_content) VALUES (?, ?)",
+                            batch,
+                        )
+                        indexed += len(batch)
+                        batch.clear()
+                if batch:
+                    await db.executemany(
+                        "INSERT INTO l1_events_fts(event_id, raw_content) VALUES (?, ?)",
+                        batch,
+                    )
+                    indexed += len(batch)
+            await db.commit()
+        return indexed
 
     def _resolve_target_table(self, event: MemoryEvent) -> str:
         event_type = str(event.event_type)

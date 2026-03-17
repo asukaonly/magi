@@ -1,0 +1,328 @@
+"""Tests for FTS5 index integration with L1EventStore and fts_utils."""
+
+from __future__ import annotations
+
+import asyncio
+import tempfile
+import time
+
+import aiosqlite
+import pytest
+
+from magi.memory.hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
+from magi.memory.event_contracts import (
+    IngestTarget,
+    MemoryDomain,
+    MemoryEvent,
+    RetentionClass,
+    TomDepth,
+)
+from magi.memory.l1_event_store import L1EventStore
+
+
+# ---------------------------------------------------------------------------
+# fts_utils unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestTokenizeForFts:
+    def test_chinese_text(self) -> None:
+        result = tokenize_for_fts("今天天气不错，我想去公园散步")
+        assert isinstance(result, str)
+        assert len(result) > 0
+        # jieba should produce space-separated tokens
+        assert " " in result
+
+    def test_english_text(self) -> None:
+        result = tokenize_for_fts("The quick brown fox jumps")
+        assert "quick" in result
+        assert "brown" in result
+
+    def test_mixed_language(self) -> None:
+        result = tokenize_for_fts("我在学习Python编程")
+        assert isinstance(result, str)
+        assert "Python" in result
+
+    def test_empty_string(self) -> None:
+        assert tokenize_for_fts("") == ""
+
+    def test_whitespace_only(self) -> None:
+        assert tokenize_for_fts("   ") == ""
+
+    def test_none_like(self) -> None:
+        assert tokenize_for_fts("") == ""
+
+
+class TestEscapeFtsQuery:
+    def test_strips_asterisk(self) -> None:
+        assert "*" not in escape_fts_query("hello*world")
+
+    def test_strips_quotes(self) -> None:
+        assert '"' not in escape_fts_query('"exact phrase"')
+
+    def test_strips_parens(self) -> None:
+        result = escape_fts_query("(hello OR world)")
+        assert "(" not in result
+        assert ")" not in result
+
+    def test_preserves_normal_text(self) -> None:
+        assert escape_fts_query("hello world") == "hello world"
+
+    def test_collapses_spaces(self) -> None:
+        result = escape_fts_query("hello   +  world")
+        assert result == "hello world"
+
+    def test_empty_input(self) -> None:
+        assert escape_fts_query("") == ""
+
+    def test_special_chars_only(self) -> None:
+        assert escape_fts_query("***") == ""
+
+
+# ---------------------------------------------------------------------------
+# FTS5 integration tests with L1EventStore
+# ---------------------------------------------------------------------------
+
+def _make_event(
+    event_id: str = "evt-001",
+    raw_content: str = "test event content",
+    source: str = "test",
+    memory_domain: MemoryDomain = MemoryDomain.USER_AUTHORED,
+    timestamp: float | None = None,
+) -> MemoryEvent:
+    now = timestamp or time.time()
+    return MemoryEvent(
+        event_id=event_id,
+        correlation_id="corr-001",
+        parent_event_id=None,
+        timestamp=now,
+        created_at=now,
+        event_type="TestEvent",
+        source=source,
+        source_item_id=None,
+        memory_domain=memory_domain,
+        ingest_target=IngestTarget.L1_ONLY,
+        cognition_eligible=False,
+        tom_depth=TomDepth.NONE,
+        retention_class=RetentionClass.COMPRESSIBLE,
+        session_id=None,
+        user_id=None,
+        task_id=None,
+        goal_id=None,
+        raw_content=raw_content,
+        structured_payload="{}",
+        metadata="{}",
+        importance_score=0.5,
+        importance_t0_base=0.5,
+        importance_t1_score=None,
+        importance_version=1,
+        level=1,
+    )
+
+
+@pytest.fixture
+def store(tmp_path):
+    db = tmp_path / "test_l1.db"
+    return L1EventStore(db_path=str(db), vector_enabled=False)
+
+
+@pytest.mark.asyncio
+class TestFts5TableCreation:
+    async def test_fts_table_exists_after_init(self, store: L1EventStore) -> None:
+        await store.initialize()
+        async with aiosqlite.connect(store.db_path) as db:
+            async with db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='l1_events_fts'"
+            ) as cursor:
+                row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == "l1_events_fts"
+
+
+@pytest.mark.asyncio
+class TestFts5WriteSync:
+    async def test_store_writes_to_fts(self, store: L1EventStore) -> None:
+        event = _make_event(raw_content="机器学习性能优化方案讨论")
+        await store.store(event)
+
+        async with aiosqlite.connect(store.db_path) as db:
+            async with db.execute(
+                "SELECT event_id, raw_content FROM l1_events_fts WHERE event_id = ?",
+                (event.event_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == event.event_id
+        # FTS content should be tokenized (not identical to raw)
+        assert isinstance(row[1], str)
+        assert len(row[1]) > 0
+
+    async def test_store_replace_updates_fts(self, store: L1EventStore) -> None:
+        event = _make_event(raw_content="original content")
+        await store.store(event)
+
+        # Store again with different content (INSERT OR REPLACE)
+        event2 = _make_event(raw_content="updated content")
+        await store.store(event2)
+
+        async with aiosqlite.connect(store.db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM l1_events_fts WHERE event_id = ?",
+                (event.event_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        assert row[0] == 1  # Only one FTS entry
+
+    async def test_multiple_events_in_fts(self, store: L1EventStore) -> None:
+        for i in range(5):
+            event = _make_event(
+                event_id=f"evt-{i:03d}",
+                raw_content=f"Event number {i} with content",
+            )
+            await store.store(event)
+
+        async with aiosqlite.connect(store.db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM l1_events_fts") as cursor:
+                row = await cursor.fetchone()
+        assert row[0] == 5
+
+
+@pytest.mark.asyncio
+class TestFts5DeleteSync:
+    async def test_mark_deleted_removes_from_fts(self, store: L1EventStore) -> None:
+        event = _make_event(raw_content="content to be deleted")
+        await store.store(event)
+
+        await store.mark_deleted(event.event_id)
+
+        async with aiosqlite.connect(store.db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM l1_events_fts WHERE event_id = ?",
+                (event.event_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        assert row[0] == 0
+
+    async def test_clear_removes_all_fts(self, store: L1EventStore) -> None:
+        for i in range(3):
+            await store.store(_make_event(
+                event_id=f"evt-{i:03d}",
+                raw_content=f"content {i}",
+            ))
+
+        await store.clear()
+
+        async with aiosqlite.connect(store.db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM l1_events_fts") as cursor:
+                row = await cursor.fetchone()
+        assert row[0] == 0
+
+
+@pytest.mark.asyncio
+class TestBm25Search:
+    async def test_basic_bm25_search(self, store: L1EventStore) -> None:
+        await store.store(_make_event(event_id="evt-ml", raw_content="机器学习模型训练优化"))
+        await store.store(_make_event(event_id="evt-web", raw_content="前端网页开发React组件"))
+        await store.store(_make_event(event_id="evt-db", raw_content="数据库性能调优方案"))
+
+        results = await store.bm25_search("机器学习", limit=10)
+        assert len(results) > 0
+        event_ids = [r[0] for r in results]
+        assert "evt-ml" in event_ids
+
+    async def test_bm25_search_english(self, store: L1EventStore) -> None:
+        await store.store(_make_event(event_id="evt-py", raw_content="Python programming tutorial"))
+        await store.store(_make_event(event_id="evt-js", raw_content="JavaScript web development"))
+
+        results = await store.bm25_search("Python", limit=10)
+        assert len(results) > 0
+        assert results[0][0] == "evt-py"
+
+    async def test_bm25_search_empty_query(self, store: L1EventStore) -> None:
+        await store.store(_make_event(raw_content="some content"))
+        results = await store.bm25_search("", limit=10)
+        assert results == []
+
+    async def test_bm25_search_no_match(self, store: L1EventStore) -> None:
+        await store.store(_make_event(raw_content="hello world"))
+        results = await store.bm25_search("quantumphysics", limit=10)
+        assert results == []
+
+    async def test_bm25_returns_scores(self, store: L1EventStore) -> None:
+        await store.store(_make_event(event_id="evt-1", raw_content="machine learning deep learning"))
+
+        results = await store.bm25_search("machine learning", limit=10)
+        assert len(results) > 0
+        event_id, score = results[0]
+        assert isinstance(score, float)
+
+    async def test_bm25_respects_limit(self, store: L1EventStore) -> None:
+        for i in range(10):
+            await store.store(_make_event(
+                event_id=f"evt-{i:03d}",
+                raw_content=f"common keyword shared content {i}",
+            ))
+
+        results = await store.bm25_search("common keyword", limit=3)
+        assert len(results) <= 3
+
+
+@pytest.mark.asyncio
+class TestBackfillFts:
+    async def test_backfill_indexes_existing_events(self, store: L1EventStore) -> None:
+        # Store events normally (which writes to FTS)
+        for i in range(3):
+            await store.store(_make_event(
+                event_id=f"evt-{i:03d}",
+                raw_content=f"event content {i}",
+            ))
+
+        # Clear FTS table manually to simulate pre-existing data
+        async with aiosqlite.connect(store.db_path) as db:
+            await db.execute("DELETE FROM l1_events_fts")
+            await db.commit()
+
+        # Backfill
+        count = await store.backfill_fts()
+        assert count == 3
+
+        # Verify FTS is populated
+        async with aiosqlite.connect(store.db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM l1_events_fts") as cursor:
+                row = await cursor.fetchone()
+        assert row[0] == 3
+
+    async def test_backfill_skips_already_indexed(self, store: L1EventStore) -> None:
+        # Store an event (auto-indexed)
+        await store.store(_make_event(event_id="evt-001", raw_content="already indexed"))
+
+        # Backfill should skip the already-indexed event
+        count = await store.backfill_fts()
+        assert count == 0
+
+    async def test_backfill_skips_deleted_events(self, store: L1EventStore) -> None:
+        await store.store(_make_event(event_id="evt-001", raw_content="to be deleted"))
+        await store.mark_deleted("evt-001")
+
+        # Clear any remaining FTS entries
+        async with aiosqlite.connect(store.db_path) as db:
+            await db.execute("DELETE FROM l1_events_fts")
+            await db.commit()
+
+        count = await store.backfill_fts()
+        assert count == 0  # deleted events should not be backfilled
+
+    async def test_backfill_searchable_after(self, store: L1EventStore) -> None:
+        await store.store(_make_event(event_id="evt-001", raw_content="Python programming tutorial"))
+
+        # Clear FTS, then backfill
+        async with aiosqlite.connect(store.db_path) as db:
+            await db.execute("DELETE FROM l1_events_fts")
+            await db.commit()
+
+        await store.backfill_fts()
+
+        # Should be searchable via BM25
+        results = await store.bm25_search("Python", limit=5)
+        assert len(results) > 0
+        assert results[0][0] == "evt-001"
