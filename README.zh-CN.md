@@ -1,10 +1,43 @@
 # Magi
 
-Magi 是一个本地优先（Local-first）的 macOS 桌面 AI Agent。
+<p align="center">
+  <strong>[ Magi Logo ]</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/asukaonly/magi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/asukaonly/magi" alt="License"></a>
+  <a href="https://github.com/asukaonly/magi/releases"><img src="https://img.shields.io/github/v/release/asukaonly/magi" alt="Release"></a>
+  <img src="https://img.shields.io/badge/platform-macOS-black?logo=apple" alt="macOS">
+  <img src="https://img.shields.io/badge/React-18+-61DAFB?logo=react&logoColor=white" alt="React">
+  <img src="https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white" alt="Tauri">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" alt="Python">
+</p>
+
+Magi 是一个本地优先的桌面 AI Agent，结合多源信息采集、分层记忆和人格配置，支持长期个人陪伴与生活回顾。
 
 **当前状态：** Alpha（快速迭代中，接口与行为可能调整）
 
 语言：简体中文 | [English](./README.md)
+
+## Why Magi
+
+`Magi` 这个名字来自《EVA》中的智能电脑系统，也可以理解为 `My Agent Get It`。
+
+大多数 AI 产品主要围绕即时问答构建，对用户长期生活脉络的理解能力有限。Magi 的目标，是在本地桌面环境中构建一个能够持续感知、长期记忆并稳定交互的个人 Agent。
+
+Magi 通过可扩展的传感器插件接入外部信息源，例如浏览历史、屏幕使用事件、日历、社交媒体内容、与 AI 的沟通记录以及照片档案等，并将这些信息组织为可检索、可回顾的个人时间线与记忆体系。
+
+在此基础上，Magi 提供五层记忆结构，包括工作台记忆、事件记忆、知识记忆、摘要反思记忆和工具技能记忆，用于提升事件召回、长期画像与结构化总结能力。
+
+除记忆系统外，Magi 还支持更细粒度的人格与情绪配置，使交互风格可以根据用户偏好持续调整。
+
+它并不试图成为一个通用的即时回答工具，而是希望成为一个更适合长期陪伴、记录与理解个人生活的桌面 Agent。
+
+## 核心亮点
+
+- 通过可扩展传感器插件实现多源信息采集与个人时间线构建
+- 以五层记忆系统支持召回、反思和长期个人理解
+- 通过人格与情绪配置带来更稳定的长期陪伴体验
 
 ## 面向用户（macOS）
 

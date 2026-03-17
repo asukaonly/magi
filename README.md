@@ -1,10 +1,43 @@
 # Magi
 
-Local-first desktop AI agent for macOS.
+<p align="center">
+  <strong>[ Magi Logo ]</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/asukaonly/magi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/asukaonly/magi" alt="License"></a>
+  <a href="https://github.com/asukaonly/magi/releases"><img src="https://img.shields.io/github/v/release/asukaonly/magi" alt="Release"></a>
+  <img src="https://img.shields.io/badge/platform-macOS-black?logo=apple" alt="macOS">
+  <img src="https://img.shields.io/badge/React-18+-61DAFB?logo=react&logoColor=white" alt="React">
+  <img src="https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white" alt="Tauri">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" alt="Python">
+</p>
+
+Magi is a local-first desktop AI agent that combines multi-source sensing, layered memory, and personality controls for long-term personal companionship and life recall.
 
 **Status:** Alpha (fast-moving, interfaces and behavior may change)
 
 Language: English | [简体中文](./README.zh-CN.md)
+
+## Why Magi
+
+Magi takes inspiration from the intelligent computer system in *Evangelion*, and can also be read as `My Agent Get It`.
+
+Most AI products are built around instant answers and short-lived context. Magi is designed differently: as a local desktop agent that can continuously sense, remember, and interact with you over time.
+
+Through extensible sensor plugins, Magi can connect to external personal data sources such as browsing history, screen activity, calendars, social posts, AI conversations, and photo archives, then organize them into a searchable personal timeline and memory system.
+
+At the core is a five-layer memory model: workspace memory, event memory, knowledge memory, summary and reflection memory, and tool skill memory. This structure is meant to improve recall, support long-term understanding, and help turn scattered life fragments into something more coherent and reviewable.
+
+Magi also exposes more detailed personality and emotional controls, so the way it responds can stay consistent with the kind of long-term companion you want to build, not just a generic assistant.
+
+Magi is not trying to be another one-off question answering tool. It is built to be a more personal desktop agent for remembering, organizing, and understanding your life over time.
+
+## Core Highlights
+
+- Multi-source sensing and timeline building through extensible sensor plugins
+- A five-layer memory system for better recall, reflection, and personal understanding
+- Personality and emotion controls for a more stable long-term companion experience
 
 ## For Users (macOS)
 
