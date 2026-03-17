@@ -44,6 +44,9 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
             "WORKER_AGENT_PROGRESS",
             "WORKER_AGENT_COMPLETED",
             "WORKER_AGENT_FAILED",
+            "CHAT_TOOL_LOOP_STEP",
+            "TOOL_INTERACTION",
+            "TOOL_INVOKED",
         ):
             self.assertIn(event_type, cfg.subscribed_events)
         self.assertIn(EventTypes.AI_RESPONSE, cfg.subscribed_events)

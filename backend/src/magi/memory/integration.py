@@ -21,6 +21,12 @@ WORKER_AGENT_EVENT_TYPES: Set[str] = {
     "WORKER_AGENT_FAILED",
 }
 
+TRACE_RUNTIME_EVENT_TYPES: Set[str] = {
+    "CHAT_TOOL_LOOP_STEP",
+    "TOOL_INTERACTION",
+    "TOOL_INVOKED",
+}
+
 
 @dataclass
 class MemoryIntegrationConfig:
@@ -45,6 +51,7 @@ class MemoryIntegrationConfig:
             EventTypes.LOOP_STARTED,
             EventTypes.LOOP_PHASE_STARTED,
             *WORKER_AGENT_EVENT_TYPES,
+            *TRACE_RUNTIME_EVENT_TYPES,
         }
     )
 
