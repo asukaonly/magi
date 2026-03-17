@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
 
@@ -47,9 +49,6 @@ async def _build_contradiction(text: str, *, correlation_id: str, timestamp: flo
         ),
         event_id=correlation_id,
     )
-
-
-import pytest
 
 
 @pytest.mark.asyncio
@@ -403,3 +402,59 @@ async def test_upserted_graph_conflict_rule_changes_runtime_conflict_behavior(tm
 
     assert len(conflicted_edges) == 1
     assert conflicted_edges[0]["predicate"] == "ENDORSES"
+
+
+@pytest.mark.asyncio
+async def test_upsert_graph_conflict_rule_normalizes_predicates_and_deduplicates_opposites(tmp_path):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    rule = await store.upsert_graph_conflict_rule(
+        {
+            "predicate": " endorses ",
+            "opposite_predicates": ["rejects", " REJECTS ", "avoids"],
+            "opposite_resolution": "mark_conflicted",
+        }
+    )
+
+    assert rule["predicate"] == "ENDORSES"
+    assert rule["opposite_predicates"] == ["REJECTS", "AVOIDS"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload, message",
+    [
+        (
+            {
+                "predicate": "ENDORSES",
+                "opposite_predicates": ["ENDORSES"],
+                "opposite_resolution": "mark_conflicted",
+            },
+            "cannot reference itself",
+        ),
+        (
+            {
+                "predicate": "STANCE",
+            },
+            "must define at least one conflict mechanism",
+        ),
+        (
+            {
+                "predicate": "STANCE",
+                "exclusive_resolution": "mark_conflicted",
+            },
+            "exclusive_group",
+        ),
+    ],
+)
+async def test_upsert_graph_conflict_rule_rejects_invalid_combinations(tmp_path, payload, message):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    with pytest.raises(ValueError, match=message):
+        await store.upsert_graph_conflict_rule(payload)

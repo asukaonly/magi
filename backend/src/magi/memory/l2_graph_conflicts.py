@@ -8,6 +8,10 @@ from typing import Any, Dict, Iterable, Mapping, Literal
 
 GraphConflictAction = Literal["mark_deprecated", "mark_conflicted"]
 GraphExclusiveScope = Literal["same_subject"]
+DEFAULT_GRAPH_CONFLICT_ACTION: GraphConflictAction = "mark_deprecated"
+DEFAULT_GRAPH_EXCLUSIVE_SCOPE: GraphExclusiveScope = "same_subject"
+_VALID_ACTIONS = {"mark_deprecated", "mark_conflicted"}
+_VALID_SCOPES = {"same_subject"}
 
 
 @dataclass(frozen=True)
@@ -24,6 +28,7 @@ class GraphConflictRule:
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "GraphConflictRule":
         """Build a rule from a plain mapping."""
+        predicate = _normalize_predicate(payload.get("predicate"), field_name="predicate")
         opposite_predicates = payload.get("opposite_predicates", ())
         if isinstance(opposite_predicates, str):
             try:
@@ -34,15 +39,34 @@ class GraphConflictRule:
                     opposite_predicates = [opposite_predicates]
             except json.JSONDecodeError:
                 opposite_predicates = [item.strip() for item in opposite_predicates.split(",") if item.strip()]
+        normalized_opposites = _normalize_opposite_predicates(opposite_predicates, predicate=predicate)
+        opposite_resolution = _normalize_action(
+            payload.get("opposite_resolution", DEFAULT_GRAPH_CONFLICT_ACTION),
+            field_name="opposite_resolution",
+        )
+        exclusive_group = _normalize_exclusive_group(payload.get("exclusive_group"))
+        exclusive_scope = _normalize_scope(
+            payload.get("exclusive_scope", DEFAULT_GRAPH_EXCLUSIVE_SCOPE),
+            field_name="exclusive_scope",
+        )
+        exclusive_resolution = _normalize_action(
+            payload.get("exclusive_resolution", DEFAULT_GRAPH_CONFLICT_ACTION),
+            field_name="exclusive_resolution",
+        )
+        _validate_rule_combinations(
+            predicate=predicate,
+            opposite_predicates=normalized_opposites,
+            opposite_resolution=opposite_resolution,
+            exclusive_group=exclusive_group,
+            exclusive_resolution=exclusive_resolution,
+        )
         return cls(
-            predicate=str(payload["predicate"]),
-            opposite_predicates=tuple(str(item) for item in opposite_predicates),
-            opposite_resolution=str(payload.get("opposite_resolution", "mark_deprecated")),  # type: ignore[arg-type]
-            exclusive_group=(
-                str(payload["exclusive_group"]) if payload.get("exclusive_group") is not None else None
-            ),
-            exclusive_scope=str(payload.get("exclusive_scope", "same_subject")),  # type: ignore[arg-type]
-            exclusive_resolution=str(payload.get("exclusive_resolution", "mark_deprecated")),  # type: ignore[arg-type]
+            predicate=predicate,
+            opposite_predicates=normalized_opposites,
+            opposite_resolution=opposite_resolution,
+            exclusive_group=exclusive_group,
+            exclusive_scope=exclusive_scope,
+            exclusive_resolution=exclusive_resolution,
         )
 
     def to_record(self) -> Dict[str, Any]:
@@ -115,3 +139,71 @@ def build_exclusive_group_index(
 def iter_opposite_predicates(rule: GraphConflictRule) -> Iterable[str]:
     """Expose opposite predicates in a stable order."""
     return tuple(rule.opposite_predicates)
+
+
+def _normalize_predicate(value: Any, *, field_name: str) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        raise ValueError(f"{field_name} is required")
+    return text
+
+
+def _normalize_opposite_predicates(values: Any, *, predicate: str) -> tuple[str, ...]:
+    if values is None:
+        raw_values: list[Any] = []
+    elif isinstance(values, (list, tuple, set)):
+        raw_values = list(values)
+    else:
+        raw_values = [values]
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in raw_values:
+        text = str(item or "").strip().upper()
+        if not text:
+            continue
+        if text == predicate:
+            raise ValueError("opposite_predicates cannot reference itself")
+        if text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
+    return tuple(normalized)
+
+
+def _normalize_action(value: Any, *, field_name: str) -> GraphConflictAction:
+    text = str(value or DEFAULT_GRAPH_CONFLICT_ACTION).strip()
+    if text not in _VALID_ACTIONS:
+        raise ValueError(f"{field_name} must be one of: {', '.join(sorted(_VALID_ACTIONS))}")
+    return text  # type: ignore[return-value]
+
+
+def _normalize_scope(value: Any, *, field_name: str) -> GraphExclusiveScope:
+    text = str(value or DEFAULT_GRAPH_EXCLUSIVE_SCOPE).strip()
+    if text not in _VALID_SCOPES:
+        raise ValueError(f"{field_name} must be one of: {', '.join(sorted(_VALID_SCOPES))}")
+    return text  # type: ignore[return-value]
+
+
+def _normalize_exclusive_group(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _validate_rule_combinations(
+    *,
+    predicate: str,
+    opposite_predicates: tuple[str, ...],
+    opposite_resolution: GraphConflictAction,
+    exclusive_group: str | None,
+    exclusive_resolution: GraphConflictAction,
+) -> None:
+    del predicate
+    if not opposite_predicates and opposite_resolution != DEFAULT_GRAPH_CONFLICT_ACTION:
+        raise ValueError("opposite_predicates are required when opposite_resolution overrides the default")
+    if exclusive_group is None and exclusive_resolution != DEFAULT_GRAPH_CONFLICT_ACTION:
+        raise ValueError("exclusive_group is required when exclusive_resolution overrides the default")
+    if not opposite_predicates and not exclusive_group:
+        raise ValueError("graph conflict rule must define at least one conflict mechanism")

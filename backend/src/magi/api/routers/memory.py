@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_memory_integration, require_unified_memory
@@ -52,10 +52,27 @@ class L2EntityActionBody(BaseModel):
 
 class GraphConflictRuleBody(BaseModel):
     opposite_predicates: List[str] = Field(default_factory=list, description="Predicates that conflict as logical opposites")
-    opposite_resolution: str = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
+    opposite_resolution: Literal["mark_deprecated", "mark_conflicted"] = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
     exclusive_group: Optional[str] = Field(default=None, description="Optional mutual-exclusion group")
-    exclusive_scope: str = Field(default="same_subject", description="Conflict scope")
-    exclusive_resolution: str = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
+    exclusive_scope: Literal["same_subject"] = Field(default="same_subject", description="Conflict scope")
+    exclusive_resolution: Literal["mark_deprecated", "mark_conflicted"] = Field(default="mark_deprecated", description="mark_deprecated|mark_conflicted")
+
+    @field_validator("opposite_predicates", mode="before")
+    @classmethod
+    def _normalize_opposites(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("opposite_predicates must be a list of strings")
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    @field_validator("exclusive_group", mode="before")
+    @classmethod
+    def _normalize_exclusive_group(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 def _resolve_unified_memory():
@@ -223,16 +240,19 @@ async def upsert_l2_conflict_rule(predicate: str, body: GraphConflictRuleBody):
     normalized_predicate = predicate.strip()
     if not normalized_predicate:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Predicate is required")
-    return await unified_memory.l2.upsert_graph_conflict_rule(
-        {
-            "predicate": normalized_predicate,
-            "opposite_predicates": body.opposite_predicates,
-            "opposite_resolution": body.opposite_resolution,
-            "exclusive_group": body.exclusive_group,
-            "exclusive_scope": body.exclusive_scope,
-            "exclusive_resolution": body.exclusive_resolution,
-        }
-    )
+    try:
+        return await unified_memory.l2.upsert_graph_conflict_rule(
+            {
+                "predicate": normalized_predicate,
+                "opposite_predicates": body.opposite_predicates,
+                "opposite_resolution": body.opposite_resolution,
+                "exclusive_group": body.exclusive_group,
+                "exclusive_scope": body.exclusive_scope,
+                "exclusive_resolution": body.exclusive_resolution,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @memory_router.post("/l2/manual-event")

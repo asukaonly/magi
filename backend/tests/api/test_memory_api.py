@@ -212,3 +212,35 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     assert update_rule_response.status_code == 200
     assert update_rule_response.json()["predicate"] == "ENDORSES"
     assert update_rule_response.json()["exclusive_group"] == "stance"
+
+
+def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
+    class _RejectingL2Store(_FakeL2Store):
+        async def upsert_graph_conflict_rule(self, payload):
+            raise ValueError("exclusive_group is required when exclusive_resolution overrides the default")
+
+    class _RejectingUnifiedMemory(_FakeUnifiedMemory):
+        def __init__(self):
+            super().__init__()
+            self.l2 = _RejectingL2Store()
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _RejectingUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.put(
+        "/api/memory/l2/conflict-rules/STANCE",
+        json={
+            "opposite_predicates": [],
+            "opposite_resolution": "mark_deprecated",
+            "exclusive_group": None,
+            "exclusive_scope": "same_subject",
+            "exclusive_resolution": "mark_conflicted",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "exclusive_group" in response.json()["detail"]
