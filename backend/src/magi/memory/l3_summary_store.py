@@ -8,11 +8,12 @@ import asyncio
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
 from .embedding_service import MemoryEmbeddingService
+from .hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from .l1_event_store import L1EventStore
 from .sqlite_vec_index import SqliteVecIndex
 
@@ -92,6 +93,12 @@ class L3SummaryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_l3_summary_vectors_summary ON l3_summary_vectors(summary_id);
                 CREATE INDEX IF NOT EXISTS idx_l3_summary_vectors_model ON l3_summary_vectors(embedding_model);
+
+                CREATE VIRTUAL TABLE IF NOT EXISTS l3_summaries_fts USING fts5(
+                    summary_id UNINDEXED,
+                    content,
+                    tokenize='unicode61'
+                );
                 """
             )
             if self._vector_enabled:
@@ -203,10 +210,78 @@ class L3SummaryStore:
                 row = await cursor.fetchone()
                 count = int(row[0]) if row else 0
             await db.execute("DELETE FROM summaries")
+            await db.execute("DELETE FROM l3_summaries_fts")
             await db.commit()
         if self._vector_index is not None:
             await self._vector_index.clear()
         return count
+
+    async def bm25_search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> List[Tuple[str, float]]:
+        """Search L3 summaries via FTS5 BM25 ranking.
+
+        Returns a list of (summary_id, bm25_score) tuples ordered by relevance.
+        """
+        await self.initialize()
+        tokenized = tokenize_for_fts(query)
+        if not tokenized:
+            return []
+        escaped = escape_fts_query(tokenized)
+        if not escaped:
+            return []
+        async with aiosqlite.connect(self.db_path) as db:
+            try:
+                async with db.execute(
+                    """
+                    SELECT summary_id, bm25(l3_summaries_fts) AS score
+                    FROM l3_summaries_fts
+                    WHERE l3_summaries_fts MATCH ?
+                    ORDER BY score
+                    LIMIT ?
+                    """,
+                    (escaped, limit),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                return [(str(row[0]), float(row[1])) for row in rows]
+            except Exception as exc:
+                logger.warning("FTS5 BM25 search failed for L3 summaries: %s", exc)
+                return []
+
+    async def backfill_fts(self, *, batch_size: int = 500) -> int:
+        """Backfill FTS5 index from existing summaries rows."""
+        await self.initialize()
+        indexed = 0
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT summary_id, content FROM summaries
+                WHERE summary_id NOT IN (SELECT summary_id FROM l3_summaries_fts)
+                """
+            ) as cursor:
+                batch: list[tuple[str, str]] = []
+                async for row in cursor:
+                    summary_id = str(row[0])
+                    raw = str(row[1])
+                    batch.append((summary_id, tokenize_for_fts(raw)))
+                    if len(batch) >= batch_size:
+                        await db.executemany(
+                            "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
+                            batch,
+                        )
+                        indexed += len(batch)
+                        batch.clear()
+                if batch:
+                    await db.executemany(
+                        "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
+                        batch,
+                    )
+                    indexed += len(batch)
+            await db.commit()
+        return indexed
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight metadata for reporting."""
@@ -243,6 +318,16 @@ class L3SummaryStore:
                     float(summary["created_at"]),
                     float(summary["updated_at"]),
                 ),
+            )
+            # Sync FTS5 index
+            tokenized = tokenize_for_fts(summary["content"])
+            await db.execute(
+                "DELETE FROM l3_summaries_fts WHERE summary_id = ?",
+                (summary["summary_id"],),
+            )
+            await db.execute(
+                "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
+                (summary["summary_id"], tokenized),
             )
             await db.commit()
         await self._schedule_summary_embedding(summary)
