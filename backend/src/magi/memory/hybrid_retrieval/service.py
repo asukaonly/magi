@@ -36,8 +36,8 @@ class HybridRetrievalService:
         # Build handlers from available stores
         self._l1 = L1Handler(unified_memory.l1, self._config) if unified_memory.l1 else None
         self._l2 = L2Handler(unified_memory.l2) if unified_memory.l2 else None
-        self._l3 = L3Handler(unified_memory.l3) if unified_memory.l3 else None
-        self._l4 = L4Handler(unified_memory.l4) if unified_memory.l4 else None
+        self._l3 = L3Handler(unified_memory.l3, self._config) if unified_memory.l3 else None
+        self._l4 = L4Handler(unified_memory.l4, self._config) if unified_memory.l4 else None
 
         # Build intent decider
         rule_engine = RuleBasedIntentDecider()

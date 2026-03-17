@@ -284,50 +284,223 @@ class L2Handler:
 
 
 class L3Handler:
-    """Execute L3 summary store queries from structured conditions."""
+    """Execute L3 summary store queries with triple-path RRF fusion."""
 
-    def __init__(self, l3_store: Any) -> None:
+    def __init__(self, l3_store: Any, config: Optional[RetrievalConfig] = None) -> None:
         self._store = l3_store
+        self._config = config or RetrievalConfig()
 
     async def execute(
         self,
         conditions: L3Conditions,
         time_range: Optional[TimeRange] = None,
     ) -> List[Dict[str, Any]]:
-        """Query L3 summaries using existing search_summaries."""
+        """Query L3 using BM25 + vector + keyword, fused via RRF."""
         if not conditions.content_query:
             return []
 
         summary_type = conditions.summary_types[0] if conditions.summary_types else None
+        fetch_k = max(conditions.limit * 5, 20)
 
-        results = await self._store.search_summaries(
-            query=conditions.content_query,
-            summary_type=summary_type,
-            limit=conditions.limit,
+        bm25_task = asyncio.ensure_future(self._bm25_path(conditions.content_query, fetch_k))
+        vec_task = asyncio.ensure_future(self._vector_path(conditions.content_query, summary_type, fetch_k))
+        kw_task = asyncio.ensure_future(self._keyword_path(conditions.content_query, summary_type, fetch_k))
+
+        results_or_errors = await asyncio.gather(bm25_task, vec_task, kw_task, return_exceptions=True)
+
+        bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
+        vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
+        kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
+
+        for i, res in enumerate(results_or_errors):
+            if isinstance(res, BaseException):
+                logger.warning("L3 search path %d failed: %s", i, res)
+
+        if not bm25_ids and not vec_ids and not kw_ids:
+            return []
+
+        cfg = self._config
+        fused = rrf_fuse(
+            [bm25_ids, vec_ids, kw_ids],
+            [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword],
+            k=cfg.rrf_k,
         )
 
-        return results
+        top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
+        if not top_ids:
+            return []
+
+        results = await self._fetch_by_ids(top_ids, summary_type)
+        if time_range and results:
+            results = self._filter_by_time(results, time_range)
+        return results[:conditions.limit]
+
+    async def _bm25_path(self, query: str, limit: int) -> List[str]:
+        try:
+            hits = await self._store.bm25_search(query, limit=limit)
+            return [sid for sid, _score in hits]
+        except Exception as exc:
+            logger.warning("L3 BM25 path failed: %s", exc)
+            return []
+
+    async def _vector_path(self, query: str, summary_type: Optional[str], limit: int) -> List[str]:
+        try:
+            results = await self._store._semantic_search_summaries(query=query, summary_type=summary_type, limit=limit)
+            return [r["summary_id"] for r in results]
+        except Exception as exc:
+            logger.warning("L3 vector path failed: %s", exc)
+            return []
+
+    async def _keyword_path(self, query: str, summary_type: Optional[str], limit: int) -> List[str]:
+        try:
+            import aiosqlite
+
+            sql = "SELECT summary_id FROM summaries WHERE content LIKE ?"
+            args: list[Any] = [f"%{query}%"]
+            if summary_type:
+                sql += " AND summary_type = ?"
+                args.append(summary_type)
+            sql += " ORDER BY updated_at DESC LIMIT ?"
+            args.append(limit)
+            async with aiosqlite.connect(self._store.db_path) as db:
+                async with db.execute(sql, tuple(args)) as cursor:
+                    rows = await cursor.fetchall()
+            return [str(row[0]) for row in rows]
+        except Exception as exc:
+            logger.warning("L3 keyword path failed: %s", exc)
+            return []
+
+    async def _fetch_by_ids(self, summary_ids: List[str], summary_type: Optional[str]) -> List[Dict[str, Any]]:
+        if not summary_ids:
+            return []
+        import aiosqlite
+
+        placeholders = ", ".join("?" for _ in summary_ids)
+        sql = f"SELECT * FROM summaries WHERE summary_id IN ({placeholders})"
+        args: list[Any] = list(summary_ids)
+        if summary_type:
+            sql += " AND summary_type = ?"
+            args.append(summary_type)
+        async with aiosqlite.connect(self._store.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        by_id = {str(row["summary_id"]): self._store._row_to_dict(row) for row in rows}
+        return [by_id[sid] for sid in summary_ids if sid in by_id]
+
+    @staticmethod
+    def _filter_by_time(results: List[Dict[str, Any]], time_range: TimeRange) -> List[Dict[str, Any]]:
+        filtered = []
+        for r in results:
+            if time_range.start and r.get("period_end", 0) < time_range.start:
+                continue
+            if time_range.end and r.get("period_start", float("inf")) > time_range.end:
+                continue
+            filtered.append(r)
+        return filtered
 
 
 class L4Handler:
-    """Execute L4 procedural memory queries from structured conditions."""
+    """Execute L4 procedural memory queries with triple-path RRF fusion."""
 
-    def __init__(self, l4_store: Any) -> None:
+    def __init__(self, l4_store: Any, config: Optional[RetrievalConfig] = None) -> None:
         self._store = l4_store
+        self._config = config or RetrievalConfig()
 
     async def execute(
         self,
         conditions: L4Conditions,
         time_range: Optional[TimeRange] = None,
     ) -> List[Dict[str, Any]]:
-        """Query L4 strategies using existing query_strategies."""
+        """Query L4 using BM25 + vector + keyword, fused via RRF."""
         if not conditions.content_query:
             return []
 
-        return await self._store.query_strategies(
-            query=conditions.content_query,
-            limit=conditions.limit,
+        fetch_k = max(conditions.limit * 5, 20)
+
+        bm25_task = asyncio.ensure_future(self._bm25_path(conditions.content_query, fetch_k))
+        vec_task = asyncio.ensure_future(self._vector_path(conditions.content_query, fetch_k))
+        kw_task = asyncio.ensure_future(self._keyword_path(conditions.content_query, fetch_k))
+
+        results_or_errors = await asyncio.gather(bm25_task, vec_task, kw_task, return_exceptions=True)
+
+        bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
+        vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
+        kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
+
+        for i, res in enumerate(results_or_errors):
+            if isinstance(res, BaseException):
+                logger.warning("L4 search path %d failed: %s", i, res)
+
+        if not bm25_ids and not vec_ids and not kw_ids:
+            return []
+
+        cfg = self._config
+        fused = rrf_fuse(
+            [bm25_ids, vec_ids, kw_ids],
+            [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword],
+            k=cfg.rrf_k,
         )
+
+        top_ids = [doc_id for doc_id, _ in fused[:fetch_k]]
+        if not top_ids:
+            return []
+
+        results = await self._fetch_by_ids(top_ids)
+        return results[:conditions.limit]
+
+    async def _bm25_path(self, query: str, limit: int) -> List[str]:
+        try:
+            hits = await self._store.bm25_search(query, limit=limit)
+            return [sid for sid, _score in hits]
+        except Exception as exc:
+            logger.warning("L4 BM25 path failed: %s", exc)
+            return []
+
+    async def _vector_path(self, query: str, limit: int) -> List[str]:
+        try:
+            results = await self._store._semantic_query_strategies(query=query, limit=limit)
+            return [r["skill_id"] for r in results]
+        except Exception as exc:
+            logger.warning("L4 vector path failed: %s", exc)
+            return []
+
+    async def _keyword_path(self, query: str, limit: int) -> List[str]:
+        try:
+            import aiosqlite
+
+            like_query = f"%{query}%"
+            async with aiosqlite.connect(self._store.db_path) as db:
+                async with db.execute(
+                    """
+                    SELECT skill_id FROM procedural_skills
+                    WHERE skill_name LIKE ? OR COALESCE(optimized_prompt, '') LIKE ?
+                    ORDER BY success_rate DESC, updated_at DESC
+                    LIMIT ?
+                    """,
+                    (like_query, like_query, limit),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            return [str(row[0]) for row in rows]
+        except Exception as exc:
+            logger.warning("L4 keyword path failed: %s", exc)
+            return []
+
+    async def _fetch_by_ids(self, skill_ids: List[str]) -> List[Dict[str, Any]]:
+        if not skill_ids:
+            return []
+        import aiosqlite
+
+        placeholders = ", ".join("?" for _ in skill_ids)
+        async with aiosqlite.connect(self._store.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders})",
+                tuple(skill_ids),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        by_id = {str(row["skill_id"]): self._store._row_to_dict(row) for row in rows}
+        return [by_id[sid] for sid in skill_ids if sid in by_id]
 
 
 async def execute_plan(

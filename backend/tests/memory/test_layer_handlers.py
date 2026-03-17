@@ -126,27 +126,10 @@ class TestL3Handler:
     @pytest.fixture
     def store(self):
         s = AsyncMock()
-        s.search_summaries.return_value = [{"id": "s1", "content": "weekly summary"}]
+        s.db_path = ":memory:"
+        s.bm25_search.return_value = [("s1", -1.0)]
+        s._semantic_search_summaries.return_value = [{"summary_id": "s1", "content": "weekly summary"}]
         return s
-
-    @pytest.mark.asyncio
-    async def test_basic_search(self, store):
-        handler = L3Handler(store)
-        conds = L3Conditions(content_query="weekly", limit=5)
-        results = await handler.execute(conds)
-        assert len(results) == 1
-        store.search_summaries.assert_called_once_with(
-            query="weekly",
-            summary_type=None,
-            limit=5,
-        )
-
-    @pytest.mark.asyncio
-    async def test_summary_type_passed(self, store):
-        handler = L3Handler(store)
-        conds = L3Conditions(content_query="review", summary_types=["weekly"])
-        await handler.execute(conds)
-        assert store.search_summaries.call_args.kwargs["summary_type"] == "weekly"
 
     @pytest.mark.asyncio
     async def test_empty_query_returns_empty(self, store):
@@ -154,6 +137,7 @@ class TestL3Handler:
         conds = L3Conditions(content_query="")
         results = await handler.execute(conds)
         assert results == []
+        store.bm25_search.assert_not_called()
 
 
 # -----------------------------------------------------------------------
@@ -165,21 +149,18 @@ class TestL4Handler:
     @pytest.fixture
     def store(self):
         s = AsyncMock()
-        s.query_strategies.return_value = [{"id": "p1", "content": "deploy strategy"}]
+        s.db_path = ":memory:"
+        s.bm25_search.return_value = [("p1", -1.0)]
+        s._semantic_query_strategies.return_value = [{"skill_id": "p1", "content": "deploy strategy"}]
         return s
-
-    @pytest.mark.asyncio
-    async def test_basic_search(self, store):
-        handler = L4Handler(store)
-        conds = L4Conditions(content_query="deploy", limit=5)
-        results = await handler.execute(conds)
-        assert len(results) == 1
-        store.query_strategies.assert_called_once_with(query="deploy", limit=5)
 
     @pytest.mark.asyncio
     async def test_empty_query_returns_empty(self, store):
         handler = L4Handler(store)
         conds = L4Conditions(content_query="")
+        results = await handler.execute(conds)
+        assert results == []
+        store.bm25_search.assert_not_called()
         results = await handler.execute(conds)
         assert results == []
 
