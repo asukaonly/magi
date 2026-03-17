@@ -876,6 +876,64 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
 
 
 @pytest.mark.asyncio
+async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
+    adapter = _FakeAdapter("{}")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-user-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "I like sushi.",
+                    },
+                }
+            )
+            await store.ingest_event(
+                {
+                    "id": "evt-ai-freeform-2",
+                    "type": EventTypes.AI_RESPONSE,
+                    "timestamp": time.time() + 1,
+                    "source": "assistant",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "response": "You might want sushi for dinner.",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 2:
+                    break
+                await asyncio.sleep(0.01)
+
+            stats = store.get_l2_pipeline_stats()
+
+            assert stats["extract_by_evidence_class"]["user_self_report"] >= 1
+            assert stats["extract_by_evidence_class"]["assistant_freeform"] >= 1
+            assert stats["skip_by_reason"]["assistant_freeform"] >= 1
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots():
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)

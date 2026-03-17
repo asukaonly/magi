@@ -776,6 +776,9 @@
       "noAssertions": "暂无断言记录",
       "lab": {
         "title": "L2 实验台",
+        "skippedCount": "策略拦截数",
+        "evidenceBreakdown": "证据类别分布",
+        "skipReasonBreakdown": "拦截原因分布",
         "entityCount": "规范实体数",
         "snapshotCount": "快照数量",
         "manualEventLabel": "手动事件注入",
@@ -805,6 +808,8 @@
         "noEntities": "暂无规范实体",
         "noMentions": "暂无 mention 证据",
         "noSnapshots": "暂无物化快照",
+        "noEvidenceBreakdown": "暂无证据类别统计",
+        "noSkipReasons": "暂无拦截原因统计",
         "noConflictRules": "暂无持久化冲突规则",
         "noAliases": "暂无别名",
         "noOpposites": "暂无反向谓词",

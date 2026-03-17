@@ -140,6 +140,15 @@ export interface L2QueuedActionResponse {
   entity_ids?: string[];
 }
 
+export interface L2Statistics {
+  relation_count: number;
+  assertion_count: number;
+  extract_skipped?: number;
+  extract_by_evidence_class?: Record<string, number>;
+  skip_by_reason?: Record<string, number>;
+  db_path?: string;
+}
+
 // L3 Summary Types
 export interface L3Summary {
   summary_id: string;
@@ -208,7 +217,7 @@ export const memoryApi = {
 
   // L2 Cognition
   getL2Statistics: () =>
-    api.get<{ relation_count: number; assertion_count: number; db_path?: string }>('/memory/l2/statistics') as unknown as Promise<{ relation_count: number; assertion_count: number; db_path?: string }>,
+    api.get<L2Statistics>('/memory/l2/statistics') as unknown as Promise<L2Statistics>,
   getL2Relations: (limit?: number) =>
     api.get<L2Relation[]>('/memory/l2/relations', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Relation[]>,
   getL2Assertions: (limit?: number) =>

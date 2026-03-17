@@ -163,13 +163,24 @@ async def get_l2_statistics():
     """Get L2 cognition statistics."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
-        return {"relation_count": 0, "assertion_count": 0, "db_path": None}
+        return {
+            "relation_count": 0,
+            "assertion_count": 0,
+            "extract_skipped": 0,
+            "extract_by_evidence_class": {},
+            "skip_by_reason": {},
+            "db_path": None,
+        }
 
     relations = await unified_memory.l2.get_relationships(limit=10000)
     assertions = await unified_memory.l2.list_tom_assertions(limit=10000)
+    pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     return {
         "relation_count": len(relations),
         "assertion_count": len(assertions),
+        "extract_skipped": int(pipeline_stats.get("extract_skipped", 0)),
+        "extract_by_evidence_class": dict(pipeline_stats.get("extract_by_evidence_class", {})),
+        "skip_by_reason": dict(pipeline_stats.get("skip_by_reason", {})),
         "db_path": unified_memory.l2.db_path,
     }
 

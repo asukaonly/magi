@@ -19,12 +19,12 @@ import type {
   L2Mention,
   L2Relation,
   L2Snapshot,
+  L2Statistics,
   ManualL2EventPayload,
-  MemoryStatistics,
 } from '@/api/modules/memory';
 
 interface L2TabProps {
-  stats: MemoryStatistics['l2'];
+  stats: L2Statistics;
   relations: L2Relation[];
   assertions: L2Assertion[];
   entities: L2Entity[];
@@ -105,6 +105,17 @@ export const L2Tab: React.FC<L2TabProps> = ({
     return relations.filter((relation) => relation.status === relationStatusFilter);
   }, [relationStatusFilter, relations]);
 
+  const evidenceBreakdownEntries = useMemo(
+    () =>
+      Object.entries(stats.extract_by_evidence_class || {}).sort((left, right) => right[1] - left[1]),
+    [stats.extract_by_evidence_class]
+  );
+
+  const skipReasonEntries = useMemo(
+    () => Object.entries(stats.skip_by_reason || {}).sort((left, right) => right[1] - left[1]),
+    [stats.skip_by_reason]
+  );
+
   const handleManualSubmit = async () => {
     if (!manualEvent.text.trim() || !manualEvent.user_id.trim()) {
       return;
@@ -140,11 +151,25 @@ export const L2Tab: React.FC<L2TabProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <MetricCard label={t('memory.l2.relationCount')} value={stats.relation_count} />
         <MetricCard label={t('memory.l2.assertionCount')} value={stats.assertion_count} />
+        <MetricCard label={t('memory.l2.lab.skippedCount')} value={stats.extract_skipped ?? 0} />
         <MetricCard label={t('memory.l2.lab.entityCount')} value={entities.length} />
         <MetricCard label={t('memory.l2.lab.snapshotCount')} value={snapshots.length} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <BreakdownCard
+          title={t('memory.l2.lab.evidenceBreakdown')}
+          emptyText={t('memory.l2.lab.noEvidenceBreakdown')}
+          entries={evidenceBreakdownEntries}
+        />
+        <BreakdownCard
+          title={t('memory.l2.lab.skipReasonBreakdown')}
+          emptyText={t('memory.l2.lab.noSkipReasons')}
+          entries={skipReasonEntries}
+        />
       </div>
 
       <Card className="border-dashed">
@@ -522,3 +547,29 @@ const InfoCard: React.FC<{
 };
 
 export default L2Tab;
+
+const BreakdownCard: React.FC<{
+  title: string;
+  emptyText: string;
+  entries: Array<[string, number]>;
+}> = ({ title, emptyText, entries }) => (
+  <Card>
+    <CardHeader>
+      <CardTitle>{title}</CardTitle>
+    </CardHeader>
+    <CardContent>
+      {entries.length === 0 ? (
+        <div className="py-8 text-center text-muted-foreground">{emptyText}</div>
+      ) : (
+        <div className="space-y-2">
+          {entries.map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between rounded-lg border p-3 text-sm">
+              <span className="font-medium">{label}</span>
+              <Badge variant="secondary">{value}</Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </CardContent>
+  </Card>
+);

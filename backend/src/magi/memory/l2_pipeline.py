@@ -6,7 +6,7 @@ import asyncio
 import json
 import re
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
 from .event_contracts import MemoryEvent
@@ -51,6 +51,8 @@ class L2PipelineStats:
     snapshot_failed: int = 0
     relations_written: int = 0
     assertions_written: int = 0
+    extract_by_evidence_class: dict[str, int] = field(default_factory=dict)
+    skip_by_reason: dict[str, int] = field(default_factory=dict)
 
 
 class L2Pipeline:
@@ -205,8 +207,11 @@ class L2Pipeline:
 
         stored_event = await self._load_stored_event(event)
         classification = classify_event_evidence(stored_event)
+        self._increment_bucket(self._stats.extract_by_evidence_class, classification.evidence_class)
         policy = resolve_l2_policy(classification)
         if not policy.allow_graph_write and not policy.allow_assertion_write:
+            if policy.skip_reason:
+                self._increment_bucket(self._stats.skip_by_reason, policy.skip_reason)
             return {
                 "relation_count": 0,
                 "assertion_count": 0,
@@ -551,6 +556,11 @@ class L2Pipeline:
                 and str(candidate.get("trait_family", "")).strip().casefold() in _TOPOLOGY_ONLY_TRAIT_FAMILIES
             ]
         return []
+
+    def _increment_bucket(self, bucket: dict[str, int], key: str | None) -> None:
+        if not key:
+            return
+        bucket[key] = int(bucket.get(key, 0)) + 1
 
     def _normalize_entity_type(self, raw_value: Any) -> Optional[str]:
         text = self._non_empty_text(raw_value)

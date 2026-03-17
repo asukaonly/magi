@@ -19,6 +19,7 @@ vi.mock('@/api/modules/memory', () => ({
     getL1Events: vi.fn(),
     getL2Relations: vi.fn(),
     getL2Assertions: vi.fn(),
+    getL2Statistics: vi.fn(),
     getL2Entities: vi.fn(),
     getL2Mentions: vi.fn(),
     getL2Snapshots: vi.fn(),
@@ -93,6 +94,13 @@ describe('events page', () => {
     });
     vi.mocked(memoryApi.getL2Relations).mockResolvedValue([]);
     vi.mocked(memoryApi.getL2Assertions).mockResolvedValue([]);
+    vi.mocked(memoryApi.getL2Statistics).mockResolvedValue({
+      relation_count: 0,
+      assertion_count: 0,
+      extract_skipped: 0,
+      extract_by_evidence_class: {},
+      skip_by_reason: {},
+    });
     vi.mocked(memoryApi.getL2Entities).mockResolvedValue([]);
     vi.mocked(memoryApi.getL2Mentions).mockResolvedValue([]);
     vi.mocked(memoryApi.getL2Snapshots).mockResolvedValue([]);

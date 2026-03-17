@@ -133,6 +133,32 @@ class _FakeUnifiedMemory:
     async def refresh_l2_snapshots(self, entity_ids: list[str]):
         return bool(entity_ids)
 
+    def get_l2_pipeline_stats(self):
+        return {
+            "is_running": True,
+            "extract_enqueued": 4,
+            "extract_completed": 3,
+            "extract_failed": 0,
+            "extract_skipped": 2,
+            "reconcile_enqueued": 1,
+            "reconcile_completed": 1,
+            "reconcile_failed": 0,
+            "snapshot_enqueued": 1,
+            "snapshot_completed": 1,
+            "snapshot_failed": 0,
+            "relations_written": 2,
+            "assertions_written": 1,
+            "extract_by_evidence_class": {
+                "user_self_report": 2,
+                "assistant_freeform": 1,
+                "assistant_tool_grounded": 1,
+            },
+            "skip_by_reason": {
+                "assistant_freeform": 1,
+                "assistant_tool_grounded": 1,
+            },
+        }
+
 
 def test_memory_statistics_api_reports_new_layers(monkeypatch):
     app = FastAPI()
@@ -212,6 +238,25 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     assert update_rule_response.status_code == 200
     assert update_rule_response.json()["predicate"] == "ENDORSES"
     assert update_rule_response.json()["exclusive_group"] == "stance"
+
+
+def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get("/api/memory/l2/statistics")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["relation_count"] == 0
+    assert body["assertion_count"] == 0
+    assert body["extract_skipped"] == 2
+    assert body["extract_by_evidence_class"]["assistant_freeform"] == 1
+    assert body["skip_by_reason"]["assistant_tool_grounded"] == 1
 
 
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):

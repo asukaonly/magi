@@ -310,6 +310,8 @@ class UnifiedMemoryStore:
                 "snapshot_failed": 0,
                 "relations_written": 0,
                 "assertions_written": 0,
+                "extract_by_evidence_class": {},
+                "skip_by_reason": {},
             }
         return self.l2_pipeline.get_statistics()
 

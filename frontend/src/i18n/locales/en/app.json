@@ -776,6 +776,9 @@
       "noAssertions": "No assertions found",
       "lab": {
         "title": "L2 Lab",
+        "skippedCount": "Skipped By Policy",
+        "evidenceBreakdown": "Evidence Class Breakdown",
+        "skipReasonBreakdown": "Skip Reason Breakdown",
         "entityCount": "Canonical Entities",
         "snapshotCount": "Snapshots",
         "manualEventLabel": "Manual event injection",
@@ -805,6 +808,8 @@
         "noEntities": "No canonical entities yet",
         "noMentions": "No mention evidence yet",
         "noSnapshots": "No snapshots materialized yet",
+        "noEvidenceBreakdown": "No evidence classes recorded yet",
+        "noSkipReasons": "No skip reasons recorded yet",
         "noConflictRules": "No persisted conflict rules yet",
         "noAliases": "No aliases",
         "noOpposites": "No opposite predicates",

@@ -191,4 +191,43 @@ describe('L2Tab lab', () => {
       exclusive_resolution: 'mark_conflicted',
     });
   });
+
+  it('renders evidence class and skip reason breakdowns', () => {
+    render(
+      <L2Tab
+        stats={{
+          relation_count: 0,
+          assertion_count: 0,
+          extract_skipped: 3,
+          extract_by_evidence_class: {
+            user_self_report: 4,
+            assistant_freeform: 2,
+          },
+          skip_by_reason: {
+            assistant_freeform: 2,
+            assistant_tool_grounded: 1,
+          },
+        }}
+        relations={[]}
+        assertions={[]}
+        entities={[]}
+        mentions={[]}
+        snapshots={[]}
+        conflictRules={[]}
+        events={[]}
+        actionLoading={false}
+        onSubmitManualEvent={vi.fn().mockResolvedValue(undefined)}
+        onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
+        onRunReconcile={vi.fn().mockResolvedValue(undefined)}
+        onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+        onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.getByText('memory.l2.lab.skippedCount')).toBeInTheDocument();
+    expect(screen.getByText('memory.l2.lab.evidenceBreakdown')).toBeInTheDocument();
+    expect(screen.getByText('memory.l2.lab.skipReasonBreakdown')).toBeInTheDocument();
+    expect(screen.getByText('user_self_report')).toBeInTheDocument();
+    expect(screen.getByText('assistant_tool_grounded')).toBeInTheDocument();
+  });
 });

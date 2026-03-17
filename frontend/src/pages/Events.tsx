@@ -38,6 +38,7 @@ const EventsPage: React.FC = () => {
     l1Events,
     l2Relations,
     l2Assertions,
+    l2Stats,
     l2Entities,
     l2Mentions,
     l2Snapshots,
@@ -138,7 +139,7 @@ const EventsPage: React.FC = () => {
             <LoadingSpinner />
           ) : (
             <L2Tab
-              stats={stats.l2}
+              stats={l2Stats}
               relations={l2Relations}
               assertions={l2Assertions}
               entities={l2Entities}
