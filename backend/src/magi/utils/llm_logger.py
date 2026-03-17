@@ -5,6 +5,7 @@ Logs LLM request prompts and response outputs.
 """
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
@@ -28,6 +29,7 @@ def setup_llm_logger() -> logging.Logger:
     # Create logger
     llm_logger = logging.getLogger(LLM_CALL_LOGGER_BASE)
     llm_logger.setLevel(logging.DEBUG)
+    llm_logger.propagate = False
 
     # Avoid adding duplicate handlers
     if llm_logger.handlers:
@@ -53,8 +55,18 @@ def setup_llm_logger() -> logging.Logger:
         )
     )
 
-    # Add handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.DEBUG)
+    console_handler.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+
+    # Add handlers
     llm_logger.addHandler(file_handler)
+    llm_logger.addHandler(console_handler)
 
     return llm_logger
 

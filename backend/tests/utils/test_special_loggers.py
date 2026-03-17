@@ -55,8 +55,16 @@ def test_llm_logger_uses_rotating_file_handler_with_unified_format(tmp_path, mon
     configured_logger = llm_logger_module.setup_llm_logger()
 
     assert configured_logger.name == llm_logger_module.LLM_CALL_LOGGER_BASE
-    assert len(configured_logger.handlers) == 1
-    assert isinstance(configured_logger.handlers[0], RotatingFileHandler)
+    assert len(configured_logger.handlers) == 2
+
+    file_handler = next(
+        handler for handler in configured_logger.handlers if isinstance(handler, RotatingFileHandler)
+    )
+    stream_handler = next(
+        handler
+        for handler in configured_logger.handlers
+        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, RotatingFileHandler)
+    )
 
     record = configured_logger.makeRecord(
         configured_logger.name,
@@ -67,9 +75,13 @@ def test_llm_logger_uses_rotating_file_handler_with_unified_format(tmp_path, mon
         args=(),
         exc_info=None,
     )
-    rendered = configured_logger.handlers[0].formatter.format(record)
+    rendered = file_handler.formatter.format(record)
+    stream_rendered = stream_handler.formatter.format(record)
     assert re.search(
         r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[INFO\] \[magi\.llm\.calls\] llm test message$",
         rendered,
     )
-
+    assert re.search(
+        r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[INFO\] \[magi\.llm\.calls\] llm test message$",
+        stream_rendered,
+    )
