@@ -5,10 +5,19 @@ Memory queue based on asyncio.priorityQueue
 import asyncio
 import heapq
 import time
+from dataclasses import asdict, dataclass
 from typing import Callable, Dict, List, Optional, Set
 from collections import defaultdict
 from .backend import MessageBusBackend
 from .events import Event
+
+
+@dataclass
+class MemoryBackendStats:
+    published_count: int = 0
+    dropped_count: int = 0
+    processed_count: int = 0
+    error_count: int = 0
 
 
 class MemoryMessageBackend(MessageBusBackend):
@@ -63,12 +72,7 @@ class MemoryMessageBackend(MessageBusBackend):
         self._counter = 0  # Used to ensure uniqueness of queue elements
 
         # Statistics
-        self._stats = {
-            "published_count": 0,
-            "dropped_count": 0,
-            "processed_count": 0,
-            "error_count": 0,
-        }
+        self._stats = MemoryBackendStats()
 
     async def publish(self, event: Event) -> bool:
         """
@@ -85,22 +89,22 @@ class MemoryMessageBackend(MessageBusBackend):
             if len(self._queue) >= self.max_queue_size:
                 # Handle according to policy
                 if self.drop_policy == "reject":
-                    self._stats["dropped_count"] += 1
+                    self._stats.dropped_count += 1
                     return False
                 elif self.drop_policy == "oldest":
                     # Drop the oldest (queue head)
                     heapq.heappop(self._queue)
-                    self._stats["dropped_count"] += 1
+                    self._stats.dropped_count += 1
                 elif self.drop_policy == "lowest_priority":
                     # Compare new event with lowest priority in queue
                     if self._queue:
                         lowest_priority = -self._queue[0][0]
                         if event.level.value > lowest_priority:
                             heapq.heappop(self._queue)
-                            self._stats["dropped_count"] += 1
+                            self._stats.dropped_count += 1
                         else:
                             # New event has lower priority, reject
-                            self._stats["dropped_count"] += 1
+                            self._stats.dropped_count += 1
                             return False
 
             # Add to priority queue
@@ -108,7 +112,7 @@ class MemoryMessageBackend(MessageBusBackend):
             priority = -event.level.value
             self._counter += 1
             heapq.heappush(self._queue, (priority, self._counter, event))
-            self._stats["published_count"] += 1
+            self._stats.published_count += 1
             return True
 
     async def subscribe(
@@ -222,7 +226,7 @@ class MemoryMessageBackend(MessageBusBackend):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self._stats["error_count"] += 1
+                self._stats.error_count += 1
 
     async def _get_next_event(self) -> Optional[Event]:
         """Get next event from queue"""
@@ -290,11 +294,11 @@ class MemoryMessageBackend(MessageBusBackend):
             else:
                 handler(event)
 
-            self._stats["processed_count"] += 1
+            self._stats.processed_count += 1
 
         except Exception as e:
             # error isolation: single handler failure does not affect others
-            self._stats["error_count"] += 1
+            self._stats.error_count += 1
 
         finally:
             # Decrement pending count
@@ -308,7 +312,7 @@ class MemoryMessageBackend(MessageBusBackend):
             dict: Statistics info
         """
         return {
-            **self._stats,
+            **asdict(self._stats),
             "queue_size": len(self._queue),
             "max_queue_size": self.max_queue_size,
             "subscription_count": len(self._subscription_index),

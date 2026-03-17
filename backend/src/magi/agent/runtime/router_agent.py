@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 from ...awareness.sensor_hub import SensorHub
@@ -12,6 +13,18 @@ from .task_agent_manager import TaskAgentManager
 from .types import build_task_agent_key, get_task_agent_type_value
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class RouterAgentStats:
+    batches: int = 0
+    events: int = 0
+    facts_written: int = 0
+    facts_rejected: int = 0
+    loop_crash_count: int = 0
+    event_error_count: int = 0
+    last_error: str | None = None
+    last_restart_at: float | None = None
 
 
 class RouterAgent:
@@ -33,16 +46,7 @@ class RouterAgent:
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._supervisor_task: Optional[asyncio.Task] = None
-        self._stats = {
-            "batches": 0,
-            "events": 0,
-            "facts_written": 0,
-            "facts_rejected": 0,
-            "loop_crash_count": 0,
-            "event_error_count": 0,
-            "last_error": None,
-            "last_restart_at": None,
-        }
+        self._stats = RouterAgentStats()
 
     async def start(self) -> None:
         if self._running:
@@ -79,8 +83,8 @@ class RouterAgent:
                 )
                 if not batch:
                     continue
-                self._stats["batches"] += 1
-                self._stats["events"] += len(batch)
+                self._stats.batches += 1
+                self._stats.events += len(batch)
 
                 for sensor_event in batch:
                     try:
@@ -97,12 +101,12 @@ class RouterAgent:
                             )
                             success = await self._task_agent_manager.add_fact_to_agent(target_type, target_id, fact)
                             if success:
-                                self._stats["facts_written"] += 1
+                                self._stats.facts_written += 1
                             else:
-                                self._stats["facts_rejected"] += 1
+                                self._stats.facts_rejected += 1
                     except Exception as event_exc:
-                        self._stats["event_error_count"] += 1
-                        self._stats["last_error"] = str(event_exc)
+                        self._stats.event_error_count += 1
+                        self._stats.last_error = str(event_exc)
                         logger.error(
                             f"RouterAgent event processing failed | error={event_exc}",
                             exc_info=True,
@@ -110,7 +114,7 @@ class RouterAgent:
             except asyncio.CancelledError:
                 raise
             except Exception as loop_exc:
-                self._stats["last_error"] = str(loop_exc)
+                self._stats.last_error = str(loop_exc)
                 logger.error(
                     f"RouterAgent loop iteration failed | error={loop_exc}",
                     exc_info=True,
@@ -125,8 +129,8 @@ class RouterAgent:
                         try:
                             exc = self._task.exception()
                             if exc:
-                                self._stats["loop_crash_count"] += 1
-                                self._stats["last_restart_at"] = time.time()
+                                self._stats.loop_crash_count += 1
+                                self._stats.last_restart_at = time.time()
                                 logger.error(f"RouterAgent loop crashed, restarting | error={exc}")
                         except asyncio.CancelledError:
                             pass
@@ -144,4 +148,4 @@ class RouterAgent:
                 await asyncio.sleep(self._restart_backoff_seconds)
 
     def get_stats(self) -> dict:
-        return dict(self._stats)
+        return asdict(self._stats)

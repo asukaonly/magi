@@ -3,9 +3,17 @@ Perception module - perception manager (full version)
 """
 import asyncio
 import bisect
+from dataclasses import asdict, dataclass
 from typing import List, Optional, Callable, Dict, Any
 from collections import deque
 from .base import Perception, PerceptionType, TriggerMode
+
+
+@dataclass
+class PerceptionManagerStats:
+    perceived_count: int = 0
+    dropped_count: int = 0
+    processed_count: int = 0
 
 
 class PerceptionManager:
@@ -42,11 +50,7 @@ class PerceptionManager:
         self._dedup_cache_size = 100
 
         # Statistics
-        self._stats = {
-            "perceived_count": 0,
-            "dropped_count": 0,
-            "processed_count": 0,
-        }
+        self._stats = PerceptionManagerStats()
 
     def register_sensor(self, name: str, sensor):
         """
@@ -92,8 +96,8 @@ class PerceptionManager:
             self._enqueue(perception)
 
         # Update statistics
-        self._stats["perceived_count"] += len(raw_perceptions)
-        self._stats["processed_count"] += len(processed)
+        self._stats.perceived_count += len(raw_perceptions)
+        self._stats.processed_count += len(processed)
 
         return processed
 
@@ -145,7 +149,7 @@ class PerceptionManager:
         fingerprint = f"{perception.type}:{str(perception.data)}"
 
         if fingerprint in self._dedup_cache:
-            self._stats["dropped_count"] += 1
+            self._stats.dropped_count += 1
             return True
 
         # Add to cache
@@ -225,7 +229,7 @@ class PerceptionManager:
         # Limit queue length
         if len(self._queue) > self.max_queue_size:
             self._queue.pop()  # Remove lowest priority
-            self._stats["dropped_count"] += 1
+            self._stats.dropped_count += 1
 
     def get_stats(self) -> dict:
         """
@@ -235,7 +239,7 @@ class PerceptionManager:
             Statistics
         """
         return {
-            **self._stats,
+            **asdict(self._stats),
             "queue_size": len(self._queue),
             "sensor_count": len(self._sensors),
             "dedup_cache_size": len(self._dedup_cache),

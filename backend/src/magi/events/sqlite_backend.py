@@ -7,6 +7,7 @@ import aiosqlite
 import json
 import time
 import logging
+from dataclasses import asdict, dataclass
 from typing import Callable, Dict, List, Optional
 from collections import defaultdict
 from .backend import MessageBusBackend
@@ -19,6 +20,19 @@ STATUS_PENDING = "pending"
 STATUS_PROCESSING = "processing"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
+
+
+@dataclass
+class SQLiteBackendStats:
+    published_count: int = 0
+    dropped_count: int = 0
+    processed_count: int = 0
+    error_count: int = 0
+    handler_error_count: int = 0
+    handler_timeout_count: int = 0
+    retry_count: int = 0
+    dead_letter_count: int = 0
+    broadcast_parallelism: int = 0
 
 
 class SQLiteMessageBackend(MessageBusBackend):
@@ -81,17 +95,7 @@ class SQLiteMessageBackend(MessageBusBackend):
         self._broadcast_semaphore: Optional[asyncio.Semaphore] = None
 
         # Statistics
-        self._stats = {
-            "published_count": 0,
-            "dropped_count": 0,
-            "processed_count": 0,
-            "error_count": 0,
-            "handler_error_count": 0,
-            "handler_timeout_count": 0,
-            "retry_count": 0,
-            "dead_letter_count": 0,
-            "broadcast_parallelism": broadcast_max_concurrency,
-        }
+        self._stats = SQLiteBackendStats(broadcast_parallelism=broadcast_max_concurrency)
 
     @property
     def _expanded_db_path(self) -> str:
@@ -228,7 +232,7 @@ class SQLiteMessageBackend(MessageBusBackend):
                             LIMIT 1
                         )
                     """, (STATUS_PENDING,))
-                    self._stats["dropped_count"] += 1
+                    self._stats.dropped_count += 1
 
                 # Insert new event
                 await db.execute("""
@@ -248,12 +252,12 @@ class SQLiteMessageBackend(MessageBusBackend):
                 ))
 
                 await db.commit()
-                self._stats["published_count"] += 1
+                self._stats.published_count += 1
                 return True
 
         except Exception as e:
             logger.error(f"Failed to publish event: {e}")
-            self._stats["error_count"] += 1
+            self._stats.error_count += 1
             return False
 
     async def subscribe(
@@ -364,7 +368,7 @@ class SQLiteMessageBackend(MessageBusBackend):
                 break
             except Exception as e:
                 logger.error(f"Worker {worker_id} error: {e}")
-                self._stats["error_count"] += 1
+                self._stats.error_count += 1
 
     async def _get_next_event(self) -> Optional[tuple]:
         """
@@ -402,7 +406,7 @@ class SQLiteMessageBackend(MessageBusBackend):
                 "UPDATE message_queue SET status = ? WHERE id = ?",
                 (STATUS_COMPLETED, event_id),
             )
-            self._stats["processed_count"] += 1
+            self._stats.processed_count += 1
             await db.commit()
 
     async def _mark_failed(self, event_id: int, error_message: str) -> None:
@@ -430,7 +434,7 @@ class SQLiteMessageBackend(MessageBusBackend):
                     "UPDATE message_queue SET status = ?, retry_count = ?, last_error = ? WHERE id = ?",
                     (STATUS_PENDING, retry_count, error_message, event_id),
                 )
-                self._stats["retry_count"] += 1
+                self._stats.retry_count += 1
                 logger.info(f"Message {event_id} scheduled for retry ({retry_count}/{self.max_retries})")
             else:
                 # Max retries exceeded, mark as failed
@@ -438,7 +442,7 @@ class SQLiteMessageBackend(MessageBusBackend):
                     "UPDATE message_queue SET status = ?, retry_count = ?, last_error = ? WHERE id = ?",
                     (STATUS_FAILED, retry_count, error_message, event_id),
                 )
-                self._stats["dead_letter_count"] += 1
+                self._stats.dead_letter_count += 1
                 logger.warning(f"Message {event_id} moved to dead letter after {retry_count} retries")
 
             await db.commit()
@@ -501,11 +505,11 @@ class SQLiteMessageBackend(MessageBusBackend):
             result = await asyncio.wait_for(_run_handler(), timeout=self.handler_timeout_seconds)
             return result if result is not None else True
         except asyncio.TimeoutError:
-            self._stats["handler_timeout_count"] += 1
+            self._stats.handler_timeout_count += 1
             logger.warning(f"Handler timeout for event {event.type}")
             return False
         except Exception as e:
-            self._stats["handler_error_count"] += 1
+            self._stats.handler_error_count += 1
             logger.error(f"Handler error for event {event.type}: {e}")
             return False
 
@@ -563,7 +567,7 @@ class SQLiteMessageBackend(MessageBusBackend):
             failed_size = (await cursor.fetchone())[0]
 
         return {
-            **self._stats,
+            **asdict(self._stats),
             "queue_size": queue_size,
             "processing_size": processing_size,
             "failed_size": failed_size,

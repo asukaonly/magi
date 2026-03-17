@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
 from ..core.logger import get_logger
@@ -49,6 +49,21 @@ class MemoryIntegrationConfig:
     )
 
 
+@dataclass
+class MemoryIntegrationStats:
+    """Fixed counters for memory integration activity."""
+
+    events_received: int = 0
+    events_processed: int = 0
+    events_failed: int = 0
+    l1_stored: int = 0
+    l1_filtered: int = 0
+    l2_relations_written: int = 0
+    l2_assertions_written: int = 0
+    l3_summaries_generated: int = 0
+    l4_skills_updated: int = 0
+
+
 class MemoryIntegrationModule:
     """Bridges message bus events into the unified memory layers."""
 
@@ -65,17 +80,7 @@ class MemoryIntegrationModule:
         self._running = False
         self._subscription_ids: List[str] = []
         self._summary_task: Optional[asyncio.Task] = None
-        self._stats: Dict[str, int] = {
-            "events_received": 0,
-            "events_processed": 0,
-            "events_failed": 0,
-            "l1_stored": 0,
-            "l1_filtered": 0,
-            "l2_relations_written": 0,
-            "l2_assertions_written": 0,
-            "l3_summaries_generated": 0,
-            "l4_skills_updated": 0,
-        }
+        self._stats = MemoryIntegrationStats()
 
     async def start(self) -> None:
         """Subscribe to runtime events and start maintenance tasks."""
@@ -127,31 +132,31 @@ class MemoryIntegrationModule:
         self._subscription_ids.clear()
 
     async def _handle_event(self, event: Event) -> None:
-        self._stats["events_received"] += 1
+        self._stats.events_received += 1
         try:
             result = await self.unified_memory.ingest_event(event)
             if result["l1_written"]:
-                self._stats["l1_stored"] += 1
+                self._stats.l1_stored += 1
             else:
-                self._stats["l1_filtered"] += 1
-            self._stats["l2_relations_written"] += int(result["l2_relation_count"])
-            self._stats["l2_assertions_written"] += int(result["l2_assertion_count"])
+                self._stats.l1_filtered += 1
+            self._stats.l2_relations_written += int(result["l2_relation_count"])
+            self._stats.l2_assertions_written += int(result["l2_assertion_count"])
             if result["l4_skill_id"]:
-                self._stats["l4_skills_updated"] += 1
-            self._stats["events_processed"] += 1
+                self._stats.l4_skills_updated += 1
+            self._stats.events_processed += 1
         except Exception as exc:
-            self._stats["events_failed"] += 1
+            self._stats.events_failed += 1
             logger.exception("Failed to process event %s: %s", event.type, exc)
 
     async def _maybe_store_l1(self, event: Event) -> bool:
         """Test helper for the L1 routing decision."""
         normalized = normalize_runtime_event(event)
         if normalized.ingest_target == "l0_only":
-            self._stats["l1_filtered"] += 1
+            self._stats.l1_filtered += 1
             return False
         result = await self.unified_memory.ingest_event(normalized)
         if result["l1_written"]:
-            self._stats["l1_stored"] += 1
+            self._stats.l1_stored += 1
         return bool(result["l1_written"])
 
     async def _summary_generator(self) -> None:
@@ -164,7 +169,7 @@ class MemoryIntegrationModule:
             try:
                 summary = await self.unified_memory.generate_summary(period_type="hour")
                 if summary is not None:
-                    self._stats["l3_summaries_generated"] += 1
+                    self._stats.l3_summaries_generated += 1
             except Exception as exc:
                 logger.warning("Failed periodic summary generation: %s", exc)
 
@@ -172,7 +177,7 @@ class MemoryIntegrationModule:
         """Force-generate a summary for the current hour."""
         summary = await self.unified_memory.generate_summary(period_type="hour")
         if summary is not None:
-            self._stats["l3_summaries_generated"] += 1
+            self._stats.l3_summaries_generated += 1
 
     async def _persist_all(self) -> None:
         if self.unified_memory.l0 is not None:
@@ -181,7 +186,7 @@ class MemoryIntegrationModule:
     def get_statistics(self) -> Dict[str, Any]:
         """Expose integration counters and active config."""
         return {
-            **self._stats,
+            **asdict(self._stats),
             "config": {
                 "enable_l0": self.config.enable_l0,
                 "enable_l1": self.config.enable_l1,
