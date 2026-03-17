@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ...core.runtime_bindings import require_unified_memory
 from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
@@ -62,15 +62,22 @@ class MemoryQueryTool(Tool):
             tags=["memory", "search", "history"],
             timeout=30,
         )
-        self._service = self._build_service()
+        self._service: Optional[HybridRetrievalService] = self._build_service()
 
-    def _build_service(self) -> HybridRetrievalService:
-        unified_memory = None
+    def _build_service(self) -> Optional[HybridRetrievalService]:
         try:
             unified_memory = require_unified_memory()
         except RuntimeError:
-            unified_memory = None
+            return None
         return HybridRetrievalService(unified_memory)
+
+    def _get_service(self) -> HybridRetrievalService:
+        """Return an initialized retrieval service when runtime memory is available."""
+        if self._service is None:
+            self._service = self._build_service()
+        if self._service is None:
+            raise RuntimeError("unified_memory binding is not initialized")
+        return self._service
 
     async def execute(
         self,
@@ -89,7 +96,7 @@ class MemoryQueryTool(Tool):
                 domain_filters=parameters.get("domains", []) or [],
                 limit=parameters.get("limit", 20),
             )
-            payload = await self._service.query(request)
+            payload = await self._get_service().query(request)
             payload_dict = asdict(payload) if hasattr(payload, "__dataclass_fields__") else {
                 "l0_workbench": getattr(payload, "l0_workbench", []),
                 "l1_events": getattr(payload, "l1_events", []),
@@ -116,4 +123,8 @@ class MemoryQueryTool(Tool):
 
     def is_ready(self) -> bool:
         """Check if tool is ready to use."""
+        try:
+            self._get_service()
+        except RuntimeError:
+            return False
         return True

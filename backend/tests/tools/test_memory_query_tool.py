@@ -6,6 +6,21 @@ from unittest.mock import AsyncMock, MagicMock
 class TestMemoryQueryTool:
     """Tests for MemoryQueryTool."""
 
+    def test_tool_initializes_without_runtime_memory_binding(self, monkeypatch):
+        """Should allow schema initialization before unified memory is bound."""
+        import magi.tools.builtin.memory_query_tool as memory_query_module
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+
+        def _raise_uninitialized() -> None:
+            raise RuntimeError("unified_memory binding is not initialized")
+
+        monkeypatch.setattr(memory_query_module, "require_unified_memory", _raise_uninitialized)
+
+        tool = MemoryQueryTool()
+
+        assert tool.get_schema().name == "memory_query"
+        assert tool._service is None
+
     def test_tool_schema_definition(self):
         """Should have proper schema definition."""
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
@@ -54,6 +69,7 @@ class TestMemoryQueryTool:
         from magi.tools.schema import ToolExecutionContext
 
         tool = MemoryQueryTool()
+        tool._service = MagicMock()
         tool._service.query = AsyncMock(
             return_value=MagicMock(
                 l0_workbench=[{"summary": "Current goal"}],
