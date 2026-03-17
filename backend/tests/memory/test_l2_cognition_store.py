@@ -200,3 +200,111 @@ async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
     assert len(deprecated_like_edges) == 1
     assert deprecated_like_edges[0]["predicate"] == "LIKES"
     assert deprecated_like_edges[0]["deprecated_by"] == active_edges[0]["triple_id"]
+
+
+@pytest.mark.asyncio
+async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2_graph_conflicts import GraphConflictRule
+
+    store = L2CognitionStore(
+        db_path=str(tmp_path / "l2.db"),
+        graph_conflict_rules={
+            "ENDORSES": GraphConflictRule(
+                predicate="ENDORSES",
+                opposite_predicates=("REJECTS",),
+                opposite_resolution="mark_conflicted",
+            ),
+            "REJECTS": GraphConflictRule(
+                predicate="REJECTS",
+                opposite_predicates=("ENDORSES",),
+                opposite_resolution="mark_conflicted",
+            ),
+        },
+    )
+    await store.initialize()
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="ENDORSES",
+        object_id="topic:remote-work",
+        object_type="topic",
+        evidence_event_ids=["evt-endorse-1"],
+        confidence=0.74,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+    reject_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="REJECTS",
+        object_id="topic:remote-work",
+        object_type="topic",
+        evidence_event_ids=["evt-reject-1"],
+        confidence=0.78,
+        observed_at=1710090000.0,
+        source_type="chat",
+    )
+
+    active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
+    conflicted_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="conflicted")
+
+    assert len(active_edges) == 1
+    assert active_edges[0]["triple_id"] == reject_id
+    assert len(conflicted_edges) == 1
+    assert conflicted_edges[0]["predicate"] == "ENDORSES"
+    assert conflicted_edges[0]["deprecated_by"] == reject_id
+
+
+@pytest.mark.asyncio
+async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
+    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2_graph_conflicts import GraphConflictRule
+
+    store = L2CognitionStore(
+        db_path=str(tmp_path / "l2.db"),
+        graph_conflict_rules={
+            "PRIMARY_BASED_IN": GraphConflictRule(
+                predicate="PRIMARY_BASED_IN",
+                exclusive_group="current_residence",
+            ),
+            "CURRENT_LIVES_IN": GraphConflictRule(
+                predicate="CURRENT_LIVES_IN",
+                exclusive_group="current_residence",
+            ),
+        },
+    )
+    await store.initialize()
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="PRIMARY_BASED_IN",
+        object_id="place:shanghai",
+        object_type="place",
+        evidence_event_ids=["evt-home-1"],
+        confidence=0.72,
+        observed_at=1710000000.0,
+        source_type="timeline",
+    )
+    live_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_LIVES_IN",
+        object_id="place:tokyo",
+        object_type="place",
+        evidence_event_ids=["evt-home-2"],
+        confidence=0.91,
+        observed_at=1710090000.0,
+        source_type="chat",
+    )
+
+    active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
+    deprecated_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="deprecated")
+
+    assert len(active_edges) == 1
+    assert active_edges[0]["triple_id"] == live_id
+    assert len(deprecated_edges) == 1
+    assert deprecated_edges[0]["predicate"] == "PRIMARY_BASED_IN"
+    assert deprecated_edges[0]["deprecated_by"] == live_id

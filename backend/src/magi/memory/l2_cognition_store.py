@@ -6,32 +6,36 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 import aiosqlite
 
 from .event_contracts import MemoryEvent, TomDepth
+from .l2_graph_conflicts import (
+    GraphConflictRule,
+    build_exclusive_group_index,
+    build_graph_conflict_matrix,
+    iter_opposite_predicates,
+)
 from .l2_models import ContradictionHint, ReconciledTraitOutcome
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
-_OPPOSITE_PREDICATES = {
-    "LIKES": "DISLIKES",
-    "DISLIKES": "LIKES",
-}
-_EXCLUSIVE_PREDICATES = {
-    "CURRENT_WORKS_AT",
-    "CURRENT_LIVES_IN",
-    "CURRENT_RELATIONSHIP_WITH",
-}
 
 
 class L2CognitionStore:
     """Persists structured cognition artifacts derived from L1 events."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/memories/memory.db") -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str = "~/.magi/data/memories/memory.db",
+        graph_conflict_rules: Mapping[str, GraphConflictRule | Mapping[str, Any]] | None = None,
+    ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._initialized = False
+        self._graph_conflict_rules = build_graph_conflict_matrix(graph_conflict_rules)
+        self._exclusive_group_index = build_exclusive_group_index(self._graph_conflict_rules)
 
     async def initialize(self) -> None:
         """Create the cognition schema."""
@@ -972,18 +976,23 @@ class L2CognitionStore:
         observed_at: float,
         now: float,
     ) -> None:
-        opposite_predicate = _OPPOSITE_PREDICATES.get(predicate)
-        if opposite_predicate:
-            await db.execute(
-                """
+        rule = self._graph_conflict_rules.get(predicate)
+        if rule is None:
+            return
+
+        for opposite_predicate in iter_opposite_predicates(rule):
+            await self._apply_graph_status(
+                db=db,
+                status=self._status_from_action(rule.opposite_resolution),
+                triple_id=triple_id,
+                observed_at=observed_at,
+                now=now,
+                query="""
                 UPDATE knowledge_graph
-                SET status = 'deprecated', deprecated_by = ?, deprecated_at = ?, updated_at = ?
+                SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?
                 WHERE subject_id = ? AND object_id = ? AND predicate = ? AND triple_id != ? AND status = 'active'
                 """,
-                (
-                    triple_id,
-                    observed_at,
-                    now,
+                args=(
                     subject_id,
                     object_id,
                     opposite_predicate,
@@ -991,23 +1000,61 @@ class L2CognitionStore:
                 ),
             )
 
-        if predicate in _EXCLUSIVE_PREDICATES:
-            await db.execute(
-                """
-                UPDATE knowledge_graph
-                SET status = 'deprecated', deprecated_by = ?, deprecated_at = ?, updated_at = ?
-                WHERE subject_id = ? AND predicate = ? AND object_id != ? AND triple_id != ? AND status = 'active'
-                """,
-                (
-                    triple_id,
-                    observed_at,
-                    now,
-                    subject_id,
-                    predicate,
-                    object_id,
-                    triple_id,
-                ),
-            )
+        if not rule.exclusive_group:
+            return
+
+        group_predicates = self._exclusive_group_index.get(rule.exclusive_group, ())
+        if not group_predicates:
+            return
+
+        placeholders = ", ".join("?" for _ in group_predicates)
+        await self._apply_graph_status(
+            db=db,
+            status=self._status_from_action(rule.exclusive_resolution),
+            triple_id=triple_id,
+            observed_at=observed_at,
+            now=now,
+            query=f"""
+            UPDATE knowledge_graph
+            SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?
+            WHERE subject_id = ? AND predicate IN ({placeholders}) AND triple_id != ? AND status = 'active'
+              AND (predicate != ? OR object_id != ?)
+            """,
+            args=(
+                subject_id,
+                *group_predicates,
+                triple_id,
+                predicate,
+                object_id,
+            ),
+        )
+
+    async def _apply_graph_status(
+        self,
+        *,
+        db: aiosqlite.Connection,
+        status: str,
+        triple_id: str,
+        observed_at: float,
+        now: float,
+        query: str,
+        args: tuple[Any, ...],
+    ) -> None:
+        await db.execute(
+            query,
+            (
+                status,
+                triple_id,
+                observed_at,
+                now,
+                *args,
+            ),
+        )
+
+    def _status_from_action(self, action: str) -> str:
+        if action == "mark_conflicted":
+            return "conflicted"
+        return "deprecated"
 
     def _entity_identity(self, event: MemoryEvent) -> tuple[Optional[str], Optional[str]]:
         if event.user_id:
