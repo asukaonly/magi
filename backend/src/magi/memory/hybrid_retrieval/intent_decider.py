@@ -6,7 +6,9 @@ memory layers to query and under what conditions.
 
 from __future__ import annotations
 
+import asyncio
 import calendar
+import json
 import logging
 import re
 import time
@@ -473,3 +475,118 @@ class RuleBasedIntentDecider:
     @staticmethod
     def _end_of_day(dt: datetime) -> float:
         return dt.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp()
+
+
+# ---------------------------------------------------------------------------
+# LLMIntentDecider
+# ---------------------------------------------------------------------------
+
+_LLM_SYSTEM_PROMPT = """\
+你是一个记忆系统的检索意图分析器。根据用户的查询意图，决定应该查询哪些记忆层，并生成每层的检索条件。
+
+记忆层说明：
+- L1（事件流）：具体的历史事件、聊天记录、浏览记录、活动记录
+- L2（知识图谱）：人物关系、实体属性、用户画像
+- L3（反思摘要）：时期总结、主题回顾、洞察结论
+- L4（程序性记忆）：工具使用经验、操作策略、最佳实践
+
+注意：
+- 时间范围解析由系统处理，你不需要输出时间信息。
+- 可以选择多层查询。
+- 标记 is_fallback=true 的层只在主查询无结果时执行。
+- 对 L2 查询，请提取相关实体名。
+- content_query 是传入该层检索引擎的优化后查询文本，应去除时间词和无关修饰。
+
+请返回 JSON：
+{
+  "layers": [
+    {
+      "layer": "L1" | "L2" | "L3" | "L4",
+      "is_fallback": false | true,
+      "content_query": "用于该层检索的关键文本",
+      "entities": ["实体名"],
+      "source_filters": ["chat", "browser_history"],
+      "domain_filters": ["user_authored", "external_activity"]
+    }
+  ],
+  "reasoning": "简短解释"
+}"""
+
+_VALID_LAYERS = {"L1", "L2", "L3", "L4"}
+
+
+class LLMIntentDecider:
+    """LLM-based intent decider using CONTEXT_DECIDER scenario."""
+
+    def __init__(self, provider_bridge: Any, *, timeout_seconds: float = 3.0):
+        self._bridge = provider_bridge
+        self._timeout = timeout_seconds
+
+    async def evaluate(self, inp: IntentDeciderInput) -> IntentDecision | None:
+        """Call LLM for intent analysis. Returns None on any failure."""
+        user_prompt = f"用户查询：{inp.query}"
+        try:
+            raw = await self._bridge.chat(
+                system_prompt=_LLM_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}],
+                max_tokens=512,
+                temperature=0.3,
+                disable_thinking=True,
+                json_mode=True,
+                timeout_seconds=self._timeout,
+            )
+            return self._parse_response(raw)
+        except Exception:
+            logger.warning("LLM intent decider failed", exc_info=True)
+            return None
+
+    def _parse_response(self, raw: str) -> IntentDecision | None:
+        """Parse LLM JSON response into IntentDecision."""
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("LLM intent decider returned invalid JSON")
+            return None
+
+        layers_data = data.get("layers")
+        if not isinstance(layers_data, list) or not layers_data:
+            return None
+
+        plans: list[LayerQueryPlan] = []
+        for item in layers_data:
+            layer = item.get("layer", "")
+            if layer not in _VALID_LAYERS:
+                continue
+
+            content_query = item.get("content_query", "")
+            is_fallback = bool(item.get("is_fallback", False))
+            entities = item.get("entities") or []
+            source_filters = item.get("source_filters") or None
+            domain_filters = item.get("domain_filters") or None
+
+            if layer == "L1":
+                conditions = L1Conditions(
+                    content_query=content_query,
+                    source_filters=source_filters,
+                    domain_filters=domain_filters,
+                )
+            elif layer == "L2":
+                conditions = L2Conditions(
+                    entities=entities if entities else None,
+                    include_tom_snapshot=True,
+                    include_relationships=True,
+                )
+            elif layer == "L3":
+                conditions = L3Conditions(content_query=content_query)
+            elif layer == "L4":
+                conditions = L4Conditions(content_query=content_query)
+            else:
+                continue
+
+            plans.append(LayerQueryPlan(layer=layer, conditions=conditions, is_fallback=is_fallback))
+
+        if not plans:
+            return None
+
+        reasoning = data.get("reasoning", "")
+        return IntentDecision(plans=plans, reasoning=reasoning, source="llm")
