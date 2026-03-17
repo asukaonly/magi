@@ -546,3 +546,74 @@ async def test_extract_worker_persists_llm_tom_assertions():
             assert store.get_l2_pipeline_stats()["reconcile_enqueued"] >= 1
         finally:
             await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+        )
+        await store.initialize()
+        try:
+            assert store.l1 is not None
+            assert store.l2 is not None
+            assert store.l2_pipeline is not None
+
+            timestamps = [1710000000.0, 1710090000.0, 1710185000.0]
+            for index, ts in enumerate(timestamps, start=1):
+                memory_event = normalize_runtime_event(
+                    Event(
+                        type=EventTypes.USER_MESSAGE,
+                        data={"user_id": "u1", "session_id": "s1", "message": f"Stress signal {index}"},
+                        source="chat",
+                        level=EventLevel.INFO,
+                        correlation_id=f"evt-reconcile-{index}",
+                        timestamp=ts,
+                        metadata={"user_id": "u1"},
+                    ),
+                    event_id=f"evt-reconcile-{index}",
+                )
+                await store.l1.store(memory_event)
+
+            await store.l2.upsert_assertion_candidate(
+                {
+                    "entity_id": "user:u1",
+                    "entity_type": "user",
+                    "trait_name": "stress_level",
+                    "trait_value": "high",
+                    "confidence_score": 0.3,
+                    "evidence_events": [
+                        "evt-reconcile-1",
+                        "evt-reconcile-2",
+                        "evt-reconcile-3",
+                    ],
+                    "volatility_index": 0.7,
+                    "source_domain": "user_authored",
+                    "inference_depth": "defensive_psychology",
+                    "validation_state": "tentative",
+                    "first_inferred_at": timestamps[0],
+                    "last_validated_at": timestamps[-1],
+                }
+            )
+
+            await store.l2_pipeline.enqueue_entities(["user:u1"])
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["reconcile_completed"] >= 1 and stats["snapshot_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+            snapshot = await store.l2.get_tom_snapshot(entity_id="user:u1", entity_type="user")
+
+            assert assertions[0]["validation_state"] == "stable"
+            assert assertions[0]["confidence_score"] >= 0.82
+            assert snapshot is not None
+            assert snapshot["core_traits"]["stress_level"] == "high"
+            assert snapshot["current_stress_level"] == 1.0
+        finally:
+            await store.shutdown()

@@ -30,6 +30,32 @@ class _FakeL2Store:
     async def list_tom_assertions(self, limit: int = 100):
         return []
 
+    async def list_tom_snapshots(self, limit: int = 100):
+        _ = limit
+        return [
+            {
+                "snapshot_id": "snapshot-1",
+                "entity_id": "user:u1",
+                "entity_type": "user",
+                "core_traits": {"stress_level": "high"},
+            }
+        ]
+
+    async def get_tom_snapshot(self, *, entity_id: str, entity_type: str):
+        if entity_id == "user:u1" and entity_type == "user":
+            return {"snapshot_id": "snapshot-1", "entity_id": entity_id, "entity_type": entity_type}
+        return None
+
+
+class _FakeL2EntityCatalog:
+    async def list_entities(self, limit: int = 100):
+        _ = limit
+        return [{"entity_id": "user:u1", "canonical_name": "User U1", "entity_type": "user", "aliases": []}]
+
+    async def list_mentions(self, limit: int = 100):
+        _ = limit
+        return [{"mention_id": 1, "mention_text": "魔都", "resolved_entity_id": "place:shanghai"}]
+
 
 class _FakeL3Store:
     db_path = "/tmp/l3.db"
@@ -60,6 +86,7 @@ class _FakeUnifiedMemory:
         self.l0 = _FakeL0Store()
         self.l1 = _FakeL1Store()
         self.l2 = _FakeL2Store()
+        self.l2_entity_catalog = _FakeL2EntityCatalog()
         self.l3 = _FakeL3Store()
         self.l4 = _FakeL4Store()
 
@@ -71,6 +98,18 @@ class _FakeUnifiedMemory:
             "l3": {"db_path": "/tmp/l3.db"},
             "l4": {"db_path": "/tmp/l4.db"},
         }
+
+    async def ingest_manual_l2_event(self, request):
+        return {"event_id": "evt-manual-1", "queued": True, "source": request.source}
+
+    async def replay_l2_extraction(self, event_id: str):
+        return event_id == "evt-manual-1"
+
+    async def reconcile_entities(self, entity_ids: list[str]):
+        return bool(entity_ids)
+
+    async def refresh_l2_snapshots(self, entity_ids: list[str]):
+        return bool(entity_ids)
 
 
 def test_memory_statistics_api_reports_new_layers(monkeypatch):
@@ -103,3 +142,36 @@ def test_memory_procedures_api_lists_skills(monkeypatch):
     body = response.json()
     assert body[0]["skill_name"] == "browser.open"
     assert body[0]["success_rate"] == 0.75
+
+
+def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+
+    entities_response = client.get("/api/memory/l2/entities")
+    mentions_response = client.get("/api/memory/l2/mentions")
+    snapshots_response = client.get("/api/memory/l2/snapshots")
+    manual_response = client.post(
+        "/api/memory/l2/manual-event",
+        json={"text": "I like Shanghai.", "user_id": "u1", "source": "l2_lab"},
+    )
+    replay_response = client.post("/api/memory/l2/extract/evt-manual-1")
+    reconcile_response = client.post("/api/memory/l2/reconcile", json={"entity_ids": ["user:u1"]})
+    materialize_response = client.post("/api/memory/l2/snapshot-refresh", json={"entity_ids": ["user:u1"]})
+
+    assert entities_response.status_code == 200
+    assert entities_response.json()[0]["entity_id"] == "user:u1"
+    assert mentions_response.status_code == 200
+    assert mentions_response.json()[0]["mention_text"] == "魔都"
+    assert snapshots_response.status_code == 200
+    assert snapshots_response.json()[0]["snapshot_id"] == "snapshot-1"
+    assert manual_response.status_code == 200
+    assert manual_response.json()["event_id"] == "evt-manual-1"
+    assert replay_response.status_code == 200
+    assert reconcile_response.status_code == 200
+    assert materialize_response.status_code == 200

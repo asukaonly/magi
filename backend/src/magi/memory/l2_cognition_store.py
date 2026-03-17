@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 import aiosqlite
 
 from .event_contracts import MemoryEvent, TomDepth
+from .l2_models import ReconciledTraitOutcome
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
@@ -252,6 +253,32 @@ class L2CognitionStore:
                 row = await cursor.fetchone()
         return self._snapshot_row_to_dict(row) if row else None
 
+    async def list_tom_snapshots(
+        self,
+        *,
+        entity_id: Optional[str] = None,
+        entity_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """List materialized ToM snapshots ordered by recency."""
+        await self.initialize()
+        query = "SELECT * FROM tom_snapshots WHERE 1=1"
+        args: list[Any] = []
+        if entity_id:
+            query += " AND entity_id = ?"
+            args.append(entity_id)
+        if entity_type:
+            query += " AND entity_type = ?"
+            args.append(entity_type)
+        query += " ORDER BY last_updated_at DESC LIMIT ?"
+        args.append(int(limit))
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._snapshot_row_to_dict(row) for row in rows]
+
     async def get_relationships(
         self,
         *,
@@ -304,6 +331,108 @@ class L2CognitionStore:
             )
             await db.commit()
         return count
+
+    async def reconcile_entity(
+        self,
+        *,
+        entity_id: str,
+        entity_type: Optional[str] = None,
+        evidence_timestamps: Optional[Dict[str, float]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Re-evaluate assertion confidence and stability for one entity."""
+        assertions = await self.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
+        if not assertions:
+            return []
+
+        normalized_entity_type = entity_type or assertions[0]["entity_type"]
+        now = time.time()
+        outcomes: list[dict[str, Any]] = []
+
+        async with aiosqlite.connect(self.db_path) as db:
+            for assertion in assertions:
+                evidence_events = [str(item) for item in assertion.get("evidence_events", [])]
+                timestamps = sorted(
+                    float(evidence_timestamps[item])
+                    for item in evidence_events
+                    if evidence_timestamps and item in evidence_timestamps
+                )
+                first_seen = timestamps[0] if timestamps else float(assertion["first_inferred_at"])
+                last_seen = timestamps[-1] if timestamps else float(assertion["last_validated_at"])
+                time_span_hours = max(0.0, (last_seen - first_seen) / 3600.0)
+                evidence_count = len(set(evidence_events))
+
+                status, confidence, stability_kind = self._derive_reconcile_state(
+                    current_state=str(assertion["validation_state"]),
+                    current_confidence=float(assertion["confidence_score"]),
+                    evidence_count=evidence_count,
+                    time_span_hours=time_span_hours,
+                    trait_name=str(assertion["trait_name"]),
+                )
+                snapshot_field = self._recommend_snapshot_field(
+                    trait_name=str(assertion["trait_name"]),
+                    status=status,
+                )
+
+                await db.execute(
+                    """
+                    UPDATE tom_trait_assertions
+                    SET confidence_score = ?, validation_state = ?, last_validated_at = ?, updated_at = ?
+                    WHERE assertion_id = ?
+                    """,
+                    (
+                        confidence,
+                        status,
+                        last_seen,
+                        now,
+                        assertion["assertion_id"],
+                    ),
+                )
+                outcomes.append(
+                    ReconciledTraitOutcome(
+                        entity_id=entity_id,
+                        entity_type=normalized_entity_type,
+                        trait_name=str(assertion["trait_name"]),
+                        winning_value=str(assertion["trait_value"]),
+                        status=status,
+                        confidence=confidence,
+                        evidence_event_ids=evidence_events,
+                        time_span_hours=round(time_span_hours, 2),
+                        stability_kind=stability_kind,
+                        recommended_snapshot_field=snapshot_field,
+                    ).to_dict()
+                )
+            await db.commit()
+        return outcomes
+
+    async def refresh_entity_snapshot(
+        self,
+        *,
+        entity_id: str,
+        entity_type: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Rebuild one snapshot from reconciled assertions and graph edges."""
+        assertions = await self.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
+        outgoing = await self.get_relationships(subject_id=entity_id, limit=200)
+        incoming = await self.get_relationships(object_id=entity_id, limit=200)
+        active_assertions = [
+            item
+            for item in assertions
+            if item["validation_state"] in {"stable", "corroborated"}
+        ]
+        if not assertions and not outgoing and not incoming:
+            return None
+
+        normalized_entity_type = entity_type or (assertions[0]["entity_type"] if assertions else entity_id.split(":", 1)[0])
+        stable_assertions = [item for item in active_assertions if item["validation_state"] == "stable"]
+        snapshot = await self._upsert_snapshot(
+            entity_id=entity_id,
+            entity_type=normalized_entity_type,
+            assertions=active_assertions,
+            stable_assertions=stable_assertions,
+            outgoing_relations=outgoing,
+            incoming_relations=incoming,
+        )
+        return snapshot
 
     def _extract_graph_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
         content = event.raw_content.lower()
@@ -541,6 +670,200 @@ class L2CognitionStore:
                     ),
                 )
             await db.commit()
+
+    async def _upsert_snapshot(
+        self,
+        *,
+        entity_id: str,
+        entity_type: str,
+        assertions: List[Dict[str, Any]],
+        stable_assertions: List[Dict[str, Any]],
+        outgoing_relations: List[Dict[str, Any]],
+        incoming_relations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        now = time.time()
+        stable_by_trait = {item["trait_name"]: item for item in stable_assertions}
+        active_by_trait = {item["trait_name"]: item for item in assertions}
+
+        core_traits: dict[str, Any] = {}
+        preferences: dict[str, Any] = {}
+        sensitive_triggers: list[str] = []
+        public_sentiment_profile: dict[str, Any] = {}
+
+        current_stress_level = 0.0
+        stress_assertion = active_by_trait.get("stress_level")
+        if stress_assertion:
+            stress_value = str(stress_assertion["trait_value"])
+            current_stress_level = 1.0 if stress_value == "high" else 0.2 if stress_value == "low" else 0.5
+            if stress_assertion["validation_state"] == "stable":
+                core_traits["stress_level"] = stress_value
+
+        current_mood = None
+        mood_assertion = active_by_trait.get("mood")
+        if mood_assertion:
+            current_mood = str(mood_assertion["trait_value"])
+
+        current_engagement = 0.5
+        engagement_assertion = active_by_trait.get("engagement")
+        if engagement_assertion:
+            current_engagement = self._engagement_value(str(engagement_assertion["trait_value"]))
+
+        for trait_name, assertion in stable_by_trait.items():
+            if trait_name.startswith("preference."):
+                preference_key = trait_name.split(".", 1)[1]
+                preferences[preference_key] = assertion["trait_value"]
+            elif trait_name.startswith("trigger."):
+                sensitive_triggers.append(str(assertion["trait_value"]))
+            elif trait_name not in {"stress_level", "mood", "engagement"}:
+                core_traits[trait_name] = assertion["trait_value"]
+
+        for relation in outgoing_relations:
+            if relation["predicate"] == "LIKES":
+                preferences[relation["object_id"]] = "like"
+            elif relation["predicate"] == "DISLIKES":
+                preferences[relation["object_id"]] = "dislike"
+
+        relationship_topology = {
+            "outgoing_count": len(outgoing_relations),
+            "incoming_count": len(incoming_relations),
+            "outgoing": [
+                {
+                    "predicate": relation["predicate"],
+                    "object_id": relation["object_id"],
+                    "object_type": relation["object_type"],
+                }
+                for relation in outgoing_relations[:20]
+            ],
+            "incoming": [
+                {
+                    "predicate": relation["predicate"],
+                    "subject_id": relation["subject_id"],
+                    "subject_type": relation["subject_type"],
+                }
+                for relation in incoming_relations[:20]
+            ],
+        }
+        current_context = {
+            "active_assertion_count": len(assertions),
+            "stable_assertion_count": len(stable_assertions),
+            "relation_count": len(outgoing_relations) + len(incoming_relations),
+        }
+        update_source_assertion_ids = [item["assertion_id"] for item in assertions]
+        last_interaction_at = max(
+            [float(item["last_validated_at"]) for item in assertions] + [now]
+        )
+        interaction_count = max(1, len(assertions) + len(outgoing_relations) + len(incoming_relations))
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM tom_snapshots WHERE entity_id = ? AND entity_type = ?",
+                (entity_id, entity_type),
+            ) as cursor:
+                existing = await cursor.fetchone()
+
+            payload = (
+                json.dumps(core_traits, ensure_ascii=False),
+                json.dumps(sorted(set(sensitive_triggers)), ensure_ascii=False),
+                json.dumps(preferences, ensure_ascii=False),
+                json.dumps(public_sentiment_profile, ensure_ascii=False),
+                json.dumps(relationship_topology, ensure_ascii=False),
+                float(current_stress_level),
+                current_mood,
+                float(current_engagement),
+                json.dumps(current_context, ensure_ascii=False),
+                interaction_count,
+                last_interaction_at,
+                now,
+                json.dumps(update_source_assertion_ids, ensure_ascii=False),
+            )
+
+            if existing:
+                await db.execute(
+                    """
+                    UPDATE tom_snapshots
+                    SET core_traits = ?, sensitive_triggers = ?, preferences = ?,
+                        public_sentiment_profile = ?, relationship_topology = ?,
+                        current_stress_level = ?, current_mood = ?, current_engagement = ?,
+                        current_context = ?, interaction_count = ?, last_interaction_at = ?,
+                        last_updated_at = ?, update_source_assertion_ids = ?,
+                        snapshot_version = snapshot_version + 1
+                    WHERE snapshot_id = ?
+                    """,
+                    payload + (str(existing["snapshot_id"]),),
+                )
+            else:
+                await db.execute(
+                    """
+                    INSERT INTO tom_snapshots(
+                        snapshot_id, entity_id, entity_type, core_traits, sensitive_triggers,
+                        preferences, public_sentiment_profile, relationship_topology,
+                        current_stress_level, current_mood, current_engagement, current_context,
+                        interaction_count, last_interaction_at, last_updated_at,
+                        update_source_assertion_ids, snapshot_version, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"snapshot_{uuid.uuid4().hex}",
+                        entity_id,
+                        entity_type,
+                    )
+                    + payload
+                    + (1, now),
+                )
+            await db.commit()
+
+        snapshot = await self.get_tom_snapshot(entity_id=entity_id, entity_type=entity_type)
+        assert snapshot is not None
+        return snapshot
+
+    def _derive_reconcile_state(
+        self,
+        *,
+        current_state: str,
+        current_confidence: float,
+        evidence_count: int,
+        time_span_hours: float,
+        trait_name: str,
+    ) -> tuple[str, float, str]:
+        if current_state == "contradicted":
+            return ("contradicted", min(current_confidence, 0.35), "volatile_pattern")
+
+        if evidence_count >= 3 and time_span_hours >= 24.0:
+            stability_kind = "temporary_state" if trait_name in {"stress_level", "mood", "engagement"} else "stable_trait"
+            return ("stable", max(current_confidence, 0.82), stability_kind)
+
+        if evidence_count >= 2:
+            stability_kind = "temporary_state" if trait_name in {"stress_level", "mood", "engagement"} else "volatile_pattern"
+            return ("corroborated", max(current_confidence, 0.58), stability_kind)
+
+        return ("tentative", min(current_confidence, 0.3), "volatile_pattern")
+
+    def _recommend_snapshot_field(self, *, trait_name: str, status: str) -> str:
+        if status not in {"stable", "corroborated"}:
+            return "none"
+        if trait_name.startswith("preference."):
+            return "preferences"
+        if trait_name.startswith("trigger."):
+            return "sensitive_triggers"
+        if trait_name == "stress_level":
+            return "core_traits" if status == "stable" else "current_stress_level"
+        if trait_name == "mood":
+            return "current_mood"
+        if trait_name == "engagement":
+            return "current_engagement"
+        return "core_traits"
+
+    def _engagement_value(self, value: str) -> float:
+        normalized = value.strip().lower()
+        if normalized in {"high", "engaged", "focused"}:
+            return 0.9
+        if normalized in {"low", "disengaged", "distant"}:
+            return 0.2
+        try:
+            return float(normalized)
+        except ValueError:
+            return 0.5
 
     def _entity_identity(self, event: MemoryEvent) -> tuple[Optional[str], Optional[str]]:
         if event.user_id:

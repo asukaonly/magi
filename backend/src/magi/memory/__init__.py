@@ -17,6 +17,7 @@ from .l1_event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
 from .l2_entity_catalog import L2EntityCatalog
 from .l2_llm_service import L2LLMService
+from .l2_models import ManualL2EventRequest
 from .l2_pipeline import L2Pipeline
 from .l3_summary_store import L3SummaryStore
 from .l4_procedural_memory import L4ProceduralMemoryStore
@@ -169,6 +170,51 @@ class UnifiedMemoryStore:
     async def add_event(self, event: Dict[str, Any] | Event | MemoryEvent) -> str:
         """Store an event in the unified pipeline."""
         return await self.store_event(event)
+
+    async def ingest_manual_l2_event(self, request: ManualL2EventRequest) -> Dict[str, Any]:
+        """Inject a manual event into the normal L1 -> L2 path for testing."""
+        payload = {
+            "user_id": request.user_id,
+            "session_id": request.session_id or f"manual-{request.user_id}",
+            "message": request.text,
+            "entity_focus_hint": request.entity_focus_hint,
+        }
+        metadata = {
+            "manual_l2_lab": True,
+            "entity_focus_hint": request.entity_focus_hint,
+        }
+        return await self.ingest_event(
+            Event(
+                type="USER_MESSAGE",
+                data=payload,
+                timestamp=time.time(),
+                source=request.source,
+                level=EventLevel.INFO,
+                metadata=metadata,
+                correlation_id=f"manual_{int(time.time() * 1000)}",
+            )
+        )
+
+    async def replay_l2_extraction(self, event_id: str) -> bool:
+        """Replay L2 extraction for an already stored L1 event."""
+        if self.l1 is None or self.l2_pipeline is None:
+            return False
+        event = await self.l1.get_memory_event(event_id)
+        if event is None:
+            return False
+        return await self.l2_pipeline.enqueue_event(event)
+
+    async def reconcile_entities(self, entity_ids: list[str]) -> bool:
+        """Trigger entity-level reconcile for one or more entities."""
+        if self.l2_pipeline is None:
+            return False
+        return await self.l2_pipeline.enqueue_entities(entity_ids)
+
+    async def refresh_l2_snapshots(self, entity_ids: list[str]) -> bool:
+        """Trigger snapshot materialization for one or more entities."""
+        if self.l2_pipeline is None:
+            return False
+        return await self.l2_pipeline.enqueue_snapshot_refresh(entity_ids)
 
     async def generate_summary(
         self,

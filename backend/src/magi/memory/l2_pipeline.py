@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
-from .event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
+from .event_contracts import MemoryEvent
 from .l1_event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
 from .l2_entity_catalog import L2EntityCatalog
@@ -158,6 +157,18 @@ class L2Pipeline:
             try:
                 if entity_ids is None:
                     break
+                snapshot_candidates: set[str] = set()
+                if self._cognition_store is not None:
+                    for entity_id in entity_ids:
+                        outcomes = await self._cognition_store.reconcile_entity(
+                            entity_id=entity_id,
+                            entity_type=self._entity_type_from_id(entity_id),
+                            evidence_timestamps=await self._load_evidence_timestamps(entity_id),
+                        )
+                        if outcomes:
+                            snapshot_candidates.add(entity_id)
+                if snapshot_candidates:
+                    await self.enqueue_snapshot_refresh(sorted(snapshot_candidates))
                 self._stats.reconcile_completed += 1
             except Exception:
                 self._stats.reconcile_failed += 1
@@ -170,6 +181,12 @@ class L2Pipeline:
             try:
                 if entity_ids is None:
                     break
+                if self._cognition_store is not None:
+                    for entity_id in entity_ids:
+                        await self._cognition_store.refresh_entity_snapshot(
+                            entity_id=entity_id,
+                            entity_type=self._entity_type_from_id(entity_id),
+                        )
                 self._stats.snapshot_completed += 1
             except Exception:
                 self._stats.snapshot_failed += 1
@@ -233,38 +250,10 @@ class L2Pipeline:
     async def _load_stored_event(self, event: MemoryEvent) -> MemoryEvent:
         if self._l1_store is None:
             return event
-        row = await self._l1_store.get_event(event.event_id)
-        if row is None:
+        stored_event = await self._l1_store.get_memory_event(event.event_id)
+        if stored_event is None:
             return event
-        return MemoryEvent(
-            event_id=str(row["event_id"]),
-            correlation_id=str(row["correlation_id"]),
-            parent_event_id=row["parent_event_id"],
-            timestamp=float(row["timestamp"]),
-            created_at=float(row["created_at"]),
-            event_type=str(row["event_type"]),
-            source=str(row["source"]),
-            source_item_id=row["source_item_id"],
-            memory_domain=MemoryDomain.from_value(row["memory_domain"]),
-            ingest_target=IngestTarget.from_value(row["ingest_target"]),
-            cognition_eligible=bool(row["cognition_eligible"]),
-            tom_depth=TomDepth.from_value(row["tom_depth"]),
-            retention_class=RetentionClass.from_value(row["retention_class"]),
-            session_id=row["session_id"],
-            user_id=row["user_id"],
-            task_id=row["task_id"],
-            goal_id=row["goal_id"],
-            raw_content=str(row["raw_content"]),
-            structured_payload=json.dumps(row.get("structured_payload", {}), ensure_ascii=False),
-            metadata=json.dumps(row.get("metadata", {}), ensure_ascii=False),
-            importance_score=float(row["importance_score"]),
-            importance_t0_base=float(row["importance_t0_base"] or 0.0),
-            importance_t1_score=float(row["importance_t1_score"]) if row["importance_t1_score"] is not None else None,
-            importance_version=int(row["importance_version"]),
-            level=int(row["level"]),
-            media_path=row["media_path"],
-            entity_focus_hint=self._extract_entity_focus_hint(row),
-        )
+        return stored_event
 
     async def _load_context_texts(self, event: MemoryEvent) -> list[str]:
         if self._l1_store is None:
@@ -500,19 +489,6 @@ class L2Pipeline:
                 touched.add(str(entity_id))
         return sorted(touched)
 
-    def _extract_entity_focus_hint(self, row: dict[str, Any]) -> Optional[str]:
-        structured_payload = row.get("structured_payload")
-        metadata = row.get("metadata")
-        if isinstance(structured_payload, dict):
-            payload_hint = self._non_empty_text(structured_payload.get("entity_focus_hint"))
-            if payload_hint:
-                return payload_hint
-        if isinstance(metadata, dict):
-            metadata_hint = self._non_empty_text(metadata.get("entity_focus_hint"))
-            if metadata_hint:
-                return metadata_hint
-        return None
-
     def _normalize_entity_type(self, raw_value: Any) -> Optional[str]:
         text = self._non_empty_text(raw_value)
         return text.casefold() if text else None
@@ -540,6 +516,24 @@ class L2Pipeline:
             return None
         text = str(value).strip()
         return text or None
+
+    async def _load_evidence_timestamps(self, entity_id: str) -> dict[str, float]:
+        if self._l1_store is None or self._cognition_store is None:
+            return {}
+        entity_type = self._entity_type_from_id(entity_id)
+        assertions = await self._cognition_store.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
+        event_ids = sorted({event_id for item in assertions for event_id in item.get("evidence_events", [])})
+        timestamps: dict[str, float] = {}
+        for event_id in event_ids:
+            event = await self._l1_store.get_event(event_id)
+            if event is None:
+                continue
+            timestamps[event_id] = float(event["timestamp"])
+        return timestamps
+
+    def _entity_type_from_id(self, entity_id: str) -> str:
+        prefix, _, _ = entity_id.partition(":")
+        return prefix or "entity"
 
 
 __all__ = ["L2Pipeline", "L2PipelineStats"]
