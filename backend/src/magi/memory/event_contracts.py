@@ -136,6 +136,7 @@ class MemoryEvent:
     importance_version: int
     level: int
     media_path: Optional[str] = None
+    entity_focus_hint: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -165,6 +166,7 @@ class MemoryEvent:
             "importance_version": self.importance_version,
             "level": self.level,
             "media_path": self.media_path,
+            "entity_focus_hint": self.entity_focus_hint,
         }
 
 
@@ -182,6 +184,7 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
     user_id = _first_non_empty(payload.get("user_id"), metadata.get("user_id"))
     goal_id = _first_non_empty(payload.get("goal_id"), metadata.get("goal_id"))
     source_item_id = _first_non_empty(payload.get("source_item_id"), metadata.get("source_item_id"))
+    entity_focus_hint = _first_non_empty(payload.get("entity_focus_hint"), metadata.get("entity_focus_hint"))
 
     return MemoryEvent(
         event_id=str(event_id or f"evt_{uuid.uuid4().hex}"),
@@ -210,6 +213,7 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
         importance_version=1,
         level=int(level_value),
         media_path=metadata.get("media_path"),
+        entity_focus_hint=entity_focus_hint,
     )
 
 
