@@ -8,12 +8,13 @@ import asyncio
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
 from .embedding_service import MemoryEmbeddingService
 from .event_contracts import MemoryEvent
+from .hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from .sqlite_vec_index import SqliteVecIndex
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,12 @@ class L4ProceduralMemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_l4_skill_vectors_skill ON l4_skill_vectors(skill_id);
                 CREATE INDEX IF NOT EXISTS idx_l4_skill_vectors_model ON l4_skill_vectors(embedding_model);
+
+                CREATE VIRTUAL TABLE IF NOT EXISTS l4_skills_fts USING fts5(
+                    skill_id UNINDEXED,
+                    content,
+                    tokenize='unicode61'
+                );
                 """
             )
             if self._vector_enabled:
@@ -199,6 +206,13 @@ class L4ProceduralMemoryStore:
                     ),
                 )
                 await db.commit()
+                # Sync FTS5 index (new skill)
+                fts_text = tokenize_for_fts(f"{skill_name} {skill_category} {optimized_prompt or ''}")
+                await db.execute(
+                    "INSERT OR REPLACE INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
+                    (skill_id, fts_text),
+                )
+                await db.commit()
                 await self._schedule_skill_embedding(
                     skill_id=skill_id,
                     skill_name=skill_name,
@@ -274,6 +288,19 @@ class L4ProceduralMemoryStore:
                 ),
             )
             await db.commit()
+            # Sync FTS5 index (updated skill)
+            fts_text = tokenize_for_fts(
+                f"{skill_name} {skill_category} {optimized_prompt or existing['optimized_prompt'] or ''}"
+            )
+            await db.execute(
+                "DELETE FROM l4_skills_fts WHERE skill_id = ?",
+                (str(existing["skill_id"]),),
+            )
+            await db.execute(
+                "INSERT INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
+                (str(existing["skill_id"]), fts_text),
+            )
+            await db.commit()
             await self._schedule_skill_embedding(
                 skill_id=str(existing["skill_id"]),
                 skill_name=skill_name,
@@ -335,10 +362,79 @@ class L4ProceduralMemoryStore:
                 row = await cursor.fetchone()
                 count = int(row[0]) if row else 0
             await db.execute("DELETE FROM procedural_skills")
+            await db.execute("DELETE FROM l4_skills_fts")
             await db.commit()
         if self._vector_index is not None:
             await self._vector_index.clear()
         return count
+
+    async def bm25_search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> List[Tuple[str, float]]:
+        """Search L4 skills via FTS5 BM25 ranking.
+
+        Returns a list of (skill_id, bm25_score) tuples ordered by relevance.
+        """
+        await self.initialize()
+        tokenized = tokenize_for_fts(query)
+        if not tokenized:
+            return []
+        escaped = escape_fts_query(tokenized)
+        if not escaped:
+            return []
+        async with aiosqlite.connect(self.db_path) as db:
+            try:
+                async with db.execute(
+                    """
+                    SELECT skill_id, bm25(l4_skills_fts) AS score
+                    FROM l4_skills_fts
+                    WHERE l4_skills_fts MATCH ?
+                    ORDER BY score
+                    LIMIT ?
+                    """,
+                    (escaped, limit),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                return [(str(row[0]), float(row[1])) for row in rows]
+            except Exception as exc:
+                logger.warning("FTS5 BM25 search failed for L4 skills: %s", exc)
+                return []
+
+    async def backfill_fts(self, *, batch_size: int = 500) -> int:
+        """Backfill FTS5 index from existing procedural_skills rows."""
+        await self.initialize()
+        indexed = 0
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT skill_id, skill_name, skill_category, optimized_prompt
+                FROM procedural_skills
+                WHERE skill_id NOT IN (SELECT skill_id FROM l4_skills_fts)
+                """
+            ) as cursor:
+                batch: list[tuple[str, str]] = []
+                async for row in cursor:
+                    skill_id = str(row[0])
+                    text = f"{row[1]} {row[2]} {row[3] or ''}"
+                    batch.append((skill_id, tokenize_for_fts(text)))
+                    if len(batch) >= batch_size:
+                        await db.executemany(
+                            "INSERT INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
+                            batch,
+                        )
+                        indexed += len(batch)
+                        batch.clear()
+                if batch:
+                    await db.executemany(
+                        "INSERT INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
+                        batch,
+                    )
+                    indexed += len(batch)
+            await db.commit()
+        return indexed
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight metadata for higher-level reporting."""
