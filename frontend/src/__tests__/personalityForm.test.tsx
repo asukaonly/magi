@@ -203,4 +203,61 @@ describe('PersonalityForm', () => {
       expect(toast.error).toHaveBeenCalledWith('GLM request failed');
     });
   });
+
+  it('auto-selects Echo-01 as the default preset when current personality is blank', async () => {
+    vi.mocked(personalitiesApi.list).mockResolvedValueOnce({
+      data: [
+        {
+          id: 'seven_hacker',
+          name: '七号',
+          occupation: '赛博乐子人 / 反讽大师',
+          description: 'desc-seven',
+          avatar: 'system-caspar.jpg',
+          prompt: 'prompt-seven',
+          group: 'general',
+          order: 2,
+        },
+        {
+          id: 'echo_ai_ssistant',
+          name: 'Echo-01',
+          occupation: '标准通用型交互助手',
+          description: 'desc-echo',
+          avatar: 'system-echo.jpg',
+          prompt: 'prompt-echo',
+          group: 'general',
+          order: 1,
+        },
+      ],
+    } as any);
+    vi.mocked(personalitiesApi.get).mockResolvedValueOnce({
+      data: {
+        ...DEFAULT_PERSONALITY_CONFIG,
+        persona_entity: {
+          ...DEFAULT_PERSONALITY_CONFIG.persona_entity,
+          basic_profile: {
+            ...DEFAULT_PERSONALITY_CONFIG.persona_entity.basic_profile,
+            name: 'Echo-01',
+          },
+        },
+      },
+    } as any);
+
+    render(
+      <Form
+        initialValues={{
+          llm: {
+            providers: {},
+            selections: {},
+          },
+          personality: DEFAULT_PERSONALITY_CONFIG,
+        }}
+      >
+        <PersonalityForm language="zh" />
+      </Form>
+    );
+
+    await waitFor(() => {
+      expect(personalitiesApi.get).toHaveBeenCalledWith('echo_ai_ssistant', 'zh');
+    });
+  });
 });

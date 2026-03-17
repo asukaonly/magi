@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { SimpleForm as Form } from '../onboarding/simple-form';
+import { FormContext, SimpleForm as Form } from '../onboarding/simple-form';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import {
@@ -26,6 +26,7 @@ interface PersonalityFormProps {
 
 // Group display order
 const GROUP_ORDER = ['magi', 'general'];
+const DEFAULT_PRESET_ID = 'echo_ai_ssistant';
 
 type CachedPhraseKey = 'on_init' | 'on_wake' | 'on_error_generic' | 'on_success' | 'on_switch_attempt';
 
@@ -68,6 +69,8 @@ const mergeConfig = (incoming: Partial<PersonalityConfig>): PersonalityConfig =>
 
 export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = false, language = 'zh' }) => {
   const { t } = useTranslation('onboarding');
+  const formContext = React.useContext(FormContext);
+  const formInstance = formContext?.instance;
   const [presets, setPresets] = useState<PersonalityPreset[]>([]);
   const [generating, setGenerating] = useState(false);
   const [oneLiner, setOneLiner] = useState('');
@@ -79,6 +82,7 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [configLoaded, setConfigLoaded] = useState(false); // Track if config has been loaded
   const [brokenAvatarKeys, setBrokenAvatarKeys] = useState<Record<string, boolean>>({});
+  const [defaultPresetResolved, setDefaultPresetResolved] = useState(false);
 
   useEffect(() => {
     const loadPresets = async () => {
@@ -91,6 +95,70 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
     };
     void loadPresets();
   }, [language]);
+
+  useEffect(() => {
+    if (defaultPresetResolved || !formInstance || presets.length === 0) {
+      return;
+    }
+
+    const currentPersonality = formInstance.getFieldValue(['personality']) as PersonalityConfig | undefined;
+    const currentName = currentPersonality?.persona_entity?.basic_profile?.name;
+    const isBlankSelection = !currentName || currentName === 'AI Assistant';
+
+    if (!isBlankSelection) {
+      setDefaultPresetResolved(true);
+      return;
+    }
+
+    const defaultPreset =
+      presets.find((item) => item.id === DEFAULT_PRESET_ID) ??
+      presets.find((item) => item.name.toLowerCase() === 'echo-01') ??
+      presets.find((item) => item.group === 'general') ??
+      presets[0];
+    if (!defaultPreset) {
+      return;
+    }
+
+    let cancelled = false;
+    const applyDefaultPreset = async () => {
+      setLoadingConfig(true);
+      setConfigLoaded(false);
+      try {
+        const result = await personalitiesApi.get(defaultPreset.id, language);
+        if (cancelled) return;
+        const data = (result.data || {}) as Partial<PersonalityConfig>;
+        const mergedConfig = mergeConfig(data);
+        setConfig(mergedConfig);
+        formInstance.setFieldValue(['personality'], mergedConfig);
+      } catch {
+        if (cancelled) return;
+        const fallbackConfig = mergeConfig({
+          persona_entity: {
+            basic_profile: {
+              name: defaultPreset.name,
+              occupation: defaultPreset.occupation,
+              description: defaultPreset.description,
+              core_background: defaultPreset.prompt,
+              avatar: defaultPreset.avatar,
+            },
+          } as Partial<PersonalityConfig['persona_entity']>,
+        } as Partial<PersonalityConfig>);
+        setConfig(fallbackConfig);
+        formInstance.setFieldValue(['personality'], fallbackConfig);
+      } finally {
+        if (!cancelled) {
+          setLoadingConfig(false);
+          setConfigLoaded(true);
+          setDefaultPresetResolved(true);
+        }
+      }
+    };
+
+    void applyDefaultPreset();
+    return () => {
+      cancelled = true;
+    };
+  }, [defaultPresetResolved, formInstance, language, presets]);
 
   const avatarFor = (item: PersonalityPreset): string => {
     const map: Record<string, string> = {
