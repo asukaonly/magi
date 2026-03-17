@@ -17,7 +17,7 @@ class OpenAIAdapter(LLMAdapter):
     - Embeddings (text-embedding-3-small, text-embedding-3-large)
     """
 
-    # Default embedding model
+    # Legacy fallback value retained for compatibility references.
     DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
     GLM_DISABLED_THINKING_PAYLOAD = {"thinking": {"type": "disabled"}}
 
@@ -52,7 +52,8 @@ class OpenAIAdapter(LLMAdapter):
             client_kwargs["base_url"] = api_endpoint
 
         self._client = AsyncOpenAI(**client_kwargs)
-        self._embedding_model = self.DEFAULT_EMBEDDING_MODEL
+        # Keep embedding model aligned with the scenario-selected model instead of a hardcoded default.
+        self._embedding_model = model
 
     def _apply_glm_thinking_control(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """

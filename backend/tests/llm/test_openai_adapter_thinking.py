@@ -24,6 +24,20 @@ class _FakeOpenAIClient:
         self.chat = SimpleNamespace(completions=self.completions)
 
 
+class _FakeEmbeddingsClient:
+    def __init__(self) -> None:
+        self.kwargs = {}
+
+    async def create(self, **kwargs):
+        self.kwargs = kwargs
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2, 0.3])])
+
+
+class _FakeOpenAIEmbeddingClient:
+    def __init__(self) -> None:
+        self.embeddings = _FakeEmbeddingsClient()
+
+
 @pytest.mark.asyncio
 async def test_glm_chat_disable_thinking_sets_extra_body() -> None:
     adapter = OpenAIAdapter(api_key="test-key", model="glm-4.5", provider="glm")
@@ -68,3 +82,15 @@ async def test_glm_chat_disable_thinking_merges_existing_extra_body() -> None:
         "foo": "bar",
         "thinking": {"type": "disabled"},
     }
+
+
+@pytest.mark.asyncio
+async def test_embedding_uses_selected_model_instead_of_hardcoded_default() -> None:
+    adapter = OpenAIAdapter(api_key="test-key", model="embedding-3", provider="glm")
+    fake_client = _FakeOpenAIEmbeddingClient()
+    adapter._client = fake_client
+
+    vector = await adapter.get_embedding("hello world")
+
+    assert vector == [0.1, 0.2, 0.3]
+    assert fake_client.embeddings.kwargs["model"] == "embedding-3"
