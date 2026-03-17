@@ -48,6 +48,55 @@ class L2LLMService:
             focal_subject=focal_subject,
         )
 
+    async def extract_unified_candidates(
+        self,
+        *,
+        event_window: dict[str, Any],
+        profile: ExtractionProfile,
+        focal_subject: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = await self._generate_json(
+            system_prompt=UNIFIED_EXTRACTION_SYSTEM_PROMPT,
+            prompt=self.render_unified_extraction_prompt(
+                event_window=event_window,
+                profile=profile,
+                focal_subject=focal_subject,
+            ),
+        )
+        mentions = payload.get("mentions")
+        graph_candidates = payload.get("graph_candidates")
+        assertion_candidates = payload.get("assertion_candidates")
+        diagnostics = payload.get("diagnostics")
+
+        normalized_mentions = [item for item in mentions if isinstance(item, dict)] if isinstance(mentions, list) else []
+        normalized_graph_candidates = (
+            [item for item in graph_candidates if isinstance(item, dict)] if isinstance(graph_candidates, list) else []
+        )
+        normalized_assertions: list[dict[str, Any]] = []
+        event_ids = event_window.get("event_ids")
+        is_single_event = isinstance(event_ids, list) and len(event_ids) <= 1
+        if isinstance(assertion_candidates, list):
+            for item in assertion_candidates:
+                if not isinstance(item, dict):
+                    continue
+                candidate = dict(item)
+                confidence = float(candidate.get("confidence", 0.0) or 0.0)
+                if is_single_event:
+                    confidence = min(confidence, 0.3)
+                candidate["confidence"] = round(confidence, 4)
+                normalized_assertions.append(candidate)
+
+        normalized_diagnostics = diagnostics if isinstance(diagnostics, dict) else {"entity_status": "none"}
+        if not normalized_diagnostics.get("entity_status"):
+            normalized_diagnostics["entity_status"] = "none"
+
+        return {
+            "mentions": normalized_mentions,
+            "graph_candidates": normalized_graph_candidates,
+            "assertion_candidates": normalized_assertions,
+            "diagnostics": normalized_diagnostics,
+        }
+
     async def extract_entity_mentions(self, *, event_text: str, context_texts: list[str]) -> list[dict[str, Any]]:
         payload = await self._generate_json(
             system_prompt=ENTITY_MENTION_SYSTEM_PROMPT,
