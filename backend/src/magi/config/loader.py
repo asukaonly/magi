@@ -35,6 +35,11 @@ from typing import Optional, Dict, Any
 
 from .models import AppConfig
 from .diff_utils import deep_merge_dict, extract_dict_overrides
+from .llm_registry import (
+    LLMProviderRegistryModel,
+    build_runtime_llm_defaults,
+    load_llm_provider_registry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +83,9 @@ def get_llm_config_file() -> Path:
     return get_config_dir() / "llm.yaml"
 
 
-def get_llm_default_config_file() -> Path:
-    """Get packaged llm default config file path."""
-    return Path(__file__).parent.parent.parent.parent / "configs" / "llm.default.yaml"
+def get_llm_provider_registry_file() -> Path:
+    """Get packaged llm provider registry file path."""
+    return Path(__file__).parent.parent.parent.parent / "configs" / "llm_providers.yaml"
 
 
 def get_example_config_file() -> Path:
@@ -112,7 +117,7 @@ class ConfigLoader:
         self._yaml_data: Dict[str, Any] = {}
         self._config_file: Path = get_config_file()
         self._llm_config_file: Path = get_llm_config_file()
-        self._llm_default_config_file: Path = get_llm_default_config_file()
+        self._llm_provider_registry_file: Path = get_llm_provider_registry_file()
         self._plugins_index_file: Path = get_plugins_index_file()
 
     def load(self) -> AppConfig:
@@ -153,8 +158,8 @@ class ConfigLoader:
             plugins_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created plugin config directory: {plugins_dir}")
 
-        if not self._llm_default_config_file.exists():
-            raise FileNotFoundError(f"Missing packaged LLM defaults file: {self._llm_default_config_file}")
+        if not self._llm_provider_registry_file.exists():
+            raise FileNotFoundError(f"Missing packaged LLM provider registry file: {self._llm_provider_registry_file}")
 
         # Copy example config if runtime config doesn't exist
         if not config_file.exists():
@@ -423,12 +428,21 @@ class ConfigLoader:
         return data
 
     def _load_effective_llm_config(self) -> Dict[str, Any]:
-        """Load effective LLM config by merging packaged defaults and runtime overrides."""
-        defaults = self._load_yaml_file(self._llm_default_config_file)
+        """Load effective LLM config by merging registry defaults and runtime overrides."""
+        defaults = self._build_llm_defaults()
         overrides = self._load_yaml_file(self._llm_config_file)
-        if not defaults:
-            raise ValueError(f"LLM defaults file is empty: {self._llm_default_config_file}")
         return deep_merge_dict(defaults, overrides)
+
+    def _load_llm_provider_registry(self) -> LLMProviderRegistryModel:
+        """Load packaged provider registry for LLM default generation."""
+        return load_llm_provider_registry(
+            self._llm_provider_registry_file,
+            fallback=LLMProviderRegistryModel(),
+        )
+
+    def _build_llm_defaults(self) -> Dict[str, Any]:
+        """Build default LLM config from provider registry."""
+        return build_runtime_llm_defaults(self._load_llm_provider_registry())
 
     def _build_config(self) -> AppConfig:
         """Build final config by merging YAML + model defaults."""
@@ -497,7 +511,7 @@ class ConfigLoader:
             if isinstance(agent_yaml.get("plugins"), dict) and "packages" in agent_yaml["plugins"]:
                 del agent_yaml["plugins"]["packages"]
             plugins_index = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
-            llm_defaults = self._load_yaml_file(self._llm_default_config_file)
+            llm_defaults = self._build_llm_defaults()
             llm_overrides = self._load_yaml_file(self._llm_config_file)
             llm_effective = deep_merge_dict(llm_defaults, llm_overrides)
             plugin_settings_updates: Dict[str, Dict[str, Any]] = {}

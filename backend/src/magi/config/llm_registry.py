@@ -8,6 +8,7 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 from .models import LLMCapabilitiesSettings, LLMLimitsSettings, LLMSelectionSettings
+from .constants import DEFAULT_MAX_TOKENS
 
 
 def _default_legacy_capabilities() -> LLMCapabilitiesSettings:
@@ -163,3 +164,73 @@ def resolve_llm_profile(
         provider_options=provider_options,
         capability_override_enabled=bool(llm.capability_override_enabled),
     )
+
+
+def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, Any]:
+    """Build runtime LLM defaults from provider registry metadata."""
+    providers: Dict[str, Any] = {}
+    for provider in registry.providers:
+        provider_id = provider.id
+        providers[provider_id] = {
+            "enabled": False,
+            "provider_type": provider_id,
+            "display_name": provider.display_name or provider_id.title(),
+            "api_key": "",
+            "base_url": provider.default_base_url or "",
+            "api_format": None,
+            "custom_models": [],
+            "custom_default_model": "",
+        }
+
+    if not providers:
+        providers["openai"] = {
+            "enabled": False,
+            "provider_type": "openai",
+            "display_name": "OpenAI",
+            "api_key": "",
+            "base_url": "https://api.openai.com/v1",
+            "api_format": None,
+            "custom_models": [],
+            "custom_default_model": "",
+        }
+
+    empty_selection = {
+        "provider_id": "",
+        "model": "",
+        "capability_override_enabled": False,
+        "capabilities": {
+            "vision": False,
+            "image_output": False,
+            "tool_calling": True,
+            "reasoning": True,
+            "embedding": False,
+        },
+        "limits": {
+            "context_window": None,
+            "max_output_tokens": None,
+        },
+        "provider_options": {},
+    }
+
+    embedding_selection = {
+        **empty_selection,
+        "capabilities": {
+            "vision": False,
+            "image_output": False,
+            "tool_calling": False,
+            "reasoning": False,
+            "embedding": True,
+        },
+    }
+
+    return {
+        "providers": providers,
+        "selections": {
+            "context_decider": dict(empty_selection),
+            "core": dict(empty_selection),
+            "embedding": embedding_selection,
+        },
+        "temperature": 0.7,
+        "max_tokens": DEFAULT_MAX_TOKENS,
+        "timeout": 60,
+    }

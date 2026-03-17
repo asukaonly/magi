@@ -1,9 +1,6 @@
 """Tests for config router extensions."""
 
-from pathlib import Path
-
 import pytest
-import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -19,7 +16,11 @@ from magi.api.routers.config import (
 )
 from magi.config.loader import get_config
 from magi.config.models import LLMProviderSettings, LLMSelectionSettings, LLMSettings
-from magi.config.llm_registry import LLMProviderRegistryModel, resolve_llm_profile
+from magi.config.llm_registry import (
+    LLMProviderRegistryModel,
+    build_runtime_llm_defaults,
+    resolve_llm_profile,
+)
 
 
 def test_system_config_defaults_include_llm_provider_pool_and_selections():
@@ -263,9 +264,8 @@ def test_onboarding_template_ignores_llm_environment_variables(monkeypatch: pyte
     assert template.llm.selections["core"].model == ""
 
 
-def test_example_config_uses_scenario_llm_structure():
-    llm_default_path = Path(__file__).resolve().parents[2] / "configs" / "llm.default.yaml"
-    data = yaml.safe_load(llm_default_path.read_text(encoding="utf-8"))
+def test_runtime_llm_defaults_use_scenario_llm_structure():
+    data = build_runtime_llm_defaults(_default_llm_provider_registry())
 
     assert "providers" in data
     assert "selections" in data
