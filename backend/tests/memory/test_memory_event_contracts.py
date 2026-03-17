@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from magi.events.events import Event, EventLevel, EventTypes
+from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass
 
 
 def test_normalized_memory_event_requires_domain_and_ingest_target():
@@ -17,9 +18,9 @@ def test_normalized_memory_event_requires_domain_and_ingest_target():
     normalized = normalize_runtime_event(event)
 
     assert isinstance(normalized, MemoryEvent)
-    assert normalized.memory_domain == "user_authored"
-    assert normalized.ingest_target == "l1_only"
-    assert normalized.retention_class == "permanent"
+    assert normalized.memory_domain == MemoryDomain.USER_AUTHORED
+    assert normalized.ingest_target == IngestTarget.L1_ONLY
+    assert normalized.retention_class == RetentionClass.PERMANENT
 
 
 def test_runtime_progress_event_defaults_to_l0_only():
@@ -35,10 +36,10 @@ def test_runtime_progress_event_defaults_to_l0_only():
 
     normalized = normalize_runtime_event(event)
 
-    assert normalized.ingest_target == "l0_only"
-    assert normalized.memory_domain == "runtime_telemetry"
+    assert normalized.ingest_target == IngestTarget.L0_ONLY
+    assert normalized.memory_domain == MemoryDomain.RUNTIME_TELEMETRY
     assert normalized.cognition_eligible is False
-    assert normalized.retention_class == "disposable"
+    assert normalized.retention_class == RetentionClass.DISPOSABLE
 
 
 def test_task_completed_event_defaults_to_l0_and_l1():
@@ -54,7 +55,7 @@ def test_task_completed_event_defaults_to_l0_and_l1():
 
     normalized = normalize_runtime_event(event)
 
-    assert normalized.ingest_target == "l0_and_l1"
-    assert normalized.memory_domain == "runtime_telemetry"
+    assert normalized.ingest_target == IngestTarget.L0_AND_L1
+    assert normalized.memory_domain == MemoryDomain.RUNTIME_TELEMETRY
     assert normalized.cognition_eligible is False
-    assert normalized.retention_class == "compressible"
+    assert normalized.retention_class == RetentionClass.COMPRESSIBLE

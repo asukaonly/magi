@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -10,7 +11,11 @@ from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
+from .embedding_service import MemoryEmbeddingService
 from .event_contracts import MemoryEvent
+from .sqlite_vec_index import SqliteVecIndex
+
+logger = logging.getLogger(__name__)
 
 
 class L4ProceduralMemoryStore:
@@ -20,10 +25,18 @@ class L4ProceduralMemoryStore:
         self,
         *,
         db_path: str = "~/.magi/data/memories/memory.db",
+        embedding_service: MemoryEmbeddingService | None = None,
         breaker_failure_threshold: int = 3,
         breaker_recovery_successes: int = 2,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self._embedding_service = embedding_service
+        self._vector_index = SqliteVecIndex(
+            db_path=self.db_path,
+            registry_table="l4_skill_vectors",
+            entity_column="skill_id",
+            vec_table_prefix="l4_skill_vec",
+        )
         self.breaker_failure_threshold = int(breaker_failure_threshold)
         self.breaker_recovery_successes = int(breaker_recovery_successes)
         self._initialized = False
@@ -70,11 +83,11 @@ class L4ProceduralMemoryStore:
                 CREATE INDEX IF NOT EXISTS idx_procedural_skill_name ON procedural_skills(skill_name, skill_category);
 
                 CREATE TABLE IF NOT EXISTS l4_skill_vectors (
-                    vector_id TEXT PRIMARY KEY,
+                    vec_rowid INTEGER PRIMARY KEY,
                     skill_id TEXT NOT NULL,
                     embedding_model TEXT NOT NULL,
                     embedding_dim INTEGER NOT NULL,
-                    embedding_payload BLOB NOT NULL,
+                    vec_table TEXT NOT NULL,
                     metadata TEXT,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
@@ -84,6 +97,7 @@ class L4ProceduralMemoryStore:
                 CREATE INDEX IF NOT EXISTS idx_l4_skill_vectors_model ON l4_skill_vectors(embedding_model);
                 """
             )
+            await self._vector_index.initialize()
             await db.commit()
         self._initialized = True
 
@@ -163,6 +177,12 @@ class L4ProceduralMemoryStore:
                     ),
                 )
                 await db.commit()
+                await self._maybe_upsert_skill_embedding(
+                    skill_id=skill_id,
+                    skill_name=skill_name,
+                    skill_category=skill_category,
+                    optimized_prompt=optimized_prompt,
+                )
                 return skill_id
 
             total_attempts = int(existing["total_attempts"]) + 1
@@ -232,6 +252,12 @@ class L4ProceduralMemoryStore:
                 ),
             )
             await db.commit()
+            await self._maybe_upsert_skill_embedding(
+                skill_id=str(existing["skill_id"]),
+                skill_name=skill_name,
+                skill_category=skill_category,
+                optimized_prompt=optimized_prompt or existing["optimized_prompt"],
+            )
             return str(existing["skill_id"])
 
     async def get_skill(self, *, skill_name: str, skill_category: str) -> Optional[Dict[str, Any]]:
@@ -259,8 +285,11 @@ class L4ProceduralMemoryStore:
         return [self._row_to_dict(row) for row in rows]
 
     async def query_strategies(self, *, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search procedural skills by name or optimized prompt."""
+        """Search procedural skills by sqlite-vec and fall back to SQL LIKE."""
         await self.initialize()
+        semantic = await self._semantic_query_strategies(query=query, limit=limit)
+        if semantic:
+            return semantic
         like_query = f"%{query}%"
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -285,6 +314,7 @@ class L4ProceduralMemoryStore:
                 count = int(row[0]) if row else 0
             await db.execute("DELETE FROM procedural_skills")
             await db.commit()
+        await self._vector_index.clear()
         return count
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -378,6 +408,79 @@ class L4ProceduralMemoryStore:
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }
+
+    async def _maybe_upsert_skill_embedding(
+        self,
+        *,
+        skill_id: str,
+        skill_name: str,
+        skill_category: str,
+        optimized_prompt: Optional[str],
+    ) -> None:
+        if self._embedding_service is None:
+            return
+        text = self._build_skill_embedding_text(
+            skill_name=skill_name,
+            skill_category=skill_category,
+            optimized_prompt=optimized_prompt,
+        )
+        embedding = await self._embedding_service.embed_text(text)
+        if embedding is None:
+            return
+        try:
+            await self._vector_index.upsert(
+                entity_id=skill_id,
+                embedding=embedding,
+                metadata={"skill_name": skill_name, "skill_category": skill_category},
+            )
+        except Exception as exc:
+            logger.warning("Failed to upsert skill embedding for %s: %s", skill_id, exc)
+
+    async def _semantic_query_strategies(self, *, query: str, limit: int) -> List[Dict[str, Any]]:
+        if self._embedding_service is None or not query.strip():
+            return []
+        embedding = await self._embedding_service.embed_text(query)
+        if embedding is None:
+            return []
+        try:
+            hits = await self._vector_index.search(embedding=embedding, limit=max(limit * 3, 10))
+        except Exception as exc:
+            logger.warning("Failed semantic search over procedural skills: %s", exc)
+            return []
+        if not hits:
+            return []
+        skill_ids = [hit.entity_id for hit in hits]
+        placeholders = ", ".join("?" for _ in skill_ids)
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders})",
+                tuple(skill_ids),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        skills_by_id = {str(row["skill_id"]): self._row_to_dict(row) for row in rows}
+        ranked: List[Dict[str, Any]] = []
+        for hit in hits:
+            skill = skills_by_id.get(hit.entity_id)
+            if skill is None:
+                continue
+            skill["distance"] = hit.distance
+            ranked.append(skill)
+            if len(ranked) >= limit:
+                break
+        return ranked
+
+    def _build_skill_embedding_text(
+        self,
+        *,
+        skill_name: str,
+        skill_category: str,
+        optimized_prompt: Optional[str],
+    ) -> str:
+        parts = [skill_name, skill_category]
+        if optimized_prompt:
+            parts.append(optimized_prompt)
+        return "\n".join(part for part in parts if part)
 
 
 __all__ = ["L4ProceduralMemoryStore"]

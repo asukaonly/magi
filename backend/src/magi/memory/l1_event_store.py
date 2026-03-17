@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -11,7 +12,9 @@ import aiosqlite
 
 from ..events.events import Event, EventLevel, EventTypes
 from ..timeline.contracts import TimelineEvent
-from .event_contracts import MemoryEvent, normalize_runtime_event
+from .embedding_service import MemoryEmbeddingService
+from .event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
+from .sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
 RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
@@ -34,12 +37,26 @@ RUNTIME_OBSERVATION_EVENT_TYPES = {
     "Heartbeat",
 }
 
+logger = logging.getLogger(__name__)
+
 
 class L1EventStore:
     """Stores immutable normalized memory events in SQLite."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/memories/l1_events.db") -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str = "~/.magi/data/memories/l1_events.db",
+        embedding_service: MemoryEmbeddingService | None = None,
+    ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self._embedding_service = embedding_service
+        self._vector_index = SqliteVecIndex(
+            db_path=self.db_path,
+            registry_table="l1_event_vectors",
+            entity_column="event_id",
+            vec_table_prefix="l1_event_vec",
+        )
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -60,11 +77,11 @@ class L1EventStore:
                     event_type TEXT NOT NULL,
                     source TEXT NOT NULL,
                     source_item_id TEXT,
-                    memory_domain TEXT NOT NULL,
-                    ingest_target TEXT NOT NULL,
+                    memory_domain INTEGER NOT NULL,
+                    ingest_target INTEGER NOT NULL,
                     cognition_eligible INTEGER NOT NULL DEFAULT 0,
-                    tom_depth TEXT NOT NULL DEFAULT 'none',
-                    retention_class TEXT NOT NULL DEFAULT 'compressible',
+                    tom_depth INTEGER NOT NULL DEFAULT 1,
+                    retention_class INTEGER NOT NULL DEFAULT 2,
                     session_id TEXT,
                     user_id TEXT,
                     task_id TEXT,
@@ -100,11 +117,11 @@ class L1EventStore:
                     event_type TEXT NOT NULL,
                     source TEXT NOT NULL,
                     source_item_id TEXT,
-                    memory_domain TEXT NOT NULL,
-                    ingest_target TEXT NOT NULL,
+                    memory_domain INTEGER NOT NULL,
+                    ingest_target INTEGER NOT NULL,
                     cognition_eligible INTEGER NOT NULL DEFAULT 0,
-                    tom_depth TEXT NOT NULL DEFAULT 'none',
-                    retention_class TEXT NOT NULL DEFAULT 'compressible',
+                    tom_depth INTEGER NOT NULL DEFAULT 1,
+                    retention_class INTEGER NOT NULL DEFAULT 2,
                     session_id TEXT,
                     user_id TEXT,
                     task_id TEXT,
@@ -132,11 +149,11 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_retention ON runtime_observations(retention_class);
 
                 CREATE TABLE IF NOT EXISTS l1_event_vectors (
-                    vector_id TEXT PRIMARY KEY,
+                    vec_rowid INTEGER PRIMARY KEY,
                     event_id TEXT NOT NULL,
                     embedding_model TEXT NOT NULL,
                     embedding_dim INTEGER NOT NULL,
-                    embedding_payload BLOB NOT NULL,
+                    vec_table TEXT NOT NULL,
                     metadata TEXT,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
@@ -146,6 +163,7 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_l1_event_vectors_model ON l1_event_vectors(embedding_model);
                 """
             )
+            await self._vector_index.initialize()
             await db.commit()
 
         self._initialized = True
@@ -175,11 +193,11 @@ class L1EventStore:
                     event.event_type,
                     event.source,
                     event.source_item_id,
-                    event.memory_domain,
-                    event.ingest_target,
+                    int(event.memory_domain),
+                    int(event.ingest_target),
                     1 if event.cognition_eligible else 0,
-                    event.tom_depth,
-                    event.retention_class,
+                    int(event.tom_depth),
+                    int(event.retention_class),
                     event.session_id,
                     event.user_id,
                     event.task_id,
@@ -197,7 +215,50 @@ class L1EventStore:
                 ),
             )
             await db.commit()
+        await self._maybe_upsert_event_embedding(event)
         return event.event_id
+
+    async def search_events(
+        self,
+        *,
+        query: str,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        source_filters: Optional[List[str]] = None,
+        domain_filters: Optional[List[str]] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Search L1 events using sqlite-vec and fall back to keyword matching."""
+        semantic_hits = await self._semantic_search_event_hits(query=query, limit=max(limit * 5, 20))
+        if semantic_hits:
+            return await self._fetch_ranked_events(
+                hits=semantic_hits,
+                session_id=session_id,
+                user_id=user_id,
+                event_type=event_type,
+                source_filters=source_filters,
+                domain_filters=domain_filters,
+                limit=limit,
+            )
+
+        events = await self.query_events(
+            session_id=session_id,
+            user_id=user_id,
+            event_type=event_type,
+            source_filters=source_filters,
+            limit=max(limit * 5, 20),
+        )
+        allowed_domains = {MemoryDomain.from_value(value).label for value in domain_filters or []}
+        query_tokens = [token for token in query.lower().split() if token]
+        filtered = [
+            event
+            for event in events
+            if event["memory_domain"] != MemoryDomain.RUNTIME_TELEMETRY.label
+            and (not allowed_domains or event["memory_domain"] in allowed_domains)
+            and all(token in event["raw_content"].lower() for token in query_tokens)
+        ]
+        return filtered[:limit]
 
     async def store_timeline_event(self, event: TimelineEvent) -> str:
         """Normalize a timeline event into the L1 schema."""
@@ -266,7 +327,7 @@ class L1EventStore:
             args.append(user_id)
         if memory_domain:
             query += " AND memory_domain = ?"
-            args.append(memory_domain)
+            args.append(int(MemoryDomain.from_value(memory_domain)))
         if event_type:
             query += " AND event_type = ?"
             args.append(event_type)
@@ -340,6 +401,7 @@ class L1EventStore:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(f"DELETE FROM {FACT_EVENTS_TABLE}")
             await db.commit()
+        await self._vector_index.clear()
         return count
 
     async def clear_runtime_observations(self) -> int:
@@ -359,6 +421,8 @@ class L1EventStore:
                 (float(deleted_at or time.time()), event_id),
             )
             await db.commit()
+        if cursor.rowcount > 0:
+            await self._vector_index.delete_entity(entity_id=event_id)
         return cursor.rowcount > 0
 
     async def query_runtime_observations(
@@ -405,9 +469,95 @@ class L1EventStore:
         event_type = str(event.event_type)
         if event_type in RUNTIME_OBSERVATION_EVENT_TYPES:
             return RUNTIME_OBSERVATIONS_TABLE
-        if event.memory_domain in {"runtime_telemetry", "system_control", "interaction"}:
+        if event.memory_domain in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL, MemoryDomain.INTERACTION}:
             return RUNTIME_OBSERVATIONS_TABLE
         return FACT_EVENTS_TABLE
+
+    async def _maybe_upsert_event_embedding(self, event: MemoryEvent) -> None:
+        if self._embedding_service is None:
+            return
+        if event.memory_domain in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}:
+            return
+        embedding = await self._embedding_service.embed_text(event.raw_content)
+        if embedding is None:
+            return
+        try:
+            await self._vector_index.upsert(
+                entity_id=event.event_id,
+                embedding=embedding,
+                metadata={"event_type": event.event_type, "source": event.source},
+            )
+        except Exception as exc:
+            logger.warning("Failed to upsert event embedding for %s: %s", event.event_id, exc)
+
+    async def _semantic_search_event_hits(self, *, query: str, limit: int) -> list[VectorSearchHit]:
+        if self._embedding_service is None or not query.strip():
+            return []
+        embedding = await self._embedding_service.embed_text(query)
+        if embedding is None:
+            return []
+        try:
+            return await self._vector_index.search(embedding=embedding, limit=limit)
+        except Exception as exc:
+            logger.warning("Failed semantic search over L1 events: %s", exc)
+            return []
+
+    async def _fetch_ranked_events(
+        self,
+        *,
+        hits: list[VectorSearchHit],
+        session_id: Optional[str],
+        user_id: Optional[str],
+        event_type: Optional[str],
+        source_filters: Optional[List[str]],
+        domain_filters: Optional[List[str]],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        if not hits:
+            return []
+        event_ids = [hit.entity_id for hit in hits]
+        query = f"SELECT * FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL"
+        args: list[Any] = []
+        placeholders = ", ".join("?" for _ in event_ids)
+        query += f" AND event_id IN ({placeholders})"
+        args.extend(event_ids)
+        if session_id:
+            query += " AND session_id = ?"
+            args.append(session_id)
+        if user_id:
+            query += " AND user_id = ?"
+            args.append(user_id)
+        if event_type:
+            query += " AND event_type = ?"
+            args.append(event_type)
+        if source_filters:
+            source_placeholders = ", ".join("?" for _ in source_filters)
+            query += f" AND source IN ({source_placeholders})"
+            args.extend(source_filters)
+        allowed_domains = [MemoryDomain.from_value(value) for value in domain_filters or []]
+        if allowed_domains:
+            domain_placeholders = ", ".join("?" for _ in allowed_domains)
+            query += f" AND memory_domain IN ({domain_placeholders})"
+            args.extend(int(domain) for domain in allowed_domains)
+        else:
+            query += " AND memory_domain != ?"
+            args.append(int(MemoryDomain.RUNTIME_TELEMETRY))
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        events_by_id = {str(row["event_id"]): self._row_to_dict(row) for row in rows}
+        ranked: list[Dict[str, Any]] = []
+        for hit in hits:
+            event = events_by_id.get(hit.entity_id)
+            if event is None:
+                continue
+            event["distance"] = hit.distance
+            ranked.append(event)
+            if len(ranked) >= limit:
+                break
+        return ranked
 
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         return {
@@ -419,11 +569,11 @@ class L1EventStore:
             "event_type": str(row["event_type"]),
             "source": str(row["source"]),
             "source_item_id": row["source_item_id"],
-            "memory_domain": str(row["memory_domain"]),
-            "ingest_target": str(row["ingest_target"]),
+            "memory_domain": MemoryDomain.from_value(row["memory_domain"]).label,
+            "ingest_target": IngestTarget.from_value(row["ingest_target"]).label,
             "cognition_eligible": bool(row["cognition_eligible"]),
-            "tom_depth": str(row["tom_depth"]),
-            "retention_class": str(row["retention_class"]),
+            "tom_depth": TomDepth.from_value(row["tom_depth"]).label,
+            "retention_class": RetentionClass.from_value(row["retention_class"]).label,
             "session_id": row["session_id"],
             "user_id": row["user_id"],
             "task_id": row["task_id"],

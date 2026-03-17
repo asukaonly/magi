@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -10,14 +11,30 @@ from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
+from .embedding_service import MemoryEmbeddingService
 from .l1_event_store import L1EventStore
+from .sqlite_vec_index import SqliteVecIndex
+
+logger = logging.getLogger(__name__)
 
 
 class L3SummaryStore:
     """Stores reflection-oriented summaries that remain traceable to L1 evidence."""
 
-    def __init__(self, *, db_path: str = "~/.magi/data/memories/memory.db") -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str = "~/.magi/data/memories/memory.db",
+        embedding_service: MemoryEmbeddingService | None = None,
+    ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self._embedding_service = embedding_service
+        self._vector_index = SqliteVecIndex(
+            db_path=self.db_path,
+            registry_table="l3_summary_vectors",
+            entity_column="summary_id",
+            vec_table_prefix="l3_summary_vec",
+        )
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -52,11 +69,11 @@ class L3SummaryStore:
                 CREATE INDEX IF NOT EXISTS idx_summaries_period ON summaries(summary_type, summary_category, period_start, period_end);
 
                 CREATE TABLE IF NOT EXISTS l3_summary_vectors (
-                    vector_id TEXT PRIMARY KEY,
+                    vec_rowid INTEGER PRIMARY KEY,
                     summary_id TEXT NOT NULL,
                     embedding_model TEXT NOT NULL,
                     embedding_dim INTEGER NOT NULL,
-                    embedding_payload BLOB NOT NULL,
+                    vec_table TEXT NOT NULL,
                     metadata TEXT,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
@@ -66,6 +83,7 @@ class L3SummaryStore:
                 CREATE INDEX IF NOT EXISTS idx_l3_summary_vectors_model ON l3_summary_vectors(embedding_model);
                 """
             )
+            await self._vector_index.initialize()
             await db.commit()
         self._initialized = True
 
@@ -128,8 +146,11 @@ class L3SummaryStore:
         summary_type: Optional[str] = None,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
-        """Perform simple keyword retrieval over summary content."""
+        """Search summaries using sqlite-vec and fall back to keyword matching."""
         await self.initialize()
+        semantic = await self._semantic_search_summaries(query=query, summary_type=summary_type, limit=limit)
+        if semantic:
+            return semantic
         sql = "SELECT * FROM summaries WHERE content LIKE ?"
         args: List[Any] = [f"%{query}%"]
         if summary_type:
@@ -200,6 +221,7 @@ class L3SummaryStore:
                 ),
             )
             await db.commit()
+            await self._maybe_upsert_summary_embedding(summary)
 
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         return {
@@ -222,6 +244,63 @@ class L3SummaryStore:
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }
+
+    async def _maybe_upsert_summary_embedding(self, summary: Dict[str, Any]) -> None:
+        if self._embedding_service is None:
+            return
+        embedding = await self._embedding_service.embed_text(str(summary.get("content") or ""))
+        if embedding is None:
+            return
+        try:
+            await self._vector_index.upsert(
+                entity_id=str(summary["summary_id"]),
+                embedding=embedding,
+                metadata={"summary_type": summary.get("summary_type"), "summary_category": summary.get("summary_category")},
+            )
+        except Exception as exc:
+            logger.warning("Failed to upsert summary embedding for %s: %s", summary.get("summary_id"), exc)
+
+    async def _semantic_search_summaries(
+        self,
+        *,
+        query: str,
+        summary_type: Optional[str],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        if self._embedding_service is None or not query.strip():
+            return []
+        embedding = await self._embedding_service.embed_text(query)
+        if embedding is None:
+            return []
+        try:
+            hits = await self._vector_index.search(embedding=embedding, limit=max(limit * 3, 10))
+        except Exception as exc:
+            logger.warning("Failed semantic search over summaries: %s", exc)
+            return []
+        if not hits:
+            return []
+        summary_ids = [hit.entity_id for hit in hits]
+        placeholders = ", ".join("?" for _ in summary_ids)
+        sql = f"SELECT * FROM summaries WHERE summary_id IN ({placeholders})"
+        args: List[Any] = list(summary_ids)
+        if summary_type:
+            sql += " AND summary_type = ?"
+            args.append(summary_type)
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        summaries_by_id = {str(row["summary_id"]): self._row_to_dict(row) for row in rows}
+        ranked: List[Dict[str, Any]] = []
+        for hit in hits:
+            summary = summaries_by_id.get(hit.entity_id)
+            if summary is None:
+                continue
+            summary["distance"] = hit.distance
+            ranked.append(summary)
+            if len(ranked) >= limit:
+                break
+        return ranked
 
 
 __all__ = ["L3SummaryStore"]

@@ -8,6 +8,7 @@ from ..core.logger import get_logger
 from ..llm.usage_events import LLMUsageEventPublisher
 from ..llm import get_llm_usage_store
 from . import UnifiedMemoryStore
+from .embedding_service import MemoryEmbeddingService
 from .integration import MemoryIntegrationConfig, MemoryIntegrationModule
 
 logger = get_logger(__name__)
@@ -47,6 +48,7 @@ class MemoryStoreModule(LifecycleModule):
             l1_db_path=str(runtime_paths.l1_memory_db_path),
             memory_db_path=str(runtime_paths.memory_db_path),
             persist_dir=str(runtime_paths.memories_dir),
+            embedding_service=MemoryEmbeddingService(scenario_llm_pool),
             enable_l0=config.agent.memory.enable_l0,
             enable_l1=config.agent.memory.enable_l1,
             enable_l2=config.agent.memory.enable_l2,

@@ -11,7 +11,7 @@ from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventTypes
 from . import UnifiedMemoryStore
-from .event_contracts import normalize_runtime_event
+from .event_contracts import IngestTarget, normalize_runtime_event
 
 logger = get_logger(__name__)
 
@@ -151,7 +151,7 @@ class MemoryIntegrationModule:
     async def _maybe_store_l1(self, event: Event) -> bool:
         """Test helper for the L1 routing decision."""
         normalized = normalize_runtime_event(event)
-        if normalized.ingest_target == "l0_only":
+        if normalized.ingest_target == IngestTarget.L0_ONLY:
             self._stats.l1_filtered += 1
             return False
         result = await self.unified_memory.ingest_event(normalized)

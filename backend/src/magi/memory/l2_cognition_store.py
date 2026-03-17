@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
-from .event_contracts import MemoryEvent
+from .event_contracts import MemoryEvent, TomDepth
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
@@ -319,7 +319,7 @@ class L2CognitionStore:
         subject_id, subject_type = self._entity_identity(event)
         if subject_id is None:
             return []
-        if not event.cognition_eligible or event.tom_depth != "defensive_psychology":
+        if not event.cognition_eligible or event.tom_depth != TomDepth.DEFENSIVE_PSYCHOLOGY:
             return []
 
         text = event.raw_content.lower()
@@ -333,8 +333,8 @@ class L2CognitionStore:
                     "confidence_score": 0.3,
                     "evidence_events": [event.event_id],
                     "volatility_index": 0.7,
-                    "source_domain": event.memory_domain,
-                    "inference_depth": event.tom_depth,
+                    "source_domain": event.memory_domain.label,
+                    "inference_depth": event.tom_depth.label,
                     "validation_state": "tentative",
                     "first_inferred_at": event.timestamp,
                     "last_validated_at": event.timestamp,
@@ -350,8 +350,8 @@ class L2CognitionStore:
                     "confidence_score": 0.3,
                     "evidence_events": [event.event_id],
                     "volatility_index": 0.7,
-                    "source_domain": event.memory_domain,
-                    "inference_depth": event.tom_depth,
+                    "source_domain": event.memory_domain.label,
+                    "inference_depth": event.tom_depth.label,
                     "validation_state": "tentative",
                     "first_inferred_at": event.timestamp,
                     "last_validated_at": event.timestamp,

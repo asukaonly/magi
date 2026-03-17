@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..events.events import Event, EventLevel
-from .event_contracts import MemoryEvent, normalize_runtime_event
+from .embedding_service import MemoryEmbeddingService
+from .event_contracts import IngestTarget, MemoryEvent, normalize_runtime_event
 from .l0_working_memory import L0WorkingMemoryStore
 from .l1_event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
@@ -36,6 +37,7 @@ class UnifiedMemoryStore:
         enable_l4: bool = True,
         l0_checkpoint_interval_seconds: int = 30,
         session_timeout_seconds: int = 3600,
+        embedding_service: MemoryEmbeddingService | None = None,
     ) -> None:
         from ..utils.runtime import get_runtime_paths
 
@@ -69,13 +71,13 @@ class UnifiedMemoryStore:
                 restore_on_restart=True,
             )
         if enable_l1:
-            self.l1 = L1EventStore(db_path=l1_db)
+            self.l1 = L1EventStore(db_path=l1_db, embedding_service=embedding_service)
         if enable_l2:
             self.l2 = L2CognitionStore(db_path=shared_memory_db)
         if enable_l3:
-            self.l3 = L3SummaryStore(db_path=shared_memory_db)
+            self.l3 = L3SummaryStore(db_path=shared_memory_db, embedding_service=embedding_service)
         if enable_l4:
-            self.l4 = L4ProceduralMemoryStore(db_path=shared_memory_db)
+            self.l4 = L4ProceduralMemoryStore(db_path=shared_memory_db, embedding_service=embedding_service)
 
         self._initialized = False
         self._write_lock = asyncio.Lock()
@@ -103,7 +105,7 @@ class UnifiedMemoryStore:
             if self.l0 is not None:
                 await self.l0.capture_event(memory_event)
 
-            if self.l1 is not None and memory_event.ingest_target != "l0_only":
+            if self.l1 is not None and memory_event.ingest_target.includes_l1:
                 await self.l1.store(memory_event)
                 if self.l2 is not None:
                     l2_result = await self.l2.apply_memory_event(memory_event)
@@ -112,8 +114,8 @@ class UnifiedMemoryStore:
 
         return {
             "event_id": memory_event.event_id,
-            "ingest_target": memory_event.ingest_target,
-            "l1_written": bool(self.l1 is not None and memory_event.ingest_target != "l0_only"),
+            "ingest_target": memory_event.ingest_target.label,
+            "l1_written": bool(self.l1 is not None and memory_event.ingest_target.includes_l1),
             "l2_relation_count": int(l2_result["relation_count"]),
             "l2_assertion_count": int(l2_result["assertion_count"]),
             "l4_skill_id": l4_skill_id,
@@ -154,8 +156,7 @@ class UnifiedMemoryStore:
     async def search(self, query: str, *, search_type: str = "detail", limit: int = 10) -> list[dict[str, Any]]:
         """Perform a simple layer-aware search without the retrieval router."""
         if search_type in {"detail", "hybrid", "keyword"} and self.l1 is not None:
-            events = await self.l1.query_events(limit=200)
-            return [event for event in events if query.lower() in event["raw_content"].lower()][:limit]
+            return await self.l1.search_events(query=query, limit=limit)
         if search_type == "summary" and self.l3 is not None:
             return await self.l3.search_summaries(query=query, limit=limit)
         if search_type in {"experience", "strategy"} and self.l4 is not None:

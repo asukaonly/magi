@@ -6,9 +6,104 @@ import json
 import time
 import uuid
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Any, Dict, Optional
 
 from ..events.events import Event, EventTypes
+
+
+class _LabeledIntEnum(IntEnum):
+    @property
+    def label(self) -> str:
+        return type(self)._labels()[self]
+
+    @classmethod
+    def from_value(cls, value: "_LabeledIntEnum | int | str") -> "_LabeledIntEnum":
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, int):
+            return cls(value)
+        normalized = str(value).strip().lower()
+        if normalized.isdigit():
+            return cls(int(normalized))
+        try:
+            return cls._labels_by_name()[normalized]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported {cls.__name__}: {value}") from exc
+
+    @classmethod
+    def _labels(cls) -> dict["_LabeledIntEnum", str]:
+        raise NotImplementedError
+
+    @classmethod
+    def _labels_by_name(cls) -> dict[str, "_LabeledIntEnum"]:
+        return {label: item for item, label in cls._labels().items()}
+
+
+class IngestTarget(_LabeledIntEnum):
+    """Storage-efficient ingest routing target for memory events."""
+
+    L0_ONLY = 1
+    L1_ONLY = 2
+    L0_AND_L1 = 3
+
+    @property
+    def includes_l1(self) -> bool:
+        return self in {IngestTarget.L1_ONLY, IngestTarget.L0_AND_L1}
+
+    @classmethod
+    def _labels(cls) -> dict["IngestTarget", str]:
+        return {
+            IngestTarget.L0_ONLY: "l0_only",
+            IngestTarget.L1_ONLY: "l1_only",
+            IngestTarget.L0_AND_L1: "l0_and_l1",
+        }
+
+
+class MemoryDomain(_LabeledIntEnum):
+    USER_AUTHORED = 1
+    EXTERNAL_ACTIVITY = 2
+    RUNTIME_TELEMETRY = 3
+    SYSTEM_CONTROL = 4
+    INTERACTION = 5
+
+    @classmethod
+    def _labels(cls) -> dict["MemoryDomain", str]:
+        return {
+            MemoryDomain.USER_AUTHORED: "user_authored",
+            MemoryDomain.EXTERNAL_ACTIVITY: "external_activity",
+            MemoryDomain.RUNTIME_TELEMETRY: "runtime_telemetry",
+            MemoryDomain.SYSTEM_CONTROL: "system_control",
+            MemoryDomain.INTERACTION: "interaction",
+        }
+
+
+class TomDepth(_LabeledIntEnum):
+    NONE = 1
+    TOPOLOGY_ONLY = 2
+    DEFENSIVE_PSYCHOLOGY = 3
+
+    @classmethod
+    def _labels(cls) -> dict["TomDepth", str]:
+        return {
+            TomDepth.NONE: "none",
+            TomDepth.TOPOLOGY_ONLY: "topology_only",
+            TomDepth.DEFENSIVE_PSYCHOLOGY: "defensive_psychology",
+        }
+
+
+class RetentionClass(_LabeledIntEnum):
+    DISPOSABLE = 1
+    COMPRESSIBLE = 2
+    PERMANENT = 3
+
+    @classmethod
+    def _labels(cls) -> dict["RetentionClass", str]:
+        return {
+            RetentionClass.DISPOSABLE: "disposable",
+            RetentionClass.COMPRESSIBLE: "compressible",
+            RetentionClass.PERMANENT: "permanent",
+        }
 
 
 @dataclass(slots=True)
@@ -23,11 +118,11 @@ class MemoryEvent:
     event_type: str
     source: str
     source_item_id: Optional[str]
-    memory_domain: str
-    ingest_target: str
+    memory_domain: MemoryDomain
+    ingest_target: IngestTarget
     cognition_eligible: bool
-    tom_depth: str
-    retention_class: str
+    tom_depth: TomDepth
+    retention_class: RetentionClass
     session_id: Optional[str]
     user_id: Optional[str]
     task_id: Optional[str]
@@ -52,11 +147,11 @@ class MemoryEvent:
             "event_type": self.event_type,
             "source": self.source,
             "source_item_id": self.source_item_id,
-            "memory_domain": self.memory_domain,
-            "ingest_target": self.ingest_target,
+            "memory_domain": self.memory_domain.label,
+            "ingest_target": self.ingest_target.label,
             "cognition_eligible": self.cognition_eligible,
-            "tom_depth": self.tom_depth,
-            "retention_class": self.retention_class,
+            "tom_depth": self.tom_depth.label,
+            "retention_class": self.retention_class.label,
             "session_id": self.session_id,
             "user_id": self.user_id,
             "task_id": self.task_id,
@@ -148,11 +243,11 @@ def _classify_event(event: Event) -> Dict[str, Any]:
 
     if event_type == EventTypes.USER_MESSAGE:
         return {
-            "memory_domain": "user_authored",
-            "ingest_target": "l1_only",
+            "memory_domain": MemoryDomain.USER_AUTHORED,
+            "ingest_target": IngestTarget.L1_ONLY,
             "cognition_eligible": True,
-            "tom_depth": "defensive_psychology",
-            "retention_class": "permanent",
+            "tom_depth": TomDepth.DEFENSIVE_PSYCHOLOGY,
+            "retention_class": RetentionClass.PERMANENT,
             "importance": 0.8,
         }
 
@@ -160,16 +255,16 @@ def _classify_event(event: Event) -> Dict[str, Any]:
         timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
         source_type = str(timeline.get("source_type") or source)
         if source_type == "manual_journal":
-            tom_depth = "defensive_psychology"
-            retention_class = "permanent"
-            domain = "user_authored"
+            tom_depth = TomDepth.DEFENSIVE_PSYCHOLOGY
+            retention_class = RetentionClass.PERMANENT
+            domain = MemoryDomain.USER_AUTHORED
         else:
-            tom_depth = "topology_only"
-            retention_class = "compressible"
-            domain = "external_activity"
+            tom_depth = TomDepth.TOPOLOGY_ONLY
+            retention_class = RetentionClass.COMPRESSIBLE
+            domain = MemoryDomain.EXTERNAL_ACTIVITY
         return {
             "memory_domain": domain,
-            "ingest_target": "l1_only",
+            "ingest_target": IngestTarget.L1_ONLY,
             "cognition_eligible": True,
             "tom_depth": tom_depth,
             "retention_class": retention_class,
@@ -178,52 +273,59 @@ def _classify_event(event: Event) -> Dict[str, Any]:
 
     if event_type in {"WORKER_AGENT_PROGRESS", EventTypes.LOOP_STARTED, EventTypes.LOOP_PHASE_STARTED, "Heartbeat"}:
         return {
-            "memory_domain": "runtime_telemetry" if event_type == "WORKER_AGENT_PROGRESS" else "system_control",
-            "ingest_target": "l0_only",
+            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY if event_type == "WORKER_AGENT_PROGRESS" else MemoryDomain.SYSTEM_CONTROL,
+            "ingest_target": IngestTarget.L0_ONLY,
             "cognition_eligible": False,
-            "tom_depth": "none",
-            "retention_class": "disposable",
+            "tom_depth": TomDepth.NONE,
+            "retention_class": RetentionClass.DISPOSABLE,
             "importance": 0.1,
         }
 
     if event_type in {EventTypes.TASK_ASSIGNED, EventTypes.TASK_STARTED, EventTypes.TASK_COMPLETED, EventTypes.TASK_FAILED}:
         return {
-            "memory_domain": "runtime_telemetry",
-            "ingest_target": "l0_and_l1",
+            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
+            "ingest_target": IngestTarget.L0_AND_L1,
             "cognition_eligible": False,
-            "tom_depth": "none",
-            "retention_class": "compressible",
+            "tom_depth": TomDepth.NONE,
+            "retention_class": RetentionClass.COMPRESSIBLE,
             "importance": 0.6 if event_type in {EventTypes.TASK_ASSIGNED, EventTypes.TASK_STARTED} else 0.7,
         }
 
     if event_type == EventTypes.ERROR_OCCURRED:
         return {
-            "memory_domain": "runtime_telemetry",
-            "ingest_target": "l1_only",
+            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
+            "ingest_target": IngestTarget.L1_ONLY,
             "cognition_eligible": False,
-            "tom_depth": "none",
-            "retention_class": "compressible",
+            "tom_depth": TomDepth.NONE,
+            "retention_class": RetentionClass.COMPRESSIBLE,
             "importance": 0.9,
         }
 
     if event_type == EventTypes.ACTION_EXECUTED:
         return {
-            "memory_domain": "interaction",
-            "ingest_target": "l1_only",
+            "memory_domain": MemoryDomain.INTERACTION,
+            "ingest_target": IngestTarget.L1_ONLY,
             "cognition_eligible": True,
-            "tom_depth": "none",
-            "retention_class": "compressible",
+            "tom_depth": TomDepth.NONE,
+            "retention_class": RetentionClass.COMPRESSIBLE,
             "importance": 0.55,
         }
 
     return {
-        "memory_domain": "external_activity",
-        "ingest_target": "l1_only",
+        "memory_domain": MemoryDomain.EXTERNAL_ACTIVITY,
+        "ingest_target": IngestTarget.L1_ONLY,
         "cognition_eligible": True,
-        "tom_depth": "none",
-        "retention_class": "compressible",
+        "tom_depth": TomDepth.NONE,
+        "retention_class": RetentionClass.COMPRESSIBLE,
         "importance": 0.5,
     }
 
 
-__all__ = ["MemoryEvent", "normalize_runtime_event"]
+__all__ = [
+    "IngestTarget",
+    "MemoryDomain",
+    "MemoryEvent",
+    "RetentionClass",
+    "TomDepth",
+    "normalize_runtime_event",
+]

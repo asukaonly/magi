@@ -65,19 +65,14 @@ class HybridRetrievalService:
     async def _query_l1(self, request: RetrievalQuery) -> List[Dict[str, Any]]:
         if self._memory.l1 is None:
             return []
-        events = await self._memory.l1.query_events(
+        return await self._memory.l1.search_events(
+            query=request.query,
             session_id=request.session_id,
             user_id=request.user_id,
-            limit=max(request.limit * 5, 20),
+            source_filters=request.source_filters,
+            domain_filters=request.domain_filters,
+            limit=request.limit,
         )
-        query_tokens = [token for token in request.query.lower().split() if token]
-        filtered = [
-            event
-            for event in events
-            if event["memory_domain"] != "runtime_telemetry"
-            and all(token in event["raw_content"].lower() for token in query_tokens)
-        ]
-        return filtered[: request.limit]
 
     async def _query_l2_entities(self, request: RetrievalQuery) -> List[Dict[str, Any]]:
         if self._memory.l2 is None or not request.user_id:
