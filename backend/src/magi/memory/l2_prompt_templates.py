@@ -5,6 +5,20 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .l2_extraction_profiles import ExtractionProfile
+
+
+UNIFIED_EXTRACTION_SYSTEM_PROMPT = """You are a structured extraction engine for a memory system.
+
+Your task is to extract entity mentions, graph fact candidates, and assertion candidates from the supplied event window.
+Be conservative:
+- Return JSON only.
+- Do not invent unsupported entity types or predicates.
+- Use only the allowed entity types, predicates, and assertion families supplied in the prompt.
+- Specific dishes, drinks, snacks, and ingredients must use `food`.
+- If no entity can be extracted, set diagnostics.entity_status to `none`.
+"""
+
 
 ENTITY_MENTION_SYSTEM_PROMPT = """You are an information extraction engine for a memory system.
 
@@ -77,6 +91,81 @@ def render_entity_mention_prompt(*, event_text: str, context_texts: list[str]) -
     return f"Extract entity mentions from the following memory event.\n\nEvent text:\n{event_text}\n\nContext:\n{json.dumps(context_texts, ensure_ascii=False)}\n\nReturn JSON using this contract:\n{json.dumps(payload['output_schema'], ensure_ascii=False, indent=2)}"
 
 
+def render_unified_extraction_prompt(
+    *,
+    event_window: dict[str, Any],
+    profile: ExtractionProfile,
+    focal_subject: dict[str, Any],
+) -> str:
+    """Render the unified extraction prompt with ontology/profile constraints."""
+
+    payload = {
+        "event_window": event_window,
+        "focal_subject": focal_subject,
+        "allowed_entity_types": sorted(profile.allowed_entity_types),
+        "allowed_predicates": sorted(profile.allowed_predicates),
+        "allowed_assertion_families": sorted(profile.allowed_assertion_families),
+        "allow_graph": profile.allow_graph,
+        "allow_assertion": profile.allow_assertion,
+        "entity_type_aliases": profile.entity_type_aliases,
+        "predicate_aliases": profile.predicate_aliases,
+        "rules": [
+            "Use only the allowed entity types and predicates in this prompt.",
+            "Specific dishes, drinks, snacks, and ingredients must use `food`.",
+            "Use diagnostics.entity_status = `none` when no entity mention is extracted.",
+            "Return JSON with mentions, graph_candidates, assertion_candidates, and diagnostics.",
+        ],
+        "output_schema": {
+            "mentions": [
+                {
+                    "mention_text": "string",
+                    "normalized_surface": "string",
+                    "entity_type": "enum",
+                    "canonical_name_hint": "string or null",
+                    "alias_signals": ["string"],
+                    "evidence_text": "string",
+                    "confidence": 0.0,
+                }
+            ],
+            "graph_candidates": [
+                {
+                    "subject_ref": "string",
+                    "subject_type": "enum",
+                    "predicate": "enum",
+                    "object_ref": "string",
+                    "object_type": "enum",
+                    "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent",
+                    "polarity": "positive|negative",
+                    "evidence_text": "string",
+                    "confidence": 0.0,
+                }
+            ],
+            "assertion_candidates": [
+                {
+                    "entity_ref": "string",
+                    "entity_type": "enum",
+                    "trait_family": "enum",
+                    "trait_name": "string",
+                    "trait_value": "string or JSON string",
+                    "inference_depth": "topology_only|defensive_psychology",
+                    "volatility_index": 0.0,
+                    "confidence": 0.0,
+                    "validation_state": "tentative",
+                    "evidence_texts": ["string"],
+                    "supporting_event_ids": ["string"],
+                }
+            ],
+            "diagnostics": {
+                "entity_status": "found|none",
+            },
+        },
+    }
+    return (
+        "Extract unified L2 candidates from the following event window.\n\n"
+        f"{json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)}"
+    )
+
+
 def render_entity_resolution_prompt(*, mention: dict[str, Any], candidate_entities: list[dict[str, Any]]) -> str:
     return (
         "Resolve the entity mention to one of the candidate canonical entities if possible.\n\n"
@@ -139,6 +228,7 @@ def render_entity_reconcile_prompt(
 
 
 __all__ = [
+    "UNIFIED_EXTRACTION_SYSTEM_PROMPT",
     "ENTITY_MENTION_SYSTEM_PROMPT",
     "ENTITY_RECONCILE_SYSTEM_PROMPT",
     "ENTITY_RESOLUTION_SYSTEM_PROMPT",
@@ -149,4 +239,5 @@ __all__ = [
     "render_entity_reconcile_prompt",
     "render_entity_resolution_prompt",
     "render_tom_extraction_prompt",
+    "render_unified_extraction_prompt",
 ]

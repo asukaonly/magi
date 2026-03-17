@@ -7,17 +7,20 @@ import logging
 from typing import Any, Optional
 
 from ..llm import LLMScenario, ScenarioLLMPool
+from .l2_extraction_profiles import ExtractionProfile
 from .l2_prompt_templates import (
     CONTRADICTION_HINT_SYSTEM_PROMPT,
     ENTITY_RECONCILE_SYSTEM_PROMPT,
     ENTITY_MENTION_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
     TOM_EXTRACTION_SYSTEM_PROMPT,
+    UNIFIED_EXTRACTION_SYSTEM_PROMPT,
     render_contradiction_hint_prompt,
     render_entity_mention_prompt,
     render_entity_reconcile_prompt,
     render_entity_resolution_prompt,
     render_tom_extraction_prompt,
+    render_unified_extraction_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +34,19 @@ class L2LLMService:
 
     def render_entity_mention_prompt(self, *, event_text: str, context_texts: list[str]) -> str:
         return render_entity_mention_prompt(event_text=event_text, context_texts=context_texts)
+
+    def render_unified_extraction_prompt(
+        self,
+        *,
+        event_window: dict[str, Any],
+        profile: ExtractionProfile,
+        focal_subject: dict[str, Any],
+    ) -> str:
+        return render_unified_extraction_prompt(
+            event_window=event_window,
+            profile=profile,
+            focal_subject=focal_subject,
+        )
 
     async def extract_entity_mentions(self, *, event_text: str, context_texts: list[str]) -> list[dict[str, Any]]:
         payload = await self._generate_json(
