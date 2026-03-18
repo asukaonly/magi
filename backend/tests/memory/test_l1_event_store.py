@@ -36,6 +36,35 @@ async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_l1_event_store_persists_runtime_and_memory_owner_ids(tmp_path):
+    from magi.memory.l1_event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+
+    event = Event(
+        type=EventTypes.USER_MESSAGE,
+        data={"user_id": "web_user", "session_id": "session-1", "message": "Remember me"},
+        source="chat",
+        level=EventLevel.INFO,
+        correlation_id="corr-identity-1",
+    )
+    memory_event = normalize_runtime_event(event, event_id="evt-identity-1")
+
+    await store.store(memory_event)
+    fetched = await store.get_event("evt-identity-1")
+    restored = await store.get_memory_event("evt-identity-1")
+
+    assert fetched is not None
+    assert fetched["runtime_user_id"] == "web_user"
+    assert fetched["memory_owner_id"] == "user:self"
+    assert restored is not None
+    assert restored.runtime_user_id == "web_user"
+    assert restored.memory_owner_id == "user:self"
+
+
+@pytest.mark.asyncio
 async def test_l1_timeline_roundtrip_uses_timeline_metadata(tmp_path):
     from magi.memory.l1_event_store import L1EventStore
     from magi.timeline.contracts import TimelineContentBlock, TimelineEvent

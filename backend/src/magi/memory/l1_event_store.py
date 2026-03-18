@@ -96,6 +96,8 @@ class L1EventStore:
                     retention_class INTEGER NOT NULL DEFAULT 2,
                     session_id TEXT,
                     user_id TEXT,
+                    runtime_user_id TEXT,
+                    memory_owner_id TEXT,
                     task_id TEXT,
                     goal_id TEXT,
                     raw_content TEXT NOT NULL,
@@ -116,6 +118,8 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_fact_events_domain ON fact_events(memory_domain);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_session ON fact_events(session_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_user ON fact_events(user_id);
+                CREATE INDEX IF NOT EXISTS idx_fact_events_runtime_user ON fact_events(runtime_user_id);
+                CREATE INDEX IF NOT EXISTS idx_fact_events_memory_owner ON fact_events(memory_owner_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_goal ON fact_events(goal_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON fact_events(importance_score DESC);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON fact_events(retention_class);
@@ -136,6 +140,8 @@ class L1EventStore:
                     retention_class INTEGER NOT NULL DEFAULT 2,
                     session_id TEXT,
                     user_id TEXT,
+                    runtime_user_id TEXT,
+                    memory_owner_id TEXT,
                     task_id TEXT,
                     goal_id TEXT,
                     raw_content TEXT NOT NULL,
@@ -156,6 +162,8 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_domain ON runtime_observations(memory_domain);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_session ON runtime_observations(session_id);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_user ON runtime_observations(user_id);
+                CREATE INDEX IF NOT EXISTS idx_runtime_observations_runtime_user ON runtime_observations(runtime_user_id);
+                CREATE INDEX IF NOT EXISTS idx_runtime_observations_memory_owner ON runtime_observations(memory_owner_id);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_goal ON runtime_observations(goal_id);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_importance ON runtime_observations(importance_score DESC);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_retention ON runtime_observations(retention_class);
@@ -181,6 +189,8 @@ class L1EventStore:
                 );
                 """
             )
+            await self._ensure_identity_columns(db, FACT_EVENTS_TABLE)
+            await self._ensure_identity_columns(db, RUNTIME_OBSERVATIONS_TABLE)
             if self._vector_enabled:
                 await self._vector_index.initialize()
             await db.commit()
@@ -207,11 +217,11 @@ class L1EventStore:
                 INSERT OR REPLACE INTO {table_name}(
                     event_id, correlation_id, parent_event_id, timestamp, created_at,
                     event_type, source, source_item_id, memory_domain, ingest_target,
-                    cognition_eligible, tom_depth, retention_class, session_id, user_id,
+                    cognition_eligible, tom_depth, retention_class, session_id, user_id, runtime_user_id, memory_owner_id,
                     task_id, goal_id, raw_content, structured_payload, metadata,
                     importance_score, importance_t0_base, importance_t1_score, importance_version,
                     level, media_path, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -229,6 +239,8 @@ class L1EventStore:
                     int(event.retention_class),
                     event.session_id,
                     event.user_id,
+                    event.runtime_user_id,
+                    event.memory_owner_id,
                     event.task_id,
                     event.goal_id,
                     event.raw_content,
@@ -726,6 +738,8 @@ class L1EventStore:
             "retention_class": RetentionClass.from_value(row["retention_class"]).label,
             "session_id": row["session_id"],
             "user_id": row["user_id"],
+            "runtime_user_id": row["runtime_user_id"] if "runtime_user_id" in row.keys() else row["user_id"],
+            "memory_owner_id": row["memory_owner_id"] if "memory_owner_id" in row.keys() else None,
             "task_id": row["task_id"],
             "goal_id": row["goal_id"],
             "raw_content": str(row["raw_content"]),
@@ -767,9 +781,13 @@ class L1EventStore:
         runtime_user_id = row["user_id"]
         if isinstance(metadata, dict) and metadata.get("runtime_user_id"):
             runtime_user_id = str(metadata["runtime_user_id"]).strip() or runtime_user_id
+        if "runtime_user_id" in row.keys() and row["runtime_user_id"] is not None:
+            runtime_user_id = str(row["runtime_user_id"]).strip() or runtime_user_id
         memory_owner_id = None
         if isinstance(metadata, dict) and metadata.get("memory_owner_id"):
             memory_owner_id = str(metadata["memory_owner_id"]).strip() or None
+        if "memory_owner_id" in row.keys() and row["memory_owner_id"] is not None:
+            memory_owner_id = str(row["memory_owner_id"]).strip() or memory_owner_id
 
         return MemoryEvent(
             event_id=str(row["event_id"]),
@@ -810,6 +828,15 @@ class L1EventStore:
             structured_entity_hints=structured_entity_hints,
             structured_graph_hints=structured_graph_hints,
         )
+
+    async def _ensure_identity_columns(self, db: aiosqlite.Connection, table_name: str) -> None:
+        async with db.execute(f"PRAGMA table_info({table_name})") as cursor:
+            rows = await cursor.fetchall()
+        existing_columns = {str(row[1]) for row in rows}
+        if "runtime_user_id" not in existing_columns:
+            await db.execute(f"ALTER TABLE {table_name} ADD COLUMN runtime_user_id TEXT")
+        if "memory_owner_id" not in existing_columns:
+            await db.execute(f"ALTER TABLE {table_name} ADD COLUMN memory_owner_id TEXT")
 
 
 __all__ = ["L1EventStore"]
