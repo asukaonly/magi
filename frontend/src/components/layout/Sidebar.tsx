@@ -307,7 +307,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       {sessionMenu && sessionMenuSession ? (
         <div
           ref={sessionMenuRef}
-          className="fixed z-[90] min-w-[160px] rounded-xl border border-border/60 bg-popover p-1.5 shadow-lg"
+          className="fixed z-[90] min-w-[160px] rounded-xl border border-border/70 bg-card/95 p-1.5 shadow-lg backdrop-blur-md"
           style={{ left: sessionMenu.x, top: sessionMenu.y }}
         >
           <button
