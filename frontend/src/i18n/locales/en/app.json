@@ -804,7 +804,28 @@
         "entitySummaryBody": "Use the active entity types to sense what kind of knowledge is surfacing before reading the full structure.",
         "structureTitle": "Structural clues",
         "structureBody": "Frequent predicates and identity-link counts offer a quick read on the shape of the graph.",
-        "identitySummary": "{{count}} identity links in the current filtered view"
+        "identitySummary": "{{count}} identity links in the current filtered view",
+        "tabs": {
+          "overview": "Overview",
+          "knowledgeGraph": "Knowledge Graph",
+          "theoryOfMind": "Theory of Mind",
+          "mindSnapshots": "Mind Snapshots",
+          "lab": "Lab",
+          "canonicalEntities": "Canonical Entities",
+          "recentMentions": "Recent Mentions",
+          "conflictRules": "Conflict Rules"
+        },
+        "sections": {
+          "structureOverview": "Structure Overview",
+          "identitySummary": "Identity Links",
+          "evidenceClasses": "Evidence Classes",
+          "entityTypes": "Entity Types",
+          "graphFocus": "Graph Focus",
+          "traitFocus": "Assertion Focus",
+          "snapshotMood": "Snapshots With Mood",
+          "snapshotTraits": "Core Trait Entries",
+          "recentEventContext": "Related Event Context"
+        }
       },
       "reflection": {
         "eyebrow": "L3 Reflection",

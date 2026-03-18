@@ -3,14 +3,26 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L2Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
-  MemoryTag,
-  MemoryWorkspacePanel,
 } from './MemoryPageFrame';
+
+const KNOWLEDGE_SECTIONS = [
+  'overview',
+  'knowledgeGraph',
+  'theoryOfMind',
+  'mindSnapshots',
+  'lab',
+  'canonicalEntities',
+  'recentMentions',
+  'conflictRules',
+] as const;
+
+type KnowledgeSection = (typeof KNOWLEDGE_SECTIONS)[number];
 
 export const MemoryKnowledgePage = () => {
   const { t } = useTranslation('app');
@@ -35,6 +47,7 @@ export const MemoryKnowledgePage = () => {
   } = useMemory();
   const [query, setQuery] = useState('');
   const [entityTypeFilter, setEntityTypeFilter] = useState('all');
+  const [activeSection, setActiveSection] = useState<KnowledgeSection>('overview');
 
   const entityTypes = useMemo(
     () => Array.from(new Set(l2Entities.map((entity) => entity.entity_type).filter(Boolean))).sort(),
@@ -152,6 +165,15 @@ export const MemoryKnowledgePage = () => {
     }, new Map<string, number>())
   ).sort((left, right) => right[1] - left[1]);
 
+  const tabItems = useMemo(
+    () =>
+      KNOWLEDGE_SECTIONS.map((section) => ({
+        value: section,
+        label: t(`memory.pages.knowledge.tabs.${section}`),
+      })),
+    [t]
+  );
+
   return (
     <MemoryPageFrame
       title={t('memory.nav.knowledge')}
@@ -205,58 +227,53 @@ export const MemoryKnowledgePage = () => {
       {loading ? (
         <LoadingSpinner />
       ) : (
-        <div className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
-            <MemoryWorkspacePanel
-              title={t('memory.pages.knowledge.entitySummaryTitle')}
-              description={t('memory.pages.knowledge.entitySummaryBody')}
+        <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as KnowledgeSection)} className="space-y-4">
+          <div className="overflow-x-auto pb-1">
+            <TabsList
+              className="inline-flex h-auto min-w-full justify-start gap-2 rounded-[1.25rem] border border-[#e7ddd3] bg-[rgba(255,252,248,0.96)] p-2 shadow-[0_10px_24px_-24px_rgba(99,71,48,0.28)]"
+              data-testid="memory-knowledge-tablist"
             >
-              <div className="flex flex-wrap gap-2">
-                {entityTypes.map((entityType) => (
-                  <MemoryTag key={entityType}>
-                    {entityType} · {filteredEntities.filter((entity) => entity.entity_type === entityType).length}
-                  </MemoryTag>
-                ))}
-                {entityTypes.length === 0 ? <MemoryTag>{t('memory.pages.knowledge.focusAll')}</MemoryTag> : null}
-              </div>
-            </MemoryWorkspacePanel>
-
-            <MemoryWorkspacePanel
-              title={t('memory.pages.knowledge.structureTitle')}
-              description={t('memory.pages.knowledge.structureBody')}
-            >
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  {dominantPredicates.slice(0, 5).map(([predicate, count]) => (
-                    <MemoryTag key={predicate}>{predicate} · {count}</MemoryTag>
-                  ))}
-                  {dominantPredicates.length === 0 ? <MemoryTag>{t('memory.l2.noRelations')}</MemoryTag> : null}
-                </div>
-                <div className="rounded-[1.25rem] border border-[#ead9cc] bg-white/85 px-4 py-3 text-sm text-[#725c4b]">
-                  {t('memory.pages.knowledge.identitySummary', { count: filteredIdentityLinks.length })}
-                </div>
-              </div>
-            </MemoryWorkspacePanel>
+              {tabItems.map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="rounded-[0.95rem] border border-transparent px-4 py-2.5 text-sm text-[#735f51] data-[state=active]:border-[#e0d4c8] data-[state=active]:bg-white data-[state=active]:text-[#2f231b] data-[state=active]:shadow-[0_8px_16px_-18px_rgba(94,68,46,0.35)]"
+                >
+                  {tab.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
           </div>
 
-          <L2Tab
-            stats={l2Stats}
-            relations={filteredRelations}
-            assertions={filteredAssertions}
-            identityLinks={filteredIdentityLinks}
-            entities={filteredEntities}
-            mentions={filteredMentions}
-            snapshots={filteredSnapshots}
-            conflictRules={l2ConflictRules}
-            events={filteredEvents}
-            actionLoading={l2ActionLoading}
-            onSubmitManualEvent={submitManualL2Event}
-            onReplayExtraction={replayL2Extraction}
-            onRunReconcile={runL2Reconcile}
-            onRunSnapshotRefresh={runL2SnapshotRefresh}
-            onUpsertGraphConflictRule={upsertL2GraphConflictRule}
-          />
-        </div>
+          {tabItems.map((tab) => (
+            <TabsContent
+              key={tab.value}
+              value={tab.value}
+              className="mt-0"
+              data-testid={`memory-knowledge-tab-panel-${tab.value}`}
+            >
+              <L2Tab
+                section={tab.value}
+                stats={l2Stats}
+                relations={filteredRelations}
+                assertions={filteredAssertions}
+                identityLinks={filteredIdentityLinks}
+                entities={filteredEntities}
+                mentions={filteredMentions}
+                snapshots={filteredSnapshots}
+                conflictRules={l2ConflictRules}
+                events={filteredEvents}
+                dominantPredicates={dominantPredicates}
+                actionLoading={l2ActionLoading}
+                onSubmitManualEvent={submitManualL2Event}
+                onReplayExtraction={replayL2Extraction}
+                onRunReconcile={runL2Reconcile}
+                onRunSnapshotRefresh={runL2SnapshotRefresh}
+                onUpsertGraphConflictRule={upsertL2GraphConflictRule}
+              />
+            </TabsContent>
+          ))}
+        </Tabs>
       )}
     </MemoryPageFrame>
   );

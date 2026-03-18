@@ -804,7 +804,28 @@
         "entitySummaryBody": "先看当前筛选下有哪些实体类型正在出现，再决定去读哪部分知识结构。",
         "structureTitle": "结构线索",
         "structureBody": "高频谓词和身份映射数量会帮助你快速感知当前知识图谱的形状。",
-        "identitySummary": "当前筛选下共有 {{count}} 条身份映射线索"
+        "identitySummary": "当前筛选下共有 {{count}} 条身份映射线索",
+        "tabs": {
+          "overview": "总览",
+          "knowledgeGraph": "知识图谱",
+          "theoryOfMind": "心智理论",
+          "mindSnapshots": "心智快照",
+          "lab": "实验台",
+          "canonicalEntities": "规范实体",
+          "recentMentions": "最近提及",
+          "conflictRules": "冲突规则"
+        },
+        "sections": {
+          "structureOverview": "结构概览",
+          "identitySummary": "身份映射",
+          "evidenceClasses": "证据类别",
+          "entityTypes": "实体类型",
+          "graphFocus": "图谱焦点",
+          "traitFocus": "断言聚焦",
+          "snapshotMood": "带情绪标签的快照",
+          "snapshotTraits": "核心特征条目",
+          "recentEventContext": "相关事件语境"
+        }
       },
       "reflection": {
         "eyebrow": "L3 反思层",

@@ -94,6 +94,7 @@ describe('L2Tab lab', () => {
 
     render(
       <L2Tab
+        section="knowledgeGraph"
         stats={{ relation_count: 2, assertion_count: 0 }}
         relations={[
           {
@@ -149,6 +150,7 @@ describe('L2Tab lab', () => {
 
     render(
       <L2Tab
+        section="conflictRules"
         stats={{ relation_count: 0, assertion_count: 0 }}
         relations={[]}
         assertions={[]}
@@ -199,6 +201,7 @@ describe('L2Tab lab', () => {
   it('renders evidence class and skip reason breakdowns', () => {
     render(
       <L2Tab
+        section="overview"
         stats={{
           canonical_self_id: 'user:self',
           identity_link_count: 2,
@@ -238,8 +241,8 @@ describe('L2Tab lab', () => {
       />
     );
 
-    expect(screen.getByText('memory.l2.lab.skippedCount')).toBeInTheDocument();
-    expect(screen.getByText('memory.identity.title')).toBeInTheDocument();
+    expect(screen.getByText('memory.pages.knowledge.sections.identitySummary')).toBeInTheDocument();
+    expect(screen.getByText('memory.identity.runtimeLinks')).toBeInTheDocument();
     expect(screen.getAllByText('user:self').length).toBeGreaterThan(0);
     expect(screen.getByText('web_user')).toBeInTheDocument();
     expect(screen.getByText('memory.l2.lab.evidenceBreakdown')).toBeInTheDocument();
