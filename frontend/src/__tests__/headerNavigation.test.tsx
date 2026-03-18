@@ -35,4 +35,14 @@ describe('header navigation', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/timeline');
     expect(useChatShellStore.getState().activePanel).toBe('timeline');
   });
+
+  it('does not render a standalone personality shortcut', () => {
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Header />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole('button', { name: 'shell.personality' })).not.toBeInTheDocument();
+  });
 });

@@ -227,23 +227,13 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         return (
           <div className="space-y-6">
             <div className="overflow-hidden rounded-3xl border border-primary/20 bg-muted/30 p-5">
-              <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="mb-3">
                 <div>
                   <h3 className="font-medium text-primary">{t('settings.fields.currentPersonality')}</h3>
                   <p className="text-sm text-muted-foreground">
                     {draftConfig.personality?.persona_entity?.basic_profile?.name || 'Default'}
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl"
-                  onClick={() => {
-                    window.location.href = '/personality';
-                  }}
-                >
-                  {t('settings.actions.configure')}
-                </Button>
               </div>
               <p className="text-xs leading-6 text-muted-foreground">
                 {draftConfig.personality?.persona_entity?.basic_profile?.occupation || ''}

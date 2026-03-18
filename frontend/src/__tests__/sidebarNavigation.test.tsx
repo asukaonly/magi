@@ -32,17 +32,18 @@ describe('sidebar navigation', () => {
     useConversationStore.getState().reset();
   });
 
-  it('renders personality, memory, settings, and timeline actions', async () => {
+  it('renders conversation, timeline, memory, and settings actions without a personality button', async () => {
     render(
       <MemoryRouter initialEntries={['/chat']}>
         <Sidebar />
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('button', { name: 'shell.personality' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'shell.conversation' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.memory' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.settings' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.timeline' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'shell.personality' })).not.toBeInTheDocument();
   });
 
   it('refreshes sessions on sync events', async () => {
@@ -75,6 +76,29 @@ describe('sidebar navigation', () => {
 
     expect(screen.getByTestId('location')).toHaveTextContent('/timeline');
     expect(useChatShellStore.getState().activePanel).toBe('timeline');
+  });
+
+  it('expands memory destinations and routes to the selected memory page', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.memory' }));
+    await user.click(screen.getByRole('button', { name: 'memory.nav.knowledge' }));
+
+    expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.workbench' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.events' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.knowledge' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.reflection' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.skills' })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/memory/knowledge');
+    expect(useChatShellStore.getState().activePanel).toBe('memory');
   });
 
   it('renders unread badges for inactive chat sessions', async () => {
@@ -133,15 +157,15 @@ describe('sidebar navigation', () => {
     expect(await screen.findByText('3')).toBeInTheDocument();
   });
 
-  it('keeps the chat header close to the shell controls', async () => {
+  it('keeps the conversation action close to the shell controls', async () => {
     render(
       <MemoryRouter initialEntries={['/chat']}>
         <Sidebar />
       </MemoryRouter>
     );
 
-    const navLabel = await screen.findByText('nav.chat');
-    const sidebar = navLabel.closest('aside');
+    const conversationAction = await screen.findByRole('button', { name: 'shell.conversation' });
+    const sidebar = conversationAction.closest('aside');
 
     expect(sidebar).toHaveClass('pt-14');
   });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, ScrollText, Settings2, Sparkles, UserRound } from 'lucide-react';
+import { Database, ScrollText, Settings2, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -12,21 +12,17 @@ const Header: React.FC = () => {
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const connected = useRealtimeStore((state) => state.connected);
 
-  const openPanel = (panel: 'settings' | 'personality' | 'memory' | 'timeline') => {
+  const openPanel = (panel: 'settings' | 'memory' | 'timeline') => {
     setActivePanel(panel);
     if (panel === 'settings') {
       navigate('/settings');
-      return;
-    }
-    if (panel === 'personality') {
-      navigate('/personality');
       return;
     }
     if (panel === 'timeline') {
       navigate('/timeline');
       return;
     }
-    navigate('/events');
+    navigate('/memory/overview');
   };
 
   return (
@@ -41,15 +37,6 @@ const Header: React.FC = () => {
         </Badge>
       </div>
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="rounded-xl text-foreground/60 hover:text-foreground hover:bg-muted/50"
-          onClick={() => openPanel('personality')}
-          aria-label={t('shell.personality')}
-        >
-          <UserRound className="h-4 w-4" />
-        </Button>
         <Button
           variant="ghost"
           size="icon"

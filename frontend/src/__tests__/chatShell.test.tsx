@@ -31,10 +31,12 @@ describe('chat shell state', () => {
 
   it('maps route path to panel type', () => {
     expect(panelByPathname('/settings')).toBe('settings');
-    expect(panelByPathname('/personality')).toBe('personality');
+    expect(panelByPathname('/personality')).toBe('none');
     expect(panelByPathname('/events')).toBe('memory');
+    expect(panelByPathname('/memory/overview')).toBe('memory');
     expect(panelByPathname('/timeline')).toBe('timeline');
-    expect(panelByPathname('/chat')).toBe('none');
+    expect(panelByPathname('/chat')).toBe('conversation');
+    expect(panelByPathname('/')).toBe('conversation');
   });
 
   it('limits chat workspace host routes to chat-only paths', () => {
@@ -45,10 +47,11 @@ describe('chat shell state', () => {
     expect(shouldRenderChatWorkspace('/personality')).toBe(false);
   });
 
-  it('returns settings, personality, and memory panels to chat when closed', () => {
+  it('returns settings and memory panels to chat when closed', () => {
     expect(shouldClosePanelToChat('/settings')).toBe(true);
-    expect(shouldClosePanelToChat('/personality')).toBe(true);
     expect(shouldClosePanelToChat('/events')).toBe(true);
+    expect(shouldClosePanelToChat('/memory/overview')).toBe(true);
+    expect(shouldClosePanelToChat('/personality')).toBe(false);
     expect(shouldClosePanelToChat('/timeline')).toBe(false);
     expect(shouldClosePanelToChat('/chat')).toBe(false);
   });
