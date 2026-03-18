@@ -1,11 +1,13 @@
-# Magi
-
 <p align="center">
   <img src="./docs/assets/brand/magi-mark.png" alt="Magi" width="96">
 </p>
 
 <p align="center">
-  <a href="https://github.com/asukaonly/magi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/asukaonly/magi" alt="License"></a>
+  <strong style="font-size: 40px;">Magi</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/asukaonly/magi/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f3b4d" alt="License"></a>
   <a href="https://github.com/asukaonly/magi/releases"><img src="https://img.shields.io/github/v/release/asukaonly/magi" alt="Release"></a>
   <img src="https://img.shields.io/badge/platform-macOS-black?logo=apple" alt="macOS">
   <img src="https://img.shields.io/badge/React-18+-61DAFB?logo=react&logoColor=white" alt="React">
