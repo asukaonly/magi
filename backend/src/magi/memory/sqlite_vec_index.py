@@ -54,27 +54,7 @@ class SqliteVecIndex:
         await self._load_extension(self._db)
         async with self._db_lock:
             db = self._require_db()
-            await db.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {self._registry_table} (
-                    vec_rowid INTEGER PRIMARY KEY,
-                    {self._entity_column} TEXT NOT NULL,
-                    embedding_model TEXT NOT NULL,
-                    embedding_dim INTEGER NOT NULL,
-                    vec_table TEXT NOT NULL,
-                    metadata TEXT,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    UNIQUE({self._entity_column}, embedding_model)
-                )
-                """
-            )
-            await db.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{self._registry_table}_{self._entity_column} ON {self._registry_table}({self._entity_column})"
-            )
-            await db.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{self._registry_table}_model ON {self._registry_table}(embedding_model)"
-            )
+            await self._ensure_registry_schema(db)
             await db.commit()
         self._initialized = True
 
@@ -91,6 +71,7 @@ class SqliteVecIndex:
         vec_table = self._vec_table_name(embedding.model_name, embedding.dimension)
         async with self._db_lock:
             db = self._require_db()
+            await self._ensure_registry_schema(db)
             await self._ensure_vec_table(db, vec_table, embedding.dimension)
 
             now = await self._current_timestamp(db)
@@ -158,6 +139,7 @@ class SqliteVecIndex:
         vec_table = self._vec_table_name(embedding.model_name, embedding.dimension)
         async with self._db_lock:
             db = self._require_db()
+            await self._ensure_registry_schema(db)
             if not await self._table_exists(db, vec_table):
                 return []
 
@@ -195,6 +177,7 @@ class SqliteVecIndex:
         await self.initialize()
         async with self._db_lock:
             db = self._require_db()
+            await self._ensure_registry_schema(db)
             async with db.execute(
                 f"SELECT vec_rowid, vec_table FROM {self._registry_table} WHERE {self._entity_column} = ?",
                 (entity_id,),
@@ -212,6 +195,7 @@ class SqliteVecIndex:
         await self.initialize()
         async with self._db_lock:
             db = self._require_db()
+            await self._ensure_registry_schema(db)
             async with db.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ?",
                 (f"{self._vec_table_prefix}%",),
@@ -219,9 +203,31 @@ class SqliteVecIndex:
                 vec_tables = [str(row[0]) for row in await cursor.fetchall()]
             for table_name in vec_tables:
                 await db.execute(f'DROP TABLE IF EXISTS "{table_name}"')
-            if await self._table_exists(db, self._registry_table):
-                await db.execute(f"DELETE FROM {self._registry_table}")
+            await db.execute(f"DELETE FROM {self._registry_table}")
             await db.commit()
+
+    async def _ensure_registry_schema(self, db: aiosqlite.Connection) -> None:
+        await db.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._registry_table} (
+                vec_rowid INTEGER PRIMARY KEY,
+                {self._entity_column} TEXT NOT NULL,
+                embedding_model TEXT NOT NULL,
+                embedding_dim INTEGER NOT NULL,
+                vec_table TEXT NOT NULL,
+                metadata TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE({self._entity_column}, embedding_model)
+            )
+            """
+        )
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_{self._registry_table}_{self._entity_column} ON {self._registry_table}({self._entity_column})"
+        )
+        await db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_{self._registry_table}_model ON {self._registry_table}(embedding_model)"
+        )
 
     async def _ensure_vec_table(self, db: aiosqlite.Connection, table_name: str, dimension: int) -> None:
         if await self._table_exists(db, table_name):

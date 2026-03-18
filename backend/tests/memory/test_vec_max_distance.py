@@ -81,3 +81,26 @@ async def test_clear_skips_missing_registry_table_when_index_state_is_stale(tmp_
         await idx.clear()
     finally:
         await idx.close()
+
+
+@pytest.mark.asyncio
+async def test_upsert_recreates_missing_registry_table_when_index_state_is_stale(tmp_path):
+    idx = SqliteVecIndex(
+        db_path=str(tmp_path / "vec.db"),
+        registry_table="test_registry",
+        entity_column="entity_id",
+        vec_table_prefix="test_vec",
+    )
+    idx._db = await aiosqlite.connect(str(tmp_path / "vec.db"))
+    idx._db.row_factory = aiosqlite.Row
+    await idx._load_extension(idx._db)
+    idx._initialized = True
+
+    try:
+        await idx.upsert(entity_id="evt-1", embedding=_make_embedding([1.0, 0.0, 0.0, 0.0]))
+
+        async with idx._db.execute("SELECT entity_id FROM test_registry") as cursor:
+            rows = await cursor.fetchall()
+        assert [row[0] for row in rows] == ["evt-1"]
+    finally:
+        await idx.close()
