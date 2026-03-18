@@ -893,6 +893,55 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
 
 
 @pytest.mark.asyncio
+
+
+@pytest.mark.asyncio
+async def test_chat_response_action_runtime_event_is_skipped_before_llm_extraction():
+    adapter = _FakeAdapter(json.dumps({"mentions": [], "graph_candidates": [], "assertion_candidates": []}))
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                Event(
+                    type="ActionExecuted",
+                    data={
+                        "agent_id": "chat:web_user",
+                        "event_type": "UserMessage",
+                        "action_type": "ChatResponseAction",
+                        "response": "懂你，这种天气确实烦。",
+                        "user_id": "web_user",
+                        "session_id": "s1",
+                        "turn_id": "turn-1",
+                        "success": True,
+                    },
+                    source="runtime_action_emitter",
+                    level=EventLevel.INFO,
+                    correlation_id="evt-runtime-chat-1",
+                    timestamp=time.time(),
+                )
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_skipped"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            stats = store.get_l2_pipeline_stats()
+            assert stats["extract_by_evidence_class"]["assistant_runtime_derivation"] >= 1
+            assert stats["skip_by_reason"]["assistant_runtime_derivation"] >= 1
+            assert adapter.calls == []
+        finally:
+            await store.shutdown()
+
 async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
     adapter = _FakeAdapter("{}")
 

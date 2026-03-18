@@ -92,6 +92,18 @@ _POLICY_MATRIX: dict[str, PolicyDecision] = {
         require_source_backlink=False,
         skip_reason="assistant_freeform",
     ),
+    "assistant_runtime_derivation": PolicyDecision(
+        allow_entity_extraction=False,
+        allow_graph_write=False,
+        allow_assertion_write=False,
+        allow_snapshot_impact=False,
+        graph_scope="none",
+        assertion_scope="none",
+        evidence_weight=0.0,
+        count_as_new_evidence=False,
+        require_source_backlink=False,
+        skip_reason="assistant_runtime_derivation",
+    ),
     "external_observation": PolicyDecision(
         allow_entity_extraction=True,
         allow_graph_write=True,

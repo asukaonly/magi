@@ -33,6 +33,17 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
     source_event_ids = [text for item in event.derived_from_event_ids if (text := str(item).strip())]
     normalized_source = _normalized(event.source)
 
+    if _is_assistant_runtime_derivation(event):
+        return EvidenceClassification(
+            evidence_class="assistant_runtime_derivation",
+            reason_code="runtime_chat_response_action",
+            speaker_role=speaker_role,
+            grounding_type=grounding_type,
+            semantic_owner=semantic_owner,
+            originality_type=originality_type,
+            source_event_ids=source_event_ids,
+        )
+
     if event.memory_domain == MemoryDomain.RUNTIME_TELEMETRY or speaker_role == "system":
         return EvidenceClassification(
             evidence_class="system_runtime",
@@ -128,6 +139,20 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
 def _metadata_has_tool_signals(event: MemoryEvent) -> bool:
     metadata = _parse_json_dict(event.metadata)
     return any(metadata.get(key) for key in ("tool_name", "tool_call_id", "tool_result_ref"))
+
+
+def _is_assistant_runtime_derivation(event: MemoryEvent) -> bool:
+    if str(event.event_type).strip() != "ActionExecuted":
+        return False
+    if _normalized(event.source) != "runtime_action_emitter":
+        return False
+    payload = _parse_json_dict(event.structured_payload)
+    action_type = _normalized(payload.get("action_type"))
+    if action_type == "chatresponseaction":
+        return True
+    response = payload.get("response")
+    agent_id = _normalized(payload.get("agent_id"))
+    return bool(isinstance(response, str) and response.strip() and agent_id and agent_id.startswith("chat:"))
 
 
 def _parse_json_dict(raw: str) -> dict[str, object]:

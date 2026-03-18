@@ -163,3 +163,32 @@ def test_classifier_maps_system_runtime():
 
     assert classification.evidence_class == "system_runtime"
     assert classification.reason_code == "runtime_domain"
+
+
+def _build_chat_response_action_event():
+    return Event(
+        type="ActionExecuted",
+        data={
+            "agent_id": "chat:web_user",
+            "event_type": "UserMessage",
+            "action_type": "ChatResponseAction",
+            "response": "懂你，这种天气确实烦。",
+            "user_id": "web_user",
+            "session_id": "s1",
+            "turn_id": "turn-1",
+            "success": True,
+        },
+        source="runtime_action_emitter",
+        level=EventLevel.INFO,
+        correlation_id="evt-runtime-chat-1",
+        timestamp=1710000004.0,
+    )
+
+
+def test_classifier_maps_assistant_runtime_derivation():
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
+
+    classification = classify_event_evidence(normalize_runtime_event(_build_chat_response_action_event()))
+
+    assert classification.evidence_class == "assistant_runtime_derivation"
+    assert classification.reason_code == "runtime_chat_response_action"
