@@ -23,6 +23,7 @@ from .l2.models import ManualL2EventRequest
 from .l2.pipeline import L2Pipeline
 from .l3.models import L3Candidate, TaskOutcomePacket
 from .l3.summary_store import L3SummaryStore
+from .l3.task_reflection_service import TaskReflectionService
 from .l3.validator import validate_candidate
 from .l4.procedural_memory import L4ProceduralMemoryStore
 
@@ -84,6 +85,7 @@ class UnifiedMemoryStore:
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
         self.identity_resolver = identity_resolver or IdentityResolver(db_path=shared_memory_db)
+        self._task_reflection_service = TaskReflectionService()
 
         if enable_l0:
             self.l0 = L0WorkingMemoryStore(
@@ -279,6 +281,20 @@ class UnifiedMemoryStore:
         if task_outcome is not None and task_outcome.task_id not in task_ids:
             task_ids.append(task_outcome.task_id)
         return await self.l3.upsert_candidate(candidate=candidate, source_task_ids=task_ids)
+
+    async def persist_task_outcome_reflection(
+        self,
+        task_outcome: TaskOutcomePacket,
+    ) -> Optional[Dict[str, Any]]:
+        """Build and persist a task-driven L3 reflection when it has user value."""
+        candidate = await self._task_reflection_service.build_candidate(task_outcome)
+        if candidate is None:
+            return None
+        return await self.persist_l3_candidate(
+            candidate=candidate,
+            task_outcome=task_outcome,
+            source_task_ids=[task_outcome.task_id],
+        )
 
     async def search(self, query: str, *, search_type: str = "detail", limit: int = 10) -> list[dict[str, Any]]:
         """Perform a simple layer-aware search without the retrieval router."""

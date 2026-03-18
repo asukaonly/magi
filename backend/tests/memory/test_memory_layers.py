@@ -190,6 +190,50 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         event_links = await self.store.l3.list_summary_event_links(summary["summary_id"])
         self.assertEqual(len(event_links), 2)
 
+    async def test_persist_task_outcome_reflection_builds_and_writes_summary(self):
+        now = time.time()
+        await self.store.add_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "message": "I care more about growth than salary."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-1",
+                timestamp=now,
+            )
+        )
+        await self.store.add_event(
+            Event(
+                type=EventTypes.AI_RESPONSE,
+                data={"user_id": "u1", "session_id": "s1", "response": "You should finish your portfolio homepage first."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-2",
+                timestamp=now + 1,
+            )
+        )
+
+        event_ids = [row["event_id"] for row in await self.store.l1.query_events(limit=10)]
+        summary = await self.store.persist_task_outcome_reflection(
+            TaskOutcomePacket(
+                task_id="task-2",
+                user_id="u1",
+                task_kind="user_goal_task",
+                task_title="Plan job switch",
+                task_status="completed",
+                user_goal="Decide whether to start applying this month",
+                result_summary="Clarified priorities and next steps for a job switch.",
+                evidence_event_ids=event_ids,
+                decisions=[{"content": "Growth matters more than salary."}],
+                next_steps=["Finish the portfolio homepage."],
+            )
+        )
+
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["summary_category"], "task_reflection")
+        task_links = await self.store.l3.list_summary_task_links(summary["summary_id"])
+        self.assertEqual(task_links[0]["task_id"], "task-2")
+
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
