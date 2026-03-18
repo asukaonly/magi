@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 from ..events.events import Event, EventLevel
 from .embedding_service import MemoryEmbeddingService
 from .event_contracts import IngestTarget, MemoryEvent, normalize_runtime_event
+from .identity_migration import migrate_legacy_self_identity
 from .l0_working_memory import L0WorkingMemoryStore
 from .l1_event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
@@ -130,6 +131,10 @@ class UnifiedMemoryStore:
             if store is None:
                 continue
             await store.initialize()
+        await migrate_legacy_self_identity(
+            l1_db_path=self.l1.db_path if self.l1 is not None else None,
+            memory_db_path=self.l2.db_path if self.l2 is not None else None,
+        )
         if self.l2_pipeline is not None:
             await self.l2_pipeline.start()
 
