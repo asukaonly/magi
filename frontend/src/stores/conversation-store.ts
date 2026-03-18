@@ -66,6 +66,8 @@ const ensureSession = (
         session_id: sessionId,
         title: 'New Chat',
         last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
         last_timestamp: 0,
         message_count: 0,
       },
@@ -149,11 +151,26 @@ export const useConversationStore = create<ConversationState>((set) => ({
     ];
     return {
       currentSessionId: sessionId,
-      sessionsById: ensured.sessionsById,
       orderedSessionIds: ensured.orderedSessionIds,
       messagesBySession: {
         ...state.messagesBySession,
         [sessionId]: nextMessages,
+      },
+      sessionsById: {
+        ...ensured.sessionsById,
+        [sessionId]: {
+          ...(ensured.sessionsById[sessionId] || {
+            session_id: sessionId,
+            title: input,
+            last_message_preview: '',
+            last_user_message_preview: '',
+            title_overridden: false,
+            last_timestamp: 0,
+            message_count: 0,
+          }),
+          last_user_message_preview: input.trim(),
+          last_timestamp: Math.floor(timestamp / 1000),
+        },
       },
       unreadBySession: {
         ...state.unreadBySession,
@@ -177,6 +194,8 @@ export const useConversationStore = create<ConversationState>((set) => ({
         session_id: sessionId,
         title: 'New Chat',
         last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
         last_timestamp: 0,
         message_count: 0,
       }),

@@ -59,14 +59,14 @@ class ChatReadService:
             return existing
         new_session_id = str(uuid.uuid4())
         mapping[user_id] = new_session_id
-        self._save_session_mapping(mapping)
+        self._save_session_state(mapping=mapping, metadata=self._load_session_metadata())
         return new_session_id
 
     def create_new_session(self, user_id: str) -> str:
         mapping = self._load_session_mapping()
         new_session_id = str(uuid.uuid4())
         mapping[user_id] = new_session_id
-        self._save_session_mapping(mapping)
+        self._save_session_state(mapping=mapping, metadata=self._load_session_metadata())
         return new_session_id
 
     def get_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
@@ -79,6 +79,7 @@ class ChatReadService:
         """List recent chat sessions for a user."""
         safe_limit = max(1, min(limit, 200))
         sessions: dict[str, dict[str, Any]] = {}
+        metadata_by_user = self._load_session_metadata().get(user_id, {})
 
         if self._l1_db_path.exists():
             try:
@@ -115,7 +116,9 @@ class ChatReadService:
                         "session_id": session_id,
                         "title_candidate": "",
                         "last_message_preview": "",
+                        "last_user_message_preview": "",
                         "last_timestamp": 0,
+                        "last_user_timestamp": 0,
                         "message_count": 0,
                     },
                 )
@@ -123,9 +126,10 @@ class ChatReadService:
                 if timestamp >= int(session["last_timestamp"]):
                     session["last_timestamp"] = timestamp
                     session["last_message_preview"] = content[:120]
-                # Iterate desc by timestamp: repeatedly setting this keeps the oldest
-                # user message as title seed after full traversal.
                 if event_type in USER_EVENT_TYPES and content:
+                    if timestamp >= int(session["last_user_timestamp"]):
+                        session["last_user_timestamp"] = timestamp
+                        session["last_user_message_preview"] = content[:120]
                     session["title_candidate"] = content[:80]
 
         ordered = sorted(
@@ -137,8 +141,18 @@ class ChatReadService:
         result = [
             {
                 "session_id": str(item["session_id"]),
-                "title": str(item.get("title_candidate") or item.get("last_message_preview") or "New Chat"),
+                "title": str(
+                    metadata_by_user.get(str(item["session_id"]), {}).get("title")
+                    or item.get("title_candidate")
+                    or item.get("last_user_message_preview")
+                    or item.get("last_message_preview")
+                    or "New Chat"
+                ),
                 "last_message_preview": str(item.get("last_message_preview") or ""),
+                "last_user_message_preview": str(item.get("last_user_message_preview") or ""),
+                "title_overridden": bool(
+                    metadata_by_user.get(str(item["session_id"]), {}).get("title")
+                ),
                 "last_timestamp": int(item.get("last_timestamp") or 0),
                 "message_count": int(item.get("message_count") or 0),
             }
@@ -151,13 +165,94 @@ class ChatReadService:
                 0,
                 {
                     "session_id": current_session_id,
-                    "title": "New Chat",
+                    "title": str(
+                        metadata_by_user.get(current_session_id, {}).get("title")
+                        or "New Chat"
+                    ),
                     "last_message_preview": "",
+                    "last_user_message_preview": "",
+                    "title_overridden": bool(
+                        metadata_by_user.get(current_session_id, {}).get("title")
+                    ),
                     "last_timestamp": 0,
                     "message_count": 0,
                 },
             )
         return result[:safe_limit]
+
+    def rename_session(self, user_id: str, session_id: str, title: str) -> dict[str, Any]:
+        normalized_user_id = str(user_id).strip()
+        normalized_session_id = str(session_id).strip()
+        normalized_title = str(title).strip()
+        if not normalized_user_id or not normalized_session_id:
+            raise ValueError("User ID and session ID are required")
+        if not normalized_title:
+            raise ValueError("Session title cannot be empty")
+
+        mapping = self._load_session_mapping()
+        metadata = self._load_session_metadata()
+        user_metadata = dict(metadata.get(normalized_user_id, {}))
+        session_metadata = dict(user_metadata.get(normalized_session_id, {}))
+        session_metadata["title"] = normalized_title
+        user_metadata[normalized_session_id] = session_metadata
+        metadata[normalized_user_id] = user_metadata
+        self._save_session_state(mapping=mapping, metadata=metadata)
+        return {
+            "session_id": normalized_session_id,
+            "title": normalized_title,
+        }
+
+    def delete_session(self, user_id: str, session_id: str) -> str:
+        normalized_user_id = str(user_id).strip()
+        normalized_session_id = str(session_id).strip()
+        if not normalized_user_id or not normalized_session_id:
+            raise ValueError("User ID and session ID are required")
+
+        if self._l1_db_path.exists():
+            try:
+                conn = self._get_conn()
+                cur = conn.cursor()
+                cur.execute(
+                    f"""
+                    DELETE FROM {FACT_EVENTS_TABLE}
+                    WHERE user_id = ?
+                      AND session_id = ?
+                    """,
+                    (normalized_user_id, normalized_session_id),
+                )
+                cur.execute(
+                    f"""
+                    DELETE FROM {RUNTIME_OBSERVATIONS_TABLE}
+                    WHERE user_id = ?
+                      AND session_id = ?
+                    """,
+                    (normalized_user_id, normalized_session_id),
+                )
+                conn.commit()
+            except Exception as exc:
+                logger.exception(f"Failed to delete session: {exc}")
+
+        mapping = self._load_session_mapping()
+        metadata = self._load_session_metadata()
+        user_metadata = dict(metadata.get(normalized_user_id, {}))
+        user_metadata.pop(normalized_session_id, None)
+        if user_metadata:
+            metadata[normalized_user_id] = user_metadata
+        else:
+            metadata.pop(normalized_user_id, None)
+
+        current_session_id = mapping.get(normalized_user_id)
+        if current_session_id == normalized_session_id:
+            mapping.pop(normalized_user_id, None)
+            self._save_session_state(mapping=mapping, metadata=metadata)
+            remaining = self.list_sessions(normalized_user_id, limit=1)
+            if remaining:
+                mapping[normalized_user_id] = str(remaining[0]["session_id"])
+            else:
+                mapping[normalized_user_id] = str(uuid.uuid4())
+
+        self._save_session_state(mapping=mapping, metadata=metadata)
+        return mapping.get(normalized_user_id) or self.get_current_session_id(normalized_user_id)
 
     def get_conversation_history(self, user_id: str, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
         if not self._l1_db_path.exists():
@@ -418,26 +513,59 @@ class ChatReadService:
         """Clear all current session mappings and return removed count."""
         mapping = self._load_session_mapping()
         removed = len(mapping)
-        self._save_session_mapping({})
+        self._save_session_state(mapping={}, metadata={})
         return removed
 
     def _load_session_mapping(self) -> dict[str, str]:
+        data = self._load_session_state()
+        mapping = data.get("current_session_by_user", {}) if isinstance(data, dict) else {}
+        if not isinstance(mapping, dict):
+            return {}
+        return {str(k): str(v) for k, v in mapping.items() if k and v}
+
+    def _save_session_mapping(self, mapping: dict[str, str]) -> None:
+        self._save_session_state(mapping=mapping, metadata=self._load_session_metadata())
+
+    def _load_session_metadata(self) -> dict[str, dict[str, dict[str, Any]]]:
+        data = self._load_session_state()
+        raw_metadata = data.get("session_meta_by_user", {}) if isinstance(data, dict) else {}
+        if not isinstance(raw_metadata, dict):
+            return {}
+        normalized: dict[str, dict[str, dict[str, Any]]] = {}
+        for user_id, session_map in raw_metadata.items():
+            if not user_id or not isinstance(session_map, dict):
+                continue
+            next_session_map: dict[str, dict[str, Any]] = {}
+            for session_id, session_meta in session_map.items():
+                if not session_id or not isinstance(session_meta, dict):
+                    continue
+                next_session_map[str(session_id)] = dict(session_meta)
+            if next_session_map:
+                normalized[str(user_id)] = next_session_map
+        return normalized
+
+    def _load_session_state(self) -> dict[str, Any]:
         if not self._session_state_file.exists():
             return {}
         try:
             data = json.loads(self._session_state_file.read_text(encoding="utf-8"))
-            mapping = data.get("current_session_by_user", {}) if isinstance(data, dict) else {}
-            if not isinstance(mapping, dict):
-                return {}
-            return {str(k): str(v) for k, v in mapping.items() if k and v}
+            return data if isinstance(data, dict) else {}
         except Exception as exc:
             logger.warning(f"Failed to load session mapping: {exc}")
             return {}
 
-    def _save_session_mapping(self, mapping: dict[str, str]) -> None:
+    def _save_session_state(
+        self,
+        *,
+        mapping: dict[str, str],
+        metadata: dict[str, dict[str, dict[str, Any]]],
+    ) -> None:
         try:
             from ...utils.file_io import atomic_write_text
-            payload = {"current_session_by_user": mapping}
+            payload = {
+                "current_session_by_user": mapping,
+                "session_meta_by_user": metadata,
+            }
             atomic_write_text(
                 self._session_state_file,
                 json.dumps(payload, ensure_ascii=False, indent=2),

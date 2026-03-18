@@ -139,6 +139,62 @@ def test_list_sessions_respects_limit(tmp_path):
     assert len(sessions) == 2
 
 
+def test_rename_session_persists_custom_title(tmp_path):
+    service = _build_service(tmp_path)
+    _init_event_store(service._l1_db_path)
+    _insert_event(
+        service._l1_db_path,
+        "UserMessage",
+        {"user_id": "u1", "session_id": "s1", "message": "原始标题"},
+        1000,
+    )
+
+    service.rename_session("u1", "s1", "新的会话名")
+
+    renamed = service.list_sessions("u1", limit=10)
+
+    assert renamed[0]["session_id"] == "s1"
+    assert renamed[0]["title"] == "新的会话名"
+
+    reloaded = _build_service(tmp_path)
+    reloaded_sessions = reloaded.list_sessions("u1", limit=10)
+    assert reloaded_sessions[0]["title"] == "新的会话名"
+
+
+def test_delete_session_removes_events_and_rotates_current_session(tmp_path):
+    service = _build_service(tmp_path)
+    _init_event_store(service._l1_db_path)
+    service._save_session_mapping({"u1": "s2"})
+    _insert_event(
+        service._l1_db_path,
+        "UserMessage",
+        {"user_id": "u1", "session_id": "s1", "message": "保留会话"},
+        1000,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "UserMessage",
+        {"user_id": "u1", "session_id": "s2", "message": "删除会话"},
+        2000,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "AIResponse",
+        {"user_id": "u1", "session_id": "s2", "response": "需要一起删掉"},
+        2010,
+    )
+
+    next_session_id = service.delete_session("u1", "s2")
+
+    remaining = service.list_sessions("u1", limit=10)
+    assert [item["session_id"] for item in remaining] == ["s1"]
+    assert next_session_id == "s1"
+    assert service.get_current_session_id("u1") == "s1"
+
+    history = service.get_conversation_history("u1", "s2", limit=20)
+    assert history == []
+
+
 def test_list_sessions_router_response(monkeypatch):
     class _FakeReadService:
         def list_sessions(self, user_id: str, limit: int = 30):
@@ -164,6 +220,45 @@ def test_list_sessions_router_response(monkeypatch):
     assert result["user_id"] == "u1"
     assert result["current_session_id"] == "s1"
     assert result["count"] == 1
+
+
+def test_rename_session_router_response(monkeypatch):
+    class _FakeReadService:
+        def rename_session(self, user_id: str, session_id: str, title: str):
+            assert user_id == "u1"
+            assert session_id == "s1"
+            assert title == "Renamed"
+            return {
+                "session_id": "s1",
+                "title": "Renamed",
+            }
+
+    monkeypatch.setattr(messages, "get_chat_read_service", lambda: _FakeReadService())
+
+    result = __import__("asyncio").run(
+        messages.rename_session(
+            session_id="s1",
+            request=messages.RenameSessionRequest(user_id="u1", title="Renamed"),
+        )
+    )
+
+    assert result["success"] is True
+    assert result["session"]["title"] == "Renamed"
+
+
+def test_delete_session_router_response(monkeypatch):
+    class _FakeReadService:
+        def delete_session(self, user_id: str, session_id: str):
+            assert user_id == "u1"
+            assert session_id == "s1"
+            return "s-next"
+
+    monkeypatch.setattr(messages, "get_chat_read_service", lambda: _FakeReadService())
+
+    result = __import__("asyncio").run(messages.delete_session(session_id="s1", user_id="u1"))
+
+    assert result["success"] is True
+    assert result["current_session_id"] == "s-next"
 
 
 def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tmp_path, monkeypatch):

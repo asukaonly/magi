@@ -52,6 +52,8 @@ export interface ChatSessionListItem {
   session_id: string;
   title: string;
   last_message_preview: string;
+  last_user_message_preview?: string;
+  title_overridden?: boolean;
   last_timestamp: number;
   message_count: number;
 }
@@ -158,6 +160,34 @@ export const messagesApi = {
       params: { user_id: userId },
     });
     return (response.data || response) as { success: boolean; user_id: string; session_id: string | null };
+  },
+
+  renameSession: async (
+    userId: string = 'web_user',
+    sessionId: string,
+    title: string
+  ): Promise<{ success: boolean; user_id: string; session: { session_id: string; title: string } }> => {
+    const response = await api.patch<{ success: boolean; user_id: string; session: { session_id: string; title: string } }>(
+      `/messages/session/${encodeURIComponent(sessionId)}`,
+      {
+        user_id: userId,
+        title,
+      }
+    );
+    return (response.data || response) as { success: boolean; user_id: string; session: { session_id: string; title: string } };
+  },
+
+  deleteSession: async (
+    userId: string = 'web_user',
+    sessionId: string
+  ): Promise<{ success: boolean; user_id: string; deleted_session_id: string; current_session_id: string | null }> => {
+    const response = await api.delete<{ success: boolean; user_id: string; deleted_session_id: string; current_session_id: string | null }>(
+      `/messages/session/${encodeURIComponent(sessionId)}`,
+      {
+        params: { user_id: userId },
+      }
+    );
+    return (response.data || response) as { success: boolean; user_id: string; deleted_session_id: string; current_session_id: string | null };
   },
 
   listSessions: async (

@@ -31,6 +31,12 @@ class MessageResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
+class RenameSessionRequest(BaseModel):
+    """Session rename request."""
+    user_id: str = Field(default="web_user", description="User ID")
+    title: str = Field(..., description="New session title")
+
+
 # ============ API Endpoints ============
 
 
@@ -230,6 +236,41 @@ async def create_new_session(user_id: str = "web_user"):
         return {"success": True, "user_id": user_id, "session_id": session_id}
     except RuntimeError:
         return {"success": False, "user_id": user_id, "session_id": None}
+
+
+@user_messages_router.patch("/session/{session_id}", response_model=Dict[str, Any])
+async def rename_session(session_id: str, request: RenameSessionRequest):
+    """Rename a session and persist the title override."""
+    try:
+        read_service = get_chat_read_service()
+        session = read_service.rename_session(request.user_id, session_id, request.title)
+        return {
+            "success": True,
+            "user_id": request.user_id,
+            "session": session,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@user_messages_router.delete("/session/{session_id}", response_model=Dict[str, Any])
+async def delete_session(session_id: str, user_id: str = "web_user"):
+    """Delete one session and rotate current session when necessary."""
+    try:
+        read_service = get_chat_read_service()
+        current_session_id = read_service.delete_session(user_id, session_id)
+        return {
+            "success": True,
+            "user_id": user_id,
+            "deleted_session_id": session_id,
+            "current_session_id": current_session_id,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 @user_messages_router.get("/sessions", response_model=Dict[str, Any])

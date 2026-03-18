@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Database,
   MessageSquare,
+  MoreHorizontal,
   Plus,
   Search,
   ScrollText,
@@ -13,6 +14,15 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { messagesApi, type ChatSessionListItem } from '@/api';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useChatShellStore, useConversationStore } from '@/stores';
 
 const USER_ID = 'web_user';
@@ -45,6 +55,25 @@ const formatSessionTime = (timestamp: number, locale: string): string => {
   }
 };
 
+const getSessionDisplayLabel = (
+  session: ChatSessionListItem,
+  fallbackTitle: string,
+) => {
+  if (session.title_overridden && session.title) {
+    return session.title;
+  }
+  return session.last_user_message_preview || session.title || fallbackTitle;
+};
+
+const getSessionSearchText = (session: ChatSessionListItem) =>
+  [
+    session.title || '',
+    session.last_user_message_preview || '',
+    session.last_message_preview || '',
+  ]
+    .join(' ')
+    .toLowerCase();
+
 export default function Sidebar({ collapsed = false }: SidebarProps) {
   const { t, i18n } = useTranslation('app');
   const navigate = useNavigate();
@@ -66,6 +95,16 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   );
   const [conversationSearch, setConversationSearch] = useState('');
   const conversationSearchInputRef = useRef<HTMLInputElement>(null);
+  const [sessionMenu, setSessionMenu] = useState<{
+    sessionId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [renameTargetSession, setRenameTargetSession] = useState<ChatSessionListItem | null>(null);
+  const [deleteTargetSession, setDeleteTargetSession] = useState<ChatSessionListItem | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [actionPending, setActionPending] = useState(false);
+  const sessionMenuRef = useRef<HTMLDivElement>(null);
 
   const refreshSessions = useCallback(async () => {
     setLoading(true);
@@ -114,6 +153,33 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     setExpandedSection(null);
   }, [isConversationRoute, isMemoryRoute]);
 
+  useEffect(() => {
+    if (!sessionMenu) {
+      return undefined;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!sessionMenuRef.current?.contains(event.target as Node)) {
+        setSessionMenu(null);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSessionMenu(null);
+      }
+    };
+    const handleScroll = () => {
+      setSessionMenu(null);
+    };
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    window.addEventListener('scroll', handleScroll, true);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [sessionMenu]);
+
   const handleCreateSession = async () => {
     try {
       const result = await messagesApi.createNewSession(USER_ID);
@@ -128,6 +194,55 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       // ignore at shell level, chat page will surface failure details
     }
   };
+
+  const openSessionMenu = useCallback(
+    (sessionId: string, anchorX: number, anchorY: number) => {
+      setSessionMenu({
+        sessionId,
+        x: Math.max(16, anchorX),
+        y: Math.max(16, anchorY),
+      });
+    },
+    [],
+  );
+
+  const handleRenameSession = useCallback(async () => {
+    if (!renameTargetSession) {
+      return;
+    }
+    const nextTitle = renameValue.trim();
+    if (!nextTitle) {
+      return;
+    }
+    setActionPending(true);
+    try {
+      await messagesApi.renameSession(USER_ID, renameTargetSession.session_id, nextTitle);
+      await refreshSessions();
+      setRenameTargetSession(null);
+      window.dispatchEvent(new Event(SESSION_EVENT));
+    } finally {
+      setActionPending(false);
+    }
+  }, [refreshSessions, renameTargetSession, renameValue]);
+
+  const handleDeleteSession = useCallback(async () => {
+    if (!deleteTargetSession) {
+      return;
+    }
+    setActionPending(true);
+    try {
+      const response = await messagesApi.deleteSession(USER_ID, deleteTargetSession.session_id);
+      setCurrentSessionId(response.current_session_id);
+      await refreshSessions();
+      setDeleteTargetSession(null);
+      setExpandedSection('conversation');
+      setActivePanel('conversation');
+      navigate('/chat');
+      window.dispatchEvent(new Event(SESSION_EVENT));
+    } finally {
+      setActionPending(false);
+    }
+  }, [deleteTargetSession, navigate, refreshSessions, setActivePanel, setCurrentSessionId]);
 
   const sessionRows = useMemo(() => {
     if (orderedSessionIds.length > 0) {
@@ -155,8 +270,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       return sessionRows;
     }
     return sessionRows.filter((session) => {
-      const haystack = `${session.title || ''} ${session.last_message_preview || ''}`.toLowerCase();
-      return haystack.includes(normalizedQuery);
+      return getSessionSearchText(session).includes(normalizedQuery);
     });
   }, [conversationSearch, sessionRows]);
 
@@ -170,6 +284,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const settingsActive = activePanel === 'settings' || location.pathname === '/settings';
   const conversationExpanded = expandedSection === 'conversation';
   const memoryExpanded = expandedSection === 'memory';
+  const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
 
   const primaryButtonClass = (active: boolean) => cn(
     'flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
@@ -189,6 +304,35 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     <aside
       className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/30 pt-14"
     >
+      {sessionMenu && sessionMenuSession ? (
+        <div
+          ref={sessionMenuRef}
+          className="fixed z-[90] min-w-[160px] rounded-xl border border-border/60 bg-popover p-1.5 shadow-lg"
+          style={{ left: sessionMenu.x, top: sessionMenu.y }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setRenameTargetSession(sessionMenuSession);
+              setRenameValue(getSessionDisplayLabel(sessionMenuSession, t('shell.newChatTitle')));
+              setSessionMenu(null);
+            }}
+            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+          >
+            {t('shell.renameSession')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteTargetSession(sessionMenuSession);
+              setSessionMenu(null);
+            }}
+            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+          >
+            {t('shell.deleteSession')}
+          </button>
+        </div>
+      ) : null}
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
         <div className="flex min-h-0 flex-1 flex-col gap-2">
           <section className={cn('shrink-0', conversationExpanded && 'flex min-h-0 flex-1 flex-col')}>
@@ -222,7 +366,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             {conversationExpanded ? (
               <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="flex min-w-0 flex-1 items-center rounded-2xl border border-border/25 bg-background/75 px-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                  <div className="flex min-w-0 flex-1 items-center rounded-xl border border-border/18 bg-background/70 px-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                     <input
                       ref={conversationSearchInputRef}
                       type="search"
@@ -230,7 +374,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       onChange={(event) => setConversationSearch(event.target.value)}
                       placeholder={t('shell.searchSessionsPlaceholder')}
                       aria-label={t('shell.searchSessions')}
-                      className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                      className="h-9 w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
                     />
                   </div>
                   <button
@@ -239,22 +383,22 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       conversationSearchInputRef.current?.focus();
                       conversationSearchInputRef.current?.select();
                     }}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/25 bg-background/70 text-muted-foreground transition-colors hover:border-border/45 hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/18 bg-background/65 text-muted-foreground transition-colors hover:border-border/35 hover:bg-muted/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     aria-label={t('shell.searchSessionsAction')}
                     title={t('shell.searchSessionsAction')}
                   >
-                    <Search className="h-4 w-4" />
+                    <Search className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       void handleCreateSession();
                     }}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/25 bg-background/70 text-muted-foreground transition-colors hover:border-border/45 hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/18 bg-background/65 text-muted-foreground transition-colors hover:border-border/35 hover:bg-muted/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     aria-label={t('shell.newChat')}
                     title={t('shell.newChat')}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-3.5 w-3.5" />
                   </button>
                 </div>
 
@@ -268,48 +412,63 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       {t('shell.searchSessionsEmpty')}
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-1 pl-3">
                       {filteredSessionRows.map((session) => {
                         const active = currentSessionId === session.session_id;
                         const unreadCount = unreadBySession[session.session_id] || 0;
+                        const displayLabel = getSessionDisplayLabel(session, t('shell.newChatTitle'));
                         return (
-                          <button
+                          <div
                             key={session.session_id}
-                            type="button"
-                            onClick={() => {
-                              setCurrentSessionId(session.session_id);
-                              setActivePanel('conversation');
-                              navigate('/chat');
-                            }}
-                            aria-label={session.title || t('shell.newChatTitle')}
-                            aria-current={active ? 'page' : undefined}
                             className={cn(
-                              'w-full rounded-2xl px-3 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                              active
-                                ? 'border border-primary/16 bg-primary/12 text-foreground'
-                                : 'border border-transparent hover:bg-muted/50'
+                              'group flex items-center gap-1 rounded-xl transition-colors',
+                              active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/45 hover:text-foreground'
                             )}
-                            title={session.title}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="min-w-0 truncate text-sm font-medium">
-                                {session.title || t('shell.newChatTitle')}
-                              </span>
-                              <div className="flex shrink-0 items-center gap-2">
-                                {unreadCount > 0 ? (
-                                  <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-medium text-primary-foreground">
-                                    {Math.min(unreadCount, 99)}
-                                  </span>
-                                ) : null}
-                                <span className="text-[11px] text-muted-foreground">
-                                  {formatSessionTime(session.last_timestamp, i18n.language)}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCurrentSessionId(session.session_id);
+                                setActivePanel('conversation');
+                                navigate('/chat');
+                              }}
+                              onContextMenu={(event) => {
+                                event.preventDefault();
+                                openSessionMenu(session.session_id, event.clientX, event.clientY);
+                              }}
+                              aria-label={displayLabel}
+                              aria-current={active ? 'page' : undefined}
+                              className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                              title={displayLabel}
+                            >
+                              <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
+                              {unreadCount > 0 ? (
+                                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                                  {Math.min(unreadCount, 99)}
                                 </span>
-                              </div>
-                            </div>
-                            <div className="mt-1 truncate text-xs text-muted-foreground">
-                              {session.last_message_preview || t('shell.noPreview')}
-                            </div>
-                          </button>
+                              ) : null}
+                              <span className="shrink-0 text-[11px] text-muted-foreground/90">
+                                {formatSessionTime(session.last_timestamp, i18n.language)}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                const rect = event.currentTarget.getBoundingClientRect();
+                                openSessionMenu(session.session_id, rect.right - 176, rect.bottom + 6);
+                              }}
+                              className={cn(
+                                'mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35',
+                                active
+                                  ? 'hover:bg-primary/10 hover:text-primary'
+                                  : 'hover:bg-muted/55 hover:text-foreground'
+                              )}
+                              aria-label={t('shell.sessionActions')}
+                              title={t('shell.sessionActions')}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -417,6 +576,86 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           </button>
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(renameTargetSession)}
+        onOpenChange={(open) => {
+          if (!open && !actionPending) {
+            setRenameTargetSession(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('shell.renameSessionTitle')}</DialogTitle>
+            <DialogDescription>{t('shell.renameSessionDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="px-6 pb-2">
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              placeholder={t('shell.renameSessionPlaceholder')}
+              className="h-11 w-full rounded-xl border border-border/55 bg-background px-3 text-sm outline-none transition-colors focus:border-primary/40"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRenameTargetSession(null)}
+              disabled={actionPending}
+            >
+              {t('shell.cancel')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                void handleRenameSession();
+              }}
+              disabled={actionPending || !renameValue.trim()}
+            >
+              {t('shell.saveRename')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteTargetSession)}
+        onOpenChange={(open) => {
+          if (!open && !actionPending) {
+            setDeleteTargetSession(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('shell.deleteSessionTitle')}</DialogTitle>
+            <DialogDescription>{t('shell.deleteSessionDescription')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTargetSession(null)}
+              disabled={actionPending}
+            >
+              {t('shell.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                void handleDeleteSession();
+              }}
+              disabled={actionPending}
+            >
+              {t('shell.confirmDeleteSession')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }

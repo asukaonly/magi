@@ -13,6 +13,8 @@ vi.mock('@/api', () => ({
       current_session_id: null,
     }),
     createNewSession: vi.fn(),
+    renameSession: vi.fn(),
+    deleteSession: vi.fn(),
   },
 }));
 
@@ -108,6 +110,233 @@ describe('sidebar navigation', () => {
     expect(screen.queryByRole('button', { name: '杭州天气' })).not.toBeInTheDocument();
   });
 
+  it('opens the session actions menu from the overflow button and right click', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
+      sessions: [
+        {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+      ],
+      current_session_id: 'session-a',
+      user_id: 'web_user',
+      count: 1,
+    });
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a'],
+      sessionsById: {
+        'session-a': {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+      },
+      messagesBySession: {},
+      unreadBySession: {},
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.sessionActions' }));
+
+    expect(await screen.findByRole('button', { name: 'shell.renameSession' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'shell.deleteSession' })).toBeInTheDocument();
+
+    await user.click(document.body);
+
+    await user.pointer([
+      {
+        target: screen.getByRole('button', { name: '杭州天气' }),
+        keys: '[MouseRight]',
+      },
+    ]);
+
+    expect(await screen.findByRole('button', { name: 'shell.renameSession' })).toBeInTheDocument();
+  });
+
+  it('renames a session through the sidebar menu and keeps the updated label', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.listSessions)
+      .mockResolvedValueOnce({
+        sessions: [
+          {
+            session_id: 'session-a',
+            title: '杭州天气',
+            last_user_message_preview: '杭州天气',
+            last_message_preview: '今天有点冷',
+            last_timestamp: 10,
+            message_count: 1,
+          },
+        ],
+        current_session_id: 'session-a',
+        user_id: 'web_user',
+        count: 1,
+      })
+      .mockResolvedValue({
+        sessions: [
+          {
+            session_id: 'session-a',
+            title: '天气追踪',
+            title_overridden: true,
+            last_user_message_preview: '杭州天气',
+            last_message_preview: '今天有点冷',
+            last_timestamp: 10,
+            message_count: 1,
+          },
+        ],
+        current_session_id: 'session-a',
+        user_id: 'web_user',
+        count: 1,
+      });
+    vi.mocked(messagesApi.renameSession).mockResolvedValue({
+      success: true,
+      user_id: 'web_user',
+      session: {
+        session_id: 'session-a',
+        title: '天气追踪',
+      },
+    });
+
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a'],
+      sessionsById: {
+        'session-a': {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_user_message_preview: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+      },
+      messagesBySession: {},
+      unreadBySession: {},
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    const actionButtons = await screen.findAllByRole('button', { name: 'shell.sessionActions' });
+    await user.click(actionButtons[0]);
+    await user.click(await screen.findByRole('button', { name: 'shell.renameSession' }));
+    await user.clear(screen.getByPlaceholderText('shell.renameSessionPlaceholder'));
+    await user.type(screen.getByPlaceholderText('shell.renameSessionPlaceholder'), '天气追踪');
+    await user.click(screen.getByRole('button', { name: 'shell.saveRename' }));
+
+    await waitFor(() =>
+      expect(messagesApi.renameSession).toHaveBeenCalledWith('web_user', 'session-a', '天气追踪')
+    );
+    expect(await screen.findByRole('button', { name: '天气追踪' })).toBeInTheDocument();
+  });
+
+  it('deletes a session through the sidebar menu', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.listSessions)
+      .mockResolvedValueOnce({
+        sessions: [
+          {
+            session_id: 'session-a',
+            title: '杭州天气',
+            last_user_message_preview: '杭州天气',
+            last_message_preview: '今天有点冷',
+            last_timestamp: 10,
+            message_count: 1,
+          },
+          {
+            session_id: 'session-b',
+            title: '西湖路线',
+            last_user_message_preview: '西湖路线',
+            last_message_preview: '沿湖散步',
+            last_timestamp: 9,
+            message_count: 1,
+          },
+        ],
+        current_session_id: 'session-a',
+        user_id: 'web_user',
+        count: 2,
+      })
+      .mockResolvedValue({
+        sessions: [
+          {
+            session_id: 'session-b',
+            title: '西湖路线',
+            last_user_message_preview: '西湖路线',
+            last_message_preview: '沿湖散步',
+            last_timestamp: 9,
+            message_count: 1,
+          },
+        ],
+        current_session_id: 'session-b',
+        user_id: 'web_user',
+        count: 1,
+      });
+    vi.mocked(messagesApi.deleteSession).mockResolvedValue({
+      success: true,
+      user_id: 'web_user',
+      deleted_session_id: 'session-a',
+      current_session_id: 'session-b',
+    });
+
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a', 'session-b'],
+      sessionsById: {
+        'session-a': {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_user_message_preview: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+        'session-b': {
+          session_id: 'session-b',
+          title: '西湖路线',
+          last_user_message_preview: '西湖路线',
+          last_message_preview: '沿湖散步',
+          last_timestamp: 9,
+          message_count: 1,
+        },
+      },
+      messagesBySession: {},
+      unreadBySession: {},
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    const actionButtons = await screen.findAllByRole('button', { name: 'shell.sessionActions' });
+    await user.click(actionButtons[0]);
+    await user.click(await screen.findByRole('button', { name: 'shell.deleteSession' }));
+    await user.click(await screen.findByRole('button', { name: 'shell.confirmDeleteSession' }));
+
+    await waitFor(() =>
+      expect(messagesApi.deleteSession).toHaveBeenCalledWith('web_user', 'session-a')
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: '杭州天气' })).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole('button', { name: '西湖路线' })).toBeInTheDocument();
+  });
+
   it('refreshes sessions on sync events', async () => {
     render(
       <MemoryRouter initialEntries={['/chat']}>
@@ -115,13 +344,16 @@ describe('sidebar navigation', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => expect(messagesApi.listSessions).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(messagesApi.listSessions).toHaveBeenCalled());
+    const initialCalls = vi.mocked(messagesApi.listSessions).mock.calls.length;
 
     await act(async () => {
       window.dispatchEvent(new Event('magi-session-sync'));
     });
 
-    await waitFor(() => expect(messagesApi.listSessions).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(vi.mocked(messagesApi.listSessions).mock.calls.length).toBeGreaterThan(initialCalls)
+    );
   });
 
   it('navigates to the timeline route and updates shell state', async () => {
