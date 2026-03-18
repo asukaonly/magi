@@ -28,12 +28,14 @@ const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     hideClose?: boolean;
+    disableOutsidePointerEvents?: boolean;
   }
->(({ className, children, hideClose = false, ...props }, ref) => (
+>(({ className, children, hideClose = false, disableOutsidePointerEvents, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      {...({ disableOutsidePointerEvents } as Record<string, unknown>)}
       className={cn(
         'fixed left-[50%] top-[50%] z-[80] w-full max-w-2xl translate-x-[-50%] translate-y-[-50%]',
         'rounded-2xl border border-border/70 bg-card shadow-xl',
