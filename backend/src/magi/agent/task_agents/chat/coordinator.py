@@ -69,10 +69,12 @@ class ChatExecutionCoordinator:
             if len(content) > 120:
                 content = content[:120] + "..."
             recent_messages.append({"role": role, "content": content})
+
+        now = datetime.now()
         decision_context = {
             "os": platform.system(),
             "os_version": platform.release(),
-            "current_date": datetime.now().date().isoformat(),
+            "current_datetime": now.isoformat(timespec="seconds"),
             "current_user": "unknown",
             "recent_messages": recent_messages,
             "recent_tool_errors": list(context.recent_tool_errors),
