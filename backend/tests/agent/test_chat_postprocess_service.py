@@ -338,3 +338,81 @@ async def test_handle_emits_targeted_chat_timeline_event(monkeypatch: pytest.Mon
     event_types = [item["event_type"] for item in action_emitter.runtime_events]
     assert TRACE_NODE_COMPLETED_EVENT_TYPE in event_types
     assert TURN_TRACE_COMPLETED_EVENT_TYPE in event_types
+
+
+@pytest.mark.asyncio
+async def test_handle_emits_direct_llm_trace_node_when_result_has_llm_trace() -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "message": "hello",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            message="hello",
+            turn_id="turn-1",
+        ),
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="final answer",
+        correlation_id="corr-1",
+        turn_id="turn-1",
+        llm_trace={
+            "provider": "openai",
+            "model": "gpt-test",
+            "input_tokens": 64,
+            "output_tokens": 18,
+            "total_tokens": 82,
+            "thinking_enabled": False,
+            "duration_ms": 920,
+        },
+    )
+
+    await service.handle(context, result)
+
+    llm_events = [
+        item for item in action_emitter.runtime_events
+        if item["event_type"] == TRACE_NODE_COMPLETED_EVENT_TYPE
+        and item["payload"]["node_type"] == "llm_call"
+    ]
+    assert len(llm_events) == 1
+    llm_payload = llm_events[0]["payload"]
+    assert llm_payload["metrics"]["model"] == "gpt-test"
+    assert llm_payload["metrics"]["input_tokens"] == 64
+    assert llm_payload["tags"]["role"] == "main"

@@ -100,16 +100,23 @@ class DirectLLMHandler(BaseExecutionHandler):
         )
 
     async def execute(self, request: DirectLLMRequest) -> ExecutionResult:
+        llm_trace: dict[str, object] = {}
+
+        async def _capture_llm_trace(payload: dict[str, object]) -> None:
+            llm_trace.update(payload)
+
         response_text = await self._deps.prompt_service.call_llm(
             system_prompt=request.system_prompt,
             messages=request.messages,
             disable_thinking=request.disable_thinking,
+            llm_trace_callback=_capture_llm_trace,
         )
         return ExecutionResult(
             mode=request.mode,
             response_text=response_text,
             root_user_message=request.context.latest_user_message,
             turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            llm_trace=dict(llm_trace),
         )
 
 

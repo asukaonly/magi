@@ -109,6 +109,14 @@ class ChatPostProcessService:
         now_ms = now_wall_ms()
         started_at_ms = self._resolve_started_at_ms(result, latest_fact)
 
+        await self._emit_result_llm_trace(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            turn_id=turn_id,
+            llm_trace=getattr(result, "llm_trace", {}),
+            started_at_ms=started_at_ms,
+        )
+
         await self._emit_response_trace(
             user_id=context.user_id,
             session_id=context.session_id,
@@ -660,5 +668,42 @@ class ChatPostProcessService:
             tags={
                 "role": "main",
                 "execution_agent_id": execution_agent_id,
+            },
+        )
+
+    async def _emit_result_llm_trace(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        llm_trace: Any,
+        started_at_ms: int,
+    ) -> None:
+        action_emitter = self._get_action_emitter()
+        normalized_turn_id = str(turn_id or "").strip()
+        if action_emitter is None or not normalized_turn_id or not isinstance(llm_trace, dict) or not llm_trace:
+            return
+        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
+        ended_at_ms = max(started_at_ms, started_at_ms + duration_ms)
+        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
+        await trace_emitter.emit_node_completed(
+            trace_id=self._build_trace_id(normalized_turn_id),
+            turn_id=normalized_turn_id,
+            span_id=self._build_span_id(normalized_turn_id, "llm_call:direct"),
+            parent_span_id=self._build_root_span_id(normalized_turn_id),
+            node_type="llm_call",
+            name="Main LLM call",
+            user_id=user_id,
+            session_id=session_id,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            duration_ms=duration_ms,
+            output={
+                "stage": "direct_response",
+            },
+            metrics=dict(llm_trace),
+            tags={
+                "role": "main",
             },
         )

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from typing import Awaitable, Callable
 
 from ....config import get_config
 from ....config.models import LLMScenario
@@ -12,6 +13,8 @@ from ....llm.provider_bridge import LLMProviderBridge
 from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
 logger = get_logger(__name__)
+
+LLMTraceCallback = Callable[[dict[str, object]], Awaitable[None] | None]
 
 
 class TaskAgentLLMService:
@@ -42,6 +45,7 @@ class TaskAgentLLMService:
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: float | None = None,
+        llm_trace_callback: LLMTraceCallback | None = None,
     ) -> str:
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
@@ -87,6 +91,11 @@ class TaskAgentLLMService:
                     disable_thinking,
                     provider_response.metadata,
                 )
+            trace_metrics = dict((provider_response.metadata or {}).get("trace_metrics") or {})
+            if llm_trace_callback is not None and trace_metrics:
+                callback_result = llm_trace_callback(trace_metrics)
+                if hasattr(callback_result, "__await__"):
+                    await callback_result
             return response
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)
