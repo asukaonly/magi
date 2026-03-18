@@ -21,7 +21,9 @@ from .l2.entity_catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
 from .l2.models import ManualL2EventRequest
 from .l2.pipeline import L2Pipeline
+from .l3.models import L3Candidate, TaskOutcomePacket
 from .l3.summary_store import L3SummaryStore
+from .l3.validator import validate_candidate
 from .l4.procedural_memory import L4ProceduralMemoryStore
 
 logger = logging.getLogger(__name__)
@@ -247,6 +249,36 @@ class UnifiedMemoryStore:
             period_start=period_start,
             period_end=period_end,
         )
+
+    async def persist_l3_candidate(
+        self,
+        *,
+        candidate: L3Candidate,
+        task_outcome: TaskOutcomePacket | None = None,
+        source_task_ids: list[str] | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Validate and persist an explicit L3 candidate."""
+        if self.l1 is None or self.l3 is None:
+            return None
+
+        evidence_events: list[dict[str, Any]] = []
+        for event_id in candidate.source_event_ids:
+            event = await self.l1.get_memory_event(event_id)
+            if event is not None:
+                evidence_events.append(event.to_dict() if hasattr(event, "to_dict") else dict(event))
+
+        decision = validate_candidate(
+            candidate,
+            evidence_events=evidence_events,
+            task_outcome=task_outcome,
+        )
+        if decision.action != "accept":
+            return None
+
+        task_ids = list(source_task_ids or [])
+        if task_outcome is not None and task_outcome.task_id not in task_ids:
+            task_ids.append(task_outcome.task_id)
+        return await self.l3.upsert_candidate(candidate=candidate, source_task_ids=task_ids)
 
     async def search(self, query: str, *, search_type: str = "detail", limit: int = 10) -> list[dict[str, Any]]:
         """Perform a simple layer-aware search without the retrieval router."""

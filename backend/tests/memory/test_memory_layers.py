@@ -12,6 +12,7 @@ from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
 from magi.memory import UnifiedMemoryStore
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
+from magi.memory.l3.models import L3Candidate, TaskOutcomePacket
 from magi.timeline import TimelineContentBlock, TimelineEvent
 from magi.timeline.service import TimelineService
 
@@ -139,6 +140,55 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fetched["retention_mode"], "retain_raw")
         self.assertEqual(listed[0]["title"], "Evening note")
         self.assertEqual(detail["graph_evidence"][0]["predicate"], "LIKES")
+
+    async def test_persist_l3_candidate_writes_validated_task_reflection(self):
+        now = time.time()
+        await self.store.add_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "message": "I care more about growth than salary."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-1",
+                timestamp=now,
+            )
+        )
+        await self.store.add_event(
+            Event(
+                type=EventTypes.AI_RESPONSE,
+                data={"user_id": "u1", "session_id": "s1", "response": "You should finish your portfolio homepage first."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-2",
+                timestamp=now + 1,
+            )
+        )
+
+        event_ids = [row["event_id"] for row in await self.store.l1.query_events(limit=10)]
+        summary = await self.store.persist_l3_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="task_reflection",
+                content="The user clarified that growth matters more than salary and should finish the portfolio homepage before applying.",
+                source_event_ids=event_ids,
+            ),
+            task_outcome=TaskOutcomePacket(
+                task_id="task-1",
+                user_id="u1",
+                task_title="Plan job switch",
+                task_status="completed",
+                user_goal="Decide whether to start applying this month",
+                result_summary="Clarified priorities and next steps for a job switch.",
+                evidence_event_ids=event_ids,
+                decisions=[{"content": "Growth matters more than salary."}],
+                next_steps=["Finish the portfolio homepage."],
+            ),
+        )
+
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["summary_category"], "task_reflection")
+        event_links = await self.store.l3.list_summary_event_links(summary["summary_id"])
+        self.assertEqual(len(event_links), 2)
 
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
