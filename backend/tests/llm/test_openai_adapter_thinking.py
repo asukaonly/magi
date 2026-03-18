@@ -64,6 +64,22 @@ async def test_openai_chat_disable_thinking_does_not_inject_glm_payload() -> Non
     )
 
     assert "extra_body" not in fake_client.completions.kwargs
+    assert "disable_thinking" not in fake_client.completions.kwargs
+
+
+@pytest.mark.asyncio
+async def test_openai_generate_disable_thinking_does_not_forward_internal_flag() -> None:
+    adapter = OpenAIAdapter(api_key="test-key", model="gpt-4", provider="openai")
+    fake_client = _FakeOpenAIClient()
+    adapter._client = fake_client
+
+    await adapter.generate(
+        "hello",
+        disable_thinking=True,
+    )
+
+    assert "extra_body" not in fake_client.completions.kwargs
+    assert "disable_thinking" not in fake_client.completions.kwargs
 
 
 @pytest.mark.asyncio
