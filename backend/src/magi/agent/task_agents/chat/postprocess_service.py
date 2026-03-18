@@ -13,6 +13,7 @@ from ....events.events import EventTypes
 from ....personality.behavior_evolution import SatisfactionLevel
 from ....personality.emotional_state import EngagementLevel, InteractionOutcome
 from ....personality.growth_memory import InteractionType
+from ....memory.l3.models import TaskOutcomePacket
 from ..common import ExecutionResult, FunctionCallingExecutionResult, IncomingFactKind
 from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext
@@ -41,6 +42,7 @@ class ChatPostProcessService:
         get_sensor_hub: Callable[[], Any | None],
         memory=None,
         other_memory=None,
+        unified_memory=None,
         max_fact_memory: int = 200,
         trace_read_service: "ChatTraceReadService | None" = None,
     ) -> None:
@@ -51,6 +53,7 @@ class ChatPostProcessService:
         self._get_sensor_hub = get_sensor_hub
         self._memory = memory
         self._other_memory = other_memory
+        self._unified_memory = unified_memory
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
         self._trace_read_service = trace_read_service
@@ -96,6 +99,13 @@ class ChatPostProcessService:
                 user_id=context.user_id,
                 user_message=user_message,
             )
+        task_reflection_updated = await self._record_task_reflection(
+            context=context,
+            result=result,
+            user_message=user_message,
+            response_text=response_text,
+        )
+        memory_updated = memory_updated or task_reflection_updated
 
         correlation_id = result.correlation_id or latest_fact.correlation_id
         turn_id = result.turn_id or self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
@@ -168,6 +178,82 @@ class ChatPostProcessService:
             entities=list(action_payload.get("entities", [])),
         )
         return ChatParseOutcome(True, history_stored, memory_updated, False)
+
+    async def _record_task_reflection(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        user_message: str,
+        response_text: str,
+    ) -> bool:
+        if self._unified_memory is None:
+            return False
+        if not user_message or not response_text:
+            return False
+        if not self._should_record_task_reflection(context=context, result=result):
+            return False
+
+        event_ids = await self._collect_reflection_event_ids(
+            user_id=context.user_id,
+            session_id=context.session_id,
+        )
+        if not event_ids:
+            return False
+
+        task_id = str(
+            result.orchestration_id
+            or (context.latest_fact.payload.get("orchestration_id") if isinstance(context.latest_fact, FactRecord) and isinstance(context.latest_fact.payload, dict) else "")
+            or f"task_reflection_{int(time.time())}"
+        ).strip()
+        packet = TaskOutcomePacket(
+            task_id=task_id,
+            user_id=context.user_id,
+            task_kind="user_goal_task",
+            task_title=user_message[:120],
+            task_status="completed",
+            user_goal=user_message,
+            result_summary=response_text,
+            evidence_event_ids=event_ids,
+        )
+        try:
+            summary = await self._unified_memory.persist_task_outcome_reflection(packet)
+            return summary is not None
+        except Exception as exc:
+            logger.warning("Failed to persist task reflection: %s", exc)
+            return False
+
+    def _should_record_task_reflection(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+    ) -> bool:
+        if context.incoming_fact_kind == IncomingFactKind.EXPLORE_TASK_COMPLETED:
+            return True
+        return context.incoming_fact_kind == IncomingFactKind.WORKER_UPDATE and bool(result.orchestration_id)
+
+    async def _collect_reflection_event_ids(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        limit: int = 6,
+    ) -> list[str]:
+        l1_store = getattr(self._unified_memory, "l1", None)
+        if l1_store is None or not hasattr(l1_store, "query_events"):
+            return []
+        try:
+            events = await l1_store.query_events(
+                user_id=user_id,
+                session_id=session_id,
+                cognition_eligible=True,
+                limit=limit,
+            )
+        except Exception as exc:
+            logger.debug("Failed to query reflection evidence events: %s", exc)
+            return []
+        return [str(event.get("event_id") or "").strip() for event in events if str(event.get("event_id") or "").strip()]
 
     async def record_tool_interaction(self, payload: dict[str, Any]) -> None:
         user_id = str(payload.get("user_id") or self._agent_id)
