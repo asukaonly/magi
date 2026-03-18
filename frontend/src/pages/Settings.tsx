@@ -887,6 +887,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
               >
                 <div
                   key={activeSection}
+                  data-testid="settings-section-content"
                   className={cn(
                     'animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out',
                     usesInnerPaneScroll
