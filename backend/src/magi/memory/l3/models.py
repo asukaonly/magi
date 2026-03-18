@@ -40,6 +40,7 @@ class TaskOutcomePacket:
     user_id: str
     task_title: str
     task_status: Literal["completed", "partial", "failed", "cancelled"]
+    task_kind: Literal["user_goal_task", "orchestration_task", "system_task", "tool_task"] | None = None
     user_goal: str | None = None
     evidence_event_ids: list[str] = field(default_factory=list)
     result_summary: str | None = None
