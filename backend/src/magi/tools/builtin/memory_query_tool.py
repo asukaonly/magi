@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, Optional
 
-from ...core.runtime_bindings import require_unified_memory
+from ...config.models import LLMScenario
+from ...core.runtime_bindings import require_scenario_llm_pool, require_unified_memory
+from ...llm.provider_bridge import LLMProviderBridge
 from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
@@ -69,7 +71,19 @@ class MemoryQueryTool(Tool):
             unified_memory = require_unified_memory()
         except RuntimeError:
             return None
-        return HybridRetrievalService(unified_memory)
+        llm_provider_bridge: LLMProviderBridge | None = None
+        try:
+            scenario_llm_pool = require_scenario_llm_pool()
+            if scenario_llm_pool is not None:
+                llm_provider_bridge = LLMProviderBridge(
+                    scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
+                )
+        except RuntimeError:
+            llm_provider_bridge = None
+        return HybridRetrievalService(
+            unified_memory,
+            llm_provider_bridge=llm_provider_bridge,
+        )
 
     def _get_service(self) -> HybridRetrievalService:
         """Return an initialized retrieval service when runtime memory is available."""

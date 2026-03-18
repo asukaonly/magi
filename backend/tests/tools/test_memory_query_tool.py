@@ -57,10 +57,41 @@ class TestMemoryQueryTool:
 
         fake_unified_memory = MagicMock()
         monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: fake_unified_memory)
+        monkeypatch.setattr(memory_query_module, "require_scenario_llm_pool", lambda: None)
 
         tool = MemoryQueryTool()
 
         assert tool._service.__class__.__name__ == "HybridRetrievalService"
+
+    def test_tool_passes_llm_provider_bridge_into_hybrid_retrieval_service(self, monkeypatch):
+        """Should wire a provider bridge for retrieval intent decisions when scenario pool is available."""
+        import magi.tools.builtin.memory_query_tool as memory_query_module
+        from magi.config.models import LLMScenario
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+
+        fake_unified_memory = MagicMock()
+        fake_adapter = MagicMock()
+        fake_scenario_pool = MagicMock()
+        fake_scenario_pool.get.return_value = fake_adapter
+        captured = {}
+
+        class _FakeHybridRetrievalService:
+            def __init__(self, unified_memory, *, llm_provider_bridge=None, config=None):
+                captured["unified_memory"] = unified_memory
+                captured["llm_provider_bridge"] = llm_provider_bridge
+                captured["config"] = config
+
+        monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: fake_unified_memory)
+        monkeypatch.setattr(memory_query_module, "require_scenario_llm_pool", lambda: fake_scenario_pool)
+        monkeypatch.setattr(memory_query_module, "HybridRetrievalService", _FakeHybridRetrievalService)
+
+        tool = MemoryQueryTool()
+
+        assert captured["unified_memory"] is fake_unified_memory
+        assert captured["llm_provider_bridge"] is not None
+        fake_scenario_pool.get.assert_called_once_with(LLMScenario.CONTEXT_DECIDER)
+        assert getattr(captured["llm_provider_bridge"], "llm", None) is fake_adapter
+        assert tool._service is not None
 
     @pytest.mark.asyncio
     async def test_tool_execution(self, monkeypatch):

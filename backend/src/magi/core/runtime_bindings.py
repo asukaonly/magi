@@ -36,6 +36,11 @@ def require_unified_memory():
     return _require_binding("unified_memory")
 
 
+def require_scenario_llm_pool():
+    """Return the active scenario LLM pool binding."""
+    return _require_binding("scenario_llm_pool")
+
+
 def require_scheduler_service():
     """Return the active scheduler service binding."""
     return _require_binding("scheduler_service")
