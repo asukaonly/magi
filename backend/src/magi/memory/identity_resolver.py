@@ -47,6 +47,12 @@ class IdentityResolver:
         self._default_memory_owner_id = default_memory_owner_id.strip() or "user:self"
         self._db: aiosqlite.Connection | None = None
 
+    @property
+    def default_memory_owner_id(self) -> str:
+        """Return the fallback canonical memory owner id."""
+
+        return self._default_memory_owner_id
+
     @classmethod
     def in_memory_default(
         cls,
