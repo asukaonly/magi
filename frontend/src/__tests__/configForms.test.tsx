@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { configApi } from '../api/modules/config';
+import { configApi, type LLMConfig } from '../api/modules/config';
 import { SimpleForm as Form } from '../components/onboarding/simple-form';
 import LLMForm from '../components/config-forms/LLMForm';
 import MemoryForm from '../components/config-forms/MemoryForm';
@@ -532,6 +532,67 @@ describe('config forms', () => {
     expect(modelField.tagName).toBe('BUTTON');
     expect(coreCard.className).not.toContain('bg-[linear-gradient');
     expect(coreCard.className).not.toContain('bg-muted/18');
+  });
+
+  it('asks for confirmation before changing embedding dimension on the settings surface', async () => {
+    const user = userEvent.setup();
+    const controlledValue = {
+      ...llmValue,
+      selections: {
+        ...llmValue.selections,
+        embedding: {
+          provider_id: 'openai',
+          model: 'text-embedding-3-small',
+          embedding_dimension: 1536,
+          capability_override_enabled: false,
+          capabilities: {
+            vision: false,
+            image_output: false,
+            tool_calling: false,
+            reasoning: false,
+            embedding: true,
+          },
+          limits: {
+            context_window: null,
+            max_output_tokens: null,
+          },
+          provider_options: {},
+        },
+      },
+    } as unknown as LLMConfig;
+    const onChange = vi.fn();
+
+    render(
+      <LLMForm
+        quickMode={false}
+        surface="settings"
+        view="models"
+        showSectionIntro={false}
+        value={controlledValue}
+        onChange={onChange}
+      />
+    );
+
+    const embeddingCard = await screen.findByTestId('llm-scenario-embedding');
+    const dimensionField = within(embeddingCard).getByLabelText('llm.fields.embeddingDimension');
+    onChange.mockClear();
+
+    await user.click(dimensionField);
+    await user.click(screen.getByRole('button', { name: '512' }));
+
+    expect(await screen.findByText('llm.embeddingDimensionConfirm.title')).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'llm.embeddingDimensionConfirm.cancel' }));
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.click(dimensionField);
+    await user.click(screen.getByRole('button', { name: '512' }));
+    await user.click(screen.getByRole('button', { name: 'llm.embeddingDimensionConfirm.confirm' }));
+
+    expect(onChange).toHaveBeenCalled();
+    const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+    expect(latest.selections.embedding.embedding_dimension).toBe(512);
   });
 
   it('does not auto-select a provider or model when onboarding starts with all providers disabled', async () => {

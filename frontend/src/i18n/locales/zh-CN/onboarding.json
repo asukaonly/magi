@@ -63,6 +63,13 @@
       "selectEmbeddingDimension": "选择向量维度",
       "noEmbeddingModels": "当前已启用的供应商没有向量模型，请启用支持向量的供应商（如 OpenAI）。"
     },
+    "embeddingDimensionConfirm": {
+      "title": "确认切换向量维度",
+      "description": "即将从 {{current}} 切换到 {{next}}。切换后会删除当前全部向量数据。",
+      "warning": "历史向量数据不会自动重建。只有后续新写入的数据会按新维度生成；如果你需要恢复历史向量，需要额外执行全量重建或重新嵌入。",
+      "cancel": "取消",
+      "confirm": "确认切换"
+    },
     "providerConfiguration": {
       "title": "供应商配置",
       "desc": "在这里维护可用供应商和连接信息。内置供应商会展示可用模型列表。",

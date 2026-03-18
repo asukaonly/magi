@@ -14,7 +14,11 @@ interface LLMModelSelectionSectionProps {
   showSectionIntro?: boolean;
   onScenarioProviderChange: (scenario: LLMScenario, providerId: string) => void;
   onScenarioModelChange: (scenario: LLMScenario, model: string) => void;
-  onScenarioEmbeddingDimensionChange: (scenario: LLMScenario, dimension: number | null) => void;
+  onScenarioEmbeddingDimensionChange: (
+    scenario: LLMScenario,
+    dimension: number | null,
+    source?: 'model-sync' | 'manual'
+  ) => void;
 }
 
 const SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
@@ -160,7 +164,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                         );
                         onScenarioEmbeddingDimensionChange(
                           scenario,
-                          matched?.dimensions?.[0] ?? null
+                          matched?.dimensions?.[0] ?? null,
+                          'model-sync'
                         );
                       }}
                     />
@@ -188,7 +193,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
                       onChange={(nextValue) =>
                         onScenarioEmbeddingDimensionChange(
                           scenario,
-                          nextValue ? Number(nextValue) : null
+                          nextValue ? Number(nextValue) : null,
+                          'manual'
                         )
                       }
                     />

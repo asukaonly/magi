@@ -62,6 +62,13 @@
       "selectEmbeddingDimension": "Select embedding dimension",
       "noEmbeddingModels": "No embedding models available from enabled providers. Enable a provider with embedding support (e.g., OpenAI)."
     },
+    "embeddingDimensionConfirm": {
+      "title": "Confirm Embedding Dimension Change",
+      "description": "You are about to switch from {{current}} to {{next}}. This will delete all existing vector data.",
+      "warning": "Historical vector data will not be rebuilt automatically. Only newly written data will use the new dimension; rebuilding older vectors requires a separate full re-index or re-embedding pass.",
+      "cancel": "Cancel",
+      "confirm": "Confirm Change"
+    },
     "providerConfiguration": {
       "title": "Provider Configuration",
       "desc": "Manage available providers and connection details here. Built-in providers show their model lists.",

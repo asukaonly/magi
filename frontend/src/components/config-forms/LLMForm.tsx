@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -16,6 +16,8 @@ import {
   type LLMSelectionConfig,
   type TestLLMProviderConnectionResponse,
 } from '@/api/modules/config';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
 import { FormContext } from '../onboarding/simple-form';
@@ -33,6 +35,12 @@ interface LLMFormProps {
 }
 
 const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding'];
+
+interface PendingEmbeddingDimensionChange {
+  scenario: LLMScenario;
+  previousDimension: number | null;
+  nextDimension: number | null;
+}
 
 const cloneCapabilities = (value?: Partial<LLMCapabilities>): LLMCapabilities => ({
   ...DEFAULT_LLM_CAPABILITIES,
@@ -319,6 +327,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const [providerTestState, setProviderTestState] = useState<
     Record<string, { loading: boolean; error: string | null; result: TestLLMProviderConnectionResponse | null }>
   >({});
+  const [pendingEmbeddingDimensionChange, setPendingEmbeddingDimensionChange] =
+    useState<PendingEmbeddingDimensionChange | null>(null);
 
   const currentValue = useMemo(() => {
     if (controlled) {
@@ -409,12 +419,49 @@ const LLMForm: React.FC<LLMFormProps> = ({
     });
   };
 
-  const handleScenarioEmbeddingDimensionChange = (scenario: LLMScenario, dimension: number | null) => {
+  const applyScenarioEmbeddingDimensionChange = (scenario: LLMScenario, dimension: number | null) => {
     updateValue((draft) => {
       const selection = cloneSelection(draft.selections[scenario]);
       selection.embedding_dimension = dimension;
       draft.selections[scenario] = selection;
     });
+  };
+
+  const handleScenarioEmbeddingDimensionChange = (
+    scenario: LLMScenario,
+    dimension: number | null,
+    source: 'model-sync' | 'manual' = 'manual'
+  ) => {
+    const currentDimension = currentValue.selections[scenario]?.embedding_dimension ?? null;
+    const shouldConfirm =
+      surface === 'settings' &&
+      scenario === 'embedding' &&
+      source === 'manual' &&
+      currentDimension !== null &&
+      dimension !== null &&
+      currentDimension !== dimension;
+
+    if (shouldConfirm) {
+      setPendingEmbeddingDimensionChange({
+        scenario,
+        previousDimension: currentDimension,
+        nextDimension: dimension,
+      });
+      return;
+    }
+
+    applyScenarioEmbeddingDimensionChange(scenario, dimension);
+  };
+
+  const handleConfirmEmbeddingDimensionChange = () => {
+    if (!pendingEmbeddingDimensionChange) {
+      return;
+    }
+    applyScenarioEmbeddingDimensionChange(
+      pendingEmbeddingDimensionChange.scenario,
+      pendingEmbeddingDimensionChange.nextDimension
+    );
+    setPendingEmbeddingDimensionChange(null);
   };
 
   const handleProviderChange = (providerId: string, updater: (provider: LLMProviderConfig) => void) => {
@@ -666,6 +713,43 @@ const LLMForm: React.FC<LLMFormProps> = ({
           onScenarioEmbeddingDimensionChange={handleScenarioEmbeddingDimensionChange}
         />
       ) : null}
+
+      <Dialog
+        open={Boolean(pendingEmbeddingDimensionChange)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingEmbeddingDimensionChange(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              {t('llm.embeddingDimensionConfirm.title')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('llm.embeddingDimensionConfirm.description', {
+                current: pendingEmbeddingDimensionChange?.previousDimension ?? '',
+                next: pendingEmbeddingDimensionChange?.nextDimension ?? '',
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 pb-2">
+            <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm leading-6 text-muted-foreground">
+              {t('llm.embeddingDimensionConfirm.warning')}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setPendingEmbeddingDimensionChange(null)}>
+              {t('llm.embeddingDimensionConfirm.cancel')}
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleConfirmEmbeddingDimensionChange}>
+              {t('llm.embeddingDimensionConfirm.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
