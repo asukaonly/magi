@@ -205,6 +205,48 @@ def test_normalized_memory_event_tracks_runtime_and_memory_owner_ids():
 
 
 @pytest.mark.asyncio
+async def test_unified_memory_store_resolves_runtime_identity_links_for_memory_owner():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = UnifiedMemoryStore(
+            l1_db_path=str(Path(temp_dir) / "l1_events.db"),
+            memory_db_path=str(Path(temp_dir) / "memory.db"),
+            enable_l0=False,
+            enable_l2=False,
+            enable_l3=False,
+            enable_l4=False,
+        )
+        await store.initialize()
+        try:
+            await store.upsert_identity_link(
+                namespace="telegram",
+                runtime_user_id="asuka_main",
+                memory_owner_id="user:self",
+            )
+
+            result = await store.ingest_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "asuka_main",
+                        "runtime_namespace": "telegram",
+                        "session_id": "s-telegram",
+                        "message": "hello from telegram",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                )
+            )
+            restored = await store.l1.get_memory_event(result["event_id"]) if store.l1 is not None else None
+
+            assert restored is not None
+            assert restored.runtime_user_id == "asuka_main"
+            assert restored.memory_owner_id == "user:self"
+            assert json.loads(restored.metadata)["runtime_namespace"] == "telegram"
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_l1_round_trip_preserves_extraction_profile_metadata():
     from magi.memory.l1_event_store import L1EventStore
 

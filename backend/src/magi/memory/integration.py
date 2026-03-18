@@ -161,7 +161,7 @@ class MemoryIntegrationModule:
 
     async def _maybe_store_l1(self, event: Event) -> bool:
         """Test helper for the L1 routing decision."""
-        normalized = normalize_runtime_event(event)
+        normalized = self.unified_memory._normalize_event(event)
         if normalized.ingest_target == IngestTarget.L0_ONLY:
             self._stats.l1_filtered += 1
             return False

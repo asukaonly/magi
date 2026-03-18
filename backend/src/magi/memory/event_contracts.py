@@ -7,9 +7,12 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from ..events.events import Event, EventTypes
+
+if TYPE_CHECKING:
+    from .identity_resolver import IdentityResolver
 
 
 class _LabeledIntEnum(IntEnum):
@@ -190,7 +193,13 @@ class MemoryEvent:
         }
 
 
-def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, parent_event_id: Optional[str] = None) -> MemoryEvent:
+def normalize_runtime_event(
+    event: Event,
+    *,
+    event_id: Optional[str] = None,
+    parent_event_id: Optional[str] = None,
+    identity_resolver: "IdentityResolver | None" = None,
+) -> MemoryEvent:
     """Normalize runtime events into the new memory contract."""
 
     now = time.time()
@@ -203,7 +212,12 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
     session_id = _first_non_empty(payload.get("session_id"), metadata.get("session_id"))
     user_id = _first_non_empty(payload.get("user_id"), metadata.get("user_id"))
     runtime_user_id = user_id
-    memory_owner_id = _resolve_memory_owner_id(runtime_user_id=runtime_user_id, event=event)
+    runtime_namespace = _first_non_empty(payload.get("runtime_namespace"), metadata.get("runtime_namespace"), event.source)
+    memory_owner_id = _resolve_memory_owner_id(
+        runtime_user_id=runtime_user_id,
+        runtime_namespace=runtime_namespace,
+        identity_resolver=identity_resolver,
+    )
     goal_id = _first_non_empty(payload.get("goal_id"), metadata.get("goal_id"))
     source_item_id = _first_non_empty(payload.get("source_item_id"), metadata.get("source_item_id"))
     entity_focus_hint = _first_non_empty(payload.get("entity_focus_hint"), metadata.get("entity_focus_hint"))
@@ -223,6 +237,7 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
         "semantic_owner_hint": evidence_metadata["semantic_owner_hint"],
         "originality_type": evidence_metadata["originality_type"],
         "runtime_user_id": runtime_user_id,
+        "runtime_namespace": runtime_namespace,
         "memory_owner_id": memory_owner_id,
         "extraction_profile_id": extraction_profile_id,
         "structured_entity_hints": structured_entity_hints,
@@ -280,10 +295,18 @@ def _first_non_empty(*values: Any) -> Optional[str]:
     return None
 
 
-def _resolve_memory_owner_id(*, runtime_user_id: Optional[str], event: Event) -> str:
-    del runtime_user_id
-    del event
-    return "user:self"
+def _resolve_memory_owner_id(
+    *,
+    runtime_user_id: Optional[str],
+    runtime_namespace: Optional[str],
+    identity_resolver: "IdentityResolver | None",
+) -> str:
+    if identity_resolver is None:
+        return "user:self"
+    return identity_resolver.resolve_memory_owner_id(
+        runtime_user_id=runtime_user_id,
+        source=runtime_namespace,
+    )
 
 
 def _build_raw_content(event: Event) -> str:

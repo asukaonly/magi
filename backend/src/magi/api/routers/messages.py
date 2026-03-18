@@ -46,6 +46,7 @@ async def send_user_message(
             session_id=request.session_id,
             client_turn_id=request.client_turn_id,
             metadata=request.metadata or {},
+            runtime_namespace=str((request.metadata or {}).get("runtime_namespace") or "web"),
         )
         if not outcome.success:
             agent_logger.warning(
