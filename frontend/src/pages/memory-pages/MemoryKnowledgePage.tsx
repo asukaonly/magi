@@ -5,7 +5,13 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L2Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MEMORY_FILTER_SELECT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
+import MemoryPageFrame, {
+  MEMORY_FILTER_INPUT_CLASS,
+  MEMORY_FILTER_SELECT_CLASS,
+  MemoryHeroStat,
+  MemoryTag,
+  MemoryWorkspacePanel,
+} from './MemoryPageFrame';
 
 export const MemoryKnowledgePage = () => {
   const { t } = useTranslation('app');
@@ -140,6 +146,12 @@ export const MemoryKnowledgePage = () => {
       }),
     [identityLinks, normalizedQuery, visibleEntityIds.size]
   );
+  const dominantPredicates = Array.from(
+    filteredRelations.reduce((map, relation) => {
+      map.set(relation.predicate, (map.get(relation.predicate) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>())
+  ).sort((left, right) => right[1] - left[1]);
 
   return (
     <MemoryPageFrame
@@ -214,23 +226,58 @@ export const MemoryKnowledgePage = () => {
       {loading ? (
         <LoadingSpinner />
       ) : (
-        <L2Tab
-          stats={l2Stats}
-          relations={filteredRelations}
-          assertions={filteredAssertions}
-          identityLinks={filteredIdentityLinks}
-          entities={filteredEntities}
-          mentions={filteredMentions}
-          snapshots={filteredSnapshots}
-          conflictRules={l2ConflictRules}
-          events={filteredEvents}
-          actionLoading={l2ActionLoading}
-          onSubmitManualEvent={submitManualL2Event}
-          onReplayExtraction={replayL2Extraction}
-          onRunReconcile={runL2Reconcile}
-          onRunSnapshotRefresh={runL2SnapshotRefresh}
-          onUpsertGraphConflictRule={upsertL2GraphConflictRule}
-        />
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
+            <MemoryWorkspacePanel
+              title={t('memory.pages.knowledge.entitySummaryTitle')}
+              description={t('memory.pages.knowledge.entitySummaryBody')}
+            >
+              <div className="flex flex-wrap gap-2">
+                {entityTypes.map((entityType) => (
+                  <MemoryTag key={entityType}>
+                    {entityType} · {filteredEntities.filter((entity) => entity.entity_type === entityType).length}
+                  </MemoryTag>
+                ))}
+                {entityTypes.length === 0 ? <MemoryTag>{t('memory.pages.knowledge.focusAll')}</MemoryTag> : null}
+              </div>
+            </MemoryWorkspacePanel>
+
+            <MemoryWorkspacePanel
+              title={t('memory.pages.knowledge.structureTitle')}
+              description={t('memory.pages.knowledge.structureBody')}
+            >
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {dominantPredicates.slice(0, 5).map(([predicate, count]) => (
+                    <MemoryTag key={predicate}>{predicate} · {count}</MemoryTag>
+                  ))}
+                  {dominantPredicates.length === 0 ? <MemoryTag>{t('memory.l2.noRelations')}</MemoryTag> : null}
+                </div>
+                <div className="rounded-[1.25rem] border border-[#ead9cc] bg-white/85 px-4 py-3 text-sm text-[#725c4b]">
+                  {t('memory.pages.knowledge.identitySummary', { count: filteredIdentityLinks.length })}
+                </div>
+              </div>
+            </MemoryWorkspacePanel>
+          </div>
+
+          <L2Tab
+            stats={l2Stats}
+            relations={filteredRelations}
+            assertions={filteredAssertions}
+            identityLinks={filteredIdentityLinks}
+            entities={filteredEntities}
+            mentions={filteredMentions}
+            snapshots={filteredSnapshots}
+            conflictRules={l2ConflictRules}
+            events={filteredEvents}
+            actionLoading={l2ActionLoading}
+            onSubmitManualEvent={submitManualL2Event}
+            onReplayExtraction={replayL2Extraction}
+            onRunReconcile={runL2Reconcile}
+            onRunSnapshotRefresh={runL2SnapshotRefresh}
+            onUpsertGraphConflictRule={upsertL2GraphConflictRule}
+          />
+        </div>
       )}
     </MemoryPageFrame>
   );

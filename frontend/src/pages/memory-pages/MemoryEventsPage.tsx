@@ -4,8 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L1Tab } from '@/components/memory';
+import { formatTimestamp } from '@/hooks/useMemory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MEMORY_FILTER_SELECT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
+import MemoryPageFrame, {
+  MEMORY_FILTER_INPUT_CLASS,
+  MEMORY_FILTER_SELECT_CLASS,
+  MemoryHeroStat,
+  MemoryTag,
+  MemoryWorkspacePanel,
+} from './MemoryPageFrame';
 
 export const MemoryEventsPage = () => {
   const { t } = useTranslation('app');
@@ -34,6 +41,14 @@ export const MemoryEventsPage = () => {
   );
 
   const userAuthoredCount = filteredEvents.filter((event) => event.source === 'user').length;
+  const domainCounts = Array.from(
+    filteredEvents.reduce((map, event) => {
+      const key = event.memory_domain || 'general';
+      map.set(key, (map.get(key) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>())
+  ).sort((left, right) => right[1] - left[1]);
+  const latestEvent = filteredEvents[0] ?? null;
 
   return (
     <MemoryPageFrame
@@ -102,7 +117,47 @@ export const MemoryEventsPage = () => {
         </div>
       )}
     >
-      {loading ? <LoadingSpinner /> : <L1Tab stats={stats.l1} events={filteredEvents} />}
+      {loading ? <LoadingSpinner /> : (
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+            <MemoryWorkspacePanel
+              testId="memory-events-source-summary"
+              title={t('memory.pages.events.sourceSummaryTitle')}
+              description={t('memory.pages.events.sourceSummaryBody')}
+            >
+              <div className="flex flex-wrap gap-2">
+                {sources.map((source) => (
+                  <MemoryTag key={source}>
+                    {source} · {filteredEvents.filter((event) => event.source === source).length}
+                  </MemoryTag>
+                ))}
+                {sources.length === 0 ? <MemoryTag>{t('memory.filters.all')}</MemoryTag> : null}
+              </div>
+            </MemoryWorkspacePanel>
+
+            <MemoryWorkspacePanel
+              title={t('memory.pages.events.domainSummaryTitle')}
+              description={t('memory.pages.events.domainSummaryBody')}
+            >
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {domainCounts.slice(0, 5).map(([domain, count]) => (
+                    <MemoryTag key={domain}>{domain} · {count}</MemoryTag>
+                  ))}
+                  {domainCounts.length === 0 ? <MemoryTag>{t('memory.filters.all')}</MemoryTag> : null}
+                </div>
+                {latestEvent ? (
+                  <div className="rounded-[1.25rem] border border-[#ead9cc] bg-white/85 px-4 py-3 text-sm text-[#725c4b]">
+                    {t('memory.pages.events.latestEventLabel', { time: formatTimestamp(latestEvent.timestamp) })}
+                  </div>
+                ) : null}
+              </div>
+            </MemoryWorkspacePanel>
+          </div>
+
+          <L1Tab stats={stats.l1} events={filteredEvents} />
+        </div>
+      )}
     </MemoryPageFrame>
   );
 };

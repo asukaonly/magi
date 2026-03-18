@@ -5,7 +5,13 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L3Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MEMORY_FILTER_SELECT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
+import MemoryPageFrame, {
+  MEMORY_FILTER_INPUT_CLASS,
+  MEMORY_FILTER_SELECT_CLASS,
+  MemoryHeroStat,
+  MemoryTag,
+  MemoryWorkspacePanel,
+} from './MemoryPageFrame';
 
 export const MemoryReflectionPage = () => {
   const { t } = useTranslation('app');
@@ -33,6 +39,14 @@ export const MemoryReflectionPage = () => {
   );
 
   const summaryTypesCount = summaryTypes.length;
+  const keyTopics = Array.from(
+    filteredSummaries.reduce((set, summary) => {
+      summary.key_topics.forEach((topic) => {
+        if (topic) set.add(topic);
+      });
+      return set;
+    }, new Set<string>())
+  );
 
   return (
     <MemoryPageFrame
@@ -101,7 +115,39 @@ export const MemoryReflectionPage = () => {
         </div>
       )}
     >
-      {loading ? <LoadingSpinner /> : <L3Tab stats={stats.l3} summaries={filteredSummaries} />}
+      {loading ? <LoadingSpinner /> : (
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[0.96fr_1.04fr]">
+            <MemoryWorkspacePanel
+              title={t('memory.pages.reflection.cadenceTitle')}
+              description={t('memory.pages.reflection.cadenceBody')}
+            >
+              <div className="flex flex-wrap gap-2">
+                {summaryTypes.map((summaryType) => (
+                  <MemoryTag key={summaryType}>
+                    {summaryType} · {filteredSummaries.filter((summary) => summary.summary_type === summaryType).length}
+                  </MemoryTag>
+                ))}
+                {summaryTypes.length === 0 ? <MemoryTag>{t('memory.l3.noSummaries')}</MemoryTag> : null}
+              </div>
+            </MemoryWorkspacePanel>
+
+            <MemoryWorkspacePanel
+              title={t('memory.pages.reflection.topicsTitle')}
+              description={t('memory.pages.reflection.topicsBody')}
+            >
+              <div className="flex flex-wrap gap-2">
+                {keyTopics.slice(0, 8).map((topic) => (
+                  <MemoryTag key={topic}>{topic}</MemoryTag>
+                ))}
+                {keyTopics.length === 0 ? <MemoryTag>{t('memory.pages.reflection.noTopics')}</MemoryTag> : null}
+              </div>
+            </MemoryWorkspacePanel>
+          </div>
+
+          <L3Tab stats={stats.l3} summaries={filteredSummaries} />
+        </div>
+      )}
     </MemoryPageFrame>
   );
 };

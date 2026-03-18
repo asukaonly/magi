@@ -740,6 +740,12 @@
       "eyebrow": "记忆总览",
       "subtitle": "先查看跨层搜索、整体统计、层级入口与最近变化，再决定进入哪一层继续工作。",
       "searchLabel": "跨层搜索",
+      "searchResultsTitle": "搜索结果",
+      "searchResultsBody": "围绕“{{query}}”整理出的跨层线索会先落在这里，便于快速判断应该进入哪一层继续查看。",
+      "searchIdleBody": "输入一个关键词后，这里会把跨层线索整理成适合继续深入的入口。",
+      "searchIdleHint": "还没有搜索结果。你可以先搜索偏好、人物、地点或技能名称，再从结果最密集的层继续进入。",
+      "noSearchResults": "暂时没有命中结果。可以换一个更具体的关键词，或直接从下方层级入口进入。",
+      "matchesLabel": "命中",
       "workspaceTitle": "层级入口",
       "workspaceBody": "从这里进入 5 层独立记忆页面。每一层都保留自己的筛选方式和阅读节奏，方便按任务深入查看。",
       "workspaceHint": "先在总览判断信号密度，再进入具体层页展开处理，会更容易保持方向感。",
@@ -749,6 +755,10 @@
       "asideTitle": "今天的记忆空间很安静，但信息在持续生长",
       "asideBody": "先用搜索或层入口找到你要看的记忆，再从最近变化里判断哪些层最近最值得进入。",
       "recentChangesTitle": "最近变化",
+      "recommendedTitle": "建议进入层",
+      "recommendedBody": "当搜索开始出现偏向时，这里会优先提示最值得打开的层页。",
+      "recommendedReasonHits": "{{count}} 条相关线索",
+      "recommendedEmpty": "还没有明显的搜索偏向。可以先从你最关心的层开始浏览。",
       "layerCardHint": "继续深入这一层",
       "changes": {
         "summaryTitle": "新摘要沉淀",
@@ -763,7 +773,12 @@
         "searchPlaceholder": "按会话 ID 或状态筛选工作台记忆",
         "focusTitle": "当前聚焦会话",
         "focusBody": "工作台页更适合从具体会话切入，去看目标栈、活跃实体和临时策略的即时状态。",
-        "focusEmpty": "尚未选中会话"
+        "focusEmpty": "尚未选中会话",
+        "sessionTitle": "会话快照",
+        "sessionBody": "先看当前聚焦会话，再决定是否进入更详细的目标栈和工作台内容。",
+        "queueTitle": "会话队列",
+        "queueBody": "这里保留一个轻量的会话视图，帮助你先确定该进入哪条运行线程。",
+        "lastActiveLabel": "最近活跃于 {{time}}"
       },
       "events": {
         "eyebrow": "L1 事件流",
@@ -771,7 +786,12 @@
         "searchPlaceholder": "按事件内容、类型或域筛选事件记忆",
         "focusTitle": "事件观察",
         "focusHeadline": "从来源和内容去看记忆流入的密度",
-        "focusBody": "这一层更像时间沉淀后的底稿，适合先按来源缩小范围，再逐步查看事件内容。"
+        "focusBody": "这一层更像时间沉淀后的底稿，适合先按来源缩小范围，再逐步查看事件内容。",
+        "sourceSummaryTitle": "来源分布",
+        "sourceSummaryBody": "先看当前筛选条件下，哪些来源正在持续向记忆流入内容。",
+        "domainSummaryTitle": "事件域感知",
+        "domainSummaryBody": "事件域会帮助你判断这些记录更偏向行为、偏好还是背景事实。",
+        "latestEventLabel": "最近一条命中记录时间：{{time}}"
       },
       "knowledge": {
         "eyebrow": "L2 知识花园",
@@ -779,7 +799,12 @@
         "searchPlaceholder": "按实体、关系或断言关键词筛选知识记忆",
         "focusTitle": "实体视角",
         "focusBody": "知识页会更像一座缓慢生长的花园。先选实体类型，再进入关系、断言和快照层去看结构变化。",
-        "focusAll": "全部实体类型"
+        "focusAll": "全部实体类型",
+        "entitySummaryTitle": "实体轮廓",
+        "entitySummaryBody": "先看当前筛选下有哪些实体类型正在出现，再决定去读哪部分知识结构。",
+        "structureTitle": "结构线索",
+        "structureBody": "高频谓词和身份映射数量会帮助你快速感知当前知识图谱的形状。",
+        "identitySummary": "当前筛选下共有 {{count}} 条身份映射线索"
       },
       "reflection": {
         "eyebrow": "L3 反思层",
@@ -787,7 +812,12 @@
         "searchPlaceholder": "按摘要内容或分类筛选摘要反思记忆",
         "focusTitle": "反思节奏",
         "focusHeadline": "在这里看见记忆被如何慢慢整理",
-        "focusBody": "这一层不是原始记录，而是更接近阶段性整理后的语言，适合用类型和内容双重筛选。"
+        "focusBody": "这一层不是原始记录，而是更接近阶段性整理后的语言，适合用类型和内容双重筛选。",
+        "cadenceTitle": "摘要节奏",
+        "cadenceBody": "先确认当前有哪些摘要类型在活跃，再深入阅读具体内容会更自然。",
+        "topicsTitle": "主题碎片",
+        "topicsBody": "这里保留最近反思里反复出现的主题，帮助你快速把握整理方向。",
+        "noTopics": "当前摘要里还没有显式主题"
       },
       "skills": {
         "eyebrow": "L4 技能档案",
@@ -795,7 +825,13 @@
         "searchPlaceholder": "按技能名称或分类筛选工具技能记忆",
         "focusTitle": "技能状态",
         "focusHeadline": "查看哪些能力稳定、哪些能力仍需观察",
-        "focusBody": "技能页更适合把成功率、熔断状态和技能类别放在一起看，方便后续继续调优。"
+        "focusBody": "技能页更适合把成功率、熔断状态和技能类别放在一起看，方便后续继续调优。",
+        "categoryTitle": "技能分类",
+        "categoryBody": "先看哪些技能类别更活跃，再决定去读具体能力条目。",
+        "attentionTitle": "关注提醒",
+        "attentionBody": "这里会优先提示高成功率能力和仍需观察的状态变化。",
+        "recentSkillLabel": "最近仍在使用的能力：{{name}}",
+        "noRecentSkill": "当前没有最近使用记录"
       }
     },
     "filters": {

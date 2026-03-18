@@ -96,6 +96,40 @@ export const MemoryHeroStat = ({
   </div>
 );
 
+export const MemoryWorkspacePanel = ({
+  title,
+  description,
+  children,
+  className,
+  testId,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  className?: string;
+  testId?: string;
+}) => (
+  <Card
+    data-testid={testId}
+    className={cn(
+      'rounded-[1.7rem] border-[#e7d8cd] bg-[rgba(255,252,248,0.94)] shadow-[0_14px_34px_-30px_rgba(110,80,54,0.42)]',
+      className
+    )}
+  >
+    <CardHeader className="pb-3">
+      <CardTitle className="text-base text-[#443227]">{title}</CardTitle>
+      {description ? <p className="text-sm leading-6 text-[#7a6352]">{description}</p> : null}
+    </CardHeader>
+    <CardContent>{children}</CardContent>
+  </Card>
+);
+
+export const MemoryTag = ({ children }: { children: ReactNode }) => (
+  <span className="inline-flex items-center rounded-full border border-[#e5d3c4] bg-white/88 px-3 py-1 text-xs text-[#6c5646]">
+    {children}
+  </span>
+);
+
 export const MEMORY_FILTER_INPUT_CLASS =
   'h-11 rounded-2xl border-[#e4d3c5] bg-white/85 text-[#3f2d21] placeholder:text-[#a18976] focus-visible:ring-[#d2b79f]';
 

@@ -220,6 +220,16 @@ export interface ClearMemoryResponse {
   warnings?: string[];
 }
 
+export interface MemorySearchResultPayload {
+  l0_workbench: Array<Record<string, unknown>>;
+  l1_events: Array<Record<string, unknown>>;
+  l2_entity_cards: Array<Record<string, unknown>>;
+  l2_relationships: Array<Record<string, unknown>>;
+  l3_reflections: Array<Record<string, unknown>>;
+  l4_procedures: Array<Record<string, unknown>>;
+  trace: Record<string, unknown>;
+}
+
 // Legacy API object for backward compatibility
 export const memoryApi = {
   // L0 Working Memory
@@ -278,7 +288,7 @@ export const memoryApi = {
   getStatistics: () =>
     api.get<MemoryStatistics>('/memory/statistics') as unknown as Promise<MemoryStatistics>,
   search: (query: string, options?: { limit?: number; query_mode?: string }) =>
-    api.post('/memory/search', { query, limit: options?.limit ?? 20, query_mode: options?.query_mode ?? 'detail' }),
+    api.post<MemorySearchResultPayload>('/memory/search', { query, limit: options?.limit ?? 20, query_mode: options?.query_mode ?? 'detail' }) as unknown as Promise<MemorySearchResultPayload>,
 
   // Clear
   clearAll: () =>

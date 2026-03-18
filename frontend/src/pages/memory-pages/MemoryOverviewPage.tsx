@@ -7,7 +7,12 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ClearMemoryDialog } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
+import MemoryPageFrame, {
+  MEMORY_FILTER_INPUT_CLASS,
+  MemoryHeroStat,
+  MemoryTag,
+  MemoryWorkspacePanel,
+} from './MemoryPageFrame';
 
 export const MemoryOverviewPage = () => {
   const { t } = useTranslation('app');
@@ -16,6 +21,7 @@ export const MemoryOverviewPage = () => {
     stats,
     searchQuery,
     setSearchQuery,
+    searchResults,
     searching,
     handleSearch,
     refreshAll,
@@ -41,6 +47,43 @@ export const MemoryOverviewPage = () => {
     { title: t('memory.overview.changes.relationTitle'), value: stats.l2.relation_count },
     { title: t('memory.overview.changes.skillTitle'), value: stats.l4.skill_count },
   ];
+
+  const searchSections = [
+    {
+      key: 'events',
+      label: t('memory.nav.events'),
+      path: '/memory/events',
+      count: searchResults.l1_events.length,
+      items: searchResults.l1_events,
+    },
+    {
+      key: 'knowledge',
+      label: t('memory.nav.knowledge'),
+      path: '/memory/knowledge',
+      count: searchResults.l2_entity_cards.length + searchResults.l2_relationships.length,
+      items: [...searchResults.l2_entity_cards, ...searchResults.l2_relationships],
+    },
+    {
+      key: 'reflection',
+      label: t('memory.nav.reflection'),
+      path: '/memory/reflection',
+      count: searchResults.l3_reflections.length,
+      items: searchResults.l3_reflections,
+    },
+    {
+      key: 'skills',
+      label: t('memory.nav.skills'),
+      path: '/memory/skills',
+      count: searchResults.l4_procedures.length,
+      items: searchResults.l4_procedures,
+    },
+  ];
+
+  const totalSearchHits = searchSections.reduce((sum, section) => sum + section.count, 0);
+  const recommendedLayers = searchSections
+    .filter((section) => section.count > 0)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 3);
 
   return (
     <>
@@ -119,6 +162,89 @@ export const MemoryOverviewPage = () => {
           <OverviewMetric label={t('memory.l2.assertionCount')} value={stats.l2.assertion_count} />
           <OverviewMetric label={t('memory.l3.summaryCount')} value={stats.l3.summary_count} />
           <OverviewMetric label={t('memory.l4.skillCount')} value={stats.l4.skill_count} />
+        </div>
+
+        <div className="mt-6 grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+          <MemoryWorkspacePanel
+            testId="memory-overview-search-results"
+            title={t('memory.overview.searchResultsTitle')}
+            description={
+              searchQuery.trim().length > 0
+                ? t('memory.overview.searchResultsBody', { query: searchQuery })
+                : t('memory.overview.searchIdleBody')
+            }
+          >
+            {totalSearchHits > 0 ? (
+              <div className="space-y-3">
+                {searchSections
+                  .filter((section) => section.count > 0)
+                  .map((section) => (
+                    <div
+                      key={section.key}
+                      className="rounded-[1.35rem] border border-[#eadccf] bg-white/86 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-2">
+                          <div className="text-sm font-semibold text-[#35261c]">{section.label}</div>
+                          <div className="text-sm leading-6 text-[#735c4c]">
+                            {describeSearchItem(section.items[0])}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-semibold text-[#7e604b]">{section.count}</div>
+                          <div className="text-[11px] uppercase tracking-[0.16em] text-[#9a7f6c]">
+                            {t('memory.overview.matchesLabel')}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <div className="rounded-[1.45rem] border border-dashed border-[#dcc7b5] bg-[rgba(247,239,231,0.82)] p-5 text-sm leading-6 text-[#785f4e]">
+                {searchQuery.trim().length > 0
+                  ? t('memory.overview.noSearchResults')
+                  : t('memory.overview.searchIdleHint')}
+              </div>
+            )}
+          </MemoryWorkspacePanel>
+
+          <MemoryWorkspacePanel
+            testId="memory-overview-recommended-layers"
+            title={t('memory.overview.recommendedTitle')}
+            description={t('memory.overview.recommendedBody')}
+          >
+            {recommendedLayers.length > 0 ? (
+              <div className="space-y-3">
+                {recommendedLayers.map((section) => (
+                  <Link
+                    key={section.key}
+                    to={section.path}
+                    className="group flex items-center justify-between rounded-[1.35rem] border border-[#e9d8cb] bg-white/88 px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#d8bea9]"
+                  >
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-[#38281e]">{section.label}</div>
+                      <div className="text-xs text-[#8b7260]">
+                        {t('memory.overview.recommendedReasonHits', { count: section.count })}
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-[#aa8166] transition-transform duration-200 group-hover:translate-x-0.5" />
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-[1.35rem] border border-[#eadccf] bg-white/86 p-4 text-sm leading-6 text-[#735c4c]">
+                  {t('memory.overview.recommendedEmpty')}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {overviewLinks.map((item) => (
+                    <MemoryTag key={item.path}>{item.label}</MemoryTag>
+                  ))}
+                </div>
+              </div>
+            )}
+          </MemoryWorkspacePanel>
         </div>
 
         <div className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
@@ -215,5 +341,29 @@ const OverviewMetric = ({ label, value }: { label: string; value: number }) => (
     </CardContent>
   </Card>
 );
+
+const describeSearchItem = (item: Record<string, unknown> | undefined): string => {
+  if (!item) return '';
+
+  const previewKeys = [
+    'raw_content',
+    'canonical_name',
+    'content',
+    'skill_name',
+    'summary',
+    'title',
+    'entity_id',
+    'event_id',
+  ];
+
+  for (const key of previewKeys) {
+    const value = item[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+  }
+
+  return JSON.stringify(item);
+};
 
 export default MemoryOverviewPage;

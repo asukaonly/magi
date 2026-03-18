@@ -5,7 +5,13 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L4Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MEMORY_FILTER_SELECT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
+import MemoryPageFrame, {
+  MEMORY_FILTER_INPUT_CLASS,
+  MEMORY_FILTER_SELECT_CLASS,
+  MemoryHeroStat,
+  MemoryTag,
+  MemoryWorkspacePanel,
+} from './MemoryPageFrame';
 
 export const MemorySkillsPage = () => {
   const { t } = useTranslation('app');
@@ -29,6 +35,8 @@ export const MemorySkillsPage = () => {
   );
 
   const highSuccessCount = filteredSkills.filter((skill) => skill.success_rate > 0.8).length;
+  const categories = Array.from(new Set(filteredSkills.map((skill) => skill.skill_category).filter(Boolean))).sort();
+  const recentlyUsedSkill = filteredSkills.find((skill) => skill.last_used_at !== null) ?? null;
 
   return (
     <MemoryPageFrame
@@ -94,7 +102,48 @@ export const MemorySkillsPage = () => {
         </div>
       )}
     >
-      {loading ? <LoadingSpinner /> : <L4Tab stats={stats.l4} skills={filteredSkills} />}
+      {loading ? <LoadingSpinner /> : (
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
+            <MemoryWorkspacePanel
+              title={t('memory.pages.skills.categoryTitle')}
+              description={t('memory.pages.skills.categoryBody')}
+            >
+              <div className="flex flex-wrap gap-2">
+                {categories.map((category) => (
+                  <MemoryTag key={category}>
+                    {category} · {filteredSkills.filter((skill) => skill.skill_category === category).length}
+                  </MemoryTag>
+                ))}
+                {categories.length === 0 ? <MemoryTag>{t('memory.l4.noSkills')}</MemoryTag> : null}
+              </div>
+            </MemoryWorkspacePanel>
+
+            <MemoryWorkspacePanel
+              title={t('memory.pages.skills.attentionTitle')}
+              description={t('memory.pages.skills.attentionBody')}
+            >
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <MemoryTag>{t('memory.l4.highSuccess')}: {highSuccessCount}</MemoryTag>
+                  <MemoryTag>{t('memory.l4.openBreakers')}: {stats.l4.open_circuit_breakers}</MemoryTag>
+                </div>
+                {recentlyUsedSkill ? (
+                  <div className="rounded-[1.25rem] border border-[#ead9cc] bg-white/85 px-4 py-3 text-sm text-[#725c4b]">
+                    {t('memory.pages.skills.recentSkillLabel', { name: recentlyUsedSkill.skill_name })}
+                  </div>
+                ) : (
+                  <div className="rounded-[1.25rem] border border-dashed border-[#dcc7b5] bg-[rgba(247,239,231,0.82)] px-4 py-3 text-sm text-[#785f4e]">
+                    {t('memory.pages.skills.noRecentSkill')}
+                  </div>
+                )}
+              </div>
+            </MemoryWorkspacePanel>
+          </div>
+
+          <L4Tab stats={stats.l4} skills={filteredSkills} />
+        </div>
+      )}
     </MemoryPageFrame>
   );
 };

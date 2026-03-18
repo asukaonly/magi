@@ -29,6 +29,7 @@ import type {
   L3Summary,
   L4Skill,
   MemoryStatistics,
+  MemorySearchResultPayload,
 } from '@/api/modules/memory';
 
 // ============================================================================
@@ -76,6 +77,7 @@ export interface UseMemoryReturn {
   // Search
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  searchResults: MemorySearchResultPayload;
   searching: boolean;
   handleSearch: () => Promise<void>;
 
@@ -109,6 +111,16 @@ const DEFAULT_L2_STATS: L2Statistics = {
   extract_skipped: 0,
   extract_by_evidence_class: {},
   skip_by_reason: {},
+};
+
+const DEFAULT_SEARCH_RESULTS: MemorySearchResultPayload = {
+  l0_workbench: [],
+  l1_events: [],
+  l2_entity_cards: [],
+  l2_relationships: [],
+  l3_reflections: [],
+  l4_procedures: [],
+  trace: {},
 };
 
 // ============================================================================
@@ -151,6 +163,7 @@ export function useMemory(): UseMemoryReturn {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<MemorySearchResultPayload>(DEFAULT_SEARCH_RESULTS);
   const [searching, setSearching] = useState(false);
 
   // Clear dialog state
@@ -425,13 +438,17 @@ export function useMemory(): UseMemoryReturn {
   // ============================================================================
 
   const handleSearch = useCallback(async () => {
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim()) {
+      setSearchResults(DEFAULT_SEARCH_RESULTS);
+      return;
+    }
     setSearching(true);
     try {
       const results = await memoryApi.search(searchQuery);
+      setSearchResults(results);
       toast.success(t('memory.searchComplete'));
-      console.log('Search results:', results);
     } catch (error) {
+      setSearchResults(DEFAULT_SEARCH_RESULTS);
       toast.error(t('memory.searchError', { message: String(error) }));
     } finally {
       setSearching(false);
@@ -507,6 +524,7 @@ export function useMemory(): UseMemoryReturn {
     // Search
     searchQuery,
     setSearchQuery,
+    searchResults,
     searching,
     handleSearch,
 

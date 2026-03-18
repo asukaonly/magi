@@ -124,9 +124,13 @@ describe('events page', () => {
     vi.mocked(memoryApi.getL3Summaries).mockResolvedValue([]);
     vi.mocked(memoryApi.getL4Skills).mockResolvedValue([]);
     vi.mocked(memoryApi.search).mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: [],
+      l0_workbench: [],
+      l1_events: [],
+      l2_entity_cards: [],
+      l2_relationships: [],
+      l3_reflections: [],
+      l4_procedures: [],
+      trace: {},
     });
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,

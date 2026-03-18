@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 import { MemoryOverviewPage } from '@/pages/memory-pages/MemoryOverviewPage';
 import { MemoryWorkbenchPage } from '@/pages/memory-pages/MemoryWorkbenchPage';
+import { MemoryEventsPage } from '@/pages/memory-pages/MemoryEventsPage';
 import { useMemory } from '@/hooks/useMemory';
 
 vi.mock('react-i18next', () => ({
@@ -14,11 +15,13 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/hooks/useMemory', () => ({
   useMemory: vi.fn(),
+  formatTimestamp: () => 'mock-time',
 }));
 
 vi.mock('@/components/memory', () => ({
   ClearMemoryDialog: () => null,
   L0Tab: () => <div data-testid="l0-tab">l0-tab</div>,
+  L1Tab: () => <div data-testid="l1-tab">l1-tab</div>,
 }));
 
 const mockUseMemory = vi.mocked(useMemory);
@@ -66,6 +69,34 @@ describe('memory page design', () => {
       upsertL2GraphConflictRule: vi.fn(),
       l3Summaries: [],
       l4Skills: [],
+      searchResults: {
+        l0_workbench: [],
+        l1_events: [
+          {
+            event_id: 'evt-1',
+            raw_content: 'User mentioned a strong preference for calm lake walks',
+            source: 'user',
+            memory_domain: 'preference',
+          },
+        ],
+        l2_entity_cards: [
+          {
+            entity_id: 'entity-west-lake',
+            canonical_name: 'West Lake',
+            entity_type: 'place',
+          },
+        ],
+        l2_relationships: [],
+        l3_reflections: [
+          {
+            summary_id: 'summary-1',
+            content: 'Recent reflection highlights a preference for calm outdoor spaces.',
+            summary_category: 'weekly',
+          },
+        ],
+        l4_procedures: [],
+        trace: {},
+      },
       searchQuery: '',
       setSearchQuery: vi.fn(),
       searching: false,
@@ -92,6 +123,8 @@ describe('memory page design', () => {
     expect(screen.getByTestId('memory-overview-layer-grid')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-recent-changes')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-signal-strip')).toBeInTheDocument();
+    expect(screen.getByTestId('memory-overview-search-results')).toBeInTheDocument();
+    expect(screen.getByTestId('memory-overview-recommended-layers')).toBeInTheDocument();
   });
 
   it('renders the workbench page with a richer hero summary above the layer content', () => {
@@ -104,5 +137,16 @@ describe('memory page design', () => {
     expect(screen.getByTestId('memory-page-hero')).toBeInTheDocument();
     expect(screen.getByText('memory.pages.workbench.focusTitle')).toBeInTheDocument();
     expect(screen.getByTestId('l0-tab')).toBeInTheDocument();
+  });
+
+  it('renders the events page with a page-level source summary above the event stream', () => {
+    render(
+      <MemoryRouter>
+        <MemoryEventsPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('memory-events-source-summary')).toBeInTheDocument();
+    expect(screen.getByText('memory.pages.events.focusHeadline')).toBeInTheDocument();
   });
 });

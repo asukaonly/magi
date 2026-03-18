@@ -740,6 +740,12 @@
       "eyebrow": "Memory Atlas",
       "subtitle": "Start with cross-layer search, overall signals, layer entry cards, and recent changes before choosing where to go deeper.",
       "searchLabel": "Cross-layer search",
+      "searchResultsTitle": "Search results",
+      "searchResultsBody": "Cross-layer clues for \"{{query}}\" are collected here first so you can quickly decide which workspace is worth opening next.",
+      "searchIdleBody": "Once you enter a keyword, this area gathers the relevant clues into a calmer, easier-to-read surface.",
+      "searchIdleHint": "No search results yet. Try a preference, person, place, or skill name, then follow the densest layer.",
+      "noSearchResults": "No matching memory surfaced yet. Try a more specific term, or enter a layer directly from the overview below.",
+      "matchesLabel": "matches",
       "workspaceTitle": "Layer entry points",
       "workspaceBody": "Use this area to move into each independent memory page. Every layer keeps its own filtering model and reading rhythm so you can go deeper without losing orientation.",
       "workspaceHint": "Read the signal density here first, then enter a specific layer once you know where the useful movement is.",
@@ -749,6 +755,10 @@
       "asideTitle": "The memory space feels calm today, but the signals keep growing",
       "asideBody": "Start with search or a layer card, then use recent changes to decide which layer is most worth opening next.",
       "recentChangesTitle": "Recent changes",
+      "recommendedTitle": "Recommended layers",
+      "recommendedBody": "When search results start leaning toward a layer, this area suggests where to go next.",
+      "recommendedReasonHits": "{{count}} related clues",
+      "recommendedEmpty": "There is no strong search bias yet. Start from the layer you care about most.",
       "layerCardHint": "Open this layer",
       "changes": {
         "summaryTitle": "Fresh reflections",
@@ -763,7 +773,12 @@
         "searchPlaceholder": "Filter workbench memory by session ID or status",
         "focusTitle": "Current focus",
         "focusBody": "The workbench page is best when entered through a concrete session, then used to inspect goals, active entities, and temporary tactics together.",
-        "focusEmpty": "No session selected yet"
+        "focusEmpty": "No session selected yet",
+        "sessionTitle": "Session snapshot",
+        "sessionBody": "Start from the currently focused session, then decide whether you need the deeper goal stack and workbench contents below.",
+        "queueTitle": "Session queue",
+        "queueBody": "This lighter rail helps you choose which runtime thread deserves attention before diving into the full workbench.",
+        "lastActiveLabel": "Last active at {{time}}"
       },
       "events": {
         "eyebrow": "L1 Event Stream",
@@ -771,7 +786,12 @@
         "searchPlaceholder": "Filter event memory by content, type, or domain",
         "focusTitle": "Event watch",
         "focusHeadline": "Read the density of memory intake by source and content",
-        "focusBody": "This layer behaves like a retained draft of experience. Narrow by source first, then move into the event contents."
+        "focusBody": "This layer behaves like a retained draft of experience. Narrow by source first, then move into the event contents.",
+        "sourceSummaryTitle": "Source distribution",
+        "sourceSummaryBody": "Start by seeing which sources are still feeding the memory stream under the current filters.",
+        "domainSummaryTitle": "Domain signal",
+        "domainSummaryBody": "Event domains help you judge whether the current slice is about behavior, preference, or background context.",
+        "latestEventLabel": "Most recent matching event: {{time}}"
       },
       "knowledge": {
         "eyebrow": "L2 Knowledge Garden",
@@ -779,7 +799,12 @@
         "searchPlaceholder": "Filter knowledge memory by entity, relation, or assertion",
         "focusTitle": "Entity perspective",
         "focusBody": "The knowledge page should feel like a slow-growing garden. Start with entity type, then move deeper into relations, assertions, and snapshots.",
-        "focusAll": "All entity types"
+        "focusAll": "All entity types",
+        "entitySummaryTitle": "Entity contour",
+        "entitySummaryBody": "Use the active entity types to sense what kind of knowledge is surfacing before reading the full structure.",
+        "structureTitle": "Structural clues",
+        "structureBody": "Frequent predicates and identity-link counts offer a quick read on the shape of the graph.",
+        "identitySummary": "{{count}} identity links in the current filtered view"
       },
       "reflection": {
         "eyebrow": "L3 Reflection",
@@ -787,7 +812,12 @@
         "searchPlaceholder": "Filter reflection memory by summary content or category",
         "focusTitle": "Reflection rhythm",
         "focusHeadline": "See how memory is being gently reorganized",
-        "focusBody": "This layer is no longer raw record. It is the language that remains after time and summarization start to shape the memory."
+        "focusBody": "This layer is no longer raw record. It is the language that remains after time and summarization start to shape the memory.",
+        "cadenceTitle": "Summary cadence",
+        "cadenceBody": "Check which summary types are active first, then move into the written reflections with that rhythm in mind.",
+        "topicsTitle": "Topic fragments",
+        "topicsBody": "This keeps the repeated themes visible so you can feel the direction of the reflection layer at a glance.",
+        "noTopics": "No explicit topics surfaced in the current summaries"
       },
       "skills": {
         "eyebrow": "L4 Skill Archive",
@@ -795,7 +825,13 @@
         "searchPlaceholder": "Filter tool and skill memory by name or category",
         "focusTitle": "Skill status",
         "focusHeadline": "See which abilities feel stable and which still need care",
-        "focusBody": "The skills page works best when success rate, breaker state, and category are read together as one evolving capability profile."
+        "focusBody": "The skills page works best when success rate, breaker state, and category are read together as one evolving capability profile.",
+        "categoryTitle": "Skill categories",
+        "categoryBody": "Start with the most active categories, then move into specific capabilities when you know where the concentration is.",
+        "attentionTitle": "Attention cues",
+        "attentionBody": "This area highlights stable capability and any state that may still need a closer look.",
+        "recentSkillLabel": "Most recently active capability: {{name}}",
+        "noRecentSkill": "No recently used capability surfaced"
       }
     },
     "filters": {

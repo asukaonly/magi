@@ -4,8 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L0Tab } from '@/components/memory';
-import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MEMORY_FILTER_SELECT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
+import { formatTimestamp, useMemory } from '@/hooks/useMemory';
+import MemoryPageFrame, {
+  MEMORY_FILTER_INPUT_CLASS,
+  MEMORY_FILTER_SELECT_CLASS,
+  MemoryHeroStat,
+  MemoryTag,
+  MemoryWorkspacePanel,
+} from './MemoryPageFrame';
 
 export const MemoryWorkbenchPage = () => {
   const { t } = useTranslation('app');
@@ -25,6 +31,7 @@ export const MemoryWorkbenchPage = () => {
       }),
     [l0Sessions, query, statusFilter]
   );
+  const selectedSession = filteredSessions.find((session) => session.session_id === selectedSessionId) ?? null;
 
   return (
     <MemoryPageFrame
@@ -92,16 +99,59 @@ export const MemoryWorkbenchPage = () => {
         </div>
       )}
     >
-      {loading ? (
-        <LoadingSpinner />
-      ) : (
-        <L0Tab
-          stats={stats.l0}
-          sessions={filteredSessions}
-          workbench={l0Workbench}
-          selectedSessionId={selectedSessionId}
-          onSelectSession={selectSession}
-        />
+      {loading ? <LoadingSpinner /> : (
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+            <MemoryWorkspacePanel
+              title={t('memory.pages.workbench.sessionTitle')}
+              description={t('memory.pages.workbench.sessionBody')}
+            >
+              {selectedSession ? (
+                <div className="space-y-3">
+                  <div className="rounded-[1.35rem] border border-[#ead9cc] bg-white/88 p-4">
+                    <div className="text-sm font-semibold text-[#38281e]">{selectedSession.session_id}</div>
+                    <div className="mt-2 text-sm text-[#755d4c]">
+                      {t('memory.pages.workbench.lastActiveLabel', {
+                        time: formatTimestamp(selectedSession.last_active_at),
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <MemoryTag>{t('memory.l0.totalGoals')}: {selectedSession.goal_count}</MemoryTag>
+                    <MemoryTag>{t('memory.l0.totalEntities')}: {selectedSession.entity_count}</MemoryTag>
+                    <MemoryTag>{t('memory.l0.totalTactics')}: {selectedSession.tactic_count}</MemoryTag>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-[1.35rem] border border-dashed border-[#dcc7b5] bg-[rgba(247,239,231,0.82)] p-4 text-sm leading-6 text-[#785f4e]">
+                  {t('memory.pages.workbench.focusEmpty')}
+                </div>
+              )}
+            </MemoryWorkspacePanel>
+
+            <MemoryWorkspacePanel
+              title={t('memory.pages.workbench.queueTitle')}
+              description={t('memory.pages.workbench.queueBody')}
+            >
+              <div className="flex flex-wrap gap-2">
+                {filteredSessions.slice(0, 6).map((session) => (
+                  <MemoryTag key={session.session_id}>
+                    {session.session_id.slice(0, 8)} · {session.status}
+                  </MemoryTag>
+                ))}
+                {filteredSessions.length === 0 ? <MemoryTag>{t('memory.l0.noSessions')}</MemoryTag> : null}
+              </div>
+            </MemoryWorkspacePanel>
+          </div>
+
+          <L0Tab
+            stats={stats.l0}
+            sessions={filteredSessions}
+            workbench={l0Workbench}
+            selectedSessionId={selectedSessionId}
+            onSelectSession={selectSession}
+          />
+        </div>
       )}
     </MemoryPageFrame>
   );
