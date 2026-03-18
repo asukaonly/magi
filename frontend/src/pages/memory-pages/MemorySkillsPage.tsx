@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L4Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame from './MemoryPageFrame';
+import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MEMORY_FILTER_SELECT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
 
 export const MemorySkillsPage = () => {
   const { t } = useTranslation('app');
@@ -28,12 +28,36 @@ export const MemorySkillsPage = () => {
     [breakerFilter, l4Skills, query]
   );
 
+  const highSuccessCount = filteredSkills.filter((skill) => skill.success_rate > 0.8).length;
+
   return (
     <MemoryPageFrame
       title={t('memory.nav.skills')}
       description={t('memory.pages.skills.subtitle')}
+      eyebrow={t('memory.pages.skills.eyebrow')}
+      heroStats={(
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MemoryHeroStat label={t('memory.l4.skillCount')} value={stats.l4.skill_count} tone="accent" />
+          <MemoryHeroStat label={t('memory.l4.openBreakers')} value={stats.l4.open_circuit_breakers} />
+          <MemoryHeroStat label={t('memory.l4.highSuccess')} value={highSuccessCount} />
+        </div>
+      )}
+      heroAside={(
+        <div className="space-y-3">
+          <div className="text-xs font-medium uppercase tracking-[0.18em] text-[#8e705a]">
+            {t('memory.pages.skills.focusTitle')}
+          </div>
+          <div className="text-lg font-semibold text-[#35261c]">{t('memory.pages.skills.focusHeadline')}</div>
+          <p className="leading-6">{t('memory.pages.skills.focusBody')}</p>
+        </div>
+      )}
       actions={
-        <Button variant="outline" onClick={() => void refresh('l4')} disabled={loading}>
+        <Button
+          variant="outline"
+          className="rounded-2xl border-[#dfc8b5] bg-white/80 hover:bg-white"
+          onClick={() => void refresh('l4')}
+          disabled={loading}
+        >
           {loading ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
           {t('memory.refresh')}
         </Button>
@@ -46,6 +70,7 @@ export const MemorySkillsPage = () => {
             </label>
             <Input
               id="memory-skills-query"
+              className={MEMORY_FILTER_INPUT_CLASS}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t('memory.pages.skills.searchPlaceholder')}
@@ -57,7 +82,7 @@ export const MemorySkillsPage = () => {
             </label>
             <select
               id="memory-skills-breaker"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className={MEMORY_FILTER_SELECT_CLASS}
               value={breakerFilter}
               onChange={(event) => setBreakerFilter(event.target.value)}
             >

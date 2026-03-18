@@ -737,34 +737,65 @@
       "skills": "工具技能记忆"
     },
     "overview": {
-      "subtitle": "从这里先查看跨层搜索入口、整体统计和后续记忆工作区的预留结构。",
+      "eyebrow": "记忆总览",
+      "subtitle": "先查看跨层搜索、整体统计、层级入口与最近变化，再决定进入哪一层继续工作。",
       "searchLabel": "跨层搜索",
-      "workspaceTitle": "总览工作区",
-      "workspaceBody": "这一块先预留给后续的总览布局设计，后面可以继续放最近变化、重点信号和跨层摘要。",
-      "workspaceHint": "当前先保留搜索与统计能力，详细总览模块后续再细化。",
+      "workspaceTitle": "层级入口",
+      "workspaceBody": "从这里进入 5 层独立记忆页面。每一层都保留自己的筛选方式和阅读节奏，方便按任务深入查看。",
+      "workspaceHint": "先在总览判断信号密度，再进入具体层页展开处理，会更容易保持方向感。",
       "statsTitle": "层级入口状态",
-      "statsBody": "左侧的 5 层记忆已经拆成独立页面，后续每层都可以按自己的筛选和布局继续演进。"
+      "statsBody": "5 层记忆已经拆成独立页面，后续可以在不打断整体结构的前提下继续扩展每层能力。",
+      "asideLabel": "柔和总览",
+      "asideTitle": "今天的记忆空间很安静，但信息在持续生长",
+      "asideBody": "先用搜索或层入口找到你要看的记忆，再从最近变化里判断哪些层最近最值得进入。",
+      "recentChangesTitle": "最近变化",
+      "layerCardHint": "继续深入这一层",
+      "changes": {
+        "summaryTitle": "新摘要沉淀",
+        "relationTitle": "知识关系规模",
+        "skillTitle": "技能记忆条目"
+      }
     },
     "pages": {
       "workbench": {
+        "eyebrow": "L0 工作台",
         "subtitle": "查看运行期工作台上下文、活跃会话和当前工作台内容。",
-        "searchPlaceholder": "按会话 ID 或状态筛选工作台记忆"
+        "searchPlaceholder": "按会话 ID 或状态筛选工作台记忆",
+        "focusTitle": "当前聚焦会话",
+        "focusBody": "工作台页更适合从具体会话切入，去看目标栈、活跃实体和临时策略的即时状态。",
+        "focusEmpty": "尚未选中会话"
       },
       "events": {
+        "eyebrow": "L1 事件流",
         "subtitle": "查看进入长期事件流的记录，并按内容或来源筛选。",
-        "searchPlaceholder": "按事件内容、类型或域筛选事件记忆"
+        "searchPlaceholder": "按事件内容、类型或域筛选事件记忆",
+        "focusTitle": "事件观察",
+        "focusHeadline": "从来源和内容去看记忆流入的密度",
+        "focusBody": "这一层更像时间沉淀后的底稿，适合先按来源缩小范围，再逐步查看事件内容。"
       },
       "knowledge": {
+        "eyebrow": "L2 知识花园",
         "subtitle": "查看知识图谱、心智断言和相关实验台能力，并按实体维度筛选。",
-        "searchPlaceholder": "按实体、关系或断言关键词筛选知识记忆"
+        "searchPlaceholder": "按实体、关系或断言关键词筛选知识记忆",
+        "focusTitle": "实体视角",
+        "focusBody": "知识页会更像一座缓慢生长的花园。先选实体类型，再进入关系、断言和快照层去看结构变化。",
+        "focusAll": "全部实体类型"
       },
       "reflection": {
+        "eyebrow": "L3 反思层",
         "subtitle": "查看摘要与反思沉淀，并按类型和内容筛选。",
-        "searchPlaceholder": "按摘要内容或分类筛选摘要反思记忆"
+        "searchPlaceholder": "按摘要内容或分类筛选摘要反思记忆",
+        "focusTitle": "反思节奏",
+        "focusHeadline": "在这里看见记忆被如何慢慢整理",
+        "focusBody": "这一层不是原始记录，而是更接近阶段性整理后的语言，适合用类型和内容双重筛选。"
       },
       "skills": {
+        "eyebrow": "L4 技能档案",
         "subtitle": "查看程序性技能和熔断状态，并按技能名称或状态筛选。",
-        "searchPlaceholder": "按技能名称或分类筛选工具技能记忆"
+        "searchPlaceholder": "按技能名称或分类筛选工具技能记忆",
+        "focusTitle": "技能状态",
+        "focusHeadline": "查看哪些能力稳定、哪些能力仍需观察",
+        "focusBody": "技能页更适合把成功率、熔断状态和技能类别放在一起看，方便后续继续调优。"
       }
     },
     "filters": {
@@ -815,7 +846,7 @@
     },
   "l1": {
     "totalEvents": "事件总数",
-    "userAuthored": "用户 authored",
+    "userAuthored": "用户来源事件",
     "interaction": "交互事件",
     "externalActivity": "外部活动",
     "events": "事件流",

@@ -737,34 +737,65 @@
       "skills": "Tool And Skill Memory"
     },
     "overview": {
-      "subtitle": "Start here for cross-layer search, overall statistics, and the reserved structure for the future overview workspace.",
+      "eyebrow": "Memory Atlas",
+      "subtitle": "Start with cross-layer search, overall signals, layer entry cards, and recent changes before choosing where to go deeper.",
       "searchLabel": "Cross-layer search",
-      "workspaceTitle": "Overview workspace",
-      "workspaceBody": "This section is intentionally reserved for the richer overview design that comes next, including recent changes, notable signals, and cross-layer summaries.",
-      "workspaceHint": "For now, the page keeps search and statistics in place while the deeper overview modules are designed later.",
+      "workspaceTitle": "Layer entry points",
+      "workspaceBody": "Use this area to move into each independent memory page. Every layer keeps its own filtering model and reading rhythm so you can go deeper without losing orientation.",
+      "workspaceHint": "Read the signal density here first, then enter a specific layer once you know where the useful movement is.",
       "statsTitle": "Layer destinations",
-      "statsBody": "The five memory layers now live on independent pages so each one can evolve with its own filters and layout."
+      "statsBody": "The five memory layers now live on independent pages, making it easier to expand each workspace without flattening everything into one screen.",
+      "asideLabel": "Gentle Overview",
+      "asideTitle": "The memory space feels calm today, but the signals keep growing",
+      "asideBody": "Start with search or a layer card, then use recent changes to decide which layer is most worth opening next.",
+      "recentChangesTitle": "Recent changes",
+      "layerCardHint": "Open this layer",
+      "changes": {
+        "summaryTitle": "Fresh reflections",
+        "relationTitle": "Knowledge graph size",
+        "skillTitle": "Skill memory entries"
+      }
     },
     "pages": {
       "workbench": {
+        "eyebrow": "L0 Workbench",
         "subtitle": "Inspect runtime workbench context, active sessions, and current workbench contents.",
-        "searchPlaceholder": "Filter workbench memory by session ID or status"
+        "searchPlaceholder": "Filter workbench memory by session ID or status",
+        "focusTitle": "Current focus",
+        "focusBody": "The workbench page is best when entered through a concrete session, then used to inspect goals, active entities, and temporary tactics together.",
+        "focusEmpty": "No session selected yet"
       },
       "events": {
+        "eyebrow": "L1 Event Stream",
         "subtitle": "Inspect the long-term event stream and filter it by content or source.",
-        "searchPlaceholder": "Filter event memory by content, type, or domain"
+        "searchPlaceholder": "Filter event memory by content, type, or domain",
+        "focusTitle": "Event watch",
+        "focusHeadline": "Read the density of memory intake by source and content",
+        "focusBody": "This layer behaves like a retained draft of experience. Narrow by source first, then move into the event contents."
       },
       "knowledge": {
+        "eyebrow": "L2 Knowledge Garden",
         "subtitle": "Inspect the knowledge graph, ToM assertions, and lab controls with entity-aware filtering.",
-        "searchPlaceholder": "Filter knowledge memory by entity, relation, or assertion"
+        "searchPlaceholder": "Filter knowledge memory by entity, relation, or assertion",
+        "focusTitle": "Entity perspective",
+        "focusBody": "The knowledge page should feel like a slow-growing garden. Start with entity type, then move deeper into relations, assertions, and snapshots.",
+        "focusAll": "All entity types"
       },
       "reflection": {
+        "eyebrow": "L3 Reflection",
         "subtitle": "Inspect generated reflections and summaries with type-aware filtering.",
-        "searchPlaceholder": "Filter reflection memory by summary content or category"
+        "searchPlaceholder": "Filter reflection memory by summary content or category",
+        "focusTitle": "Reflection rhythm",
+        "focusHeadline": "See how memory is being gently reorganized",
+        "focusBody": "This layer is no longer raw record. It is the language that remains after time and summarization start to shape the memory."
       },
       "skills": {
+        "eyebrow": "L4 Skill Archive",
         "subtitle": "Inspect procedural skills and breaker state with skill-level filtering.",
-        "searchPlaceholder": "Filter tool and skill memory by name or category"
+        "searchPlaceholder": "Filter tool and skill memory by name or category",
+        "focusTitle": "Skill status",
+        "focusHeadline": "See which abilities feel stable and which still need care",
+        "focusBody": "The skills page works best when success rate, breaker state, and category are read together as one evolving capability profile."
       }
     },
     "filters": {

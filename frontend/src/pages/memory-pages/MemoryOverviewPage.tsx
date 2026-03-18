@@ -1,12 +1,13 @@
 import { useTranslation } from 'react-i18next';
-import { Search, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowRight, Search, Sparkles, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ClearMemoryDialog } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame from './MemoryPageFrame';
+import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
 
 export const MemoryOverviewPage = () => {
   const { t } = useTranslation('app');
@@ -27,18 +28,58 @@ export const MemoryOverviewPage = () => {
     handleClearConfirm,
   } = useMemory();
 
+  const overviewLinks = [
+    { label: t('memory.nav.workbench'), path: '/memory/workbench', stat: stats.l0.active_sessions },
+    { label: t('memory.nav.events'), path: '/memory/events', stat: stats.l1.event_count },
+    { label: t('memory.nav.knowledge'), path: '/memory/knowledge', stat: stats.l2.relation_count },
+    { label: t('memory.nav.reflection'), path: '/memory/reflection', stat: stats.l3.summary_count },
+    { label: t('memory.nav.skills'), path: '/memory/skills', stat: stats.l4.skill_count },
+  ];
+
+  const recentChanges = [
+    { title: t('memory.overview.changes.summaryTitle'), value: stats.l3.summary_count },
+    { title: t('memory.overview.changes.relationTitle'), value: stats.l2.relation_count },
+    { title: t('memory.overview.changes.skillTitle'), value: stats.l4.skill_count },
+  ];
+
   return (
     <>
       <MemoryPageFrame
         title={t('memory.nav.overview')}
         description={t('memory.overview.subtitle')}
+        eyebrow={t('memory.overview.eyebrow')}
+        heroStats={(
+          <div
+            data-testid="memory-overview-signal-strip"
+            className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+          >
+            <MemoryHeroStat label={t('memory.l0.activeSessions')} value={stats.l0.active_sessions} tone="accent" />
+            <MemoryHeroStat label={t('memory.l1.totalEvents')} value={stats.l1.event_count} />
+            <MemoryHeroStat label={t('memory.l2.relationCount')} value={stats.l2.relation_count} />
+            <MemoryHeroStat label={t('memory.l4.skillCount')} value={stats.l4.skill_count} />
+          </div>
+        )}
+        heroAside={(
+          <div className="space-y-3">
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-[#8e705a]">
+              {t('memory.overview.asideLabel')}
+            </div>
+            <div className="text-lg font-semibold text-[#35261c]">{t('memory.overview.asideTitle')}</div>
+            <p className="leading-6">{t('memory.overview.asideBody')}</p>
+          </div>
+        )}
         actions={(
           <>
-            <Button variant="outline" onClick={() => void refreshAll()} disabled={loading}>
+            <Button
+              variant="outline"
+              className="rounded-2xl border-[#dfc8b5] bg-white/80 hover:bg-white"
+              onClick={() => void refreshAll()}
+              disabled={loading}
+            >
               {loading ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
               {t('memory.refresh')}
             </Button>
-            <Button variant="destructive" onClick={handleClearRequest}>
+            <Button className="rounded-2xl" variant="destructive" onClick={handleClearRequest}>
               <Trash2 className="mr-2 h-4 w-4" />
               {t('memory.clear')}
             </Button>
@@ -53,6 +94,7 @@ export const MemoryOverviewPage = () => {
               <div className="flex gap-2">
                 <Input
                   id="memory-overview-search"
+                  className={MEMORY_FILTER_INPUT_CLASS}
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder={t('memory.searchPlaceholder')}
@@ -62,7 +104,7 @@ export const MemoryOverviewPage = () => {
                     }
                   }}
                 />
-                <Button onClick={() => void handleSearch()} disabled={searching}>
+                <Button className="h-11 rounded-2xl px-5" onClick={() => void handleSearch()} disabled={searching}>
                   {searching ? <LoadingSpinner className="h-4 w-4" /> : <Search className="h-4 w-4" />}
                   <span className="ml-2">{t('memory.search')}</span>
                 </Button>
@@ -72,42 +114,82 @@ export const MemoryOverviewPage = () => {
         )}
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <OverviewMetric label={t('memory.l0.activeSessions')} value={stats.l0.active_sessions} />
-          <OverviewMetric label={t('memory.l1.totalEvents')} value={stats.l1.event_count} />
-          <OverviewMetric label={t('memory.l2.relationCount')} value={stats.l2.relation_count} />
+          <OverviewMetric label={t('memory.l0.totalGoals')} value={stats.l0.total_goals} />
+          <OverviewMetric label={t('memory.l0.totalEntities')} value={stats.l0.total_entities} />
+          <OverviewMetric label={t('memory.l2.assertionCount')} value={stats.l2.assertion_count} />
           <OverviewMetric label={t('memory.l3.summaryCount')} value={stats.l3.summary_count} />
           <OverviewMetric label={t('memory.l4.skillCount')} value={stats.l4.skill_count} />
         </div>
 
-        <div className="mt-6 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <Card className="border-dashed border-border/50 bg-background/75">
+        <div className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+          <Card className="rounded-[1.9rem] border-[#e6d7cb] bg-[rgba(255,252,248,0.94)] shadow-[0_16px_40px_-34px_rgba(112,80,52,0.4)]">
             <CardHeader>
-              <CardTitle>{t('memory.overview.workspaceTitle')}</CardTitle>
+              <CardTitle className="text-[#3f2d21]">{t('memory.overview.workspaceTitle')}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
+            <CardContent className="space-y-5 text-sm leading-6 text-[#6f5a4a]">
               <p>{t('memory.overview.workspaceBody')}</p>
-              <div className="rounded-2xl border border-border/40 bg-muted/20 p-4">
+              <div
+                data-testid="memory-overview-layer-grid"
+                className="grid gap-3 md:grid-cols-2"
+              >
+                {overviewLinks.map((item) => (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className="group rounded-[1.4rem] border border-[#eadccf] bg-white/88 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#d7bba3] hover:shadow-[0_14px_28px_-24px_rgba(104,76,50,0.45)]"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-[#34251c]">{item.label}</div>
+                        <div className="mt-1 text-xs text-[#8b7260]">
+                          {t('memory.overview.layerCardHint')}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xl font-semibold text-[#34251c]">{item.stat}</div>
+                        <ArrowRight className="ml-auto mt-2 h-4 w-4 text-[#aa8166] transition-transform duration-200 group-hover:translate-x-0.5" />
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+              <div className="rounded-[1.4rem] border border-dashed border-[#dcc7b5] bg-[rgba(247,239,231,0.8)] p-4 text-[#785f4e]">
                 {t('memory.overview.workspaceHint')}
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-border/40 bg-background/75">
+          <Card
+            data-testid="memory-overview-recent-changes"
+            className="rounded-[1.9rem] border-[#e6d7cb] bg-[rgba(255,252,248,0.94)] shadow-[0_16px_40px_-34px_rgba(112,80,52,0.4)]"
+          >
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-[#3f2d21]">
                 <Sparkles className="h-4 w-4 text-primary" />
-                {t('memory.overview.statsTitle')}
+                {t('memory.overview.recentChangesTitle')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <CardContent className="space-y-4 text-sm text-[#6f5a4a]">
               <p>{t('memory.overview.statsBody')}</p>
-              <ul className="space-y-2">
-                <li>{t('memory.nav.workbench')}</li>
-                <li>{t('memory.nav.events')}</li>
-                <li>{t('memory.nav.knowledge')}</li>
-                <li>{t('memory.nav.reflection')}</li>
-                <li>{t('memory.nav.skills')}</li>
-              </ul>
+              <div className="space-y-3">
+                {recentChanges.map((item) => (
+                  <div
+                    key={item.title}
+                    className="rounded-[1.3rem] border border-[#ecdcd0] bg-[rgba(250,245,239,0.92)] px-4 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-medium text-[#3b2b20]">{item.title}</div>
+                      <div className="text-lg font-semibold text-[#7d5f49]">{item.value}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-[1.4rem] border border-[#eadccf] bg-white/85 p-4">
+                <div className="text-xs uppercase tracking-[0.16em] text-[#8f7460]">
+                  {t('memory.overview.statsTitle')}
+                </div>
+                <div className="mt-2 text-sm leading-6">{t('memory.overview.asideBody')}</div>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -126,10 +208,10 @@ export const MemoryOverviewPage = () => {
 };
 
 const OverviewMetric = ({ label, value }: { label: string; value: number }) => (
-  <Card className="border-border/40 bg-background/75">
+  <Card className="rounded-[1.5rem] border-[#e7d8cc] bg-[rgba(255,251,247,0.9)] shadow-[0_12px_24px_-24px_rgba(100,72,49,0.4)]">
     <CardContent className="pt-5">
-      <div className="text-3xl font-semibold text-foreground">{value}</div>
-      <div className="mt-2 text-sm text-muted-foreground">{label}</div>
+      <div className="text-3xl font-semibold text-[#34251c]">{value}</div>
+      <div className="mt-2 text-sm text-[#7c6554]">{label}</div>
     </CardContent>
   </Card>
 );

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L2Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame from './MemoryPageFrame';
+import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MEMORY_FILTER_SELECT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
 
 export const MemoryKnowledgePage = () => {
   const { t } = useTranslation('app');
@@ -145,8 +145,33 @@ export const MemoryKnowledgePage = () => {
     <MemoryPageFrame
       title={t('memory.nav.knowledge')}
       description={t('memory.pages.knowledge.subtitle')}
+      eyebrow={t('memory.pages.knowledge.eyebrow')}
+      heroStats={(
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MemoryHeroStat label={t('memory.l2.relationCount')} value={l2Stats.relation_count} tone="accent" />
+          <MemoryHeroStat label={t('memory.l2.assertionCount')} value={l2Stats.assertion_count} />
+          <MemoryHeroStat label={t('memory.l2.lab.entityCount')} value={l2Entities.length} />
+          <MemoryHeroStat label={t('memory.l2.lab.snapshotCount')} value={l2Snapshots.length} />
+        </div>
+      )}
+      heroAside={(
+        <div className="space-y-3">
+          <div className="text-xs font-medium uppercase tracking-[0.18em] text-[#8e705a]">
+            {t('memory.pages.knowledge.focusTitle')}
+          </div>
+          <div className="text-lg font-semibold text-[#35261c]">
+            {entityTypeFilter === 'all' ? t('memory.pages.knowledge.focusAll') : entityTypeFilter}
+          </div>
+          <p className="leading-6">{t('memory.pages.knowledge.focusBody')}</p>
+        </div>
+      )}
       actions={
-        <Button variant="outline" onClick={() => void refresh('l2')} disabled={loading || l2ActionLoading}>
+        <Button
+          variant="outline"
+          className="rounded-2xl border-[#dfc8b5] bg-white/80 hover:bg-white"
+          onClick={() => void refresh('l2')}
+          disabled={loading || l2ActionLoading}
+        >
           {(loading || l2ActionLoading) ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
           {t('memory.refresh')}
         </Button>
@@ -159,6 +184,7 @@ export const MemoryKnowledgePage = () => {
             </label>
             <Input
               id="memory-knowledge-query"
+              className={MEMORY_FILTER_INPUT_CLASS}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t('memory.pages.knowledge.searchPlaceholder')}
@@ -170,7 +196,7 @@ export const MemoryKnowledgePage = () => {
             </label>
             <select
               id="memory-knowledge-entity-type"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className={MEMORY_FILTER_SELECT_CLASS}
               value={entityTypeFilter}
               onChange={(event) => setEntityTypeFilter(event.target.value)}
             >

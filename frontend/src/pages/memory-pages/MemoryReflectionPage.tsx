@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { L3Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame from './MemoryPageFrame';
+import MemoryPageFrame, { MEMORY_FILTER_INPUT_CLASS, MEMORY_FILTER_SELECT_CLASS, MemoryHeroStat } from './MemoryPageFrame';
 
 export const MemoryReflectionPage = () => {
   const { t } = useTranslation('app');
@@ -32,12 +32,36 @@ export const MemoryReflectionPage = () => {
     [l3Summaries, query, typeFilter]
   );
 
+  const summaryTypesCount = summaryTypes.length;
+
   return (
     <MemoryPageFrame
       title={t('memory.nav.reflection')}
       description={t('memory.pages.reflection.subtitle')}
+      eyebrow={t('memory.pages.reflection.eyebrow')}
+      heroStats={(
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MemoryHeroStat label={t('memory.l3.summaryCount')} value={stats.l3.summary_count} tone="accent" />
+          <MemoryHeroStat label={t('memory.filters.typeLabel')} value={summaryTypesCount} />
+          <MemoryHeroStat label={t('memory.search')} value={filteredSummaries.length} />
+        </div>
+      )}
+      heroAside={(
+        <div className="space-y-3">
+          <div className="text-xs font-medium uppercase tracking-[0.18em] text-[#8e705a]">
+            {t('memory.pages.reflection.focusTitle')}
+          </div>
+          <div className="text-lg font-semibold text-[#35261c]">{t('memory.pages.reflection.focusHeadline')}</div>
+          <p className="leading-6">{t('memory.pages.reflection.focusBody')}</p>
+        </div>
+      )}
       actions={
-        <Button variant="outline" onClick={() => void refresh('l3')} disabled={loading}>
+        <Button
+          variant="outline"
+          className="rounded-2xl border-[#dfc8b5] bg-white/80 hover:bg-white"
+          onClick={() => void refresh('l3')}
+          disabled={loading}
+        >
           {loading ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
           {t('memory.refresh')}
         </Button>
@@ -50,6 +74,7 @@ export const MemoryReflectionPage = () => {
             </label>
             <Input
               id="memory-reflection-query"
+              className={MEMORY_FILTER_INPUT_CLASS}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t('memory.pages.reflection.searchPlaceholder')}
@@ -61,7 +86,7 @@ export const MemoryReflectionPage = () => {
             </label>
             <select
               id="memory-reflection-type"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className={MEMORY_FILTER_SELECT_CLASS}
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value)}
             >
