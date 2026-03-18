@@ -169,14 +169,23 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
           <div className="flex flex-col gap-4 rounded-3xl border border-primary/20 bg-muted/20 p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="max-w-2xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">
-                  {isNewMode ? t('personality.creating') : t('personality.current')}
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
-                  {isNewMode
-                    ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
-                    : (config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title'))}
-                </h2>
+                {isNewMode ? (
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">
+                    {t('personality.creating')}
+                  </p>
+                ) : null}
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                    {isNewMode
+                      ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
+                      : (config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title'))}
+                  </h2>
+                  {!isNewMode && selectedName === currentName ? (
+                    <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                      {t('personality.current')}
+                    </span>
+                  ) : null}
+                </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   {isNewMode
                     ? t('personality.newPersonalityDesc')
