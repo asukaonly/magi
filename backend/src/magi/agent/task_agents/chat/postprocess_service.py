@@ -321,6 +321,7 @@ class ChatPostProcessService:
                 "success": payload.get("success"),
                 "error": payload.get("error"),
                 "execution_time": payload.get("execution_time"),
+                "llm_trace": payload.get("llm_trace") if isinstance(payload.get("llm_trace"), dict) else None,
                 "response_preview": payload.get("response_preview"),
                 "intent": payload.get("intent"),
                 "execution_agent_id": payload.get("execution_agent_id"),
@@ -354,6 +355,19 @@ class ChatPostProcessService:
                 payload=dict(fact.payload),
                 correlation_id=fact.correlation_id,
                 success=bool(payload.get("success", True)),
+            )
+            await self._emit_loop_llm_trace(
+                action_emitter=action_emitter,
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                stage=stage,
+                iteration=payload.get("iteration"),
+                execution_agent_id=payload.get("execution_agent_id"),
+                llm_trace=payload.get("llm_trace"),
+                response_preview=payload.get("response_preview"),
+                tool_count=payload.get("tool_count"),
+                tool_names=payload.get("tool_names"),
             )
 
     async def _record_memory_updates(self, *, user_id: str, user_message: str) -> bool:
@@ -597,3 +611,54 @@ class ChatPostProcessService:
             else float(latest_fact.timestamp or time.time())
         )
         return max(0, int(raw_timestamp * 1000))
+
+    async def _emit_loop_llm_trace(
+        self,
+        *,
+        action_emitter: Any,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        stage: str,
+        iteration: Any,
+        execution_agent_id: Any,
+        llm_trace: Any,
+        response_preview: Any,
+        tool_count: Any,
+        tool_names: Any,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized_turn_id or not isinstance(llm_trace, dict):
+            return
+        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
+        ended_at_ms = now_wall_ms()
+        started_at_ms = max(0, ended_at_ms - duration_ms)
+        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
+        await trace_emitter.emit_node_completed(
+            trace_id=self._build_trace_id(normalized_turn_id),
+            turn_id=normalized_turn_id,
+            span_id=self._build_span_id(
+                normalized_turn_id,
+                f"llm_call:{stage}:{int(iteration or 0)}",
+            ),
+            parent_span_id=self._build_span_id(normalized_turn_id, f"iteration:{int(iteration or 0)}"),
+            node_type="llm_call",
+            name="Function-calling LLM call",
+            user_id=user_id,
+            session_id=session_id,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            duration_ms=duration_ms,
+            output={
+                "iteration": int(iteration or 0),
+                "stage": stage,
+                "tool_count": int(tool_count or 0),
+                "tool_names": list(tool_names) if isinstance(tool_names, list) else [],
+                "response_preview": str(response_preview or "")[:240],
+            },
+            metrics=dict(llm_trace),
+            tags={
+                "role": "main",
+                "execution_agent_id": execution_agent_id,
+            },
+        )

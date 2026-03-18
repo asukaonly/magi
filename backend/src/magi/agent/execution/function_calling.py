@@ -257,6 +257,7 @@ class FunctionCallingOrchestrator:
                         "iteration": iteration,
                         "tool_names": [tool_call.name for tool_call in tool_calls],
                         "tool_count": len(tool_calls),
+                        "llm_trace": response.get("llm_trace"),
                         "user_id": user_id,
                         "session_id": session_id,
                         "turn_id": turn_id,
@@ -391,6 +392,7 @@ class FunctionCallingOrchestrator:
                         "stage": "final_response",
                         "iteration": iteration,
                         "response_preview": str(response["content"])[:500],
+                        "llm_trace": response.get("llm_trace"),
                         "user_id": user_id,
                         "session_id": session_id,
                         "turn_id": turn_id,
@@ -554,6 +556,7 @@ class FunctionCallingOrchestrator:
             {
                 "stage": "fallback_final_response",
                 "response_preview": str(final_response.get("content", ""))[:500],
+                "llm_trace": final_response.get("llm_trace"),
                 "user_id": user_id,
                 "session_id": session_id,
                 "turn_id": turn_id,
