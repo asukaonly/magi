@@ -83,6 +83,8 @@
       "hideDetails": "收起详情",
       "reanalyze": "重新分析",
       "reanalyzeQueued": "已发起重新分析",
+      "summaryBadge": "摘要",
+      "sourceEventCount": "{{count}} 条源事件",
       "loadingDetails": "正在加载事件详情...",
       "detailTitle": "捕获内容",
       "retentionTitle": "留存状态",

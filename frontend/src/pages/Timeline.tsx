@@ -6,8 +6,9 @@ import { useTranslation } from 'react-i18next';
 import {
   timelineApi,
   type TimelineEventDetail,
-  type TimelineEventRecord,
   type TimelineManualEntryRequest,
+  type TimelineProjectionDisplayPayload,
+  type TimelineProjectionItem,
 } from '@/api/modules/timeline';
 import TimelineComposer from '@/components/timeline/TimelineComposer';
 import TimelineFeed from '@/components/timeline/TimelineFeed';
@@ -18,18 +19,8 @@ import { useChatShellStore } from '@/stores';
 
 type RangeOption = 'all' | '7d' | '30d';
 
-const sortEvents = (events: TimelineEventRecord[]): TimelineEventRecord[] =>
-  [...events].sort((left, right) => right.occurred_at - left.occurred_at);
-
-const filterEventsByRange = (events: TimelineEventRecord[], range: RangeOption): TimelineEventRecord[] => {
-  if (range === 'all') {
-    return events;
-  }
-  const now = Date.now() / 1000;
-  const days = range === '7d' ? 7 : 30;
-  const cutoff = now - days * 24 * 60 * 60;
-  return events.filter((event) => event.occurred_at >= cutoff);
-};
+const sortItems = (items: TimelineProjectionItem[]): TimelineProjectionItem[] =>
+  [...items].sort((left, right) => right.sort_time - left.sort_time);
 
 const fallbackSourceLabel = (source: string) =>
   source
@@ -37,10 +28,43 @@ const fallbackSourceLabel = (source: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 
+const isEventItem = (item: TimelineProjectionItem): boolean => item.item_type === 'event';
+
+const getEventSourceType = (item: TimelineProjectionItem): string =>
+  item.display_payload.source_type || 'memory';
+
+const mergeDetailIntoProjection = (
+  item: TimelineProjectionItem,
+  detail: TimelineEventDetail
+): TimelineProjectionItem => {
+  if (!isEventItem(item) || item.primary_event_id !== detail.event_id) {
+    return item;
+  }
+
+  const nextPayload: TimelineProjectionDisplayPayload = {
+    ...item.display_payload,
+    title: detail.title,
+    summary: detail.summary,
+    source_type: detail.source_type,
+    source_item_id: detail.source_item_id,
+    content_blocks: detail.content_blocks,
+    entities: detail.entities,
+    tags: detail.tags,
+    retention_mode: detail.retention?.mode || detail.retention_mode,
+    raw_payload_ref: detail.retention?.raw_payload_ref || detail.raw_payload_ref,
+    provenance: detail.provenance,
+  };
+
+  return {
+    ...item,
+    display_payload: nextPayload,
+  };
+};
+
 export const TimelinePage: React.FC = () => {
   const { t } = useTranslation('app');
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
-  const [events, setEvents] = useState<TimelineEventRecord[]>([]);
+  const [items, setItems] = useState<TimelineProjectionItem[]>([]);
   const [eventDetails, setEventDetails] = useState<Record<string, TimelineEventDetail | undefined>>({});
   const [selectedSource, setSelectedSource] = useState('all');
   const [selectedRange, setSelectedRange] = useState<RangeOption>('all');
@@ -52,7 +76,8 @@ export const TimelinePage: React.FC = () => {
   const [reanalyzingEventId, setReanalyzingEventId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
 
-  const sourceOptions = ['all', ...Array.from(new Set(events.map((event) => event.source_type)))];
+  const eventItems = useMemo(() => items.filter(isEventItem), [items]);
+  const sourceOptions = ['all', ...Array.from(new Set(eventItems.map(getEventSourceType)))];
 
   const getSourceLabel = (source: string) => {
     const key = `timeline.sources.${source}`;
@@ -60,16 +85,19 @@ export const TimelinePage: React.FC = () => {
     return translated === key ? fallbackSourceLabel(source) : translated;
   };
 
-  const filteredEvents = filterEventsByRange(
-    selectedSource === 'all' ? events : events.filter((event) => event.source_type === selectedSource),
-    selectedRange
+  const filteredItems = useMemo(
+    () =>
+      selectedSource === 'all'
+        ? items
+        : items.filter((item) => isEventItem(item) && getEventSourceType(item) === selectedSource),
+    [items, selectedSource]
   );
 
   const sourceBreakdown = sourceOptions
     .filter((source) => source !== 'all')
     .map((source) => ({
       source,
-      count: events.filter((event) => event.source_type === source).length,
+      count: eventItems.filter((item) => getEventSourceType(item) === source).length,
     }))
     .filter((entry) => entry.count > 0);
 
@@ -80,21 +108,21 @@ export const TimelinePage: React.FC = () => {
     .join(' · ');
 
   const filteredSummary = useMemo(() => {
-    if (filteredEvents.length === events.length) {
+    if (filteredItems.length === items.length) {
       return t('timeline.summary.showingAll');
     }
-    return t('timeline.summary.showingFiltered', { count: filteredEvents.length });
-  }, [events.length, filteredEvents.length, t]);
+    return t('timeline.summary.showingFiltered', { count: filteredItems.length });
+  }, [filteredItems.length, items.length, t]);
 
-  const loadEvents = async (mode: 'initial' | 'refresh' = 'initial') => {
+  const loadItems = async (mode: 'initial' | 'refresh' = 'initial', range: RangeOption = selectedRange) => {
     if (mode === 'initial') {
       setLoading(true);
     } else {
       setRefreshing(true);
     }
     try {
-      const response = await timelineApi.listEvents({ limit: 80 });
-      setEvents(sortEvents(response.events || []));
+      const response = await timelineApi.listItems({ limit: 80, range });
+      setItems(sortItems(response.items || []));
     } catch (error: any) {
       toast.error(t('timeline.errors.loadFailed', { message: error?.message || 'unknown' }));
     } finally {
@@ -108,8 +136,11 @@ export const TimelinePage: React.FC = () => {
 
   useEffect(() => {
     setActivePanel('timeline');
-    void loadEvents();
   }, [setActivePanel]);
+
+  useEffect(() => {
+    void loadItems('initial', selectedRange);
+  }, [selectedRange]);
 
   const handleToggleDetails = async (eventId: string) => {
     if (expandedEventId === eventId) {
@@ -135,9 +166,9 @@ export const TimelinePage: React.FC = () => {
     setSubmitting(true);
     try {
       const created = await timelineApi.createManualEntry(payload);
-      setEvents((current) => sortEvents([created, ...current]));
       setExpandedEventId(created.event_id);
       setComposerOpen(false);
+      await loadItems('refresh');
       toast.success(t('timeline.composer.created'));
     } catch (error: any) {
       toast.error(t('timeline.errors.createFailed', { message: error?.message || 'unknown' }));
@@ -152,9 +183,7 @@ export const TimelinePage: React.FC = () => {
       const result = await timelineApi.requestReanalysis(eventId);
       const nextDetail = result.event;
       setEventDetails((current) => ({ ...current, [eventId]: nextDetail }));
-      setEvents((current) =>
-        sortEvents(current.map((event) => (event.event_id === eventId ? { ...event, ...nextDetail } : event)))
-      );
+      setItems((current) => sortItems(current.map((item) => mergeDetailIntoProjection(item, nextDetail))));
       toast.success(t('timeline.feed.reanalyzeQueued'));
     } catch (error: any) {
       toast.error(t('timeline.errors.reanalyzeFailed', { message: error?.message || 'unknown' }));
@@ -190,7 +219,7 @@ export const TimelinePage: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void loadEvents('refresh')}
+              onClick={() => void loadItems('refresh')}
               disabled={refreshing}
               aria-label={t('timeline.actions.refresh')}
             >
@@ -205,7 +234,7 @@ export const TimelinePage: React.FC = () => {
         <section className="flex min-h-0 flex-col overflow-hidden">
           <div className="space-y-4 border-b border-border/60 pb-4">
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
-              <span>{events.length} {t('timeline.summary.totalEvents')}</span>
+              <span>{eventItems.length} {t('timeline.summary.totalEvents')}</span>
               <span>{totalDerivedEdges} {t('timeline.summary.derivedEdges')}</span>
               {sourceMixSummary ? <span>{sourceMixSummary}</span> : null}
               <span>{filteredSummary}</span>
@@ -278,7 +307,7 @@ export const TimelinePage: React.FC = () => {
               </div>
             ) : (
               <TimelineFeed
-                events={filteredEvents}
+                items={filteredItems}
                 expandedEventId={expandedEventId}
                 eventDetails={eventDetails}
                 loadingDetailId={loadingDetailId}

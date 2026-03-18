@@ -78,26 +78,6 @@ def _collect_source_setting_defaults(item) -> dict[str, Any]:
     return defaults
 
 
-@timeline_router.get("/events")
-async def list_timeline_events(
-    limit: int = Query(default=50, ge=1, le=200),
-    source_type: Optional[str] = Query(default=None),
-):
-    service = get_timeline_service()
-    retention = get_retention_service()
-    events = await service.list_events(limit=limit, source_type=source_type)
-    return {
-        "events": [
-            {
-                **event,
-                "retention": retention.describe_event(event),
-            }
-            for event in events
-        ],
-        "count": len(events),
-    }
-
-
 @timeline_router.get("/items")
 async def list_timeline_items(
     limit: int = Query(default=80, ge=1, le=200),

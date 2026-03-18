@@ -83,12 +83,6 @@ class _FakeTimelineService:
         )
         return self.items[:limit]
 
-    async def list_events(self, limit=50, source_type=None):
-        events = list(self.events.values())[:limit]
-        if source_type:
-            events = [event for event in events if event["source_type"] == source_type]
-        return events
-
     async def get_event(self, event_id):
         return self.events.get(event_id)
 
@@ -293,18 +287,6 @@ def _build_client(monkeypatch):
         lambda: _FakeTimelineSchedulerContrib(),
     )
     return TestClient(app), service
-
-
-def test_list_timeline_events_returns_retention_metadata(monkeypatch):
-    client, _ = _build_client(monkeypatch)
-
-    response = client.get("/api/timeline/events")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["count"] == 1
-    assert body["events"][0]["retention"]["mode"] == "retain_raw"
-    assert body["events"][0]["retention"]["raw_payload_ref"] == "/tmp/day-note.md"
 
 
 def test_list_timeline_items_returns_projection_items(monkeypatch):

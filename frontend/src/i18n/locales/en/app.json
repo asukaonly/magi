@@ -83,6 +83,8 @@
       "hideDetails": "Hide details",
       "reanalyze": "Reanalyze",
       "reanalyzeQueued": "Reanalysis queued",
+      "summaryBadge": "Summary",
+      "sourceEventCount": "{{count}} source events",
       "loadingDetails": "Loading event details...",
       "detailTitle": "Captured detail",
       "retentionTitle": "Retention state",

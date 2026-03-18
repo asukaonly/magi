@@ -51,8 +51,42 @@ export interface TimelineEventDetail extends TimelineEventRecord {
   graph_evidence: TimelineGraphEvidence[];
 }
 
-export interface TimelineListResponse {
-  events: TimelineEventRecord[];
+export interface TimelineProjectionDisplayPayload {
+  title?: string;
+  summary?: string;
+  source_type?: string;
+  source_item_id?: string;
+  event_type?: string;
+  content_blocks?: TimelineContentBlock[];
+  entities?: TimelineEntity[];
+  tags?: string[];
+  retention_mode?: string;
+  raw_payload_ref?: string | null;
+  provenance?: Record<string, any>;
+  summary_type?: string;
+  summary_category?: string;
+  key_topics?: string[];
+  key_entities?: string[];
+  source_event_count?: number;
+}
+
+export interface TimelineProjectionItem {
+  item_id: string;
+  item_type: string;
+  time_start: number;
+  time_end: number;
+  sort_time: number;
+  primary_event_id?: string | null;
+  primary_summary_id?: string | null;
+  source_event_ids: string[];
+  source_summary_ids: string[];
+  display_payload: TimelineProjectionDisplayPayload;
+  projection_version: number;
+  generated_at: number;
+}
+
+export interface TimelineProjectionListResponse {
+  items: TimelineProjectionItem[];
   count: number;
 }
 
@@ -99,16 +133,17 @@ export interface TimelineSourceStatusResponse {
 }
 
 export const timelineApi = {
-  listEvents: async (
-    options: { limit?: number; sourceType?: string } = {}
-  ): Promise<TimelineListResponse> => {
-    const response = await api.get<TimelineListResponse>('/timeline/events', {
+  listItems: async (
+    options: { limit?: number; sourceType?: string; range?: 'all' | '7d' | '30d' } = {}
+  ): Promise<TimelineProjectionListResponse> => {
+    const response = await api.get<TimelineProjectionListResponse>('/timeline/items', {
       params: {
         limit: options.limit ?? 80,
         source_type: options.sourceType || undefined,
+        range: options.range ?? 'all',
       },
     });
-    return (response.data || response) as TimelineListResponse;
+    return (response.data || response) as TimelineProjectionListResponse;
   },
 
   getEvent: async (eventId: string): Promise<TimelineEventDetail> => {
