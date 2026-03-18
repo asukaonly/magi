@@ -194,6 +194,12 @@ class L3SummaryStore:
             fallback_summary=fallback_summary,
         )
         decision = validate_candidate(generation.candidate, evidence_events=events)
+        if decision.action != "accept" and not generation.used_fallback:
+            generation = self._temporal_llm_service._build_fallback_result(
+                evidence_pack,
+                fallback_summary,
+            )
+            decision = validate_candidate(generation.candidate, evidence_events=events)
         if decision.action != "accept":
             return None
         summary_overrides: dict[str, Any] = {
