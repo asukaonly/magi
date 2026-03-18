@@ -46,6 +46,68 @@ describe('sidebar navigation', () => {
     expect(screen.queryByRole('button', { name: 'shell.personality' })).not.toBeInTheDocument();
   });
 
+  it('shows conversation search tools and filters visible sessions locally', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
+      sessions: [
+        {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+        {
+          session_id: 'session-b',
+          title: '西湖路线',
+          last_message_preview: '沿湖散步',
+          last_timestamp: 11,
+          message_count: 2,
+        },
+      ],
+      current_session_id: 'session-a',
+      user_id: 'web_user',
+      count: 2,
+    });
+
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a', 'session-b'],
+      sessionsById: {
+        'session-a': {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+        'session-b': {
+          session_id: 'session-b',
+          title: '西湖路线',
+          last_message_preview: '沿湖散步',
+          last_timestamp: 11,
+          message_count: 2,
+        },
+      },
+      messagesBySession: {},
+      unreadBySession: {},
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByLabelText('shell.searchSessions')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'shell.newChat' })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('shell.searchSessions'), '西湖');
+
+    expect(screen.getByRole('button', { name: '西湖路线' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '杭州天气' })).not.toBeInTheDocument();
+  });
+
   it('refreshes sessions on sync events', async () => {
     render(
       <MemoryRouter initialEntries={['/chat']}>

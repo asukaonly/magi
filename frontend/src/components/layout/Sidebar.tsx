@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
   Database,
   MessageSquare,
-  MessageSquarePlus,
+  Plus,
+  Search,
   ScrollText,
   Settings2,
 } from 'lucide-react';
@@ -60,8 +61,11 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const [loading, setLoading] = useState(false);
   const isConversationRoute = location.pathname === '/' || location.pathname === '/chat';
   const isMemoryRoute = location.pathname === '/events' || location.pathname.startsWith('/memory');
-  const [conversationExpanded, setConversationExpanded] = useState(isConversationRoute);
-  const [memoryExpanded, setMemoryExpanded] = useState(isMemoryRoute);
+  const [expandedSection, setExpandedSection] = useState<'conversation' | 'memory' | null>(
+    isMemoryRoute ? 'memory' : isConversationRoute ? 'conversation' : null
+  );
+  const [conversationSearch, setConversationSearch] = useState('');
+  const conversationSearchInputRef = useRef<HTMLInputElement>(null);
 
   const refreshSessions = useCallback(async () => {
     setLoading(true);
@@ -99,16 +103,16 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   }, [refreshSessions]);
 
   useEffect(() => {
-    if (isConversationRoute) {
-      setConversationExpanded(true);
-    }
-  }, [isConversationRoute]);
-
-  useEffect(() => {
     if (isMemoryRoute) {
-      setMemoryExpanded(true);
+      setExpandedSection('memory');
+      return;
     }
-  }, [isMemoryRoute]);
+    if (isConversationRoute) {
+      setExpandedSection('conversation');
+      return;
+    }
+    setExpandedSection(null);
+  }, [isConversationRoute, isMemoryRoute]);
 
   const handleCreateSession = async () => {
     try {
@@ -116,7 +120,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       if (result.session_id) {
         setCurrentSessionId(result.session_id);
         setActivePanel('conversation');
-        setConversationExpanded(true);
+        setExpandedSection('conversation');
         navigate('/chat');
         window.dispatchEvent(new Event(SESSION_EVENT));
       }
@@ -145,6 +149,17 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     return [];
   }, [currentSessionId, orderedSessionIds, sessionsById, t]);
 
+  const filteredSessionRows = useMemo(() => {
+    const normalizedQuery = conversationSearch.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return sessionRows;
+    }
+    return sessionRows.filter((session) => {
+      const haystack = `${session.title || ''} ${session.last_message_preview || ''}`.toLowerCase();
+      return haystack.includes(normalizedQuery);
+    });
+  }, [conversationSearch, sessionRows]);
+
   if (collapsed) {
     return null;
   }
@@ -153,6 +168,8 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const timelineActive = activePanel === 'timeline' || location.pathname === '/timeline';
   const memoryActive = activePanel === 'memory' || isMemoryRoute;
   const settingsActive = activePanel === 'settings' || location.pathname === '/settings';
+  const conversationExpanded = expandedSection === 'conversation';
+  const memoryExpanded = expandedSection === 'memory';
 
   const primaryButtonClass = (active: boolean) => cn(
     'flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
@@ -173,23 +190,23 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/30 pt-14"
     >
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
-        <div className="shrink-0">
-          <div className="flex items-center gap-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          <section className={cn('shrink-0', conversationExpanded && 'flex min-h-0 flex-1 flex-col')}>
             <button
               type="button"
               onClick={() => {
                 setActivePanel('conversation');
                 if (!isConversationRoute) {
-                  setConversationExpanded(true);
+                  setExpandedSection('conversation');
                   navigate('/chat');
                   return;
                 }
-                setConversationExpanded((current) => !current);
+                setExpandedSection((current) => (current === 'conversation' ? null : 'conversation'));
               }}
               aria-label={t('shell.conversation')}
               aria-current={conversationActive ? 'page' : undefined}
               aria-expanded={conversationExpanded}
-              className={cn(primaryButtonClass(conversationActive), 'min-w-0 flex-1')}
+              className={primaryButtonClass(conversationActive)}
             >
               <span className={iconWrapClass(conversationActive)}>
                 <MessageSquare className="h-4 w-4" />
@@ -201,88 +218,117 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                void handleCreateSession();
-              }}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/25 bg-background/70 text-muted-foreground transition-colors hover:border-border/45 hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-              aria-label={t('shell.newChat')}
-              title={t('shell.newChat')}
-            >
-              <MessageSquarePlus className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
 
-        <div className="min-h-0 flex-1">
-          {conversationExpanded ? (
-            <div className="mt-3 h-full overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-              {sessionRows.length === 0 && (
-                <div className="rounded-xl border border-dashed border-border/40 p-3 text-xs text-muted-foreground">
-                  {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
+            {conversationExpanded ? (
+              <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-1 items-center rounded-2xl border border-border/25 bg-background/75 px-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                    <input
+                      ref={conversationSearchInputRef}
+                      type="search"
+                      value={conversationSearch}
+                      onChange={(event) => setConversationSearch(event.target.value)}
+                      placeholder={t('shell.searchSessionsPlaceholder')}
+                      aria-label={t('shell.searchSessions')}
+                      className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      conversationSearchInputRef.current?.focus();
+                      conversationSearchInputRef.current?.select();
+                    }}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/25 bg-background/70 text-muted-foreground transition-colors hover:border-border/45 hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    aria-label={t('shell.searchSessionsAction')}
+                    title={t('shell.searchSessionsAction')}
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleCreateSession();
+                    }}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/25 bg-background/70 text-muted-foreground transition-colors hover:border-border/45 hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    aria-label={t('shell.newChat')}
+                    title={t('shell.newChat')}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
                 </div>
-              )}
 
-              <div className="space-y-2">
-                {sessionRows.map((session) => {
-                  const active = currentSessionId === session.session_id;
-                  const unreadCount = unreadBySession[session.session_id] || 0;
-                  return (
-                    <button
-                      key={session.session_id}
-                      type="button"
-                      onClick={() => {
-                        setCurrentSessionId(session.session_id);
-                        setActivePanel('conversation');
-                        navigate('/chat');
-                      }}
-                      aria-label={session.title || t('shell.newChatTitle')}
-                      aria-current={active ? 'page' : undefined}
-                      className={cn(
-                        'w-full rounded-2xl px-3 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                        active
-                          ? 'border border-primary/16 bg-primary/12 text-foreground'
-                          : 'border border-transparent hover:bg-muted/50'
-                      )}
-                      title={session.title}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 truncate text-sm font-medium">
-                          {session.title || t('shell.newChatTitle')}
-                        </span>
-                        <div className="flex shrink-0 items-center gap-2">
-                          {unreadCount > 0 ? (
-                            <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-medium text-primary-foreground">
-                              {Math.min(unreadCount, 99)}
-                            </span>
-                          ) : null}
-                          <span className="text-[11px] text-muted-foreground">
-                            {formatSessionTime(session.last_timestamp, i18n.language)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="mt-1 truncate text-xs text-muted-foreground">
-                        {session.last_message_preview || t('shell.noPreview')}
-                      </div>
-                    </button>
-                  );
-                })}
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+                  {sessionRows.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border/40 p-3 text-xs text-muted-foreground">
+                      {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
+                    </div>
+                  ) : filteredSessionRows.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border/40 p-3 text-xs text-muted-foreground">
+                      {t('shell.searchSessionsEmpty')}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredSessionRows.map((session) => {
+                        const active = currentSessionId === session.session_id;
+                        const unreadCount = unreadBySession[session.session_id] || 0;
+                        return (
+                          <button
+                            key={session.session_id}
+                            type="button"
+                            onClick={() => {
+                              setCurrentSessionId(session.session_id);
+                              setActivePanel('conversation');
+                              navigate('/chat');
+                            }}
+                            aria-label={session.title || t('shell.newChatTitle')}
+                            aria-current={active ? 'page' : undefined}
+                            className={cn(
+                              'w-full rounded-2xl px-3 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                              active
+                                ? 'border border-primary/16 bg-primary/12 text-foreground'
+                                : 'border border-transparent hover:bg-muted/50'
+                            )}
+                            title={session.title}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="min-w-0 truncate text-sm font-medium">
+                                {session.title || t('shell.newChatTitle')}
+                              </span>
+                              <div className="flex shrink-0 items-center gap-2">
+                                {unreadCount > 0 ? (
+                                  <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-medium text-primary-foreground">
+                                    {Math.min(unreadCount, 99)}
+                                  </span>
+                                ) : null}
+                                <span className="text-[11px] text-muted-foreground">
+                                  {formatSessionTime(session.last_timestamp, i18n.language)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="mt-1 truncate text-xs text-muted-foreground">
+                              {session.last_message_preview || t('shell.noPreview')}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ) : null}
-        </div>
+            ) : null}
+          </section>
 
-        <div className="shrink-0 space-y-2 pt-3">
           <button
             type="button"
             onClick={() => {
+              setExpandedSection(null);
               setActivePanel('timeline');
               navigate('/timeline');
             }}
             aria-label={t('shell.timeline')}
             aria-current={timelineActive ? 'page' : undefined}
-            className={primaryButtonClass(timelineActive)}
+            className={cn(primaryButtonClass(timelineActive), 'shrink-0')}
           >
             <span className={iconWrapClass(timelineActive)}>
               <ScrollText className="h-4 w-4" />
@@ -290,57 +336,70 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             <span className="text-sm font-medium">{t('shell.timeline')}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setMemoryExpanded((current) => !current);
-            }}
-            aria-label={t('shell.memory')}
-            aria-current={memoryActive ? 'page' : undefined}
-            aria-expanded={memoryExpanded}
-            className={primaryButtonClass(memoryActive)}
-          >
-            <span className={iconWrapClass(memoryActive)}>
-              <Database className="h-4 w-4" />
-            </span>
-            <span className="min-w-0 flex-1 text-sm font-medium">{t('shell.memory')}</span>
+          <section className={cn('shrink-0', memoryExpanded && 'flex min-h-0 flex-1 flex-col')}>
+            <button
+              type="button"
+              onClick={() => {
+                setActivePanel('memory');
+                if (!isMemoryRoute) {
+                  setExpandedSection('memory');
+                  navigate('/memory/overview');
+                  return;
+                }
+                setExpandedSection((current) => (current === 'memory' ? null : 'memory'));
+              }}
+              aria-label={t('shell.memory')}
+              aria-current={memoryActive ? 'page' : undefined}
+              aria-expanded={memoryExpanded}
+              className={primaryButtonClass(memoryActive)}
+            >
+              <span className={iconWrapClass(memoryActive)}>
+                <Database className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1 text-sm font-medium">{t('shell.memory')}</span>
+              {memoryExpanded ? (
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              )}
+            </button>
+
             {memoryExpanded ? (
-              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-            )}
-          </button>
+              <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+                <div className="space-y-1 pl-3">
+                  {MEMORY_DESTINATIONS.map((item) => {
+                    const destinationActive =
+                      location.pathname === item.path ||
+                      (item.path === '/memory/overview' && location.pathname === '/events');
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => {
+                          setExpandedSection('memory');
+                          setActivePanel('memory');
+                          navigate(item.path);
+                        }}
+                        aria-label={t(`memory.nav.${item.key}`)}
+                        aria-current={destinationActive ? 'page' : undefined}
+                        className={cn(
+                          'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35',
+                          destinationActive
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-muted-foreground hover:bg-muted/45 hover:text-foreground'
+                        )}
+                      >
+                        {t(`memory.nav.${item.key}`)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </div>
 
-          {memoryExpanded ? (
-            <div className="space-y-1 pl-3">
-              {MEMORY_DESTINATIONS.map((item) => {
-                const destinationActive =
-                  location.pathname === item.path ||
-                  (item.path === '/memory/overview' && location.pathname === '/events');
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => {
-                      setActivePanel('memory');
-                      navigate(item.path);
-                    }}
-                    aria-label={t(`memory.nav.${item.key}`)}
-                    aria-current={destinationActive ? 'page' : undefined}
-                    className={cn(
-                      'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35',
-                      destinationActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:bg-muted/45 hover:text-foreground'
-                    )}
-                  >
-                    {t(`memory.nav.${item.key}`)}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-
+        <div className="shrink-0 pt-3">
           <button
             type="button"
             onClick={() => {
