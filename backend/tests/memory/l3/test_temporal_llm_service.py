@@ -163,6 +163,33 @@ async def test_generate_temporal_candidate_falls_back_on_invalid_output(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_generate_temporal_candidate_skips_llm_below_minimum_event_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = TemporalSummaryLLMService(min_event_count_for_llm=2)
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+        ],
+    )
+
+    async def _unexpected_call(_pack):  # type: ignore[no-untyped-def]
+        raise AssertionError("LLM path should be skipped for low-evidence packs")
+
+    monkeypatch.setattr(service, "_call_temporal_model", _unexpected_call)
+
+    result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
+
+    assert result.used_fallback is True
+    assert result.candidate.content == "rule text"
+
+
+@pytest.mark.asyncio
 async def test_call_temporal_model_parses_json_from_llm_target(monkeypatch: pytest.MonkeyPatch) -> None:
     service = TemporalSummaryLLMService()
     pack = TemporalEvidencePack(

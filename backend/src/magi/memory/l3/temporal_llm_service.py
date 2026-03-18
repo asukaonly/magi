@@ -38,10 +38,12 @@ class TemporalSummaryLLMService:
         *,
         enabled: bool = True,
         llm_timeout_seconds: float = 3.0,
+        min_event_count_for_llm: int = 2,
         scenario_llm_pool: ScenarioLLMPool | None = None,
     ) -> None:
         self._enabled = bool(enabled)
         self._llm_timeout_seconds = float(llm_timeout_seconds)
+        self._min_event_count_for_llm = max(1, int(min_event_count_for_llm))
         self._scenario_llm_pool = scenario_llm_pool
 
     def build_evidence_pack(
@@ -133,6 +135,8 @@ class TemporalSummaryLLMService:
         """Try the model path and fall back to a rule summary on failure."""
         fallback = self._build_fallback_result(pack, fallback_summary)
         if not self._enabled:
+            return fallback
+        if pack.source_event_count < self._min_event_count_for_llm:
             return fallback
         try:
             payload = await asyncio.wait_for(

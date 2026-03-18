@@ -109,7 +109,19 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
         ),
         event_id="evt-1",
     )
+    ai_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.AI_RESPONSE,
+            data={"user_id": "u1", "session_id": "s1", "message": "You should compare growth and salary tradeoffs."},
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="evt-2",
+            timestamp=1710000300.0,
+        ),
+        event_id="evt-2",
+    )
     await l1_store.store(chat_event)
+    await l1_store.store(ai_event)
 
     async def _fake_model(_pack):  # type: ignore[no-untyped-def]
         return {
@@ -134,7 +146,7 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
     assert summary["change_and_pattern"] == {"changes": ["moved from exploration to planning"], "patterns": []}
     assert summary["generated_by_model"] == "temporal-llm"
     event_links = await l3_store.list_summary_event_links(summary["summary_id"])
-    assert len(event_links) == 1
+    assert len(event_links) == 2
 
 
 @pytest.mark.asyncio
@@ -162,7 +174,19 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, 
         ),
         event_id="evt-1",
     )
+    ai_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.AI_RESPONSE,
+            data={"user_id": "u1", "session_id": "s1", "message": "You should compare growth and salary tradeoffs."},
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="evt-2",
+            timestamp=1710000300.0,
+        ),
+        event_id="evt-2",
+    )
     await l1_store.store(chat_event)
+    await l1_store.store(ai_event)
 
     async def _unexpected_model(_pack):  # type: ignore[no-untyped-def]
         raise AssertionError("LLM path should be disabled")
@@ -206,7 +230,19 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
         ),
         event_id="evt-1",
     )
+    ai_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.AI_RESPONSE,
+            data={"user_id": "u1", "session_id": "s1", "message": "You should compare growth and salary tradeoffs."},
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="evt-2",
+            timestamp=1710000300.0,
+        ),
+        event_id="evt-2",
+    )
     await l1_store.store(chat_event)
+    await l1_store.store(ai_event)
 
     async def _fake_model(_pack):  # type: ignore[no-untyped-def]
         return {
