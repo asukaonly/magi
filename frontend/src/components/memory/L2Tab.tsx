@@ -100,7 +100,6 @@ export const L2Tab: React.FC<L2TabProps> = ({
   const [manualEvent, setManualEvent] = useState<ManualL2EventPayload>(defaultManualState);
   const [selectedEntityId, setSelectedEntityId] = useState('');
   const [selectedEventId, setSelectedEventId] = useState('');
-  const [relationStatusFilter, setRelationStatusFilter] = useState('all');
   const [ruleForm, setRuleForm] = useState<L2GraphConflictRulePayload>(defaultRuleState);
   const [ruleOppositesText, setRuleOppositesText] = useState('');
 
@@ -120,13 +119,6 @@ export const L2Tab: React.FC<L2TabProps> = ({
     () => entities.find((entity) => entity.entity_id === selectedEntityId) ?? null,
     [entities, selectedEntityId]
   );
-
-  const filteredRelations = useMemo(() => {
-    if (relationStatusFilter === 'all') {
-      return relations;
-    }
-    return relations.filter((relation) => relation.status === relationStatusFilter);
-  }, [relationStatusFilter, relations]);
 
   const evidenceBreakdownEntries = useMemo(
     () => Object.entries(stats.extract_by_evidence_class || {}).sort((left, right) => right[1] - left[1]),
@@ -284,67 +276,27 @@ export const L2Tab: React.FC<L2TabProps> = ({
 
   const renderKnowledgeGraph = () => (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
-        <Card className={PANEL_CARD_CLASS}>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base text-[#443227]">
-              <Network className="h-5 w-5" />
-              {t('memory.pages.knowledge.sections.graphFocus')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className={SOFT_PANEL_CLASS}>
-              <div className="text-xs text-[#8a7260]">{t('memory.l2.relationCount')}</div>
-              <div className="mt-1 text-2xl font-semibold text-[#32261e]">{relations.length}</div>
+      <InfoCard
+        icon={<Network className="h-5 w-5" />}
+        title={t('memory.l2.relations')}
+        emptyText={t('memory.l2.noRelations')}
+      >
+        {relations.slice(0, 60).map((relation) => (
+          <div key={relation.triple_id} className={SOFT_PANEL_CLASS}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-medium text-[#2f231b]">{relation.subject_id}</div>
+              <Badge variant={relation.status === 'active' ? 'secondary' : 'outline'}>{relation.status}</Badge>
             </div>
-            <div className="space-y-2">
-              <label htmlFor="l2-relation-status-filter" className="text-sm font-medium text-[#4d392c]">
-                {t('memory.l2.lab.relationStatusFilter')}
-              </label>
-              <select
-                id="l2-relation-status-filter"
-                className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
-                value={relationStatusFilter}
-                onChange={(event) => setRelationStatusFilter(event.target.value)}
-              >
-                <option value="all">{t('memory.l2.lab.relationStatusOptions.all')}</option>
-                <option value="active">{t('memory.l2.lab.relationStatusOptions.active')}</option>
-                <option value="conflicted">{t('memory.l2.lab.relationStatusOptions.conflicted')}</option>
-                <option value="deprecated">{t('memory.l2.lab.relationStatusOptions.deprecated')}</option>
-              </select>
+            <div className="mt-2 text-[#6e5a4a]">
+              {relation.predicate} → {relation.object_id}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {dominantPredicates.slice(0, 8).map(([predicate, count]) => (
-                <SummaryPill key={predicate}>
-                  {predicate} · {count}
-                </SummaryPill>
-              ))}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Badge variant="secondary">{`${(relation.confidence * 100).toFixed(0)}%`}</Badge>
+              <Badge variant="outline">{`${relation.observation_count} obs`}</Badge>
             </div>
-          </CardContent>
-        </Card>
-
-        <InfoCard
-          icon={<Network className="h-5 w-5" />}
-          title={t('memory.l2.relations')}
-          emptyText={t('memory.l2.noRelations')}
-        >
-          {filteredRelations.slice(0, 60).map((relation) => (
-            <div key={relation.triple_id} className={SOFT_PANEL_CLASS}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="font-medium text-[#2f231b]">{relation.subject_id}</div>
-                <Badge variant={relation.status === 'active' ? 'secondary' : 'outline'}>{relation.status}</Badge>
-              </div>
-              <div className="mt-2 text-[#6e5a4a]">
-                {relation.predicate} → {relation.object_id}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Badge variant="secondary">{`${(relation.confidence * 100).toFixed(0)}%`}</Badge>
-                <Badge variant="outline">{`${relation.observation_count} obs`}</Badge>
-              </div>
-            </div>
-          ))}
-        </InfoCard>
-      </div>
+          </div>
+        ))}
+      </InfoCard>
     </div>
   );
 

@@ -825,6 +825,13 @@
           "snapshotMood": "带情绪标签的快照",
           "snapshotTraits": "核心特征条目",
           "recentEventContext": "相关事件语境"
+        },
+        "graphFilters": {
+          "status": "关系状态筛选",
+          "entity": "实体筛选",
+          "predicate": "关系筛选",
+          "allEntities": "全部实体",
+          "allPredicates": "全部关系"
         }
       },
       "reflection": {

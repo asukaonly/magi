@@ -1,15 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L2Tab } from '@/components/memory';
 import { useMemory } from '@/hooks/useMemory';
-import MemoryPageFrame, {
-  MEMORY_FILTER_INPUT_CLASS,
-  MEMORY_FILTER_SELECT_CLASS,
-} from './MemoryPageFrame';
+import MemoryPageFrame from './MemoryPageFrame';
 
 const KNOWLEDGE_SECTIONS = [
   'overview',
@@ -45,121 +41,46 @@ export const MemoryKnowledgePage = () => {
     upsertL2GraphConflictRule,
     refresh,
   } = useMemory();
-  const [query, setQuery] = useState('');
-  const [entityTypeFilter, setEntityTypeFilter] = useState('all');
   const [activeSection, setActiveSection] = useState<KnowledgeSection>('overview');
+  const [graphStatusFilter, setGraphStatusFilter] = useState('all');
+  const [graphEntityFilter, setGraphEntityFilter] = useState('all');
+  const [graphPredicateFilter, setGraphPredicateFilter] = useState('all');
 
-  const entityTypes = useMemo(
-    () => Array.from(new Set(l2Entities.map((entity) => entity.entity_type).filter(Boolean))).sort(),
-    [l2Entities]
+  const graphEntityOptions = useMemo(() => {
+    const entityNameById = new Map(
+      l2Entities.map((entity) => [entity.entity_id, entity.canonical_name || entity.entity_id] as const)
+    );
+    return Array.from(
+      l2Relations.reduce((map, relation) => {
+        map.set(relation.subject_id, entityNameById.get(relation.subject_id) ?? relation.subject_id);
+        map.set(relation.object_id, entityNameById.get(relation.object_id) ?? relation.object_id);
+        return map;
+      }, new Map<string, string>())
+    ).sort((left, right) => left[1].localeCompare(right[1]));
+  }, [l2Entities, l2Relations]);
+
+  const graphPredicateOptions = useMemo(
+    () => Array.from(new Set(l2Relations.map((relation) => relation.predicate).filter(Boolean))).sort(),
+    [l2Relations]
   );
 
-  const normalizedQuery = query.trim().toLowerCase();
-
-  const filteredEntities = useMemo(
-    () =>
-      l2Entities.filter((entity) => {
-        const matchesQuery =
-          normalizedQuery.length === 0 ||
-          entity.canonical_name.toLowerCase().includes(normalizedQuery) ||
-          entity.entity_id.toLowerCase().includes(normalizedQuery);
-        const matchesType = entityTypeFilter === 'all' || entity.entity_type === entityTypeFilter;
-        return matchesQuery && matchesType;
-      }),
-    [entityTypeFilter, l2Entities, normalizedQuery]
-  );
-
-  const visibleEntityIds = useMemo(
-    () => new Set(filteredEntities.map((entity) => entity.entity_id)),
-    [filteredEntities]
-  );
-
-  const filteredRelations = useMemo(
+  const filteredGraphRelations = useMemo(
     () =>
       l2Relations.filter((relation) => {
-        const matchesQuery =
-          normalizedQuery.length === 0 ||
-          relation.subject_id.toLowerCase().includes(normalizedQuery) ||
-          relation.object_id.toLowerCase().includes(normalizedQuery) ||
-          relation.predicate.toLowerCase().includes(normalizedQuery);
-        const matchesType =
-          entityTypeFilter === 'all' ||
-          relation.subject_type === entityTypeFilter ||
-          relation.object_type === entityTypeFilter;
-        return matchesQuery && matchesType;
+        const matchesStatus = graphStatusFilter === 'all' || relation.status === graphStatusFilter;
+        const matchesEntity =
+          graphEntityFilter === 'all' ||
+          relation.subject_id === graphEntityFilter ||
+          relation.object_id === graphEntityFilter;
+        const matchesPredicate =
+          graphPredicateFilter === 'all' || relation.predicate === graphPredicateFilter;
+        return matchesStatus && matchesEntity && matchesPredicate;
       }),
-    [entityTypeFilter, l2Relations, normalizedQuery]
+    [graphEntityFilter, graphPredicateFilter, graphStatusFilter, l2Relations]
   );
 
-  const filteredAssertions = useMemo(
-    () =>
-      l2Assertions.filter((assertion) => {
-        const matchesQuery =
-          normalizedQuery.length === 0 ||
-          assertion.entity_id.toLowerCase().includes(normalizedQuery) ||
-          assertion.trait_name.toLowerCase().includes(normalizedQuery) ||
-          assertion.trait_value.toLowerCase().includes(normalizedQuery);
-        const matchesType = entityTypeFilter === 'all' || assertion.entity_type === entityTypeFilter;
-        return matchesQuery && matchesType;
-      }),
-    [entityTypeFilter, l2Assertions, normalizedQuery]
-  );
-
-  const filteredMentions = useMemo(
-    () =>
-      l2Mentions.filter((mention) => {
-        const matchesQuery =
-          normalizedQuery.length === 0 ||
-          mention.mention_text.toLowerCase().includes(normalizedQuery) ||
-          mention.resolved_entity_id?.toLowerCase().includes(normalizedQuery);
-        const matchesType = entityTypeFilter === 'all' || mention.entity_type === entityTypeFilter;
-        return matchesQuery && matchesType;
-      }),
-    [entityTypeFilter, l2Mentions, normalizedQuery]
-  );
-
-  const filteredSnapshots = useMemo(
-    () =>
-      l2Snapshots.filter((snapshot) => {
-        const matchesQuery =
-          normalizedQuery.length === 0 ||
-          snapshot.entity_id.toLowerCase().includes(normalizedQuery) ||
-          snapshot.current_mood?.toLowerCase().includes(normalizedQuery);
-        const matchesType = entityTypeFilter === 'all' || snapshot.entity_type === entityTypeFilter;
-        return matchesQuery && matchesType;
-      }),
-    [entityTypeFilter, l2Snapshots, normalizedQuery]
-  );
-
-  const filteredEvents = useMemo(
-    () =>
-      l1Events.filter((event) => {
-        if (normalizedQuery.length === 0) {
-          return true;
-        }
-        return (
-          event.raw_content.toLowerCase().includes(normalizedQuery) ||
-          event.event_id.toLowerCase().includes(normalizedQuery)
-        );
-      }),
-    [l1Events, normalizedQuery]
-  );
-
-  const filteredIdentityLinks = useMemo(
-    () =>
-      identityLinks.filter((link) => {
-        if (visibleEntityIds.size === 0 || normalizedQuery.length === 0) {
-          return true;
-        }
-        return (
-          link.runtime_user_id.toLowerCase().includes(normalizedQuery) ||
-          link.memory_owner_id.toLowerCase().includes(normalizedQuery)
-        );
-      }),
-    [identityLinks, normalizedQuery, visibleEntityIds.size]
-  );
   const dominantPredicates = Array.from(
-    filteredRelations.reduce((map, relation) => {
+    l2Relations.reduce((map, relation) => {
       map.set(relation.predicate, (map.get(relation.predicate) ?? 0) + 1);
       return map;
     }, new Map<string, number>())
@@ -189,40 +110,6 @@ export const MemoryKnowledgePage = () => {
           {t('memory.refresh')}
         </Button>
       }
-      filters={(
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="memory-knowledge-query">
-              {t('memory.filters.searchLabel')}
-            </label>
-            <Input
-              id="memory-knowledge-query"
-              className={MEMORY_FILTER_INPUT_CLASS}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('memory.pages.knowledge.searchPlaceholder')}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="memory-knowledge-entity-type">
-              {t('memory.filters.entityTypeLabel')}
-            </label>
-            <select
-              id="memory-knowledge-entity-type"
-              className={MEMORY_FILTER_SELECT_CLASS}
-              value={entityTypeFilter}
-              onChange={(event) => setEntityTypeFilter(event.target.value)}
-            >
-              <option value="all">{t('memory.filters.all')}</option>
-              {entityTypes.map((entityType) => (
-                <option key={entityType} value={entityType}>
-                  {entityType}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      )}
     >
       {loading ? (
         <LoadingSpinner />
@@ -245,6 +132,68 @@ export const MemoryKnowledgePage = () => {
             </TabsList>
           </div>
 
+          {activeSection === 'knowledgeGraph' ? (
+            <section
+              data-testid="memory-knowledge-graph-filters"
+              className="grid gap-3 rounded-[1.25rem] border border-[#e7ddd3] bg-[rgba(255,252,248,0.96)] px-5 py-4 md:grid-cols-3"
+            >
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-[#4d392c]" htmlFor="memory-graph-status-filter">
+                  {t('memory.pages.knowledge.graphFilters.status')}
+                </label>
+                <select
+                  id="memory-graph-status-filter"
+                  className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] shadow-sm outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+                  value={graphStatusFilter}
+                  onChange={(event) => setGraphStatusFilter(event.target.value)}
+                >
+                  <option value="all">{t('memory.l2.lab.relationStatusOptions.all')}</option>
+                  <option value="active">{t('memory.l2.lab.relationStatusOptions.active')}</option>
+                  <option value="conflicted">{t('memory.l2.lab.relationStatusOptions.conflicted')}</option>
+                  <option value="deprecated">{t('memory.l2.lab.relationStatusOptions.deprecated')}</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-[#4d392c]" htmlFor="memory-graph-entity-filter">
+                  {t('memory.pages.knowledge.graphFilters.entity')}
+                </label>
+                <select
+                  id="memory-graph-entity-filter"
+                  className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] shadow-sm outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+                  value={graphEntityFilter}
+                  onChange={(event) => setGraphEntityFilter(event.target.value)}
+                >
+                  <option value="all">{t('memory.pages.knowledge.graphFilters.allEntities')}</option>
+                  {graphEntityOptions.map(([entityId, label]) => (
+                    <option key={entityId} value={entityId}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-[#4d392c]" htmlFor="memory-graph-predicate-filter">
+                  {t('memory.pages.knowledge.graphFilters.predicate')}
+                </label>
+                <select
+                  id="memory-graph-predicate-filter"
+                  className="flex h-10 w-full rounded-xl border border-[#e3d9cf] bg-white px-3 py-2 text-sm text-[#3d2e23] shadow-sm outline-none focus:border-[#d4beaa] focus:ring-2 focus:ring-[#eadccf]"
+                  value={graphPredicateFilter}
+                  onChange={(event) => setGraphPredicateFilter(event.target.value)}
+                >
+                  <option value="all">{t('memory.pages.knowledge.graphFilters.allPredicates')}</option>
+                  {graphPredicateOptions.map((predicate) => (
+                    <option key={predicate} value={predicate}>
+                      {predicate}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </section>
+          ) : null}
+
           {tabItems.map((tab) => (
             <TabsContent
               key={tab.value}
@@ -255,14 +204,14 @@ export const MemoryKnowledgePage = () => {
               <L2Tab
                 section={tab.value}
                 stats={l2Stats}
-                relations={filteredRelations}
-                assertions={filteredAssertions}
-                identityLinks={filteredIdentityLinks}
-                entities={filteredEntities}
-                mentions={filteredMentions}
-                snapshots={filteredSnapshots}
+                relations={tab.value === 'knowledgeGraph' ? filteredGraphRelations : l2Relations}
+                assertions={l2Assertions}
+                identityLinks={identityLinks}
+                entities={l2Entities}
+                mentions={l2Mentions}
+                snapshots={l2Snapshots}
                 conflictRules={l2ConflictRules}
-                events={filteredEvents}
+                events={l1Events}
                 dominantPredicates={dominantPredicates}
                 actionLoading={l2ActionLoading}
                 onSubmitManualEvent={submitManualL2Event}

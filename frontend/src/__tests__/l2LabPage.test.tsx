@@ -89,9 +89,7 @@ describe('L2Tab lab', () => {
     expect(onRunReconcile).toHaveBeenCalledWith(['user:u1']);
   });
 
-  it('filters relations by selected conflict status', async () => {
-    const user = userEvent.setup();
-
+  it('renders the provided knowledge-graph relations', () => {
     render(
       <L2Tab
         section="knowledgeGraph"
@@ -138,10 +136,8 @@ describe('L2Tab lab', () => {
       />
     );
 
-    await user.selectOptions(screen.getByLabelText('memory.l2.lab.relationStatusFilter'), 'conflicted');
-
+    expect(screen.getByText('LIKES → food:sushi')).toBeInTheDocument();
     expect(screen.getByText('ENDORSES → topic:remote-work')).toBeInTheDocument();
-    expect(screen.queryByText('LIKES → food:sushi')).not.toBeInTheDocument();
   });
 
   it('renders rules and saves a conflict rule update', async () => {

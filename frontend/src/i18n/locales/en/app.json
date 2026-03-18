@@ -825,6 +825,13 @@
           "snapshotMood": "Snapshots With Mood",
           "snapshotTraits": "Core Trait Entries",
           "recentEventContext": "Related Event Context"
+        },
+        "graphFilters": {
+          "status": "Relation Status",
+          "entity": "Entity Filter",
+          "predicate": "Relation Filter",
+          "allEntities": "All Entities",
+          "allPredicates": "All Relations"
         }
       },
       "reflection": {
