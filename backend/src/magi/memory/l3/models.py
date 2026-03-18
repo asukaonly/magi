@@ -71,3 +71,29 @@ class ValidationDecision:
 
     action: Literal["reject", "route_to_l4", "merge_existing", "accept"]
     reason: str
+
+
+@dataclass(slots=True)
+class TemporalEvidenceItem:
+    """Compact temporal-summary evidence item derived from an L1 event."""
+
+    event_id: str
+    event_type: str
+    content: str
+    timestamp: float | None = None
+    memory_domain: str | None = None
+    importance_score: float | None = None
+
+
+@dataclass(slots=True)
+class TemporalEvidencePack:
+    """Compact prompt payload for temporal L3 summarization."""
+
+    summary_category: SummaryCategory
+    period_start: float
+    period_end: float
+    source_event_count: int
+    source_event_ids: list[str] = field(default_factory=list)
+    events: list[TemporalEvidenceItem] = field(default_factory=list)
+    importance_aggregate: float | None = None
+    event_type_distribution: dict[str, int] = field(default_factory=dict)
