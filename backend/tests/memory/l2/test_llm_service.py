@@ -1,17 +1,67 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
+
+
+class _FakeUsagePublisher:
+    def __init__(self) -> None:
+        self.payloads = []
+
+    async def publish(self, payload) -> None:  # type: ignore[no-untyped-def]
+        self.payloads.append(payload)
+
+
+class _FakeCompletionsClient:
+    def __init__(self, response) -> None:  # type: ignore[no-untyped-def]
+        self.response = response
+        self.kwargs: dict[str, object] = {}
+
+    async def create(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.kwargs = kwargs
+        return self.response
+
+
+class _FakeOpenAIClient:
+    def __init__(self, response) -> None:  # type: ignore[no-untyped-def]
+        self.completions = _FakeCompletionsClient(response)
+        self.chat = SimpleNamespace(completions=self.completions)
 
 
 class _FakeAdapter:
-    def __init__(self, response: str) -> None:
-        self._response = response
-        self.calls: list[dict[str, object]] = []
-
-    async def generate(self, prompt: str, **kwargs):  # type: ignore[no-untyped-def]
-        self.calls.append({"prompt": prompt, **kwargs})
-        return self._response
+    def __init__(
+        self,
+        response: str,
+        *,
+        provider_name: str = "openai",
+        model_name: str = "gpt-test",
+        usage: tuple[int, int, int] | None = None,
+        usage_publisher: _FakeUsagePublisher | None = None,
+    ) -> None:
+        self.provider_name = provider_name
+        self.model_name = model_name
+        usage_obj = (
+            SimpleNamespace(
+                prompt_tokens=usage[0],
+                completion_tokens=usage[1],
+                total_tokens=usage[2],
+            )
+            if usage is not None
+            else None
+        )
+        message = SimpleNamespace(content=response, tool_calls=[], role="assistant")
+        self._client = _FakeOpenAIClient(
+            SimpleNamespace(
+                choices=[SimpleNamespace(message=message, finish_reason="stop")],
+                usage=usage_obj,
+            )
+        )
+        self._llm_usage_event_publisher = usage_publisher
 
 
 class _FakeScenarioPool:
@@ -109,7 +159,7 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
     )
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
 
-    result = __import__("asyncio").run(
+    result = asyncio.run(
         service.extract_unified_candidates(
             event_window={"event_ids": ["evt-1"], "texts": ["但我讨厌吃西湖醋鱼"]},
             profile=ExtractionProfile(profile_id="chat.user_message"),
@@ -132,7 +182,7 @@ def test_unified_extraction_fails_closed_on_invalid_json():
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
 
-    result = __import__("asyncio").run(
+    result = asyncio.run(
         service.extract_unified_candidates(
             event_window={"event_ids": ["evt-1"], "texts": ["hello"]},
             profile=ExtractionProfile(profile_id="chat.user_message"),
@@ -165,7 +215,7 @@ def test_unified_extraction_logs_timing():
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
 
     with patch("magi.memory.l2.llm_service.logger.info") as mock_info:
-        result = __import__("asyncio").run(
+        result = asyncio.run(
             service.extract_unified_candidates(
                 event_window={"event_ids": ["evt-1"], "texts": ["I like Rust"]},
                 profile=ExtractionProfile(profile_id="chat.user_message"),
@@ -177,15 +227,17 @@ def test_unified_extraction_logs_timing():
     assert result["diagnostics"] == {"entity_status": "found"}
     assert [call.args[0] for call in mock_info.call_args_list] == [
         "L2 unified extraction started",
+        "L2 LLM call started",
+        "L2 LLM call completed",
         "L2 unified extraction completed",
     ]
-    extras = mock_info.call_args_list[1].kwargs["extra"]
+    extras = mock_info.call_args_list[3].kwargs["extra"]
     assert extras["profile_id"] == "chat.user_message"
     assert extras["mention_count"] == 1
     assert extras["duration_ms"] >= 0.0
 
 
-def test_unified_extraction_disables_thinking_and_logs_started():
+def test_unified_extraction_uses_provider_bridge_and_logs_usage():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
 
@@ -197,11 +249,11 @@ def test_unified_extraction_disables_thinking_and_logs_started():
             "diagnostics": {"entity_status": "none"},
         }
     )
-    adapter = _FakeAdapter(response)
+    adapter = _FakeAdapter(response, provider_name="glm", model_name="glm-4.5", usage=(21, 9, 30))
     service = L2LLMService(_FakeScenarioPool(adapter))
 
     with patch("magi.memory.l2.llm_service.logger.info") as mock_info:
-        __import__("asyncio").run(
+        asyncio.run(
             service.extract_unified_candidates(
                 event_window={"event_ids": ["evt-1"], "texts": ["hello"]},
                 profile=ExtractionProfile(profile_id="chat.user_message"),
@@ -210,14 +262,82 @@ def test_unified_extraction_disables_thinking_and_logs_started():
             )
         )
 
-    assert adapter.calls[0]["disable_thinking"] is True
+    create_kwargs = adapter._client.completions.kwargs
+    assert create_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert create_kwargs["response_format"] == {"type": "json_object"}
     assert [call.args[0] for call in mock_info.call_args_list] == [
         "L2 unified extraction started",
+        "L2 LLM call started",
+        "L2 LLM call completed",
         "L2 unified extraction completed",
     ]
     started_extra = mock_info.call_args_list[0].kwargs["extra"]
-    completed_extra = mock_info.call_args_list[1].kwargs["extra"]
+    llm_started_extra = mock_info.call_args_list[1].kwargs["extra"]
+    llm_completed_extra = mock_info.call_args_list[2].kwargs["extra"]
+    completed_extra = mock_info.call_args_list[3].kwargs["extra"]
     assert started_extra["event_ids"] == ["evt-1"]
     assert started_extra["profile_id"] == "chat.user_message"
+    assert llm_started_extra["request_kind"] == "memory:l2_unified_extraction"
+    assert llm_started_extra["provider"] == "glm"
+    assert llm_started_extra["model"] == "glm-4.5"
+    assert llm_completed_extra["request_kind"] == "memory:l2_unified_extraction"
+    assert llm_completed_extra["usage_available"] is True
+    assert llm_completed_extra["prompt_tokens"] == 21
+    assert llm_completed_extra["completion_tokens"] == 9
+    assert llm_completed_extra["total_tokens"] == 30
     assert completed_extra["event_ids"] == ["evt-1"]
     assert completed_extra["profile_id"] == "chat.user_message"
+
+
+@pytest.mark.asyncio
+async def test_unified_extraction_publishes_usage_events_for_llm_stats(tmp_path: Path) -> None:
+    from magi.events.memory_backend import MemoryMessageBackend
+    from magi.llm.usage_events import LLMUsageEventPublisher
+    from magi.llm.usage_store import LLMUsageStore
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
+
+    message_bus = MemoryMessageBackend()
+    await message_bus.start()
+    usage_store = LLMUsageStore(db_path=tmp_path / "llm_usage.db")
+    await usage_store.start(message_bus)
+    try:
+        publisher = LLMUsageEventPublisher(message_bus)
+        adapter = _FakeAdapter(
+            json.dumps(
+                {
+                    "mentions": [],
+                    "graph_candidates": [],
+                    "assertion_candidates": [],
+                    "diagnostics": {"entity_status": "none"},
+                }
+            ),
+            provider_name="openai",
+            model_name="gpt-4.1-mini",
+            usage=(18, 6, 24),
+            usage_publisher=publisher,
+        )
+        service = L2LLMService(_FakeScenarioPool(adapter))
+
+        await service.extract_unified_candidates(
+            event_window={"event_ids": ["evt-usage-1"], "texts": ["hello"]},
+            profile=ExtractionProfile(profile_id="chat.user_message"),
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+            context_bundle=None,
+        )
+
+        deadline = asyncio.get_running_loop().time() + 2.0
+        summary = await usage_store.get_summary(days=1)
+        while summary["totals"]["total_calls"] == 0 and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.05)
+            summary = await usage_store.get_summary(days=1)
+
+        assert summary["totals"]["total_calls"] == 1
+        assert summary["totals"]["calls_with_usage"] == 1
+        assert summary["totals"]["prompt_tokens"] == 18
+        assert summary["totals"]["completion_tokens"] == 6
+        assert summary["totals"]["total_tokens"] == 24
+        assert summary["request_kinds"][0]["request_kind"] == "memory:l2_unified_extraction"
+    finally:
+        await usage_store.stop()
+        await message_bus.stop()

@@ -6,6 +6,7 @@ import logging
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,12 +23,34 @@ class _FakeAdapter:
             self._responses = [response]
         self._fallback_response = self._responses[-1] if self._responses else "{}"
         self.calls: list[dict[str, object]] = []
+        self.provider_name = "openai"
+        self.model_name = "gpt-test"
+        self._client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=self._create_completion),
+            )
+        )
 
-    async def generate(self, prompt: str, **kwargs):  # type: ignore[no-untyped-def]
-        self.calls.append({"prompt": prompt, **kwargs})
-        if self._responses:
-            return self._responses.pop(0)
-        return self._fallback_response
+    async def _create_completion(self, **kwargs):  # type: ignore[no-untyped-def]
+        messages = kwargs.get("messages") or []
+        system_prompt = ""
+        prompt = ""
+        if isinstance(messages, list):
+            if messages and isinstance(messages[0], dict):
+                system_prompt = str(messages[0].get("content") or "")
+            if len(messages) > 1 and isinstance(messages[1], dict):
+                prompt = str(messages[1].get("content") or "")
+        call = {"prompt": prompt, "system_prompt": system_prompt}
+        for key, value in kwargs.items():
+            if key != "messages":
+                call[key] = value
+        self.calls.append(call)
+        response_text = self._responses.pop(0) if self._responses else self._fallback_response
+        message = SimpleNamespace(content=response_text, tool_calls=[], role="assistant")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason="stop")],
+            usage=None,
+        )
 
 
 class _FakeScenarioPool:

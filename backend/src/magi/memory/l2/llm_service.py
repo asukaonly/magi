@@ -7,7 +7,7 @@ import logging
 import time
 from typing import Any, Optional
 
-from ...llm import LLMScenario, ScenarioLLMPool
+from ...llm import LLMProviderBridge, LLMScenario, ProviderResponse, ScenarioLLMPool
 from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
 from .prompts import (
@@ -83,6 +83,9 @@ class L2LLMService:
                 focal_subject=focal_subject,
                 context_bundle=context_bundle,
             ),
+            request_kind="memory:l2_unified_extraction",
+            turn_id=event_ids[0] if event_ids else None,
+            log_context={"event_ids": event_ids, "profile_id": profile.profile_id},
         )
         mentions = payload.get("mentions")
         resolved_context_refs = payload.get("resolved_context_refs")
@@ -143,6 +146,7 @@ class L2LLMService:
         payload = await self._generate_json(
             system_prompt=ENTITY_MENTION_SYSTEM_PROMPT,
             prompt=self.render_entity_mention_prompt(event_text=event_text, context_texts=context_texts),
+            request_kind="memory:l2_entity_mentions",
         )
         mentions = payload.get("mentions")
         return mentions if isinstance(mentions, list) else []
@@ -157,6 +161,7 @@ class L2LLMService:
         payload = await self._generate_json(
             system_prompt=ENTITY_RESOLUTION_SYSTEM_PROMPT,
             prompt=render_entity_resolution_prompt(mention=mention, candidate_entities=candidate_entities),
+            request_kind="memory:l2_entity_resolution",
         )
         resolution = payload.get("resolution")
         if not isinstance(resolution, dict):
@@ -187,16 +192,18 @@ class L2LLMService:
         event_window: dict[str, Any],
         focal_entities: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
+        event_ids = event_window.get("event_ids")
         payload = await self._generate_json(
             system_prompt=TOM_EXTRACTION_SYSTEM_PROMPT,
             prompt=render_tom_extraction_prompt(event_window=event_window, focal_entities=focal_entities),
+            request_kind="memory:l2_tom_extraction",
+            turn_id=event_ids[0] if isinstance(event_ids, list) and event_ids else None,
         )
         assertions = payload.get("assertion_candidates")
         if not isinstance(assertions, list):
             return []
 
         normalized: list[dict[str, Any]] = []
-        event_ids = event_window.get("event_ids")
         is_single_event = isinstance(event_ids, list) and len(event_ids) <= 1
         for item in assertions:
             if not isinstance(item, dict):
@@ -218,6 +225,8 @@ class L2LLMService:
         payload = await self._generate_json(
             system_prompt=CONTRADICTION_HINT_SYSTEM_PROMPT,
             prompt=render_contradiction_hint_prompt(new_event=new_event, existing_records=existing_records),
+            request_kind="memory:l2_contradiction_hint",
+            turn_id=str(new_event.get("event_id") or "") or None,
         )
         hints = payload.get("contradiction_hints")
         return hints if isinstance(hints, list) else []
@@ -238,31 +247,77 @@ class L2LLMService:
                 assertions=assertions,
                 recent_events=recent_events,
             ),
+            request_kind="memory:l2_entity_reconcile",
+            turn_id=str(entity.get("entity_id") or "") or None,
         )
         outcomes = payload.get("reconciled_traits")
         return outcomes if isinstance(outcomes, list) else []
 
-    async def _generate_json(self, *, system_prompt: str, prompt: str) -> dict[str, Any]:
-        adapter = self._get_adapter()
-        if adapter is None:
+    async def _generate_json(
+        self,
+        *,
+        system_prompt: str,
+        prompt: str,
+        request_kind: str,
+        turn_id: str | None = None,
+        session_id: str | None = None,
+        log_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        llm_target = self._get_llm_target()
+        if llm_target is None:
             return {}
+        adapter, provider_bridge = llm_target
+        provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
+        model = str(getattr(adapter, "model_name", "unknown") or "unknown")
+        context = dict(log_context or {})
+        context.update(
+            {
+                "request_kind": request_kind,
+                "provider": provider,
+                "model": model,
+                "disable_thinking": True,
+                "json_mode": True,
+                "prompt_char_count": len(prompt),
+                "system_prompt_char_count": len(system_prompt),
+            }
+        )
+        logger.info("L2 LLM call started", extra=context)
+
+        started_at = time.perf_counter()
 
         try:
-            raw = await adapter.generate(
-                prompt,
+            response = await provider_bridge.chat_response(
                 system_prompt=system_prompt,
+                messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 json_mode=True,
                 disable_thinking=True,
+                event_context={
+                    "request_kind": request_kind,
+                    "turn_id": turn_id,
+                    "session_id": session_id,
+                    "agent_id": "memory:l2",
+                },
             )
         except Exception as exc:
-            logger.debug("L2 LLM generation failed: %s", exc)
+            failure_context = dict(context)
+            failure_context["duration_ms"] = round((time.perf_counter() - started_at) * 1000.0, 2)
+            failure_context["error"] = str(exc)
+            logger.warning("L2 LLM call failed", extra=failure_context)
             return {}
+
+        raw = response.content
+        completion_context = dict(context)
+        completion_context.update(self._usage_log_fields(response))
+        completion_context["duration_ms"] = round((time.perf_counter() - started_at) * 1000.0, 2)
+        logger.info("L2 LLM call completed", extra=completion_context)
 
         try:
             parsed = json.loads(raw)
         except Exception:
-            logger.debug("L2 LLM returned invalid JSON")
+            invalid_context = dict(completion_context)
+            invalid_context["response_char_count"] = len(raw or "")
+            logger.warning("L2 LLM returned invalid JSON", extra=invalid_context)
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
@@ -274,6 +329,28 @@ class L2LLMService:
         except Exception as exc:
             logger.debug("L2 LLM adapter unavailable: %s", exc)
             return None
+
+    def _get_llm_target(self) -> Optional[tuple[Any, LLMProviderBridge]]:
+        adapter = self._get_adapter()
+        if adapter is None:
+            return None
+        return adapter, LLMProviderBridge(adapter)
+
+    def _usage_log_fields(self, response: ProviderResponse) -> dict[str, Any]:
+        usage = response.usage
+        if usage is None:
+            return {
+                "usage_available": False,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            }
+        return {
+            "usage_available": True,
+            "prompt_tokens": int(usage.prompt_tokens or 0),
+            "completion_tokens": int(usage.completion_tokens or 0),
+            "total_tokens": int(usage.total_tokens or 0),
+        }
 
     def _unresolved_resolution(self, *, confidence: float = 0.0) -> dict[str, Any]:
         return {
