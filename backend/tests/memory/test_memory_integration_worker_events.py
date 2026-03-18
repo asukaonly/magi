@@ -51,6 +51,12 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
             "CHAT_TOOL_LOOP_STEP",
             "TOOL_INTERACTION",
             "TOOL_INVOKED",
+            "TURN_TRACE_STARTED",
+            "TURN_TRACE_COMPLETED",
+            "TURN_TRACE_FAILED",
+            "TRACE_NODE_STARTED",
+            "TRACE_NODE_COMPLETED",
+            "TRACE_NODE_FAILED",
         ):
             self.assertIn(event_type, cfg.subscribed_events)
         self.assertIn(EventTypes.AI_RESPONSE, cfg.subscribed_events)
@@ -93,7 +99,7 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(stored)
 
-    async def test_chat_tool_loop_step_event_is_not_stored_in_l1(self):
+    async def test_chat_tool_loop_step_event_is_stored_in_l1(self):
         integration = MemoryIntegrationModule(
             unified_memory=_FakeUnifiedMemory(),
             message_bus=_FakeBus(),
@@ -110,9 +116,9 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         stored = await integration._maybe_store_l1(event)
 
-        self.assertFalse(stored)
+        self.assertTrue(stored)
 
-    async def test_tool_invoked_event_is_not_stored_in_l1(self):
+    async def test_tool_invoked_event_is_stored_in_l1(self):
         integration = MemoryIntegrationModule(
             unified_memory=_FakeUnifiedMemory(),
             message_bus=_FakeBus(),
@@ -129,7 +135,43 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         stored = await integration._maybe_store_l1(event)
 
-        self.assertFalse(stored)
+        self.assertTrue(stored)
+
+    async def test_trace_node_event_uses_tags_for_identity_and_is_stored_in_l1(self):
+        memory = _FakeUnifiedMemory()
+        integration = MemoryIntegrationModule(
+            unified_memory=memory,
+            message_bus=_FakeBus(),
+            config=MemoryIntegrationConfig(),
+        )
+
+        event = Event(
+            type="TRACE_NODE_COMPLETED",
+            data={
+                "trace_id": "trace:turn-3",
+                "turn_id": "turn-3",
+                "span_id": "turn-3:llm_call:direct",
+                "parent_span_id": "turn-3:turn",
+                "node_type": "llm_call",
+                "name": "Main LLM call",
+                "status": "completed",
+                "duration_ms": 512,
+                "tags": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                },
+            },
+            source="runtime_action_emitter",
+            level=EventLevel.INFO,
+            correlation_id="turn-3:llm_call:direct",
+        )
+
+        stored = await integration._maybe_store_l1(event)
+
+        self.assertTrue(stored)
+        normalized = memory.ingested[-1]
+        self.assertEqual(normalized.user_id, "u1")
+        self.assertEqual(normalized.session_id, "s1")
 
 
 if __name__ == "__main__":

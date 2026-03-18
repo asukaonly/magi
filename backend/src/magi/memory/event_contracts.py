@@ -113,6 +113,12 @@ TRACE_RUNTIME_EVENT_TYPES = {
     "CHAT_TOOL_LOOP_STEP",
     "TOOL_INTERACTION",
     "TOOL_INVOKED",
+    "TURN_TRACE_STARTED",
+    "TURN_TRACE_COMPLETED",
+    "TURN_TRACE_FAILED",
+    "TRACE_NODE_STARTED",
+    "TRACE_NODE_COMPLETED",
+    "TRACE_NODE_FAILED",
 }
 
 
@@ -216,8 +222,9 @@ def normalize_runtime_event(
     level_value = event.level.value if hasattr(event.level, "value") else int(event.level)
 
     task_id = _first_non_empty(payload.get("task_id"), metadata.get("task_id"))
-    session_id = _first_non_empty(payload.get("session_id"), metadata.get("session_id"))
-    user_id = _first_non_empty(payload.get("user_id"), metadata.get("user_id"))
+    payload_tags = payload.get("tags") if isinstance(payload.get("tags"), dict) else {}
+    session_id = _first_non_empty(payload.get("session_id"), payload_tags.get("session_id"), metadata.get("session_id"))
+    user_id = _first_non_empty(payload.get("user_id"), payload_tags.get("user_id"), metadata.get("user_id"))
     runtime_user_id = user_id
     runtime_namespace = _first_non_empty(payload.get("runtime_namespace"), metadata.get("runtime_namespace"), event.source)
     memory_owner_id = _resolve_memory_owner_id(
@@ -462,7 +469,7 @@ def _classify_event(event: Event) -> Dict[str, Any]:
     if event_type in TRACE_RUNTIME_EVENT_TYPES:
         return {
             "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
-            "ingest_target": IngestTarget.L0_ONLY,
+            "ingest_target": IngestTarget.L0_AND_L1,
             "cognition_eligible": False,
             "tom_depth": TomDepth.NONE,
             "retention_class": RetentionClass.DISPOSABLE,

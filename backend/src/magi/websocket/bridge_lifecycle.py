@@ -23,6 +23,13 @@ WORKER_AGENT_EVENT_TYPES = (
 TRACE_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES + (
     "CHAT_TOOL_LOOP_STEP",
     "TOOL_INTERACTION",
+    "TOOL_INVOKED",
+    "TURN_TRACE_STARTED",
+    "TURN_TRACE_COMPLETED",
+    "TURN_TRACE_FAILED",
+    "TRACE_NODE_STARTED",
+    "TRACE_NODE_COMPLETED",
+    "TRACE_NODE_FAILED",
 )
 DEFAULT_WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS = 0.5
 
@@ -136,8 +143,9 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
 
         async def _on_trace_event(event: Event) -> None:
             data = event.data if isinstance(event.data, dict) else {}
-            user_id = str(data.get("user_id", "")).strip()
-            session_id = str(data.get("session_id", "")).strip()
+            tags = data.get("tags") if isinstance(data.get("tags"), dict) else {}
+            user_id = str(data.get("user_id") or tags.get("user_id") or "").strip()
+            session_id = str(data.get("session_id") or tags.get("session_id") or "").strip()
             turn_id = str(data.get("turn_id", "")).strip()
 
             if not user_id:
@@ -153,6 +161,14 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                 trace_payload["orchestration_id"] = data["orchestration_id"]
             if "iteration" in data:
                 trace_payload["iteration"] = data["iteration"]
+            if "span_id" in data:
+                trace_payload["span_id"] = data["span_id"]
+            if "parent_span_id" in data:
+                trace_payload["parent_span_id"] = data["parent_span_id"]
+            if "node_type" in data:
+                trace_payload["node_type"] = data["node_type"]
+            if "status" in data:
+                trace_payload["status"] = data["status"]
 
             await manager.broadcast(
                 "execution_trace_update",
