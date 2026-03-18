@@ -563,14 +563,26 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
 
 @pytest.mark.asyncio
 async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
-    from magi.memory.l2_prompt_templates import ENTITY_MENTION_SYSTEM_PROMPT
+    from magi.memory.l2_prompt_templates import UNIFIED_EXTRACTION_SYSTEM_PROMPT
 
     adapter = _FakeAdapter(
         [
-            json.dumps({"mentions": []}),
-            json.dumps({"assertion_candidates": []}),
-            json.dumps({"mentions": []}),
-            json.dumps({"assertion_candidates": []}),
+            json.dumps(
+                {
+                    "mentions": [],
+                    "graph_candidates": [],
+                    "assertion_candidates": [],
+                    "diagnostics": {"entity_status": "none"},
+                }
+            ),
+            json.dumps(
+                {
+                    "mentions": [],
+                    "graph_candidates": [],
+                    "assertion_candidates": [],
+                    "diagnostics": {"entity_status": "none"},
+                }
+            ),
         ]
     )
 
@@ -622,15 +634,15 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
                     break
                 await asyncio.sleep(0.01)
 
-            mention_prompts = [
+            unified_prompts = [
                 str(call["prompt"])
                 for call in adapter.calls
-                if call.get("system_prompt") == ENTITY_MENTION_SYSTEM_PROMPT
+                if call.get("system_prompt") == UNIFIED_EXTRACTION_SYSTEM_PROMPT
             ]
 
-            assert len(mention_prompts) == 2
-            assert "I like Shanghai." in mention_prompts[1]
-            assert "I call Shanghai Modu sometimes." in mention_prompts[1]
+            assert len(unified_prompts) == 2
+            assert "I like Shanghai." in unified_prompts[1]
+            assert "I call Shanghai Modu sometimes." in unified_prompts[1]
         finally:
             await store.shutdown()
 

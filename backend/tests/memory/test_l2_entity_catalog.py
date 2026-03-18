@@ -41,10 +41,18 @@ async def test_ambiguous_alias_returns_unresolved():
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
 
-        await catalog.upsert_entity(canonical_name="Apple Inc.", entity_type="organization", entity_id="org:apple")
-        await catalog.upsert_entity(canonical_name="Apple Fruit", entity_type="food", entity_id="food:apple")
-        await catalog.add_alias(entity_id="org:apple", alias_text="apple", confidence=0.92)
-        await catalog.add_alias(entity_id="food:apple", alias_text="apple", confidence=0.91)
+        organization_id = await catalog.upsert_entity(
+            canonical_name="Apple Inc.",
+            entity_type="organization",
+            entity_id="org:apple",
+        )
+        food_id = await catalog.upsert_entity(
+            canonical_name="Apple Fruit",
+            entity_type="food",
+            entity_id="food:apple",
+        )
+        await catalog.add_alias(entity_id=organization_id, alias_text="apple", confidence=0.92)
+        await catalog.add_alias(entity_id=food_id, alias_text="apple", confidence=0.91)
 
         resolved = await catalog.resolve_alias("apple")
 
