@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import aiosqlite
 import pytest
 
 from magi.memory.embedding_service import EmbeddingResult
@@ -62,3 +63,21 @@ async def test_search_max_distance_none_same_as_no_filter(index: SqliteVecIndex)
     hits_none = await index.search(embedding=query, limit=10, max_distance=None)
     hits_default = await index.search(embedding=query, limit=10)
     assert len(hits_none) == len(hits_default)
+
+
+@pytest.mark.asyncio
+async def test_clear_skips_missing_registry_table_when_index_state_is_stale(tmp_path):
+    idx = SqliteVecIndex(
+        db_path=str(tmp_path / "vec.db"),
+        registry_table="test_registry",
+        entity_column="entity_id",
+        vec_table_prefix="test_vec",
+    )
+    idx._db = await aiosqlite.connect(str(tmp_path / "vec.db"))
+    idx._db.row_factory = aiosqlite.Row
+    idx._initialized = True
+
+    try:
+        await idx.clear()
+    finally:
+        await idx.close()

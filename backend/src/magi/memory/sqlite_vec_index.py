@@ -219,7 +219,8 @@ class SqliteVecIndex:
                 vec_tables = [str(row[0]) for row in await cursor.fetchall()]
             for table_name in vec_tables:
                 await db.execute(f'DROP TABLE IF EXISTS "{table_name}"')
-            await db.execute(f"DELETE FROM {self._registry_table}")
+            if await self._table_exists(db, self._registry_table):
+                await db.execute(f"DELETE FROM {self._registry_table}")
             await db.commit()
 
     async def _ensure_vec_table(self, db: aiosqlite.Connection, table_name: str, dimension: int) -> None:
