@@ -39,6 +39,7 @@ const EventsPage: React.FC = () => {
     l2Relations,
     l2Assertions,
     l2Stats,
+    identityLinks,
     l2Entities,
     l2Mentions,
     l2Snapshots,
@@ -142,6 +143,7 @@ const EventsPage: React.FC = () => {
               stats={l2Stats}
               relations={l2Relations}
               assertions={l2Assertions}
+              identityLinks={identityLinks}
               entities={l2Entities}
               mentions={l2Mentions}
               snapshots={l2Snapshots}

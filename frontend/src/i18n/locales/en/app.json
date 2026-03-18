@@ -759,15 +759,24 @@
       "tactics": "Temporary Tactics",
       "noTactics": "No tactics defined"
     },
-    "l1": {
-      "totalEvents": "Total Events",
-      "userAuthored": "User Authored",
-      "interaction": "Interaction",
-      "externalActivity": "External Activity",
-      "events": "Event Stream",
-      "noEvents": "No events recorded"
-    },
-    "l2": {
+  "l1": {
+    "totalEvents": "Total Events",
+    "userAuthored": "User Authored",
+    "interaction": "Interaction",
+    "externalActivity": "External Activity",
+    "events": "Event Stream",
+    "noEvents": "No events recorded"
+  },
+  "identity": {
+    "title": "Identity Mapping",
+    "canonicalSelf": "Canonical Self",
+    "runtimeLinks": "Runtime Accounts",
+    "runtimeUserLabel": "Runtime User",
+    "memoryOwnerLabel": "Memory Owner",
+    "linkCount": "{{count}} linked runtime accounts",
+    "noLinks": "No runtime identity links configured"
+  },
+  "l2": {
       "relationCount": "Knowledge Relations",
       "assertionCount": "ToM Assertions",
       "relations": "Knowledge Graph",
@@ -783,7 +792,7 @@
         "snapshotCount": "Snapshots",
         "manualEventLabel": "Manual event injection",
         "manualEventPlaceholder": "Describe a fact or preference to push through the L1 -> L2 pipeline...",
-        "userIdPlaceholder": "User ID",
+      "userIdPlaceholder": "Runtime User ID",
         "sessionIdPlaceholder": "Session ID",
         "entityFocusPlaceholder": "Entity focus hint (optional)",
         "injectEvent": "Inject Event",

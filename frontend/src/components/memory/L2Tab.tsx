@@ -15,6 +15,7 @@ import type {
   L2Assertion,
   L2Entity,
   L2GraphConflictRule,
+  MemoryIdentityLink,
   L2GraphConflictRulePayload,
   L2Mention,
   L2Relation,
@@ -27,6 +28,7 @@ interface L2TabProps {
   stats: L2Statistics;
   relations: L2Relation[];
   assertions: L2Assertion[];
+  identityLinks: MemoryIdentityLink[];
   entities: L2Entity[];
   mentions: L2Mention[];
   snapshots: L2Snapshot[];
@@ -42,7 +44,7 @@ interface L2TabProps {
 
 const defaultManualState: ManualL2EventPayload = {
   text: '',
-  user_id: 'u1',
+  user_id: 'web_user',
   session_id: 'l2-lab',
   source: 'l2_lab',
   entity_focus_hint: '',
@@ -61,6 +63,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
   stats,
   relations,
   assertions,
+  identityLinks,
   entities,
   mentions,
   snapshots,
@@ -157,6 +160,43 @@ export const L2Tab: React.FC<L2TabProps> = ({
         <MetricCard label={t('memory.l2.lab.skippedCount')} value={stats.extract_skipped ?? 0} />
         <MetricCard label={t('memory.l2.lab.entityCount')} value={entities.length} />
         <MetricCard label={t('memory.l2.lab.snapshotCount')} value={snapshots.length} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('memory.identity.title')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="font-medium text-foreground">{t('memory.identity.canonicalSelf')}</div>
+            <div className="rounded-md border bg-muted/20 px-3 py-2 font-mono">
+              {stats.canonical_self_id || 'user:self'}
+            </div>
+            <div className="text-muted-foreground">
+              {t('memory.identity.linkCount', { count: stats.identity_link_count ?? identityLinks.length })}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('memory.identity.runtimeLinks')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {identityLinks.length === 0 ? (
+              <div className="text-sm text-muted-foreground">{t('memory.identity.noLinks')}</div>
+            ) : (
+              <div className="space-y-2">
+                {identityLinks.map((link) => (
+                  <div key={`${link.namespace}:${link.runtime_user_id}`} className="rounded-lg border p-3 text-sm">
+                    <div className="font-medium">{link.namespace}</div>
+                    <div className="text-muted-foreground">{link.runtime_user_id}</div>
+                    <div className="mt-1 font-mono text-xs">{link.memory_owner_id}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">

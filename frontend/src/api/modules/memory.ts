@@ -46,6 +46,8 @@ export interface L1Event {
   retention_class: string;
   importance_score: number;
   cognition_eligible: boolean;
+  runtime_user_id?: string | null;
+  memory_owner_id?: string | null;
 }
 
 // L2 Cognition Types
@@ -141,12 +143,26 @@ export interface L2QueuedActionResponse {
 }
 
 export interface L2Statistics {
+  canonical_self_id?: string;
+  identity_link_count?: number;
   relation_count: number;
   assertion_count: number;
   extract_skipped?: number;
   extract_by_evidence_class?: Record<string, number>;
   skip_by_reason?: Record<string, number>;
   db_path?: string;
+}
+
+export interface MemoryIdentityLink {
+  namespace: string;
+  runtime_user_id: string;
+  memory_owner_id: string;
+  link_type: string;
+}
+
+export interface MemoryIdentityLinksResponse {
+  canonical_self_id: string;
+  links: MemoryIdentityLink[];
 }
 
 // L3 Summary Types
@@ -178,6 +194,7 @@ export interface L4Skill {
 
 // Statistics Types
 export interface MemoryStatistics {
+  identity?: { canonical_self_id: string; identity_link_count: number };
   l0: L0Stats;
   l1: { event_count: number; db_path?: string };
   l2: { relation_count: number; assertion_count: number; db_path?: string };
@@ -218,6 +235,8 @@ export const memoryApi = {
   // L2 Cognition
   getL2Statistics: () =>
     api.get<L2Statistics>('/memory/l2/statistics') as unknown as Promise<L2Statistics>,
+  getIdentityLinks: () =>
+    api.get<MemoryIdentityLinksResponse>('/memory/identity/links') as unknown as Promise<MemoryIdentityLinksResponse>,
   getL2Relations: (limit?: number) =>
     api.get<L2Relation[]>('/memory/l2/relations', { params: limit ? { limit } : undefined }) as unknown as Promise<L2Relation[]>,
   getL2Assertions: (limit?: number) =>

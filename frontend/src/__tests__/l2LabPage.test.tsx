@@ -20,6 +20,7 @@ describe('L2Tab lab', () => {
         stats={{ relation_count: 1, assertion_count: 2 }}
         relations={[]}
         assertions={[]}
+        identityLinks={[]}
         entities={[]}
         mentions={[]}
         snapshots={[]}
@@ -61,6 +62,7 @@ describe('L2Tab lab', () => {
         stats={{ relation_count: 1, assertion_count: 2 }}
         relations={[]}
         assertions={[]}
+        identityLinks={[]}
         entities={[
           {
             entity_id: 'user:u1',
@@ -120,6 +122,7 @@ describe('L2Tab lab', () => {
           },
         ]}
         assertions={[]}
+        identityLinks={[]}
         entities={[]}
         mentions={[]}
         snapshots={[]}
@@ -149,6 +152,7 @@ describe('L2Tab lab', () => {
         stats={{ relation_count: 0, assertion_count: 0 }}
         relations={[]}
         assertions={[]}
+        identityLinks={[]}
         entities={[]}
         mentions={[]}
         snapshots={[]}
@@ -196,6 +200,8 @@ describe('L2Tab lab', () => {
     render(
       <L2Tab
         stats={{
+          canonical_self_id: 'user:self',
+          identity_link_count: 2,
           relation_count: 0,
           assertion_count: 0,
           extract_skipped: 3,
@@ -210,6 +216,14 @@ describe('L2Tab lab', () => {
         }}
         relations={[]}
         assertions={[]}
+        identityLinks={[
+          {
+            namespace: 'web',
+            runtime_user_id: 'web_user',
+            memory_owner_id: 'user:self',
+            link_type: 'runtime_account',
+          },
+        ]}
         entities={[]}
         mentions={[]}
         snapshots={[]}
@@ -225,6 +239,9 @@ describe('L2Tab lab', () => {
     );
 
     expect(screen.getByText('memory.l2.lab.skippedCount')).toBeInTheDocument();
+    expect(screen.getByText('memory.identity.title')).toBeInTheDocument();
+    expect(screen.getAllByText('user:self').length).toBeGreaterThan(0);
+    expect(screen.getByText('web_user')).toBeInTheDocument();
     expect(screen.getByText('memory.l2.lab.evidenceBreakdown')).toBeInTheDocument();
     expect(screen.getByText('memory.l2.lab.skipReasonBreakdown')).toBeInTheDocument();
     expect(screen.getByText('user_self_report')).toBeInTheDocument();

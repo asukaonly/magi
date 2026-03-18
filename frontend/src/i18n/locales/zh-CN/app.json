@@ -759,15 +759,24 @@
       "tactics": "临时策略",
       "noTactics": "暂无策略定义"
     },
-    "l1": {
-      "totalEvents": "事件总数",
-      "userAuthored": "用户 authored",
-      "interaction": "交互事件",
-      "externalActivity": "外部活动",
-      "events": "事件流",
-      "noEvents": "暂无事件记录"
-    },
-    "l2": {
+  "l1": {
+    "totalEvents": "事件总数",
+    "userAuthored": "用户 authored",
+    "interaction": "交互事件",
+    "externalActivity": "外部活动",
+    "events": "事件流",
+    "noEvents": "暂无事件记录"
+  },
+  "identity": {
+    "title": "身份映射",
+    "canonicalSelf": "规范 Self",
+    "runtimeLinks": "接入层账号",
+    "runtimeUserLabel": "接入用户",
+    "memoryOwnerLabel": "记忆归属",
+    "linkCount": "已关联 {{count}} 个接入账号",
+    "noLinks": "暂无接入身份映射"
+  },
+  "l2": {
       "relationCount": "知识关系",
       "assertionCount": "心智断言",
       "relations": "知识图谱",
@@ -783,7 +792,7 @@
         "snapshotCount": "快照数量",
         "manualEventLabel": "手动事件注入",
         "manualEventPlaceholder": "输入一段事实、偏好或关系变化，让它走完整的 L1 -> L2 链路...",
-        "userIdPlaceholder": "用户 ID",
+      "userIdPlaceholder": "接入层用户 ID",
         "sessionIdPlaceholder": "会话 ID",
         "entityFocusPlaceholder": "实体焦点提示（可选）",
         "injectEvent": "注入事件",
