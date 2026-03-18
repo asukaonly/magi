@@ -986,7 +986,9 @@
       "l3": "L3 reflection summaries",
       "l4": "L4 procedural skills",
       "chatContext": "Chat context history",
-      "typePrompt": "Type 'CLEAR' to confirm:",
+      "countdownHint": "Please wait {{seconds}} seconds before confirming.",
+      "readyHint": "You can confirm the clear action now.",
+      "confirmCountdown": "Confirm in {{seconds}}s",
       "confirm": "Clear All",
       "cancel": "Cancel"
     }

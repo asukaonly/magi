@@ -1,19 +1,15 @@
-/**
- * ClearMemoryDialog - Dialog for confirming memory clear operation
- */
-
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
+const CLEAR_CONFIRM_COUNTDOWN_SECONDS = 3;
+
 interface ClearMemoryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  confirmText: string;
-  onConfirmTextChange: (text: string) => void;
   clearing: boolean;
   onConfirm: () => Promise<void>;
 }
@@ -21,16 +17,37 @@ interface ClearMemoryDialogProps {
 export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
   open,
   onOpenChange,
-  confirmText,
-  onConfirmTextChange,
   clearing,
   onConfirm,
 }) => {
   const { t } = useTranslation('app');
+  const [countdown, setCountdown] = useState(CLEAR_CONFIRM_COUNTDOWN_SECONDS);
+
+  useEffect(() => {
+    if (!open) {
+      setCountdown(CLEAR_CONFIRM_COUNTDOWN_SECONDS);
+      return undefined;
+    }
+
+    setCountdown(CLEAR_CONFIRM_COUNTDOWN_SECONDS);
+    const timer = window.setInterval(() => {
+      setCountdown((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-destructive" />
@@ -39,35 +56,38 @@ export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
           <DialogDescription>{t('memory.clearConfirm.description')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <ul className="text-sm space-y-1">
-            <li>{t('memory.clearConfirm.l0')}</li>
-            <li>{t('memory.clearConfirm.l1')}</li>
-            <li>{t('memory.clearConfirm.l2')}</li>
-            <li>{t('memory.clearConfirm.l3')}</li>
-            <li>{t('memory.clearConfirm.l4')}</li>
-            <li>{t('memory.clearConfirm.chatContext')}</li>
-          </ul>
-          <div>
-            <label className="text-sm font-medium">{t('memory.clearConfirm.typePrompt')}</label>
-            <input
-              type="text"
-              className="w-full mt-1 px-3 py-2 border rounded-md"
-              value={confirmText}
-              onChange={(e) => onConfirmTextChange(e.target.value)}
-              placeholder="CLEAR"
-            />
+          <div className="rounded-xl border border-border/70 bg-muted/35 px-4 py-3">
+            <ul className="space-y-1 text-sm text-foreground/88">
+              <li>{t('memory.clearConfirm.l0')}</li>
+              <li>{t('memory.clearConfirm.l1')}</li>
+              <li>{t('memory.clearConfirm.l2')}</li>
+              <li>{t('memory.clearConfirm.l3')}</li>
+              <li>{t('memory.clearConfirm.l4')}</li>
+              <li>{t('memory.clearConfirm.chatContext')}</li>
+            </ul>
+          </div>
+          <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-muted-foreground">
+            {countdown > 0
+              ? t('memory.clearConfirm.countdownHint', { seconds: countdown })
+              : t('memory.clearConfirm.readyHint')}
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
           <Button
             variant="destructive"
             onClick={onConfirm}
-            disabled={confirmText !== 'CLEAR' || clearing}
+            disabled={countdown > 0 || clearing}
           >
-            {clearing ? <LoadingSpinner /> : t('memory.clearConfirm.confirm')}
+            {clearing ? (
+              <LoadingSpinner />
+            ) : countdown > 0 ? (
+              t('memory.clearConfirm.confirmCountdown', { seconds: countdown })
+            ) : (
+              t('memory.clearConfirm.confirm')
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

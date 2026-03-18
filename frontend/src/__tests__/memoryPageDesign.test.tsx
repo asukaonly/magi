@@ -103,8 +103,6 @@ describe('memory page design', () => {
       handleSearch: vi.fn(),
       clearDialogOpen: false,
       setClearDialogOpen: vi.fn(),
-      clearConfirmText: '',
-      setClearConfirmText: vi.fn(),
       clearing: false,
       handleClearRequest: vi.fn(),
       handleClearConfirm: vi.fn(),

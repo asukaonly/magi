@@ -58,8 +58,6 @@ const EventsPage: React.FC = () => {
     handleSearch,
     clearDialogOpen,
     setClearDialogOpen,
-    clearConfirmText,
-    setClearConfirmText,
     clearing,
     handleClearRequest,
     handleClearConfirm,
@@ -187,8 +185,6 @@ const EventsPage: React.FC = () => {
       <ClearMemoryDialog
         open={clearDialogOpen}
         onOpenChange={setClearDialogOpen}
-        confirmText={clearConfirmText}
-        onConfirmTextChange={setClearConfirmText}
         clearing={clearing}
         onConfirm={handleClearConfirm}
       />

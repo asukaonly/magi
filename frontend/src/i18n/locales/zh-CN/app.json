@@ -986,7 +986,9 @@
       "l3": "L3 反思摘要",
       "l4": "L4 程序性技能",
       "chatContext": "对话上下文历史",
-      "typePrompt": "输入 'CLEAR' 确认：",
+      "countdownHint": "请等待 {{seconds}} 秒后确认清除。",
+      "readyHint": "现在可以确认清除了。",
+      "confirmCountdown": "{{seconds}} 秒后可确认",
       "confirm": "确认清除",
       "cancel": "取消"
     }

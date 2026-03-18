@@ -27,8 +27,6 @@ export const MemoryOverviewPage = () => {
     refreshAll,
     clearDialogOpen,
     setClearDialogOpen,
-    clearConfirmText,
-    setClearConfirmText,
     clearing,
     handleClearRequest,
     handleClearConfirm,
@@ -145,7 +143,7 @@ export const MemoryOverviewPage = () => {
           <MemoryHeroStat label={t('memory.l4.skillCount')} value={stats.l4.skill_count} />
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+        <div className="mt-3 grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
           <MemoryWorkspacePanel
             testId="memory-overview-search-results"
             title={t('memory.overview.searchResultsTitle')}
@@ -305,8 +303,6 @@ export const MemoryOverviewPage = () => {
       <ClearMemoryDialog
         open={clearDialogOpen}
         onOpenChange={setClearDialogOpen}
-        confirmText={clearConfirmText}
-        onConfirmTextChange={setClearConfirmText}
         clearing={clearing}
         onConfirm={handleClearConfirm}
       />

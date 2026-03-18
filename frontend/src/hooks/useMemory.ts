@@ -84,8 +84,6 @@ export interface UseMemoryReturn {
   // Clear dialog
   clearDialogOpen: boolean;
   setClearDialogOpen: (open: boolean) => void;
-  clearConfirmText: string;
-  setClearConfirmText: (text: string) => void;
   clearing: boolean;
   handleClearRequest: () => void;
   handleClearConfirm: () => Promise<void>;
@@ -168,7 +166,6 @@ export function useMemory(): UseMemoryReturn {
 
   // Clear dialog state
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
-  const [clearConfirmText, setClearConfirmText] = useState('');
   const [clearing, setClearing] = useState(false);
 
   // ============================================================================
@@ -461,11 +458,9 @@ export function useMemory(): UseMemoryReturn {
 
   const handleClearRequest = useCallback(() => {
     setClearDialogOpen(true);
-    setClearConfirmText('');
   }, []);
 
   const handleClearConfirm = useCallback(async () => {
-    if (clearConfirmText !== 'CLEAR') return;
     setClearing(true);
     try {
       const result = await memoryApi.clearAll();
@@ -477,7 +472,7 @@ export function useMemory(): UseMemoryReturn {
     } finally {
       setClearing(false);
     }
-  }, [clearConfirmText, refreshAll]);
+  }, [refreshAll]);
 
   // ============================================================================
   // Return
@@ -531,8 +526,6 @@ export function useMemory(): UseMemoryReturn {
     // Clear dialog
     clearDialogOpen,
     setClearDialogOpen,
-    clearConfirmText,
-    setClearConfirmText,
     clearing,
     handleClearRequest,
     handleClearConfirm,
