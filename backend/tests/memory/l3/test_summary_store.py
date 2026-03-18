@@ -115,6 +115,7 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
         return {
             "content": "LLM rewritten temporal summary",
             "key_topics": ["job_search"],
+            "change_and_pattern": {"changes": ["moved from exploration to planning"], "patterns": []},
             "importance_aggregate": 0.9,
         }
 
@@ -130,6 +131,7 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
     assert summary is not None
     assert summary["content"] == "LLM rewritten temporal summary"
     assert summary["key_topics"] == ["job_search"]
+    assert summary["change_and_pattern"] == {"changes": ["moved from exploration to planning"], "patterns": []}
     assert summary["generated_by_model"] == "temporal-llm"
     event_links = await l3_store.list_summary_event_links(summary["summary_id"])
     assert len(event_links) == 1

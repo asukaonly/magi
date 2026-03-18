@@ -83,6 +83,7 @@ class L3SummaryStore:
                     key_topics TEXT,
                     key_entities TEXT,
                     sentiment_summary TEXT,
+                    change_and_pattern TEXT,
                     source_event_ids TEXT NOT NULL,
                     source_event_count INTEGER NOT NULL,
                     importance_aggregate REAL,
@@ -204,6 +205,7 @@ class L3SummaryStore:
             "key_topics": [],
             "key_entities": [],
             "sentiment_summary": None,
+            "change_and_pattern": None,
             "source_event_ids": list(evidence_pack.source_event_ids),
             "source_event_count": int(evidence_pack.source_event_count),
             "importance_aggregate": evidence_pack.importance_aggregate or 0.0,
@@ -289,6 +291,7 @@ class L3SummaryStore:
             "key_topics": [],
             "key_entities": [],
             "sentiment_summary": None,
+            "change_and_pattern": None,
             "source_event_ids": list(candidate.source_event_ids),
             "source_event_count": len(candidate.source_event_ids),
             "importance_aggregate": 0.0,
@@ -439,10 +442,10 @@ class L3SummaryStore:
                 """
                 INSERT OR REPLACE INTO summaries(
                     summary_id, summary_type, summary_category, period_start, period_end,
-                    content, key_topics, key_entities, sentiment_summary, source_event_ids,
+                    content, key_topics, key_entities, sentiment_summary, change_and_pattern, source_event_ids,
                     source_event_count, importance_aggregate, event_type_distribution,
                     generated_by_model, generation_prompt, generation_reason, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     summary["summary_id"],
@@ -454,6 +457,7 @@ class L3SummaryStore:
                     json.dumps(summary["key_topics"], ensure_ascii=False),
                     json.dumps(summary["key_entities"], ensure_ascii=False),
                     self._encode_optional_json(summary["sentiment_summary"]),
+                    self._encode_optional_json(summary.get("change_and_pattern")),
                     json.dumps(summary["source_event_ids"], ensure_ascii=False),
                     int(summary["source_event_count"]),
                     float(summary["importance_aggregate"]),
@@ -525,6 +529,7 @@ class L3SummaryStore:
             "key_topics": json.loads(row["key_topics"] or "[]"),
             "key_entities": json.loads(row["key_entities"] or "[]"),
             "sentiment_summary": self._decode_optional_json(row["sentiment_summary"]),
+            "change_and_pattern": self._decode_optional_json(row["change_and_pattern"]),
             "source_event_ids": json.loads(row["source_event_ids"] or "[]"),
             "source_event_count": int(row["source_event_count"]),
             "importance_aggregate": float(row["importance_aggregate"] or 0.0),
