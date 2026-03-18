@@ -17,6 +17,7 @@
     "headerTitle": "AI Conversation Workspace",
     "desktopMode": "Desktop Mode",
     "clientMode": "Client Mode",
+    "conversation": "Conversation",
     "newChat": "New Chat",
     "newChatTitle": "New Session",
     "loadingSessions": "Loading sessions...",
@@ -727,6 +728,59 @@
   "memory": {
     "title": "Memory Viewer",
     "subtitle": "L0-L4 Layered Memory System",
+    "nav": {
+      "overview": "Overview",
+      "workbench": "Workbench Memory",
+      "events": "Event Memory",
+      "knowledge": "Knowledge Memory",
+      "reflection": "Reflection Memory",
+      "skills": "Tool And Skill Memory"
+    },
+    "overview": {
+      "subtitle": "Start here for cross-layer search, overall statistics, and the reserved structure for the future overview workspace.",
+      "searchLabel": "Cross-layer search",
+      "workspaceTitle": "Overview workspace",
+      "workspaceBody": "This section is intentionally reserved for the richer overview design that comes next, including recent changes, notable signals, and cross-layer summaries.",
+      "workspaceHint": "For now, the page keeps search and statistics in place while the deeper overview modules are designed later.",
+      "statsTitle": "Layer destinations",
+      "statsBody": "The five memory layers now live on independent pages so each one can evolve with its own filters and layout."
+    },
+    "pages": {
+      "workbench": {
+        "subtitle": "Inspect runtime workbench context, active sessions, and current workbench contents.",
+        "searchPlaceholder": "Filter workbench memory by session ID or status"
+      },
+      "events": {
+        "subtitle": "Inspect the long-term event stream and filter it by content or source.",
+        "searchPlaceholder": "Filter event memory by content, type, or domain"
+      },
+      "knowledge": {
+        "subtitle": "Inspect the knowledge graph, ToM assertions, and lab controls with entity-aware filtering.",
+        "searchPlaceholder": "Filter knowledge memory by entity, relation, or assertion"
+      },
+      "reflection": {
+        "subtitle": "Inspect generated reflections and summaries with type-aware filtering.",
+        "searchPlaceholder": "Filter reflection memory by summary content or category"
+      },
+      "skills": {
+        "subtitle": "Inspect procedural skills and breaker state with skill-level filtering.",
+        "searchPlaceholder": "Filter tool and skill memory by name or category"
+      }
+    },
+    "filters": {
+      "title": "Filters",
+      "searchLabel": "Search",
+      "statusLabel": "Status",
+      "sourceLabel": "Source",
+      "entityTypeLabel": "Entity type",
+      "typeLabel": "Type",
+      "breakerLabel": "Breaker state",
+      "all": "All",
+      "active": "Active",
+      "idle": "Idle",
+      "open": "Open",
+      "closed": "Closed"
+    },
     "refresh": "Refresh",
     "refreshSuccess": "Data refreshed",
     "loadFailed": "Failed to load data: {{message}}",

@@ -1,9 +1,5 @@
-import EventsPage from './Events';
+import { Navigate } from 'react-router-dom';
 
-export const MemoryPage = () => (
-  <div className="h-full overflow-y-auto p-5">
-    <EventsPage />
-  </div>
-);
+export const MemoryPage = () => <Navigate to="/memory/overview" replace />;
 
 export default MemoryPage;

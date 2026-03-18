@@ -15,8 +15,23 @@ const ChatPage = React.lazy(() =>
 const TimelinePage = React.lazy(() =>
   import('../pages/Timeline').then((m) => ({ default: m.TimelinePage }))
 );
-const MemoryPage = React.lazy(() =>
-  import('../pages/Memory').then((m) => ({ default: m.MemoryPage }))
+const MemoryOverviewPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryOverviewPage }))
+);
+const MemoryWorkbenchPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryWorkbenchPage }))
+);
+const MemoryEventsPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryEventsPage }))
+);
+const MemoryKnowledgePage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryKnowledgePage }))
+);
+const MemoryReflectionPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemoryReflectionPage }))
+);
+const MemorySkillsPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemorySkillsPage }))
 );
 const PersonalityPage = React.lazy(() =>
   import('../pages/Personality').then((m) => ({ default: m.PersonalityPage }))
@@ -118,9 +133,66 @@ const router = createBrowserRouter([
         path: 'events',
         element: (
           <React.Suspense fallback={<LoadingFallback />}>
-            <MemoryPage />
+            <MemoryOverviewPage />
           </React.Suspense>
         ),
+      },
+      {
+        path: 'memory',
+        children: [
+          {
+            index: true,
+            element: <Navigate to="/memory/overview" replace />,
+          },
+          {
+            path: 'overview',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryOverviewPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'workbench',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryWorkbenchPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'events',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryEventsPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'knowledge',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryKnowledgePage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'reflection',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemoryReflectionPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'skills',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemorySkillsPage />
+              </React.Suspense>
+            ),
+          },
+        ],
       },
       {
         path: 'timeline',

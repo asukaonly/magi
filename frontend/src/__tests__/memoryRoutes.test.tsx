@@ -45,6 +45,11 @@ vi.mock('../pages/Onboarding', () => ({
   default: () => <div data-testid="onboarding-page">onboarding-page</div>,
 }));
 
+vi.mock('../pages/Personality', () => ({
+  PersonalityPage: () => <div data-testid="personality-page">personality-page</div>,
+  default: () => <div data-testid="personality-page">personality-page</div>,
+}));
+
 vi.mock('../pages/memory-pages', () => ({
   MemoryOverviewPage: () => <div data-testid="memory-overview-page">memory-overview-page</div>,
   MemoryWorkbenchPage: () => <div data-testid="memory-workbench-page">memory-workbench-page</div>,
@@ -54,49 +59,54 @@ vi.mock('../pages/memory-pages', () => ({
   MemorySkillsPage: () => <div data-testid="memory-skills-page">memory-skills-page</div>,
 }));
 
-vi.mock('../pages/Personality', () => ({
-  PersonalityPage: () => <div data-testid="personality-page">personality-page</div>,
-  default: () => <div data-testid="personality-page">personality-page</div>,
-}));
-
 vi.mock('../components/layout/ShellRouteHost', () => ({
   default: ({ overlay }: { overlay: string }) => (
     <div data-testid={`shell-route-${overlay}`}>{overlay}</div>
   ),
 }));
 
-describe('app shell routing', () => {
+describe('memory routes', () => {
+  const renderRouter = async () => {
+    vi.resetModules();
+    const { default: AppRouter } = await import('@/router');
+    return render(<AppRouter />);
+  };
+
   beforeEach(() => {
-    window.history.replaceState({}, '', '/chat');
-  });
-
-  it('renders settings from the shell instead of through the chat page', async () => {
-    window.history.replaceState({}, '', '/settings');
-    vi.resetModules();
-    const { default: AppRouter } = await import('@/router');
-
-    render(<AppRouter />);
-
-    expect(await screen.findByTestId('shell-route-settings')).toBeInTheDocument();
-    expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
-  });
-
-  it('renders memory routes and personality as dedicated routes instead of through the chat page', async () => {
     window.history.replaceState({}, '', '/memory/overview');
-    vi.resetModules();
-    const { default: AppRouter } = await import('@/router');
-    const { unmount } = render(<AppRouter />);
+  });
+
+  it('renders each dedicated memory destination through the app router', async () => {
+    const { unmount } = await renderRouter();
 
     expect(await screen.findByTestId('memory-overview-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
 
     unmount();
-    window.history.replaceState({}, '', '/personality');
-    vi.resetModules();
-    const nextRouter = await import('@/router');
-    render(<nextRouter.default />);
+    window.history.replaceState({}, '', '/memory/workbench');
+    await renderRouter();
+    expect(await screen.findByTestId('memory-workbench-page')).toBeInTheDocument();
 
-    expect(await screen.findByTestId('personality-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
+    window.history.replaceState({}, '', '/memory/events');
+    await renderRouter();
+    expect(await screen.findByTestId('memory-events-page')).toBeInTheDocument();
+
+    window.history.replaceState({}, '', '/memory/knowledge');
+    await renderRouter();
+    expect(await screen.findByTestId('memory-knowledge-page')).toBeInTheDocument();
+
+    window.history.replaceState({}, '', '/memory/reflection');
+    await renderRouter();
+    expect(await screen.findByTestId('memory-reflection-page')).toBeInTheDocument();
+
+    window.history.replaceState({}, '', '/memory/skills');
+    await renderRouter();
+    expect(await screen.findByTestId('memory-skills-page')).toBeInTheDocument();
+  });
+
+  it('redirects the legacy memory route to the overview page', async () => {
+    window.history.replaceState({}, '', '/events');
+    await renderRouter();
+
+    expect(await screen.findByTestId('memory-overview-page')).toBeInTheDocument();
   });
 });

@@ -17,6 +17,7 @@
     "headerTitle": "AI 对话工作台",
     "desktopMode": "桌面模式",
     "clientMode": "Client Mode",
+    "conversation": "对话",
     "newChat": "新建聊天",
     "newChatTitle": "新会话",
     "loadingSessions": "会话加载中...",
@@ -727,6 +728,59 @@
   "memory": {
     "title": "记忆查看",
     "subtitle": "L0-L4 分层记忆系统",
+    "nav": {
+      "overview": "总览",
+      "workbench": "工作台记忆",
+      "events": "事件记忆",
+      "knowledge": "知识记忆",
+      "reflection": "摘要反思记忆",
+      "skills": "工具技能记忆"
+    },
+    "overview": {
+      "subtitle": "从这里先查看跨层搜索入口、整体统计和后续记忆工作区的预留结构。",
+      "searchLabel": "跨层搜索",
+      "workspaceTitle": "总览工作区",
+      "workspaceBody": "这一块先预留给后续的总览布局设计，后面可以继续放最近变化、重点信号和跨层摘要。",
+      "workspaceHint": "当前先保留搜索与统计能力，详细总览模块后续再细化。",
+      "statsTitle": "层级入口状态",
+      "statsBody": "左侧的 5 层记忆已经拆成独立页面，后续每层都可以按自己的筛选和布局继续演进。"
+    },
+    "pages": {
+      "workbench": {
+        "subtitle": "查看运行期工作台上下文、活跃会话和当前工作台内容。",
+        "searchPlaceholder": "按会话 ID 或状态筛选工作台记忆"
+      },
+      "events": {
+        "subtitle": "查看进入长期事件流的记录，并按内容或来源筛选。",
+        "searchPlaceholder": "按事件内容、类型或域筛选事件记忆"
+      },
+      "knowledge": {
+        "subtitle": "查看知识图谱、心智断言和相关实验台能力，并按实体维度筛选。",
+        "searchPlaceholder": "按实体、关系或断言关键词筛选知识记忆"
+      },
+      "reflection": {
+        "subtitle": "查看摘要与反思沉淀，并按类型和内容筛选。",
+        "searchPlaceholder": "按摘要内容或分类筛选摘要反思记忆"
+      },
+      "skills": {
+        "subtitle": "查看程序性技能和熔断状态，并按技能名称或状态筛选。",
+        "searchPlaceholder": "按技能名称或分类筛选工具技能记忆"
+      }
+    },
+    "filters": {
+      "title": "筛选",
+      "searchLabel": "搜索",
+      "statusLabel": "状态",
+      "sourceLabel": "来源",
+      "entityTypeLabel": "实体类型",
+      "typeLabel": "类型",
+      "breakerLabel": "熔断状态",
+      "all": "全部",
+      "active": "活跃",
+      "idle": "空闲",
+      "open": "开启",
+      "closed": "关闭"
+    },
     "refresh": "刷新",
     "refreshSuccess": "数据已刷新",
     "loadFailed": "加载数据失败: {{message}}",
