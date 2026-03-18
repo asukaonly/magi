@@ -53,11 +53,11 @@ def test_extraction_job_payload_can_be_created_from_event_id():
 def test_reconcile_job_accepts_multiple_entities():
     from magi.memory.l2_models import L2EntityReconcileJob
 
-    job = L2EntityReconcileJob(entity_ids=["user:u1", "place:shanghai"])
+    job = L2EntityReconcileJob(entity_ids=["user:self", "place:shanghai"])
 
     assert job.job_type == "reconcile"
-    assert job.entity_ids == ["place:shanghai", "user:u1"]
-    assert job.batch_key == "entities:place:shanghai|user:u1"
+    assert job.entity_ids == ["place:shanghai", "user:self"]
+    assert job.batch_key == "entities:place:shanghai|user:self"
 
 
 @pytest.mark.parametrize(
@@ -87,7 +87,7 @@ def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
         recommended_action="downgrade_confidence",
     )
     outcome = ReconciledTraitOutcome(
-        entity_id="user:u1",
+        entity_id="user:self",
         entity_type="user",
         trait_name="preference.food",
         winning_value="sushi",
@@ -108,7 +108,7 @@ def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
         "recommended_action": "downgrade_confidence",
     }
     assert outcome.to_dict() == {
-        "entity_id": "user:u1",
+        "entity_id": "user:self",
         "entity_type": "user",
         "trait_name": "preference.food",
         "winning_value": "sushi",
@@ -150,7 +150,7 @@ def test_normalized_memory_event_captures_extraction_profile_metadata():
             ],
             "structured_graph_hints": [
                 {
-                    "subject_ref": "user:u1",
+                    "subject_ref": "user:self",
                     "predicate": "VISITED",
                     "object_ref": "product:github",
                     "object_type": "product",
@@ -176,7 +176,7 @@ def test_normalized_memory_event_captures_extraction_profile_metadata():
     ]
     assert normalized.structured_graph_hints == [
         {
-            "subject_ref": "user:u1",
+            "subject_ref": "user:self",
             "predicate": "VISITED",
             "object_ref": "product:github",
             "object_type": "product",
@@ -227,7 +227,7 @@ async def test_l1_round_trip_preserves_extraction_profile_metadata():
                         ],
                         "structured_graph_hints": [
                             {
-                                "subject_ref": "user:u1",
+                                "subject_ref": "user:self",
                                 "predicate": "VISITED",
                                 "object_ref": "product:github",
                                 "object_type": "product",
@@ -254,7 +254,7 @@ async def test_l1_round_trip_preserves_extraction_profile_metadata():
             ]
             assert restored.structured_graph_hints == [
                 {
-                    "subject_ref": "user:u1",
+                    "subject_ref": "user:self",
                     "predicate": "VISITED",
                     "object_ref": "product:github",
                     "object_type": "product",
@@ -431,7 +431,7 @@ def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
         existing_records=[{"record_id": "triple-1", "predicate": "LIKES", "object_id": "food:sushi"}],
     )
     reconcile_prompt = render_entity_reconcile_prompt(
-        entity={"entity_id": "user:u1", "entity_type": "user"},
+        entity={"entity_id": "user:self", "entity_type": "user"},
         graph_facts=[{"predicate": "LIKES", "object_id": "food:sushi"}],
         assertions=[{"trait_name": "stress_level", "trait_value": "high"}],
         recent_events=[{"event_id": "evt-1", "raw_content": "I am stressed."}],
@@ -439,7 +439,7 @@ def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
 
     assert '"event_id": "evt-1"' in contradiction_prompt
     assert '"predicate": "LIKES"' in contradiction_prompt
-    assert '"entity_id": "user:u1"' in reconcile_prompt
+    assert '"entity_id": "user:self"' in reconcile_prompt
     assert '"trait_name": "stress_level"' in reconcile_prompt
 
 
@@ -490,7 +490,7 @@ async def test_single_event_tom_candidates_are_capped_to_low_confidence():
         {
             "assertion_candidates": [
                 {
-                    "entity_ref": "user:u1",
+                    "entity_ref": "user:self",
                     "entity_type": "user",
                     "trait_family": "stress",
                     "trait_name": "stress_level",
@@ -510,7 +510,7 @@ async def test_single_event_tom_candidates_are_capped_to_low_confidence():
 
     assertions = await service.extract_tom_assertions(
         event_window={"event_ids": ["evt-1"], "texts": ["I am stressed about work."]},
-        focal_entities=[{"entity_id": "user:u1", "entity_type": "user"}],
+        focal_entities=[{"entity_id": "user:self", "entity_type": "user"}],
     )
 
     assert assertions[0]["confidence"] == 0.3
@@ -527,7 +527,7 @@ async def test_invalid_json_from_contradiction_and_reconcile_llm_fails_closed():
         existing_records=[{"record_id": "triple-1"}],
     )
     outcomes = await service.reconcile_entity_state(
-        entity={"entity_id": "user:u1", "entity_type": "user"},
+        entity={"entity_id": "user:self", "entity_type": "user"},
         graph_facts=[],
         assertions=[],
         recent_events=[],
@@ -601,7 +601,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
                 await asyncio.sleep(0.01)
 
             mentions = await store.l2_entity_catalog.list_mentions(limit=10)
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
 
             assert mentions[0]["mention_text"] == "魔都"
             assert mentions[0]["resolved_entity_id"] == "place:shanghai"
@@ -707,7 +707,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
             {
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:u1",
+                        "entity_ref": "user:self",
                         "entity_type": "user",
                         "trait_family": "stress",
                         "trait_name": "stress_level",
@@ -756,7 +756,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
                     break
                 await asyncio.sleep(0.01)
 
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
 
             assert len(assertions) == 1
             assert assertions[0]["trait_name"] == "stress_level"
@@ -785,7 +785,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
             await store.l2.upsert_assertion_candidate(
                 {
                     "assertion_id": "assert-existing",
-                    "entity_id": "user:u1",
+                    "entity_id": "user:self",
                     "entity_type": "user",
                     "trait_name": "stress_level",
                     "trait_value": "high",
@@ -799,7 +799,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
                     "last_validated_at": 1710185000.0,
                 }
             )
-            existing_assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+            existing_assertions = await store.l2.list_tom_assertions(entity_id="user:self")
             existing_assertion_id = existing_assertions[0]["assertion_id"]
             adapter._responses = [
                 json.dumps({"mentions": []}),
@@ -841,7 +841,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
                     break
                 await asyncio.sleep(0.01)
 
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+            assertions = await store.l2.list_tom_assertions(entity_id="user:self")
 
             assert assertions[0]["assertion_id"] == existing_assertion_id
             assert assertions[0]["validation_state"] == "contradicted"
@@ -886,8 +886,8 @@ async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
                 await asyncio.sleep(0.01)
 
             stats = store.get_l2_pipeline_stats()
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
 
             assert stats["extract_completed"] >= 1
             assert stats["extract_skipped"] >= 1
@@ -937,8 +937,8 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
                     break
                 await asyncio.sleep(0.01)
 
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
             stats = store.get_l2_pipeline_stats()
 
             assert stats["extract_completed"] >= 1
@@ -959,7 +959,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                 {
                     "assertion_candidates": [
                         {
-                            "entity_ref": "user:u1",
+                            "entity_ref": "user:self",
                             "entity_type": "user",
                             "trait_family": "stress",
                             "trait_name": "stress_level",
@@ -1009,7 +1009,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                     break
                 await asyncio.sleep(0.01)
 
-            before_assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            before_assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
             before_call_count = len(adapter.calls)
 
             await store.ingest_event(
@@ -1036,7 +1036,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                     break
                 await asyncio.sleep(0.01)
 
-            after_assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            after_assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
             stats = store.get_l2_pipeline_stats()
 
             assert len(before_assertions) == 1
@@ -1172,7 +1172,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:u1",
+                        "subject_ref": "user:self",
                         "subject_type": "user",
                         "predicate": "VISITED",
                         "object_ref": "GitHub",
@@ -1183,7 +1183,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                         "confidence": 0.9,
                     },
                     {
-                        "subject_ref": "user:u1",
+                        "subject_ref": "user:self",
                         "subject_type": "user",
                         "predicate": "LIKES",
                         "object_ref": "GitHub",
@@ -1196,7 +1196,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                 ],
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:u1",
+                        "entity_ref": "user:self",
                         "entity_type": "user",
                         "trait_family": "mood",
                         "trait_name": "mood",
@@ -1277,7 +1277,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:u1",
+                        "subject_ref": "user:self",
                         "subject_type": "user",
                         "predicate": "DISLIKES",
                         "object_ref": "food:west-lake-vinegar-fish",
@@ -1327,7 +1327,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                 await asyncio.sleep(0.01)
 
             mentions = await store.l2_entity_catalog.list_mentions() if store.l2_entity_catalog is not None else []
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
 
             assert mentions[0]["entity_type"] == "food"
             assert relationships[0]["predicate"] == "DISLIKES"
@@ -1354,7 +1354,7 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:u1",
+                        "subject_ref": "user:self",
                         "subject_type": "user",
                         "predicate": "DISLIKES",
                         "object_ref": "food:xi-hu-cu-yu",
@@ -1367,7 +1367,7 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                 ],
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:u1",
+                        "entity_ref": "user:self",
                         "entity_type": "user",
                         "trait_family": "taste_profile",
                         "trait_name": "taste_preference",
@@ -1417,7 +1417,7 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                     break
                 await asyncio.sleep(0.01)
 
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
 
             assert assertions == []
         finally:
@@ -1442,7 +1442,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:u1",
+                        "subject_ref": "user:self",
                         "subject_type": "user",
                         "predicate": "DISLIKES",
                         "object_ref": "food:xi-hu-cu-yu",
@@ -1455,7 +1455,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                 ],
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:u1",
+                        "entity_ref": "user:self",
                         "entity_type": "user",
                         "trait_family": "taste_profile",
                         "trait_name": "taste_profile",
@@ -1505,8 +1505,8 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                     break
                 await asyncio.sleep(0.01)
 
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
 
             assert [item["predicate"] for item in relationships] == ["DISLIKES"]
             assert [item["trait_name"] for item in assertions] == ["taste_profile"]
@@ -1532,7 +1532,7 @@ async def test_unified_extraction_respects_chrome_history_profile_restrictions()
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:u1",
+                        "subject_ref": "user:self",
                         "subject_type": "user",
                         "predicate": "VISITED",
                         "object_ref": "GitHub",
@@ -1543,7 +1543,7 @@ async def test_unified_extraction_respects_chrome_history_profile_restrictions()
                         "confidence": 0.9,
                     },
                     {
-                        "subject_ref": "user:u1",
+                        "subject_ref": "user:self",
                         "subject_type": "user",
                         "predicate": "LIKES",
                         "object_ref": "GitHub",
@@ -1556,7 +1556,7 @@ async def test_unified_extraction_respects_chrome_history_profile_restrictions()
                 ],
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:u1",
+                        "entity_ref": "user:self",
                         "entity_type": "user",
                         "trait_family": "mood",
                         "trait_name": "mood",
@@ -1609,8 +1609,8 @@ async def test_unified_extraction_respects_chrome_history_profile_restrictions()
                     break
                 await asyncio.sleep(0.01)
 
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
 
             assert [item["predicate"] for item in relationships] == ["VISITED"]
             assert assertions == []
@@ -1626,7 +1626,7 @@ async def test_structured_entity_hints_bypass_llm_mention_extraction():
                 "mentions": [],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:u1",
+                        "subject_ref": "user:self",
                         "subject_type": "user",
                         "predicate": "VISITED",
                         "object_ref": "GitHub",
@@ -1687,7 +1687,7 @@ async def test_structured_entity_hints_bypass_llm_mention_extraction():
                     break
                 await asyncio.sleep(0.01)
 
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
             mentions = await store.l2_entity_catalog.list_mentions() if store.l2_entity_catalog is not None else []
 
             assert [item["predicate"] for item in relationships] == ["VISITED"]
@@ -1746,7 +1746,7 @@ async def test_structured_graph_hints_are_validated_before_persistence():
                         ],
                         "structured_graph_hints": [
                             {
-                                "subject_ref": "user:u1",
+                                "subject_ref": "user:self",
                                 "subject_type": "user",
                                 "predicate": "VISITED",
                                 "object_ref": "GitHub",
@@ -1757,7 +1757,7 @@ async def test_structured_graph_hints_are_validated_before_persistence():
                                 "confidence": 0.9,
                             },
                             {
-                                "subject_ref": "user:u1",
+                                "subject_ref": "user:self",
                                 "subject_type": "user",
                                 "predicate": "LIKES",
                                 "object_ref": "GitHub",
@@ -1781,7 +1781,7 @@ async def test_structured_graph_hints_are_validated_before_persistence():
                     break
                 await asyncio.sleep(0.01)
 
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
 
             assert [item["predicate"] for item in relationships] == ["VISITED"]
         finally:
@@ -1824,7 +1824,7 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
 
                 await store.l2.upsert_assertion_candidate(
                     {
-                        "entity_id": "user:u1",
+                        "entity_id": "user:self",
                         "entity_type": "user",
                         "trait_name": "stress_level",
                         "trait_value": "high",
@@ -1843,15 +1843,15 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
                     }
                 )
 
-                await store.l2_pipeline.enqueue_entities(["user:u1"])
+                await store.l2_pipeline.enqueue_entities(["user:self"])
                 for _ in range(50):
                     stats = store.get_l2_pipeline_stats()
                     if stats["reconcile_completed"] >= 1 and stats["snapshot_completed"] >= 1:
                         break
                     await asyncio.sleep(0.01)
 
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
-            snapshot = await store.l2.get_tom_snapshot(entity_id="user:u1", entity_type="user")
+            assertions = await store.l2.list_tom_assertions(entity_id="user:self")
+            snapshot = await store.l2.get_tom_snapshot(entity_id="user:self", entity_type="user")
 
             assert assertions[0]["validation_state"] == "stable"
             assert assertions[0]["confidence_score"] >= 0.82
