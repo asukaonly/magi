@@ -9,16 +9,16 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
-from ..core.logger import get_logger
-from .event_contracts import MemoryEvent
-from .l1.event_store import L1EventStore
-from .l2_cognition_store import L2CognitionStore
-from .l2_evidence_classifier import classify_event_evidence
-from .l2_evidence_policy import resolve_l2_policy
-from .l2_entity_catalog import L2EntityCatalog
-from .l2_extraction_profiles import ExtractionProfile, resolve_extraction_profile
-from .l2_llm_service import L2LLMService
-from .l2_ontology import (
+from ...core.logger import get_logger
+from ..event_contracts import MemoryEvent
+from ..l1.event_store import L1EventStore
+from .store import L2CognitionStore
+from .evidence_classifier import classify_event_evidence
+from .evidence_policy import resolve_l2_policy
+from .entity_catalog import L2EntityCatalog
+from .extraction_profiles import ExtractionProfile, resolve_extraction_profile
+from .llm_service import L2LLMService
+from .ontology import (
     coerce_unknown_entity_type,
     is_leaf_fact_duplicate,
     validate_assertion_candidate,

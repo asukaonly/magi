@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import aiosqlite
 
-from .l2_ontology import coerce_unknown_entity_type
+from .ontology import coerce_unknown_entity_type
 
 
 def _normalize_alias(text: str) -> str:

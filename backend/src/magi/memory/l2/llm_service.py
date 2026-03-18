@@ -7,9 +7,9 @@ import logging
 import time
 from typing import Any, Optional
 
-from ..llm import LLMScenario, ScenarioLLMPool
-from .l2_extraction_profiles import ExtractionProfile
-from .l2_prompt_templates import (
+from ...llm import LLMScenario, ScenarioLLMPool
+from .extraction_profiles import ExtractionProfile
+from .prompts import (
     CONTRADICTION_HINT_SYSTEM_PROMPT,
     ENTITY_RECONCILE_SYSTEM_PROMPT,
     ENTITY_MENTION_SYSTEM_PROMPT,

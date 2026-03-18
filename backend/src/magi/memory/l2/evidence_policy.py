@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .l2_evidence_classifier import EvidenceClassification
+from .evidence_classifier import EvidenceClassification
 
 
 @dataclass(slots=True)

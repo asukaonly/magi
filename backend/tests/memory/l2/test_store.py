@@ -53,7 +53,7 @@ async def _build_contradiction(text: str, *, correlation_id: str, timestamp: flo
 
 @pytest.mark.asyncio
 async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -75,7 +75,7 @@ async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
 
 @pytest.mark.asyncio
 async def test_repeated_evidence_promotes_snapshot_to_stable(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -112,7 +112,7 @@ async def test_repeated_evidence_promotes_snapshot_to_stable(tmp_path):
 
 @pytest.mark.asyncio
 async def test_contradiction_downgrades_existing_assertion(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -142,7 +142,7 @@ async def test_contradiction_downgrades_existing_assertion(tmp_path):
 
 @pytest.mark.asyncio
 async def test_group_content_avoids_deep_psychology(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -162,7 +162,7 @@ async def test_group_content_avoids_deep_psychology(tmp_path):
 
 @pytest.mark.asyncio
 async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -203,7 +203,7 @@ async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
 
 @pytest.mark.asyncio
 async def test_upsert_knowledge_edge_normalizes_alias_object_type(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -228,7 +228,7 @@ async def test_upsert_knowledge_edge_normalizes_alias_object_type(tmp_path):
 
 @pytest.mark.asyncio
 async def test_upsert_assertion_normalizes_unknown_entity_type_to_other(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -257,8 +257,8 @@ async def test_upsert_assertion_normalizes_unknown_entity_type_to_other(tmp_path
 
 @pytest.mark.asyncio
 async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
-    from magi.memory.l2_graph_conflicts import GraphConflictRule
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.graph_conflicts import GraphConflictRule
 
     store = L2CognitionStore(
         db_path=str(tmp_path / "l2.db"),
@@ -312,8 +312,8 @@ async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
 
 @pytest.mark.asyncio
 async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
-    from magi.memory.l2_graph_conflicts import GraphConflictRule
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.graph_conflicts import GraphConflictRule
 
     store = L2CognitionStore(
         db_path=str(tmp_path / "l2.db"),
@@ -365,7 +365,7 @@ async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
 
 @pytest.mark.asyncio
 async def test_default_graph_conflict_rules_are_seeded_and_listed(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -382,7 +382,7 @@ async def test_default_graph_conflict_rules_are_seeded_and_listed(tmp_path):
 
 @pytest.mark.asyncio
 async def test_upserted_graph_conflict_rule_persists_across_store_instances(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     db_path = str(tmp_path / "l2.db")
     store = L2CognitionStore(db_path=db_path)
@@ -410,7 +410,7 @@ async def test_upserted_graph_conflict_rule_persists_across_store_instances(tmp_
 
 @pytest.mark.asyncio
 async def test_upserted_graph_conflict_rule_changes_runtime_conflict_behavior(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -460,7 +460,7 @@ async def test_upserted_graph_conflict_rule_changes_runtime_conflict_behavior(tm
 
 @pytest.mark.asyncio
 async def test_upsert_graph_conflict_rule_normalizes_predicates_and_deduplicates_opposites(tmp_path):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -505,7 +505,7 @@ async def test_upsert_graph_conflict_rule_normalizes_predicates_and_deduplicates
     ],
 )
 async def test_upsert_graph_conflict_rule_rejects_invalid_combinations(tmp_path, payload, message):
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()

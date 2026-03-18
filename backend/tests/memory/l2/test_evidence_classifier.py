@@ -90,7 +90,7 @@ def test_normalized_event_defaults_runtime_metadata():
 
 
 def test_classifier_maps_user_self_report():
-    from magi.memory.l2_evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
 
     classification = classify_event_evidence(normalize_runtime_event(_build_user_message()))
 
@@ -99,7 +99,7 @@ def test_classifier_maps_user_self_report():
 
 
 def test_classifier_maps_user_report_about_others():
-    from magi.memory.l2_evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
 
     event = normalize_runtime_event(
         _build_user_message(metadata={"semantic_owner_hint": "third_party"})
@@ -112,7 +112,7 @@ def test_classifier_maps_user_report_about_others():
 
 
 def test_classifier_maps_assistant_tool_grounded():
-    from magi.memory.l2_evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
 
     event = normalize_runtime_event(
         _build_ai_response(metadata={"tool_name": "weather_api", "tool_call_id": "call-1"})
@@ -125,7 +125,7 @@ def test_classifier_maps_assistant_tool_grounded():
 
 
 def test_classifier_maps_assistant_quote():
-    from magi.memory.l2_evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
 
     event = normalize_runtime_event(
         _build_ai_response(metadata={"derived_from_event_ids": ["evt-user-1"]})
@@ -139,7 +139,7 @@ def test_classifier_maps_assistant_quote():
 
 
 def test_classifier_maps_assistant_freeform():
-    from magi.memory.l2_evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
 
     classification = classify_event_evidence(normalize_runtime_event(_build_ai_response()))
 
@@ -148,7 +148,7 @@ def test_classifier_maps_assistant_freeform():
 
 
 def test_classifier_maps_external_observation():
-    from magi.memory.l2_evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
 
     classification = classify_event_evidence(normalize_runtime_event(_build_timeline_event()))
 
@@ -157,7 +157,7 @@ def test_classifier_maps_external_observation():
 
 
 def test_classifier_maps_system_runtime():
-    from magi.memory.l2_evidence_classifier import classify_event_evidence
+    from magi.memory.l2.evidence_classifier import classify_event_evidence
 
     classification = classify_event_evidence(normalize_runtime_event(_build_runtime_event()))
 

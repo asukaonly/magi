@@ -41,7 +41,7 @@ class _FakeScenarioPool:
 
 
 def test_extraction_job_payload_can_be_created_from_event_id():
-    from magi.memory.l2_models import L2EventExtractionJob
+    from magi.memory.l2.models import L2EventExtractionJob
 
     job = L2EventExtractionJob.from_event_id("evt-1")
 
@@ -51,7 +51,7 @@ def test_extraction_job_payload_can_be_created_from_event_id():
 
 
 def test_reconcile_job_accepts_multiple_entities():
-    from magi.memory.l2_models import L2EntityReconcileJob
+    from magi.memory.l2.models import L2EntityReconcileJob
 
     job = L2EntityReconcileJob(entity_ids=["user:self", "place:shanghai"])
 
@@ -69,14 +69,14 @@ def test_reconcile_job_accepts_multiple_entities():
     ],
 )
 def test_manual_l2_event_request_rejects_blank_text_or_user(text: str, user_id: str):
-    from magi.memory.l2_models import ManualL2EventRequest
+    from magi.memory.l2.models import ManualL2EventRequest
 
     with pytest.raises(ValueError):
         ManualL2EventRequest(text=text, user_id=user_id)
 
 
 def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
-    from magi.memory.l2_models import ContradictionHint, ReconciledTraitOutcome
+    from magi.memory.l2.models import ContradictionHint, ReconciledTraitOutcome
 
     hint = ContradictionHint(
         target_record_id="assert-1",
@@ -449,7 +449,7 @@ async def test_shutdown_drains_l2_pipeline_workers_cleanly():
 
 
 def test_entity_mention_prompt_rendering_is_deterministic():
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.llm_service import L2LLMService
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
     prompt = service.render_entity_mention_prompt(
@@ -463,7 +463,7 @@ def test_entity_mention_prompt_rendering_is_deterministic():
 
 
 def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
-    from magi.memory.l2_prompt_templates import (
+    from magi.memory.l2.prompts import (
         render_contradiction_hint_prompt,
         render_entity_reconcile_prompt,
     )
@@ -487,7 +487,7 @@ def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
 
 @pytest.mark.asyncio
 async def test_invalid_json_from_llm_fails_closed():
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.llm_service import L2LLMService
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
 
@@ -498,7 +498,7 @@ async def test_invalid_json_from_llm_fails_closed():
 
 @pytest.mark.asyncio
 async def test_low_confidence_resolution_is_returned_as_unresolved():
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.llm_service import L2LLMService
 
     response = json.dumps(
         {
@@ -526,7 +526,7 @@ async def test_low_confidence_resolution_is_returned_as_unresolved():
 
 @pytest.mark.asyncio
 async def test_single_event_tom_candidates_are_capped_to_low_confidence():
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.llm_service import L2LLMService
 
     response = json.dumps(
         {
@@ -560,7 +560,7 @@ async def test_single_event_tom_candidates_are_capped_to_low_confidence():
 
 @pytest.mark.asyncio
 async def test_invalid_json_from_contradiction_and_reconcile_llm_fails_closed():
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.llm_service import L2LLMService
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter(["not-json", "still-not-json"])))
 
@@ -657,7 +657,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
 
 @pytest.mark.asyncio
 async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
-    from magi.memory.l2_prompt_templates import UNIFIED_EXTRACTION_SYSTEM_PROMPT
+    from magi.memory.l2.prompts import UNIFIED_EXTRACTION_SYSTEM_PROMPT
 
     adapter = _FakeAdapter(
         [
@@ -1164,7 +1164,7 @@ async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.
         )
         await store.initialize()
         try:
-            with caplog.at_level(logging.INFO, logger="magi.memory.l2_pipeline"):
+            with caplog.at_level(logging.INFO, logger="magi.memory.l2.pipeline"):
                 await store.ingest_event(
                     {
                         "id": "evt-ai-freeform-log-1",
@@ -1186,7 +1186,7 @@ async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.
                         break
                     await asyncio.sleep(0.01)
 
-            messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2_pipeline"]
+            messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2.pipeline"]
             assert any("L2 extract started" in message for message in messages)
             assert any("L2 extract skipped" in message for message in messages)
             assert any("assistant_freeform" in message for message in messages)
@@ -1267,7 +1267,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
         )
         await store.initialize()
         try:
-            with caplog.at_level(logging.INFO, logger="magi.memory.l2_pipeline"):
+            with caplog.at_level(logging.INFO, logger="magi.memory.l2.pipeline"):
                 await store.ingest_event(
                     {
                         "id": "evt-log-unified-1",
@@ -1292,7 +1292,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                         break
                     await asyncio.sleep(0.01)
 
-            messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2_pipeline"]
+            messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2.pipeline"]
             assert any("L2 extract completed" in message for message in messages)
             assert any("L2 unified extraction stage started" in message for message in messages)
             assert any("L2 unified candidate validation completed" in message for message in messages)
@@ -1849,8 +1849,8 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
             assert store.l2_pipeline is not None
 
             timestamps = [1710000000.0, 1710090000.0, 1710185000.0]
-            with caplog.at_level(logging.INFO, logger="magi.memory.l2_pipeline"), caplog.at_level(
-                logging.INFO, logger="magi.memory.l2_cognition_store"
+            with caplog.at_level(logging.INFO, logger="magi.memory.l2.pipeline"), caplog.at_level(
+                logging.INFO, logger="magi.memory.l2.store"
             ):
                 for index, ts in enumerate(timestamps, start=1):
                     memory_event = normalize_runtime_event(

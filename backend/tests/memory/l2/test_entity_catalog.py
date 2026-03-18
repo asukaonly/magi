@@ -8,7 +8,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_exact_alias_mapping_resolves_shanghai_and_modu_to_same_entity():
-    from magi.memory.l2_entity_catalog import L2EntityCatalog
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
@@ -34,7 +34,7 @@ async def test_exact_alias_mapping_resolves_shanghai_and_modu_to_same_entity():
 
 @pytest.mark.asyncio
 async def test_ambiguous_alias_returns_unresolved():
-    from magi.memory.l2_entity_catalog import L2EntityCatalog
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
@@ -63,7 +63,7 @@ async def test_ambiguous_alias_returns_unresolved():
 
 @pytest.mark.asyncio
 async def test_low_confidence_alias_does_not_auto_merge():
-    from magi.memory.l2_entity_catalog import L2EntityCatalog
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
@@ -82,7 +82,7 @@ async def test_low_confidence_alias_does_not_auto_merge():
 
 @pytest.mark.asyncio
 async def test_record_mention_preserves_surface_form_and_evidence_event_ids():
-    from magi.memory.l2_entity_catalog import L2EntityCatalog
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
@@ -109,7 +109,7 @@ async def test_record_mention_preserves_surface_form_and_evidence_event_ids():
 
 @pytest.mark.asyncio
 async def test_list_entities_returns_canonical_names_and_aliases():
-    from magi.memory.l2_entity_catalog import L2EntityCatalog
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
@@ -134,7 +134,7 @@ async def test_list_entities_returns_canonical_names_and_aliases():
 
 @pytest.mark.asyncio
 async def test_upsert_entity_normalizes_alias_entity_type_before_persistence():
-    from magi.memory.l2_entity_catalog import L2EntityCatalog
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
@@ -161,7 +161,7 @@ async def test_upsert_entity_normalizes_alias_entity_type_before_persistence():
 
 @pytest.mark.asyncio
 async def test_record_mention_normalizes_unknown_entity_type_to_other():
-    from magi.memory.l2_entity_catalog import L2EntityCatalog
+    from magi.memory.l2.entity_catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")

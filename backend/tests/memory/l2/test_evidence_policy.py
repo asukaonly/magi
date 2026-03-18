@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from magi.memory.l2_evidence_classifier import EvidenceClassification
-from magi.memory.l2_evidence_policy import resolve_l2_policy
+from magi.memory.l2.evidence_classifier import EvidenceClassification
+from magi.memory.l2.evidence_policy import resolve_l2_policy
 
 
 def _classification(evidence_class: str) -> EvidenceClassification:

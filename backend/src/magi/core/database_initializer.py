@@ -96,7 +96,7 @@ class DatabaseInitializer:
     async def _init_shared_memory_db(self) -> None:
         """Initialize shared memory database (L0/L2/L3/L4)."""
         from ..memory.l0.working_memory import L0WorkingMemoryStore
-        from ..memory.l2_cognition_store import L2CognitionStore
+        from ..memory.l2.store import L2CognitionStore
         from ..memory.l3.summary_store import L3SummaryStore
         from ..memory.l4.procedural_memory import L4ProceduralMemoryStore
 

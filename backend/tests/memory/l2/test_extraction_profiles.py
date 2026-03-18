@@ -19,8 +19,8 @@ def _make_event(*, source: str, metadata: dict[str, object] | None = None):
 
 
 def test_default_chat_profile_exposes_full_allowlists():
-    from magi.memory.l2_extraction_profiles import resolve_extraction_profile
-    from magi.memory.l2_ontology import ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+    from magi.memory.l2.ontology import ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
 
     profile = resolve_extraction_profile(_make_event(source="chat"))
 
@@ -31,7 +31,7 @@ def test_default_chat_profile_exposes_full_allowlists():
 
 
 def test_chrome_history_profile_is_restricted_to_product_visits():
-    from magi.memory.l2_extraction_profiles import resolve_extraction_profile
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(
         _make_event(
@@ -47,7 +47,7 @@ def test_chrome_history_profile_is_restricted_to_product_visits():
 
 
 def test_profile_can_disable_assertions_via_override():
-    from magi.memory.l2_extraction_profiles import resolve_extraction_profile
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(
         _make_event(
@@ -64,7 +64,7 @@ def test_profile_can_disable_assertions_via_override():
 
 
 def test_profile_aliases_override_global_aliases():
-    from magi.memory.l2_extraction_profiles import resolve_extraction_profile
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(
         _make_event(

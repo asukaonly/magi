@@ -6,8 +6,8 @@ import json
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from .event_contracts import MemoryEvent
-from .l2_ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_ALIASES, ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
+from ..event_contracts import MemoryEvent
+from .ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_ALIASES, ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
 
 
 @dataclass(slots=True, frozen=True)

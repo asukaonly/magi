@@ -10,11 +10,11 @@ from typing import Any, Dict, List, Mapping, Optional
 
 import aiosqlite
 
-from ..core.logger import get_logger
-from .event_contracts import MemoryEvent, TomDepth
-from .l2_graph_conflicts import DEFAULT_GRAPH_CONFLICT_RULES, GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix, iter_opposite_predicates
-from .l2_models import ContradictionHint, ReconciledTraitOutcome
-from .l2_ontology import coerce_unknown_entity_type
+from ...core.logger import get_logger
+from ..event_contracts import MemoryEvent, TomDepth
+from .graph_conflicts import DEFAULT_GRAPH_CONFLICT_RULES, GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix, iter_opposite_predicates
+from .models import ContradictionHint, ReconciledTraitOutcome
+from .ontology import coerce_unknown_entity_type
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")

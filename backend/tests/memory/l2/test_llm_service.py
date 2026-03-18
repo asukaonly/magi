@@ -23,8 +23,8 @@ class _FakeScenarioPool:
 
 
 def test_unified_prompt_only_includes_profile_allowed_entity_types():
-    from magi.memory.l2_extraction_profiles import ExtractionProfile
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
     profile = ExtractionProfile(
@@ -47,8 +47,8 @@ def test_unified_prompt_only_includes_profile_allowed_entity_types():
 
 
 def test_unified_prompt_describes_food_mapping_and_none_status():
-    from magi.memory.l2_extraction_profiles import ExtractionProfile
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
     profile = ExtractionProfile(profile_id="chat.user_message")
@@ -64,8 +64,8 @@ def test_unified_prompt_describes_food_mapping_and_none_status():
 
 
 def test_unified_extraction_parses_mentions_graph_and_assertions():
-    from magi.memory.l2_extraction_profiles import ExtractionProfile
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
 
     response = json.dumps(
         {
@@ -94,8 +94,8 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
 
 
 def test_unified_extraction_fails_closed_on_invalid_json():
-    from magi.memory.l2_extraction_profiles import ExtractionProfile
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
 
@@ -116,8 +116,8 @@ def test_unified_extraction_fails_closed_on_invalid_json():
 
 
 def test_unified_extraction_logs_timing():
-    from magi.memory.l2_extraction_profiles import ExtractionProfile
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
 
     response = json.dumps(
         {
@@ -129,7 +129,7 @@ def test_unified_extraction_logs_timing():
     )
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
 
-    with patch("magi.memory.l2_llm_service.logger.info") as mock_info:
+    with patch("magi.memory.l2.llm_service.logger.info") as mock_info:
         result = __import__("asyncio").run(
             service.extract_unified_candidates(
                 event_window={"event_ids": ["evt-1"], "texts": ["I like Rust"]},
@@ -150,8 +150,8 @@ def test_unified_extraction_logs_timing():
 
 
 def test_unified_extraction_disables_thinking_and_logs_started():
-    from magi.memory.l2_extraction_profiles import ExtractionProfile
-    from magi.memory.l2_llm_service import L2LLMService
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
 
     response = json.dumps(
         {
@@ -164,7 +164,7 @@ def test_unified_extraction_disables_thinking_and_logs_started():
     adapter = _FakeAdapter(response)
     service = L2LLMService(_FakeScenarioPool(adapter))
 
-    with patch("magi.memory.l2_llm_service.logger.info") as mock_info:
+    with patch("magi.memory.l2.llm_service.logger.info") as mock_info:
         __import__("asyncio").run(
             service.extract_unified_candidates(
                 event_window={"event_ids": ["evt-1"], "texts": ["hello"]},

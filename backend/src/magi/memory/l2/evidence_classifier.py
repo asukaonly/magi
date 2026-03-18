@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .event_contracts import MemoryDomain, MemoryEvent
+from ..event_contracts import MemoryDomain, MemoryEvent
 
 _EXTERNAL_SOURCES = {"timeline", "sensor", "calendar", "location", "external_feed", "external"}
 

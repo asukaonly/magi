@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .l2_extraction_profiles import ExtractionProfile
+from .extraction_profiles import ExtractionProfile
 
 
 UNIFIED_EXTRACTION_SYSTEM_PROMPT = """You are a structured extraction engine for a memory system.

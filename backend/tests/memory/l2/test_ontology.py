@@ -4,19 +4,19 @@ import pytest
 
 
 def test_normalize_entity_type_maps_dish_to_food():
-    from magi.memory.l2_ontology import normalize_entity_type
+    from magi.memory.l2.ontology import normalize_entity_type
 
     assert normalize_entity_type("dish") == "food"
 
 
 def test_coerce_unknown_entity_type_falls_back_to_other():
-    from magi.memory.l2_ontology import coerce_unknown_entity_type
+    from magi.memory.l2.ontology import coerce_unknown_entity_type
 
     assert coerce_unknown_entity_type("mystery_type") == "other"
 
 
 def test_none_is_not_a_valid_entity_type():
-    from magi.memory.l2_ontology import is_valid_entity_type
+    from magi.memory.l2.ontology import is_valid_entity_type
 
     assert is_valid_entity_type("none") is False
 
@@ -32,13 +32,13 @@ def test_none_is_not_a_valid_entity_type():
     ],
 )
 def test_predicate_compatibility_matrix(predicate: str, object_type: str, expected: bool):
-    from magi.memory.l2_ontology import is_predicate_compatible
+    from magi.memory.l2.ontology import is_predicate_compatible
 
     assert is_predicate_compatible(predicate, object_type) is expected
 
 
 def test_validator_rejects_unknown_graph_predicate():
-    from magi.memory.l2_ontology import validate_graph_candidate
+    from magi.memory.l2.ontology import validate_graph_candidate
 
     is_valid, reason = validate_graph_candidate(
         {
@@ -52,7 +52,7 @@ def test_validator_rejects_unknown_graph_predicate():
 
 
 def test_validator_rejects_illegal_graph_object_type_combination():
-    from magi.memory.l2_ontology import validate_graph_candidate
+    from magi.memory.l2.ontology import validate_graph_candidate
 
     is_valid, reason = validate_graph_candidate(
         {
@@ -66,7 +66,7 @@ def test_validator_rejects_illegal_graph_object_type_combination():
 
 
 def test_validator_rejects_unsupported_assertion_family():
-    from magi.memory.l2_ontology import validate_assertion_candidate
+    from magi.memory.l2.ontology import validate_assertion_candidate
 
     is_valid, reason = validate_assertion_candidate(
         {
@@ -79,7 +79,7 @@ def test_validator_rejects_unsupported_assertion_family():
 
 
 def test_validator_can_identify_leaf_level_duplicates():
-    from magi.memory.l2_ontology import is_leaf_fact_duplicate
+    from magi.memory.l2.ontology import is_leaf_fact_duplicate
 
     duplicate = is_leaf_fact_duplicate(
         graph_candidates=[
@@ -98,7 +98,7 @@ def test_validator_can_identify_leaf_level_duplicates():
 
 
 def test_validator_can_identify_generic_leaf_preference_duplicates():
-    from magi.memory.l2_ontology import is_leaf_fact_duplicate
+    from magi.memory.l2.ontology import is_leaf_fact_duplicate
 
     duplicate = is_leaf_fact_duplicate(
         graph_candidates=[
@@ -117,7 +117,7 @@ def test_validator_can_identify_generic_leaf_preference_duplicates():
 
 
 def test_validator_allows_higher_order_assertion_alongside_graph_fact():
-    from magi.memory.l2_ontology import is_leaf_fact_duplicate
+    from magi.memory.l2.ontology import is_leaf_fact_duplicate
 
     duplicate = is_leaf_fact_duplicate(
         graph_candidates=[
