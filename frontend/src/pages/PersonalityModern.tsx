@@ -12,6 +12,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import {
   usePersonality,
@@ -43,7 +51,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     generating,
     switching,
     selectedInfo,
-    diffPreview,
+    switchPrompt,
 
     // Form state
     prompt,
@@ -59,6 +67,8 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     save,
     generate,
     switchPersonality,
+    confirmSwitchPersonality,
+    cancelSwitchPersonality,
     deletePersonality,
     reload,
   } = usePersonality();
@@ -223,25 +233,6 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                 )}
               </div>
             </div>
-
-            {/* Diff Preview */}
-            {diffPreview.length > 0 && (
-              <div className="mt-4 rounded-2xl border border-border/50 bg-muted/30 p-4">
-                <p className="mb-3 text-sm font-semibold text-foreground">{t('personality.diffPreview')}</p>
-                <div className="space-y-2 text-xs leading-5 text-muted-foreground">
-                  {diffPreview.map((item) => (
-                    <div key={item.field} className="rounded-xl border border-border/60 bg-muted/25 px-3 py-2">
-                      <div className="font-medium text-foreground">{item.field_label}</div>
-                      <div>
-                        <span className="text-red-600">{String(item.old_value)}</span>
-                        {' -> '}
-                        <span className="text-emerald-600">{String(item.new_value)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* AI Generate Section */}
             <div className="w-full max-w-2xl space-y-3 border-t border-border/30 pt-4">
@@ -592,6 +583,53 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
           )}
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(switchPrompt)}
+        onOpenChange={(open) => {
+          if (!open && !switching) {
+            cancelSwitchPersonality();
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('personality.switchPromptTitle')}</DialogTitle>
+            <DialogDescription>
+              {switchPrompt
+                ? t('personality.switchConfirm', {
+                    from: switchPrompt.fromName,
+                    to: switchPrompt.toName,
+                  })
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 pb-2">
+            <div className="rounded-2xl border border-primary/20 bg-primary/6 px-4 py-4 text-sm leading-7 text-foreground">
+              {switchPrompt?.phrase}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={cancelSwitchPersonality}
+              disabled={switching}
+            >
+              {t('personality.cancel')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                void confirmSwitchPersonality();
+              }}
+              disabled={switching}
+            >
+              {switching ? t('personality.switching') : t('personality.confirmSwitch')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

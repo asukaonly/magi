@@ -15,7 +15,6 @@ import {
   personalityApi,
   DEFAULT_PERSONALITY_CONFIG,
   type PersonalityConfig,
-  type PersonalityDiff,
   type StateTransitionProtocolItem,
 } from '@/api';
 import { handleError } from '@/utils/error-handler';
@@ -45,9 +44,13 @@ export interface UsePersonalityReturn {
   saving: boolean;
   generating: boolean;
   switching: boolean;
-  diffs: PersonalityDiff[];
   selectedInfo: PersonalityInfo | undefined;
-  diffPreview: PersonalityDiff[];
+  switchPrompt: {
+    phrase: string;
+    fromName: string;
+    toName: string;
+    targetName: string;
+  } | null;
 
   // Form state
   prompt: string;
@@ -63,6 +66,8 @@ export interface UsePersonalityReturn {
   save: () => Promise<void>;
   generate: () => Promise<void>;
   switchPersonality: () => Promise<void>;
+  confirmSwitchPersonality: () => Promise<void>;
+  cancelSwitchPersonality: () => void;
   deletePersonality: () => Promise<void>;
   reload: () => Promise<void>;
 }
@@ -158,9 +163,12 @@ export function usePersonality(
   // Form state
   const [prompt, setPrompt] = useState('');
   const [targetLanguage, setTargetLanguage] = useState('Auto');
-
-  // Diff state
-  const [diffs, setDiffs] = useState<PersonalityDiff[]>([]);
+  const [switchPrompt, setSwitchPrompt] = useState<{
+    phrase: string;
+    fromName: string;
+    toName: string;
+    targetName: string;
+  } | null>(null);
 
   // ============================================================================
   // Patch Function
@@ -260,7 +268,6 @@ export function usePersonality(
         setIsNewMode(false);
       }
       setSelectedName(name);
-      setDiffs([]);
       void loadOne(name);
     },
     [isNewMode, loadOne]
@@ -269,7 +276,6 @@ export function usePersonality(
   const startNewPersonality = useCallback(() => {
     setIsNewMode(true);
     setSelectedName('__new__');
-    setDiffs([]);
     setConfig(structuredClone(DEFAULT_PERSONALITY_CONFIG));
   }, []);
 
@@ -278,6 +284,11 @@ export function usePersonality(
     setSelectedName(currentName);
     void loadOne(currentName);
   }, [currentName, loadOne]);
+
+  const selectedInfo = useMemo(
+    () => list.find((item) => item.name === selectedName),
+    [list, selectedName]
+  );
 
   const save = useCallback(async () => {
     // Validate name in create mode
@@ -347,30 +358,58 @@ export function usePersonality(
   }, [prompt, targetLanguage, t]);
 
   const switchPersonality = useCallback(async () => {
-    if (selectedName === currentName) return;
+    if (selectedName === currentName) {
+      return;
+    }
 
     setSwitching(true);
     try {
-      const response = await personalityApi.compare(currentName, selectedName);
-      const data = response.data as { diffs?: PersonalityDiff[] } | undefined;
-      const nextDiffs = data?.diffs || [];
-      setDiffs(nextDiffs);
+      const response = await personalityApi.get(currentName);
+      const data = (response.data || {}) as Partial<PersonalityConfig>;
+      const currentConfig = mergeConfig(data);
+      const retentionPhrase =
+        currentConfig.cached_phrases.on_switch_attempt.find((item) => item.trim()) ||
+        t('personality.switchPromptFallback');
+      setSwitchPrompt({
+        phrase: retentionPhrase,
+        fromName: currentConfig.persona_entity.basic_profile.name || currentName,
+        toName: selectedInfo?.displayName || selectedName,
+        targetName: selectedName,
+      });
+    } catch {
+      setSwitchPrompt({
+        phrase: t('personality.switchPromptFallback'),
+        fromName: currentName,
+        toName: selectedInfo?.displayName || selectedName,
+        targetName: selectedName,
+      });
+    } finally {
+      setSwitching(false);
+    }
+  }, [currentName, selectedInfo?.displayName, selectedName, t]);
 
-      const ok = window.confirm(
-        t('personality.switchConfirm', { from: currentName, to: selectedName })
-      );
-      if (!ok) return;
+  const confirmSwitchPersonality = useCallback(async () => {
+    if (!switchPrompt) {
+      return;
+    }
 
-      await personalityApi.setCurrent(selectedName);
-      setCurrentName(selectedName);
-      await loadOne(selectedName);
-      toast.success(t('personality.switchSuccess', { name: selectedName }));
+    setSwitching(true);
+    try {
+      await personalityApi.setCurrent(switchPrompt.targetName);
+      setCurrentName(switchPrompt.targetName);
+      setSwitchPrompt(null);
+      await loadOne(switchPrompt.targetName);
+      toast.success(t('personality.switchSuccess', { name: switchPrompt.toName }));
     } catch (error) {
       handleError(error, 'Switch personality');
     } finally {
       setSwitching(false);
     }
-  }, [currentName, selectedName, loadOne, t]);
+  }, [loadOne, switchPrompt, t]);
+
+  const cancelSwitchPersonality = useCallback(() => {
+    setSwitchPrompt(null);
+  }, []);
 
   const deletePersonality = useCallback(async () => {
     if (selectedName === 'default') return;
@@ -378,7 +417,6 @@ export function usePersonality(
 
     try {
       await personalityApi.delete(selectedName);
-      setDiffs([]);
       await loadList();
       const current = await loadCurrent();
       await loadOne(current);
@@ -388,23 +426,11 @@ export function usePersonality(
   }, [selectedName, loadList, loadCurrent, loadOne, t]);
 
   const reload = useCallback(async () => {
-    setDiffs([]);
     await loadOne(selectedName);
   }, [loadOne, selectedName]);
 
   // ============================================================================
   // Computed Values
-  // ============================================================================
-
-  const selectedInfo = useMemo(
-    () => list.find((item) => item.name === selectedName),
-    [list, selectedName]
-  );
-
-  const diffPreview = useMemo(() => diffs.slice(0, 8), [diffs]);
-
-  // ============================================================================
-  // Return
   // ============================================================================
 
   return {
@@ -418,9 +444,8 @@ export function usePersonality(
     saving,
     generating,
     switching,
-    diffs,
     selectedInfo,
-    diffPreview,
+    switchPrompt,
 
     // Form state
     prompt,
@@ -436,6 +461,8 @@ export function usePersonality(
     save,
     generate,
     switchPersonality,
+    confirmSwitchPersonality,
+    cancelSwitchPersonality,
     deletePersonality,
     reload,
   };
