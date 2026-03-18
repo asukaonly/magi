@@ -8,7 +8,7 @@ from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionCla
 
 @pytest.mark.asyncio
 async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
-    from magi.memory.l1_event_store import L1EventStore
+    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
     store = L1EventStore(db_path=str(db_path))
@@ -37,7 +37,7 @@ async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_event_store_persists_runtime_and_memory_owner_ids(tmp_path):
-    from magi.memory.l1_event_store import L1EventStore
+    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
     store = L1EventStore(db_path=str(db_path), vector_enabled=False)
@@ -66,7 +66,7 @@ async def test_l1_event_store_persists_runtime_and_memory_owner_ids(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_timeline_roundtrip_uses_timeline_metadata(tmp_path):
-    from magi.memory.l1_event_store import L1EventStore
+    from magi.memory.l1.event_store import L1EventStore
     from magi.timeline.contracts import TimelineContentBlock, TimelineEvent
 
     db_path = tmp_path / "l1_events.db"
@@ -101,7 +101,7 @@ async def test_l1_timeline_roundtrip_uses_timeline_metadata(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_event_store_routes_runtime_events_to_observations(tmp_path):
-    from magi.memory.l1_event_store import L1EventStore
+    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
     store = L1EventStore(db_path=str(db_path))
@@ -129,7 +129,7 @@ async def test_l1_event_store_routes_runtime_events_to_observations(tmp_path):
 async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
     import sqlite3
 
-    from magi.memory.l1_event_store import L1EventStore
+    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
     store = L1EventStore(db_path=str(db_path))

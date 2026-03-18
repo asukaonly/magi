@@ -248,7 +248,7 @@ async def test_unified_memory_store_resolves_runtime_identity_links_for_memory_o
 
 @pytest.mark.asyncio
 async def test_l1_round_trip_preserves_extraction_profile_metadata():
-    from magi.memory.l1_event_store import L1EventStore
+    from magi.memory.l1.event_store import L1EventStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
         store = L1EventStore(db_path=str(Path(temp_dir) / "l1_events.db"), vector_enabled=False)
@@ -308,7 +308,7 @@ async def test_l1_round_trip_preserves_extraction_profile_metadata():
 
 @pytest.mark.asyncio
 async def test_l1_round_trip_preserves_runtime_and_memory_owner_ids():
-    from magi.memory.l1_event_store import L1EventStore
+    from magi.memory.l1.event_store import L1EventStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
         store = L1EventStore(db_path=str(Path(temp_dir) / "l1_events.db"), vector_enabled=False)

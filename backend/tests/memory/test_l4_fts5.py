@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from magi.memory.l4_procedural_memory import L4ProceduralMemoryStore
+from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
 from magi.memory.event_contracts import (
     IngestTarget,
     MemoryDomain,

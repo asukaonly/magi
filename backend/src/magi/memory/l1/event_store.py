@@ -11,12 +11,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
-from ..events.events import Event, EventLevel, EventTypes
-from ..timeline.contracts import TimelineEvent
-from .embedding_service import MemoryEmbeddingService
-from .event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
-from .hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
-from .sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ...events.events import Event, EventLevel, EventTypes
+from ...timeline.contracts import TimelineEvent
+from ..embedding_service import MemoryEmbeddingService
+from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
+from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
+from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
 RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"

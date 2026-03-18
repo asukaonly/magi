@@ -30,7 +30,7 @@ def _tool_event(*, event_id: str, success: bool, timestamp: float, error: str | 
 
 @pytest.mark.asyncio
 async def test_l4_tracks_success_rate_and_queryable_strategy(tmp_path):
-    from magi.memory.l4_procedural_memory import L4ProceduralMemoryStore
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
 
     store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"))
     await store.initialize()
@@ -50,7 +50,7 @@ async def test_l4_tracks_success_rate_and_queryable_strategy(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l4_opens_and_recovers_circuit_breaker(tmp_path):
-    from magi.memory.l4_procedural_memory import L4ProceduralMemoryStore
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
 
     store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), breaker_failure_threshold=3)
     await store.initialize()

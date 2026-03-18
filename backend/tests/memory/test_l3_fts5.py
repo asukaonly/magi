@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from magi.memory.l3_summary_store import L3SummaryStore
+from magi.memory.l3.summary_store import L3SummaryStore
 
 
 def _make_summary(content: str, **overrides) -> dict:

@@ -48,9 +48,9 @@ class _FakeEmbeddingService:
 
 @pytest.mark.asyncio
 async def test_memory_layers_create_dedicated_vector_tables(tmp_path):
-    from magi.memory.l1_event_store import L1EventStore
-    from magi.memory.l3_summary_store import L3SummaryStore
-    from magi.memory.l4_procedural_memory import L4ProceduralMemoryStore
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
 
     l1_db = tmp_path / "l1_events.db"
     l3_db = tmp_path / "l3_reflections.db"
@@ -79,9 +79,9 @@ async def test_memory_layers_create_dedicated_vector_tables(tmp_path):
 async def test_memory_layers_create_sqlite_vec_virtual_tables_on_insert(tmp_path):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
-    from magi.memory.l1_event_store import L1EventStore
-    from magi.memory.l3_summary_store import L3SummaryStore
-    from magi.memory.l4_procedural_memory import L4ProceduralMemoryStore
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
 
     embedding_service = _FakeEmbeddingService()
     l1_db = tmp_path / "l1_events.db"

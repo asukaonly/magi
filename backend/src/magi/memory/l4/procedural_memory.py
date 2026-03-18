@@ -12,10 +12,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
-from .embedding_service import MemoryEmbeddingService
-from .event_contracts import MemoryEvent
-from .hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
-from .sqlite_vec_index import SqliteVecIndex
+from ..embedding_service import MemoryEmbeddingService
+from ..event_contracts import MemoryEvent
+from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
+from ..sqlite_vec_index import SqliteVecIndex
 
 logger = logging.getLogger(__name__)
 

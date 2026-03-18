@@ -7,7 +7,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_l0_checkpoint_restores_session_goal_and_tactic(tmp_path):
-    from magi.memory.l0_working_memory import L0WorkingMemoryStore
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
     checkpoint_path = tmp_path / "l0_checkpoint.db"
 
@@ -64,7 +64,7 @@ async def test_l0_checkpoint_restores_session_goal_and_tactic(tmp_path):
 async def test_l0_capture_event_renews_session_activity(tmp_path):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
-    from magi.memory.l0_working_memory import L0WorkingMemoryStore
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
     checkpoint_path = tmp_path / "l0_checkpoint.db"
     store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
@@ -89,7 +89,7 @@ async def test_l0_capture_event_renews_session_activity(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l0_evicts_lru_session_when_limit_reached(tmp_path):
-    from magi.memory.l0_working_memory import L0WorkingMemoryStore
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
     checkpoint_path = tmp_path / "l0_evict.db"
     store = L0WorkingMemoryStore(
@@ -132,7 +132,7 @@ async def test_l0_evicts_lru_session_when_limit_reached(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l0_refresh_existing_session_does_not_evict(tmp_path):
-    from magi.memory.l0_working_memory import L0WorkingMemoryStore
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
     checkpoint_path = tmp_path / "l0_refresh.db"
     store = L0WorkingMemoryStore(

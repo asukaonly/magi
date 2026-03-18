@@ -14,15 +14,15 @@ from .embedding_service import MemoryEmbeddingService
 from .event_contracts import IngestTarget, MemoryEvent, normalize_runtime_event
 from .identity_resolver import IdentityResolver
 from .identity_migration import migrate_legacy_self_identity
-from .l0_working_memory import L0WorkingMemoryStore
-from .l1_event_store import L1EventStore
+from .l0.working_memory import L0WorkingMemoryStore
+from .l1.event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
 from .l2_entity_catalog import L2EntityCatalog
 from .l2_llm_service import L2LLMService
 from .l2_models import ManualL2EventRequest
 from .l2_pipeline import L2Pipeline
-from .l3_summary_store import L3SummaryStore
-from .l4_procedural_memory import L4ProceduralMemoryStore
+from .l3.summary_store import L3SummaryStore
+from .l4.procedural_memory import L4ProceduralMemoryStore
 
 logger = logging.getLogger(__name__)
 

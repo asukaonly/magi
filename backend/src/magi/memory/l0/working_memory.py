@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 import aiosqlite
 
-from .event_contracts import MemoryEvent
+from ..event_contracts import MemoryEvent
 
 
 MAX_CONCURRENT_SESSIONS = 64

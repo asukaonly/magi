@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 from ..core.logger import get_logger
 from .event_contracts import MemoryEvent
-from .l1_event_store import L1EventStore
+from .l1.event_store import L1EventStore
 from .l2_cognition_store import L2CognitionStore
 from .l2_evidence_classifier import classify_event_evidence
 from .l2_evidence_policy import resolve_l2_policy
