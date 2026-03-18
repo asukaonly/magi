@@ -365,6 +365,248 @@ def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
     assert snapshot["root"]["children"][0]["children"][0]["metadata"]["arguments"]["pattern"] == "qweather"
 
 
+def test_trace_snapshot_prefers_normalized_span_tree_without_ai_response(tmp_path):
+    service = ChatTraceReadService()
+    service._l1_db_path = tmp_path / "events.sqlite3"
+    service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    _init_event_store(service._l1_db_path)
+
+    _insert_event(
+        service._l1_db_path,
+        "UserMessage",
+        {"user_id": "u1", "session_id": "s1", "message": "scan auth flow", "turn_id": "turn_trace"},
+        3000,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_STARTED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:turn",
+            "parent_span_id": None,
+            "node_type": "turn",
+            "name": "Chat turn",
+            "status": "running",
+            "started_at_ms": 3000000,
+            "tags": {"user_id": "u1", "session_id": "s1"},
+        },
+        3000,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:intent",
+            "parent_span_id": "turn_trace:turn",
+            "node_type": "intent_resolution",
+            "name": "Intent resolution",
+            "status": "completed",
+            "started_at_ms": 3000000,
+            "ended_at_ms": 3000100,
+            "duration_ms": 100,
+            "output": {"intent": "code_research"},
+            "tags": {"user_id": "u1", "session_id": "s1"},
+        },
+        3000.1,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:worker_dispatch:worker_1",
+            "parent_span_id": "turn_trace:turn",
+            "node_type": "worker_dispatch",
+            "name": "Worker dispatch",
+            "status": "completed",
+            "started_at_ms": 3000200,
+            "ended_at_ms": 3000200,
+            "duration_ms": 0,
+            "output": {"worker_id": "worker_1"},
+            "tags": {
+                "user_id": "u1",
+                "session_id": "s1",
+                "orchestration_id": "orch_trace",
+            },
+        },
+        3000.2,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_STARTED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:worker:worker_1",
+            "parent_span_id": "turn_trace:worker_dispatch:worker_1",
+            "node_type": "worker",
+            "name": "Explore worker",
+            "status": "running",
+            "started_at_ms": 3000200,
+            "input": {"description": "scan auth flow"},
+            "tags": {
+                "user_id": "u1",
+                "session_id": "s1",
+                "orchestration_id": "orch_trace",
+            },
+        },
+        3000.2,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:worker_llm:worker_1:final_response:1",
+            "parent_span_id": "turn_trace:worker:worker_1",
+            "node_type": "llm_call",
+            "name": "Explore worker LLM call",
+            "status": "completed",
+            "started_at_ms": 3000300,
+            "ended_at_ms": 3000810,
+            "duration_ms": 510,
+            "metrics": {"model": "fake-model", "input_tokens": 30, "output_tokens": 12},
+            "tags": {"user_id": "u1", "session_id": "s1"},
+        },
+        3000.81,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:worker_tool:worker_1:grep:3000820",
+            "parent_span_id": "turn_trace:worker:worker_1",
+            "node_type": "tool_call",
+            "name": "grep tool call",
+            "status": "completed",
+            "started_at_ms": 3000820,
+            "ended_at_ms": 3000850,
+            "duration_ms": 30,
+            "output": {"result_preview": "match count: 3"},
+            "tags": {"user_id": "u1", "session_id": "s1"},
+        },
+        3000.85,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:worker:worker_1",
+            "parent_span_id": "turn_trace:worker_dispatch:worker_1",
+            "node_type": "worker",
+            "name": "Explore worker",
+            "status": "completed",
+            "started_at_ms": 3000200,
+            "ended_at_ms": 3000900,
+            "duration_ms": 700,
+            "output": {"result_preview": "worker finished"},
+            "tags": {
+                "user_id": "u1",
+                "session_id": "s1",
+                "orchestration_id": "orch_trace",
+            },
+        },
+        3000.9,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:response_emit",
+            "parent_span_id": "turn_trace:turn",
+            "node_type": "response_emit",
+            "name": "Response emitted",
+            "status": "completed",
+            "started_at_ms": 3001000,
+            "ended_at_ms": 3001100,
+            "duration_ms": 100,
+            "output": {"response_preview": "done"},
+            "tags": {"user_id": "u1", "session_id": "s1"},
+        },
+        3001.1,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:turn",
+            "parent_span_id": None,
+            "node_type": "turn",
+            "name": "Chat turn",
+            "status": "completed",
+            "started_at_ms": 3000000,
+            "ended_at_ms": 3001200,
+            "duration_ms": 1200,
+            "output": {"response_preview": "done"},
+            "tags": {"user_id": "u1", "session_id": "s1"},
+        },
+        3001.2,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TURN_TRACE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_trace",
+            "turn_id": "turn_trace",
+            "span_id": "turn_trace:turn",
+            "status": "completed",
+            "started_at_ms": 3000000,
+            "ended_at_ms": 3001200,
+            "duration_ms": 1200,
+        },
+        3001.2,
+    )
+
+    snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_trace")
+
+    assert snapshot is not None
+    assert snapshot["summary"]["trace_available"] is True
+    assert snapshot["summary"]["mode"] == "orchestration"
+    assert snapshot["summary"]["status"] == "completed"
+    assert snapshot["summary"]["duration_seconds"] == 1.2
+
+    child_kinds = {child["kind"] for child in snapshot["root"]["children"]}
+    assert {"intent", "dispatch", "response"} <= child_kinds
+
+    worker_node = next(child for child in snapshot["root"]["children"] if child["kind"] == "dispatch")["children"][0]
+    assert worker_node["kind"] == "worker"
+    worker_child_kinds = {child["kind"] for child in worker_node["children"]}
+    assert {"llm", "tool"} <= worker_child_kinds
+
+
 def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     service = ChatTraceReadService()
     service._l1_db_path = tmp_path / "events.sqlite3"

@@ -17,7 +17,10 @@ RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
 USER_EVENT_TYPES = ("UserMessage",)
 AI_RESPONSE_EVENT_TYPES = ("AIResponse",)
 WORKER_EVENT_TYPES = ("WORKER_AGENT_PROGRESS", "WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED")
-TRACE_EVENT_TYPES = WORKER_EVENT_TYPES + ("CHAT_TOOL_LOOP_STEP", "TOOL_INTERACTION", "TOOL_INVOKED")
+LEGACY_TRACE_EVENT_TYPES = ("CHAT_TOOL_LOOP_STEP", "TOOL_INTERACTION", "TOOL_INVOKED")
+TURN_TRACE_EVENT_TYPES = ("TURN_TRACE_STARTED", "TURN_TRACE_COMPLETED", "TURN_TRACE_FAILED")
+TRACE_NODE_EVENT_TYPES = ("TRACE_NODE_STARTED", "TRACE_NODE_COMPLETED", "TRACE_NODE_FAILED")
+TRACE_EVENT_TYPES = WORKER_EVENT_TYPES + LEGACY_TRACE_EVENT_TYPES + TURN_TRACE_EVENT_TYPES + TRACE_NODE_EVENT_TYPES
 FACT_DISPLAY_EVENT_TYPES = USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES
 
 
@@ -189,36 +192,57 @@ class ChatTraceReadService:
         orchestration_id = self._extract_orchestration_id(events)
         orchestration_state = self._load_orchestration_state(orchestration_id) if orchestration_id else None
         has_worker_events = any(item["type"] in WORKER_EVENT_TYPES for item in events)
-        has_tool_events = any(item["type"] in {"CHAT_TOOL_LOOP_STEP", "TOOL_INTERACTION", "TOOL_INVOKED"} for item in events)
-        mode = "orchestration" if orchestration_state or has_worker_events else "function_calling"
-        started_at = float(user_event["timestamp"]) if user_event else float(events[0]["timestamp"])
-        ended_at = float(response_event["timestamp"]) if response_event else float(events[-1]["timestamp"])
+        has_tool_events = any(item["type"] in LEGACY_TRACE_EVENT_TYPES for item in events)
+        fallback_started_at = float(user_event["timestamp"]) if user_event else float(events[0]["timestamp"])
+        fallback_ended_at = float(response_event["timestamp"]) if response_event else float(events[-1]["timestamp"])
 
-        if mode == "orchestration":
-            root = self._build_orchestration_root(
-                turn_id=turn_id,
-                events=events,
+        root = self._build_normalized_trace_root(
+            turn_id=turn_id,
+            events=events,
+            started_at=fallback_started_at,
+            ended_at=fallback_ended_at,
+        )
+        if root is not None:
+            started_at = root.started_at if root.started_at is not None else fallback_started_at
+            ended_at = root.ended_at if root.ended_at is not None else fallback_ended_at
+            mode = self._resolve_normalized_mode(
+                root=root,
                 orchestration_id=orchestration_id,
                 orchestration_state=orchestration_state,
-                started_at=started_at,
-                ended_at=ended_at,
             )
         else:
-            root = self._build_function_root(
-                turn_id=turn_id,
-                events=events,
-                started_at=started_at,
-                ended_at=ended_at,
-            )
+            mode = "orchestration" if orchestration_state or has_worker_events else "function_calling"
+            started_at = fallback_started_at
+            ended_at = fallback_ended_at
+            if mode == "orchestration":
+                root = self._build_orchestration_root(
+                    turn_id=turn_id,
+                    events=events,
+                    orchestration_id=orchestration_id,
+                    orchestration_state=orchestration_state,
+                    started_at=started_at,
+                    ended_at=ended_at,
+                )
+            else:
+                root = self._build_function_root(
+                    turn_id=turn_id,
+                    events=events,
+                    started_at=started_at,
+                    ended_at=ended_at,
+                )
 
         if root is None:
             return None
 
-        status = self._resolve_snapshot_status(
+        status = root.status if self._has_normalized_trace_events(events) else self._resolve_snapshot_status(
             root=root,
             response_event=response_event,
             orchestration_state=orchestration_state,
         )
+        if status == "running" and response_event is not None:
+            status = "completed"
+        if status == "running":
+            status = self._resolve_turn_trace_status(events, default=status)
         if status in {"completed", "failed"}:
             self._finalize_terminal_nodes(root, status=status, ended_at=ended_at)
         root.status = status
@@ -239,7 +263,7 @@ class ChatTraceReadService:
             active_steps=active_steps,
             completed_steps=completed_steps,
             failed_steps=failed_steps,
-            duration_seconds=max(0.0, ended_at - started_at),
+            duration_seconds=round(max(0.0, ended_at - started_at), 3),
             trace_available=bool(root.children),
             orchestration_id=orchestration_id,
         )
@@ -461,6 +485,217 @@ class ChatTraceReadService:
             iteration_node.ended_at = ended_at if iteration_node.status in {"completed", "failed"} else None
             root.children.append(iteration_node)
         return root
+
+    def _build_normalized_trace_root(
+        self,
+        *,
+        turn_id: str,
+        events: list[dict[str, Any]],
+        started_at: float,
+        ended_at: float,
+    ) -> Optional[ExecutionTraceNode]:
+        span_payloads = self._collapse_trace_spans(events)
+        if not span_payloads:
+            return None
+
+        node_by_span_id: dict[str, ExecutionTraceNode] = {}
+        children_by_parent: dict[str | None, list[str]] = {}
+        for span_id, payload in span_payloads.items():
+            node_by_span_id[span_id] = self._build_trace_span_node(payload)
+            parent_span_id = str(payload.get("parent_span_id") or "").strip() or None
+            children_by_parent.setdefault(parent_span_id, []).append(span_id)
+
+        for parent_span_id, child_ids in children_by_parent.items():
+            if parent_span_id is None:
+                continue
+            parent = node_by_span_id.get(parent_span_id)
+            if parent is None:
+                continue
+            ordered_children = sorted(
+                (node_by_span_id[child_id] for child_id in child_ids if child_id in node_by_span_id),
+                key=lambda item: (
+                    float(item.started_at or 0.0),
+                    item.id,
+                ),
+            )
+            parent.children.extend(ordered_children)
+
+        turn_span_id = f"{turn_id}:turn"
+        turn_node = node_by_span_id.get(turn_span_id)
+        top_level_nodes = [
+            node_by_span_id[span_id]
+            for span_id in children_by_parent.get(None, [])
+            if span_id in node_by_span_id and span_id != turn_span_id
+        ]
+        top_level_nodes.sort(key=lambda item: (float(item.started_at or 0.0), item.id))
+
+        root = ExecutionTraceNode(
+            id=f"{turn_id}:root",
+            kind="root",
+            label="Tool chain",
+            status=turn_node.status if turn_node is not None else self._derive_parent_status(top_level_nodes),
+            started_at=turn_node.started_at if turn_node is not None else started_at,
+            ended_at=turn_node.ended_at if turn_node is not None else ended_at,
+            result_preview=turn_node.result_preview if turn_node is not None else "",
+            error=turn_node.error if turn_node is not None else None,
+            metadata={
+                "turn_id": turn_id,
+                "trace_id": str((turn_node.metadata if turn_node is not None else {}).get("trace_id") or f"trace:{turn_id}"),
+                "normalized_trace": True,
+            },
+        )
+        if turn_node is not None:
+            root.children.extend(turn_node.children)
+        root.children.extend(top_level_nodes)
+        return root
+
+    def _collapse_trace_spans(self, events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        span_payloads: dict[str, dict[str, Any]] = {}
+        for item in events:
+            if item["type"] not in TRACE_NODE_EVENT_TYPES:
+                continue
+            payload = item.get("payload", {})
+            if not isinstance(payload, dict):
+                continue
+            span_id = str(payload.get("span_id") or "").strip()
+            if not span_id:
+                continue
+            current = span_payloads.setdefault(span_id, {})
+            self._merge_trace_payload(current, payload)
+        return span_payloads
+
+    def _merge_trace_payload(self, current: dict[str, Any], incoming: dict[str, Any]) -> None:
+        for key in (
+            "trace_id",
+            "turn_id",
+            "span_id",
+            "parent_span_id",
+            "node_type",
+            "name",
+            "status",
+            "attempt_index",
+            "retry_count",
+            "started_at_ms",
+            "ended_at_ms",
+            "duration_ms",
+        ):
+            value = incoming.get(key)
+            if value is not None and value != "":
+                current[key] = value
+
+        for key in ("input", "output", "metrics", "tags"):
+            incoming_value = incoming.get(key)
+            if not isinstance(incoming_value, dict):
+                continue
+            merged = dict(current.get(key) or {})
+            merged.update(incoming_value)
+            current[key] = merged
+
+        if incoming.get("error") is not None:
+            current["error"] = incoming.get("error")
+
+    def _build_trace_span_node(self, payload: dict[str, Any]) -> ExecutionTraceNode:
+        span_id = str(payload.get("span_id") or "")
+        node_type = str(payload.get("node_type") or "step")
+        status = self._normalize_status(str(payload.get("status") or "running"))
+        metadata = {
+            "trace_id": payload.get("trace_id"),
+            "span_id": span_id,
+            "parent_span_id": payload.get("parent_span_id"),
+            "node_type": node_type,
+            "attempt_index": self._safe_int(payload.get("attempt_index"), default=1),
+            "retry_count": self._safe_int(payload.get("retry_count"), default=0),
+            "duration_ms": self._safe_int(payload.get("duration_ms"), default=0),
+            "input": dict(payload.get("input") or {}) if isinstance(payload.get("input"), dict) else {},
+            "output": dict(payload.get("output") or {}) if isinstance(payload.get("output"), dict) else {},
+            "metrics": dict(payload.get("metrics") or {}) if isinstance(payload.get("metrics"), dict) else {},
+            "tags": dict(payload.get("tags") or {}) if isinstance(payload.get("tags"), dict) else {},
+        }
+        return ExecutionTraceNode(
+            id=span_id,
+            kind=self._map_trace_kind(node_type),
+            label=str(payload.get("name") or self._default_trace_label(node_type)),
+            status=status,
+            started_at=self._ms_to_seconds(payload.get("started_at_ms")),
+            ended_at=self._ms_to_seconds(payload.get("ended_at_ms")),
+            result_preview=self._trace_span_result_preview(payload),
+            error=self._trace_span_error(payload),
+            metadata=metadata,
+        )
+
+    def _map_trace_kind(self, node_type: str) -> str:
+        mapping = {
+            "intent_resolution": "intent",
+            "llm_call": "llm",
+            "tool_call": "tool",
+            "worker_dispatch": "dispatch",
+            "response_emit": "response",
+        }
+        return mapping.get(node_type, node_type or "step")
+
+    def _default_trace_label(self, node_type: str) -> str:
+        return str(node_type or "step").replace("_", " ").strip().title() or "Step"
+
+    def _trace_span_result_preview(self, payload: dict[str, Any]) -> str:
+        output = payload.get("output")
+        if isinstance(output, dict):
+            preview = self._compact_value(output.get("response_preview"))
+            if preview:
+                return preview
+            preview = self._compact_value(output.get("result_preview"))
+            if preview:
+                return preview
+            preview = self._compact_value(output.get("intent"))
+            if preview:
+                return preview
+            preview = self._compact_value(output.get("result"))
+            if preview:
+                return preview
+        return ""
+
+    def _trace_span_error(self, payload: dict[str, Any]) -> Optional[str]:
+        error = payload.get("error")
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("failure_reason") or "").strip() or None
+        return str(error or "").strip() or None
+
+    def _resolve_normalized_mode(
+        self,
+        *,
+        root: ExecutionTraceNode,
+        orchestration_id: Optional[str],
+        orchestration_state: Optional[dict[str, Any]],
+    ) -> str:
+        if orchestration_id or orchestration_state:
+            return "orchestration"
+        for node in self._walk_nodes(root):
+            if node.kind in {"worker", "dispatch"}:
+                return "orchestration"
+            tags = node.metadata.get("tags") if isinstance(node.metadata, dict) else {}
+            if isinstance(tags, dict) and str(tags.get("orchestration_id") or "").strip():
+                return "orchestration"
+        return "function_calling"
+
+    def _resolve_turn_trace_status(self, events: list[dict[str, Any]], *, default: str) -> str:
+        for item in reversed(events):
+            if item["type"] not in TURN_TRACE_EVENT_TYPES:
+                continue
+            payload = item.get("payload", {})
+            status = self._normalize_status(str(payload.get("status") or default))
+            if status:
+                return status
+        return default
+
+    def _has_normalized_trace_events(self, events: list[dict[str, Any]]) -> bool:
+        return any(item["type"] in TRACE_NODE_EVENT_TYPES for item in events)
+
+    def _ms_to_seconds(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return max(0.0, float(value) / 1000.0)
+        except (TypeError, ValueError):
+            return None
 
     def _tool_event_status(self, payload: dict[str, Any]) -> str:
         if "success" in payload:
