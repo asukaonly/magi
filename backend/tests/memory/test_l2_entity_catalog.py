@@ -41,10 +41,18 @@ async def test_ambiguous_alias_returns_unresolved():
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
 
-        await catalog.upsert_entity(canonical_name="Apple Inc.", entity_type="organization", entity_id="org:apple")
-        await catalog.upsert_entity(canonical_name="Apple Fruit", entity_type="food", entity_id="food:apple")
-        await catalog.add_alias(entity_id="org:apple", alias_text="apple", confidence=0.92)
-        await catalog.add_alias(entity_id="food:apple", alias_text="apple", confidence=0.91)
+        organization_id = await catalog.upsert_entity(
+            canonical_name="Apple Inc.",
+            entity_type="organization",
+            entity_id="org:apple",
+        )
+        food_id = await catalog.upsert_entity(
+            canonical_name="Apple Fruit",
+            entity_type="food",
+            entity_id="food:apple",
+        )
+        await catalog.add_alias(entity_id=organization_id, alias_text="apple", confidence=0.92)
+        await catalog.add_alias(entity_id=food_id, alias_text="apple", confidence=0.91)
 
         resolved = await catalog.resolve_alias("apple")
 
@@ -122,3 +130,54 @@ async def test_list_entities_returns_canonical_names_and_aliases():
                 "aliases": ["上海", "魔都"],
             }
         ]
+
+
+@pytest.mark.asyncio
+async def test_upsert_entity_normalizes_alias_entity_type_before_persistence():
+    from magi.memory.l2_entity_catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.initialize()
+
+        entity_id = await catalog.upsert_entity(
+            canonical_name="West Lake Vinegar Fish",
+            entity_type="dish",
+            entity_id="dish:west-lake-vinegar-fish",
+        )
+        entities = await catalog.list_entities(limit=10)
+
+        assert entity_id == "food:west-lake-vinegar-fish"
+        assert entities == [
+            {
+                "entity_id": "food:west-lake-vinegar-fish",
+                "canonical_name": "West Lake Vinegar Fish",
+                "entity_type": "food",
+                "aliases": [],
+            }
+        ]
+
+
+@pytest.mark.asyncio
+async def test_record_mention_normalizes_unknown_entity_type_to_other():
+    from magi.memory.l2_entity_catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.initialize()
+
+        mention_id = await catalog.record_mention(
+            mention_text="MysteryThing",
+            normalized_surface="mysterything",
+            entity_type="unknown_type",
+            evidence_event_ids=["evt-1"],
+            evidence_text="I saw MysteryThing",
+            resolved_entity_id=None,
+            confidence=0.4,
+        )
+
+        mention = await catalog.get_mention(mention_id)
+
+        assert mention["entity_type"] == "other"

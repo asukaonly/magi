@@ -109,6 +109,34 @@ class ContradictionHint:
 
 
 @dataclass(slots=True)
+class StructuredEntityHint:
+    """Structured entity hint supplied by a source integration."""
+
+    mention_text: str
+    entity_type: str
+    canonical_name_hint: Optional[str] = None
+    resolved_entity_id: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class StructuredGraphHint:
+    """Structured graph hint supplied by a source integration."""
+
+    subject_ref: str
+    predicate: str
+    object_ref: str
+    object_type: str
+    subject_type: Optional[str] = None
+    evidence_text: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class ReconciledTraitOutcome:
     """Stable serialization of one reconcile decision."""
 
@@ -134,4 +162,6 @@ __all__ = [
     "L2SnapshotRefreshJob",
     "ManualL2EventRequest",
     "ReconciledTraitOutcome",
+    "StructuredEntityHint",
+    "StructuredGraphHint",
 ]

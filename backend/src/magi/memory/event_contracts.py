@@ -142,6 +142,9 @@ class MemoryEvent:
     derived_from_event_ids: list[str] = field(default_factory=list)
     semantic_owner_hint: Optional[str] = None
     originality_type: Optional[str] = None
+    extraction_profile_id: Optional[str] = None
+    structured_entity_hints: list[dict[str, Any]] = field(default_factory=list)
+    structured_graph_hints: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -177,6 +180,9 @@ class MemoryEvent:
             "derived_from_event_ids": list(self.derived_from_event_ids),
             "semantic_owner_hint": self.semantic_owner_hint,
             "originality_type": self.originality_type,
+            "extraction_profile_id": self.extraction_profile_id,
+            "structured_entity_hints": list(self.structured_entity_hints),
+            "structured_graph_hints": list(self.structured_graph_hints),
         }
 
 
@@ -195,6 +201,13 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
     goal_id = _first_non_empty(payload.get("goal_id"), metadata.get("goal_id"))
     source_item_id = _first_non_empty(payload.get("source_item_id"), metadata.get("source_item_id"))
     entity_focus_hint = _first_non_empty(payload.get("entity_focus_hint"), metadata.get("entity_focus_hint"))
+    extraction_profile_id = _first_non_empty(payload.get("extraction_profile_id"), metadata.get("extraction_profile_id"))
+    structured_entity_hints = _normalize_object_list(
+        payload.get("structured_entity_hints", metadata.get("structured_entity_hints"))
+    )
+    structured_graph_hints = _normalize_object_list(
+        payload.get("structured_graph_hints", metadata.get("structured_graph_hints"))
+    )
     evidence_metadata = _build_evidence_metadata(event, payload=payload, metadata=metadata)
     persisted_metadata = {
         **metadata,
@@ -203,6 +216,9 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
         "derived_from_event_ids": evidence_metadata["derived_from_event_ids"],
         "semantic_owner_hint": evidence_metadata["semantic_owner_hint"],
         "originality_type": evidence_metadata["originality_type"],
+        "extraction_profile_id": extraction_profile_id,
+        "structured_entity_hints": structured_entity_hints,
+        "structured_graph_hints": structured_graph_hints,
     }
 
     return MemoryEvent(
@@ -238,6 +254,9 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
         derived_from_event_ids=evidence_metadata["derived_from_event_ids"],
         semantic_owner_hint=evidence_metadata["semantic_owner_hint"],
         originality_type=evidence_metadata["originality_type"],
+        extraction_profile_id=extraction_profile_id,
+        structured_entity_hints=structured_entity_hints,
+        structured_graph_hints=structured_graph_hints,
     )
 
 
@@ -273,6 +292,16 @@ def _normalize_string_list(value: Any) -> list[str]:
         return []
     text = str(value).strip()
     return [text] if text else []
+
+
+def _normalize_object_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            normalized.append(dict(item))
+    return normalized
 
 
 def _build_evidence_metadata(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
