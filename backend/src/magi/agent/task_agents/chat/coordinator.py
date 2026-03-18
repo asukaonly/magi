@@ -97,6 +97,8 @@ class ChatExecutionCoordinator:
             deep_thinking=bool(decision.deep_thinking),
             reasoning=str(decision.reasoning),
             orchestration_plan=orchestration_plan,
+            memory_route=str(getattr(decision, "memory_route", "none") or "none"),
+            memory_query_hint=getattr(decision, "memory_query_hint", None),
         )
 
     async def match_tools(self, context: ChatRuntimeContext, intent: IntentDecision) -> ToolSelection:

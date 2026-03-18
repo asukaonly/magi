@@ -1,6 +1,7 @@
 """Execution handlers for chat task-agent modes."""
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -34,6 +35,19 @@ from .session_service import ChatSessionService
 from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
+
+
+def _build_memory_query_guidance_block(memory_query_hint: dict | None) -> str:
+    if not isinstance(memory_query_hint, dict) or not memory_query_hint:
+        return ""
+    hint_json = json.dumps(memory_query_hint, ensure_ascii=False)
+    return "\n".join(
+        [
+            "# Memory Query Guidance",
+            "Use `memory_query` before answering. Prefer these parameters for the first recall attempt:",
+            hint_json,
+        ]
+    )
 
 
 @dataclass(slots=True)
@@ -112,6 +126,12 @@ class FunctionCallingHandler(BaseExecutionHandler):
             scenario=Scenario.CHAT,
             recent_tool_errors=request.context.recent_tool_errors,
         )
+        selected_tools = list(request.tool_selection.tools)
+        if request.intent.memory_route == "explicit_query" and "memory_query" in selected_tools:
+            selected_tools = ["memory_query"] + [tool for tool in selected_tools if tool != "memory_query"]
+            memory_guidance_block = _build_memory_query_guidance_block(request.intent.memory_query_hint)
+            if memory_guidance_block:
+                prompt_package.system_prompt = f"{prompt_package.system_prompt}\n\n{memory_guidance_block}"
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,
@@ -119,7 +139,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             tool_selection=request.tool_selection,
             prompt_context=prompt_package.prompt_context,
             system_prompt=prompt_package.system_prompt,
-            selected_tools=list(request.tool_selection.tools),
+            selected_tools=selected_tools,
             disable_thinking=not request.intent.deep_thinking,
         )
 

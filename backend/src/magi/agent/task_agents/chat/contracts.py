@@ -23,6 +23,8 @@ class IntentDecision(BaseIntentDecision):
     difficulty: str
     tools: list[str] = field(default_factory=list)
     deep_thinking: bool = False
+    memory_route: str = "none"
+    memory_query_hint: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

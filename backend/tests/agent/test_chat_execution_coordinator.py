@@ -11,12 +11,24 @@ from magi.events.events import EventTypes
 
 
 class _FakeContextDecision:
-    def __init__(self, *, intent: str, tools: list[str], deep_thinking: bool, reasoning: str, orchestration_strategy: dict):
+    def __init__(
+        self,
+        *,
+        intent: str,
+        tools: list[str],
+        deep_thinking: bool,
+        reasoning: str,
+        orchestration_strategy: dict,
+        memory_route: str = "none",
+        memory_query_hint: dict | None = None,
+    ):
         self.intent = intent
         self.tools = tools
         self.deep_thinking = deep_thinking
         self.reasoning = reasoning
         self.orchestration_strategy = orchestration_strategy
+        self.memory_route = memory_route
+        self.memory_query_hint = memory_query_hint
 
 
 class _FakeContextDecider:

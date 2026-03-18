@@ -161,6 +161,12 @@ Current implicit-memory policy is intentionally conservative:
 - `L4` procedural memory is opt-in and currently requires a user message that explicitly asks to reuse a prior workflow or usual process
 - `L2` and `L3` are not injected implicitly by default and should instead flow through explicit memory/tool usage when needed
 
+Explicit historical recall is handled separately from implicit prompt injection:
+
+- `ContextDecider` remains a fast classifier and only performs a lightweight rule-based post-pass to mark explicit memory recall requests
+- when such a request is detected, `memory_query` is promoted into the selected tool set and a small structured hint payload is attached for first-attempt parameters
+- parameter hint generation is handled by rules, not by an extra LLM planning step, to keep routing latency and variance low
+
 ### `ExploreTaskAgent`
 
 Specialized task agent in `agent/task_agents/explore_task_agent.py`.

@@ -18,6 +18,7 @@ from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 from .registry import ToolRegistry
+from .memory_query_hint_resolver import MemoryQueryHintResolver
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,8 @@ class ContextDecision:
         reasoning: str = "",
         orchestration_strategy: Optional[Dict[str, Any]] = None,
         memory_layer: Optional[str] = None,  # TODO: implement memory layer selection
+        memory_route: str = "none",
+        memory_query_hint: Optional[Dict[str, Any]] = None,
     ):
         self.intent = intent  # User's intent (e.g., "file_read", "web_search", "chat")
         self.tools = tools  # List of up to 5 tool names
@@ -42,6 +45,8 @@ class ContextDecision:
         self.reasoning = reasoning  # Why these tools were selected
         self.orchestration_strategy = orchestration_strategy or {}
         self.memory_layer = memory_layer  # Which memory layer to use (L1-L4)
+        self.memory_route = memory_route
+        self.memory_query_hint = memory_query_hint
 
 
 @dataclass
@@ -59,6 +64,7 @@ class MemoryGuidance:
     inject_prompt: bool
     system_prompt: str
     recommended_tools: TypingList[ToolRecommendation]
+    route: str = "none"
 
 
 # Memory retrieval trigger keywords
@@ -187,6 +193,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
         self.llm = llm_adapter or self._resolve_llm_from_pool()
         self.provider_bridge = LLMProviderBridge(self.llm) if self.llm else None
         self.max_tools = max_tools
+        self._memory_query_hint_resolver = MemoryQueryHintResolver()
 
     def _resolve_llm_from_pool(self) -> Optional[LLMAdapter]:
         if self._llm_pool is None:
@@ -679,6 +686,12 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             reasoning=decision.reasoning,
             orchestration_strategy=decision.orchestration_strategy,
             memory_layer=decision.memory_layer,
+            memory_route=guidance.route,
+            memory_query_hint=(
+                guidance.recommended_tools[0].suggested_params
+                if guidance.recommended_tools
+                else None
+            ),
         )
 
     def _default_orchestration_strategy(
@@ -834,19 +847,13 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
             MemoryGuidance if memory retrieval is recommended, None otherwise.
         """
         message_lower = user_message.lower()
-
-        # Check for memory-related triggers
-        trigger_matched = any(
-            trigger in message_lower
-            for trigger in MEMORY_RETRIEVAL_TRIGGERS
-        )
-
-        if not trigger_matched:
+        if not self._memory_query_hint_resolver.should_route_explicitly(user_message):
             return None
+        suggested_params = self._memory_query_hint_resolver.resolve(user_message)
 
         return MemoryGuidance(
             recommended=True,
-            inject_prompt=True,
+            inject_prompt=False,
             system_prompt=(
                 "Based on the user's query, memory retrieval may be helpful. "
                 "Consider using the memory_query tool to access relevant historical data."
@@ -855,9 +862,10 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 ToolRecommendation(
                     name="memory_query",
                     description="Retrieve memories from L0-L4 layers",
-                    suggested_params={"query": user_message},
+                    suggested_params=suggested_params,
                 )
-            ]
+            ],
+            route="explicit_query",
         )
 
     def _infer_time_range(self, message_lower: str) -> dict:
