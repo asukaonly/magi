@@ -1609,6 +1609,121 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
 
 
 @pytest.mark.asyncio
+async def test_unified_extraction_binds_weather_context_refs_into_graph_and_assertion():
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "mentions": [],
+                "resolved_context_refs": [
+                    {
+                        "surface": "这种天气",
+                        "reference_type": "context_entity",
+                        "resolved_ref": "weather_state:hangzhou-rainy-11c",
+                        "resolved_kind": "weather_state",
+                        "confidence": 0.94,
+                        "evidence_text": "我真的很烦这种天气耶",
+                    }
+                ],
+                "graph_candidates": [
+                    {
+                        "subject_ref": "user:self",
+                        "subject_type": "user",
+                        "predicate": "DISLIKES",
+                        "object_ref": "这种天气",
+                        "object_type": "weather_state",
+                        "fact_kind": "stable_preference",
+                        "polarity": "negative",
+                        "evidence_text": "我真的很烦这种天气耶",
+                        "confidence": 0.83,
+                    }
+                ],
+                "assertion_candidates": [
+                    {
+                        "entity_ref": "user:self",
+                        "entity_type": "user",
+                        "trait_family": "mood",
+                        "trait_name": "annoyance",
+                        "trait_value": "high",
+                        "target_ref": "这种天气",
+                        "inference_depth": "defensive_psychology",
+                        "volatility_index": 0.85,
+                        "confidence": 0.7,
+                        "validation_state": "tentative",
+                        "evidence_texts": ["我真的很烦这种天气耶"],
+                        "supporting_event_ids": ["evt-weather-context-1"],
+                    }
+                ],
+                "diagnostics": {"entity_status": "none"},
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-weather-context-1",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "message": "我真的很烦这种天气耶",
+                    },
+                    "metadata": {
+                        "live_context_entities": [
+                            {
+                                "context_id": "weather_state:hangzhou-rainy-11c",
+                                "kind": "weather_state",
+                                "summary": "杭州，阵雨，11度",
+                                "source_event_ids": ["evt-weather-tool-1"],
+                                "created_at": time.time(),
+                                "expires_at": time.time() + 3600,
+                            }
+                        ]
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if (
+                    stats["extract_completed"] >= 1
+                    and stats["relations_written"] >= 1
+                    and stats["assertions_written"] >= 1
+                ):
+                    break
+                await asyncio.sleep(0.01)
+
+            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
+
+            assert relationships[0]["object_id"] == "weather_state:hangzhou-rainy-11c"
+            assert relationships[0]["object_type"] == "weather_state"
+            assert assertions[0]["trait_name"] == "annoyance"
+            assert assertions[0]["target_entity_id"] == "weather_state:hangzhou-rainy-11c"
+            assert assertions[0]["target_entity_type"] == "weather_state"
+            assert assertions[0]["target_scope"] == "entity_bound"
+            assert assertions[0]["temporal_scope"] == "momentary"
+            assert assertions[0]["decay_policy"] == "fast_decay"
+            assert assertions[0]["context_ref_id"] == "weather_state:hangzhou-rainy-11c"
+            assert assertions[0]["expires_at"] is not None
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_unified_extraction_respects_chrome_history_profile_restrictions():
     adapter = _FakeAdapter(
         json.dumps(

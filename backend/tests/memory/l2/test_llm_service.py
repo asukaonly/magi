@@ -63,6 +63,36 @@ def test_unified_prompt_describes_food_mapping_and_none_status():
     assert '"entity_status": "found|none"' in prompt
 
 
+def test_unified_prompt_includes_context_bundle_and_resolved_ref_schema():
+    from magi.memory.l2.context_bundle import ContextBundle, ContextEntity
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
+
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
+    profile = ExtractionProfile(profile_id="chat.user_message")
+
+    prompt = service.render_unified_extraction_prompt(
+        event_window={"event_ids": ["evt-1"], "texts": ["我真的很烦这种天气耶"]},
+        profile=profile,
+        focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+        context_bundle=ContextBundle(
+            live_context_entities=[
+                ContextEntity(
+                    context_id="weather_state:hangzhou-rainy-11c",
+                    kind="weather_state",
+                    summary="杭州，阵雨，11度",
+                )
+            ]
+        ),
+    )
+    payload = json.loads(prompt.split("\n\n", maxsplit=1)[1])
+
+    assert payload["context_bundle"]["live_context_entities"][0]["context_id"] == "weather_state:hangzhou-rainy-11c"
+    assert payload["output_schema"]["resolved_context_refs"][0]["reference_type"] == (
+        "context_entity|canonical_entity|self_actor|unresolved"
+    )
+
+
 def test_unified_extraction_parses_mentions_graph_and_assertions():
     from magi.memory.l2.extraction_profiles import ExtractionProfile
     from magi.memory.l2.llm_service import L2LLMService
@@ -70,6 +100,7 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
     response = json.dumps(
         {
             "mentions": [{"mention_text": "西湖醋鱼", "entity_type": "dish"}],
+            "resolved_context_refs": [{"surface": "我", "reference_type": "self_actor", "resolved_ref": "user:self"}],
             "graph_candidates": [{"predicate": "DISLIKES", "object_type": "dish"}],
             "assertion_candidates": [{"trait_family": "taste_profile", "confidence": 0.8}],
             "diagnostics": {"entity_status": "found"},
@@ -83,10 +114,12 @@ def test_unified_extraction_parses_mentions_graph_and_assertions():
             event_window={"event_ids": ["evt-1"], "texts": ["但我讨厌吃西湖醋鱼"]},
             profile=ExtractionProfile(profile_id="chat.user_message"),
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+            context_bundle=None,
         )
     )
 
     assert result["mentions"] == [{"mention_text": "西湖醋鱼", "entity_type": "dish"}]
+    assert result["resolved_context_refs"] == [{"surface": "我", "reference_type": "self_actor", "resolved_ref": "user:self"}]
     assert result["graph_candidates"] == [{"predicate": "DISLIKES", "object_type": "dish"}]
     assert result["assertion_candidates"][0]["trait_family"] == "taste_profile"
     assert result["assertion_candidates"][0]["confidence"] == 0.3
@@ -104,11 +137,13 @@ def test_unified_extraction_fails_closed_on_invalid_json():
             event_window={"event_ids": ["evt-1"], "texts": ["hello"]},
             profile=ExtractionProfile(profile_id="chat.user_message"),
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+            context_bundle=None,
         )
     )
 
     assert result == {
         "mentions": [],
+        "resolved_context_refs": [],
         "graph_candidates": [],
         "assertion_candidates": [],
         "diagnostics": {"entity_status": "none"},
@@ -135,6 +170,7 @@ def test_unified_extraction_logs_timing():
                 event_window={"event_ids": ["evt-1"], "texts": ["I like Rust"]},
                 profile=ExtractionProfile(profile_id="chat.user_message"),
                 focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+                context_bundle=None,
             )
         )
 
@@ -170,6 +206,7 @@ def test_unified_extraction_disables_thinking_and_logs_started():
                 event_window={"event_ids": ["evt-1"], "texts": ["hello"]},
                 profile=ExtractionProfile(profile_id="chat.user_message"),
                 focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+                context_bundle=None,
             )
         )
 

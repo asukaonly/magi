@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
 
 
@@ -96,12 +97,14 @@ def render_unified_extraction_prompt(
     event_window: dict[str, Any],
     profile: ExtractionProfile,
     focal_subject: dict[str, Any],
+    context_bundle: ContextBundle | None = None,
 ) -> str:
     """Render the unified extraction prompt with ontology/profile constraints."""
 
     payload = {
         "event_window": event_window,
         "focal_subject": focal_subject,
+        "context_bundle": context_bundle.to_dict() if context_bundle is not None else None,
         "allowed_entity_types": sorted(profile.allowed_entity_types),
         "allowed_predicates": sorted(profile.allowed_predicates),
         "allowed_assertion_families": sorted(profile.allowed_assertion_families),
@@ -113,7 +116,8 @@ def render_unified_extraction_prompt(
             "Use only the allowed entity types and predicates in this prompt.",
             "Specific dishes, drinks, snacks, and ingredients must use `food`.",
             "Use diagnostics.entity_status = `none` when no entity mention is extracted.",
-            "Return JSON with mentions, graph_candidates, assertion_candidates, and diagnostics.",
+            "Resolve context references only from the supplied context bundle candidates or return unresolved.",
+            "Return JSON with mentions, resolved_context_refs, graph_candidates, assertion_candidates, and diagnostics.",
         ],
         "output_schema": {
             "mentions": [
@@ -125,6 +129,16 @@ def render_unified_extraction_prompt(
                     "alias_signals": ["string"],
                     "evidence_text": "string",
                     "confidence": 0.0,
+                }
+            ],
+            "resolved_context_refs": [
+                {
+                    "surface": "string",
+                    "reference_type": "context_entity|canonical_entity|self_actor|unresolved",
+                    "resolved_ref": "string or null",
+                    "resolved_kind": "string or null",
+                    "confidence": 0.0,
+                    "evidence_text": "string",
                 }
             ],
             "graph_candidates": [
@@ -147,6 +161,8 @@ def render_unified_extraction_prompt(
                     "trait_family": "enum",
                     "trait_name": "string",
                     "trait_value": "string or JSON string",
+                    "target_ref": "string or null",
+                    "target_entity_type": "enum or null",
                     "inference_depth": "topology_only|defensive_psychology",
                     "volatility_index": 0.0,
                     "confidence": 0.0,

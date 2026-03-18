@@ -18,6 +18,7 @@ from .ontology import coerce_unknown_entity_type
 
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
+_MOMENTARY_TRAITS = {"annoyance", "irritation", "frustration"}
 logger = get_logger(__name__)
 
 
@@ -95,6 +96,7 @@ class L2CognitionStore:
                     assertion_id TEXT PRIMARY KEY,
                     entity_id TEXT NOT NULL,
                     entity_type TEXT NOT NULL,
+                    trait_family TEXT NOT NULL,
                     trait_name TEXT NOT NULL,
                     trait_value TEXT NOT NULL,
                     confidence_score REAL NOT NULL,
@@ -105,10 +107,17 @@ class L2CognitionStore:
                     validation_state TEXT NOT NULL,
                     first_inferred_at REAL NOT NULL,
                     last_validated_at REAL NOT NULL,
+                    target_entity_id TEXT NOT NULL DEFAULT '',
+                    target_entity_type TEXT NOT NULL DEFAULT '',
+                    target_scope TEXT NOT NULL DEFAULT 'global',
+                    temporal_scope TEXT NOT NULL DEFAULT 'session',
+                    decay_policy TEXT,
+                    decay_anchor_at REAL,
+                    context_ref_id TEXT NOT NULL DEFAULT '',
                     expires_at REAL,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
-                    UNIQUE(entity_id, entity_type, trait_name)
+                    UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS tom_snapshots (
@@ -145,10 +154,134 @@ class L2CognitionStore:
                 );
                 """
             )
+            await self._ensure_tom_assertion_schema(db)
             await self._seed_default_graph_conflict_rules(db)
             await self._reload_graph_conflict_rules(db)
             await db.commit()
         self._initialized = True
+
+    async def _ensure_tom_assertion_schema(self, db: aiosqlite.Connection) -> None:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("PRAGMA table_info(tom_trait_assertions)") as cursor:
+            rows = await cursor.fetchall()
+        existing_columns = {str(row["name"]) for row in rows}
+        required_columns = {
+            "assertion_id",
+            "entity_id",
+            "entity_type",
+            "trait_family",
+            "trait_name",
+            "trait_value",
+            "confidence_score",
+            "evidence_events",
+            "volatility_index",
+            "source_domain",
+            "inference_depth",
+            "validation_state",
+            "first_inferred_at",
+            "last_validated_at",
+            "target_entity_id",
+            "target_entity_type",
+            "target_scope",
+            "temporal_scope",
+            "decay_policy",
+            "decay_anchor_at",
+            "context_ref_id",
+            "expires_at",
+            "created_at",
+            "updated_at",
+        }
+        if required_columns.issubset(existing_columns):
+            return
+
+        await db.executescript(
+            """
+            ALTER TABLE tom_trait_assertions RENAME TO tom_trait_assertions_legacy;
+            CREATE TABLE tom_trait_assertions (
+                assertion_id TEXT PRIMARY KEY,
+                entity_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                trait_family TEXT NOT NULL,
+                trait_name TEXT NOT NULL,
+                trait_value TEXT NOT NULL,
+                confidence_score REAL NOT NULL,
+                evidence_events TEXT NOT NULL,
+                volatility_index REAL NOT NULL,
+                source_domain TEXT NOT NULL,
+                inference_depth TEXT NOT NULL,
+                validation_state TEXT NOT NULL,
+                first_inferred_at REAL NOT NULL,
+                last_validated_at REAL NOT NULL,
+                target_entity_id TEXT NOT NULL DEFAULT '',
+                target_entity_type TEXT NOT NULL DEFAULT '',
+                target_scope TEXT NOT NULL DEFAULT 'global',
+                temporal_scope TEXT NOT NULL DEFAULT 'session',
+                decay_policy TEXT,
+                decay_anchor_at REAL,
+                context_ref_id TEXT NOT NULL DEFAULT '',
+                expires_at REAL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(entity_id, entity_type, trait_name, target_entity_id)
+            );
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO tom_trait_assertions(
+                assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
+                confidence_score, evidence_events, volatility_index, source_domain, inference_depth,
+                validation_state, first_inferred_at, last_validated_at, target_entity_id,
+                target_entity_type, target_scope, temporal_scope, decay_policy, decay_anchor_at,
+                context_ref_id, expires_at, created_at, updated_at
+            )
+            SELECT
+                assertion_id,
+                entity_id,
+                entity_type,
+                CASE
+                    WHEN trait_name = 'stress_level' THEN 'stress'
+                    WHEN trait_name IN ('mood', 'annoyance', 'irritation', 'frustration') THEN 'mood'
+                    WHEN trait_name = 'engagement' THEN 'engagement'
+                    WHEN trait_name LIKE 'trigger.%' THEN 'trigger'
+                    WHEN trait_name IN ('taste_profile', 'taste_preference') THEN 'taste_profile'
+                    WHEN trait_name LIKE 'preference.%' THEN 'preference_profile'
+                    ELSE 'preference_profile'
+                END,
+                trait_name,
+                trait_value,
+                confidence_score,
+                evidence_events,
+                volatility_index,
+                source_domain,
+                inference_depth,
+                validation_state,
+                first_inferred_at,
+                last_validated_at,
+                '',
+                '',
+                'global',
+                CASE
+                    WHEN trait_name IN ('annoyance', 'irritation', 'frustration') THEN 'momentary'
+                    WHEN trait_name = 'stress_level' THEN 'daily'
+                    WHEN trait_name IN ('mood', 'engagement') THEN 'session'
+                    ELSE 'stable'
+                END,
+                CASE
+                    WHEN trait_name IN ('annoyance', 'irritation', 'frustration') THEN 'fast_decay'
+                    WHEN trait_name = 'stress_level' THEN 'time_window'
+                    WHEN trait_name IN ('mood', 'engagement') THEN 'session_decay'
+                    ELSE 'evidence_only'
+                END,
+                last_validated_at,
+                '',
+                expires_at,
+                created_at,
+                updated_at
+            FROM tom_trait_assertions_legacy
+            """
+        )
+        await db.execute("DROP TABLE tom_trait_assertions_legacy")
 
     async def list_graph_conflict_rules(self) -> List[Dict[str, Any]]:
         """List graph conflict rules from the persisted matrix."""
@@ -622,20 +755,22 @@ class L2CognitionStore:
         assertions = await self.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
         outgoing = await self.get_relationships(subject_id=entity_id, limit=200)
         incoming = await self.get_relationships(object_id=entity_id, limit=200)
+        expired_assertions = [item for item in assertions if self._is_assertion_expired(item)]
         active_assertions = [
             item
             for item in assertions
-            if item["validation_state"] in {"stable", "corroborated"}
+            if item["validation_state"] in {"stable", "corroborated"} and not self._is_assertion_expired(item)
         ]
         if not assertions and not outgoing and not incoming:
             return None
 
         normalized_entity_type = entity_type or (assertions[0]["entity_type"] if assertions else entity_id.split(":", 1)[0])
-        stable_assertions = [item for item in active_assertions if item["validation_state"] == "stable"]
+        stable_assertions = [item for item in assertions if item["validation_state"] == "stable"]
         snapshot = await self._upsert_snapshot(
             entity_id=entity_id,
             entity_type=normalized_entity_type,
             assertions=active_assertions,
+            expired_assertions=expired_assertions,
             stable_assertions=stable_assertions,
             outgoing_relations=outgoing,
             incoming_relations=incoming,
@@ -725,15 +860,41 @@ class L2CognitionStore:
         normalized_entity_type = _normalize_store_entity_type(candidate.get("entity_type")) or "other"
         normalized_candidate = dict(candidate)
         normalized_candidate["entity_type"] = normalized_entity_type
+        normalized_candidate["trait_family"] = str(candidate.get("trait_family", "")).strip().lower() or self._derive_trait_family(
+            str(candidate.get("trait_name", "")).strip()
+        )
+        normalized_candidate["target_entity_type"] = _normalize_store_entity_type(candidate.get("target_entity_type")) or ""
+        normalized_candidate["target_entity_id"] = (
+            _normalize_store_entity_ref(candidate.get("target_entity_id"), normalized_candidate["target_entity_type"]) or ""
+        )
+        normalized_candidate["target_scope"] = str(candidate.get("target_scope", "global")).strip() or "global"
+        normalized_candidate["temporal_scope"] = str(candidate.get("temporal_scope", "session")).strip() or "session"
+        normalized_candidate["decay_policy"] = self._optional_text(candidate.get("decay_policy"))
+        normalized_candidate["decay_anchor_at"] = float(
+            candidate.get("decay_anchor_at", candidate.get("last_validated_at", now)) or now
+        )
+        normalized_candidate["context_ref_id"] = self._optional_text(candidate.get("context_ref_id")) or ""
+        normalized_candidate["expires_at"] = self._coerce_expires_at(
+            candidate.get("expires_at"),
+            trait_family=normalized_candidate["trait_family"],
+            trait_name=str(candidate.get("trait_name", "")).strip(),
+            target_entity_id=normalized_candidate["target_entity_id"],
+            anchor_at=normalized_candidate["decay_anchor_at"],
+        )
 
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """
                 SELECT * FROM tom_trait_assertions
-                WHERE entity_id = ? AND entity_type = ? AND trait_name = ?
+                WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
                 """,
-                (normalized_candidate["entity_id"], normalized_candidate["entity_type"], normalized_candidate["trait_name"]),
+                (
+                    normalized_candidate["entity_id"],
+                    normalized_candidate["entity_type"],
+                    normalized_candidate["trait_name"],
+                    normalized_candidate["target_entity_id"],
+                ),
             ) as cursor:
                 existing = await cursor.fetchone()
 
@@ -742,16 +903,18 @@ class L2CognitionStore:
                 await db.execute(
                     """
                     INSERT INTO tom_trait_assertions(
-                        assertion_id, entity_id, entity_type, trait_name, trait_value,
+                        assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
                         confidence_score, evidence_events, volatility_index, source_domain,
                         inference_depth, validation_state, first_inferred_at, last_validated_at,
-                        expires_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        target_entity_id, target_entity_type, target_scope, temporal_scope,
+                        decay_policy, decay_anchor_at, context_ref_id, expires_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         assertion_id,
                         normalized_candidate["entity_id"],
                         normalized_candidate["entity_type"],
+                        normalized_candidate["trait_family"],
                         normalized_candidate["trait_name"],
                         normalized_candidate["trait_value"],
                         float(normalized_candidate["confidence_score"]),
@@ -762,7 +925,14 @@ class L2CognitionStore:
                         normalized_candidate["validation_state"],
                         float(normalized_candidate["first_inferred_at"]),
                         float(normalized_candidate["last_validated_at"]),
-                        None,
+                        normalized_candidate["target_entity_id"],
+                        normalized_candidate["target_entity_type"],
+                        normalized_candidate["target_scope"],
+                        normalized_candidate["temporal_scope"],
+                        normalized_candidate["decay_policy"],
+                        normalized_candidate["decay_anchor_at"],
+                        normalized_candidate["context_ref_id"],
+                        normalized_candidate["expires_at"],
                         now,
                         now,
                     ),
@@ -801,7 +971,9 @@ class L2CognitionStore:
                 """
                 UPDATE tom_trait_assertions
                 SET trait_value = ?, confidence_score = ?, evidence_events = ?,
-                    validation_state = ?, last_validated_at = ?, updated_at = ?
+                    validation_state = ?, last_validated_at = ?, target_entity_type = ?,
+                    target_scope = ?, temporal_scope = ?, decay_policy = ?, decay_anchor_at = ?,
+                    context_ref_id = ?, expires_at = ?, updated_at = ?
                 WHERE assertion_id = ?
                 """,
                 (
@@ -810,6 +982,13 @@ class L2CognitionStore:
                     json.dumps(evidence, ensure_ascii=False),
                     validation_state,
                     last_validated_at,
+                    normalized_candidate["target_entity_type"],
+                    normalized_candidate["target_scope"],
+                    normalized_candidate["temporal_scope"],
+                    normalized_candidate["decay_policy"],
+                    normalized_candidate["decay_anchor_at"],
+                    normalized_candidate["context_ref_id"],
+                    normalized_candidate["expires_at"],
                     now,
                     str(existing["assertion_id"]),
                 ),
@@ -919,6 +1098,7 @@ class L2CognitionStore:
         entity_id: str,
         entity_type: str,
         assertions: List[Dict[str, Any]],
+        expired_assertions: List[Dict[str, Any]],
         stable_assertions: List[Dict[str, Any]],
         outgoing_relations: List[Dict[str, Any]],
         incoming_relations: List[Dict[str, Any]],
@@ -933,7 +1113,7 @@ class L2CognitionStore:
         public_sentiment_profile: dict[str, Any] = {}
 
         current_stress_level = 0.0
-        stress_assertion = active_by_trait.get("stress_level")
+        stress_assertion = active_by_trait.get("stress_level") or stable_by_trait.get("stress_level")
         if stress_assertion:
             stress_value = str(stress_assertion["trait_value"])
             current_stress_level = 1.0 if stress_value == "high" else 0.2 if stress_value == "low" else 0.5
@@ -987,6 +1167,7 @@ class L2CognitionStore:
         }
         current_context = {
             "active_assertion_count": len(assertions),
+            "expired_assertion_count": len(expired_assertions),
             "stable_assertion_count": len(stable_assertions),
             "relation_count": len(outgoing_relations) + len(incoming_relations),
         }
@@ -1058,6 +1239,59 @@ class L2CognitionStore:
         snapshot = await self.get_tom_snapshot(entity_id=entity_id, entity_type=entity_type)
         assert snapshot is not None
         return snapshot
+
+    def _derive_trait_family(self, trait_name: str) -> str:
+        normalized = trait_name.strip().lower()
+        if normalized == "stress_level":
+            return "stress"
+        if normalized in {"mood", "annoyance", "irritation", "frustration"}:
+            return "mood"
+        if normalized == "engagement":
+            return "engagement"
+        if normalized.startswith("trigger."):
+            return "trigger"
+        if normalized in {"taste_profile", "taste_preference"}:
+            return "taste_profile"
+        if normalized.startswith("preference."):
+            return "preference_profile"
+        return "preference_profile"
+
+    def _optional_text(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def _coerce_expires_at(
+        self,
+        value: Any,
+        *,
+        trait_family: str,
+        trait_name: str,
+        target_entity_id: str,
+        anchor_at: float,
+    ) -> float | None:
+        if value is not None:
+            return float(value)
+        normalized_trait_name = trait_name.strip().lower()
+        if target_entity_id and normalized_trait_name in _MOMENTARY_TRAITS:
+            return anchor_at + 2 * 60 * 60
+        if trait_family == "mood":
+            return anchor_at + 12 * 60 * 60
+        if trait_family == "stress":
+            return anchor_at + 24 * 60 * 60
+        if trait_family == "engagement":
+            return anchor_at + 12 * 60 * 60
+        if trait_family in {"group_atmosphere", "public_sentiment", "relationship_shift"}:
+            return anchor_at + 6 * 60 * 60
+        return None
+
+    def _is_assertion_expired(self, assertion: Dict[str, Any], *, now: float | None = None) -> bool:
+        expires_at = assertion.get("expires_at")
+        if expires_at is None:
+            return False
+        current_time = float(now if now is not None else time.time())
+        return float(expires_at) <= current_time
 
     def _derive_reconcile_state(
         self,
@@ -1271,6 +1505,7 @@ class L2CognitionStore:
             "assertion_id": str(row["assertion_id"]),
             "entity_id": str(row["entity_id"]),
             "entity_type": str(row["entity_type"]),
+            "trait_family": str(row["trait_family"]),
             "trait_name": str(row["trait_name"]),
             "trait_value": str(row["trait_value"]),
             "confidence_score": float(row["confidence_score"]),
@@ -1281,6 +1516,13 @@ class L2CognitionStore:
             "validation_state": str(row["validation_state"]),
             "first_inferred_at": float(row["first_inferred_at"]),
             "last_validated_at": float(row["last_validated_at"]),
+            "target_entity_id": str(row["target_entity_id"] or ""),
+            "target_entity_type": str(row["target_entity_type"] or ""),
+            "target_scope": str(row["target_scope"] or "global"),
+            "temporal_scope": str(row["temporal_scope"] or "session"),
+            "decay_policy": row["decay_policy"],
+            "decay_anchor_at": float(row["decay_anchor_at"]) if row["decay_anchor_at"] else None,
+            "context_ref_id": str(row["context_ref_id"] or ""),
             "expires_at": float(row["expires_at"]) if row["expires_at"] else None,
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),

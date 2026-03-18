@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
@@ -253,6 +255,76 @@ async def test_upsert_assertion_normalizes_unknown_entity_type_to_other(tmp_path
     assertions = await store.list_tom_assertions(entity_id="mystery:thing", limit=10)
 
     assert assertions[0]["entity_type"] == "other"
+
+
+@pytest.mark.asyncio
+async def test_refresh_snapshot_ignores_expired_temporary_assertions(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    now = time.time()
+
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:self",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "annoyance",
+            "trait_value": "high",
+            "confidence_score": 0.3,
+            "evidence_events": ["evt-expired-1"],
+            "volatility_index": 0.9,
+            "source_domain": "user_authored",
+            "inference_depth": "defensive_psychology",
+            "validation_state": "corroborated",
+            "first_inferred_at": now - 7200,
+            "last_validated_at": now - 3600,
+            "target_entity_id": "weather_state:hangzhou-rainy-11c",
+            "target_entity_type": "weather_state",
+            "target_scope": "entity_bound",
+            "temporal_scope": "momentary",
+            "decay_policy": "fast_decay",
+            "decay_anchor_at": now - 7200,
+            "context_ref_id": "weather_state:hangzhou-rainy-11c",
+            "expires_at": now - 60,
+        }
+    )
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:self",
+            "entity_type": "user",
+            "trait_family": "stress",
+            "trait_name": "stress_level",
+            "trait_value": "high",
+            "confidence_score": 0.82,
+            "evidence_events": ["evt-stress-1", "evt-stress-2", "evt-stress-3"],
+            "volatility_index": 0.6,
+            "source_domain": "user_authored",
+            "inference_depth": "defensive_psychology",
+            "validation_state": "stable",
+            "first_inferred_at": now - 172800,
+            "last_validated_at": now,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": "daily",
+            "decay_policy": "time_window",
+            "decay_anchor_at": now,
+            "context_ref_id": "",
+            "expires_at": now + 86400,
+        }
+    )
+
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
+    assertions = await store.list_tom_assertions(entity_id="user:self", entity_type="user")
+
+    assert snapshot is not None
+    assert snapshot["current_mood"] is None
+    assert snapshot["core_traits"]["stress_level"] == "high"
+    assert snapshot["current_context"]["active_assertion_count"] == 1
+    assert snapshot["current_context"]["expired_assertion_count"] == 1
+    assert any(item["trait_name"] == "annoyance" and item["expires_at"] is not None for item in assertions)
 
 
 @pytest.mark.asyncio

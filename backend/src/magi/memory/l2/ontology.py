@@ -26,6 +26,10 @@ ENTITY_TYPE_REGISTRY: frozenset[str] = frozenset(
         "skill",
         "media",
         "topic",
+        "weather_state",
+        "location_state",
+        "time_point",
+        "session_topic",
         "other",
     }
 )
@@ -93,7 +97,7 @@ _PREDICATE_COMPATIBILITY: dict[str, frozenset[str]] = {
     "LIKES": frozenset(ENTITY_TYPE_REGISTRY - {"health_metric", "other"}),
     "DISLIKES": frozenset(ENTITY_TYPE_REGISTRY - {"health_metric", "other"}),
     "INTERESTED_IN": frozenset({"topic", "technology", "concept", "skill", "project", "activity", "media"}),
-    "VISITED": frozenset({"place", "product", "event", "organization"}),
+    "VISITED": frozenset({"place", "product", "event", "organization", "location_state"}),
     "LIVES_IN": frozenset({"place"}),
     "PLANS_TO": frozenset({"activity", "event", "project", "place"}),
     "ATTENDED": frozenset({"activity", "event", "group", "organization"}),

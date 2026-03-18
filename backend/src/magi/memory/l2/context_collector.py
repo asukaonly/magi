@@ -75,16 +75,18 @@ def resolve_direct_context_refs(*, event: MemoryEvent, bundle: ContextBundle) ->
         food_entities = [item for item in bundle.recent_entities if str(item.get("entity_type")) == "food"]
         if food_entities:
             latest_food = food_entities[-1]
-            resolved.append(
-                ResolvedContextRef(
-                    surface="这道菜",
-                    reference_type="canonical_entity",
-                    resolved_ref=str(latest_food["entity_id"]),
-                    resolved_kind="food",
-                    confidence=0.9,
-                    evidence_text=text,
+            resolved_ref = str(latest_food.get("entity_id") or latest_food.get("resolved_entity_id") or "").strip()
+            if resolved_ref:
+                resolved.append(
+                    ResolvedContextRef(
+                        surface="这道菜",
+                        reference_type="canonical_entity",
+                        resolved_ref=resolved_ref,
+                        resolved_kind="food",
+                        confidence=0.9,
+                        evidence_text=text,
+                    )
                 )
-            )
 
     return resolved
 
