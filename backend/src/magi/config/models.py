@@ -192,6 +192,7 @@ class MemorySettings(BaseModel):
     enable_t1_importance: bool = Field(default=True)
     enable_l2_llm_extraction: bool = Field(default=True)
     enable_l3_llm_summary: bool = Field(default=True)
+    l3_temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
     enable_l4_skill_extraction: bool = Field(default=True)
 
     async_embeddings: bool = Field(default=True)
