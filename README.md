@@ -1,7 +1,7 @@
 # Magi
 
 <p align="center">
-  <strong>[ Magi Logo ]</strong>
+  <img src="./docs/assets/brand/magi-mark.svg" alt="Magi" width="96">
 </p>
 
 <p align="center">
