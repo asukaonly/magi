@@ -120,6 +120,8 @@ describe('memory page design', () => {
       </MemoryRouter>
     );
 
+    expect(screen.queryByTestId('memory-page-hero')).not.toBeInTheDocument();
+    expect(screen.getByTestId('memory-page-header')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-layer-grid')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-recent-changes')).toBeInTheDocument();
     expect(screen.getByTestId('memory-overview-signal-strip')).toBeInTheDocument();
@@ -127,26 +129,31 @@ describe('memory page design', () => {
     expect(screen.getByTestId('memory-overview-recommended-layers')).toBeInTheDocument();
   });
 
-  it('renders the workbench page with a richer hero summary above the layer content', () => {
+  it('renders the workbench page as an operational layout without the shared hero shell', () => {
     render(
       <MemoryRouter>
         <MemoryWorkbenchPage />
       </MemoryRouter>
     );
 
-    expect(screen.getByTestId('memory-page-hero')).toBeInTheDocument();
-    expect(screen.getByText('memory.pages.workbench.focusTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-page-hero')).not.toBeInTheDocument();
+    expect(screen.getByTestId('memory-page-header')).toBeInTheDocument();
+    expect(screen.getByTestId('memory-page-filters')).toBeInTheDocument();
+    expect(screen.getByText('memory.pages.workbench.sessionTitle')).toBeInTheDocument();
     expect(screen.getByTestId('l0-tab')).toBeInTheDocument();
   });
 
-  it('renders the events page with a page-level source summary above the event stream', () => {
+  it('renders the events page with source summary and stream access without a hero banner', () => {
     render(
       <MemoryRouter>
         <MemoryEventsPage />
       </MemoryRouter>
     );
 
+    expect(screen.queryByTestId('memory-page-hero')).not.toBeInTheDocument();
+    expect(screen.getByTestId('memory-page-header')).toBeInTheDocument();
+    expect(screen.getByTestId('memory-page-filters')).toBeInTheDocument();
     expect(screen.getByTestId('memory-events-source-summary')).toBeInTheDocument();
-    expect(screen.getByText('memory.pages.events.focusHeadline')).toBeInTheDocument();
+    expect(screen.getByTestId('l1-tab')).toBeInTheDocument();
   });
 });

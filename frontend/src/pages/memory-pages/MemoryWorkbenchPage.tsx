@@ -8,7 +8,6 @@ import { formatTimestamp, useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
-  MemoryHeroStat,
   MemoryTag,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
@@ -37,29 +36,10 @@ export const MemoryWorkbenchPage = () => {
     <MemoryPageFrame
       title={t('memory.nav.workbench')}
       description={t('memory.pages.workbench.subtitle')}
-      eyebrow={t('memory.pages.workbench.eyebrow')}
-      heroStats={(
-        <div className="grid gap-3 sm:grid-cols-3">
-          <MemoryHeroStat label={t('memory.l0.activeSessions')} value={stats.l0.active_sessions} tone="accent" />
-          <MemoryHeroStat label={t('memory.l0.totalGoals')} value={stats.l0.total_goals} />
-          <MemoryHeroStat label={t('memory.l0.totalTactics')} value={stats.l0.total_tactics} />
-        </div>
-      )}
-      heroAside={(
-        <div className="space-y-3">
-          <div className="text-xs font-medium uppercase tracking-[0.18em] text-[#8e705a]">
-            {t('memory.pages.workbench.focusTitle')}
-          </div>
-          <div className="text-lg font-semibold text-[#35261c]">
-            {selectedSessionId || t('memory.pages.workbench.focusEmpty')}
-          </div>
-          <p className="leading-6">{t('memory.pages.workbench.focusBody')}</p>
-        </div>
-      )}
       actions={
         <Button
           variant="outline"
-          className="rounded-2xl border-[#dfc8b5] bg-white/80 hover:bg-white"
+          className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
           onClick={() => void refresh('l0')}
           disabled={loading}
         >

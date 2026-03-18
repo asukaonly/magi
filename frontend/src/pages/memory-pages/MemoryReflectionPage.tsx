@@ -8,7 +8,6 @@ import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
-  MemoryHeroStat,
   MemoryTag,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
@@ -38,7 +37,6 @@ export const MemoryReflectionPage = () => {
     [l3Summaries, query, typeFilter]
   );
 
-  const summaryTypesCount = summaryTypes.length;
   const keyTopics = Array.from(
     filteredSummaries.reduce((set, summary) => {
       summary.key_topics.forEach((topic) => {
@@ -52,27 +50,10 @@ export const MemoryReflectionPage = () => {
     <MemoryPageFrame
       title={t('memory.nav.reflection')}
       description={t('memory.pages.reflection.subtitle')}
-      eyebrow={t('memory.pages.reflection.eyebrow')}
-      heroStats={(
-        <div className="grid gap-3 sm:grid-cols-3">
-          <MemoryHeroStat label={t('memory.l3.summaryCount')} value={stats.l3.summary_count} tone="accent" />
-          <MemoryHeroStat label={t('memory.filters.typeLabel')} value={summaryTypesCount} />
-          <MemoryHeroStat label={t('memory.search')} value={filteredSummaries.length} />
-        </div>
-      )}
-      heroAside={(
-        <div className="space-y-3">
-          <div className="text-xs font-medium uppercase tracking-[0.18em] text-[#8e705a]">
-            {t('memory.pages.reflection.focusTitle')}
-          </div>
-          <div className="text-lg font-semibold text-[#35261c]">{t('memory.pages.reflection.focusHeadline')}</div>
-          <p className="leading-6">{t('memory.pages.reflection.focusBody')}</p>
-        </div>
-      )}
       actions={
         <Button
           variant="outline"
-          className="rounded-2xl border-[#dfc8b5] bg-white/80 hover:bg-white"
+          className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
           onClick={() => void refresh('l3')}
           disabled={loading}
         >

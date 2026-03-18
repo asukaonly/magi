@@ -90,39 +90,18 @@ export const MemoryOverviewPage = () => {
       <MemoryPageFrame
         title={t('memory.nav.overview')}
         description={t('memory.overview.subtitle')}
-        eyebrow={t('memory.overview.eyebrow')}
-        heroStats={(
-          <div
-            data-testid="memory-overview-signal-strip"
-            className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-          >
-            <MemoryHeroStat label={t('memory.l0.activeSessions')} value={stats.l0.active_sessions} tone="accent" />
-            <MemoryHeroStat label={t('memory.l1.totalEvents')} value={stats.l1.event_count} />
-            <MemoryHeroStat label={t('memory.l2.relationCount')} value={stats.l2.relation_count} />
-            <MemoryHeroStat label={t('memory.l4.skillCount')} value={stats.l4.skill_count} />
-          </div>
-        )}
-        heroAside={(
-          <div className="space-y-3">
-            <div className="text-xs font-medium uppercase tracking-[0.18em] text-[#8e705a]">
-              {t('memory.overview.asideLabel')}
-            </div>
-            <div className="text-lg font-semibold text-[#35261c]">{t('memory.overview.asideTitle')}</div>
-            <p className="leading-6">{t('memory.overview.asideBody')}</p>
-          </div>
-        )}
         actions={(
           <>
             <Button
               variant="outline"
-              className="rounded-2xl border-[#dfc8b5] bg-white/80 hover:bg-white"
+              className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
               onClick={() => void refreshAll()}
               disabled={loading}
             >
               {loading ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
               {t('memory.refresh')}
             </Button>
-            <Button className="rounded-2xl" variant="destructive" onClick={handleClearRequest}>
+            <Button className="rounded-xl" variant="destructive" onClick={handleClearRequest}>
               <Trash2 className="mr-2 h-4 w-4" />
               {t('memory.clear')}
             </Button>
@@ -147,7 +126,7 @@ export const MemoryOverviewPage = () => {
                     }
                   }}
                 />
-                <Button className="h-11 rounded-2xl px-5" onClick={() => void handleSearch()} disabled={searching}>
+                <Button className="h-10 rounded-xl px-5" onClick={() => void handleSearch()} disabled={searching}>
                   {searching ? <LoadingSpinner className="h-4 w-4" /> : <Search className="h-4 w-4" />}
                   <span className="ml-2">{t('memory.search')}</span>
                 </Button>
@@ -156,15 +135,17 @@ export const MemoryOverviewPage = () => {
           </div>
         )}
       >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <OverviewMetric label={t('memory.l0.totalGoals')} value={stats.l0.total_goals} />
-          <OverviewMetric label={t('memory.l0.totalEntities')} value={stats.l0.total_entities} />
-          <OverviewMetric label={t('memory.l2.assertionCount')} value={stats.l2.assertion_count} />
-          <OverviewMetric label={t('memory.l3.summaryCount')} value={stats.l3.summary_count} />
-          <OverviewMetric label={t('memory.l4.skillCount')} value={stats.l4.skill_count} />
+        <div
+          data-testid="memory-overview-signal-strip"
+          className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"
+        >
+          <MemoryHeroStat label={t('memory.l0.activeSessions')} value={stats.l0.active_sessions} tone="accent" />
+          <MemoryHeroStat label={t('memory.l1.totalEvents')} value={stats.l1.event_count} />
+          <MemoryHeroStat label={t('memory.l2.relationCount')} value={stats.l2.relation_count} />
+          <MemoryHeroStat label={t('memory.l4.skillCount')} value={stats.l4.skill_count} />
         </div>
 
-        <div className="mt-6 grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+        <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
           <MemoryWorkspacePanel
             testId="memory-overview-search-results"
             title={t('memory.overview.searchResultsTitle')}
@@ -332,15 +313,6 @@ export const MemoryOverviewPage = () => {
     </>
   );
 };
-
-const OverviewMetric = ({ label, value }: { label: string; value: number }) => (
-  <Card className="rounded-[1.5rem] border-[#e7d8cc] bg-[rgba(255,251,247,0.9)] shadow-[0_12px_24px_-24px_rgba(100,72,49,0.4)]">
-    <CardContent className="pt-5">
-      <div className="text-3xl font-semibold text-[#34251c]">{value}</div>
-      <div className="mt-2 text-sm text-[#7c6554]">{label}</div>
-    </CardContent>
-  </Card>
-);
 
 const describeSearchItem = (item: Record<string, unknown> | undefined): string => {
   if (!item) return '';

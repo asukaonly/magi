@@ -8,7 +8,6 @@ import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
-  MemoryHeroStat,
   MemoryTag,
   MemoryWorkspacePanel,
 } from './MemoryPageFrame';
@@ -42,27 +41,10 @@ export const MemorySkillsPage = () => {
     <MemoryPageFrame
       title={t('memory.nav.skills')}
       description={t('memory.pages.skills.subtitle')}
-      eyebrow={t('memory.pages.skills.eyebrow')}
-      heroStats={(
-        <div className="grid gap-3 sm:grid-cols-3">
-          <MemoryHeroStat label={t('memory.l4.skillCount')} value={stats.l4.skill_count} tone="accent" />
-          <MemoryHeroStat label={t('memory.l4.openBreakers')} value={stats.l4.open_circuit_breakers} />
-          <MemoryHeroStat label={t('memory.l4.highSuccess')} value={highSuccessCount} />
-        </div>
-      )}
-      heroAside={(
-        <div className="space-y-3">
-          <div className="text-xs font-medium uppercase tracking-[0.18em] text-[#8e705a]">
-            {t('memory.pages.skills.focusTitle')}
-          </div>
-          <div className="text-lg font-semibold text-[#35261c]">{t('memory.pages.skills.focusHeadline')}</div>
-          <p className="leading-6">{t('memory.pages.skills.focusBody')}</p>
-        </div>
-      )}
       actions={
         <Button
           variant="outline"
-          className="rounded-2xl border-[#dfc8b5] bg-white/80 hover:bg-white"
+          className="rounded-xl border-[#dfd4c9] bg-white hover:bg-[#faf6f1]"
           onClick={() => void refresh('l4')}
           disabled={loading}
         >
