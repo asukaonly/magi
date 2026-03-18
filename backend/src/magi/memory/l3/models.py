@@ -62,3 +62,11 @@ class L3Candidate:
     def __post_init__(self) -> None:
         if self.summary_type is None:
             self.summary_type = "insight" if self.summary_category == "task_reflection" else "temporal"
+
+
+@dataclass(slots=True)
+class ValidationDecision:
+    """Result of evaluating an L3 candidate for persistence."""
+
+    action: Literal["reject", "route_to_l4", "merge_existing", "accept"]
+    reason: str
