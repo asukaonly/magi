@@ -47,16 +47,16 @@
   },
   "timeline": {
     "title": "Timeline",
-    "subtitle": "A first-pass, source-aware timeline of the user's observable activity, with inline evidence and manual journal entries.",
+    "subtitle": "Browse memory over time, mixing detailed events, time-window summaries, and notes in one view.",
     "loading": "Loading timeline...",
-    "shellPlaceholder": "The timeline workspace is ready in the shell. The full feed and journal composer land in the next implementation step.",
+    "shellPlaceholder": "The timeline view is wired into the shell. It will keep getting better as memory summaries and time-window projections expand.",
     "hero": {
-      "eyebrow": "Personal knowledge surface"
+      "eyebrow": "Memory over time"
     },
     "actions": {
       "refresh": "Refresh timeline",
-      "addEntry": "Add entry",
-      "closeEntry": "Close entry"
+      "addEntry": "Add note",
+      "closeEntry": "Close note"
     },
     "filters": {
       "source": "Source",
@@ -93,38 +93,38 @@
       "noDerivedEvidence": "No derived relationship evidence yet.",
       "unknownEntity": "Unknown entity",
       "evidenceCount": "{{count}} evidence link",
-      "emptyTitle": "No timeline events yet",
-      "emptyBody": "Connect a source or create a manual entry to start building the timeline."
+      "emptyTitle": "Nothing on the timeline yet",
+      "emptyBody": "Once Magi captures activity or you add a note, your memory timeline will start to take shape."
     },
     "composer": {
-      "titleCard": "Add a manual entry",
-      "subtitle": "Write a quick note and optionally attach image references so it enters the same timeline pipeline.",
+      "titleCard": "Add a memory note",
+      "subtitle": "Write a quick note and optionally attach image references. It will be saved into memory and appear on the timeline.",
       "title": "Title",
-      "titlePlaceholder": "Name the moment",
+      "titlePlaceholder": "Name this memory",
       "summary": "Summary",
-      "summaryPlaceholder": "Short summary for the feed card",
-      "text": "Entry",
-      "textPlaceholder": "Describe what happened, what mattered, and any context worth remembering.",
+      "summaryPlaceholder": "Short summary for the timeline card",
+      "text": "Note",
+      "textPlaceholder": "Capture what happened, why it mattered, and any context worth remembering.",
       "imageRef": "Image reference",
       "imagePlaceholder": "/absolute/path/to/photo.png",
       "addImage": "Attach image",
       "removeImage": "Remove image",
-      "submit": "Save to timeline",
-      "created": "Manual entry added to timeline"
+      "submit": "Save note",
+      "created": "Memory note added"
     },
     "retention": {
       "retainRaw": "Raw retained",
       "analyzeOnly": "Analyze only"
     },
     "summary": {
-      "title": "Signal summary",
+      "title": "Timeline overview",
       "totalEvents": "Total events",
       "derivedEdges": "Derived edges",
       "sourceMix": "Source mix",
       "noSources": "No source data yet",
-      "feedState": "Current feed view",
-      "showingAll": "Showing the full timeline feed.",
-      "showingFiltered": "Showing {{count}} filtered events."
+      "feedState": "Current view",
+      "showingAll": "Showing your full memory timeline.",
+      "showingFiltered": "Showing {{count}} items in this view."
     },
     "errors": {
       "loadFailed": "Failed to load timeline: {{message}}",
@@ -480,17 +480,17 @@
     },
     "timeline": {
       "title": "Timeline & Sources",
-      "desc": "Control which sources feed the timeline and how much raw context Magi keeps for each one.",
+      "desc": "Choose which sources can contribute to the timeline and how much raw context Magi keeps from each one.",
       "nav": {
         "overview": "Overview"
       },
       "overview": {
-        "title": "Timeline runtime",
-        "desc": "Set global ingestion behavior first, then tune each source card below."
+        "title": "Timeline sources",
+        "desc": "Set the global capture posture first, then tune each source only when needed."
       },
       "workspace": {
-        "eyebrow": "Timeline control room",
-        "desc": "Keep the overall ingestion posture visible at a glance, then drill into each sensor only when you need to adjust source-specific behavior.",
+        "eyebrow": "Memory timeline controls",
+        "desc": "See which sources are feeding the timeline at a glance, then drill into source-specific behavior only when you need to adjust it.",
         "metrics": {
           "total": "Total sources",
           "active": "Active now",
@@ -522,11 +522,11 @@
       },
       "fields": {
         "timelineEnabled": "Timeline enabled",
-        "timelineEnabledHint": "Pause timeline ingestion without deleting existing facts.",
+        "timelineEnabledHint": "Pause new timeline updates without deleting existing memories.",
         "edgeOverride": "Expert edge override",
         "edgeOverrideHint": "Allow expert-mode users to edit source edge whitelists directly.",
         "enabled": "Source enabled",
-        "enabledHint": "Whether this source should keep producing new timeline events.",
+        "enabledHint": "Whether this source should keep contributing new memories to the timeline.",
         "status": "Source status",
         "retentionMode": "Default retention mode",
         "syncInterval": "Sync interval (minutes)",
@@ -541,7 +541,7 @@
       },
       "sourceDesc": {
         "chat": "Use chat turns as direct evidence for preferences, relationships, and recurring concerns.",
-        "manual_journal": "Let the user append timeline events with text and image references.",
+        "manual_journal": "Let the user add notes and image references that are saved to memory and shown on the timeline.",
         "browser_history": "Analyze browsing behavior while controlling whether page bodies are fetched.",
         "photo_library": "Reference a photo library or exported folder and decide how much raw media is retained.",
         "apple_health": "Sync your health data from Apple Health app, including steps, sleep, heart rate, etc.",

@@ -47,16 +47,16 @@
   },
   "timeline": {
     "title": "时间线",
-    "subtitle": "用统一的信息流承接用户可观察行为，支持来源过滤、证据展开和手动补录。",
+    "subtitle": "按时间浏览记忆，把具体事件、阶段摘要和手动笔记放到同一个视图里。",
     "loading": "时间线加载中...",
-    "shellPlaceholder": "时间线页面入口已经接入主壳层，完整的信息流和日记录入器会在下一步实现。",
+    "shellPlaceholder": "时间线视图已经接入主壳层，后续会继续补齐更完整的记忆摘要和时间窗口投影。",
     "hero": {
-      "eyebrow": "个人知识视图"
+      "eyebrow": "按时间查看记忆"
     },
     "actions": {
       "refresh": "刷新时间线",
-      "addEntry": "新增记录",
-      "closeEntry": "收起记录"
+      "addEntry": "新增笔记",
+      "closeEntry": "收起笔记"
     },
     "filters": {
       "source": "来源",
@@ -93,38 +93,38 @@
       "noDerivedEvidence": "暂未提取到衍生关系证据。",
       "unknownEntity": "未知实体",
       "evidenceCount": "{{count}} 条证据关联",
-      "emptyTitle": "还没有时间线事件",
-      "emptyBody": "连接来源或新增一条手动记录后，这里会开始形成时间线。"
+      "emptyTitle": "时间线上还没有内容",
+      "emptyBody": "当 Magi 开始记录活动，或你补充一条笔记后，这里会逐渐形成你的记忆时间线。"
     },
     "composer": {
-      "titleCard": "新增手动记录",
-      "subtitle": "补充一段文字，并可附加图片引用，让它进入同一条时间线处理链路。",
+      "titleCard": "补充一条记忆笔记",
+      "subtitle": "写下一段内容，也可以附上图片引用。它会先保存到记忆里，再出现在时间线中。",
       "title": "标题",
-      "titlePlaceholder": "给这个时刻起个标题",
+      "titlePlaceholder": "给这段记忆起个标题",
       "summary": "摘要",
-      "summaryPlaceholder": "用于信息流卡片的简短摘要",
-      "text": "正文",
+      "summaryPlaceholder": "用于时间线卡片的简短摘要",
+      "text": "笔记",
       "textPlaceholder": "记录发生了什么、为什么重要，以及值得记住的上下文。",
       "imageRef": "图片引用",
       "imagePlaceholder": "/absolute/path/to/photo.png",
       "addImage": "添加图片",
       "removeImage": "移除图片",
-      "submit": "保存到时间线",
-      "created": "手动记录已加入时间线"
+      "submit": "保存笔记",
+      "created": "记忆笔记已保存"
     },
     "retention": {
       "retainRaw": "保留原始数据",
       "analyzeOnly": "仅分析归纳"
     },
     "summary": {
-      "title": "信号概览",
+      "title": "时间概览",
       "totalEvents": "事件总数",
       "derivedEdges": "衍生关系边",
       "sourceMix": "来源分布",
       "noSources": "暂无来源数据",
-      "feedState": "当前信息流状态",
-      "showingAll": "当前展示完整时间线。",
-      "showingFiltered": "当前展示 {{count}} 条筛选后的事件。"
+      "feedState": "当前视图",
+      "showingAll": "当前展示完整的记忆时间线。",
+      "showingFiltered": "当前展示此视图中的 {{count}} 个条目。"
     },
     "errors": {
       "loadFailed": "时间线加载失败：{{message}}",
@@ -480,17 +480,17 @@
     },
     "timeline": {
       "title": "时间线与来源",
-      "desc": "控制哪些来源参与时间线，以及 Magi 为每类来源保留多少原始上下文。",
+      "desc": "控制哪些来源可以参与时间线展示，以及 Magi 为每类来源保留多少原始上下文。",
       "nav": {
         "overview": "总览"
       },
       "overview": {
-        "title": "时间线运行配置",
-        "desc": "先确定全局接入行为，再逐个调整下方的来源卡片。"
+        "title": "时间线来源",
+        "desc": "先确定全局采集策略，再按需调整单个来源。"
       },
       "workspace": {
-        "eyebrow": "时间线控制台",
-        "desc": "先在总览里把握整体接入状态，再只在需要时进入具体来源页面，不再让所有传感器字段挤在同一张长页面里。",
+        "eyebrow": "记忆时间线控制",
+        "desc": "先看清哪些来源正在为时间线提供内容，再在需要时调整具体来源的行为。",
         "metrics": {
           "total": "来源总数",
           "active": "当前启用",
@@ -522,11 +522,11 @@
       },
       "fields": {
         "timelineEnabled": "启用时间线",
-        "timelineEnabledHint": "暂停新的时间线接入，但不删除已存在的事实。",
+        "timelineEnabledHint": "暂停新的时间线更新，但不删除已有记忆。",
         "edgeOverride": "专家边关系覆写",
         "edgeOverrideHint": "允许专家模式直接编辑来源的边白名单。",
         "enabled": "来源启用",
-        "enabledHint": "控制该来源是否继续产生新的时间线事件。",
+        "enabledHint": "控制该来源是否继续为时间线提供新的记忆内容。",
         "status": "来源状态",
         "retentionMode": "默认留存模式",
         "syncInterval": "同步间隔（分钟）",
@@ -541,7 +541,7 @@
       },
       "sourceDesc": {
         "chat": "把对话轮次作为偏好、关系和持续关注点的直接证据。",
-        "manual_journal": "允许用户主动补录文字和图片引用，进入同一条时间线链路。",
+        "manual_journal": "允许用户补充文字和图片引用，保存为记忆后展示在时间线中。",
         "browser_history": "分析浏览行为，并控制是否继续抓取页面正文。",
         "photo_library": "引用照片库或导出目录，并决定保留多少原始媒体信息。",
         "apple_health": "从 Apple 健康应用同步您的健康数据，包括步数、睡眠、心率等。",
