@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
@@ -12,6 +13,8 @@ from typing import Any, Optional
 from ...core.logger import get_logger
 from ..event_contracts import MemoryEvent
 from ..l1.event_store import L1EventStore
+from .context_bundle import ContextBundle, ContextEntity
+from .context_collector import collect_context_bundle, resolve_direct_context_refs
 from .store import L2CognitionStore
 from .evidence_classifier import classify_event_evidence
 from .evidence_policy import resolve_l2_policy
@@ -343,6 +346,8 @@ class L2Pipeline:
         )
         extraction_profile = resolve_extraction_profile(stored_event)
         self_entity_id = self._resolve_self_entity_id(stored_event)
+        context_bundle = await self._collect_context_bundle(stored_event, context_texts=context_texts)
+        direct_context_refs = resolve_direct_context_refs(event=stored_event, bundle=context_bundle)
         logger.info(
             "L2 unified extraction stage started",
             event_id=stored_event.event_id,
@@ -350,6 +355,8 @@ class L2Pipeline:
             context_count=len(context_texts),
             structured_entity_hint_count=len(stored_event.structured_entity_hints),
             structured_graph_hint_count=len(stored_event.structured_graph_hints),
+            direct_context_ref_count=len(direct_context_refs),
+            live_context_candidate_count=len(context_bundle.live_context_entities),
         )
         unified_result = await self._llm_service.extract_unified_candidates(
             event_window={
@@ -362,6 +369,12 @@ class L2Pipeline:
                 "entity_ref": self_entity_id,
                 "entity_type": "user" if self_entity_id else None,
             },
+            context_bundle=context_bundle,
+        )
+        resolved_context_refs = self._merge_resolved_context_refs(
+            direct_refs=direct_context_refs,
+            llm_refs=list(unified_result.get("resolved_context_refs", [])),
+            context_bundle=context_bundle,
         )
 
         raw_mentions = (
@@ -391,6 +404,7 @@ class L2Pipeline:
             profile=extraction_profile,
             policy=policy,
             resolved_mentions=resolved_mentions,
+            resolved_context_refs=resolved_context_refs,
             raw_candidates=(
                 list(stored_event.structured_graph_hints)
                 if stored_event.structured_graph_hints
@@ -414,6 +428,7 @@ class L2Pipeline:
             profile=extraction_profile,
             policy=policy,
             graph_candidates=graph_candidates,
+            resolved_context_refs=resolved_context_refs,
             raw_candidates=list(unified_result.get("assertion_candidates", [])),
         )
         if policy.allow_assertion_write and not assertion_candidates and policy.assertion_scope == "full":
@@ -425,6 +440,7 @@ class L2Pipeline:
             graph_candidate_count=len(graph_candidates),
             assertion_candidate_count=len(assertion_candidates),
             focal_entity_count=len(focal_entities),
+            resolved_context_ref_count=len(resolved_context_refs),
         )
         logger.info(
             "L2 unified candidate validation completed",
@@ -479,6 +495,7 @@ class L2Pipeline:
             "evidence_class": classification.evidence_class,
             "profile_id": extraction_profile.profile_id,
             "mention_count": len(raw_mentions),
+            "resolved_context_ref_count": len(resolved_context_refs),
             "graph_candidate_count": len(graph_candidates),
             "assertion_candidate_count": len(assertion_candidates),
             "rejected_graph_candidate_count": rejected_graph_candidate_count,
@@ -692,6 +709,7 @@ class L2Pipeline:
         profile: ExtractionProfile,
         policy: Any,
         resolved_mentions: list[dict[str, Any]],
+        resolved_context_refs: list[dict[str, Any]],
         raw_candidates: list[dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], int]:
         if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
@@ -729,6 +747,7 @@ class L2Pipeline:
                 raw_object_ref=raw_candidate.get("object_ref"),
                 object_type=object_type,
                 resolved_mentions=resolved_mentions,
+                resolved_context_refs=resolved_context_refs,
             )
             if not object_id:
                 rejected_count += 1
@@ -756,6 +775,7 @@ class L2Pipeline:
         profile: ExtractionProfile,
         policy: Any,
         graph_candidates: list[dict[str, Any]],
+        resolved_context_refs: list[dict[str, Any]],
         raw_candidates: list[dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], int]:
         if not policy.allow_assertion_write or not profile.allow_assertion:
@@ -788,7 +808,7 @@ class L2Pipeline:
             if is_leaf_fact_duplicate(duplicate_check_candidates, raw_candidate):
                 rejected_count += 1
                 continue
-            prepared.append(self._normalize_assertion_candidate(event, raw_candidate))
+            prepared.append(self._normalize_assertion_candidate(event, raw_candidate, resolved_context_refs))
         return prepared, rejected_count
 
     def _resolve_subject_id(self, *, event: MemoryEvent, raw_candidate: dict[str, Any]) -> str | None:
@@ -805,6 +825,7 @@ class L2Pipeline:
         raw_object_ref: Any,
         object_type: str,
         resolved_mentions: list[dict[str, Any]],
+        resolved_context_refs: list[dict[str, Any]],
     ) -> str | None:
         object_ref = self._non_empty_text(raw_object_ref)
         if not object_ref:
@@ -812,6 +833,11 @@ class L2Pipeline:
         if ":" in object_ref:
             return object_ref
         object_ref_casefold = object_ref.casefold()
+        for context_ref in resolved_context_refs:
+            surface = self._non_empty_text(context_ref.get("surface"))
+            resolved_ref = self._non_empty_text(context_ref.get("resolved_ref"))
+            if surface and resolved_ref and surface.casefold() == object_ref_casefold:
+                return resolved_ref
         for mention in resolved_mentions:
             surfaces = {
                 str(mention.get("mention_text", "")).strip().casefold(),
@@ -826,6 +852,7 @@ class L2Pipeline:
         self,
         event: MemoryEvent,
         candidate: dict[str, Any],
+        resolved_context_refs: list[dict[str, Any]],
     ) -> dict[str, Any]:
         trait_value = candidate.get("trait_value")
         if isinstance(trait_value, (dict, list)):
@@ -836,9 +863,19 @@ class L2Pipeline:
         entity_ref = self._non_empty_text(candidate.get("entity_ref"))
         if entity_ref and entity_ref.startswith("user:") and self_entity_id:
             entity_ref = self_entity_id
+        target_entity_id, target_entity_type, context_ref_id = self._resolve_assertion_target(
+            candidate=candidate,
+            resolved_context_refs=resolved_context_refs,
+        )
+        temporal_scope, decay_policy, expires_at = self._derive_assertion_decay(
+            event=event,
+            candidate=candidate,
+            target_entity_id=target_entity_id,
+        )
         return {
             "entity_id": entity_ref or self_entity_id or "",
             "entity_type": str(candidate.get("entity_type", "user")),
+            "trait_family": str(candidate.get("trait_family", "")).strip().lower(),
             "trait_name": str(candidate.get("trait_name", "")).strip(),
             "trait_value": str(trait_value),
             "confidence_score": float(candidate.get("confidence", 0.0) or 0.0),
@@ -849,7 +886,154 @@ class L2Pipeline:
             "validation_state": str(candidate.get("validation_state", "tentative")),
             "first_inferred_at": event.timestamp,
             "last_validated_at": event.timestamp,
+            "target_entity_id": target_entity_id or "",
+            "target_entity_type": target_entity_type or "",
+            "target_scope": "entity_bound" if target_entity_id else "global",
+            "temporal_scope": temporal_scope,
+            "decay_policy": decay_policy,
+            "decay_anchor_at": event.timestamp,
+            "context_ref_id": context_ref_id or "",
+            "expires_at": expires_at,
         }
+
+    async def _collect_context_bundle(self, event: MemoryEvent, *, context_texts: list[str]) -> ContextBundle:
+        recent_entities: list[dict[str, Any]] = []
+        if self._entity_catalog is not None:
+            recent_entities = await self._entity_catalog.list_mentions(limit=20)
+        return collect_context_bundle(
+            event=event,
+            recent_messages=[{"text": text} for text in context_texts if text],
+            recent_entities=recent_entities,
+            live_context_entities=self._parse_live_context_entities(event),
+            source_event_ids=self._load_source_event_ids(event),
+        )
+
+    def _merge_resolved_context_refs(
+        self,
+        *,
+        direct_refs: list[Any],
+        llm_refs: list[dict[str, Any]],
+        context_bundle: ContextBundle,
+    ) -> list[dict[str, Any]]:
+        allowed_refs = {
+            item.context_id: item.kind
+            for item in context_bundle.live_context_entities
+            if item.expires_at is None or item.expires_at > time.time()
+        }
+        merged: dict[str, dict[str, Any]] = {}
+        for ref in direct_refs:
+            payload = ref.to_dict() if hasattr(ref, "to_dict") else dict(ref)
+            merged[str(payload.get("surface", ""))] = payload
+        for ref in llm_refs:
+            if not isinstance(ref, dict):
+                continue
+            surface = self._non_empty_text(ref.get("surface"))
+            if not surface:
+                continue
+            resolved_ref = self._non_empty_text(ref.get("resolved_ref"))
+            reference_type = self._non_empty_text(ref.get("reference_type")) or "unresolved"
+            if reference_type == "context_entity":
+                if not resolved_ref or resolved_ref not in allowed_refs:
+                    continue
+            merged[surface] = dict(ref)
+        return list(merged.values())
+
+    def _resolve_assertion_target(
+        self,
+        *,
+        candidate: dict[str, Any],
+        resolved_context_refs: list[dict[str, Any]],
+    ) -> tuple[str | None, str | None, str | None]:
+        target_ref = self._non_empty_text(candidate.get("target_ref"))
+        explicit_target_entity_id = self._non_empty_text(candidate.get("target_entity_id"))
+        explicit_target_entity_type = self._normalize_entity_type(candidate.get("target_entity_type"))
+        if explicit_target_entity_id:
+            return explicit_target_entity_id, explicit_target_entity_type, explicit_target_entity_id
+        if not target_ref:
+            return None, None, None
+        target_ref_casefold = target_ref.casefold()
+        for context_ref in resolved_context_refs:
+            surface = self._non_empty_text(context_ref.get("surface"))
+            resolved_ref = self._non_empty_text(context_ref.get("resolved_ref"))
+            if surface and resolved_ref and surface.casefold() == target_ref_casefold:
+                kind = self._normalize_entity_type(context_ref.get("resolved_kind")) or self._normalize_entity_type(
+                    resolved_ref.split(":", 1)[0]
+                )
+                return resolved_ref, kind, resolved_ref
+        return None, None, None
+
+    def _derive_assertion_decay(
+        self,
+        *,
+        event: MemoryEvent,
+        candidate: dict[str, Any],
+        target_entity_id: str | None,
+    ) -> tuple[str, str, float | None]:
+        temporal_scope = self._non_empty_text(candidate.get("temporal_scope"))
+        decay_policy = self._non_empty_text(candidate.get("decay_policy"))
+        expires_at = candidate.get("expires_at")
+        if temporal_scope and decay_policy:
+            return temporal_scope, decay_policy, float(expires_at) if expires_at is not None else None
+
+        trait_family = str(candidate.get("trait_family", "")).strip().lower()
+        trait_name = str(candidate.get("trait_name", "")).strip().lower()
+        if target_entity_id and trait_name in {"annoyance", "irritation", "frustration"}:
+            return "momentary", "fast_decay", event.timestamp + 2 * 60 * 60
+        if trait_family == "mood":
+            return "session", "session_decay", event.timestamp + 12 * 60 * 60
+        if trait_family == "stress":
+            return "daily", "time_window", event.timestamp + 24 * 60 * 60
+        if trait_family == "engagement":
+            return "session", "session_decay", event.timestamp + 12 * 60 * 60
+        if trait_family in {"group_atmosphere", "public_sentiment", "relationship_shift"}:
+            return "session", "session_decay", event.timestamp + 6 * 60 * 60
+        return "stable", "evidence_only", None
+
+    def _parse_live_context_entities(self, event: MemoryEvent) -> list[ContextEntity]:
+        metadata = self._parse_json_object(event.metadata)
+        payload = self._parse_json_object(event.structured_payload)
+        raw_entities = metadata.get("live_context_entities")
+        if not isinstance(raw_entities, list):
+            raw_entities = payload.get("live_context_entities")
+        entities: list[ContextEntity] = []
+        for item in raw_entities if isinstance(raw_entities, list) else []:
+            if not isinstance(item, dict):
+                continue
+            context_id = self._non_empty_text(item.get("context_id"))
+            kind = self._normalize_entity_type(item.get("kind"))
+            summary = self._non_empty_text(item.get("summary"))
+            if not context_id or not kind or not summary:
+                continue
+            entities.append(
+                ContextEntity(
+                    context_id=context_id,
+                    kind=kind,
+                    summary=summary,
+                    payload=item.get("payload", {}) if isinstance(item.get("payload"), dict) else {},
+                    source_event_ids=[str(value) for value in item.get("source_event_ids", []) if str(value).strip()],
+                    created_at=float(item.get("created_at", event.timestamp) or event.timestamp),
+                    expires_at=float(item["expires_at"]) if item.get("expires_at") is not None else None,
+                )
+            )
+        return entities
+
+    def _load_source_event_ids(self, event: MemoryEvent) -> list[str]:
+        metadata = self._parse_json_object(event.metadata)
+        values = metadata.get("source_event_ids")
+        if isinstance(values, list):
+            return [str(value) for value in values if str(value).strip()]
+        return []
+
+    def _parse_json_object(self, raw: Any) -> dict[str, Any]:
+        if isinstance(raw, dict):
+            return raw
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(str(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     def _collect_touched_entities(
         self,

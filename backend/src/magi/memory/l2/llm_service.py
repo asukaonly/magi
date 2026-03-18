@@ -8,6 +8,7 @@ import time
 from typing import Any, Optional
 
 from ...llm import LLMScenario, ScenarioLLMPool
+from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
 from .prompts import (
     CONTRADICTION_HINT_SYSTEM_PROMPT,
@@ -42,11 +43,13 @@ class L2LLMService:
         event_window: dict[str, Any],
         profile: ExtractionProfile,
         focal_subject: dict[str, Any],
+        context_bundle: ContextBundle | None = None,
     ) -> str:
         return render_unified_extraction_prompt(
             event_window=event_window,
             profile=profile,
             focal_subject=focal_subject,
+            context_bundle=context_bundle,
         )
 
     async def extract_unified_candidates(
@@ -55,6 +58,7 @@ class L2LLMService:
         event_window: dict[str, Any],
         profile: ExtractionProfile,
         focal_subject: dict[str, Any],
+        context_bundle: ContextBundle | None = None,
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
         event_ids = event_window.get("event_ids") if isinstance(event_window.get("event_ids"), list) else []
@@ -77,14 +81,21 @@ class L2LLMService:
                 event_window=event_window,
                 profile=profile,
                 focal_subject=focal_subject,
+                context_bundle=context_bundle,
             ),
         )
         mentions = payload.get("mentions")
+        resolved_context_refs = payload.get("resolved_context_refs")
         graph_candidates = payload.get("graph_candidates")
         assertion_candidates = payload.get("assertion_candidates")
         diagnostics = payload.get("diagnostics")
 
         normalized_mentions = [item for item in mentions if isinstance(item, dict)] if isinstance(mentions, list) else []
+        normalized_resolved_context_refs = (
+            [item for item in resolved_context_refs if isinstance(item, dict)]
+            if isinstance(resolved_context_refs, list)
+            else []
+        )
         normalized_graph_candidates = (
             [item for item in graph_candidates if isinstance(item, dict)] if isinstance(graph_candidates, list) else []
         )
@@ -108,6 +119,7 @@ class L2LLMService:
 
         result = {
             "mentions": normalized_mentions,
+            "resolved_context_refs": normalized_resolved_context_refs,
             "graph_candidates": normalized_graph_candidates,
             "assertion_candidates": normalized_assertions,
             "diagnostics": normalized_diagnostics,
@@ -120,6 +132,7 @@ class L2LLMService:
                 "event_ids": event_ids,
                 "profile_id": profile.profile_id,
                 "mention_count": len(normalized_mentions),
+                "resolved_context_ref_count": len(normalized_resolved_context_refs),
                 "graph_candidate_count": len(normalized_graph_candidates),
                 "assertion_candidate_count": len(normalized_assertions),
             },
