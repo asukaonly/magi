@@ -139,9 +139,48 @@ def test_unified_extraction_logs_timing():
         )
 
     assert result["diagnostics"] == {"entity_status": "found"}
-    mock_info.assert_called_once()
-    assert mock_info.call_args.args[0] == "L2 unified extraction completed"
-    extras = mock_info.call_args.kwargs["extra"]
+    assert [call.args[0] for call in mock_info.call_args_list] == [
+        "L2 unified extraction started",
+        "L2 unified extraction completed",
+    ]
+    extras = mock_info.call_args_list[1].kwargs["extra"]
     assert extras["profile_id"] == "chat.user_message"
     assert extras["mention_count"] == 1
     assert extras["duration_ms"] >= 0.0
+
+
+def test_unified_extraction_disables_thinking_and_logs_started():
+    from magi.memory.l2_extraction_profiles import ExtractionProfile
+    from magi.memory.l2_llm_service import L2LLMService
+
+    response = json.dumps(
+        {
+            "mentions": [],
+            "graph_candidates": [],
+            "assertion_candidates": [],
+            "diagnostics": {"entity_status": "none"},
+        }
+    )
+    adapter = _FakeAdapter(response)
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    with patch("magi.memory.l2_llm_service.logger.info") as mock_info:
+        __import__("asyncio").run(
+            service.extract_unified_candidates(
+                event_window={"event_ids": ["evt-1"], "texts": ["hello"]},
+                profile=ExtractionProfile(profile_id="chat.user_message"),
+                focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+            )
+        )
+
+    assert adapter.calls[0]["disable_thinking"] is True
+    assert [call.args[0] for call in mock_info.call_args_list] == [
+        "L2 unified extraction started",
+        "L2 unified extraction completed",
+    ]
+    started_extra = mock_info.call_args_list[0].kwargs["extra"]
+    completed_extra = mock_info.call_args_list[1].kwargs["extra"]
+    assert started_extra["event_ids"] == ["evt-1"]
+    assert started_extra["profile_id"] == "chat.user_message"
+    assert completed_extra["event_ids"] == ["evt-1"]
+    assert completed_extra["profile_id"] == "chat.user_message"

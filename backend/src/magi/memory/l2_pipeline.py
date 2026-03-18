@@ -343,6 +343,14 @@ class L2Pipeline:
         )
         extraction_profile = resolve_extraction_profile(stored_event)
         self_entity_id = self._resolve_self_entity_id(stored_event)
+        logger.info(
+            "L2 unified extraction stage started",
+            event_id=stored_event.event_id,
+            profile_id=extraction_profile.profile_id,
+            context_count=len(context_texts),
+            structured_entity_hint_count=len(stored_event.structured_entity_hints),
+            structured_graph_hint_count=len(stored_event.structured_graph_hints),
+        )
         unified_result = await self._llm_service.extract_unified_candidates(
             event_window={
                 "event_ids": [stored_event.event_id],
@@ -418,6 +426,16 @@ class L2Pipeline:
             assertion_candidate_count=len(assertion_candidates),
             focal_entity_count=len(focal_entities),
         )
+        logger.info(
+            "L2 unified candidate validation completed",
+            event_id=stored_event.event_id,
+            profile_id=extraction_profile.profile_id,
+            mention_count=len(raw_mentions),
+            graph_candidate_count=len(graph_candidates),
+            assertion_candidate_count=len(assertion_candidates),
+            rejected_graph_candidate_count=rejected_graph_candidate_count,
+            rejected_assertion_candidate_count=rejected_assertion_candidate_count,
+        )
 
         contradiction_hints = []
         if policy.count_as_new_evidence and (graph_candidates or assertion_candidates):
@@ -443,6 +461,15 @@ class L2Pipeline:
 
         for hint in contradiction_hints:
             await self._cognition_store.apply_contradiction_hint(hint)
+
+        logger.info(
+            "L2 persistence completed",
+            event_id=stored_event.event_id,
+            profile_id=extraction_profile.profile_id,
+            relation_count=relation_count,
+            assertion_count=assertion_count,
+            contradiction_hint_count=len(contradiction_hints),
+        )
 
         return {
             "relation_count": relation_count,

@@ -1294,6 +1294,9 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
 
             messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2_pipeline"]
             assert any("L2 extract completed" in message for message in messages)
+            assert any("L2 unified extraction stage started" in message for message in messages)
+            assert any("L2 unified candidate validation completed" in message for message in messages)
+            assert any("L2 persistence completed" in message for message in messages)
             assert any("timeline.chrome_history" in message for message in messages)
             assert any("rejected_graph_candidate_count" in message for message in messages)
             assert any("rejected_assertion_candidate_count" in message for message in messages)

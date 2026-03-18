@@ -57,6 +57,20 @@ class L2LLMService:
         focal_subject: dict[str, Any],
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
+        event_ids = event_window.get("event_ids") if isinstance(event_window.get("event_ids"), list) else []
+        logger.info(
+            "L2 unified extraction started",
+            extra={
+                "event_ids": event_ids,
+                "profile_id": profile.profile_id,
+                "text_count": len(event_window.get("texts", [])) if isinstance(event_window.get("texts"), list) else 0,
+                "context_count": (
+                    len(event_window.get("context_texts", []))
+                    if isinstance(event_window.get("context_texts"), list)
+                    else 0
+                ),
+            },
+        )
         payload = await self._generate_json(
             system_prompt=UNIFIED_EXTRACTION_SYSTEM_PROMPT,
             prompt=self.render_unified_extraction_prompt(
@@ -103,6 +117,7 @@ class L2LLMService:
             "L2 unified extraction completed",
             extra={
                 "duration_ms": duration_ms,
+                "event_ids": event_ids,
                 "profile_id": profile.profile_id,
                 "mention_count": len(normalized_mentions),
                 "graph_candidate_count": len(normalized_graph_candidates),
@@ -225,6 +240,7 @@ class L2LLMService:
                 system_prompt=system_prompt,
                 temperature=0.0,
                 json_mode=True,
+                disable_thinking=True,
             )
         except Exception as exc:
             logger.debug("L2 LLM generation failed: %s", exc)
