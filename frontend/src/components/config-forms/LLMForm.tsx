@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -329,6 +329,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   >({});
   const [pendingEmbeddingDimensionChange, setPendingEmbeddingDimensionChange] =
     useState<PendingEmbeddingDimensionChange | null>(null);
+  const pendingEmbeddingDialogTimerRef = useRef<number | null>(null);
 
   const currentValue = useMemo(() => {
     if (controlled) {
@@ -368,6 +369,14 @@ const LLMForm: React.FC<LLMFormProps> = ({
 
     void loadRegistry();
   }, [t]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingEmbeddingDialogTimerRef.current !== null) {
+        window.clearTimeout(pendingEmbeddingDialogTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!registry) {
@@ -442,11 +451,17 @@ const LLMForm: React.FC<LLMFormProps> = ({
       currentDimension !== dimension;
 
     if (shouldConfirm) {
-      setPendingEmbeddingDimensionChange({
-        scenario,
-        previousDimension: currentDimension,
-        nextDimension: dimension,
-      });
+      if (pendingEmbeddingDialogTimerRef.current !== null) {
+        window.clearTimeout(pendingEmbeddingDialogTimerRef.current);
+      }
+      pendingEmbeddingDialogTimerRef.current = window.setTimeout(() => {
+        setPendingEmbeddingDimensionChange({
+          scenario,
+          previousDimension: currentDimension,
+          nextDimension: dimension,
+        });
+        pendingEmbeddingDialogTimerRef.current = null;
+      }, 0);
       return;
     }
 
