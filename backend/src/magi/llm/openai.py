@@ -29,6 +29,7 @@ class OpenAIAdapter(LLMAdapter):
         base_url: Optional[str] = None,
         api_base: Optional[str] = None,
         timeout: int = 60,
+        embedding_dimension: Optional[int] = None,
     ):
         """
         Initialize OpenAIAdapter
@@ -43,6 +44,7 @@ class OpenAIAdapter(LLMAdapter):
         self._model = model
         self._timeout = timeout
         self._provider = provider.lower()
+        self._embedding_dimension = int(embedding_dimension) if embedding_dimension is not None else None
 
         # Prefer base_url, fallback to api_base (compatible with old config)
         api_endpoint = base_url or api_base
@@ -263,10 +265,13 @@ class OpenAIAdapter(LLMAdapter):
         embedding_model = model or self._embedding_model
 
         try:
-            response = await self._client.embeddings.create(
-                model=embedding_model,
-                input=text,
-            )
+            request_kwargs: Dict[str, Any] = {
+                "model": embedding_model,
+                "input": text,
+            }
+            if self._embedding_dimension is not None:
+                request_kwargs["dimensions"] = self._embedding_dimension
+            response = await self._client.embeddings.create(**request_kwargs)
             return response.data[0].embedding
         except Exception as e:
             import logging
@@ -297,10 +302,13 @@ class OpenAIAdapter(LLMAdapter):
 
         try:
             # OpenAI supports batch request
-            response = await self._client.embeddings.create(
-                model=embedding_model,
-                input=[t for _, t in valid_texts],
-            )
+            request_kwargs: Dict[str, Any] = {
+                "model": embedding_model,
+                "input": [t for _, t in valid_texts],
+            }
+            if self._embedding_dimension is not None:
+                request_kwargs["dimensions"] = self._embedding_dimension
+            response = await self._client.embeddings.create(**request_kwargs)
 
             # Build result
             result = [None] * len(texts)

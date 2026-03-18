@@ -20,6 +20,7 @@ def create_llm_adapter(
     model: str,
     base_url: str | None = None,
     timeout: int = 60,
+    embedding_dimension: int | None = None,
 ) -> LLMAdapter:
     """Create an adapter from explicit provider settings."""
     provider = provider_type.lower().strip()
@@ -42,6 +43,7 @@ def create_llm_adapter(
             provider=provider,
             base_url=base_url,
             timeout=timeout,
+            embedding_dimension=embedding_dimension,
         )
 
     raise ValueError(f"Unsupported LLM provider: {provider}")

@@ -45,6 +45,11 @@ def _build_test_config() -> AppConfig:
                     "provider_id": "anthropic",
                     "model": "claude-sonnet-4-6",
                 },
+                "embedding": {
+                    "provider_id": "openai",
+                    "model": "text-embedding-3-small",
+                    "embedding_dimension": 512,
+                },
             },
         }
     )
@@ -55,7 +60,16 @@ def test_scenario_llm_pool_returns_distinct_adapters_for_distinct_scenarios():
 
     created: list[tuple[str, str]] = []
 
-    def adapter_factory(*, provider_type: str, api_key: str, model: str, base_url: str | None, timeout: int) -> DummyAdapter:
+    def adapter_factory(
+        *,
+        provider_type: str,
+        api_key: str,
+        model: str,
+        base_url: str | None,
+        timeout: int,
+        embedding_dimension: int | None = None,
+    ) -> DummyAdapter:
+        assert embedding_dimension is None
         created.append((provider_type, model))
         return DummyAdapter(provider_name=provider_type, model_name=model)
 
@@ -96,7 +110,16 @@ def test_scenario_llm_pool_refresh_rebuilds_cached_adapter():
 
     created: list[str] = []
 
-    def adapter_factory(*, provider_type: str, api_key: str, model: str, base_url: str | None, timeout: int) -> DummyAdapter:
+    def adapter_factory(
+        *,
+        provider_type: str,
+        api_key: str,
+        model: str,
+        base_url: str | None,
+        timeout: int,
+        embedding_dimension: int | None = None,
+    ) -> DummyAdapter:
+        assert embedding_dimension is None
         created.append(model)
         return DummyAdapter(provider_name=provider_type, model_name=model)
 
@@ -113,3 +136,29 @@ def test_scenario_llm_pool_refresh_rebuilds_cached_adapter():
     assert first is not second
     assert second.model_name == "claude-opus-4-6"
     assert created == ["claude-sonnet-4-6", "claude-opus-4-6"]
+
+
+def test_scenario_llm_pool_passes_embedding_dimension_for_embedding_scenario():
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    created: list[dict[str, object]] = []
+
+    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
+        created.append(dict(kwargs))
+        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
+
+    pool = ScenarioLLMPool(config=_build_test_config(), adapter_factory=adapter_factory)
+
+    embedding_llm = pool.get(LLMScenario.EMBEDDING)
+
+    assert embedding_llm.model_name == "text-embedding-3-small"
+    assert created == [
+        {
+            "provider_type": "openai",
+            "api_key": "sk-openai",
+            "model": "text-embedding-3-small",
+            "base_url": "https://api.openai.com/v1",
+            "timeout": 60,
+            "embedding_dimension": 512,
+        }
+    ]

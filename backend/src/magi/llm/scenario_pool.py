@@ -60,6 +60,7 @@ class ScenarioLLMPool:
             model=selection.model,
             base_url=provider.base_url,
             timeout=self._config.llm.timeout,
+            embedding_dimension=selection.embedding_dimension if scenario == LLMScenario.EMBEDDING else None,
         )
         for configurator in self._adapter_configurators:
             configurator(adapter)
