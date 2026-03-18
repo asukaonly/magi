@@ -342,6 +342,7 @@ class L2Pipeline:
             else []
         )
         extraction_profile = resolve_extraction_profile(stored_event)
+        self_entity_id = self._resolve_self_entity_id(stored_event)
         unified_result = await self._llm_service.extract_unified_candidates(
             event_window={
                 "event_ids": [stored_event.event_id],
@@ -350,8 +351,8 @@ class L2Pipeline:
             },
             profile=extraction_profile,
             focal_subject={
-                "entity_ref": f"user:{stored_event.user_id}" if stored_event.user_id else None,
-                "entity_type": "user" if stored_event.user_id else None,
+                "entity_ref": self_entity_id,
+                "entity_type": "user" if self_entity_id else None,
             },
         )
 
@@ -473,8 +474,8 @@ class L2Pipeline:
         query_args: dict[str, Any] = {"cognition_eligible": True, "limit": 4}
         if event.session_id:
             query_args["session_id"] = event.session_id
-        elif event.user_id:
-            query_args["user_id"] = event.user_id
+        elif event.runtime_user_id or event.user_id:
+            query_args["user_id"] = event.runtime_user_id or event.user_id
         else:
             return []
 
@@ -599,7 +600,7 @@ class L2Pipeline:
         event: MemoryEvent,
         resolved_mentions: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        subject_id = f"user:{event.user_id}" if event.user_id else None
+        subject_id = self._resolve_self_entity_id(event)
         if subject_id is None:
             return []
 
@@ -644,8 +645,9 @@ class L2Pipeline:
         resolved_mentions: list[dict[str, Any]],
     ) -> list[dict[str, str]]:
         focal_entities: list[dict[str, str]] = []
-        if event.user_id:
-            focal_entities.append({"entity_id": f"user:{event.user_id}", "entity_type": "user"})
+        self_entity_id = self._resolve_self_entity_id(event)
+        if self_entity_id:
+            focal_entities.append({"entity_id": self_entity_id, "entity_type": "user"})
         seen = {item["entity_id"] for item in focal_entities}
         for mention in resolved_mentions:
             entity_id = mention.get("resolved_entity_id")
@@ -765,10 +767,10 @@ class L2Pipeline:
     def _resolve_subject_id(self, *, event: MemoryEvent, raw_candidate: dict[str, Any]) -> str | None:
         subject_ref = self._non_empty_text(raw_candidate.get("subject_ref"))
         if subject_ref:
+            if subject_ref.startswith("user:"):
+                return self._resolve_self_entity_id(event) or subject_ref
             return subject_ref
-        if event.user_id:
-            return f"user:{event.user_id}"
-        return None
+        return self._resolve_self_entity_id(event)
 
     def _resolve_graph_object_id(
         self,
@@ -803,8 +805,12 @@ class L2Pipeline:
             trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)
         elif trait_value is None:
             trait_value = ""
+        self_entity_id = self._resolve_self_entity_id(event)
+        entity_ref = self._non_empty_text(candidate.get("entity_ref"))
+        if entity_ref and entity_ref.startswith("user:") and self_entity_id:
+            entity_ref = self_entity_id
         return {
-            "entity_id": str(candidate.get("entity_ref", f"user:{event.user_id}" if event.user_id else "")),
+            "entity_id": entity_ref or self_entity_id or "",
             "entity_type": str(candidate.get("entity_type", "user")),
             "trait_name": str(candidate.get("trait_name", "")).strip(),
             "trait_value": str(trait_value),
@@ -836,6 +842,14 @@ class L2Pipeline:
             if entity_id:
                 touched.add(str(entity_id))
         return sorted(touched)
+
+    def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None:
+        memory_owner_id = self._non_empty_text(getattr(event, "memory_owner_id", None))
+        if memory_owner_id:
+            return memory_owner_id
+        if event.user_id:
+            return f"user:{event.user_id}"
+        return None
 
     def _apply_assertion_scope(
         self,

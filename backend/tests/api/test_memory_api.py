@@ -20,6 +20,24 @@ class _FakeL1Store:
     async def count_events(self):
         return 12
 
+    async def query_events(self, *, session_id=None, user_id=None, event_type=None, limit=50):
+        _ = (session_id, user_id, event_type, limit)
+        return [
+            {
+                "event_id": "evt-1",
+                "event_type": "UserMessage",
+                "raw_content": "hello",
+                "timestamp": 1.0,
+                "source": "chat",
+                "memory_domain": "interaction",
+                "retention_class": "compressible",
+                "importance_score": 0.8,
+                "cognition_eligible": True,
+                "runtime_user_id": "web_user",
+                "memory_owner_id": "user:self",
+            }
+        ]
+
 
 class _FakeL2Store:
     db_path = "/tmp/l2.db"
@@ -111,6 +129,7 @@ class _FakeUnifiedMemory:
         self.l2_entity_catalog = _FakeL2EntityCatalog()
         self.l3 = _FakeL3Store()
         self.l4 = _FakeL4Store()
+        self.identity_resolver = type("Resolver", (), {"default_memory_owner_id": "user:self"})()
 
     async def get_statistics(self):
         return {
@@ -132,6 +151,22 @@ class _FakeUnifiedMemory:
 
     async def refresh_l2_snapshots(self, entity_ids: list[str]):
         return bool(entity_ids)
+
+    async def list_identity_links(self):
+        return [
+            {
+                "namespace": "web",
+                "runtime_user_id": "web_user",
+                "memory_owner_id": "user:self",
+                "link_type": "runtime_account",
+            },
+            {
+                "namespace": "telegram",
+                "runtime_user_id": "asuka_main",
+                "memory_owner_id": "user:self",
+                "link_type": "runtime_account",
+            },
+        ]
 
     def get_l2_pipeline_stats(self):
         return {
@@ -172,6 +207,8 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
+    assert body["identity"]["canonical_self_id"] == "user:self"
+    assert body["identity"]["identity_link_count"] == 2
     assert body["l1"]["event_count"] == 12
     assert "l4" in body
 
@@ -204,6 +241,7 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     entities_response = client.get("/api/memory/l2/entities")
     mentions_response = client.get("/api/memory/l2/mentions")
     snapshots_response = client.get("/api/memory/l2/snapshots")
+    identity_links_response = client.get("/api/memory/identity/links")
     rules_response = client.get("/api/memory/l2/conflict-rules")
     manual_response = client.post(
         "/api/memory/l2/manual-event",
@@ -228,6 +266,9 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     assert mentions_response.json()[0]["mention_text"] == "魔都"
     assert snapshots_response.status_code == 200
     assert snapshots_response.json()[0]["snapshot_id"] == "snapshot-1"
+    assert identity_links_response.status_code == 200
+    assert identity_links_response.json()["canonical_self_id"] == "user:self"
+    assert identity_links_response.json()["links"][0]["runtime_user_id"] == "web_user"
     assert rules_response.status_code == 200
     assert rules_response.json()[0]["predicate"] == "LIKES"
     assert manual_response.status_code == 200
@@ -252,11 +293,29 @@ def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
+    assert body["canonical_self_id"] == "user:self"
+    assert body["identity_link_count"] == 2
     assert body["relation_count"] == 0
     assert body["assertion_count"] == 0
     assert body["extract_skipped"] == 2
     assert body["extract_by_evidence_class"]["assistant_freeform"] == 1
     assert body["skip_by_reason"]["assistant_tool_grounded"] == 1
+
+
+def test_memory_l1_events_api_exposes_runtime_and_memory_owner_ids(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get("/api/memory/l1/events")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["events"][0]["runtime_user_id"] == "web_user"
+    assert body["events"][0]["memory_owner_id"] == "user:self"
 
 
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):

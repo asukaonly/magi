@@ -71,6 +71,11 @@ class SensorHub:
             payload={
                 "message": message,
                 "user_id": str(data.get("user_id", "web_user")),
+                "runtime_namespace": str(
+                    data.get("runtime_namespace")
+                    or (data.get("metadata") or {}).get("runtime_namespace")
+                    or "web"
+                ),
                 "session_id": session_id,
                 "turn_id": str(data.get("turn_id") or "").strip() or None,
                 "metadata": data.get("metadata") or {},

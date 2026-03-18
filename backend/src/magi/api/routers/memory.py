@@ -89,6 +89,13 @@ def _resolve_memory_integration():
         return None
 
 
+def _canonical_self_id(unified_memory: Any) -> str:
+    resolver = getattr(unified_memory, "identity_resolver", None)
+    if resolver is None:
+        return "user:self"
+    return str(getattr(resolver, "default_memory_owner_id", "user:self"))
+
+
 # =============================================================================
 # L0 Working Memory Endpoints
 # =============================================================================
@@ -164,6 +171,8 @@ async def get_l2_statistics():
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {
+            "canonical_self_id": "user:self",
+            "identity_link_count": 0,
             "relation_count": 0,
             "assertion_count": 0,
             "extract_skipped": 0,
@@ -174,14 +183,32 @@ async def get_l2_statistics():
 
     relations = await unified_memory.l2.get_relationships(limit=10000)
     assertions = await unified_memory.l2.list_tom_assertions(limit=10000)
+    identity_links = await unified_memory.list_identity_links() if hasattr(unified_memory, "list_identity_links") else []
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     return {
+        "canonical_self_id": _canonical_self_id(unified_memory),
+        "identity_link_count": len(identity_links),
         "relation_count": len(relations),
         "assertion_count": len(assertions),
         "extract_skipped": int(pipeline_stats.get("extract_skipped", 0)),
         "extract_by_evidence_class": dict(pipeline_stats.get("extract_by_evidence_class", {})),
         "skip_by_reason": dict(pipeline_stats.get("skip_by_reason", {})),
         "db_path": unified_memory.l2.db_path,
+    }
+
+
+@memory_router.get("/identity/links")
+async def list_memory_identity_links():
+    """List runtime-to-memory identity mappings for debugging."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not hasattr(unified_memory, "list_identity_links"):
+        return {
+            "canonical_self_id": "user:self",
+            "links": [],
+        }
+    return {
+        "canonical_self_id": _canonical_self_id(unified_memory),
+        "links": await unified_memory.list_identity_links(),
     }
 
 
@@ -369,6 +396,11 @@ async def get_memory_statistics():
         )
 
     stats: Dict[str, Any] = {}
+    identity_links = await unified_memory.list_identity_links() if hasattr(unified_memory, "list_identity_links") else []
+    stats["identity"] = {
+        "canonical_self_id": _canonical_self_id(unified_memory),
+        "identity_link_count": len(identity_links),
+    }
 
     # L0 statistics
     if unified_memory.l0:

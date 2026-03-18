@@ -21,6 +21,7 @@ import type {
   L2Entity,
   L2GraphConflictRule,
   L2GraphConflictRulePayload,
+  MemoryIdentityLink,
   L2Statistics,
   L2Mention,
   L2Snapshot,
@@ -54,6 +55,7 @@ export interface UseMemoryReturn {
   l2Relations: L2Relation[];
   l2Assertions: L2Assertion[];
   l2Stats: L2Statistics;
+  identityLinks: MemoryIdentityLink[];
   l2Entities: L2Entity[];
   l2Mentions: L2Mention[];
   l2Snapshots: L2Snapshot[];
@@ -100,6 +102,8 @@ const DEFAULT_STATS: MemoryStatistics = {
 };
 
 const DEFAULT_L2_STATS: L2Statistics = {
+  canonical_self_id: 'user:self',
+  identity_link_count: 0,
   relation_count: 0,
   assertion_count: 0,
   extract_skipped: 0,
@@ -132,6 +136,7 @@ export function useMemory(): UseMemoryReturn {
   const [l2Relations, setL2Relations] = useState<L2Relation[]>([]);
   const [l2Assertions, setL2Assertions] = useState<L2Assertion[]>([]);
   const [l2Stats, setL2Stats] = useState<L2Statistics>(DEFAULT_L2_STATS);
+  const [identityLinks, setIdentityLinks] = useState<MemoryIdentityLink[]>([]);
   const [l2Entities, setL2Entities] = useState<L2Entity[]>([]);
   const [l2Mentions, setL2Mentions] = useState<L2Mention[]>([]);
   const [l2Snapshots, setL2Snapshots] = useState<L2Snapshot[]>([]);
@@ -196,8 +201,9 @@ export function useMemory(): UseMemoryReturn {
 
   const loadL2Data = useCallback(async () => {
     try {
-      const [l2StatsData, relations, assertions, entities, mentions, snapshots, conflictRules] = await Promise.all([
+      const [l2StatsData, identityLinksData, relations, assertions, entities, mentions, snapshots, conflictRules] = await Promise.all([
         memoryApi.getL2Statistics(),
+        memoryApi.getIdentityLinks(),
         memoryApi.getL2Relations(100),
         memoryApi.getL2Assertions(100),
         memoryApi.getL2Entities(100),
@@ -206,6 +212,7 @@ export function useMemory(): UseMemoryReturn {
         memoryApi.getL2ConflictRules(),
       ]);
       setL2Stats(l2StatsData);
+      setIdentityLinks(identityLinksData.links || []);
       setL2Relations(relations);
       setL2Assertions(assertions);
       setL2Entities(entities);
@@ -479,6 +486,7 @@ export function useMemory(): UseMemoryReturn {
     l2Relations,
     l2Assertions,
     l2Stats,
+    identityLinks,
     l2Entities,
     l2Mentions,
     l2Snapshots,

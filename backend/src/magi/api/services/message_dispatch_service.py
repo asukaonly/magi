@@ -36,6 +36,7 @@ async def dispatch_user_message(
     session_id: str | None = None,
     client_turn_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    runtime_namespace: str | None = None,
 ) -> MessageDispatchOutcome:
     """Resolve session metadata and enqueue a USER_MESSAGE event."""
 
@@ -65,6 +66,7 @@ async def dispatch_user_message(
     payload = {
         "message": message,
         "user_id": user_id,
+        "runtime_namespace": str(runtime_namespace or "").strip() or None,
         "session_id": resolved_session_id,
         "turn_id": turn_id,
         "timestamp": time.time(),

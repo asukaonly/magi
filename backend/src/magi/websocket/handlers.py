@@ -146,6 +146,11 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
             message=message,
             session_id=session_id,
             client_turn_id=str(data.get("client_turn_id") or "").strip() or None,
+            runtime_namespace=str(
+                data.get("runtime_namespace")
+                or (data.get("metadata") or {}).get("runtime_namespace")
+                or "web"
+            ),
         )
         if not outcome.success:
             return {

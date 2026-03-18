@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.api.routers import messages as messages_router
+from magi.api.services.message_dispatch_service import MessageDispatchOutcome
 
 
 class _FakeQueue:
@@ -61,3 +62,30 @@ async def test_disable_sensor_uses_bound_user_message_sensor(monkeypatch: pytest
 
     assert response["success"] is True
     assert sensor.actions == ["disable"]
+
+
+@pytest.mark.asyncio
+async def test_send_user_message_uses_runtime_namespace_for_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return MessageDispatchOutcome(
+            success=True,
+            user_id=str(kwargs["user_id"]),
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+    monkeypatch.setattr(messages_router, "dispatch_user_message", _fake_dispatch_user_message)
+
+    response = await messages_router.send_user_message(
+        messages_router.UserMessageRequest(
+            message="hello",
+            user_id="asuka_main",
+            metadata={"runtime_namespace": "telegram"},
+        )
+    )
+
+    assert response.success is True
+    assert captured["runtime_namespace"] == "telegram"

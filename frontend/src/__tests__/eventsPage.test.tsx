@@ -20,6 +20,7 @@ vi.mock('@/api/modules/memory', () => ({
     getL2Relations: vi.fn(),
     getL2Assertions: vi.fn(),
     getL2Statistics: vi.fn(),
+    getIdentityLinks: vi.fn(),
     getL2Entities: vi.fn(),
     getL2Mentions: vi.fn(),
     getL2Snapshots: vi.fn(),
@@ -54,6 +55,8 @@ const L1_EVENT = {
   retention_class: 'compressible',
   importance_score: 0.5,
   cognition_eligible: true,
+  runtime_user_id: 'web_user',
+  memory_owner_id: 'user:self',
 };
 
 describe('events page', () => {
@@ -95,11 +98,24 @@ describe('events page', () => {
     vi.mocked(memoryApi.getL2Relations).mockResolvedValue([]);
     vi.mocked(memoryApi.getL2Assertions).mockResolvedValue([]);
     vi.mocked(memoryApi.getL2Statistics).mockResolvedValue({
+      canonical_self_id: 'user:self',
+      identity_link_count: 1,
       relation_count: 0,
       assertion_count: 0,
       extract_skipped: 0,
       extract_by_evidence_class: {},
       skip_by_reason: {},
+    });
+    vi.mocked(memoryApi.getIdentityLinks).mockResolvedValue({
+      canonical_self_id: 'user:self',
+      links: [
+        {
+          namespace: 'web',
+          runtime_user_id: 'web_user',
+          memory_owner_id: 'user:self',
+          link_type: 'runtime_account',
+        },
+      ],
     });
     vi.mocked(memoryApi.getL2Entities).mockResolvedValue([]);
     vi.mocked(memoryApi.getL2Mentions).mockResolvedValue([]);
@@ -136,6 +152,8 @@ describe('events page', () => {
 
     expect(eventCard).toBeInTheDocument();
     expect(eventCard).toHaveClass('rounded-lg');
+    expect(screen.getByText('memory.identity.runtimeUserLabel: web_user')).toBeInTheDocument();
+    expect(screen.getByText('memory.identity.memoryOwnerLabel: user:self')).toBeInTheDocument();
   });
 
   it('opens the clear confirmation in a compact dialog container', async () => {

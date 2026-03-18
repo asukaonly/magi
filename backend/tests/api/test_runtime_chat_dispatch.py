@@ -117,3 +117,35 @@ async def test_runtime_chat_dispatch_from_message_bus():
     assert fake_chat.last_session_id == "s-chat"
     assert fake_chat.last_turn_id == "turn_1"
     assert any(key.startswith("chat:") for key in stats["agents"]["instances"].keys())
+
+
+@pytest.mark.asyncio
+async def test_sensor_hub_preserves_runtime_namespace_from_user_messages():
+    message_bus = MemoryMessageBackend()
+    await message_bus.start()
+
+    sensor_hub = SensorHub(message_bus=message_bus)
+    await sensor_hub.start()
+    try:
+        await message_bus.publish(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "message": "你好",
+                    "user_id": "asuka_main",
+                    "runtime_namespace": "telegram",
+                    "session_id": "s-chat",
+                    "turn_id": "turn_2",
+                },
+                source="websocket",
+                level=EventLevel.INFO,
+            )
+        )
+
+        batch = await sensor_hub.get_batch(timeout_seconds=0.4)
+    finally:
+        await sensor_hub.stop()
+        await message_bus.stop()
+
+    assert len(batch) == 1
+    assert batch[0].payload["runtime_namespace"] == "telegram"

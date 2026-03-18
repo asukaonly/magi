@@ -1260,6 +1260,8 @@ class L2CognitionStore:
         self._exclusive_group_index = build_exclusive_group_index(self._graph_conflict_rules)
 
     def _entity_identity(self, event: MemoryEvent) -> tuple[Optional[str], Optional[str]]:
+        if getattr(event, "memory_owner_id", None):
+            return (str(event.memory_owner_id), "user")
         if event.user_id:
             return (f"user:{event.user_id}", "user")
         return (None, None)
