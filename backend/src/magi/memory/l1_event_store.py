@@ -764,6 +764,12 @@ class L1EventStore:
             raw_graph_hints = metadata.get("structured_graph_hints")
             if isinstance(raw_graph_hints, list):
                 structured_graph_hints = [dict(item) for item in raw_graph_hints if isinstance(item, dict)]
+        runtime_user_id = row["user_id"]
+        if isinstance(metadata, dict) and metadata.get("runtime_user_id"):
+            runtime_user_id = str(metadata["runtime_user_id"]).strip() or runtime_user_id
+        memory_owner_id = None
+        if isinstance(metadata, dict) and metadata.get("memory_owner_id"):
+            memory_owner_id = str(metadata["memory_owner_id"]).strip() or None
 
         return MemoryEvent(
             event_id=str(row["event_id"]),
@@ -781,6 +787,8 @@ class L1EventStore:
             retention_class=RetentionClass.from_value(row["retention_class"]),
             session_id=row["session_id"],
             user_id=row["user_id"],
+            runtime_user_id=runtime_user_id,
+            memory_owner_id=memory_owner_id,
             task_id=row["task_id"],
             goal_id=row["goal_id"],
             raw_content=str(row["raw_content"]),

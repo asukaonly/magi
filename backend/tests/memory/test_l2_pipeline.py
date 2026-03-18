@@ -185,6 +185,25 @@ def test_normalized_memory_event_captures_extraction_profile_metadata():
     assert metadata["extraction_profile_id"] == "timeline.chrome_history"
 
 
+def test_normalized_memory_event_tracks_runtime_and_memory_owner_ids():
+    event = Event(
+        type=EventTypes.USER_MESSAGE,
+        data={"user_id": "web_user", "message": "hello"},
+        source="chat",
+        level=EventLevel.INFO,
+        correlation_id="corr-memory-identity",
+    )
+
+    normalized = normalize_runtime_event(event)
+    metadata = json.loads(normalized.metadata)
+
+    assert normalized.runtime_user_id == "web_user"
+    assert normalized.memory_owner_id == "user:self"
+    assert normalized.user_id == "web_user"
+    assert metadata["runtime_user_id"] == "web_user"
+    assert metadata["memory_owner_id"] == "user:self"
+
+
 @pytest.mark.asyncio
 async def test_l1_round_trip_preserves_extraction_profile_metadata():
     from magi.memory.l1_event_store import L1EventStore
@@ -241,6 +260,39 @@ async def test_l1_round_trip_preserves_extraction_profile_metadata():
                     "object_type": "product",
                 }
             ]
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_round_trip_preserves_runtime_and_memory_owner_ids():
+    from magi.memory.l1_event_store import L1EventStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = L1EventStore(db_path=str(Path(temp_dir) / "l1_events.db"), vector_enabled=False)
+        await store.initialize()
+        try:
+            normalized = normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "web_user",
+                        "session_id": "s1",
+                        "message": "hello",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-memory-identity-roundtrip",
+                )
+            )
+
+            await store.store(normalized)
+            restored = await store.get_memory_event(normalized.event_id)
+
+            assert restored is not None
+            assert restored.runtime_user_id == "web_user"
+            assert restored.memory_owner_id == "user:self"
+            assert restored.user_id == "web_user"
         finally:
             await store.shutdown()
 

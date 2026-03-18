@@ -125,6 +125,8 @@ class MemoryEvent:
     retention_class: RetentionClass
     session_id: Optional[str]
     user_id: Optional[str]
+    runtime_user_id: Optional[str]
+    memory_owner_id: Optional[str]
     task_id: Optional[str]
     goal_id: Optional[str]
     raw_content: str
@@ -163,6 +165,8 @@ class MemoryEvent:
             "retention_class": self.retention_class.label,
             "session_id": self.session_id,
             "user_id": self.user_id,
+            "runtime_user_id": self.runtime_user_id,
+            "memory_owner_id": self.memory_owner_id,
             "task_id": self.task_id,
             "goal_id": self.goal_id,
             "raw_content": self.raw_content,
@@ -198,6 +202,8 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
     task_id = _first_non_empty(payload.get("task_id"), metadata.get("task_id"))
     session_id = _first_non_empty(payload.get("session_id"), metadata.get("session_id"))
     user_id = _first_non_empty(payload.get("user_id"), metadata.get("user_id"))
+    runtime_user_id = user_id
+    memory_owner_id = _resolve_memory_owner_id(runtime_user_id=runtime_user_id, event=event)
     goal_id = _first_non_empty(payload.get("goal_id"), metadata.get("goal_id"))
     source_item_id = _first_non_empty(payload.get("source_item_id"), metadata.get("source_item_id"))
     entity_focus_hint = _first_non_empty(payload.get("entity_focus_hint"), metadata.get("entity_focus_hint"))
@@ -216,6 +222,8 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
         "derived_from_event_ids": evidence_metadata["derived_from_event_ids"],
         "semantic_owner_hint": evidence_metadata["semantic_owner_hint"],
         "originality_type": evidence_metadata["originality_type"],
+        "runtime_user_id": runtime_user_id,
+        "memory_owner_id": memory_owner_id,
         "extraction_profile_id": extraction_profile_id,
         "structured_entity_hints": structured_entity_hints,
         "structured_graph_hints": structured_graph_hints,
@@ -237,6 +245,8 @@ def normalize_runtime_event(event: Event, *, event_id: Optional[str] = None, par
         retention_class=rule["retention_class"],
         session_id=session_id,
         user_id=user_id,
+        runtime_user_id=runtime_user_id,
+        memory_owner_id=memory_owner_id,
         task_id=task_id,
         goal_id=goal_id,
         raw_content=_build_raw_content(event),
@@ -268,6 +278,12 @@ def _first_non_empty(*values: Any) -> Optional[str]:
         if text:
             return text
     return None
+
+
+def _resolve_memory_owner_id(*, runtime_user_id: Optional[str], event: Event) -> str:
+    del runtime_user_id
+    del event
+    return "user:self"
 
 
 def _build_raw_content(event: Event) -> str:
