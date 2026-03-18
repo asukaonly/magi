@@ -768,7 +768,14 @@ class FunctionCallingOrchestrator:
                 },
             )
 
+            duration_ms = int((time.time() - start_time) * 1000)
             result: Dict[str, Any] = {"content": provider_response.content}
+            result["llm_trace"] = self._build_llm_trace(
+                metadata=provider_response.metadata,
+                disable_thinking=disable_thinking,
+                duration_ms=duration_ms,
+                model_name=model_name,
+            )
             if provider_response.assistant_message:
                 result["assistant_message"] = provider_response.assistant_message
             if provider_response.tool_calls:
@@ -781,7 +788,6 @@ class FunctionCallingOrchestrator:
                     for tc in provider_response.tool_calls
                 ]
 
-            duration_ms = int((time.time() - start_time) * 1000)
             log_llm_response(
                 llm_logger,
                 request_id=request_id,
@@ -866,6 +872,12 @@ class FunctionCallingOrchestrator:
                 **response_metadata,
             )
             result: Dict[str, Any] = {"content": content}
+            result["llm_trace"] = self._build_llm_trace(
+                metadata=provider_response.metadata,
+                disable_thinking=disable_thinking,
+                duration_ms=duration_ms,
+                model_name=model_name,
+            )
             if provider_response.assistant_message:
                 result["assistant_message"] = provider_response.assistant_message
             if provider_response.tool_calls:
@@ -898,6 +910,27 @@ class FunctionCallingOrchestrator:
         if not disable_thinking:
             return THINKING_LLM_TIMEOUT_SECONDS
         return None
+
+    def _build_llm_trace(
+        self,
+        *,
+        metadata: Dict[str, Any] | None,
+        disable_thinking: bool,
+        duration_ms: int,
+        model_name: str,
+    ) -> Dict[str, Any]:
+        trace_metrics = dict((metadata or {}).get("trace_metrics") or {})
+        trace_metrics.setdefault("provider", getattr(self._resolve_llm(), "provider_name", "unknown"))
+        trace_metrics.setdefault("model", model_name)
+        trace_metrics.setdefault("input_tokens", 0)
+        trace_metrics.setdefault("output_tokens", 0)
+        trace_metrics.setdefault("total_tokens", 0)
+        trace_metrics.setdefault("reasoning_tokens", 0)
+        trace_metrics.setdefault("cache_read_tokens", 0)
+        trace_metrics.setdefault("cache_write_tokens", 0)
+        trace_metrics.setdefault("thinking_enabled", not disable_thinking)
+        trace_metrics.setdefault("duration_ms", duration_ms)
+        return trace_metrics
 
     async def _execute_tool_call(
         self,

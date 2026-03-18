@@ -48,6 +48,9 @@ class ProviderUsage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    reasoning_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class LLMProviderBridge:
@@ -163,9 +166,16 @@ class LLMProviderBridge:
                     content = await self.llm.chat(**chat_kwargs)
                     provider_response = self._build_content_response(content)
 
+            latency_ms = int((time.time() - started_at) * 1000)
+            self._attach_trace_metrics(
+                provider_response=provider_response,
+                usage=provider_response.usage,
+                latency_ms=latency_ms,
+                disable_thinking=disable_thinking,
+            )
             await self._emit_usage_event(
                 success=True,
-                latency_ms=int((time.time() - started_at) * 1000),
+                latency_ms=latency_ms,
                 usage=provider_response.usage,
                 event_context=event_context,
             )
@@ -239,9 +249,16 @@ class LLMProviderBridge:
                 )
                 return provider_response
 
+            latency_ms = int((time.time() - started_at) * 1000)
+            self._attach_trace_metrics(
+                provider_response=provider_response,
+                usage=provider_response.usage,
+                latency_ms=latency_ms,
+                disable_thinking=disable_thinking,
+            )
             await self._emit_usage_event(
                 success=True,
-                latency_ms=int((time.time() - started_at) * 1000),
+                latency_ms=latency_ms,
                 usage=provider_response.usage,
                 event_context=event_context,
             )
@@ -419,6 +436,9 @@ class LLMProviderBridge:
             prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
             completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+            reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0) or 0),
+            cache_read_tokens=int(getattr(usage, "cache_read_tokens", 0) or 0),
+            cache_write_tokens=int(getattr(usage, "cache_write_tokens", 0) or 0),
         )
 
     @staticmethod
@@ -432,7 +452,33 @@ class LLMProviderBridge:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
+            reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0) or 0),
+            cache_read_tokens=int(getattr(usage, "cache_read_tokens", 0) or 0),
+            cache_write_tokens=int(getattr(usage, "cache_write_tokens", 0) or 0),
         )
+
+    def _attach_trace_metrics(
+        self,
+        *,
+        provider_response: ProviderResponse,
+        usage: ProviderUsage | None,
+        latency_ms: int,
+        disable_thinking: Optional[bool],
+    ) -> None:
+        metadata = dict(provider_response.metadata or {})
+        metadata["trace_metrics"] = {
+            "provider": self._provider_name() or type(self.llm).__name__,
+            "model": str(getattr(self.llm, "model_name", "unknown")),
+            "input_tokens": int(usage.prompt_tokens if usage else 0),
+            "output_tokens": int(usage.completion_tokens if usage else 0),
+            "total_tokens": int(usage.total_tokens if usage else 0),
+            "reasoning_tokens": int(usage.reasoning_tokens if usage else 0),
+            "cache_read_tokens": int(usage.cache_read_tokens if usage else 0),
+            "cache_write_tokens": int(usage.cache_write_tokens if usage else 0),
+            "thinking_enabled": disable_thinking is not True,
+            "duration_ms": int(latency_ms),
+        }
+        provider_response.metadata = metadata
 
     async def _emit_usage_event(
         self,

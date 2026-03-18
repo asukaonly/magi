@@ -278,6 +278,33 @@ async def test_chat_response_exposes_openai_metadata_for_empty_content():
 
 
 @pytest.mark.asyncio
+async def test_chat_response_exposes_trace_metrics() -> None:
+    message = SimpleNamespace(content="hello", tool_calls=[], role="assistant")
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason="stop")],
+        usage=SimpleNamespace(prompt_tokens=12, completion_tokens=4, total_tokens=16),
+    )
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(provider="openai", client=client)
+    bridge = LLMProviderBridge(llm)
+
+    result = await bridge.chat_response(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        disable_thinking=False,
+    )
+
+    trace_metrics = result.metadata["trace_metrics"]
+    assert trace_metrics["provider"] == "openai"
+    assert trace_metrics["model"] == "test-model"
+    assert trace_metrics["input_tokens"] == 12
+    assert trace_metrics["output_tokens"] == 4
+    assert trace_metrics["total_tokens"] == 16
+    assert trace_metrics["thinking_enabled"] is True
+    assert trace_metrics["duration_ms"] >= 0
+
+
+@pytest.mark.asyncio
 async def test_openai_content_parses_legacy_tool_call_blocks() -> None:
     legacy_content = (
         "<tool_call>agent"

@@ -742,6 +742,8 @@ async def test_call_llm_without_tools_logs_provider_metadata(monkeypatch: pytest
     assert captured["finish_reason"] == "length"
     assert captured["has_content"] is False
     assert captured["raw_message"]["reasoning_content"] == "partial"
+    assert result["llm_trace"]["model"] == "dummy-model"
+    assert result["llm_trace"]["thinking_enabled"] is True
 
 
 @pytest.mark.asyncio
@@ -783,11 +785,24 @@ async def test_call_llm_with_tools_uses_extended_timeout_when_thinking_enabled()
 
     async def _fake_chat_with_tools(**kwargs):  # type: ignore[no-untyped-def]
         captured.update(kwargs)
-        return ProviderResponse(content="")
+        return ProviderResponse(
+            content="",
+            metadata={
+                "trace_metrics": {
+                    "provider": "openai",
+                    "model": "dummy-model",
+                    "input_tokens": 22,
+                    "output_tokens": 6,
+                    "total_tokens": 28,
+                    "thinking_enabled": True,
+                    "duration_ms": 1500,
+                }
+            },
+        )
 
     executor.provider_bridge.chat_with_tools = _fake_chat_with_tools  # type: ignore[method-assign]
 
-    await executor._call_llm_with_tools(
+    result = await executor._call_llm_with_tools(
         system_prompt="sys",
         messages=[{"role": "user", "content": "plan"}],
         tools=[],
@@ -795,3 +810,5 @@ async def test_call_llm_with_tools_uses_extended_timeout_when_thinking_enabled()
     )
 
     assert captured["timeout_seconds"] == 180.0
+    assert result["llm_trace"]["input_tokens"] == 22
+    assert result["llm_trace"]["thinking_enabled"] is True
