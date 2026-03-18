@@ -481,6 +481,41 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(monkeypatc
     assert calls == ["save", "reload", "refresh"]
 
 
+def test_update_config_persists_changed_settings_and_returns_rebuilt_config(monkeypatch: pytest.MonkeyPatch):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    payload = SystemConfigModel()
+    expected_updates = {
+        "agent.memory.enable_l0": False,
+        "tools.web_fetch.default_provider": "browser",
+    }
+    captured_updates: dict[str, object] = {}
+
+    def _fake_save_config(updates: dict) -> bool:
+        captured_updates.update(updates)
+        return True
+
+    refreshed_config = object()
+    returned_config = SystemConfigModel()
+    returned_config.memory.enable_l0 = False
+    returned_config.tools.builtIn.webFetch.usePlaywright = True
+
+    monkeypatch.setattr("magi.api.routers.config._build_update_paths", lambda config: expected_updates)
+    monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: refreshed_config)
+    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda config: None)
+    monkeypatch.setattr("magi.api.routers.config._build_system_config", lambda mask_api_key=False: returned_config)
+
+    response = client.put("/config/", json=payload.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    assert captured_updates == expected_updates
+    assert response.json()["data"]["memory"]["enable_l0"] is False
+    assert response.json()["data"]["tools"]["builtIn"]["webFetch"]["usePlaywright"] is True
+
+
 def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
     monkeypatch: pytest.MonkeyPatch,
 ):
