@@ -11,6 +11,50 @@ from magi.timeline import TimelineContentBlock, TimelineEvent
 class _FakeTimelineService:
     def __init__(self):
         self.created = []
+        self.list_item_calls = []
+        self.items = [
+            {
+                "item_id": "summary:summary-1",
+                "window_key": "open:open",
+                "filter_hash": "all",
+                "item_type": "summary",
+                "time_start": 1709990000.0,
+                "time_end": 1710002000.0,
+                "sort_time": 1710002000.0,
+                "primary_event_id": None,
+                "primary_summary_id": "summary-1",
+                "source_event_ids": ["timeline-1"],
+                "source_summary_ids": ["summary-1"],
+                "display_payload": {
+                    "title": "Day Summary",
+                    "summary": "Wrote about the day",
+                    "summary_type": "temporal",
+                    "summary_category": "day",
+                },
+                "projection_version": 1,
+                "generated_at": 1710002000.0,
+            },
+            {
+                "item_id": "event:timeline-1",
+                "window_key": "open:open",
+                "filter_hash": "all",
+                "item_type": "event",
+                "time_start": 1710000000.0,
+                "time_end": 1710000000.0,
+                "sort_time": 1710000000.0,
+                "primary_event_id": "timeline-1",
+                "primary_summary_id": None,
+                "source_event_ids": ["timeline-1"],
+                "source_summary_ids": [],
+                "display_payload": {
+                    "title": "Evening note",
+                    "summary": "Wrote about the day",
+                    "source_type": "manual_journal",
+                },
+                "projection_version": 1,
+                "generated_at": 1710002000.0,
+            },
+        ]
         self.events = {
             "timeline-1": {
                 "event_id": "timeline-1",
@@ -27,6 +71,17 @@ class _FakeTimelineService:
                 "provenance": {"sensor_id": "manual_journal"},
             }
         }
+
+    async def list_items(self, start=None, end=None, source_type=None, limit=100):
+        self.list_item_calls.append(
+            {
+                "start": start,
+                "end": end,
+                "source_type": source_type,
+                "limit": limit,
+            }
+        )
+        return self.items[:limit]
 
     async def list_events(self, limit=50, source_type=None):
         events = list(self.events.values())[:limit]
@@ -250,6 +305,21 @@ def test_list_timeline_events_returns_retention_metadata(monkeypatch):
     assert body["count"] == 1
     assert body["events"][0]["retention"]["mode"] == "retain_raw"
     assert body["events"][0]["retention"]["raw_payload_ref"] == "/tmp/day-note.md"
+
+
+def test_list_timeline_items_returns_projection_items(monkeypatch):
+    client, service = _build_client(monkeypatch)
+
+    response = client.get("/api/timeline/items", params={"range": "7d", "limit": 10, "source_type": "manual_journal"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 2
+    assert body["items"][0]["item_type"] == "summary"
+    assert body["items"][1]["primary_event_id"] == "timeline-1"
+    assert service.list_item_calls[0]["source_type"] == "manual_journal"
+    assert service.list_item_calls[0]["limit"] == 10
+    assert service.list_item_calls[0]["start"] is not None
 
 
 def test_create_manual_entry_returns_created_event(monkeypatch):

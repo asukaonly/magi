@@ -140,6 +140,14 @@ class TimelineProjectionStore:
             await db.commit()
         return int(cursor.rowcount or 0)
 
+    async def clear(self) -> int:
+        """Delete all cached projection items."""
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("DELETE FROM timeline_projection_items")
+            await db.commit()
+        return int(cursor.rowcount or 0)
+
     @staticmethod
     def _row_to_item(row: aiosqlite.Row) -> TimelineProjectionItem:
         return TimelineProjectionItem(

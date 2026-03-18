@@ -11,15 +11,15 @@ class _FakeL1Store:
     def __init__(self) -> None:
         self.timeline_events = []
 
-    async def store_timeline_event(self, event) -> str:
-        self.timeline_events.append(event)
-        return event.event_id
-
 
 class _FakeUnifiedMemory:
     def __init__(self) -> None:
         self.l1 = _FakeL1Store()
         self.edges: list[dict] = []
+
+    async def ingest_event(self, event) -> dict:  # type: ignore[no-untyped-def]
+        self.l1.timeline_events.append(event)
+        return {"event_id": event.correlation_id, "l1_written": True}
 
     async def upsert_user_graph_edge(self, **kwargs) -> None:
         self.edges.append(kwargs)
@@ -106,8 +106,9 @@ async def test_runtime_timeline_handler_persists_chat_turn_and_user_graph_edges(
     assert result == {"handled": True, "event_id": "chat:turn-1", "source_type": "chat"}
     assert len(memory.l1.timeline_events) == 1
     stored_event = memory.l1.timeline_events[0]
-    assert stored_event.provenance["session_id"] == "session-1"
-    assert [block.value for block in stored_event.content_blocks] == [
+    assert stored_event.correlation_id == "chat:turn-1"
+    assert stored_event.data["provenance"]["session_id"] == "session-1"
+    assert [block["value"] for block in stored_event.data["content_blocks"]] == [
         "User: I still like Asuka best.",
         "Assistant: You mention Asuka often.",
     ]

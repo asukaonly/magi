@@ -1,6 +1,7 @@
 """Timeline API router."""
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -94,6 +95,26 @@ async def list_timeline_events(
             for event in events
         ],
         "count": len(events),
+    }
+
+
+@timeline_router.get("/items")
+async def list_timeline_items(
+    limit: int = Query(default=80, ge=1, le=200),
+    source_type: Optional[str] = Query(default=None),
+    range: str = Query(default="all", pattern="^(all|7d|30d)$"),
+):
+    service = get_timeline_service()
+    start = None if range == "all" else time.time() - (7 if range == "7d" else 30) * 24 * 60 * 60
+    items = await service.list_items(
+        start=start,
+        end=None,
+        source_type=source_type,
+        limit=limit,
+    )
+    return {
+        "items": items,
+        "count": len(items),
     }
 
 
