@@ -44,12 +44,24 @@ const SettingsCenterDialog: React.FC<SettingsCenterDialogProps> = ({ open, onOpe
     onOpenChange(false);
   };
 
+  const shouldIgnoreOutsideInteraction = (target: EventTarget | null): boolean =>
+    target instanceof HTMLElement && Boolean(target.closest('[data-select-field-menu]'));
+
   return (
     <>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Dialog open={open} modal={false} onOpenChange={handleOpenChange}>
         <DialogContent
           hideClose
-          disableOutsidePointerEvents={false}
+          onInteractOutside={(event) => {
+            if (shouldIgnoreOutsideInteraction(event.target)) {
+              event.preventDefault();
+            }
+          }}
+          onPointerDownOutside={(event) => {
+            if (shouldIgnoreOutsideInteraction(event.target)) {
+              event.preventDefault();
+            }
+          }}
           className="h-[88vh] max-w-6xl overflow-hidden p-0"
         >
           <DialogHeader className="sr-only">

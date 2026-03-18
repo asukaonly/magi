@@ -670,4 +670,16 @@ describe('settings page draft saving', () => {
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
+
+  it('allows changing a select field inside the settings dialog', async () => {
+    const user = userEvent.setup();
+
+    render(<SettingsCenterDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.system' }));
+    await user.click(screen.getByRole('button', { name: 'settings.fields.logLevel' }));
+    await user.click(await screen.findByRole('button', { name: 'DEBUG' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled());
+  });
 });

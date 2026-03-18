@@ -130,6 +130,7 @@ export function SelectField({
         createPortal(
           <div
             ref={menuRef}
+            data-select-field-menu=""
             style={menuStyle}
             className={cn(
               'overflow-auto rounded-md border border-border bg-background shadow-[0_12px_24px_rgba(15,23,42,0.08)]',
