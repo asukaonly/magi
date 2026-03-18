@@ -271,6 +271,18 @@ class TestKeywordRouting:
         assert result.plans[0].layer == "L2"
         assert isinstance(result.plans[0].conditions, L2Conditions)
 
+    def test_l2_preference_profile_zh(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="我讨厌什么天气")
+        result = decider.evaluate(inp)
+        assert result.plans[0].layer == "L2"
+        assert isinstance(result.plans[0].conditions, L2Conditions)
+
+    def test_l2_preference_keyword_zh(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(query="用户天气偏好是什么")
+        result = decider.evaluate(inp)
+        assert result.plans[0].layer == "L2"
+        assert isinstance(result.plans[0].conditions, L2Conditions)
+
     def test_l2_who_en(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="who is John")
         result = decider.evaluate(inp)

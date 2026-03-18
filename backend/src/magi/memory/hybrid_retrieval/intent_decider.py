@@ -88,7 +88,10 @@ _TIME_KEYWORDS: list[tuple[list[str], str]] = [
 
 _L2_SIGNALS = [
     "关系", "认识", "谁是", "谁", "人物", "联系人",
+    "偏好", "喜好", "喜欢", "讨厌", "不喜欢", "画像", "倾向",
     "relationship", "who is", "who", "person", "contact",
+    "preference", "preferences", "profile", "tendency",
+    "like", "likes", "dislike", "dislikes",
 ]
 _L3_SIGNALS = [
     "总结", "回顾", "小结", "概要", "复盘",
