@@ -468,6 +468,52 @@ def test_build_final_response_system_prompt_removes_tool_guidance() -> None:
     assert "This is the final retry" not in final_prompt
 
 
+def test_build_final_response_system_prompt_prioritizes_memory_query_results() -> None:
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    system_prompt = (
+        "# System Information\n"
+        "* Time: now\n"
+        "# Memory Query Guidance\n"
+        "Use `memory_query` before answering.\n"
+        "# Tool Information\n"
+        "## Selected Tools\n"
+        "* memory_query\n"
+    )
+
+    final_prompt = executor._build_final_response_system_prompt(system_prompt, strict_plain_text=True)
+
+    assert "memory_query results as the source of truth" in final_prompt
+    assert "Do not replace missing recall results with implicit memory" in final_prompt
+
+
+def test_postprocessor_marks_memory_query_results_as_source_of_truth() -> None:
+    postprocessor = FunctionCallingPostprocessor()
+    result = type(
+        "Result",
+        (),
+        {
+            "success": True,
+            "data": {
+                "results": {
+                    "l0_workbench": [],
+                    "l1_events": [{"title": "Yesterday browsing"}],
+                }
+            },
+            "error": None,
+        },
+    )()
+
+    payload = postprocessor.build_tool_message_payload("memory_query", result)
+
+    assert payload["source_of_truth_for_turn"] is True
+    assert payload["context_role"] == "historical_recall_result"
+    assert "implicit memory" in payload["usage_guidance"]
+
+
 @pytest.mark.asyncio
 async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
     registry = _RecordingToolRegistry()

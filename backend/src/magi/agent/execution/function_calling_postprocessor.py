@@ -21,13 +21,25 @@ class FunctionCallingPostprocessor:
 
     def build_tool_message_payload(self, tool_name: str, result: Any) -> Dict[str, Any]:
         """Build compact tool result payload for the next LLM turn."""
-        return {
+        payload = {
             "success": bool(getattr(result, "success", False)),
             "data": self._compact_tool_data_for_context(
                 tool_name=tool_name, data=getattr(result, "data", None)
             ),
             "error": getattr(result, "error", None),
         }
+        if tool_name == "memory_query":
+            payload.update(
+                {
+                    "source_of_truth_for_turn": True,
+                    "context_role": "historical_recall_result",
+                    "usage_guidance": (
+                        "Treat memory_query results as the source of truth for historical recall in this turn. "
+                        "Do not replace missing recall results with implicit memory or guesses."
+                    ),
+                }
+            )
+        return payload
 
     def _compact_tool_data_for_context(self, tool_name: str, data: Any) -> Any:
         """Trim large tool payloads before injecting back into model context."""

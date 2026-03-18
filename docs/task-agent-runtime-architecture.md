@@ -166,6 +166,7 @@ Explicit historical recall is handled separately from implicit prompt injection:
 - `ContextDecider` remains a fast classifier and only performs a lightweight rule-based post-pass to mark explicit memory recall requests
 - when such a request is detected, `memory_query` is promoted into the selected tool set and a small structured hint payload is attached for first-attempt parameters
 - parameter hint generation is handled by rules, not by an extra LLM planning step, to keep routing latency and variance low
+- once `memory_query` has returned, its tool payload is marked as the source of truth for historical recall in the current turn, and final-response prompt rules explicitly forbid replacing missing recall results with implicit memory or guesses
 
 ### `ExploreTaskAgent`
 

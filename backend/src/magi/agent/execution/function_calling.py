@@ -1248,6 +1248,13 @@ class FunctionCallingOrchestrator:
                     "- If evidence is incomplete, clearly state the limitation and still answer with the strongest grounded explanation you can.",
                 ]
             )
+        if "memory_query" in system_prompt or "# Memory Query Guidance" in system_prompt:
+            rules.extend(
+                [
+                    "- Treat memory_query results as the source of truth for historical recall in this turn.",
+                    "- Do not replace missing recall results with implicit memory, prior assumptions, or guesses.",
+                ]
+            )
         return f"{prompt}\n\n" + "\n".join(rules)
 
     def _build_final_response_messages(
