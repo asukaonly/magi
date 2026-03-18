@@ -8,7 +8,7 @@ import asyncio
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
@@ -16,6 +16,9 @@ from ..embedding_service import MemoryEmbeddingService
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..l1.event_store import L1EventStore
 from ..sqlite_vec_index import SqliteVecIndex
+
+if TYPE_CHECKING:
+    from .models import L3Candidate
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +82,29 @@ class L3SummaryStore:
                     updated_at REAL NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_summaries_period ON summaries(summary_type, summary_category, period_start, period_end);
+
+                CREATE TABLE IF NOT EXISTS summary_event_links (
+                    link_id TEXT PRIMARY KEY,
+                    summary_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    link_role TEXT NOT NULL,
+                    evidence_weight REAL NOT NULL DEFAULT 1.0,
+                    created_at REAL NOT NULL,
+                    UNIQUE(summary_id, event_id, link_role)
+                );
+                CREATE INDEX IF NOT EXISTS idx_summary_event_links_summary ON summary_event_links(summary_id);
+                CREATE INDEX IF NOT EXISTS idx_summary_event_links_event ON summary_event_links(event_id);
+
+                CREATE TABLE IF NOT EXISTS summary_task_links (
+                    link_id TEXT PRIMARY KEY,
+                    summary_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    link_role TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    UNIQUE(summary_id, task_id, link_role)
+                );
+                CREATE INDEX IF NOT EXISTS idx_summary_task_links_summary ON summary_task_links(summary_id);
+                CREATE INDEX IF NOT EXISTS idx_summary_task_links_task ON summary_task_links(task_id);
 
                 CREATE TABLE IF NOT EXISTS l3_summary_vectors (
                     vec_rowid INTEGER PRIMARY KEY,
@@ -209,12 +235,101 @@ class L3SummaryStore:
             async with db.execute("SELECT COUNT(*) FROM summaries") as cursor:
                 row = await cursor.fetchone()
                 count = int(row[0]) if row else 0
+            await db.execute("DELETE FROM summary_event_links")
+            await db.execute("DELETE FROM summary_task_links")
             await db.execute("DELETE FROM summaries")
             await db.execute("DELETE FROM l3_summaries_fts")
             await db.commit()
         if self._vector_index is not None:
             await self._vector_index.clear()
         return count
+
+    async def upsert_candidate(
+        self,
+        *,
+        candidate: "L3Candidate",
+        source_task_ids: Optional[list[str]] = None,
+    ) -> Dict[str, Any]:
+        """Persist a structured L3 candidate and its evidence links."""
+        await self.initialize()
+        now = time.time()
+        summary = {
+            "summary_id": f"summary_{uuid.uuid4().hex}",
+            "summary_type": str(candidate.summary_type),
+            "summary_category": str(candidate.summary_category),
+            "period_start": now,
+            "period_end": now,
+            "content": candidate.content,
+            "key_topics": [],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "source_event_ids": list(candidate.source_event_ids),
+            "source_event_count": len(candidate.source_event_ids),
+            "importance_aggregate": 0.0,
+            "event_type_distribution": {},
+            "generated_by_model": "rule-summary",
+            "generation_prompt": None,
+            "generation_reason": f"{candidate.summary_type}:{candidate.summary_category}",
+            "created_at": now,
+            "updated_at": now,
+        }
+        await self._store_summary(summary)
+        await self._replace_summary_event_links(summary["summary_id"], candidate.source_event_ids)
+        await self._replace_summary_task_links(summary["summary_id"], source_task_ids or [])
+        return summary
+
+    async def list_summary_event_links(self, summary_id: str) -> List[Dict[str, Any]]:
+        """Return event links for a summary."""
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT link_id, summary_id, event_id, link_role, evidence_weight, created_at
+                FROM summary_event_links
+                WHERE summary_id = ?
+                ORDER BY created_at ASC
+                """,
+                (summary_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "link_id": str(row["link_id"]),
+                "summary_id": str(row["summary_id"]),
+                "event_id": str(row["event_id"]),
+                "link_role": str(row["link_role"]),
+                "evidence_weight": float(row["evidence_weight"]),
+                "created_at": float(row["created_at"]),
+            }
+            for row in rows
+        ]
+
+    async def list_summary_task_links(self, summary_id: str) -> List[Dict[str, Any]]:
+        """Return task links for a summary."""
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT link_id, summary_id, task_id, link_role, created_at
+                FROM summary_task_links
+                WHERE summary_id = ?
+                ORDER BY created_at ASC
+                """,
+                (summary_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "link_id": str(row["link_id"]),
+                "summary_id": str(row["summary_id"]),
+                "task_id": str(row["task_id"]),
+                "link_role": str(row["link_role"]),
+                "created_at": float(row["created_at"]),
+            }
+            for row in rows
+        ]
 
     async def bm25_search(
         self,
@@ -331,6 +446,42 @@ class L3SummaryStore:
             )
             await db.commit()
         await self._schedule_summary_embedding(summary)
+
+    async def _replace_summary_event_links(self, summary_id: str, event_ids: list[str]) -> None:
+        now = time.time()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM summary_event_links WHERE summary_id = ?", (summary_id,))
+            if event_ids:
+                await db.executemany(
+                    """
+                    INSERT INTO summary_event_links(
+                        link_id, summary_id, event_id, link_role, evidence_weight, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (f"sel_{uuid.uuid4().hex}", summary_id, event_id, "primary", 1.0, now)
+                        for event_id in event_ids
+                    ],
+                )
+            await db.commit()
+
+    async def _replace_summary_task_links(self, summary_id: str, task_ids: list[str]) -> None:
+        now = time.time()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM summary_task_links WHERE summary_id = ?", (summary_id,))
+            if task_ids:
+                await db.executemany(
+                    """
+                    INSERT INTO summary_task_links(
+                        link_id, summary_id, task_id, link_role, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (f"stl_{uuid.uuid4().hex}", summary_id, task_id, "source_task", now)
+                        for task_id in task_ids
+                    ],
+                )
+            await db.commit()
 
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         return {

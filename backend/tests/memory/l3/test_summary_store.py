@@ -4,6 +4,7 @@ import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
+from magi.memory.l3.models import L3Candidate
 
 
 @pytest.mark.asyncio
@@ -55,3 +56,30 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
     assert "switch jobs" in summary["content"].lower()
     assert await l1_store.count_events() == 1
     assert await l1_store.count_runtime_observations() == 1
+
+
+@pytest.mark.asyncio
+async def test_upsert_candidate_persists_event_and_task_links(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l3_store.initialize()
+
+    summary = await l3_store.upsert_candidate(
+        candidate=L3Candidate(
+            summary_type="insight",
+            summary_category="task_reflection",
+            content="The user clarified that growth matters more than salary.",
+            source_event_ids=["evt-1", "evt-2"],
+        ),
+        source_task_ids=["task-1"],
+    )
+
+    event_links = await l3_store.list_summary_event_links(summary["summary_id"])
+    task_links = await l3_store.list_summary_task_links(summary["summary_id"])
+
+    assert {link["event_id"] for link in event_links} == {"evt-1", "evt-2"}
+    assert all(link["link_role"] == "primary" for link in event_links)
+    assert len(task_links) == 1
+    assert task_links[0]["task_id"] == "task-1"
+    assert task_links[0]["link_role"] == "source_task"
