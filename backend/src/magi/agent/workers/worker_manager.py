@@ -9,11 +9,12 @@ import os
 import platform
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ...agent.orchestration import WorkerEvidence, WorkerFinding, WorkerResult, get_orchestration_store
+from ...agent.trace import TraceEventEmitter, build_trace_timing, now_wall_ms
 from ...core.logger import get_logger
 from ...events.events import Event, EventLevel
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
@@ -62,6 +63,9 @@ class WorkerRunState:
     failure_reason: Optional[str] = None
     retry_count: int = 0
     task: Optional[asyncio.Task] = None
+    selected_tools: list[str] = field(default_factory=list)
+    started_at_ms: int = 0
+    started_monotonic: float = 0.0
 
 
 class WorkerAgentManager(Tool):
@@ -432,6 +436,7 @@ class WorkerAgentManager(Tool):
 
         worker_id = f"worker_{uuid.uuid4().hex[:10]}"
         created_at = time.time()
+        started_at_ms = int(created_at * 1000)
         run_state = WorkerRunState(
             worker_id=worker_id,
             subagent_type=subagent_type,
@@ -449,9 +454,12 @@ class WorkerAgentManager(Tool):
             created_at=created_at,
             updated_at=created_at,
             retry_count=retry_count,
+            started_at_ms=started_at_ms,
+            started_monotonic=time.monotonic(),
         )
 
         selected_tools = self._resolve_tools_for_type(subagent_type)
+        run_state.selected_tools = list(selected_tools)
         worker_system_prompt = self._build_worker_system_prompt(
             worker_id=worker_id,
             subagent_type=subagent_type,
@@ -474,6 +482,8 @@ class WorkerAgentManager(Tool):
         async with self._lock:
             self._runs[worker_id] = run_state
             self._trim_history(max_runs=100)
+        await self._emit_worker_dispatch_trace(run_state)
+        await self._emit_worker_started_trace(run_state)
         return run_state
 
     async def _launch_workers_batch(
@@ -562,6 +572,7 @@ class WorkerAgentManager(Tool):
                 tool_registry=self._tool_registry,
                 skill_runner=None,
                 tool_result_callback=lambda payload: self._handle_tool_result(run_state, payload),
+                loop_event_callback=lambda payload: self._handle_worker_loop_event(run_state, payload),
             )
             outcome = await executor.execute_with_tools(
                 user_message=run_state.prompt,
@@ -610,6 +621,7 @@ class WorkerAgentManager(Tool):
                         or "WORKER_REPORTED_FAILURE"
                     ).strip()
                     run_state.error = run_state.failure_reason
+                    await self._emit_worker_failed_trace(run_state)
                     await self._publish_worker_fact(
                         run_state=run_state,
                         event_type=WORKER_AGENT_FAILED,
@@ -627,6 +639,7 @@ class WorkerAgentManager(Tool):
                     return
 
                 run_state.status = "completed"
+                await self._emit_worker_completed_trace(run_state)
                 await self._publish_worker_fact(
                     run_state=run_state,
                     event_type=WORKER_AGENT_COMPLETED,
@@ -643,6 +656,7 @@ class WorkerAgentManager(Tool):
 
             run_state.status = "failed"
             run_state.error = run_state.error or outcome.failure_reason or "Worker execution failed"
+            await self._emit_worker_failed_trace(run_state)
             await self._publish_worker_fact(
                 run_state=run_state,
                 event_type=WORKER_AGENT_FAILED,
@@ -667,6 +681,7 @@ class WorkerAgentManager(Tool):
                 exc,
                 exc_info=True,
             )
+            await self._emit_worker_failed_trace(run_state)
             await self._publish_worker_fact(
                 run_state=run_state,
                 event_type=WORKER_AGENT_FAILED,
@@ -682,6 +697,11 @@ class WorkerAgentManager(Tool):
 
     async def _handle_tool_result(self, run_state: WorkerRunState, payload: Dict[str, Any]) -> None:
         result_preview = self._compact_value(payload.get("data"))
+        await self._emit_worker_tool_trace(
+            run_state=run_state,
+            payload=payload,
+            result_preview=result_preview,
+        )
         await self._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_PROGRESS,
@@ -701,6 +721,335 @@ class WorkerAgentManager(Tool):
                 "result_preview": result_preview,
             },
         )
+
+    async def _handle_worker_loop_event(self, run_state: WorkerRunState, payload: Dict[str, Any]) -> None:
+        llm_trace = payload.get("llm_trace")
+        if not isinstance(llm_trace, dict) or not llm_trace:
+            return
+        trace_emitter = self._build_trace_emitter()
+        trace_turn_id = self._resolve_trace_turn_id(run_state)
+        if trace_emitter is None or trace_turn_id is None:
+            return
+
+        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
+        ended_at_ms = now_wall_ms()
+        started_at_ms = max(0, ended_at_ms - duration_ms)
+        stage = str(payload.get("stage") or "unknown")
+        iteration = max(0, int(payload.get("iteration") or 0))
+
+        await trace_emitter.emit_node_completed(
+            trace_id=self._build_trace_id(trace_turn_id),
+            turn_id=trace_turn_id,
+            span_id=self._build_worker_llm_span_id(
+                turn_id=trace_turn_id,
+                worker_id=run_state.worker_id,
+                stage=stage,
+                iteration=iteration,
+            ),
+            parent_span_id=self._build_worker_span_id(trace_turn_id, run_state.worker_id),
+            node_type="llm_call",
+            name=f"{run_state.subagent_type} worker LLM call",
+            user_id=run_state.user_id,
+            session_id=run_state.session_id,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            duration_ms=duration_ms,
+            attempt_index=run_state.retry_count + 1,
+            retry_count=run_state.retry_count,
+            output={
+                "stage": stage,
+                "iteration": iteration,
+                "response_preview": str(payload.get("response_preview") or "")[:240],
+                "tool_count": int(payload.get("tool_count") or 0),
+                "tool_names": list(payload.get("tool_names") or []),
+            },
+            metrics=dict(llm_trace),
+            tags=self._build_worker_trace_tags(run_state),
+        )
+
+    def _build_trace_emitter(self) -> TraceEventEmitter | None:
+        if self._message_bus is None:
+            return None
+        return TraceEventEmitter(emit_runtime_event=self._emit_trace_runtime_event)
+
+    async def _emit_trace_runtime_event(
+        self,
+        *,
+        event_type: str,
+        payload: dict[str, object],
+        correlation_id: str | None = None,
+        success: bool = True,
+    ) -> None:
+        _ = success
+        await self._publish_worker_bus_event(
+            event_type=event_type,
+            payload=payload,
+            correlation_id=str(correlation_id or payload.get("span_id") or uuid.uuid4()),
+        )
+
+    async def _emit_worker_dispatch_trace(self, run_state: WorkerRunState) -> None:
+        trace_emitter = self._build_trace_emitter()
+        trace_turn_id = self._resolve_trace_turn_id(run_state)
+        if trace_emitter is None or trace_turn_id is None:
+            return
+
+        dispatch_span_id = self._build_worker_dispatch_span_id(trace_turn_id, run_state.worker_id)
+        await trace_emitter.emit_node_completed(
+            trace_id=self._build_trace_id(trace_turn_id),
+            turn_id=trace_turn_id,
+            span_id=dispatch_span_id,
+            parent_span_id=self._build_root_span_id(trace_turn_id),
+            node_type="worker_dispatch",
+            name="Worker dispatch",
+            user_id=run_state.user_id,
+            session_id=run_state.session_id,
+            started_at_ms=run_state.started_at_ms,
+            ended_at_ms=run_state.started_at_ms,
+            duration_ms=0,
+            attempt_index=run_state.retry_count + 1,
+            retry_count=run_state.retry_count,
+            output={
+                "worker_id": run_state.worker_id,
+                "subagent_type": run_state.subagent_type,
+                "description": run_state.description,
+                "orchestration_id": run_state.orchestration_id,
+                "subtask_id": run_state.subtask_id,
+            },
+            tags=self._build_worker_trace_tags(run_state),
+        )
+
+    async def _emit_worker_started_trace(self, run_state: WorkerRunState) -> None:
+        trace_emitter = self._build_trace_emitter()
+        trace_turn_id = self._resolve_trace_turn_id(run_state)
+        if trace_emitter is None or trace_turn_id is None:
+            return
+
+        await trace_emitter.emit_node_started(
+            trace_id=self._build_trace_id(trace_turn_id),
+            turn_id=trace_turn_id,
+            span_id=self._build_worker_span_id(trace_turn_id, run_state.worker_id),
+            parent_span_id=self._build_worker_dispatch_span_id(trace_turn_id, run_state.worker_id),
+            node_type="worker",
+            name=f"{run_state.subagent_type} worker",
+            user_id=run_state.user_id,
+            session_id=run_state.session_id,
+            started_at_ms=run_state.started_at_ms,
+            attempt_index=run_state.retry_count + 1,
+            retry_count=run_state.retry_count,
+            input={
+                "description": run_state.description,
+                "prompt_preview": run_state.prompt[:240],
+                "selected_tools": list(run_state.selected_tools),
+            },
+            metrics={
+                "retry_count": run_state.retry_count,
+            },
+            tags=self._build_worker_trace_tags(run_state),
+        )
+
+    async def _emit_worker_completed_trace(self, run_state: WorkerRunState) -> None:
+        await self._emit_worker_terminal_trace(run_state=run_state, status="completed")
+
+    async def _emit_worker_failed_trace(self, run_state: WorkerRunState) -> None:
+        await self._emit_worker_terminal_trace(run_state=run_state, status="failed")
+
+    async def _emit_worker_terminal_trace(self, run_state: WorkerRunState, status: str) -> None:
+        trace_emitter = self._build_trace_emitter()
+        trace_turn_id = self._resolve_trace_turn_id(run_state)
+        if trace_emitter is None or trace_turn_id is None:
+            return
+
+        ended_at_ms = int((run_state.completed_at or run_state.updated_at or time.time()) * 1000)
+        timing = build_trace_timing(
+            started_at_ms=run_state.started_at_ms,
+            ended_at_ms=ended_at_ms,
+            started_monotonic=run_state.started_monotonic or None,
+            ended_monotonic=time.monotonic(),
+        )
+        output_payload = {
+            "result_preview": run_state.result_preview,
+            "result": dict(run_state.result or {}),
+            "failure_reason": run_state.failure_reason,
+        }
+        if status == "completed":
+            await trace_emitter.emit_node_completed(
+                trace_id=self._build_trace_id(trace_turn_id),
+                turn_id=trace_turn_id,
+                span_id=self._build_worker_span_id(trace_turn_id, run_state.worker_id),
+                parent_span_id=self._build_worker_dispatch_span_id(trace_turn_id, run_state.worker_id),
+                node_type="worker",
+                name=f"{run_state.subagent_type} worker",
+                user_id=run_state.user_id,
+                session_id=run_state.session_id,
+                started_at_ms=timing.started_at_ms,
+                ended_at_ms=timing.ended_at_ms or timing.started_at_ms,
+                duration_ms=timing.duration_ms or 0,
+                attempt_index=run_state.retry_count + 1,
+                retry_count=run_state.retry_count,
+                input={
+                    "description": run_state.description,
+                    "prompt_preview": run_state.prompt[:240],
+                    "selected_tools": list(run_state.selected_tools),
+                },
+                output=output_payload,
+                metrics={
+                    "retry_count": run_state.retry_count,
+                },
+                tags=self._build_worker_trace_tags(run_state),
+            )
+            return
+
+        await trace_emitter.emit_node_failed(
+            trace_id=self._build_trace_id(trace_turn_id),
+            turn_id=trace_turn_id,
+            span_id=self._build_worker_span_id(trace_turn_id, run_state.worker_id),
+            parent_span_id=self._build_worker_dispatch_span_id(trace_turn_id, run_state.worker_id),
+            node_type="worker",
+            name=f"{run_state.subagent_type} worker",
+            user_id=run_state.user_id,
+            session_id=run_state.session_id,
+            started_at_ms=timing.started_at_ms,
+            ended_at_ms=timing.ended_at_ms or timing.started_at_ms,
+            duration_ms=timing.duration_ms or 0,
+            attempt_index=run_state.retry_count + 1,
+            retry_count=run_state.retry_count,
+            input={
+                "description": run_state.description,
+                "prompt_preview": run_state.prompt[:240],
+                "selected_tools": list(run_state.selected_tools),
+            },
+            output=output_payload,
+            metrics={
+                "retry_count": run_state.retry_count,
+            },
+            error={
+                "message": run_state.error or run_state.failure_reason or "Worker execution failed",
+                "failure_reason": run_state.failure_reason,
+            },
+            tags=self._build_worker_trace_tags(run_state),
+        )
+
+    async def _emit_worker_tool_trace(
+        self,
+        *,
+        run_state: WorkerRunState,
+        payload: Dict[str, Any],
+        result_preview: str,
+    ) -> None:
+        trace_emitter = self._build_trace_emitter()
+        trace_turn_id = self._resolve_trace_turn_id(run_state)
+        if trace_emitter is None or trace_turn_id is None:
+            return
+
+        execution_time_seconds = float(payload.get("execution_time") or 0.0)
+        duration_ms = max(0, int(round(execution_time_seconds * 1000)))
+        ended_at_ms = now_wall_ms()
+        started_at_ms = max(0, ended_at_ms - duration_ms)
+        tool_name = str(payload.get("tool_name") or "unknown")
+        tool_span_id = self._build_worker_tool_span_id(
+            turn_id=trace_turn_id,
+            worker_id=run_state.worker_id,
+            tool_name=tool_name,
+            started_at_ms=started_at_ms,
+        )
+
+        success = bool(payload.get("success"))
+        if success:
+            await trace_emitter.emit_node_completed(
+                trace_id=self._build_trace_id(trace_turn_id),
+                turn_id=trace_turn_id,
+                span_id=tool_span_id,
+                parent_span_id=self._build_worker_span_id(trace_turn_id, run_state.worker_id),
+                node_type="tool_call",
+                name=f"{tool_name} tool call",
+                user_id=run_state.user_id,
+                session_id=run_state.session_id,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=duration_ms,
+                attempt_index=run_state.retry_count + 1,
+                retry_count=run_state.retry_count,
+                input={},
+                output={
+                    "tool_name": tool_name,
+                    "result_preview": result_preview,
+                },
+                metrics={
+                    "duration_ms": duration_ms,
+                },
+                tags=self._build_worker_trace_tags(run_state),
+            )
+            return
+
+        await trace_emitter.emit_node_failed(
+            trace_id=self._build_trace_id(trace_turn_id),
+            turn_id=trace_turn_id,
+            span_id=tool_span_id,
+            parent_span_id=self._build_worker_span_id(trace_turn_id, run_state.worker_id),
+            node_type="tool_call",
+            name=f"{tool_name} tool call",
+            user_id=run_state.user_id,
+            session_id=run_state.session_id,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            duration_ms=duration_ms,
+            attempt_index=run_state.retry_count + 1,
+            retry_count=run_state.retry_count,
+            input={},
+            output={
+                "tool_name": tool_name,
+                "result_preview": result_preview,
+            },
+            metrics={
+                "duration_ms": duration_ms,
+            },
+            error={
+                "message": str(payload.get("error") or f"{tool_name} failed"),
+            },
+            tags=self._build_worker_trace_tags(run_state),
+        )
+
+    def _resolve_trace_turn_id(self, run_state: WorkerRunState) -> str | None:
+        normalized_turn_id = str(run_state.turn_id or "").strip()
+        return normalized_turn_id or None
+
+    @staticmethod
+    def _build_trace_id(turn_id: str) -> str:
+        return f"trace:{turn_id}"
+
+    @staticmethod
+    def _build_root_span_id(turn_id: str) -> str:
+        return f"{turn_id}:turn"
+
+    @staticmethod
+    def _build_worker_dispatch_span_id(turn_id: str, worker_id: str) -> str:
+        return f"{turn_id}:worker_dispatch:{worker_id}"
+
+    @staticmethod
+    def _build_worker_span_id(turn_id: str, worker_id: str) -> str:
+        return f"{turn_id}:worker:{worker_id}"
+
+    @staticmethod
+    def _build_worker_llm_span_id(turn_id: str, worker_id: str, stage: str, iteration: int) -> str:
+        return f"{turn_id}:worker_llm:{worker_id}:{stage}:{iteration}"
+
+    @staticmethod
+    def _build_worker_tool_span_id(turn_id: str, worker_id: str, tool_name: str, started_at_ms: int) -> str:
+        return f"{turn_id}:worker_tool:{worker_id}:{tool_name}:{started_at_ms}"
+
+    @staticmethod
+    def _build_worker_trace_tags(run_state: WorkerRunState) -> Dict[str, Any]:
+        return {
+            "role": "worker",
+            "worker_id": run_state.worker_id,
+            "worker_type": run_state.subagent_type,
+            "orchestration_id": run_state.orchestration_id,
+            "subtask_id": run_state.subtask_id,
+            "parent_task_agent_type": run_state.parent_task_agent_type,
+            "parent_task_agent_id": run_state.parent_task_agent_id,
+            "target_task_agent_type": run_state.target_task_agent_type,
+            "target_task_agent_id": run_state.target_task_agent_id,
+        }
 
     async def _publish_worker_fact(
         self,

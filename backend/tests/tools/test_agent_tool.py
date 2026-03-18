@@ -20,6 +20,10 @@ from magi.tools.builtin.agent_tool import (
     WORKER_AGENT_PROGRESS,
 )
 from magi.agent.execution.function_calling import ExecutionOutcome
+from magi.agent.trace.contracts import (
+    TRACE_NODE_COMPLETED_EVENT_TYPE,
+    TRACE_NODE_STARTED_EVENT_TYPE,
+)
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -33,8 +37,9 @@ class _FakeToolRegistry:
 
 
 class _FakeFunctionCallingOrchestrator:
-    def __init__(self, llm_adapter, tool_registry, skill_runner=None, tool_result_callback=None):
+    def __init__(self, llm_adapter, tool_registry, skill_runner=None, tool_result_callback=None, loop_event_callback=None):
         self._tool_result_callback = tool_result_callback
+        self._loop_event_callback = loop_event_callback
 
     async def execute_with_tools(
         self,
@@ -78,6 +83,27 @@ class _FakeFunctionCallingOrchestrator:
                     "execution_time": 0.01,
                     "error": None,
                     "data": {"matches": 3},
+                }
+            )
+        if self._loop_event_callback:
+            await self._loop_event_callback(
+                {
+                    "stage": "final_response",
+                    "iteration": 1,
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "execution_agent_id": execution_agent_id,
+                    "response_preview": user_message[:80],
+                    "llm_trace": {
+                        "provider": "openai",
+                        "model": "fake-model",
+                        "input_tokens": 30,
+                        "output_tokens": 12,
+                        "total_tokens": 42,
+                        "thinking_enabled": not disable_thinking,
+                        "duration_ms": 510,
+                    },
                 }
             )
         await asyncio.sleep(0.01)
@@ -140,6 +166,59 @@ async def test_agent_tool_launch_foreground(monkeypatch):
     assert result.data["result"]["summary"] == "worker finished"
     assert WORKER_AGENT_PROGRESS in published_events
     assert WORKER_AGENT_COMPLETED in published_events
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_publishes_worker_trace_nodes_to_message_bus(monkeypatch):
+    from magi.agent.workers import worker_manager as worker_manager_module
+
+    monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator)
+    tool = AgentTool()
+
+    published_events = []
+
+    class _FakeMessageBus:
+        async def publish(self, event):  # type: ignore[no-untyped-def]
+            published_events.append((event.type, event.data))
+            return True
+
+    tool.configure(
+        llm_adapter=_FakeLLMAdapter(),
+        tool_registry_instance=_FakeToolRegistry(),
+        message_bus=_FakeMessageBus(),
+    )
+
+    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+        _ = (run_state, event_type, internal_payload, public_payload)
+
+    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
+
+    result = await tool.execute(
+        parameters={
+            "action": "launch",
+            "subagent_type": "Explore",
+            "description": "scan auth flow",
+            "prompt": "Locate token generation points",
+            "run_in_background": False,
+            "orchestration_id": "orch-1",
+            "subtask_id": "subtask-1",
+            "turn_id": "turn-1",
+        },
+        context=ToolExecutionContext(
+            agent_id="chat:u-chat",
+            workspace="/tmp",
+            env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+            permissions=["authenticated"],
+        ),
+    )
+
+    assert result.success is True
+    trace_events = [item for item in published_events if item[0] in {TRACE_NODE_STARTED_EVENT_TYPE, TRACE_NODE_COMPLETED_EVENT_TYPE}]
+    node_types = [payload["node_type"] for _, payload in trace_events]
+    assert "worker_dispatch" in node_types
+    assert "worker" in node_types
+    assert "llm_call" in node_types
+    assert "tool_call" in node_types
 
 
 @pytest.mark.asyncio
