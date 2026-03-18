@@ -121,6 +121,7 @@ class UnifiedMemoryStore:
                 async_embeddings=async_embeddings,
                 enable_temporal_llm_summary=enable_l3_llm_summary,
                 temporal_llm_timeout_seconds=temporal_l3_llm_timeout_seconds,
+                scenario_llm_pool=scenario_llm_pool,
             )
         if enable_l4:
             self.l4 = L4ProceduralMemoryStore(

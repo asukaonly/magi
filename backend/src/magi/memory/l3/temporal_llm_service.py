@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import time
 from typing import Any
 
+from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
 from .models import (
     L3Candidate,
     TemporalEvidenceItem,
@@ -13,13 +17,32 @@ from .models import (
     TemporalSummaryLLMOutput,
 )
 
+logger = logging.getLogger(__name__)
+
+TEMPORAL_SUMMARY_SYSTEM_PROMPT = """You generate temporal memory summaries for a local-first agent.
+
+Rules:
+- Use only the supplied evidence pack.
+- Compress repetition and surface concrete changes, priorities, and recurring patterns.
+- Do not invent entity ids, event ids, preferences, or psychological diagnoses.
+- Return a JSON object with: content, key_topics, key_entities, sentiment_summary, change_and_pattern, importance_aggregate.
+- If evidence is weak, stay conservative and summarize only explicit content.
+"""
+
 
 class TemporalSummaryLLMService:
     """Builds temporal evidence packs and later will host LLM generation helpers."""
 
-    def __init__(self, *, enabled: bool = True, llm_timeout_seconds: float = 3.0) -> None:
+    def __init__(
+        self,
+        *,
+        enabled: bool = True,
+        llm_timeout_seconds: float = 3.0,
+        scenario_llm_pool: ScenarioLLMPool | None = None,
+    ) -> None:
         self._enabled = bool(enabled)
         self._llm_timeout_seconds = float(llm_timeout_seconds)
+        self._scenario_llm_pool = scenario_llm_pool
 
     def build_evidence_pack(
         self,
@@ -136,8 +159,55 @@ class TemporalSummaryLLMService:
         The default implementation is intentionally inert until a real LLM caller
         is wired in by a later task.
         """
-        _ = pack
-        return None
+        llm_target = self._get_llm_target()
+        if llm_target is None:
+            return None
+        adapter, provider_bridge = llm_target
+        prompt = self._render_temporal_summary_prompt(pack)
+        started_at = time.perf_counter()
+        provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
+        model = str(getattr(adapter, "model_name", "unknown") or "unknown")
+        log_context = {
+            "request_kind": "memory:l3_temporal_summary",
+            "provider": provider,
+            "model": model,
+            "event_count": pack.source_event_count,
+            "summary_category": pack.summary_category,
+        }
+        logger.info("L3 temporal LLM call started", extra=log_context)
+        try:
+            response = await provider_bridge.chat_response(
+                system_prompt=TEMPORAL_SUMMARY_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                json_mode=True,
+                disable_thinking=True,
+                timeout_seconds=self._llm_timeout_seconds,
+                event_context={
+                    "request_kind": "memory:l3_temporal_summary",
+                    "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
+                    "agent_id": "memory:l3",
+                },
+            )
+        except Exception as exc:
+            logger.warning("L3 temporal LLM call failed", extra={**log_context, "error": str(exc)})
+            raise
+
+        raw = response.content
+        logger.info(
+            "L3 temporal LLM call completed",
+            extra={
+                **log_context,
+                "duration_ms": round((time.perf_counter() - started_at) * 1000.0, 2),
+                "response_char_count": len(raw or ""),
+            },
+        )
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            logger.warning("L3 temporal LLM returned invalid JSON", extra=log_context)
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
     def _build_fallback_result(
         self,
@@ -159,3 +229,42 @@ class TemporalSummaryLLMService:
             summary_overrides=summary_overrides,
             used_fallback=True,
         )
+
+    def _render_temporal_summary_prompt(self, pack: TemporalEvidencePack) -> str:
+        payload = {
+            "summary_type": "temporal",
+            "summary_category": pack.summary_category,
+            "period_start": pack.period_start,
+            "period_end": pack.period_end,
+            "source_event_count": pack.source_event_count,
+            "source_event_ids": pack.source_event_ids,
+            "importance_aggregate": pack.importance_aggregate,
+            "event_type_distribution": pack.event_type_distribution,
+            "events": [
+                {
+                    "event_id": item.event_id,
+                    "event_type": item.event_type,
+                    "timestamp": item.timestamp,
+                    "memory_domain": item.memory_domain,
+                    "importance_score": item.importance_score,
+                    "content": item.content,
+                }
+                for item in pack.events
+            ],
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    def _get_adapter(self) -> Any | None:
+        if self._scenario_llm_pool is None:
+            return None
+        try:
+            return self._scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
+        except Exception as exc:
+            logger.debug("L3 temporal LLM adapter unavailable: %s", exc)
+            return None
+
+    def _get_llm_target(self) -> tuple[Any, LLMProviderBridge] | None:
+        adapter = self._get_adapter()
+        if adapter is None:
+            return None
+        return adapter, LLMProviderBridge(adapter)

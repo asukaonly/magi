@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
+from ...llm import ScenarioLLMPool
 from ..embedding_service import MemoryEmbeddingService
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..l1.event_store import L1EventStore
@@ -38,6 +39,7 @@ class L3SummaryStore:
         async_embeddings: bool = True,
         enable_temporal_llm_summary: bool = True,
         temporal_llm_timeout_seconds: float = 3.0,
+        scenario_llm_pool: ScenarioLLMPool | None = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
@@ -46,6 +48,7 @@ class L3SummaryStore:
         self._temporal_llm_service = TemporalSummaryLLMService(
             enabled=enable_temporal_llm_summary,
             llm_timeout_seconds=temporal_llm_timeout_seconds,
+            scenario_llm_pool=scenario_llm_pool,
         )
         self._vector_index = (
             SqliteVecIndex(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -159,3 +160,29 @@ async def test_generate_temporal_candidate_falls_back_on_invalid_output(monkeypa
 
     assert result.used_fallback is True
     assert result.candidate.content == "rule text"
+
+
+@pytest.mark.asyncio
+async def test_call_temporal_model_parses_json_from_llm_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+        ],
+    )
+
+    class _FakeBridge:
+        async def chat_response(self, **_: object) -> SimpleNamespace:
+            return SimpleNamespace(content='{"content":"LLM day summary","key_topics":["job_search"]}')
+
+    fake_adapter = SimpleNamespace(provider_name="fake", model_name="fake-model")
+    monkeypatch.setattr(service, "_get_llm_target", lambda: (fake_adapter, _FakeBridge()))
+
+    payload = await service._call_temporal_model(pack)
+
+    assert payload == {"content": "LLM day summary", "key_topics": ["job_search"]}
