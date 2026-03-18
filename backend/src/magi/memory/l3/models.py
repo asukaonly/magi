@@ -97,3 +97,15 @@ class TemporalEvidencePack:
     events: list[TemporalEvidenceItem] = field(default_factory=list)
     importance_aggregate: float | None = None
     event_type_distribution: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class TemporalSummaryLLMOutput:
+    """Structured LLM output for temporal summary rewriting."""
+
+    content: str
+    key_topics: list[str] = field(default_factory=list)
+    key_entities: list[dict[str, object]] = field(default_factory=list)
+    sentiment_summary: dict[str, object] | None = None
+    change_and_pattern: dict[str, object] | None = None
+    importance_aggregate: float | None = None

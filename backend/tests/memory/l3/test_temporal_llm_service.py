@@ -65,3 +65,37 @@ async def test_build_temporal_evidence_pack_filters_runtime_and_preserves_import
     assert pack.source_event_count == 2
     assert pack.importance_aggregate == pytest.approx(0.7)
     assert pack.event_type_distribution == {"UserMessage": 1, "TimelineEvent": 1}
+
+
+def test_parse_temporal_llm_output_into_candidate() -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="finish portfolio"),
+        ],
+    )
+
+    candidate, summary_overrides = service.parse_llm_output(
+        {
+            "content": "The day centered on clarifying job-switch priorities.",
+            "key_topics": ["job_search"],
+            "key_entities": [{"entity_id": "user:self", "entity_type": "user"}],
+            "sentiment_summary": {"tone": "serious_but_constructive"},
+            "change_and_pattern": {"changes": ["moved from exploration to planning"], "patterns": []},
+            "importance_aggregate": 0.8,
+        },
+        pack=pack,
+    )
+
+    assert candidate.summary_type == "temporal"
+    assert candidate.summary_category == "day"
+    assert candidate.content == "The day centered on clarifying job-switch priorities."
+    assert candidate.source_event_ids == ["evt-1", "evt-2"]
+    assert summary_overrides["key_topics"] == ["job_search"]
+    assert summary_overrides["importance_aggregate"] == 0.8

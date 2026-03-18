@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import TemporalEvidenceItem, TemporalEvidencePack
+from .models import L3Candidate, TemporalEvidenceItem, TemporalEvidencePack, TemporalSummaryLLMOutput
 
 
 class TemporalSummaryLLMService:
@@ -52,3 +52,40 @@ class TemporalSummaryLLMService:
             importance_aggregate=(sum(importance_values) / len(importance_values)) if importance_values else None,
             event_type_distribution=event_type_distribution,
         )
+
+    def parse_llm_output(
+        self,
+        payload: dict[str, Any],
+        *,
+        pack: TemporalEvidencePack,
+    ) -> tuple[L3Candidate, dict[str, Any]]:
+        """Parse structured temporal LLM output into an L3 candidate and summary overrides."""
+        content = str(payload.get("content") or "").strip()
+        if not content:
+            raise ValueError("Temporal LLM output requires non-empty content")
+        output = TemporalSummaryLLMOutput(
+            content=content,
+            key_topics=[str(item).strip() for item in payload.get("key_topics", []) if str(item).strip()],
+            key_entities=[
+                item
+                for item in payload.get("key_entities", [])
+                if isinstance(item, dict)
+            ],
+            sentiment_summary=payload.get("sentiment_summary") if isinstance(payload.get("sentiment_summary"), dict) else None,
+            change_and_pattern=payload.get("change_and_pattern") if isinstance(payload.get("change_and_pattern"), dict) else None,
+            importance_aggregate=float(payload["importance_aggregate"]) if payload.get("importance_aggregate") is not None else None,
+        )
+        candidate = L3Candidate(
+            summary_type="temporal",
+            summary_category=pack.summary_category,
+            content=output.content,
+            source_event_ids=list(pack.source_event_ids),
+        )
+        summary_overrides: dict[str, Any] = {
+            "key_topics": list(output.key_topics),
+            "key_entities": list(output.key_entities),
+            "sentiment_summary": output.sentiment_summary,
+            "importance_aggregate": output.importance_aggregate,
+            "change_and_pattern": output.change_and_pattern,
+        }
+        return candidate, summary_overrides
