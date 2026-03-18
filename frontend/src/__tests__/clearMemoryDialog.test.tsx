@@ -44,4 +44,18 @@ describe('ClearMemoryDialog', () => {
     fireEvent.click(enabledButton);
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
+
+  it('uses the clear-dialog cancel copy and keeps the body inset from the edges', () => {
+    render(
+      <ClearMemoryDialog
+        open
+        onOpenChange={vi.fn()}
+        clearing={false}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'memory.clearConfirm.cancel' })).toBeInTheDocument();
+    expect(screen.getByTestId('clear-memory-dialog-body')).toHaveClass('px-6');
+  });
 });

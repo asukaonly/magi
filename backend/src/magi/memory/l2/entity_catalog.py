@@ -300,6 +300,29 @@ class L2EntityCatalog:
         await self.initialize()
         return await self._list_entities(limit=limit, entity_type=_normalize_catalog_entity_type(entity_type))
 
+    async def clear(self) -> int:
+        """Delete all catalog entities, aliases, and mention evidence."""
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM entity_catalog) +
+                    (SELECT COUNT(*) FROM entity_mentions)
+                """
+            ) as cursor:
+                row = await cursor.fetchone()
+                count = int(row[0]) if row else 0
+            await db.executescript(
+                """
+                DELETE FROM entity_mentions;
+                DELETE FROM entity_aliases;
+                DELETE FROM entity_catalog;
+                """
+            )
+            await db.commit()
+        return count
+
     async def _list_entities(
         self,
         *,

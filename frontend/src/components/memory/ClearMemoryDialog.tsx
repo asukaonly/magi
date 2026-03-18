@@ -47,7 +47,7 @@ export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-destructive" />
@@ -55,7 +55,7 @@ export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
           </DialogTitle>
           <DialogDescription>{t('memory.clearConfirm.description')}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <div data-testid="clear-memory-dialog-body" className="space-y-4 px-6 pb-2">
           <div className="rounded-xl border border-border/70 bg-muted/35 px-4 py-3">
             <ul className="space-y-1 text-sm text-foreground/88">
               <li>{t('memory.clearConfirm.l0')}</li>
@@ -74,7 +74,7 @@ export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
+            {t('memory.clearConfirm.cancel')}
           </Button>
           <Button
             variant="destructive"

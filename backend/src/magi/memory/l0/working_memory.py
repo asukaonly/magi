@@ -422,6 +422,28 @@ class L0WorkingMemoryStore:
         for session_id in list(self._sessions):
             await self.checkpoint_session(session_id)
 
+    async def clear(self) -> int:
+        """Delete all L0 sessions from memory and checkpoints."""
+        await self.initialize()
+        count = len(self._sessions)
+        self._sessions.clear()
+        self._goal_stack.clear()
+        self._active_entities.clear()
+        self._temporary_tactics.clear()
+
+        async with aiosqlite.connect(self.checkpoint_db_path) as db:
+            await db.executescript(
+                """
+                DELETE FROM l0_sessions;
+                DELETE FROM l0_goal_stack;
+                DELETE FROM l0_active_entities;
+                DELETE FROM l0_temporary_tactics;
+                """
+            )
+            await db.commit()
+
+        return count
+
     async def expire_idle_sessions(self) -> list[str]:
         """Expire sessions that have been idle beyond the configured timeout.
 

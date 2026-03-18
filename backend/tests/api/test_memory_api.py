@@ -13,6 +13,9 @@ class _FakeL0Store:
     _active_entities: dict = {}
     _temporary_tactics: dict = {}
 
+    async def clear(self):
+        return 3
+
 
 class _FakeL1Store:
     db_path = "/tmp/l1.db"
@@ -37,6 +40,9 @@ class _FakeL1Store:
                 "memory_owner_id": "user:self",
             }
         ]
+
+    async def clear(self):
+        return 12
 
 
 class _FakeL2Store:
@@ -86,6 +92,9 @@ class _FakeL2Store:
             "exclusive_resolution": payload.get("exclusive_resolution", "mark_deprecated"),
         }
 
+    async def clear(self):
+        return 5
+
 
 class _FakeL2EntityCatalog:
     async def list_entities(self, limit: int = 100):
@@ -96,12 +105,18 @@ class _FakeL2EntityCatalog:
         _ = limit
         return [{"mention_id": 1, "mention_text": "魔都", "resolved_entity_id": "place:shanghai"}]
 
+    async def clear(self):
+        return 5
+
 
 class _FakeL3Store:
     db_path = "/tmp/l3.db"
 
     async def list_summaries(self, limit: int = 100):
         return []
+
+    async def clear(self):
+        return 2
 
 
 class _FakeL4Store:
@@ -119,6 +134,9 @@ class _FakeL4Store:
                 "circuit_breaker_state": "closed",
             }
         ]
+
+    async def clear(self):
+        return 1
 
 
 class _FakeUnifiedMemory:
@@ -300,6 +318,31 @@ def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
     assert body["extract_skipped"] == 2
     assert body["extract_by_evidence_class"]["assistant_freeform"] == 1
     assert body["skip_by_reason"]["assistant_tool_grounded"] == 1
+
+
+def test_memory_clear_api_clears_all_layers(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeChatReadService:
+        def clear_all_sessions(self) -> int:
+            return 4
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService())
+
+    client = TestClient(app)
+    response = client.delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["results"]["l0"]["count"] == 3
+    assert body["results"]["l1"]["count"] == 12
+    assert body["results"]["l2"]["count"] == 10
+    assert body["results"]["l3"]["count"] == 2
+    assert body["results"]["l4"]["count"] == 1
+    assert body["results"]["chat_context"]["count"] == 4
 
 
 def test_memory_l1_events_api_exposes_runtime_and_memory_owner_ids(monkeypatch):

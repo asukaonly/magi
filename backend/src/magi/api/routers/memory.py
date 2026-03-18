@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
+from ..services import get_chat_read_service
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_memory_integration, require_unified_memory
 from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
@@ -94,6 +95,13 @@ def _canonical_self_id(unified_memory: Any) -> str:
     if resolver is None:
         return "user:self"
     return str(getattr(resolver, "default_memory_owner_id", "user:self"))
+
+
+def _build_clear_result(count: int) -> Dict[str, Any]:
+    return {
+        "cleared": True,
+        "count": int(count),
+    }
 
 
 # =============================================================================
@@ -465,6 +473,38 @@ async def get_memory_statistics():
         stats["integration"] = memory_integration.get_statistics()
 
     return stats
+
+
+@memory_router.delete("/clear")
+async def clear_memory_layers():
+    """Clear all memory layers and chat session mappings."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+
+    l0_count = await unified_memory.l0.clear() if getattr(unified_memory, "l0", None) else 0
+    l1_count = await unified_memory.l1.clear() if getattr(unified_memory, "l1", None) else 0
+    l2_count = await unified_memory.l2.clear() if getattr(unified_memory, "l2", None) else 0
+    if getattr(unified_memory, "l2_entity_catalog", None):
+        l2_count += await unified_memory.l2_entity_catalog.clear()
+    l3_count = await unified_memory.l3.clear() if getattr(unified_memory, "l3", None) else 0
+    l4_count = await unified_memory.l4.clear() if getattr(unified_memory, "l4", None) else 0
+    chat_context_count = get_chat_read_service().clear_all_sessions()
+
+    return {
+        "success": True,
+        "results": {
+            "l0": _build_clear_result(l0_count),
+            "l1": _build_clear_result(l1_count),
+            "l2": _build_clear_result(l2_count),
+            "l3": _build_clear_result(l3_count),
+            "l4": _build_clear_result(l4_count),
+            "chat_context": _build_clear_result(chat_context_count),
+        },
+    }
 
 
 @memory_router.get("/l1/events")
