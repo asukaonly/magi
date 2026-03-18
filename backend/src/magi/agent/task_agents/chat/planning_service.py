@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from ....core.logger import get_logger
+from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
 from ....tools.registry import ToolRegistry
 from ....tools.schema import ToolExecutionContext
@@ -29,6 +30,7 @@ class ChatPlanningService:
         *,
         agent_id: str,
         runtime_key: str,
+        context_service: ContextAssemblyService,
         prompt_service: ChatPromptService,
         session_service: ChatSessionService,
         tool_registry: ToolRegistry,
@@ -36,6 +38,7 @@ class ChatPlanningService:
     ) -> None:
         self._agent_id = agent_id
         self._runtime_key = runtime_key
+        self._context_service = context_service
         self._prompt_service = prompt_service
         self._session_service = session_service
         self._tool_registry = tool_registry
@@ -94,9 +97,10 @@ class ChatPlanningService:
         payload = self._prompt_service.build_aggregation_payload(state)
         history = await self._session_service.get_or_load_history(state.user_id, state.session_id)
         filtered_history = self._prompt_service.filter_history_for_aggregation(history)
-        system_prompt = await self._prompt_service.build_system_prompt(
+        system_prompt = await self._context_service.build_system_prompt(
             user_id=state.user_id,
             session_id=state.session_id,
+            user_message=state.root_user_message,
             task_category="chat",
             scenario=Scenario.CHAT,
         )

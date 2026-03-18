@@ -8,6 +8,7 @@ from typing import Optional
 from ....core.logger import get_logger
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
+from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
 from ..common import (
     BaseExecutionHandler,
@@ -39,6 +40,7 @@ logger = get_logger(__name__)
 class ChatHandlerDependencies:
     """Shared dependencies passed to chat execution handlers."""
 
+    context_service: ContextAssemblyService
     prompt_service: ChatPromptService
     planning_service: ChatPlanningService
     function_calling_orchestrator: any
@@ -61,26 +63,22 @@ class DirectLLMHandler(BaseExecutionHandler):
     mode = ExecutionMode.DIRECT_LLM
 
     async def build_request(self, request: ExecutionRequest) -> DirectLLMRequest:
-        prompt_context = await self._deps.prompt_service.build_prompt_context(
+        prompt_package = await self._deps.context_service.build_prompt_package(
             user_id=request.context.user_id,
             session_id=request.context.session_id,
+            user_message=request.context.latest_user_message,
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
+            recent_tool_errors=request.context.recent_tool_errors,
         )
-        system_prompt = self._deps.prompt_service.render_system_prompt(prompt_context)
-        recent_tool_errors_block = self._deps.prompt_service.build_recent_tool_errors_block(
-            request.context.recent_tool_errors
-        )
-        if recent_tool_errors_block:
-            system_prompt = f"{system_prompt}\n\n{recent_tool_errors_block}"
         return DirectLLMRequest(
             mode=request.mode,
             context=request.context,
             intent=request.intent,
             tool_selection=request.tool_selection,
-            prompt_context=prompt_context,
-            system_prompt=system_prompt,
+            prompt_context=prompt_package.prompt_context,
+            system_prompt=prompt_package.system_prompt,
             messages=request.context.history[-10:] + [
                 {"role": "user", "content": request.context.latest_user_message}
             ],
@@ -105,26 +103,22 @@ class FunctionCallingHandler(BaseExecutionHandler):
     mode = ExecutionMode.FUNCTION_CALLING
 
     async def build_request(self, request: ExecutionRequest) -> FunctionCallingRequest:
-        prompt_context = await self._deps.prompt_service.build_prompt_context(
+        prompt_package = await self._deps.context_service.build_prompt_package(
             user_id=request.context.user_id,
             session_id=request.context.session_id,
+            user_message=request.context.latest_user_message,
             task_category=request.intent.intent,
             tools=request.tool_selection.tools,
             scenario=Scenario.CHAT,
+            recent_tool_errors=request.context.recent_tool_errors,
         )
-        system_prompt = self._deps.prompt_service.render_system_prompt(prompt_context)
-        recent_tool_errors_block = self._deps.prompt_service.build_recent_tool_errors_block(
-            request.context.recent_tool_errors
-        )
-        if recent_tool_errors_block:
-            system_prompt = f"{system_prompt}\n\n{recent_tool_errors_block}"
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,
             intent=request.intent,
             tool_selection=request.tool_selection,
-            prompt_context=prompt_context,
-            system_prompt=system_prompt,
+            prompt_context=prompt_package.prompt_context,
+            system_prompt=prompt_package.system_prompt,
             selected_tools=list(request.tool_selection.tools),
             disable_thinking=not request.intent.deep_thinking,
         )
@@ -260,9 +254,10 @@ class ExploreRenderHandler(BaseExecutionHandler):
             )
 
         filtered_history = self._deps.prompt_service.filter_history_for_aggregation(request.context.history)
-        system_prompt = await self._deps.prompt_service.build_system_prompt(
+        system_prompt = await self._deps.context_service.build_system_prompt(
             user_id=request.context.user_id,
             session_id=request.context.session_id,
+            user_message=root_user_message,
             task_category="analysis",
             scenario=Scenario.ANALYSIS,
         )

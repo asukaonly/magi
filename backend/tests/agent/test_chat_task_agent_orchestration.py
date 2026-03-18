@@ -154,10 +154,20 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
 
     calls: dict[str, object] = {}
 
-    async def _fake_build_system_prompt(*, user_id=None, session_id=None, task_category="chat", scenario="chat"):  # type: ignore[no-untyped-def]
+    async def _fake_build_system_prompt(  # type: ignore[no-untyped-def]
+        *,
+        user_id=None,
+        session_id=None,
+        user_message="",
+        task_category="chat",
+        scenario="chat",
+        tools=None,
+        recent_tool_errors=None,
+    ):
         calls["build_system_prompt"] = {
             "user_id": user_id,
             "session_id": session_id,
+            "user_message": user_message,
             "task_category": task_category,
             "scenario": scenario,
         }
@@ -171,7 +181,7 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
         }
         return "这是面向用户的最终回答"
 
-    monkeypatch.setattr(agent._prompt_service, "build_system_prompt", _fake_build_system_prompt)
+    monkeypatch.setattr(agent._context_service, "build_system_prompt", _fake_build_system_prompt)
     monkeypatch.setattr(agent._prompt_service, "call_llm", _fake_call_llm)
 
     state = TaskOrchestrationState(
@@ -217,6 +227,7 @@ async def test_aggregate_orchestration_uses_standard_chat_prompt(monkeypatch) ->
     assert calls["build_system_prompt"] == {
         "user_id": "u-chat",
         "session_id": "s-chat",
+        "user_message": "看下~/code/magi下的代码，分析下代码架构",
         "task_category": "chat",
         "scenario": "chat",
     }
@@ -383,11 +394,21 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
     ]
     calls = {}
 
-    async def _fake_build_system_prompt(*, scenario="chat", user_id=None, session_id=None, task_category="chat"):  # type: ignore[no-untyped-def]
+    async def _fake_build_system_prompt(  # type: ignore[no-untyped-def]
+        *,
+        scenario="chat",
+        user_id=None,
+        session_id=None,
+        user_message="",
+        task_category="chat",
+        tools=None,
+        recent_tool_errors=None,
+    ):
         calls["build_system_prompt"] = {
             "scenario": scenario,
             "user_id": user_id,
             "session_id": session_id,
+            "user_message": user_message,
             "task_category": task_category,
         }
         return "analysis-system-prompt"
@@ -400,7 +421,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         }
         return "这是最终分析回答"
 
-    monkeypatch.setattr(agent._prompt_service, "build_system_prompt", _fake_build_system_prompt)
+    monkeypatch.setattr(agent._context_service, "build_system_prompt", _fake_build_system_prompt)
     monkeypatch.setattr(agent._prompt_service, "call_llm", _fake_call_llm)
 
     latest_fact = FactRecord(
@@ -438,6 +459,7 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         "scenario": "analysis",
         "user_id": "u-chat",
         "session_id": "s-chat",
+        "user_message": "看下~/code/magi下的代码，分析下代码架构",
         "task_category": "analysis",
     }
     call_llm = calls["call_llm"]
@@ -451,12 +473,7 @@ def test_chat_prompt_service_formats_dense_explore_render_text() -> None:
     from magi.agent.task_agents.chat.prompt_service import ChatPromptService
 
     service = ChatPromptService(
-        agent_id="u-chat",
-        agent_type="chat",
         llm_adapter=_FakeLLMAdapter(),
-        prompt_context_assembler=None,  # type: ignore[arg-type]
-        prompt_context_renderer=None,  # type: ignore[arg-type]
-        retrieval_memory_provider=None,
     )
 
     raw = "第一段总览。1. 项目概况与布局整体说明2. 技术栈说明- FastAPI- React3. 总结"

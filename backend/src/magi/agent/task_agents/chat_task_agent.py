@@ -10,7 +10,7 @@ from ...core.logger import get_logger
 from ...agent.runtime.contracts import FactRecord
 from ...agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
 from ...agent.runtime.types import TaskAgentType
-from ...context import ContextRetrievalService, PromptContextAssembler, PromptContextRenderer
+from ...context import ContextAssemblyService, ContextRetrievalService, PromptContextAssembler, PromptContextRenderer
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry
 from ...utils.runtime import get_runtime_paths
@@ -76,6 +76,15 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         )
         self.prompt_context_renderer = PromptContextRenderer()
         self._context_retrieval_service = ContextRetrievalService(unified_memory=unified_memory)
+        self._context_service = ContextAssemblyService(
+            agent_id=self.agent_id,
+            agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
+            prompt_context_assembler=self.prompt_context_assembler,
+            prompt_context_renderer=self.prompt_context_renderer,
+            retrieval_memory_provider=self._context_retrieval_service.build_retrieved_memory_payload,
+            memory=memory,
+            other_memory=other_memory,
+        )
 
         runtime_paths = get_runtime_paths()
         self._session_service = ChatSessionService(
@@ -86,19 +95,13 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         )
         self._fact_classifier = ChatFactClassifier()
         self._prompt_service = ChatPromptService(
-            agent_id=self.agent_id,
-            agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
-            prompt_context_assembler=self.prompt_context_assembler,
-            prompt_context_renderer=self.prompt_context_renderer,
-            retrieval_memory_provider=self._context_retrieval_service.build_retrieved_memory_payload,
-            memory=memory,
-            other_memory=other_memory,
         )
         self._planning_service = ChatPlanningService(
             agent_id=self.agent_id,
             runtime_key=self.runtime_key,
+            context_service=self._context_service,
             prompt_service=self._prompt_service,
             session_service=self._session_service,
             tool_registry=tool_registry,
@@ -140,6 +143,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             loop_event_callback=self._postprocess_service.record_tool_loop_fact,
         )
         handler_deps = ChatHandlerDependencies(
+            context_service=self._context_service,
             prompt_service=self._prompt_service,
             planning_service=self._planning_service,
             function_calling_orchestrator=self.function_calling_orchestrator,

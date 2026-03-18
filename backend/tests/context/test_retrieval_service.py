@@ -27,6 +27,7 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
             payload = await service.build_retrieved_memory_payload(
                 user_id="u1",
                 session_id="s1",
+                query="switch jobs",
                 task_category="chat",
             )
 

@@ -5,129 +5,27 @@ import json
 import re
 from typing import Any
 
-from ....context.assembler import PromptContextAssembler, PromptContextRenderer
-from ....context.scenarios import Scenario
 from ....config.models import LLMScenario
 from ...orchestration import WorkerResult
 from ..common import TaskAgentLLMService
 
 
 class ChatPromptService:
-    """Owns prompt assembly and direct LLM invocation."""
+    """Owns direct LLM invocation and chat prompt helper text."""
 
     def __init__(
         self,
         *,
-        agent_id: str,
-        agent_type: str,
         llm_adapter=None,
         llm_pool=None,
-        prompt_context_assembler: PromptContextAssembler,
-        prompt_context_renderer: PromptContextRenderer,
-        retrieval_memory_provider,
-        memory=None,
-        other_memory=None,
     ) -> None:
-        self._agent_id = agent_id
-        self._agent_type = agent_type
         self._llm = llm_adapter
         self._llm_pool = llm_pool
-        self._prompt_context_assembler = prompt_context_assembler
-        self._prompt_context_renderer = prompt_context_renderer
-        self._retrieval_memory_provider = retrieval_memory_provider
-        self._memory = memory
-        self._other_memory = other_memory
         self._llm_service = TaskAgentLLMService(
             llm_adapter=llm_adapter,
             llm_pool=llm_pool,
             scenario=LLMScenario.CORE,
             logger_name="chat",
-        )
-
-    async def build_prompt_context(
-        self,
-        *,
-        user_id: str,
-        session_id: str | None = None,
-        task_category: str,
-        tools: list[str],
-        scenario: str = Scenario.CHAT,
-    ) -> dict[str, Any]:
-        retrieved_memory_payload = await self._retrieval_memory_provider(
-            user_id=user_id,
-            session_id=session_id,
-            task_category=task_category,
-        )
-        return await self._prompt_context_assembler.assemble(
-            agent_id=self._agent_id,
-            agent_type=self._agent_type,
-            scenario=scenario,
-            task_category=task_category,
-            user_id=user_id,
-            self_memory=self._memory,
-            other_memory=self._other_memory,
-            tool_result={"tools": tools},
-            retrieved_memory_payload=retrieved_memory_payload,
-            state_transition_override=None,
-            persona_name=self._memory.personality_name if self._memory else "default",
-        )
-
-    async def build_system_prompt(
-        self,
-        *,
-        user_id: str,
-        session_id: str | None = None,
-        task_category: str,
-        scenario: str = Scenario.CHAT,
-    ) -> str:
-        retrieved_memory_payload = await self._retrieval_memory_provider(
-            user_id=user_id,
-            session_id=session_id,
-            task_category=task_category,
-        )
-        prompt_context = await self._prompt_context_assembler.assemble(
-            agent_id=self._agent_id,
-            agent_type=self._agent_type,
-            scenario=scenario,
-            task_category=task_category,
-            user_id=user_id,
-            self_memory=self._memory,
-            other_memory=self._other_memory,
-            tool_result={"tools": []},
-            retrieved_memory_payload=retrieved_memory_payload,
-            state_transition_override=None,
-        )
-        return self._prompt_context_renderer.render_system_prompt(prompt_context)
-
-    def render_system_prompt(self, prompt_context: dict[str, Any]) -> str:
-        return self._prompt_context_renderer.render_system_prompt(prompt_context)
-
-    def build_recent_tool_errors_block(self, recent_tool_errors: list[dict[str, Any]]) -> str:
-        lines: list[str] = []
-        for item in recent_tool_errors[:3]:
-            if not isinstance(item, dict):
-                continue
-            tool_name = str(item.get("tool_name") or "unknown")
-            error_code = str(item.get("error_code") or "UNKNOWN")
-            error_message = str(item.get("error_message") or "").strip()
-            config_path = str(item.get("config_path") or "").strip()
-            next_action = str(item.get("next_action") or "").strip()
-            line = f"- {tool_name}: {error_code}"
-            if error_message:
-                line += f" | {error_message}"
-            if config_path:
-                line += f" | config_path={config_path}"
-            if next_action:
-                line += f" | next_action={next_action}"
-            lines.append(line)
-        if not lines:
-            return ""
-        return "\n".join(
-            [
-                "# Recent Tool Errors",
-                "Use these concrete failures as the source of truth for follow-up answers. Do not invent alternative config paths or switch tools unless the user explicitly asks to do so.",
-                *lines,
-            ]
         )
 
     async def call_llm(

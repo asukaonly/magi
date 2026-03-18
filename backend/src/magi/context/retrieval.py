@@ -18,6 +18,7 @@ class ContextRetrievalService:
         *,
         user_id: str,
         session_id: str | None,
+        query: str,
         task_category: str,
     ) -> dict[str, Any]:
         if self._unified_memory is None:
@@ -32,7 +33,7 @@ class ContextRetrievalService:
         retrieval = HybridRetrievalService(self._unified_memory)
         payload = await retrieval.query(
             build_query(
-                query=task_category,
+                query=query,
                 user_id=user_id,
                 session_id=session_id,
                 time_range={},

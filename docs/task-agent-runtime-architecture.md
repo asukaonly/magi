@@ -133,8 +133,26 @@ Current responsibilities:
 
 - build chat runtime context
 - delegate execution routing to the chat execution coordinator
-- own chat-specific prompt, session, and postprocess services
+- own chat-specific session and postprocess services
+- delegate prompt-package assembly to the L10 context layer service
 - render final user-facing answers
+
+### Context-owned prompt assembly
+
+Prompt assembly ownership lives in `backend/src/magi/context/`.
+
+The current split is:
+
+- `ChatTaskAgent.build_context`
+  Builds typed runtime context such as fact classification, session identity, conversation history, tool errors, and active orchestrations
+
+- `ContextAssemblyService`
+  Owns prompt-context policy, implicit retrieval query selection, prompt module assembly, and final system prompt rendering
+
+- `ChatPromptService`
+  Owns plain LLM invocation and chat-specific helper text for aggregation and dossier rendering
+
+This keeps runtime fact assembly in the task agent while moving prompt-context ownership back into the context layer.
 
 ### `ExploreTaskAgent`
 
