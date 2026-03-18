@@ -56,6 +56,8 @@ class UnifiedMemoryStore:
         enable_l1_vectors: bool = True,
         enable_l3_vectors: bool = True,
         enable_l4_vectors: bool = True,
+        enable_l3_llm_summary: bool = True,
+        temporal_l3_llm_timeout_seconds: float = 3.0,
         identity_resolver: IdentityResolver | None = None,
     ) -> None:
         from ..utils.runtime import get_runtime_paths
@@ -117,6 +119,8 @@ class UnifiedMemoryStore:
                 embedding_service=embedding_service,
                 vector_enabled=enable_l3_vectors,
                 async_embeddings=async_embeddings,
+                enable_temporal_llm_summary=enable_l3_llm_summary,
+                temporal_llm_timeout_seconds=temporal_l3_llm_timeout_seconds,
             )
         if enable_l4:
             self.l4 = L4ProceduralMemoryStore(

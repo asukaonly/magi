@@ -36,12 +36,17 @@ class L3SummaryStore:
         embedding_service: MemoryEmbeddingService | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
+        enable_temporal_llm_summary: bool = True,
+        temporal_llm_timeout_seconds: float = 3.0,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
         self._vector_enabled = bool(vector_enabled and embedding_service is not None)
         self._async_embeddings = bool(async_embeddings)
-        self._temporal_llm_service = TemporalSummaryLLMService()
+        self._temporal_llm_service = TemporalSummaryLLMService(
+            enabled=enable_temporal_llm_summary,
+            llm_timeout_seconds=temporal_llm_timeout_seconds,
+        )
         self._vector_index = (
             SqliteVecIndex(
                 db_path=self.db_path,

@@ -17,7 +17,8 @@ from .models import (
 class TemporalSummaryLLMService:
     """Builds temporal evidence packs and later will host LLM generation helpers."""
 
-    def __init__(self, *, llm_timeout_seconds: float = 3.0) -> None:
+    def __init__(self, *, enabled: bool = True, llm_timeout_seconds: float = 3.0) -> None:
+        self._enabled = bool(enabled)
         self._llm_timeout_seconds = float(llm_timeout_seconds)
 
     def build_evidence_pack(
@@ -108,6 +109,8 @@ class TemporalSummaryLLMService:
     ) -> TemporalGenerationResult:
         """Try the model path and fall back to a rule summary on failure."""
         fallback = self._build_fallback_result(pack, fallback_summary)
+        if not self._enabled:
+            return fallback
         try:
             payload = await asyncio.wait_for(
                 self._call_temporal_model(pack),

@@ -99,6 +99,49 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["summary_type"], "temporal")
         self.assertGreaterEqual(len(procedures), 1)
 
+    async def test_generate_summary_respects_l3_llm_toggle(self):
+        local_store = UnifiedMemoryStore(
+            l1_db_path=str(self.base / "toggle_l1_events.db"),
+            memory_db_path=str(self.base / "toggle_memory.db"),
+            persist_dir=str(self.base / "toggle_memories"),
+            enable_l3_llm_summary=False,
+        )
+        await local_store.initialize()
+
+        now = time.time()
+        await local_store.add_event(
+            {
+                "id": "evt-toggle-1",
+                "type": EventTypes.USER_MESSAGE,
+                "timestamp": now,
+                "source": "chat",
+                "level": EventLevel.INFO.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "message": "I want to switch jobs this year.",
+                },
+                "metadata": {"user_id": "u1"},
+            }
+        )
+
+        async def _unexpected_model(_pack):  # type: ignore[no-untyped-def]
+            raise AssertionError("LLM path should be disabled")
+
+        self.assertIsNotNone(local_store.l3)
+        local_store.l3._temporal_llm_service._call_temporal_model = _unexpected_model
+
+        summary = await local_store.generate_summary(
+            period_type="day",
+            period_start=now - 10,
+            period_end=now + 60,
+        )
+
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["generated_by_model"], "rule-summary")
+        self.assertIn("switch jobs", summary["content"].lower())
+        await local_store.shutdown()
+
     async def test_timeline_events_round_trip_through_l1_and_l2(self):
         service = TimelineService(self.store)
         event = TimelineEvent(
