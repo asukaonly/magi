@@ -1,5 +1,6 @@
 """L2 cognition package."""
 
+from .context_bundle import ContextBundle, ContextEntity, ResolvedContextRef
 from .entity_catalog import L2EntityCatalog
 from .evidence_classifier import EvidenceClassification, classify_event_evidence
 from .evidence_policy import PolicyDecision, resolve_l2_policy
@@ -10,6 +11,8 @@ from .pipeline import L2Pipeline
 from .store import L2CognitionStore
 
 __all__ = [
+    "ContextBundle",
+    "ContextEntity",
     "EvidenceClassification",
     "ExtractionProfile",
     "L2CognitionStore",
@@ -18,6 +21,7 @@ __all__ = [
     "L2Pipeline",
     "ManualL2EventRequest",
     "PolicyDecision",
+    "ResolvedContextRef",
     "classify_event_evidence",
     "resolve_extraction_profile",
     "resolve_l2_policy",
