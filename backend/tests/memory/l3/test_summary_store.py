@@ -54,6 +54,9 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
     assert summary["source_event_count"] == 1
     assert summary["source_event_ids"] == ["evt-1"]
     assert "switch jobs" in summary["content"].lower()
+    event_links = await l3_store.list_summary_event_links(summary["summary_id"])
+    assert len(event_links) == 1
+    assert event_links[0]["event_id"] == "evt-1"
     assert await l1_store.count_events() == 1
     assert await l1_store.count_runtime_observations() == 1
 

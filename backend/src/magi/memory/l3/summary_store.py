@@ -16,6 +16,8 @@ from ..embedding_service import MemoryEmbeddingService
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..l1.event_store import L1EventStore
 from ..sqlite_vec_index import SqliteVecIndex
+from .models import L3Candidate
+from .validator import validate_candidate
 
 if TYPE_CHECKING:
     from .models import L3Candidate
@@ -168,30 +170,38 @@ class L3SummaryStore:
 
         source_event_ids = [event["event_id"] for event in events]
         content = " ".join(event["raw_content"] for event in events[:6]).strip()
-        summary = {
-            "summary_id": f"summary_{uuid.uuid4().hex}",
-            "summary_type": "temporal",
-            "summary_category": summary_category,
-            "period_start": float(period_start),
-            "period_end": float(period_end),
-            "content": content,
-            "key_topics": [],
-            "key_entities": [],
-            "sentiment_summary": None,
-            "source_event_ids": source_event_ids,
-            "source_event_count": len(source_event_ids),
-            "importance_aggregate": sum(float(event["importance_score"]) for event in events) / len(events),
-            "event_type_distribution": {
-                event["event_type"]: sum(1 for item in events if item["event_type"] == event["event_type"])
-                for event in events
+        candidate = L3Candidate(
+            summary_type="temporal",
+            summary_category=summary_category,
+            content=content,
+            source_event_ids=source_event_ids,
+        )
+        decision = validate_candidate(candidate, evidence_events=events)
+        if decision.action != "accept":
+            return None
+        summary = await self.upsert_candidate(
+            candidate=candidate,
+            summary_overrides={
+                "summary_id": f"summary_{uuid.uuid4().hex}",
+                "summary_type": "temporal",
+                "summary_category": summary_category,
+                "period_start": float(period_start),
+                "period_end": float(period_end),
+                "key_topics": [],
+                "key_entities": [],
+                "sentiment_summary": None,
+                "source_event_ids": source_event_ids,
+                "source_event_count": len(source_event_ids),
+                "importance_aggregate": sum(float(event["importance_score"]) for event in events) / len(events),
+                "event_type_distribution": {
+                    event["event_type"]: sum(1 for item in events if item["event_type"] == event["event_type"])
+                    for event in events
+                },
+                "generated_by_model": "rule-summary",
+                "generation_prompt": None,
+                "generation_reason": f"temporal:{summary_category}",
             },
-            "generated_by_model": "rule-summary",
-            "generation_prompt": None,
-            "generation_reason": f"temporal:{summary_category}",
-            "created_at": time.time(),
-            "updated_at": time.time(),
-        }
-        await self._store_summary(summary)
+        )
         return summary
 
     async def search_summaries(
@@ -249,6 +259,7 @@ class L3SummaryStore:
         *,
         candidate: "L3Candidate",
         source_task_ids: Optional[list[str]] = None,
+        summary_overrides: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Persist a structured L3 candidate and its evidence links."""
         await self.initialize()
@@ -273,6 +284,11 @@ class L3SummaryStore:
             "created_at": now,
             "updated_at": now,
         }
+        if summary_overrides:
+            summary.update(summary_overrides)
+        summary.setdefault("summary_id", f"summary_{uuid.uuid4().hex}")
+        summary.setdefault("created_at", now)
+        summary["updated_at"] = float(summary.get("updated_at") or now)
         await self._store_summary(summary)
         await self._replace_summary_event_links(summary["summary_id"], candidate.source_event_ids)
         await self._replace_summary_task_links(summary["summary_id"], source_task_ids or [])
