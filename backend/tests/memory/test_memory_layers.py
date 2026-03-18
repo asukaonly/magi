@@ -86,7 +86,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         workbench = await self.store.l0.get_workbench("s1")
         l1_count = await self.store.l1.count_events()
         runtime_count = await self.store.l1.count_runtime_observations()
-        assertions = await self.store.l2.list_tom_assertions(entity_id="user:u1")
+        assertions = await self.store.l2.list_tom_assertions(entity_id="user:self")
         summary = await self.store.generate_summary(period_type="day", period_start=now - 10, period_end=now + 60)
         procedures = await self.store.l4.query_strategies(query="browser", limit=5)
 
