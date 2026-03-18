@@ -120,3 +120,34 @@ class TestContextDeciderMemoryGuidance:
         assert "memory_query" not in decision.tools
         assert decision.memory_route == "none"
         assert decision.memory_query_hint is None
+
+    @pytest.mark.asyncio
+    async def test_decide_keeps_memory_route_none_when_memory_query_tool_is_unavailable(self):
+        """Historical queries should not claim explicit recall when the tool is unavailable."""
+        from magi.tools.context_decider import ContextDecider
+
+        tool_registry = MagicMock()
+        tool_registry.get_all_tools_info.return_value = [
+            {"name": "web_search", "description": "Search the web", "type": "tool"},
+        ]
+        tool_registry.list_tools.return_value = ["web_search"]
+        tool_registry.is_skill.return_value = False
+
+        llm_adapter = MagicMock()
+        llm_adapter.model_name = "dummy-model"
+        decider = ContextDecider(tool_registry, llm_adapter)
+
+        async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return (
+                '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"history question",'
+                '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+            )
+
+        decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+
+        decision = await decider.decide("What did I browse yesterday?", {"current_date": "2024-01-15"})
+
+        assert "memory_query" not in decision.tools
+        assert decision.memory_route == "none"
+        assert decision.memory_query_hint is None

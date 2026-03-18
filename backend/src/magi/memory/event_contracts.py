@@ -109,6 +109,13 @@ class RetentionClass(_LabeledIntEnum):
         }
 
 
+TRACE_RUNTIME_EVENT_TYPES = {
+    "CHAT_TOOL_LOOP_STEP",
+    "TOOL_INTERACTION",
+    "TOOL_INVOKED",
+}
+
+
 @dataclass(slots=True)
 class MemoryEvent:
     """Canonical memory event used by the memory rewrite."""
@@ -445,6 +452,16 @@ def _classify_event(event: Event) -> Dict[str, Any]:
     if event_type in {"WORKER_AGENT_PROGRESS", EventTypes.LOOP_STARTED, EventTypes.LOOP_PHASE_STARTED, "Heartbeat"}:
         return {
             "memory_domain": MemoryDomain.RUNTIME_TELEMETRY if event_type == "WORKER_AGENT_PROGRESS" else MemoryDomain.SYSTEM_CONTROL,
+            "ingest_target": IngestTarget.L0_ONLY,
+            "cognition_eligible": False,
+            "tom_depth": TomDepth.NONE,
+            "retention_class": RetentionClass.DISPOSABLE,
+            "importance": 0.1,
+        }
+
+    if event_type in TRACE_RUNTIME_EVENT_TYPES:
+        return {
+            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
             "ingest_target": IngestTarget.L0_ONLY,
             "cognition_eligible": False,
             "tom_depth": TomDepth.NONE,

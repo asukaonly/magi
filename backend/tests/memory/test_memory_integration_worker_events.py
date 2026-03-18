@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from magi.events.events import Event, EventLevel, EventTypes
+from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
 
 
@@ -11,6 +12,9 @@ class _FakeUnifiedMemory:
         self.ingested = []
         self.l0 = None
         self.l3 = None
+
+    def _normalize_event(self, event):
+        return normalize_runtime_event(event)
 
     async def ingest_event(self, event):
         self.ingested.append(event)
@@ -88,6 +92,44 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
         stored = await integration._maybe_store_l1(event)
 
         self.assertTrue(stored)
+
+    async def test_chat_tool_loop_step_event_is_not_stored_in_l1(self):
+        integration = MemoryIntegrationModule(
+            unified_memory=_FakeUnifiedMemory(),
+            message_bus=_FakeBus(),
+            config=MemoryIntegrationConfig(),
+        )
+
+        event = Event(
+            type="CHAT_TOOL_LOOP_STEP",
+            data={"user_id": "u1", "session_id": "s1", "tool_name": "web_search"},
+            source="runtime",
+            level=EventLevel.INFO,
+            correlation_id="turn-1",
+        )
+
+        stored = await integration._maybe_store_l1(event)
+
+        self.assertFalse(stored)
+
+    async def test_tool_invoked_event_is_not_stored_in_l1(self):
+        integration = MemoryIntegrationModule(
+            unified_memory=_FakeUnifiedMemory(),
+            message_bus=_FakeBus(),
+            config=MemoryIntegrationConfig(),
+        )
+
+        event = Event(
+            type="TOOL_INVOKED",
+            data={"user_id": "u1", "session_id": "s1", "tool_name": "web_search"},
+            source="runtime",
+            level=EventLevel.INFO,
+            correlation_id="turn-2",
+        )
+
+        stored = await integration._maybe_store_l1(event)
+
+        self.assertFalse(stored)
 
 
 if __name__ == "__main__":

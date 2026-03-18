@@ -79,3 +79,31 @@ async def test_dispatch_user_message_returns_publish_failure(monkeypatch: pytest
 
     assert outcome.success is False
     assert outcome.error_code == service.MESSAGE_BUS_PUBLISH_FAILED
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime_namespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bus = _FakeBus()
+    read_service = _FakeReadService()
+    monkeypatch.setattr(service, "require_agent_runtime", lambda: object())
+    monkeypatch.setattr(service, "require_message_bus", lambda: bus)
+    monkeypatch.setattr(service, "get_chat_read_service", lambda: read_service)
+
+    outcome = await service.dispatch_user_message(
+        source="websocket",
+        user_id="u1",
+        message="hello",
+        session_id="explicit-session",
+        client_turn_id="turn-client-1",
+        runtime_namespace=" telegram ",
+    )
+
+    assert outcome.success is True
+    assert outcome.session_id == "explicit-session"
+    assert outcome.turn_id == "turn-client-1"
+    event = bus.events[0]
+    assert event.data["session_id"] == "explicit-session"
+    assert event.data["turn_id"] == "turn-client-1"
+    assert event.data["runtime_namespace"] == "telegram"
