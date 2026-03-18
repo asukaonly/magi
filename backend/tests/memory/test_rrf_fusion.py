@@ -21,7 +21,7 @@ from magi.memory.event_contracts import (
     RetentionClass,
     TomDepth,
 )
-from magi.memory.l1_event_store import L1EventStore
+from magi.memory.l1.event_store import L1EventStore
 
 
 # ---------------------------------------------------------------------------

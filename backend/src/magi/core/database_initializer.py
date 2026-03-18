@@ -95,10 +95,10 @@ class DatabaseInitializer:
 
     async def _init_shared_memory_db(self) -> None:
         """Initialize shared memory database (L0/L2/L3/L4)."""
-        from ..memory.l0_working_memory import L0WorkingMemoryStore
-        from ..memory.l2_cognition_store import L2CognitionStore
-        from ..memory.l3_summary_store import L3SummaryStore
-        from ..memory.l4_procedural_memory import L4ProceduralMemoryStore
+        from ..memory.l0.working_memory import L0WorkingMemoryStore
+        from ..memory.l2.store import L2CognitionStore
+        from ..memory.l3.summary_store import L3SummaryStore
+        from ..memory.l4.procedural_memory import L4ProceduralMemoryStore
 
         db_path = self.memories_dir / "memory.db"
 
@@ -115,7 +115,7 @@ class DatabaseInitializer:
 
     async def _init_l1_memory_db(self) -> None:
         """Initialize L1 memory database."""
-        from ..memory.l1_event_store import L1EventStore
+        from ..memory.l1.event_store import L1EventStore
 
         db_path = self.memories_dir / "l1_events.db"
         store = L1EventStore(db_path=str(db_path))

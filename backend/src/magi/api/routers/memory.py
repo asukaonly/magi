@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_memory_integration, require_unified_memory
 from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
-from ...memory.l2_models import ManualL2EventRequest
+from ...memory.l2.models import ManualL2EventRequest
 
 logger = get_logger(__name__)
 

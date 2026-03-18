@@ -63,8 +63,8 @@ async def test_identity_links_persist_across_store_instances(tmp_path):
 @pytest.mark.asyncio
 async def test_identity_migration_rewrites_legacy_web_user_refs(tmp_path):
     from magi.memory.identity_migration import migrate_legacy_self_identity
-    from magi.memory.l1_event_store import L1EventStore
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l2.store import L2CognitionStore
 
     l1_db_path = tmp_path / "l1_events.db"
     memory_db_path = tmp_path / "memory.db"
@@ -265,8 +265,8 @@ async def test_identity_migration_rewrites_legacy_web_user_refs(tmp_path):
 @pytest.mark.asyncio
 async def test_unified_memory_store_initialization_runs_legacy_self_migration(tmp_path):
     from magi.memory import UnifiedMemoryStore
-    from magi.memory.l1_event_store import L1EventStore
-    from magi.memory.l2_cognition_store import L2CognitionStore
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l2.store import L2CognitionStore
 
     l1_db_path = tmp_path / "l1_events.db"
     memory_db_path = tmp_path / "memory.db"

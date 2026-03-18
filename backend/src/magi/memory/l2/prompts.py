@@ -1,0 +1,243 @@
+"""Prompt templates for L2 extraction and reconcile helpers."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from .extraction_profiles import ExtractionProfile
+
+
+UNIFIED_EXTRACTION_SYSTEM_PROMPT = """You are a structured extraction engine for a memory system.
+
+Your task is to extract entity mentions, graph fact candidates, and assertion candidates from the supplied event window.
+Be conservative:
+- Return JSON only.
+- Do not invent unsupported entity types or predicates.
+- Use only the allowed entity types, predicates, and assertion families supplied in the prompt.
+- Specific dishes, drinks, snacks, and ingredients must use `food`.
+- If no entity can be extracted, set diagnostics.entity_status to `none`.
+"""
+
+
+ENTITY_MENTION_SYSTEM_PROMPT = """You are an information extraction engine for a memory system.
+
+Your task is to extract entity mentions from the given text.
+You must be conservative:
+- Do not invent entities.
+- If a phrase is ambiguous and cannot be grounded from the text, skip it.
+- Extract only entities that are explicitly referenced or strongly implied by the local context.
+- Return JSON only.
+- Do not include any explanation.
+"""
+
+ENTITY_RESOLUTION_SYSTEM_PROMPT = """You are an entity resolution engine for a memory graph.
+
+Your job is to determine whether a mention refers to one of the provided candidate entities.
+Be conservative:
+- Prefer unresolved over guessing.
+- Use local context, aliases, semantics, and common nicknames.
+- Do not create a new fact beyond identity resolution.
+- Return JSON only.
+"""
+
+TOM_EXTRACTION_SYSTEM_PROMPT = """You are a defensive theory-of-mind extraction engine.
+
+Your task is to extract low-confidence, evidence-bound inference candidates about temporary states, preferences, triggers, or relationship changes.
+Be cautious:
+- Do not diagnose mental illness.
+- Do not produce strong personality judgments from a single event.
+- Single-event inferences must remain tentative and low-confidence.
+- Return JSON only.
+"""
+
+CONTRADICTION_HINT_SYSTEM_PROMPT = """You are a contradiction detection assistant for a memory system.
+
+Your task is to compare a new memory event with existing graph facts or ToM assertions and identify possible contradiction signals.
+Do not make final database decisions.
+Only emit contradiction hints with evidence and confidence.
+Return JSON only.
+"""
+
+ENTITY_RECONCILE_SYSTEM_PROMPT = """You are an entity-level reconciliation engine for a memory system.
+
+Your job is to review multiple evidence-bound records for the same entity and estimate which candidate traits are currently supported, contradicted, unstable, or still uncertain.
+Be conservative:
+- Respect evidence count and time span.
+- Do not overfit to a single recent statement if long-term evidence disagrees.
+- Separate stable traits from temporary states.
+- Return JSON only.
+"""
+
+
+def render_entity_mention_prompt(*, event_text: str, context_texts: list[str]) -> str:
+    payload = {
+        "event_text": event_text,
+        "context_texts": context_texts,
+        "output_schema": {
+            "mentions": [
+                {
+                    "mention_text": "string",
+                    "normalized_surface": "string",
+                    "entity_type": "string",
+                    "canonical_name_hint": "string or null",
+                    "alias_signals": ["string"],
+                    "evidence_text": "string",
+                    "confidence": 0.0,
+                }
+            ]
+        },
+    }
+    return f"Extract entity mentions from the following memory event.\n\nEvent text:\n{event_text}\n\nContext:\n{json.dumps(context_texts, ensure_ascii=False)}\n\nReturn JSON using this contract:\n{json.dumps(payload['output_schema'], ensure_ascii=False, indent=2)}"
+
+
+def render_unified_extraction_prompt(
+    *,
+    event_window: dict[str, Any],
+    profile: ExtractionProfile,
+    focal_subject: dict[str, Any],
+) -> str:
+    """Render the unified extraction prompt with ontology/profile constraints."""
+
+    payload = {
+        "event_window": event_window,
+        "focal_subject": focal_subject,
+        "allowed_entity_types": sorted(profile.allowed_entity_types),
+        "allowed_predicates": sorted(profile.allowed_predicates),
+        "allowed_assertion_families": sorted(profile.allowed_assertion_families),
+        "allow_graph": profile.allow_graph,
+        "allow_assertion": profile.allow_assertion,
+        "entity_type_aliases": profile.entity_type_aliases,
+        "predicate_aliases": profile.predicate_aliases,
+        "rules": [
+            "Use only the allowed entity types and predicates in this prompt.",
+            "Specific dishes, drinks, snacks, and ingredients must use `food`.",
+            "Use diagnostics.entity_status = `none` when no entity mention is extracted.",
+            "Return JSON with mentions, graph_candidates, assertion_candidates, and diagnostics.",
+        ],
+        "output_schema": {
+            "mentions": [
+                {
+                    "mention_text": "string",
+                    "normalized_surface": "string",
+                    "entity_type": "enum",
+                    "canonical_name_hint": "string or null",
+                    "alias_signals": ["string"],
+                    "evidence_text": "string",
+                    "confidence": 0.0,
+                }
+            ],
+            "graph_candidates": [
+                {
+                    "subject_ref": "string",
+                    "subject_type": "enum",
+                    "predicate": "enum",
+                    "object_ref": "string",
+                    "object_type": "enum",
+                    "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent",
+                    "polarity": "positive|negative",
+                    "evidence_text": "string",
+                    "confidence": 0.0,
+                }
+            ],
+            "assertion_candidates": [
+                {
+                    "entity_ref": "string",
+                    "entity_type": "enum",
+                    "trait_family": "enum",
+                    "trait_name": "string",
+                    "trait_value": "string or JSON string",
+                    "inference_depth": "topology_only|defensive_psychology",
+                    "volatility_index": 0.0,
+                    "confidence": 0.0,
+                    "validation_state": "tentative",
+                    "evidence_texts": ["string"],
+                    "supporting_event_ids": ["string"],
+                }
+            ],
+            "diagnostics": {
+                "entity_status": "found|none",
+            },
+        },
+    }
+    return (
+        "Extract unified L2 candidates from the following event window.\n\n"
+        f"{json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)}"
+    )
+
+
+def render_entity_resolution_prompt(*, mention: dict[str, Any], candidate_entities: list[dict[str, Any]]) -> str:
+    return (
+        "Resolve the entity mention to one of the candidate canonical entities if possible.\n\n"
+        f"Mention:\n{json.dumps(mention, ensure_ascii=False, indent=2)}\n\n"
+        f"Candidate entities:\n{json.dumps(candidate_entities, ensure_ascii=False, indent=2)}\n\n"
+        "Return JSON with this schema:\n"
+        '{\n  "resolution": {\n    "decision": "match|unresolved|create_new_candidate",\n    "matched_entity_id": "string or null",\n'
+        '    "matched_entity_name": "string or null",\n    "confidence": 0.0,\n    "reason_tags": ["string"],\n'
+        '    "should_merge": true,\n    "canonical_name_suggestion": "string or null"\n  }\n}'
+    )
+
+
+def render_tom_extraction_prompt(*, event_window: dict[str, Any], focal_entities: list[dict[str, Any]]) -> str:
+    return (
+        "Extract tentative ToM assertion candidates from the following memory event window.\n\n"
+        f"Event window:\n{json.dumps(event_window, ensure_ascii=False, indent=2)}\n\n"
+        f"Focal entities:\n{json.dumps(focal_entities, ensure_ascii=False, indent=2)}\n\n"
+        "Return JSON with this schema:\n"
+        '{\n  "assertion_candidates": [\n    {\n      "entity_ref": "string",\n      "entity_type": "string",\n'
+        '      "trait_family": "string",\n      "trait_name": "string",\n      "trait_value": "string or JSON string",\n'
+        '      "inference_depth": "topology_only|defensive_psychology",\n      "volatility_index": 0.0,\n'
+        '      "confidence": 0.0,\n      "validation_state": "tentative",\n      "evidence_texts": ["string"],\n'
+        '      "supporting_event_ids": ["string"],\n      "notes": "string or null"\n    }\n  ]\n}'
+    )
+
+
+def render_contradiction_hint_prompt(*, new_event: dict[str, Any], existing_records: list[dict[str, Any]]) -> str:
+    return (
+        "Compare the new event against existing memory records and identify possible contradiction hints.\n\n"
+        f"New event:\n{json.dumps(new_event, ensure_ascii=False, indent=2)}\n\n"
+        f"Existing records:\n{json.dumps(existing_records, ensure_ascii=False, indent=2)}\n\n"
+        "Return JSON with this schema:\n"
+        '{\n  "contradiction_hints": [\n    {\n      "target_record_id": "string",\n      "target_record_type": "knowledge_graph|tom_trait_assertion",\n'
+        '      "contradiction_kind": "direct_negation|state_reversal|temporal_expiration|exclusive_role_conflict|preference_reversal|weak_tension",\n'
+        '      "confidence": 0.0,\n      "evidence_text": "string",\n      "recommended_action": "downgrade_confidence|mark_conflicted|mark_deprecated|revalidate_only"\n'
+        "    }\n  ]\n}"
+    )
+
+
+def render_entity_reconcile_prompt(
+    *,
+    entity: dict[str, Any],
+    graph_facts: list[dict[str, Any]],
+    assertions: list[dict[str, Any]],
+    recent_events: list[dict[str, Any]],
+) -> str:
+    return (
+        "Reconcile the following evidence for one entity.\n\n"
+        f"Entity:\n{json.dumps(entity, ensure_ascii=False, indent=2)}\n\n"
+        f"Related graph facts:\n{json.dumps(graph_facts, ensure_ascii=False, indent=2)}\n\n"
+        f"Related assertion candidates:\n{json.dumps(assertions, ensure_ascii=False, indent=2)}\n\n"
+        f"Recent events:\n{json.dumps(recent_events, ensure_ascii=False, indent=2)}\n\n"
+        "Return JSON with this schema:\n"
+        '{\n  "reconciled_traits": [\n    {\n      "trait_name": "string",\n      "winning_value": "string or JSON string",\n'
+        '      "status": "stable|corroborated|tentative|contradicted|expired",\n      "confidence": 0.0,\n      "evidence_event_ids": ["string"],\n'
+        '      "time_span_hours": 0.0,\n      "stability_kind": "stable_trait|temporary_state|volatile_pattern",\n'
+        '      "recommended_snapshot_field": "core_traits|preferences|sensitive_triggers|public_sentiment_profile|relationship_topology|current_context|current_mood|current_stress_level|current_engagement|none"\n'
+        "    }\n  ]\n}"
+    )
+
+
+__all__ = [
+    "UNIFIED_EXTRACTION_SYSTEM_PROMPT",
+    "ENTITY_MENTION_SYSTEM_PROMPT",
+    "ENTITY_RECONCILE_SYSTEM_PROMPT",
+    "ENTITY_RESOLUTION_SYSTEM_PROMPT",
+    "CONTRADICTION_HINT_SYSTEM_PROMPT",
+    "TOM_EXTRACTION_SYSTEM_PROMPT",
+    "render_contradiction_hint_prompt",
+    "render_entity_mention_prompt",
+    "render_entity_reconcile_prompt",
+    "render_entity_resolution_prompt",
+    "render_tom_extraction_prompt",
+    "render_unified_extraction_prompt",
+]

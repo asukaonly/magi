@@ -19,8 +19,8 @@ from magi.memory.hybrid_retrieval.models import (
     RetrievalConfig,
     TimeRange,
 )
-from magi.memory.l3_summary_store import L3SummaryStore
-from magi.memory.l4_procedural_memory import L4ProceduralMemoryStore
+from magi.memory.l3.summary_store import L3SummaryStore
+from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
 from magi.memory.hybrid_retrieval.fts_utils import tokenize_for_fts
 
 

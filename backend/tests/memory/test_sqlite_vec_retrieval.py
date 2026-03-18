@@ -24,7 +24,7 @@ class FakeEmbeddingService:
 async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
-    from magi.memory.l1_event_store import L1EventStore
+    from magi.memory.l1.event_store import L1EventStore
 
     store = L1EventStore(db_path=str(tmp_path / "l1.db"), embedding_service=FakeEmbeddingService(), async_embeddings=False)
     try:
@@ -65,7 +65,7 @@ async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l3_store_uses_sqlite_vec_for_semantic_search(tmp_path):
-    from magi.memory.l3_summary_store import L3SummaryStore
+    from magi.memory.l3.summary_store import L3SummaryStore
 
     store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), embedding_service=FakeEmbeddingService(), async_embeddings=False)
     try:
@@ -128,7 +128,7 @@ async def test_l3_store_uses_sqlite_vec_for_semantic_search(tmp_path):
 async def test_l4_store_uses_sqlite_vec_for_semantic_search(tmp_path):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
-    from magi.memory.l4_procedural_memory import L4ProceduralMemoryStore
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
 
     store = L4ProceduralMemoryStore(db_path=str(tmp_path / "memory.db"), embedding_service=FakeEmbeddingService(), async_embeddings=False)
     try:
