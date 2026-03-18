@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from magi.memory.l3.models import TemporalEvidenceItem, TemporalEvidencePack
@@ -99,3 +101,61 @@ def test_parse_temporal_llm_output_into_candidate() -> None:
     assert candidate.source_event_ids == ["evt-1", "evt-2"]
     assert summary_overrides["key_topics"] == ["job_search"]
     assert summary_overrides["importance_aggregate"] == 0.8
+
+
+@pytest.mark.asyncio
+async def test_generate_temporal_candidate_falls_back_to_rule_summary_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TemporalSummaryLLMService(llm_timeout_seconds=0.01)
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="finish portfolio"),
+        ],
+        importance_aggregate=0.7,
+        event_type_distribution={"UserMessage": 1, "AIResponse": 1},
+    )
+
+    async def _slow_call(_pack):  # type: ignore[no-untyped-def]
+        await asyncio.sleep(0.1)
+        return {"content": "should never arrive"}
+
+    monkeypatch.setattr(service, "_call_temporal_model", _slow_call)
+
+    result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
+
+    assert result.used_fallback is True
+    assert result.candidate.content == "rule text"
+    assert result.candidate.summary_type == "temporal"
+
+
+@pytest.mark.asyncio
+async def test_generate_temporal_candidate_falls_back_on_invalid_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="finish portfolio"),
+        ],
+        importance_aggregate=0.7,
+        event_type_distribution={"UserMessage": 1, "AIResponse": 1},
+    )
+
+    async def _bad_call(_pack):  # type: ignore[no-untyped-def]
+        return {"content": ""}
+
+    monkeypatch.setattr(service, "_call_temporal_model", _bad_call)
+
+    result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
+
+    assert result.used_fallback is True
+    assert result.candidate.content == "rule text"

@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from .models import L3Candidate, TemporalEvidenceItem, TemporalEvidencePack, TemporalSummaryLLMOutput
+from .models import (
+    L3Candidate,
+    TemporalEvidenceItem,
+    TemporalEvidencePack,
+    TemporalGenerationResult,
+    TemporalSummaryLLMOutput,
+)
 
 
 class TemporalSummaryLLMService:
     """Builds temporal evidence packs and later will host LLM generation helpers."""
+
+    def __init__(self, *, llm_timeout_seconds: float = 3.0) -> None:
+        self._llm_timeout_seconds = float(llm_timeout_seconds)
 
     def build_evidence_pack(
         self,
@@ -89,3 +99,60 @@ class TemporalSummaryLLMService:
             "change_and_pattern": output.change_and_pattern,
         }
         return candidate, summary_overrides
+
+    async def generate_temporal_candidate(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        fallback_summary: str,
+    ) -> TemporalGenerationResult:
+        """Try the model path and fall back to a rule summary on failure."""
+        fallback = self._build_fallback_result(pack, fallback_summary)
+        try:
+            payload = await asyncio.wait_for(
+                self._call_temporal_model(pack),
+                timeout=self._llm_timeout_seconds,
+            )
+        except Exception:
+            return fallback
+        if not isinstance(payload, dict):
+            return fallback
+        try:
+            candidate, summary_overrides = self.parse_llm_output(payload, pack=pack)
+        except Exception:
+            return fallback
+        return TemporalGenerationResult(
+            candidate=candidate,
+            summary_overrides=summary_overrides,
+            used_fallback=False,
+        )
+
+    async def _call_temporal_model(self, pack: TemporalEvidencePack) -> dict[str, Any] | None:
+        """Model hook for temporal summary generation.
+
+        The default implementation is intentionally inert until a real LLM caller
+        is wired in by a later task.
+        """
+        _ = pack
+        return None
+
+    def _build_fallback_result(
+        self,
+        pack: TemporalEvidencePack,
+        fallback_summary: str,
+    ) -> TemporalGenerationResult:
+        candidate = L3Candidate(
+            summary_type="temporal",
+            summary_category=pack.summary_category,
+            content=str(fallback_summary).strip(),
+            source_event_ids=list(pack.source_event_ids),
+        )
+        summary_overrides: dict[str, object] = {
+            "importance_aggregate": pack.importance_aggregate,
+            "event_type_distribution": dict(pack.event_type_distribution),
+        }
+        return TemporalGenerationResult(
+            candidate=candidate,
+            summary_overrides=summary_overrides,
+            used_fallback=True,
+        )

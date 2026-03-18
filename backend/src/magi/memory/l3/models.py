@@ -109,3 +109,12 @@ class TemporalSummaryLLMOutput:
     sentiment_summary: dict[str, object] | None = None
     change_and_pattern: dict[str, object] | None = None
     importance_aggregate: float | None = None
+
+
+@dataclass(slots=True)
+class TemporalGenerationResult:
+    """Outcome of temporal summary generation with fallback awareness."""
+
+    candidate: L3Candidate
+    summary_overrides: dict[str, object] = field(default_factory=dict)
+    used_fallback: bool = False
