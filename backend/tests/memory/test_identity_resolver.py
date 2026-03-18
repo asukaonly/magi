@@ -30,6 +30,37 @@ def test_identity_resolver_allows_multiple_runtime_accounts_for_same_self():
 
 
 @pytest.mark.asyncio
+async def test_identity_links_persist_across_store_instances(tmp_path):
+    from magi.memory.identity_resolver import IdentityResolver
+
+    db_path = tmp_path / "identity_links.db"
+
+    resolver = IdentityResolver(db_path=str(db_path))
+    await resolver.initialize()
+    try:
+        await resolver.upsert_identity_link(
+            namespace="telegram",
+            runtime_user_id="asuka_main",
+            memory_owner_id="user:self",
+        )
+    finally:
+        await resolver.shutdown()
+
+    reopened = IdentityResolver(db_path=str(db_path))
+    await reopened.initialize()
+    try:
+        links = await reopened.list_identity_links()
+
+        assert reopened.resolve_memory_owner_id(runtime_user_id="asuka_main", source="telegram") == "user:self"
+        assert len(links) == 1
+        assert links[0].namespace == "telegram"
+        assert links[0].runtime_user_id == "asuka_main"
+        assert links[0].memory_owner_id == "user:self"
+    finally:
+        await reopened.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_identity_migration_rewrites_legacy_web_user_refs(tmp_path):
     from magi.memory.identity_migration import migrate_legacy_self_identity
     from magi.memory.l1_event_store import L1EventStore
