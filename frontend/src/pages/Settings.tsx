@@ -21,10 +21,12 @@ import {
 } from '@/components/settings';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
+import { PersonalityForm } from '@/components/config-forms/PersonalityForm';
 import { LLMUsageSection } from '@/components/settings/LLMUsageSection';
 import ActionsSection from '@/components/settings/ActionsSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
+import { SimpleForm as Form } from '@/components/onboarding/simple-form';
 import { SystemConfig } from '@/api/modules/config';
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import { Button } from '@/components/ui/button';
@@ -225,20 +227,23 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'personality':
         return (
-          <div className="space-y-6">
-            <div className="overflow-hidden rounded-3xl border border-primary/20 bg-muted/30 p-5">
-              <div className="mb-3">
-                <div>
-                  <h3 className="font-medium text-primary">{t('settings.fields.currentPersonality')}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {draftConfig.personality?.persona_entity?.basic_profile?.name || 'Default'}
-                  </p>
-                </div>
-              </div>
-              <p className="text-xs leading-6 text-muted-foreground">
-                {draftConfig.personality?.persona_entity?.basic_profile?.occupation || ''}
-              </p>
-            </div>
+          <div className="space-y-4">
+            <Form
+              initialValues={{ personality: draftConfig.personality }}
+              onValuesChange={(_: unknown, values: { personality?: SystemConfig['personality'] }) => {
+                if (!values?.personality) {
+                  return;
+                }
+                patchDraftConfig((draft) => {
+                  draft.personality = values.personality!;
+                });
+              }}
+            >
+              <PersonalityForm
+                quickMode={false}
+                language={draftConfig.preferences.language === 'en' ? 'en' : 'zh'}
+              />
+            </Form>
           </div>
         );
 

@@ -45,6 +45,10 @@ vi.mock('@/components/config-forms/LLMForm', () => ({
   ),
 }));
 
+vi.mock('@/components/config-forms/PersonalityForm', () => ({
+  PersonalityForm: () => <div>personality-form</div>,
+}));
+
 vi.mock('@/components/config-forms/DynamicToolConfig', async () => {
   const actual = await vi.importActual<typeof import('@/components/config-forms/DynamicToolConfig')>(
     '@/components/config-forms/DynamicToolConfig'
@@ -681,5 +685,15 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'DEBUG' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled());
+  });
+
+  it('renders the personality editor inside settings', async () => {
+    const user = userEvent.setup();
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.personality' }));
+
+    expect(await screen.findByText('personality-form')).toBeInTheDocument();
   });
 });
