@@ -154,6 +154,13 @@ The current split is:
 
 This keeps runtime fact assembly in the task agent while moving prompt-context ownership back into the context layer.
 
+Current implicit-memory policy is intentionally conservative:
+
+- default implicit injection is `L0` only
+- user profile and preferences still come from personality/profile memory, not retrieval payload expansion
+- `L4` procedural memory is opt-in and currently requires a user message that explicitly asks to reuse a prior workflow or usual process
+- `L2` and `L3` are not injected implicitly by default and should instead flow through explicit memory/tool usage when needed
+
 ### `ExploreTaskAgent`
 
 Specialized task agent in `agent/task_agents/explore_task_agent.py`.

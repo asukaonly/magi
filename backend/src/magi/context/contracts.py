@@ -12,6 +12,7 @@ class ContextPolicyDecision:
 
     retrieve_implicit_memory: bool
     retrieval_query: Optional[str]
+    allowed_layers: tuple[str, ...] = ("L0",)
 
 
 @dataclass(slots=True)

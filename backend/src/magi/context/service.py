@@ -56,6 +56,7 @@ class ContextAssemblyService:
                 session_id=session_id,
                 query=policy.retrieval_query,
                 task_category=task_category,
+                allowed_layers=policy.allowed_layers,
             )
 
         prompt_context = await self._prompt_context_assembler.assemble(
