@@ -167,6 +167,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             context_decider=self.context_decider,
             fact_classifier=self._fact_classifier,
             handler_registry=self._handler_registry,
+            intent_trace_callback=self._postprocess_service.record_intent_resolution,
         )
         self._last_batch_facts: list[FactRecord] = []
 

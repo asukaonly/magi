@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import pytest
 
+from magi.agent.trace.contracts import (
+    TRACE_NODE_COMPLETED_EVENT_TYPE,
+    TRACE_NODE_STARTED_EVENT_TYPE,
+    TURN_TRACE_COMPLETED_EVENT_TYPE,
+    TURN_TRACE_STARTED_EVENT_TYPE,
+)
 from magi.awareness.contracts import ActionEmissionRecord
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
@@ -98,6 +104,15 @@ class _FakeRuntime:
         return self.sensor_hub
 
 
+class _FakeIntentDecision:
+    def __init__(self) -> None:
+        self.intent = "chat"
+        self.execution_mode = ExecutionMode.DIRECT_LLM
+        self.tools: list[str] = []
+        self.reasoning = "direct response"
+        self.orchestration_plan = None
+
+
 @pytest.mark.asyncio
 async def test_record_tool_interaction_preserves_trace_identity() -> None:
     action_emitter = _FakeActionEmitter()
@@ -142,6 +157,67 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
     runtime_payload = action_emitter.runtime_events[0]["payload"]
     assert runtime_payload["turn_id"] == "turn-1"
     assert runtime_payload["iteration"] == 3
+
+
+@pytest.mark.asyncio
+async def test_record_intent_resolution_emits_turn_and_intent_trace_events() -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "message": "hello",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            message="hello",
+            turn_id="turn-1",
+        ),
+    )
+
+    await service.record_intent_resolution(context, _FakeIntentDecision())
+
+    event_types = [item["event_type"] for item in action_emitter.runtime_events]
+    assert event_types == [
+        TURN_TRACE_STARTED_EVENT_TYPE,
+        TRACE_NODE_STARTED_EVENT_TYPE,
+        TRACE_NODE_COMPLETED_EVENT_TYPE,
+    ]
+    assert action_emitter.runtime_events[-1]["payload"]["node_type"] == "intent_resolution"
+    assert action_emitter.runtime_events[-1]["payload"]["output"]["intent"] == "chat"
 
 
 @pytest.mark.asyncio
@@ -213,3 +289,6 @@ async def test_handle_emits_targeted_chat_timeline_event(monkeypatch: pytest.Mon
     assert timeline_event.payload["message"] == "I still like Asuka best."
     assert timeline_event.payload["assistant_message"] == "You bring up Asuka a lot."
     assert timeline_event.payload["turn_id"] == "turn-1"
+    event_types = [item["event_type"] for item in action_emitter.runtime_events]
+    assert TRACE_NODE_COMPLETED_EVENT_TYPE in event_types
+    assert TURN_TRACE_COMPLETED_EVENT_TYPE in event_types

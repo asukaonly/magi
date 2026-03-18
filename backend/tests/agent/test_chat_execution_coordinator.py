@@ -42,8 +42,26 @@ class _FakeContextDecider:
         return self._decision
 
 
+class _IntentTraceRecorder:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def __call__(self, context: ChatRuntimeContext, decision) -> None:  # type: ignore[no-untyped-def]
+        self.calls.append(
+            {
+                "user_id": context.user_id,
+                "session_id": context.session_id,
+                "intent": decision.intent,
+                "execution_mode": decision.execution_mode.value,
+                "tools": list(decision.tools),
+                "reasoning": decision.reasoning,
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_coordinator_routes_decompose_explore_to_orchestration_launch() -> None:
+    trace_recorder = _IntentTraceRecorder()
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
             _FakeContextDecision(
@@ -61,6 +79,7 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
         ),
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
+        intent_trace_callback=trace_recorder,
     )
 
     fact = FactRecord(
@@ -91,6 +110,16 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
     assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
     assert decision.orchestration_plan is not None
     assert decision.orchestration_plan.route_to_explore_task_agent is True
+    assert trace_recorder.calls == [
+        {
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "intent": "code_architecture",
+            "execution_mode": "orchestration_launch",
+            "tools": ["agent"],
+            "reasoning": "decompose",
+        }
+    ]
 
 
 @pytest.mark.asyncio

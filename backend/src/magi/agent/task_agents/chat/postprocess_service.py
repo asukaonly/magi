@@ -9,6 +9,12 @@ from ....core.logger import get_logger
 from ....awareness.contracts import ActionEmissionRecord, SensorEvent
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
+from ....agent.trace import (
+    TURN_TRACE_COMPLETED_EVENT_TYPE,
+    TURN_TRACE_STARTED_EVENT_TYPE,
+    TraceEventEmitter,
+    now_wall_ms,
+)
 from ....events.events import EventTypes
 from ....personality.behavior_evolution import SatisfactionLevel
 from ....personality.emotional_state import EngagementLevel, InteractionOutcome
@@ -54,6 +60,7 @@ class ChatPostProcessService:
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
         self._trace_read_service = trace_read_service
+        self._started_turn_traces: set[str] = set()
 
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
         action_emitter = self._get_action_emitter()
@@ -99,6 +106,18 @@ class ChatPostProcessService:
 
         correlation_id = result.correlation_id or latest_fact.correlation_id
         turn_id = result.turn_id or self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
+        now_ms = now_wall_ms()
+        started_at_ms = self._resolve_started_at_ms(result, latest_fact)
+
+        await self._emit_response_trace(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            turn_id=turn_id,
+            response_text=response_text,
+            started_at_ms=started_at_ms,
+            ended_at_ms=now_ms,
+            orchestration_id=result.orchestration_id,
+        )
 
         # Fetch trace summary before emitting the response event
         trace_summary = None
@@ -168,6 +187,48 @@ class ChatPostProcessService:
             entities=list(action_payload.get("entities", [])),
         )
         return ChatParseOutcome(True, history_stored, memory_updated, False)
+
+    async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
+        action_emitter = self._get_action_emitter()
+        latest_fact = context.latest_fact
+        if action_emitter is None or not isinstance(latest_fact, FactRecord):
+            return
+        turn_id = self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
+        if not turn_id:
+            return
+        trace_id = self._build_trace_id(turn_id)
+        started_at_ms = self._resolve_started_at_ms(None, latest_fact)
+        await self._emit_turn_trace_started(
+            action_emitter=action_emitter,
+            trace_id=trace_id,
+            turn_id=turn_id,
+            user_id=context.user_id,
+            session_id=context.session_id,
+            started_at_ms=started_at_ms,
+            user_message=context.latest_user_message,
+        )
+        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
+        ended_at_ms = now_wall_ms()
+        await trace_emitter.emit_node_completed(
+            trace_id=trace_id,
+            turn_id=turn_id,
+            span_id=self._build_span_id(turn_id, "intent_resolution"),
+            parent_span_id=self._build_root_span_id(turn_id),
+            node_type="intent_resolution",
+            name="Intent resolution",
+            user_id=context.user_id,
+            session_id=context.session_id,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            duration_ms=max(0, ended_at_ms - started_at_ms),
+            output={
+                "intent": str(getattr(decision, "intent", "") or ""),
+                "execution_mode": str(getattr(getattr(decision, "execution_mode", None), "value", "") or ""),
+                "route_reason": str(getattr(decision, "reasoning", "") or ""),
+                "selected_tools": list(getattr(decision, "tools", []) or []),
+                "selected_worker_type": getattr(getattr(decision, "orchestration_plan", None), "default_leaf_type", None),
+            },
+        )
 
     async def record_tool_interaction(self, payload: dict[str, Any]) -> None:
         user_id = str(payload.get("user_id") or self._agent_id)
@@ -394,3 +455,145 @@ class ChatPostProcessService:
             return typed_turn_id
         raw_turn_id = str(payload.get("turn_id") or "").strip()
         return raw_turn_id or None
+
+    async def _emit_response_trace(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        response_text: str,
+        started_at_ms: int,
+        ended_at_ms: int,
+        orchestration_id: str | None,
+    ) -> None:
+        action_emitter = self._get_action_emitter()
+        normalized_turn_id = str(turn_id or "").strip()
+        if action_emitter is None or not normalized_turn_id:
+            return
+        trace_id = self._build_trace_id(normalized_turn_id)
+        await self._emit_turn_trace_started(
+            action_emitter=action_emitter,
+            trace_id=trace_id,
+            turn_id=normalized_turn_id,
+            user_id=user_id,
+            session_id=session_id,
+            started_at_ms=started_at_ms,
+            user_message="",
+        )
+        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
+        await trace_emitter.emit_node_completed(
+            trace_id=trace_id,
+            turn_id=normalized_turn_id,
+            span_id=self._build_span_id(normalized_turn_id, "response_emit"),
+            parent_span_id=self._build_root_span_id(normalized_turn_id),
+            node_type="response_emit",
+            name="Response emission",
+            user_id=user_id,
+            session_id=session_id,
+            started_at_ms=ended_at_ms,
+            ended_at_ms=ended_at_ms,
+            duration_ms=0,
+            output={
+                "response_preview": response_text[:240],
+                "response_chars": len(response_text),
+                "orchestration_id": orchestration_id,
+            },
+        )
+        await trace_emitter.emit_node_completed(
+            trace_id=trace_id,
+            turn_id=normalized_turn_id,
+            span_id=self._build_root_span_id(normalized_turn_id),
+            parent_span_id=None,
+            node_type="turn",
+            name="Chat turn",
+            user_id=user_id,
+            session_id=session_id,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            duration_ms=max(0, ended_at_ms - started_at_ms),
+            output={
+                "response_preview": response_text[:240],
+            },
+        )
+        await action_emitter.emit_runtime_event(
+            event_type=TURN_TRACE_COMPLETED_EVENT_TYPE,
+            payload={
+                "trace_id": trace_id,
+                "turn_id": normalized_turn_id,
+                "span_id": self._build_root_span_id(normalized_turn_id),
+                "status": "completed",
+                "started_at_ms": started_at_ms,
+                "ended_at_ms": ended_at_ms,
+                "duration_ms": max(0, ended_at_ms - started_at_ms),
+                "user_id": user_id,
+                "session_id": session_id,
+            },
+            correlation_id=normalized_turn_id,
+            success=True,
+        )
+
+    async def _emit_turn_trace_started(
+        self,
+        *,
+        action_emitter: Any,
+        trace_id: str,
+        turn_id: str,
+        user_id: str,
+        session_id: str,
+        started_at_ms: int,
+        user_message: str,
+    ) -> None:
+        if turn_id in self._started_turn_traces:
+            return
+        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
+        await action_emitter.emit_runtime_event(
+            event_type=TURN_TRACE_STARTED_EVENT_TYPE,
+            payload={
+                "trace_id": trace_id,
+                "turn_id": turn_id,
+                "span_id": self._build_root_span_id(turn_id),
+                "status": "running",
+                "started_at_ms": started_at_ms,
+                "user_id": user_id,
+                "session_id": session_id,
+            },
+            correlation_id=turn_id,
+            success=True,
+        )
+        await trace_emitter.emit_node_started(
+            trace_id=trace_id,
+            turn_id=turn_id,
+            span_id=self._build_root_span_id(turn_id),
+            parent_span_id=None,
+            node_type="turn",
+            name="Chat turn",
+            user_id=user_id,
+            session_id=session_id,
+            started_at_ms=started_at_ms,
+            input={
+                "user_message_preview": user_message[:240],
+            } if user_message else {},
+        )
+        self._started_turn_traces.add(turn_id)
+
+    @staticmethod
+    def _build_trace_id(turn_id: str) -> str:
+        return f"trace:{turn_id}"
+
+    @staticmethod
+    def _build_root_span_id(turn_id: str) -> str:
+        return f"{turn_id}:turn"
+
+    @staticmethod
+    def _build_span_id(turn_id: str, suffix: str) -> str:
+        return f"{turn_id}:{suffix}"
+
+    @staticmethod
+    def _resolve_started_at_ms(result: ExecutionResult | None, latest_fact: FactRecord) -> int:
+        raw_timestamp = (
+            float(result.message_started_at)
+            if result is not None and result.message_started_at is not None
+            else float(latest_fact.timestamp or time.time())
+        )
+        return max(0, int(raw_timestamp * 1000))

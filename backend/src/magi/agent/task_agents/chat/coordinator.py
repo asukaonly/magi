@@ -1,9 +1,10 @@
 """Execution coordination for chat task agents."""
 from __future__ import annotations
 
+import inspect
 import platform
 from datetime import datetime
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from ....core.logger import get_logger
 from ....events.events import EventTypes
@@ -20,6 +21,8 @@ from .handlers import ExecutionHandlerRegistry
 
 logger = get_logger(__name__)
 
+IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
+
 
 class ChatExecutionCoordinator:
     """Coordinates intent routing, request building, and handler dispatch."""
@@ -30,10 +33,12 @@ class ChatExecutionCoordinator:
         context_decider: ContextDecider,
         fact_classifier: ChatFactClassifier,
         handler_registry: ExecutionHandlerRegistry,
+        intent_trace_callback: IntentTraceCallback | None = None,
     ) -> None:
         self._context_decider = context_decider
         self._fact_classifier = fact_classifier
         self._handler_registry = handler_registry
+        self._intent_trace_callback = intent_trace_callback
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
         if context.incoming_fact_kind.value == "worker_update":
@@ -91,7 +96,7 @@ class ChatExecutionCoordinator:
             if decision.tools
             else ExecutionMode.DIRECT_LLM
         )
-        return IntentDecision(
+        intent_decision = IntentDecision(
             intent=decision.intent,
             difficulty="hard" if decision.deep_thinking else "normal",
             execution_mode=execution_mode,
@@ -102,6 +107,11 @@ class ChatExecutionCoordinator:
             memory_route=str(getattr(decision, "memory_route", "none") or "none"),
             memory_query_hint=getattr(decision, "memory_query_hint", None),
         )
+        if self._intent_trace_callback is not None:
+            callback_result = self._intent_trace_callback(context, intent_decision)
+            if inspect.isawaitable(callback_result):
+                await callback_result
+        return intent_decision
 
     async def match_tools(self, context: ChatRuntimeContext, intent: IntentDecision) -> ToolSelection:
         _ = context
