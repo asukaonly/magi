@@ -21,12 +21,11 @@ import {
 } from '@/components/settings';
 import { DynamicToolsConfig } from '@/components/config-forms/DynamicToolConfig';
 import LLMForm from '@/components/config-forms/LLMForm';
-import { PersonalityForm } from '@/components/config-forms/PersonalityForm';
 import { LLMUsageSection } from '@/components/settings/LLMUsageSection';
 import ActionsSection from '@/components/settings/ActionsSection';
 import ExtensionsSection from '@/components/settings/ExtensionsSection';
 import TimelineSourcesSection from '@/components/settings/TimelineSourcesSection';
-import { SimpleForm as Form } from '@/components/onboarding/simple-form';
+import PersonalityModern from '@/pages/PersonalityModern';
 import { SystemConfig } from '@/api/modules/config';
 import { skillsApi, type SkillItem } from '@/api/modules/skills';
 import { Button } from '@/components/ui/button';
@@ -226,26 +225,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         );
 
       case 'personality':
-        return (
-          <div className="space-y-4">
-            <Form
-              initialValues={{ personality: draftConfig.personality }}
-              onValuesChange={(_: unknown, values: { personality?: SystemConfig['personality'] }) => {
-                if (!values?.personality) {
-                  return;
-                }
-                patchDraftConfig((draft) => {
-                  draft.personality = values.personality!;
-                });
-              }}
-            >
-              <PersonalityForm
-                quickMode={false}
-                language={draftConfig.preferences.language === 'en' ? 'en' : 'zh'}
-              />
-            </Form>
-          </div>
-        );
+        return <PersonalityModern embedded />;
 
       case 'usage':
         return <LLMUsageSection />;
@@ -924,42 +904,44 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         </main>
       </div>
 
-      <footer className="shrink-0 border-t border-border/60 bg-background/95 backdrop-blur-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4 px-8 py-4">
-          <p className={cn(
-            'text-sm transition-colors duration-200',
-            dirty ? 'text-primary font-medium' : 'text-muted-foreground'
-          )}>
-            {dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved')}
-          </p>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void handleDiscardChanges()}
-              disabled={!dirty || saving}
-              className="disabled:opacity-40"
-            >
-              <RotateCcw className="mr-1.5 h-4 w-4" />
-              {t('settings.actions.discard')}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => void handleSaveChanges()}
-              disabled={!dirty || saving}
-              className={cn(
-                'transition-all duration-200',
-                dirty && 'animate-in pulse duration-300'
-              )}
-            >
-              <Save className="mr-1.5 h-4 w-4" />
-              {saving ? t('settings.saving') : t('settings.actions.save')}
-            </Button>
+      {activeSection !== 'personality' ? (
+        <footer className="shrink-0 border-t border-border/60 bg-background/95 backdrop-blur-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4 px-8 py-4">
+            <p className={cn(
+              'text-sm transition-colors duration-200',
+              dirty ? 'text-primary font-medium' : 'text-muted-foreground'
+            )}>
+              {dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved')}
+            </p>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleDiscardChanges()}
+                disabled={!dirty || saving}
+                className="disabled:opacity-40"
+              >
+                <RotateCcw className="mr-1.5 h-4 w-4" />
+                {t('settings.actions.discard')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void handleSaveChanges()}
+                disabled={!dirty || saving}
+                className={cn(
+                  'transition-all duration-200',
+                  dirty && 'animate-in pulse duration-300'
+                )}
+              >
+                <Save className="mr-1.5 h-4 w-4" />
+                {saving ? t('settings.saving') : t('settings.actions.save')}
+              </Button>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      ) : null}
     </div>
   );
 });

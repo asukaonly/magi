@@ -24,7 +24,11 @@ import {
 
 const sectionCardClass = 'border-border/50 bg-card';
 
-const PersonalityModern: React.FC = () => {
+interface PersonalityModernProps {
+  embedded?: boolean;
+}
+
+const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false }) => {
   const { t } = useTranslation('app');
 
   const {
@@ -60,19 +64,26 @@ const PersonalityModern: React.FC = () => {
   } = usePersonality();
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="border-b border-border/40 bg-muted/20 px-6 py-5">
+    <div className={cn('flex h-full min-h-0 flex-col overflow-hidden', embedded ? 'bg-transparent' : 'bg-background')}>
+      <div
+        className={cn(
+          'border-b border-border/40 bg-muted/20',
+          embedded ? 'border-b-0 bg-transparent px-0 pb-3 pt-1' : 'px-6 py-5'
+        )}
+      >
       {/* Title row */}
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            {t('personality.title')}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t('settings.personalityDesc')}
-          </p>
+      {!embedded ? (
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              {t('personality.title')}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t('settings.personalityDesc')}
+            </p>
+          </div>
         </div>
-      </div>
+      ) : null}
       {/* Avatar selector row */}
       <div className="flex gap-3 overflow-x-auto pb-2">
           {/* Add button – hidden in create mode */}
@@ -142,7 +153,7 @@ const PersonalityModern: React.FC = () => {
       </div>
 
       {/* Detail section: Scrollable config cards */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className={cn('flex-1 overflow-y-auto', embedded ? 'pt-3' : 'p-6')}>
         <div className="space-y-5">
           {/* Detail Header with Actions */}
           <div className="flex flex-col gap-4 rounded-3xl border border-primary/20 bg-muted/20 p-5">

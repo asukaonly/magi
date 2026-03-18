@@ -45,8 +45,10 @@ vi.mock('@/components/config-forms/LLMForm', () => ({
   ),
 }));
 
-vi.mock('@/components/config-forms/PersonalityForm', () => ({
-  PersonalityForm: () => <div>personality-form</div>,
+vi.mock('@/pages/PersonalityModern', () => ({
+  default: ({ embedded = false }: { embedded?: boolean }) => (
+    <div>{`personality-modern:${embedded ? 'embedded' : 'standalone'}`}</div>
+  ),
 }));
 
 vi.mock('@/components/config-forms/DynamicToolConfig', async () => {
@@ -694,6 +696,7 @@ describe('settings page draft saving', () => {
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.personality' }));
 
-    expect(await screen.findByText('personality-form')).toBeInTheDocument();
+    expect(await screen.findByText('personality-modern:embedded')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.actions.save' })).not.toBeInTheDocument();
   });
 });
