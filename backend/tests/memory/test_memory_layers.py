@@ -156,6 +156,20 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
         await local_store.shutdown()
 
+    async def test_unified_memory_store_passes_temporal_llm_min_event_count(self):
+        local_store = UnifiedMemoryStore(
+            l1_db_path=str(self.base / "threshold_l1_events.db"),
+            memory_db_path=str(self.base / "threshold_memory.db"),
+            persist_dir=str(self.base / "threshold_memories"),
+            temporal_l3_llm_min_event_count=3,
+        )
+        await local_store.initialize()
+
+        self.assertIsNotNone(local_store.l3)
+        self.assertEqual(local_store.l3._temporal_llm_service._min_event_count_for_llm, 3)
+
+        await local_store.shutdown()
+
     async def test_timeline_events_round_trip_through_l1_and_l2(self):
         service = TimelineService(self.store)
         event = TimelineEvent(

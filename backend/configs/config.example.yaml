@@ -29,6 +29,7 @@ agent:
     enable_l2_llm_extraction: true
     enable_l3_llm_summary: true
     l3_temporal_llm_timeout_seconds: 3.0
+    l3_temporal_llm_min_event_count: 2
     enable_l4_skill_extraction: true
     async_embeddings: true
     auto_extract_relations: true

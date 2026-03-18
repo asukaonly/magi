@@ -58,6 +58,7 @@ class UnifiedMemoryStore:
         enable_l4_vectors: bool = True,
         enable_l3_llm_summary: bool = True,
         temporal_l3_llm_timeout_seconds: float = 3.0,
+        temporal_l3_llm_min_event_count: int = 2,
         identity_resolver: IdentityResolver | None = None,
     ) -> None:
         from ..utils.runtime import get_runtime_paths
@@ -121,6 +122,7 @@ class UnifiedMemoryStore:
                 async_embeddings=async_embeddings,
                 enable_temporal_llm_summary=enable_l3_llm_summary,
                 temporal_llm_timeout_seconds=temporal_l3_llm_timeout_seconds,
+                temporal_llm_min_event_count=temporal_l3_llm_min_event_count,
                 scenario_llm_pool=scenario_llm_pool,
             )
         if enable_l4:

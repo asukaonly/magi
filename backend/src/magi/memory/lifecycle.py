@@ -65,6 +65,7 @@ class MemoryStoreModule(LifecycleModule):
             enable_l4=config.agent.memory.enable_l4,
             enable_l3_llm_summary=config.agent.memory.enable_l3_llm_summary,
             temporal_l3_llm_timeout_seconds=config.agent.memory.l3_temporal_llm_timeout_seconds,
+            temporal_l3_llm_min_event_count=config.agent.memory.l3_temporal_llm_min_event_count,
             l0_checkpoint_interval_seconds=config.agent.memory.l0_checkpoint_interval_seconds,
         )
         await self._context.memory.unified_memory.initialize()

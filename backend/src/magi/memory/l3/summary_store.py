@@ -39,6 +39,7 @@ class L3SummaryStore:
         async_embeddings: bool = True,
         enable_temporal_llm_summary: bool = True,
         temporal_llm_timeout_seconds: float = 3.0,
+        temporal_llm_min_event_count: int = 2,
         scenario_llm_pool: ScenarioLLMPool | None = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
@@ -48,6 +49,7 @@ class L3SummaryStore:
         self._temporal_llm_service = TemporalSummaryLLMService(
             enabled=enable_temporal_llm_summary,
             llm_timeout_seconds=temporal_llm_timeout_seconds,
+            min_event_count_for_llm=temporal_llm_min_event_count,
             scenario_llm_pool=scenario_llm_pool,
         )
         self._vector_index = (
