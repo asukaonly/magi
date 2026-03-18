@@ -17,6 +17,7 @@ from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..l1.event_store import L1EventStore
 from ..sqlite_vec_index import SqliteVecIndex
 from .models import L3Candidate
+from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
 
 if TYPE_CHECKING:
@@ -40,6 +41,7 @@ class L3SummaryStore:
         self._embedding_service = embedding_service
         self._vector_enabled = bool(vector_enabled and embedding_service is not None)
         self._async_embeddings = bool(async_embeddings)
+        self._temporal_llm_service = TemporalSummaryLLMService()
         self._vector_index = (
             SqliteVecIndex(
                 db_path=self.db_path,
@@ -168,39 +170,44 @@ class L3SummaryStore:
         if not events:
             return None
 
-        source_event_ids = [event["event_id"] for event in events]
-        content = " ".join(event["raw_content"] for event in events[:6]).strip()
-        candidate = L3Candidate(
-            summary_type="temporal",
+        evidence_pack = self._temporal_llm_service.build_evidence_pack(
+            events=events,
             summary_category=summary_category,
-            content=content,
-            source_event_ids=source_event_ids,
+            period_start=period_start,
+            period_end=period_end,
         )
-        decision = validate_candidate(candidate, evidence_events=events)
+        if not evidence_pack.source_event_ids:
+            return None
+
+        fallback_summary = " ".join(event["raw_content"] for event in events[:6]).strip()
+        generation = await self._temporal_llm_service.generate_temporal_candidate(
+            evidence_pack,
+            fallback_summary=fallback_summary,
+        )
+        decision = validate_candidate(generation.candidate, evidence_events=events)
         if decision.action != "accept":
             return None
+        summary_overrides: dict[str, Any] = {
+            "summary_id": f"summary_{uuid.uuid4().hex}",
+            "summary_type": "temporal",
+            "summary_category": summary_category,
+            "period_start": float(period_start),
+            "period_end": float(period_end),
+            "key_topics": [],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "source_event_ids": list(evidence_pack.source_event_ids),
+            "source_event_count": int(evidence_pack.source_event_count),
+            "importance_aggregate": evidence_pack.importance_aggregate or 0.0,
+            "event_type_distribution": dict(evidence_pack.event_type_distribution),
+            "generated_by_model": "rule-summary" if generation.used_fallback else "temporal-llm",
+            "generation_prompt": None,
+            "generation_reason": f"temporal:{summary_category}",
+        }
+        summary_overrides.update(generation.summary_overrides)
         summary = await self.upsert_candidate(
-            candidate=candidate,
-            summary_overrides={
-                "summary_id": f"summary_{uuid.uuid4().hex}",
-                "summary_type": "temporal",
-                "summary_category": summary_category,
-                "period_start": float(period_start),
-                "period_end": float(period_end),
-                "key_topics": [],
-                "key_entities": [],
-                "sentiment_summary": None,
-                "source_event_ids": source_event_ids,
-                "source_event_count": len(source_event_ids),
-                "importance_aggregate": sum(float(event["importance_score"]) for event in events) / len(events),
-                "event_type_distribution": {
-                    event["event_type"]: sum(1 for item in events if item["event_type"] == event["event_type"])
-                    for event in events
-                },
-                "generated_by_model": "rule-summary",
-                "generation_prompt": None,
-                "generation_reason": f"temporal:{summary_category}",
-            },
+            candidate=generation.candidate,
+            summary_overrides=summary_overrides,
         )
         return summary
 
@@ -438,7 +445,7 @@ class L3SummaryStore:
                     summary["content"],
                     json.dumps(summary["key_topics"], ensure_ascii=False),
                     json.dumps(summary["key_entities"], ensure_ascii=False),
-                    summary["sentiment_summary"],
+                    self._encode_optional_json(summary["sentiment_summary"]),
                     json.dumps(summary["source_event_ids"], ensure_ascii=False),
                     int(summary["source_event_count"]),
                     float(summary["importance_aggregate"]),
@@ -509,7 +516,7 @@ class L3SummaryStore:
             "content": str(row["content"]),
             "key_topics": json.loads(row["key_topics"] or "[]"),
             "key_entities": json.loads(row["key_entities"] or "[]"),
-            "sentiment_summary": row["sentiment_summary"],
+            "sentiment_summary": self._decode_optional_json(row["sentiment_summary"]),
             "source_event_ids": json.loads(row["source_event_ids"] or "[]"),
             "source_event_count": int(row["source_event_count"]),
             "importance_aggregate": float(row["importance_aggregate"] or 0.0),
@@ -520,6 +527,23 @@ class L3SummaryStore:
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }
+
+    def _encode_optional_json(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+    def _decode_optional_json(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return value
+        return value
 
     async def _maybe_upsert_summary_embedding(self, summary: Dict[str, Any]) -> None:
         if not self._vector_enabled or self._embedding_service is None or self._vector_index is None:

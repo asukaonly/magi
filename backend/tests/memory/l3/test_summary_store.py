@@ -86,3 +86,49 @@ async def test_upsert_candidate_persists_event_and_task_links(tmp_path):
     assert len(task_links) == 1
     assert task_links[0]["task_id"] == "task-1"
     assert task_links[0]["link_role"] == "source_task"
+
+
+@pytest.mark.asyncio
+async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l1_store.initialize()
+    await l3_store.initialize()
+
+    chat_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={"user_id": "u1", "session_id": "s1", "message": "I want to switch jobs this year."},
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="evt-1",
+            timestamp=1710000000.0,
+        ),
+        event_id="evt-1",
+    )
+    await l1_store.store(chat_event)
+
+    async def _fake_model(_pack):  # type: ignore[no-untyped-def]
+        return {
+            "content": "LLM rewritten temporal summary",
+            "key_topics": ["job_search"],
+            "importance_aggregate": 0.9,
+        }
+
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_model", _fake_model)
+
+    summary = await l3_store.generate_temporal_summary(
+        l1_store=l1_store,
+        summary_category="day",
+        period_start=1709990000.0,
+        period_end=1710003600.0,
+    )
+
+    assert summary is not None
+    assert summary["content"] == "LLM rewritten temporal summary"
+    assert summary["key_topics"] == ["job_search"]
+    event_links = await l3_store.list_summary_event_links(summary["summary_id"])
+    assert len(event_links) == 1
