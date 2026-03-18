@@ -335,7 +335,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
         <div className="flex min-h-0 flex-1 flex-col gap-2">
-          <section className={cn('shrink-0', conversationExpanded && 'flex min-h-0 flex-1 flex-col')}>
+          <section className="shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -364,7 +364,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             </button>
 
             {conversationExpanded ? (
-              <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2">
+              <div className="mt-2 flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                   <div className="flex min-w-0 flex-1 items-center rounded-xl border border-border/18 bg-background/70 px-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                     <input
@@ -402,7 +402,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                   </button>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+                <div className="max-h-[22rem] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
                   {sessionRows.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-border/40 p-3 text-xs text-muted-foreground">
                       {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
