@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Optional
 
 from ..llm import LLMScenario, ScenarioLLMPool
@@ -55,6 +56,7 @@ class L2LLMService:
         profile: ExtractionProfile,
         focal_subject: dict[str, Any],
     ) -> dict[str, Any]:
+        started_at = time.perf_counter()
         payload = await self._generate_json(
             system_prompt=UNIFIED_EXTRACTION_SYSTEM_PROMPT,
             prompt=self.render_unified_extraction_prompt(
@@ -90,12 +92,24 @@ class L2LLMService:
         if not normalized_diagnostics.get("entity_status"):
             normalized_diagnostics["entity_status"] = "none"
 
-        return {
+        result = {
             "mentions": normalized_mentions,
             "graph_candidates": normalized_graph_candidates,
             "assertion_candidates": normalized_assertions,
             "diagnostics": normalized_diagnostics,
         }
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
+        logger.info(
+            "L2 unified extraction completed",
+            extra={
+                "duration_ms": duration_ms,
+                "profile_id": profile.profile_id,
+                "mention_count": len(normalized_mentions),
+                "graph_candidate_count": len(normalized_graph_candidates),
+                "assertion_candidate_count": len(normalized_assertions),
+            },
+        )
+        return result
 
     async def extract_entity_mentions(self, *, event_text: str, context_texts: list[str]) -> list[dict[str, Any]]:
         payload = await self._generate_json(

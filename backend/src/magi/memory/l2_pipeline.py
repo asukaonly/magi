@@ -177,6 +177,12 @@ class L2Pipeline:
                         "L2 extract completed",
                         event_id=event.event_id,
                         evidence_class=result.get("evidence_class"),
+                        profile_id=result.get("profile_id"),
+                        mention_count=int(result.get("mention_count", 0)),
+                        graph_candidate_count=int(result.get("graph_candidate_count", 0)),
+                        assertion_candidate_count=int(result.get("assertion_candidate_count", 0)),
+                        rejected_graph_candidate_count=int(result.get("rejected_graph_candidate_count", 0)),
+                        rejected_assertion_candidate_count=int(result.get("rejected_assertion_candidate_count", 0)),
                         relation_count=int(result["relation_count"]),
                         assertion_count=int(result["assertion_count"]),
                         contradiction_hint_count=int(result.get("contradiction_hint_count", 0)),
@@ -371,7 +377,7 @@ class L2Pipeline:
                 resolved_mention_count=len(resolved_mentions),
             )
 
-        graph_candidates = self._prepare_unified_graph_candidates(
+        graph_candidates, rejected_graph_candidate_count = self._prepare_unified_graph_candidates(
             event=stored_event,
             profile=extraction_profile,
             policy=policy,
@@ -394,7 +400,7 @@ class L2Pipeline:
                 graph_candidates = self._cognition_store.extract_graph_candidates(stored_event)
 
         focal_entities = self._build_focal_entities(stored_event, resolved_mentions)
-        assertion_candidates = self._prepare_unified_assertion_candidates(
+        assertion_candidates, rejected_assertion_candidate_count = self._prepare_unified_assertion_candidates(
             event=stored_event,
             profile=extraction_profile,
             policy=policy,
@@ -443,6 +449,12 @@ class L2Pipeline:
             "touched_entity_ids": self._collect_touched_entities(graph_candidates, assertion_candidates),
             "skipped": False,
             "evidence_class": classification.evidence_class,
+            "profile_id": extraction_profile.profile_id,
+            "mention_count": len(raw_mentions),
+            "graph_candidate_count": len(graph_candidates),
+            "assertion_candidate_count": len(assertion_candidates),
+            "rejected_graph_candidate_count": rejected_graph_candidate_count,
+            "rejected_assertion_candidate_count": rejected_assertion_candidate_count,
             "contradiction_hint_count": len(contradiction_hints),
         }
 
@@ -652,19 +664,23 @@ class L2Pipeline:
         policy: Any,
         resolved_mentions: list[dict[str, Any]],
         raw_candidates: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], int]:
         if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
-            return []
+            return [], 0
 
         prepared: list[dict[str, Any]] = []
+        rejected_count = 0
         for raw_candidate in raw_candidates:
             if not isinstance(raw_candidate, dict):
+                rejected_count += 1
                 continue
             object_type = self._normalize_entity_type(raw_candidate.get("object_type"))
             predicate = self._normalize_predicate(raw_candidate.get("predicate"))
             if object_type not in profile.allowed_entity_types:
+                rejected_count += 1
                 continue
             if predicate not in profile.allowed_predicates:
+                rejected_count += 1
                 continue
             is_valid, _ = validate_graph_candidate(
                 {
@@ -673,10 +689,12 @@ class L2Pipeline:
                 }
             )
             if not is_valid:
+                rejected_count += 1
                 continue
 
             subject_id = self._resolve_subject_id(event=event, raw_candidate=raw_candidate)
             if not subject_id:
+                rejected_count += 1
                 continue
             object_id = self._resolve_graph_object_id(
                 raw_object_ref=raw_candidate.get("object_ref"),
@@ -684,6 +702,7 @@ class L2Pipeline:
                 resolved_mentions=resolved_mentions,
             )
             if not object_id:
+                rejected_count += 1
                 continue
             prepared.append(
                 {
@@ -699,7 +718,7 @@ class L2Pipeline:
                     "extraction_method": "llm_unified_extraction",
                 }
             )
-        return prepared
+        return prepared, rejected_count
 
     def _prepare_unified_assertion_candidates(
         self,
@@ -709,15 +728,16 @@ class L2Pipeline:
         policy: Any,
         graph_candidates: list[dict[str, Any]],
         raw_candidates: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], int]:
         if not policy.allow_assertion_write or not profile.allow_assertion:
-            return []
+            return [], 0
 
         scoped_assertions = self._apply_assertion_scope(
             raw_candidates=raw_candidates,
             assertion_scope=policy.assertion_scope,
         )
         prepared: list[dict[str, Any]] = []
+        rejected_count = max(0, len(raw_candidates) - len(scoped_assertions))
         duplicate_check_candidates = [
             {
                 "predicate": candidate["predicate"],
@@ -727,16 +747,20 @@ class L2Pipeline:
         ]
         for raw_candidate in scoped_assertions:
             if not isinstance(raw_candidate, dict):
+                rejected_count += 1
                 continue
             if str(raw_candidate.get("trait_family", "")).strip().lower() not in profile.allowed_assertion_families:
+                rejected_count += 1
                 continue
             is_valid, _ = validate_assertion_candidate(raw_candidate)
             if not is_valid:
+                rejected_count += 1
                 continue
             if is_leaf_fact_duplicate(duplicate_check_candidates, raw_candidate):
+                rejected_count += 1
                 continue
             prepared.append(self._normalize_assertion_candidate(event, raw_candidate))
-        return prepared
+        return prepared, rejected_count
 
     def _resolve_subject_id(self, *, event: MemoryEvent, raw_candidate: dict[str, Any]) -> str | None:
         subject_ref = self._non_empty_text(raw_candidate.get("subject_ref"))

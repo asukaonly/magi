@@ -1089,6 +1089,113 @@ async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.
 
 
 @pytest.mark.asyncio
+async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction(
+    caplog: pytest.LogCaptureFixture,
+):
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "mentions": [
+                    {
+                        "mention_text": "GitHub",
+                        "normalized_surface": "github",
+                        "entity_type": "product",
+                        "canonical_name_hint": "GitHub",
+                        "alias_signals": [],
+                        "evidence_text": "Visited GitHub today",
+                        "confidence": 0.95,
+                    }
+                ],
+                "graph_candidates": [
+                    {
+                        "subject_ref": "user:u1",
+                        "subject_type": "user",
+                        "predicate": "VISITED",
+                        "object_ref": "GitHub",
+                        "object_type": "product",
+                        "fact_kind": "explicit_fact",
+                        "polarity": "positive",
+                        "evidence_text": "Visited GitHub today",
+                        "confidence": 0.9,
+                    },
+                    {
+                        "subject_ref": "user:u1",
+                        "subject_type": "user",
+                        "predicate": "LIKES",
+                        "object_ref": "GitHub",
+                        "object_type": "product",
+                        "fact_kind": "stable_preference",
+                        "polarity": "positive",
+                        "evidence_text": "Visited GitHub today",
+                        "confidence": 0.9,
+                    },
+                ],
+                "assertion_candidates": [
+                    {
+                        "entity_ref": "user:u1",
+                        "entity_type": "user",
+                        "trait_family": "mood",
+                        "trait_name": "mood",
+                        "trait_value": "happy",
+                        "inference_depth": "defensive_psychology",
+                        "volatility_index": 0.7,
+                        "confidence": 0.8,
+                        "validation_state": "tentative",
+                        "evidence_texts": ["Visited GitHub today"],
+                        "supporting_event_ids": ["evt-log-unified-1"],
+                    }
+                ],
+                "diagnostics": {"entity_status": "found"},
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            with caplog.at_level(logging.INFO, logger="magi.memory.l2_pipeline"):
+                await store.ingest_event(
+                    {
+                        "id": "evt-log-unified-1",
+                        "type": EventTypes.USER_MESSAGE,
+                        "timestamp": time.time(),
+                        "source": "timeline",
+                        "level": EventLevel.INFO.value,
+                        "data": {
+                            "user_id": "u1",
+                            "session_id": "s1",
+                            "message": "Visited GitHub today",
+                        },
+                        "metadata": {
+                            "extraction_profile_id": "timeline.chrome_history",
+                        },
+                    }
+                )
+
+                for _ in range(50):
+                    stats = store.get_l2_pipeline_stats()
+                    if stats["extract_completed"] >= 1:
+                        break
+                    await asyncio.sleep(0.01)
+
+            messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2_pipeline"]
+            assert any("L2 extract completed" in message for message in messages)
+            assert any("timeline.chrome_history" in message for message in messages)
+            assert any("rejected_graph_candidate_count" in message for message in messages)
+            assert any("rejected_assertion_candidate_count" in message for message in messages)
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
     adapter = _FakeAdapter(
         json.dumps(

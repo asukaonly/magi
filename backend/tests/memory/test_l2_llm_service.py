@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 
 class _FakeAdapter:
@@ -112,3 +113,35 @@ def test_unified_extraction_fails_closed_on_invalid_json():
         "assertion_candidates": [],
         "diagnostics": {"entity_status": "none"},
     }
+
+
+def test_unified_extraction_logs_timing():
+    from magi.memory.l2_extraction_profiles import ExtractionProfile
+    from magi.memory.l2_llm_service import L2LLMService
+
+    response = json.dumps(
+        {
+            "mentions": [{"mention_text": "Rust", "entity_type": "technology"}],
+            "graph_candidates": [],
+            "assertion_candidates": [],
+            "diagnostics": {"entity_status": "found"},
+        }
+    )
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
+
+    with patch("magi.memory.l2_llm_service.logger.info") as mock_info:
+        result = __import__("asyncio").run(
+            service.extract_unified_candidates(
+                event_window={"event_ids": ["evt-1"], "texts": ["I like Rust"]},
+                profile=ExtractionProfile(profile_id="chat.user_message"),
+                focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+            )
+        )
+
+    assert result["diagnostics"] == {"entity_status": "found"}
+    mock_info.assert_called_once()
+    assert mock_info.call_args.args[0] == "L2 unified extraction completed"
+    extras = mock_info.call_args.kwargs["extra"]
+    assert extras["profile_id"] == "chat.user_message"
+    assert extras["mention_count"] == 1
+    assert extras["duration_ms"] >= 0.0
