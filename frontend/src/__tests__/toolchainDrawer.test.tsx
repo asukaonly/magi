@@ -84,9 +84,10 @@ describe('toolchain drawer', () => {
     expect(dialog.className).toContain('flex-col');
     expect(dialog.className).toContain('overflow-hidden');
     expect(dialog.className).not.toContain('w-full');
+    expect(dialog.className).toContain('max-w-[1180px]');
 
     const panesGrid = Array.from(document.body.querySelectorAll('div')).find((element) =>
-      element.className.includes('xl:grid-cols-[minmax(520px,0.92fr)_minmax(720px,1.08fr)]')
+      element.className.includes('xl:grid-cols-[minmax(320px,0.74fr)_minmax(0,1.26fr)]')
     );
     expect(panesGrid).toBeTruthy();
     expect(panesGrid?.className).toContain('overflow-hidden');

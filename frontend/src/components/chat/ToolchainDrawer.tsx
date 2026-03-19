@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/sheet';
 import TraceTree from './TraceTree';
 import { flattenPlanningNodeForDisplay, type NormalizedExecutionTraceNode, type NormalizedExecutionTraceSnapshot } from '@/pages/chat-state';
+import { formatTraceKind, formatTraceLabel, formatTraceMode, formatTraceStatus } from './traceDisplay';
 
 interface ToolchainDrawerProps {
   open: boolean;
@@ -69,19 +70,6 @@ const formatCount = (value: unknown): string => {
 const formatBoolean = (value: unknown, truthyLabel: string, falsyLabel: string): string => (
   value ? truthyLabel : falsyLabel
 );
-
-const formatSummaryStatus = (status: string, t: (key: string) => string): string => {
-  if (status === 'completed') return t('chat.trace.statusCompleted');
-  if (status === 'failed') return t('chat.trace.statusError');
-  return t('chat.trace.statusRunning');
-};
-
-const formatTraceMode = (mode: string, t: (key: string) => string): string => {
-  if (mode === 'orchestration') return t('chat.trace.modeOrchestration');
-  if (mode === 'direct_llm') return t('chat.trace.modeDirectLlm');
-  if (mode === 'function_calling') return t('chat.trace.modeFunctionCalling');
-  return mode || '--';
-};
 
 const stringifyStructuredValue = (value: unknown): string => {
   if (value === null || value === undefined) return '';
@@ -159,7 +147,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex h-full w-[min(1120px,calc(100vw-24px))] max-w-[1120px] flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0 shadow-2xl sm:w-[min(1120px,calc(100vw-40px))]"
+        className="flex h-full w-[min(1180px,calc(100vw-72px))] max-w-[1180px] flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0 shadow-2xl"
       >
         <SheetHeader className="border-b border-border/50 bg-muted/30 px-8 py-6">
           <SheetTitle className="text-[28px] font-semibold tracking-[-0.04em] text-foreground">{title}</SheetTitle>
@@ -183,7 +171,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                 <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryStatus')}</div>
                   <div className="mt-1.5 text-base font-semibold capitalize text-foreground">
-                    {formatSummaryStatus(snapshot.summary.status, t)}
+                    {formatTraceStatus(snapshot.summary.status, t)}
                   </div>
                 </div>
                 <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
@@ -206,21 +194,23 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                   </div>
                 </div>
               </div>
-              <div className="grid min-h-0 flex-1 gap-0 overflow-hidden xl:grid-cols-[minmax(520px,0.92fr)_minmax(720px,1.08fr)]">
-                <div className="min-h-0 overflow-y-auto border-r border-border/40 bg-muted/20 px-8 py-6">
+              <div className="grid min-h-0 flex-1 gap-0 overflow-hidden xl:grid-cols-[minmax(320px,0.74fr)_minmax(0,1.26fr)]">
+                <div className="min-h-0 min-w-0 overflow-y-auto border-r border-border/40 bg-muted/20 px-6 py-6 xl:px-7">
                   {displayRoot && (
                     <TraceTree node={displayRoot} selectedNodeId={selectedNode?.id || null} onSelectNode={setSelectedNode} />
                   )}
                 </div>
-                <div className="min-h-0 overflow-y-auto bg-muted/30 px-8 py-6">
+                <div className="min-h-0 min-w-0 overflow-y-auto bg-muted/30 px-6 py-6 xl:px-7">
                   {selectedNode ? (
                     <div className="space-y-4">
                       <div className="rounded-3xl border border-border/50 bg-card px-6 py-5 shadow-sm">
                         <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.selected')}</div>
                         <div className="mt-2 flex flex-wrap items-center gap-3">
-                          <div className="text-[24px] font-semibold tracking-[-0.04em] text-foreground">{selectedNode.label}</div>
+                          <div className="text-[24px] font-semibold tracking-[-0.04em] text-foreground">
+                            {formatTraceLabel(selectedNode.label, selectedNode.kind, t)}
+                          </div>
                           <div className="rounded-full border border-border/60 bg-muted/35 px-3 py-1 text-xs capitalize text-muted-foreground">
-                            {selectedNode.kind} · {selectedNode.status}
+                            {formatTraceKind(selectedNode.kind, t)} · {formatTraceStatus(selectedNode.status, t)}
                           </div>
                         </div>
                       </div>

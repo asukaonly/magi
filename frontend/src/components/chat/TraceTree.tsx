@@ -1,7 +1,9 @@
 import React from 'react';
 import { CheckCircle2, ChevronRight, CircleDashed, GitBranch, Hammer, Layers3, Workflow, XCircle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { NormalizedExecutionTraceNode } from '@/pages/chat-state';
+import { formatTraceKind, formatTraceLabel, formatTraceStatus } from './traceDisplay';
 
 interface TraceTreeProps {
   node: NormalizedExecutionTraceNode;
@@ -34,6 +36,7 @@ const kindIcon = (kind: string) => {
 };
 
 const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelectNode, depth = 0 }) => {
+  const { t } = useTranslation('app');
   const [open, setOpen] = React.useState(depth < 2 || node.status === 'running');
   const hasChildren = node.children.length > 0;
   const isToolNode = node.kind === 'tool';
@@ -88,12 +91,15 @@ const TraceTreeNode: React.FC<TraceTreeProps> = ({ node, selectedNodeId, onSelec
                 'min-w-0 flex-1 font-medium text-foreground',
                 compact ? 'truncate text-[15px] leading-5.5' : 'text-[15px] leading-6'
               )}>
-                {node.label}
+                {formatTraceLabel(node.label, node.kind, t)}
               </span>
               <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]', statusTone[node.status] || statusTone.pending, compact && 'px-1.5 py-0 text-[10px]')}>
                 {statusIcon(node.status)}
-                {node.status}
+                {formatTraceStatus(node.status, t)}
               </span>
+            </div>
+            <div className={cn('mt-0.5 text-muted-foreground', compact ? 'text-[12px] leading-4.5' : 'text-[12px] leading-5')}>
+              {formatTraceKind(node.kind, t)}
             </div>
             {preview && (
               <div className={cn(
