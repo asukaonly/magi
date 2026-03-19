@@ -1,0 +1,6 @@
+{
+  "dataset": "data/longmemeval_oracle.json",
+  "output_root": "benchmark/outputs",
+  "run_id": "oracle-smoke",
+  "limit": 5
+}
