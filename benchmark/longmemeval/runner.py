@@ -153,10 +153,10 @@ async def create_default_runtime(*, state_dir: str | Path) -> LongMemEvalRuntime
         memory_db_path=str(state_path / "memory.db"),
         enable_l0=False,
         enable_l1=True,
-        enable_l2=False,
-        enable_l3=False,
+        enable_l2=True,
+        enable_l3=True,
         enable_l4=False,
-        enable_l1_vectors=False,
+        enable_l1_vectors=True,
     )
     await memory.initialize()
     service = EvalMemoryService(
