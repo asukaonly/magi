@@ -375,6 +375,7 @@ async def trigger_l2_snapshot_refresh(body: L2EntityActionBody):
 async def list_l3_summaries(
     limit: int = Query(default=100, ge=1, le=500),
     summary_type: Optional[str] = Query(default=None, description="Filter by type: temporal, thematic, insight"),
+    summary_category: Optional[str] = Query(default=None, description="Filter by category: topic, task_reflection, state_change, trend_shift, etc."),
 ):
     """List L3 reflection summaries."""
     unified_memory = _resolve_unified_memory()
@@ -384,6 +385,8 @@ async def list_l3_summaries(
     summaries = await unified_memory.l3.list_summaries(limit=limit)
     if summary_type:
         summaries = [s for s in summaries if s.get("summary_type") == summary_type]
+    if summary_category:
+        summaries = [s for s in summaries if s.get("summary_category") == summary_category]
     return summaries
 
 

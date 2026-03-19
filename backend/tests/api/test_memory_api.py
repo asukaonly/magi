@@ -113,7 +113,12 @@ class _FakeL3Store:
     db_path = "/tmp/l3.db"
 
     async def list_summaries(self, limit: int = 100):
-        return []
+        _ = limit
+        return [
+            {"summary_id": "sum-1", "summary_type": "insight", "summary_category": "state_change"},
+            {"summary_id": "sum-2", "summary_type": "insight", "summary_category": "trend_shift"},
+            {"summary_id": "sum-3", "summary_type": "thematic", "summary_category": "topic"},
+        ]
 
     async def clear(self):
         return 2
@@ -245,6 +250,24 @@ def test_memory_procedures_api_lists_skills(monkeypatch):
     body = response.json()
     assert body[0]["skill_name"] == "browser.open"
     assert body[0]["success_rate"] == 0.75
+
+
+def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get(
+        "/api/memory/l3/summaries",
+        params={"summary_type": "insight", "summary_category": "state_change"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["summary_id"] for item in body] == ["sum-1"]
 
 
 def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
