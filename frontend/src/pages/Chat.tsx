@@ -165,8 +165,19 @@ export const ChatPage: React.FC = () => {
 
   const handleAgentResponseEvent = useCallback(
     (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
       const turnId = String(payload?.turn_id || '').trim();
       const summary = normalizeTraceSummary(payload?.trace_summary);
+      if (sessionId) {
+        receiveAgentResponse({
+          sessionId,
+          response: String(payload?.response || ''),
+          timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
+          turnId: turnId || undefined,
+          traceSummary: summary,
+          traceAvailable: Boolean(payload?.trace_available),
+        });
+      }
       if (summary) {
         upsertSummary({
           turn_id: summary.turnId,
@@ -180,13 +191,24 @@ export const ChatPage: React.FC = () => {
           trace_available: summary.traceAvailable,
           orchestration_id: summary.orchestrationId || null,
         });
+        if (sessionId) {
+          applyConversationTraceSummary(sessionId, summary.turnId, summary);
+        }
       }
       window.dispatchEvent(new Event(SESSION_EVENT));
       if (drawerOpen && activeTurnId === turnId) {
         void loadTrace(turnId);
       }
     },
-    [activeTurnId, drawerOpen, loadTrace, upsertSummary]
+    [
+      activeTurnId,
+      applyConversationTraceSummary,
+      currentSessionId,
+      drawerOpen,
+      loadTrace,
+      receiveAgentResponse,
+      upsertSummary,
+    ]
   );
 
   const handleWSMessage = useCallback(
