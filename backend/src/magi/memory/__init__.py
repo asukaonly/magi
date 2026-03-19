@@ -21,7 +21,8 @@ from .l2.entity_catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
 from .l2.models import ManualL2EventRequest
 from .l2.pipeline import L2Pipeline
-from .l3.models import L3Candidate, TaskOutcomePacket
+from .l3.models import L3Candidate, StateChangePacket, TaskOutcomePacket
+from .l3.state_change_service import StateChangeService
 from .l3.summary_store import L3SummaryStore
 from .l3.task_reflection_service import TaskReflectionService
 from .l3.validator import validate_candidate
@@ -89,6 +90,7 @@ class UnifiedMemoryStore:
         self.l4: Optional[L4ProceduralMemoryStore] = None
         self.identity_resolver = identity_resolver or IdentityResolver(db_path=shared_memory_db)
         self._task_reflection_service = TaskReflectionService()
+        self._state_change_service = StateChangeService()
 
         if enable_l0:
             self.l0 = L0WorkingMemoryStore(
@@ -321,6 +323,16 @@ class UnifiedMemoryStore:
             task_outcome=task_outcome,
             source_task_ids=[task_outcome.task_id],
         )
+
+    async def persist_state_change_insight(
+        self,
+        packet: StateChangePacket,
+    ) -> Optional[Dict[str, Any]]:
+        """Build and persist an insight summary from L2 reconcile outcomes."""
+        candidate = await self._state_change_service.build_candidate(packet)
+        if candidate is None:
+            return None
+        return await self.persist_l3_candidate(candidate=candidate)
 
     async def search(self, query: str, *, search_type: str = "detail", limit: int = 10) -> list[dict[str, Any]]:
         """Perform a simple layer-aware search without the retrieval router."""

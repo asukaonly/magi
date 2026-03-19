@@ -51,6 +51,16 @@ class TaskOutcomePacket:
 
 
 @dataclass(slots=True)
+class StateChangePacket:
+    """Normalized L2 reconcile outcomes for downstream L3 insights."""
+
+    entity_id: str
+    entity_type: str
+    outcomes: list[dict[str, object]] = field(default_factory=list)
+    trigger_reason: str = "l2_reconcile"
+
+
+@dataclass(slots=True)
 class L3Candidate:
     """Structured candidate before validation and persistence."""
 

@@ -12,7 +12,7 @@ from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.memory_backend import MemoryMessageBackend
 from magi.memory import UnifiedMemoryStore
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
-from magi.memory.l3.models import L3Candidate, TaskOutcomePacket
+from magi.memory.l3.models import L3Candidate, StateChangePacket, TaskOutcomePacket
 from magi.timeline import TimelineContentBlock, TimelineEvent
 from magi.timeline.service import TimelineService
 
@@ -344,6 +344,56 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["summary_category"], "task_reflection")
         task_links = await self.store.l3.list_summary_task_links(summary["summary_id"])
         self.assertEqual(task_links[0]["task_id"], "task-2")
+
+    async def test_persist_state_change_insight_builds_and_writes_summary(self):
+        now = time.time()
+        first_event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "message": "I have been stressed about work lately."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-state-1",
+                timestamp=now,
+            )
+        )
+        second_event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "message": "I still feel anxious and under pressure."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-state-2",
+                timestamp=now + 1,
+            )
+        )
+
+        summary = await self.store.persist_state_change_insight(
+            StateChangePacket(
+                entity_id="user:self",
+                entity_type="user",
+                outcomes=[
+                    {
+                        "trait_name": "stress_level",
+                        "winning_value": "high",
+                        "status": "stable",
+                        "evidence_event_ids": [first_event_id, second_event_id],
+                    },
+                    {
+                        "trait_name": "mood",
+                        "winning_value": "anxious",
+                        "status": "corroborated",
+                        "evidence_event_ids": [second_event_id],
+                    },
+                ],
+            )
+        )
+
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["summary_type"], "insight")
+        self.assertEqual(summary["summary_category"], "state_change")
+        event_links = await self.store.l3.list_summary_event_links(summary["summary_id"])
+        self.assertEqual(len(event_links), 2)
 
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
