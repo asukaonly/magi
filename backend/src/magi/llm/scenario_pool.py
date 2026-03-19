@@ -54,7 +54,7 @@ class ScenarioLLMPool:
                 f"LLM provider '{selection.provider_id}' is missing an API key for scenario '{scenario.value}'"
             )
 
-        provider_type = self._resolve_runtime_provider_type(provider)
+        provider_type = self._resolve_runtime_provider_type(provider, selection.model)
         adapter = self._adapter_factory(
             provider_type=provider_type,
             api_key=provider.api_key,
@@ -68,13 +68,47 @@ class ScenarioLLMPool:
         return adapter
 
     @staticmethod
-    def _resolve_runtime_provider_type(provider: object) -> str:
+    def _resolve_runtime_provider_type(provider: object, selected_model: str | None = None) -> str:
         provider_type = str(getattr(getattr(provider, "provider_type", ""), "value", getattr(provider, "provider_type", "")))
         if provider_type != LLMProvider.CUSTOM.value:
             return provider_type
 
         api_format = str(getattr(provider, "api_format", "") or "openai").strip().lower()
+        if api_format == "anthropic":
+            return api_format
+        if api_format == "openai":
+            return ScenarioLLMPool._detect_openai_compatible_runtime_provider(
+                provider=provider,
+                selected_model=selected_model,
+            )
         if api_format in {"openai", "anthropic"}:
             return api_format
 
         raise ValueError(f"Unsupported custom provider api_format: {getattr(provider, 'api_format', None)}")
+
+    @staticmethod
+    def _detect_openai_compatible_runtime_provider(provider: object, selected_model: str | None = None) -> str:
+        """Infer the concrete OpenAI-compatible provider for custom gateways."""
+        hint_values = [
+            getattr(provider, "display_name", None),
+            getattr(provider, "base_url", None),
+            getattr(provider, "custom_default_model", None),
+            selected_model,
+        ]
+        normalized_hints = " ".join(
+            str(value or "").strip().lower()
+            for value in hint_values
+            if str(value or "").strip()
+        )
+
+        runtime_provider_hints = (
+            ("glm", ("bigmodel.cn", "z.ai", "glm-", " glm")),
+            ("deepseek", ("deepseek",)),
+            ("kimi", ("moonshot", "kimi")),
+            ("minimax", ("minimax",)),
+            ("gemini", ("gemini", "generativelanguage.googleapis.com")),
+        )
+        for runtime_provider, markers in runtime_provider_hints:
+            if any(marker in normalized_hints for marker in markers):
+                return runtime_provider
+        return "openai"

@@ -202,3 +202,43 @@ def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
             "embedding_dimension": None,
         }
     ]
+
+
+def test_scenario_llm_pool_detects_glm_compatible_custom_provider() -> None:
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    created: list[dict[str, object]] = []
+    config = _build_test_config()
+    config.llm.providers["custom_glm"] = config.llm.providers["openai"].model_copy(
+        update={
+            "provider_type": LLMProvider.CUSTOM,
+            "display_name": "Zai",
+            "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "api_key": "sk-custom-glm",
+            "api_format": "openai",
+            "custom_models": ["glm-5"],
+            "custom_default_model": "glm-5",
+        }
+    )
+    config.llm.selections["core"].provider_id = "custom_glm"
+    config.llm.selections["core"].model = "glm-5"
+
+    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
+        created.append(dict(kwargs))
+        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
+
+    pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
+
+    core_llm = pool.get(LLMScenario.CORE)
+
+    assert core_llm.provider_name == "glm"
+    assert created == [
+        {
+            "provider_type": "glm",
+            "api_key": "sk-custom-glm",
+            "model": "glm-5",
+            "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "timeout": 60,
+            "embedding_dimension": None,
+        }
+    ]
