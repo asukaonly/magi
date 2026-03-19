@@ -177,14 +177,14 @@ class UnifiedMemoryStore:
         memory_event = self._normalize_event(event)
         if memory_event.event_type in MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
-                "UnifiedMemory normalized event",
-                event_id=memory_event.event_id,
-                event_type=memory_event.event_type,
-                ingest_target=memory_event.ingest_target.label,
-                memory_domain=memory_event.memory_domain.label,
-                session_id=memory_event.session_id,
-                user_id=memory_event.user_id,
-                correlation_id=memory_event.correlation_id,
+                "UnifiedMemory normalized event | event_id=%s type=%s ingest_target=%s memory_domain=%s session_id=%s user_id=%s correlation_id=%s",
+                memory_event.event_id,
+                memory_event.event_type,
+                memory_event.ingest_target.label,
+                memory_event.memory_domain.label,
+                memory_event.session_id,
+                memory_event.user_id,
+                memory_event.correlation_id,
             )
         l2_result = {"relation_count": 0, "assertion_count": 0}
         l4_skill_id: Optional[str] = None
@@ -197,11 +197,11 @@ class UnifiedMemoryStore:
                 await self.l1.store(memory_event)
                 if memory_event.event_type in MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES:
                     logger.info(
-                        "UnifiedMemory stored event in L1",
-                        event_id=memory_event.event_id,
-                        event_type=memory_event.event_type,
-                        session_id=memory_event.session_id,
-                        user_id=memory_event.user_id,
+                        "UnifiedMemory stored event in L1 | event_id=%s type=%s session_id=%s user_id=%s",
+                        memory_event.event_id,
+                        memory_event.event_type,
+                        memory_event.session_id,
+                        memory_event.user_id,
                     )
                 if self.l2_pipeline is not None:
                     await self.l2_pipeline.enqueue_event(memory_event)

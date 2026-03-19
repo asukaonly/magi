@@ -230,13 +230,13 @@ class L1EventStore:
         table_name = self._resolve_target_table(event)
         if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
-                "L1EventStore persisting event",
-                event_id=event.event_id,
-                event_type=event.event_type,
-                target_table=table_name,
-                session_id=event.session_id,
-                user_id=event.user_id,
-                correlation_id=event.correlation_id,
+                "L1EventStore persisting event | event_id=%s type=%s target_table=%s session_id=%s user_id=%s correlation_id=%s",
+                event.event_id,
+                event.event_type,
+                table_name,
+                event.session_id,
+                event.user_id,
+                event.correlation_id,
             )
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
@@ -295,10 +295,10 @@ class L1EventStore:
             await db.commit()
         if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
-                "L1EventStore persisted event",
-                event_id=event.event_id,
-                event_type=event.event_type,
-                target_table=table_name,
+                "L1EventStore persisted event | event_id=%s type=%s target_table=%s",
+                event.event_id,
+                event.event_type,
+                table_name,
             )
         await self._schedule_event_embedding(event)
         return event.event_id

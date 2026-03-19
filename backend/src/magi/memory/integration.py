@@ -162,24 +162,24 @@ class MemoryIntegrationModule:
         if event.type in MEMORY_DIAGNOSTIC_EVENT_TYPES:
             payload = event.data if isinstance(event.data, dict) else {}
             logger.info(
-                "MemoryIntegration received event",
-                event_type=event.type,
-                correlation_id=event.correlation_id,
-                session_id=payload.get("session_id"),
-                user_id=payload.get("user_id"),
-                turn_id=payload.get("turn_id"),
-                source=event.source,
+                "MemoryIntegration received event | type=%s correlation_id=%s session_id=%s user_id=%s turn_id=%s source=%s",
+                event.type,
+                event.correlation_id,
+                payload.get("session_id"),
+                payload.get("user_id"),
+                payload.get("turn_id"),
+                event.source,
             )
         try:
             result = await self.unified_memory.ingest_event(event)
             if event.type in MEMORY_DIAGNOSTIC_EVENT_TYPES:
                 logger.info(
-                    "MemoryIntegration ingested event",
-                    event_type=event.type,
-                    correlation_id=event.correlation_id,
-                    event_id=result.get("event_id"),
-                    ingest_target=result.get("ingest_target"),
-                    l1_written=result.get("l1_written"),
+                    "MemoryIntegration ingested event | type=%s correlation_id=%s event_id=%s ingest_target=%s l1_written=%s",
+                    event.type,
+                    event.correlation_id,
+                    result.get("event_id"),
+                    result.get("ingest_target"),
+                    result.get("l1_written"),
                 )
             if result["l1_written"]:
                 self._stats.l1_stored += 1
