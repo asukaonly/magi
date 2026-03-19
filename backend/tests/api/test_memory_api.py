@@ -473,6 +473,24 @@ def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
     assert body["skip_by_reason"]["assistant_tool_grounded"] == 1
 
 
+def test_memory_l2_pending_api_reports_queue_backlog(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get("/api/memory/l2/pending")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_running"] is True
+    assert body["extract_pending"] == 0
+    assert body["reconcile_pending"] == 0
+    assert body["snapshot_pending"] == 0
+
+
 def test_memory_clear_api_clears_all_layers(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

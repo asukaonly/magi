@@ -137,6 +137,30 @@ def _build_clear_result(count: int) -> Dict[str, Any]:
     }
 
 
+def _build_l2_pending_breakdown(pipeline_stats: Dict[str, Any]) -> Dict[str, int]:
+    return {
+        "extract_pending": max(
+            int(pipeline_stats.get("extract_enqueued", 0))
+            - int(pipeline_stats.get("extract_completed", 0))
+            - int(pipeline_stats.get("extract_failed", 0))
+            - int(pipeline_stats.get("extract_skipped", 0)),
+            0,
+        ),
+        "reconcile_pending": max(
+            int(pipeline_stats.get("reconcile_enqueued", 0))
+            - int(pipeline_stats.get("reconcile_completed", 0))
+            - int(pipeline_stats.get("reconcile_failed", 0)),
+            0,
+        ),
+        "snapshot_pending": max(
+            int(pipeline_stats.get("snapshot_enqueued", 0))
+            - int(pipeline_stats.get("snapshot_completed", 0))
+            - int(pipeline_stats.get("snapshot_failed", 0)),
+            0,
+        ),
+    }
+
+
 # =============================================================================
 # L0 Working Memory Endpoints
 # =============================================================================
@@ -259,6 +283,26 @@ async def get_l2_statistics():
         "extract_by_evidence_class": dict(pipeline_stats.get("extract_by_evidence_class", {})),
         "skip_by_reason": dict(pipeline_stats.get("skip_by_reason", {})),
         "db_path": unified_memory.l2.db_path,
+    }
+
+
+@memory_router.get("/l2/pending")
+async def get_l2_pending():
+    """Get calculated L2 queue backlog for quick polling."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory or not unified_memory.l2:
+        return {
+            "is_running": False,
+            "extract_pending": 0,
+            "reconcile_pending": 0,
+            "snapshot_pending": 0,
+        }
+
+    pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
+    pending = _build_l2_pending_breakdown(pipeline_stats)
+    return {
+        "is_running": bool(pipeline_stats.get("is_running", False)),
+        **pending,
     }
 
 
