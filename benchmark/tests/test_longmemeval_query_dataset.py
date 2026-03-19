@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from magi.memory.eval_support.contracts import EvalMemoryHit, EvalMemoryQueryResult
 
@@ -43,6 +43,7 @@ def _build_sample_row(question_id: str = "q-1") -> dict[str, object]:
 
 def test_query_script_reads_existing_namespaces_and_writes_outputs(tmp_path) -> None:
     namespace = "benchmark/longmemeval/run-1/q-1"
+    progress_events: list[dict[str, object]] = []
     service = FakeQueryService(
         results_by_namespace={
             namespace: EvalMemoryQueryResult(
@@ -66,10 +67,21 @@ def test_query_script_reads_existing_namespaces_and_writes_outputs(tmp_path) -> 
             eval_service=service,
             run_id="run-1",
             output_root=tmp_path,
+            progress_reporter=lambda progress: progress_events.append(asdict(progress)),
         )
     )
 
     assert service.query_namespaces == [namespace]
+    assert progress_events == [
+        {
+            "question_index": 1,
+            "total_questions": 1,
+            "question_id": "q-1",
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "hit_count": 1,
+            "total_hit_count": 1,
+        }
+    ]
     assert read_jsonl(artifacts.predictions_path) == [
         {"question_id": "q-1", "hypothesis": "Actually sushi is my favorite."}
     ]

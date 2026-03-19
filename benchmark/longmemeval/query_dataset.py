@@ -8,7 +8,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_SRC = REPO_ROOT / "backend" / "src"
@@ -43,6 +43,18 @@ class LongMemEvalQueryArtifacts:
     summary_path: Path
 
 
+@dataclass(slots=True)
+class QueryProgress:
+    """Progress snapshot for memory query evaluation."""
+
+    question_index: int
+    total_questions: int
+    question_id: str
+    namespace: str
+    hit_count: int
+    total_hit_count: int
+
+
 async def query_longmemeval_rows(
     *,
     rows: Sequence[dict[str, Any]],
@@ -50,6 +62,7 @@ async def query_longmemeval_rows(
     run_id: str,
     output_root: str | Path,
     benchmark_name: str = "longmemeval",
+    progress_reporter: Callable[[QueryProgress], None] | None = None,
 ) -> LongMemEvalQueryArtifacts:
     output_dir = build_run_output_dir(
         root_dir=output_root,
@@ -58,7 +71,9 @@ async def query_longmemeval_rows(
     )
 
     traced_predictions: list[dict[str, Any]] = []
-    for row in rows:
+    total_hit_count = 0
+    total_questions = len(rows)
+    for question_index, row in enumerate(rows, start=1):
         question_id = str(row.get("question_id") or "")
         namespace = build_eval_namespace(
             benchmark_name=benchmark_name,
@@ -67,6 +82,19 @@ async def query_longmemeval_rows(
         )
         adapted = adapt_longmemeval_entry(row, namespace=namespace)
         query_result = await eval_service.query_memory(adapted.query)
+        hit_count = len(query_result.hits)
+        total_hit_count += hit_count
+        if progress_reporter is not None:
+            progress_reporter(
+                QueryProgress(
+                    question_index=question_index,
+                    total_questions=total_questions,
+                    question_id=adapted.question_id,
+                    namespace=namespace,
+                    hit_count=hit_count,
+                    total_hit_count=total_hit_count,
+                )
+            )
         hypothesis = synthesize_hypothesis_from_hits(hits=query_result.hits)
         traced_predictions.append(
             {
@@ -100,6 +128,17 @@ async def query_longmemeval_rows(
     )
 
 
+def print_query_progress(progress: QueryProgress) -> None:
+    """Print per-question memory query progress to stdout."""
+    print(
+        "[Query replay] "
+        f"{progress.question_index}/{progress.total_questions} "
+        f"question_id={progress.question_id} "
+        f"hits={progress.hit_count} "
+        f"total_hits={progress.total_hit_count}"
+    )
+
+
 async def _run_cli(args: argparse.Namespace) -> LongMemEvalQueryArtifacts:
     rows = load_longmemeval_rows(args.dataset, limit=args.limit)
     if args.backend_url:
@@ -108,6 +147,7 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalQueryArtifacts:
             eval_service=BackendEvalService(args.backend_url),
             run_id=args.run_id,
             output_root=args.output_root,
+            progress_reporter=print_query_progress,
         )
 
     output_dir = build_run_output_dir(
@@ -122,6 +162,7 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalQueryArtifacts:
             eval_service=runtime.service,
             run_id=args.run_id,
             output_root=args.output_root,
+            progress_reporter=print_query_progress,
         )
     finally:
         await runtime.shutdown()
