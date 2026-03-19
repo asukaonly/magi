@@ -52,6 +52,7 @@ python benchmark/longmemeval/replay_dataset.py \
 ```
 
 This writes `replay_manifest.jsonl` under `benchmark/outputs/longmemeval/<run-id>/`.
+It also writes `post_replay.json`, triggers temporal L3 summaries for `hour/day/week/month`, and prints current L2 pipeline stats to the console.
 By default this local mode is an L1-focused harness. For full backend-configured memory runtime, pass `--backend-url`.
 
 Query-only flow:

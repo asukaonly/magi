@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +31,34 @@ class SupportsReplayService(Protocol):
     async def write_records(self, *, namespace: str, records: list[Any]) -> Any:
         """Replay normalized records into memory."""
 
+    async def finalize_replay(self) -> dict[str, Any]:
+        """Run post-replay summary generation and return L2 pipeline status."""
+
+
+class LocalReplayServiceAdapter:
+    """Bridge the local eval harness with replay finalization hooks."""
+
+    def __init__(self, *, eval_service: Any, unified_memory: Any) -> None:
+        self._eval_service = eval_service
+        self._unified_memory = unified_memory
+
+    async def write_records(self, *, namespace: str, records: list[Any]) -> Any:
+        return await self._eval_service.write_records(namespace=namespace, records=records)
+
+    async def finalize_replay(self) -> dict[str, Any]:
+        summaries: dict[str, Any] = {}
+        for period_type in ("hour", "day", "week", "month"):
+            summaries[period_type] = await self._unified_memory.generate_summary(period_type=period_type)
+        l2_pipeline_stats = (
+            self._unified_memory.get_l2_pipeline_stats()
+            if hasattr(self._unified_memory, "get_l2_pipeline_stats")
+            else {}
+        )
+        return {
+            "summaries": summaries,
+            "l2_pipeline_stats": l2_pipeline_stats,
+        }
+
 
 @dataclass(slots=True)
 class LongMemEvalReplayArtifacts:
@@ -37,6 +66,7 @@ class LongMemEvalReplayArtifacts:
 
     output_dir: Path
     manifest_path: Path
+    post_replay_path: Path
 
 
 async def replay_longmemeval_rows(
@@ -78,7 +108,14 @@ async def replay_longmemeval_rows(
         )
 
     manifest_path = write_jsonl(output_dir / "replay_manifest.jsonl", manifest_rows)
-    return LongMemEvalReplayArtifacts(output_dir=output_dir, manifest_path=manifest_path)
+    post_replay = await eval_service.finalize_replay()
+    post_replay_path = output_dir / "post_replay.json"
+    post_replay_path.write_text(json.dumps(post_replay, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return LongMemEvalReplayArtifacts(
+        output_dir=output_dir,
+        manifest_path=manifest_path,
+        post_replay_path=post_replay_path,
+    )
 
 
 async def _run_cli(args: argparse.Namespace) -> LongMemEvalReplayArtifacts:
@@ -100,7 +137,10 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalReplayArtifacts:
     try:
         return await replay_longmemeval_rows(
             rows=rows,
-            eval_service=runtime.service,
+            eval_service=LocalReplayServiceAdapter(
+                eval_service=runtime.service,
+                unified_memory=runtime.memory,
+            ),
             run_id=args.run_id,
             output_root=args.output_root,
         )
@@ -122,6 +162,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     artifacts = asyncio.run(_run_cli(args))
     print(f"Wrote {artifacts.manifest_path}")
+    print(f"Wrote {artifacts.post_replay_path}")
+    post_replay = json.loads(artifacts.post_replay_path.read_text(encoding="utf-8"))
+    print("L2 pipeline stats:")
+    print(json.dumps(post_replay.get("l2_pipeline_stats", {}), ensure_ascii=False, indent=2))
     return 0
 
 

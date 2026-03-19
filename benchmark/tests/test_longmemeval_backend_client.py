@@ -94,3 +94,27 @@ def test_backend_client_restores_query_results_from_eval_endpoint() -> None:
     assert result.retrieved_session_ids == ["sess-2"]
     assert result.retrieved_turn_ids == ["sess-2:turn-1"]
     assert result.trace["intent_source"] == "rule"
+
+
+def test_backend_client_posts_finalize_replay_request() -> None:
+    service = BackendEvalService("http://localhost:8000")
+    calls: list[tuple[str, dict]] = []
+
+    def fake_post(path: str, payload: dict):
+        calls.append((path, payload))
+        return {
+            "summaries": {"hour": {"summary_id": "sum-hour-1"}},
+            "l2_pipeline_stats": {"extract_completed": 9},
+        }
+
+    service._post_json_sync = fake_post  # type: ignore[method-assign]
+
+    result = asyncio.run(service.finalize_replay())
+
+    assert calls == [
+        (
+            "/api/memory/eval/finalize-replay",
+            {"period_types": ["hour", "day", "week", "month"]},
+        )
+    ]
+    assert result["summaries"]["hour"]["summary_id"] == "sum-hour-1"

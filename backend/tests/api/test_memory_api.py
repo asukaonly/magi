@@ -344,6 +344,32 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
     assert body["trace"]["intent_source"] == "rule"
 
 
+def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stats(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    fake_memory = _FakeUnifiedMemory()
+
+    async def _generate_summary(period_type: str):
+        return {"summary_id": f"sum-{period_type}-1", "summary_category": period_type}
+
+    fake_memory.generate_summary = _generate_summary
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/finalize-replay",
+        json={"period_types": ["hour", "day", "week", "month"]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summaries"]["hour"]["summary_id"] == "sum-hour-1"
+    assert body["summaries"]["month"]["summary_id"] == "sum-month-1"
+    assert body["l2_pipeline_stats"]["extract_completed"] == 3
+
+
 def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

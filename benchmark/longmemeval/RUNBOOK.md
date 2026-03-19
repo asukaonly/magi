@@ -53,7 +53,9 @@ python /Users/asuka/code/magi/benchmark/longmemeval/replay_dataset.py \
 Expected output:
 
 - a `replay_manifest.jsonl` file under `benchmark/outputs/longmemeval/<run-id>/`
+- a `post_replay.json` file under `benchmark/outputs/longmemeval/<run-id>/`
 - one row per question, with the namespace used for replay
+- console output for current `L2 pipeline stats`
 
 ## 5. Run Memory Query Evaluation
 

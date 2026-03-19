@@ -43,6 +43,13 @@ class BackendEvalService:
             trace=dict(response.get("trace") or {}),
         )
 
+    async def finalize_replay(self) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._post_json_sync,
+            "/api/memory/eval/finalize-replay",
+            {"period_types": ["hour", "day", "week", "month"]},
+        )
+
     def _post_json_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._backend_url}{path}"
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

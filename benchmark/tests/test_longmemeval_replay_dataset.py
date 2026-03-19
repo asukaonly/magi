@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 
 from benchmark.common.io import read_jsonl
@@ -13,10 +14,27 @@ from benchmark.longmemeval.replay_dataset import replay_longmemeval_rows
 class FakeReplayService:
     def __post_init__(self) -> None:
         self.write_calls: list[tuple[str, int]] = []
+        self.finalize_calls = 0
 
     async def write_records(self, *, namespace: str, records):
         self.write_calls.append((namespace, len(records)))
         return [{"namespace": namespace, "count": len(records)}]
+
+    async def finalize_replay(self):
+        self.finalize_calls += 1
+        return {
+            "summaries": {
+                "hour": {"summary_id": "sum-hour-1"},
+                "day": {"summary_id": "sum-day-1"},
+                "week": None,
+                "month": None,
+            },
+            "l2_pipeline_stats": {
+                "is_running": True,
+                "extract_enqueued": 10,
+                "extract_completed": 9,
+            },
+        }
 
 
 def _build_sample_row(question_id: str = "q-1") -> dict[str, object]:
@@ -49,6 +67,7 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
     )
 
     assert service.write_calls == [("benchmark/longmemeval/run-1/q-1", 2)]
+    assert service.finalize_calls == 1
     manifest_rows = read_jsonl(artifacts.manifest_path)
     assert manifest_rows == [
         {
@@ -64,3 +83,6 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
             },
         }
     ]
+    post_replay = json.loads(artifacts.post_replay_path.read_text(encoding="utf-8"))
+    assert post_replay["summaries"]["hour"]["summary_id"] == "sum-hour-1"
+    assert post_replay["l2_pipeline_stats"]["extract_completed"] == 9

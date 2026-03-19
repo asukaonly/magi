@@ -73,6 +73,13 @@ class EvalQueryRequest(BaseModel):
     mode: str = Field(default="auto", description="Retrieval mode hint")
 
 
+class EvalFinalizeReplayRequest(BaseModel):
+    period_types: List[str] = Field(
+        default_factory=lambda: ["hour", "day", "week", "month"],
+        description="Temporal summary categories to generate after replay",
+    )
+
+
 class L2EntityActionBody(BaseModel):
     entity_ids: List[str] = Field(..., description="Canonical entity ids")
 
@@ -401,6 +408,31 @@ async def query_eval_memory(body: EvalQueryRequest):
         )
     )
     return asdict(result)
+
+
+@memory_router.post("/eval/finalize-replay")
+async def finalize_eval_replay(body: EvalFinalizeReplayRequest):
+    """Run post-replay summary generation and expose L2 pipeline status."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+
+    summaries: Dict[str, Any] = {}
+    for period_type in body.period_types:
+        summaries[period_type] = await unified_memory.generate_summary(period_type=period_type)
+
+    l2_pipeline_stats = (
+        unified_memory.get_l2_pipeline_stats()
+        if hasattr(unified_memory, "get_l2_pipeline_stats")
+        else {}
+    )
+    return {
+        "summaries": summaries,
+        "l2_pipeline_stats": l2_pipeline_stats,
+    }
 
 
 @memory_router.post("/l2/extract/{event_id}")
