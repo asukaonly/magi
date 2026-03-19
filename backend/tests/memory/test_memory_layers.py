@@ -395,6 +395,75 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         event_links = await self.store.l3.list_summary_event_links(summary["summary_id"])
         self.assertEqual(len(event_links), 2)
 
+    async def test_cleanup_old_data_soft_deletes_only_l3_covered_compressible_events(self):
+        old_timestamp = time.time() - (40 * 86400)
+        linked_compressible_event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.ACTION_EXECUTED,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "action_type": "browser.open",
+                    "params": {"url": "https://example.com/docs"},
+                    "success": True,
+                    "execution_time": 0.5,
+                },
+                source="worker",
+                level=EventLevel.INFO,
+                correlation_id="evt-gc-1",
+                timestamp=old_timestamp,
+            )
+        )
+        permanent_event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "message": "This note should remain durable."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-gc-2",
+                timestamp=old_timestamp + 1,
+            )
+        )
+        uncovered_compressible_event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.ACTION_EXECUTED,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "action_type": "browser.search",
+                    "params": {"query": "memory retention rules"},
+                    "success": True,
+                    "execution_time": 0.3,
+                },
+                source="worker",
+                level=EventLevel.INFO,
+                correlation_id="evt-gc-3",
+                timestamp=old_timestamp + 2,
+            )
+        )
+
+        await self.store.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="A compressed reflection covers the linked external action.",
+                source_event_ids=[linked_compressible_event_id],
+            )
+        )
+
+        removed = await self.store.cleanup_old_data(older_than_days=30)
+
+        self.assertEqual(removed["deleted_events"], 1)
+        self.assertEqual(await self.store.l1.count_events(), 1)
+        self.assertEqual(await self.store.l1.count_runtime_observations(), 1)
+        self.assertIsNone((await self.store.l1.get_event(permanent_event_id))["deleted_at"])
+        remaining_runtime_ids = {
+            row["event_id"]
+            for row in await self.store.l1.query_runtime_observations(limit=10)
+        }
+        self.assertNotIn(linked_compressible_event_id, remaining_runtime_ids)
+        self.assertIn(uncovered_compressible_event_id, remaining_runtime_ids)
+
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

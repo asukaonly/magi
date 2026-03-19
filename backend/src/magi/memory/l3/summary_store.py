@@ -474,6 +474,27 @@ class L3SummaryStore:
             for row in rows
         ]
 
+    async def filter_linked_event_ids(self, event_ids: list[str]) -> list[str]:
+        """Return the subset of event ids that are already covered by summary links."""
+        await self.initialize()
+        normalized_ids = [str(event_id) for event_id in event_ids if str(event_id).strip()]
+        if not normalized_ids:
+            return []
+
+        placeholders = ", ".join("?" for _ in normalized_ids)
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                f"""
+                SELECT DISTINCT event_id
+                FROM summary_event_links
+                WHERE event_id IN ({placeholders})
+                """,
+                tuple(normalized_ids),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        covered = {str(row[0]) for row in rows}
+        return [event_id for event_id in normalized_ids if event_id in covered]
+
     async def bm25_search(
         self,
         query: str,

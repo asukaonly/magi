@@ -440,7 +440,16 @@ class UnifiedMemoryStore:
         if self.l0 is not None:
             removed["expired_sessions"] = len(await self.l0.expire_idle_sessions())
             await self.l0.checkpoint_all()
-        _ = older_than_days
+        if self.l1 is not None and self.l3 is not None:
+            cutoff = time.time() - (max(int(older_than_days), 0) * 86400)
+            candidate_event_ids = await self.l1.list_compressible_event_ids(
+                older_than=cutoff,
+                limit=10_000,
+            )
+            linked_event_ids = await self.l3.filter_linked_event_ids(candidate_event_ids)
+            for event_id in linked_event_ids:
+                if await self.l1.mark_deleted(event_id):
+                    removed["deleted_events"] += 1
         return removed
 
     async def run_maintenance(self, retention_days: int = 30) -> Dict[str, int]:
