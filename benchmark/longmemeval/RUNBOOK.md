@@ -55,6 +55,7 @@ Expected output:
 - a `replay_manifest.jsonl` file under `benchmark/outputs/longmemeval/<run-id>/`
 - a `post_replay.json` file under `benchmark/outputs/longmemeval/<run-id>/`
 - one row per question, with the namespace used for replay
+- per-question console progress lines for L1 writes
 - console output for current `L2 pipeline stats`
 
 ## 5. Run Memory Query Evaluation

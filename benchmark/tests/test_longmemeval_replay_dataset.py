@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from benchmark.common.io import read_jsonl
 from benchmark.longmemeval.replay_dataset import replay_longmemeval_rows
@@ -56,6 +56,7 @@ def _build_sample_row(question_id: str = "q-1") -> dict[str, object]:
 
 def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
     service = FakeReplayService()
+    progress_events: list[dict[str, object]] = []
 
     artifacts = asyncio.run(
         replay_longmemeval_rows(
@@ -63,11 +64,22 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
             eval_service=service,
             run_id="run-1",
             output_root=tmp_path,
+            progress_reporter=lambda progress: progress_events.append(asdict(progress)),
         )
     )
 
     assert service.write_calls == [("benchmark/longmemeval/run-1/q-1", 2)]
     assert service.finalize_calls == 1
+    assert progress_events == [
+        {
+            "question_index": 1,
+            "total_questions": 1,
+            "question_id": "q-1",
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "question_record_count": 2,
+            "total_record_count": 2,
+        }
+    ]
     manifest_rows = read_jsonl(artifacts.manifest_path)
     assert manifest_rows == [
         {

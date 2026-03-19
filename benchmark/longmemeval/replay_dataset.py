@@ -8,7 +8,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_SRC = REPO_ROOT / "backend" / "src"
@@ -69,6 +69,18 @@ class LongMemEvalReplayArtifacts:
     post_replay_path: Path
 
 
+@dataclass(slots=True)
+class ReplayProgress:
+    """Progress snapshot for L1 replay writes."""
+
+    question_index: int
+    total_questions: int
+    question_id: str
+    namespace: str
+    question_record_count: int
+    total_record_count: int
+
+
 async def replay_longmemeval_rows(
     *,
     rows: Sequence[dict[str, Any]],
@@ -76,6 +88,7 @@ async def replay_longmemeval_rows(
     run_id: str,
     output_root: str | Path,
     benchmark_name: str = "longmemeval",
+    progress_reporter: Callable[[ReplayProgress], None] | None = None,
 ) -> LongMemEvalReplayArtifacts:
     output_dir = build_run_output_dir(
         root_dir=output_root,
@@ -84,7 +97,9 @@ async def replay_longmemeval_rows(
     )
 
     manifest_rows: list[dict[str, Any]] = []
-    for row in rows:
+    total_record_count = 0
+    total_questions = len(rows)
+    for question_index, row in enumerate(rows, start=1):
         question_id = str(row.get("question_id") or "")
         namespace = build_eval_namespace(
             benchmark_name=benchmark_name,
@@ -96,6 +111,18 @@ async def replay_longmemeval_rows(
             namespace=namespace,
             records=adapted.replay_records,
         )
+        total_record_count += len(adapted.replay_records)
+        if progress_reporter is not None:
+            progress_reporter(
+                ReplayProgress(
+                    question_index=question_index,
+                    total_questions=total_questions,
+                    question_id=adapted.question_id,
+                    namespace=namespace,
+                    question_record_count=len(adapted.replay_records),
+                    total_record_count=total_record_count,
+                )
+            )
         manifest_rows.append(
             {
                 "question_id": adapted.question_id,
@@ -118,6 +145,17 @@ async def replay_longmemeval_rows(
     )
 
 
+def print_replay_progress(progress: ReplayProgress) -> None:
+    """Print per-question L1 replay progress to stdout."""
+    print(
+        "[L1 replay] "
+        f"{progress.question_index}/{progress.total_questions} "
+        f"question_id={progress.question_id} "
+        f"records={progress.question_record_count} "
+        f"total_records={progress.total_record_count}"
+    )
+
+
 async def _run_cli(args: argparse.Namespace) -> LongMemEvalReplayArtifacts:
     rows = load_longmemeval_rows(args.dataset, limit=args.limit)
     if args.backend_url:
@@ -126,6 +164,7 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalReplayArtifacts:
             eval_service=BackendEvalService(args.backend_url),
             run_id=args.run_id,
             output_root=args.output_root,
+            progress_reporter=print_replay_progress,
         )
 
     output_dir = build_run_output_dir(
@@ -143,6 +182,7 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalReplayArtifacts:
             ),
             run_id=args.run_id,
             output_root=args.output_root,
+            progress_reporter=print_replay_progress,
         )
     finally:
         await runtime.shutdown()
