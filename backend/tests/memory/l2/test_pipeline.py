@@ -2084,12 +2084,14 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
 
             assertions = await store.l2.list_tom_assertions(entity_id="user:self")
             snapshot = await store.l2.get_tom_snapshot(entity_id="user:self", entity_type="user")
+            summaries = await store.l3.list_summaries(limit=10) if store.l3 is not None else []
 
             assert assertions[0]["validation_state"] == "stable"
             assert assertions[0]["confidence_score"] >= 0.82
             assert snapshot is not None
             assert snapshot["core_traits"]["stress_level"] == "high"
             assert snapshot["current_stress_level"] == 1.0
+            assert any(item["summary_category"] == "state_change" for item in summaries)
             messages = [record.getMessage() for record in caplog.records]
             assert any("L2 reconcile completed" in message for message in messages)
             assert any("L2 snapshot completed" in message for message in messages)

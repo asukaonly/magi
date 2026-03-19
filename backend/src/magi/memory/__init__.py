@@ -115,6 +115,7 @@ class UnifiedMemoryStore:
                 l1_store=self.l1,
                 entity_catalog=self.l2_entity_catalog,
                 llm_service=self.l2_llm_service,
+                state_change_callback=self._handle_l2_state_change_outcomes,
             )
         if enable_l3:
             self.l3 = L3SummaryStore(
@@ -333,6 +334,20 @@ class UnifiedMemoryStore:
         if candidate is None:
             return None
         return await self.persist_l3_candidate(candidate=candidate)
+
+    async def _handle_l2_state_change_outcomes(
+        self,
+        entity_id: str,
+        entity_type: str,
+        outcomes: list[dict[str, Any]],
+    ) -> None:
+        await self.persist_state_change_insight(
+            StateChangePacket(
+                entity_id=entity_id,
+                entity_type=entity_type,
+                outcomes=outcomes,
+            )
+        )
 
     async def search(self, query: str, *, search_type: str = "detail", limit: int = 10) -> list[dict[str, Any]]:
         """Perform a simple layer-aware search without the retrieval router."""
