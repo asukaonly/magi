@@ -259,6 +259,25 @@ class UnifiedMemoryStore:
             period_end=period_end,
         )
 
+    async def generate_thematic_summary(
+        self,
+        *,
+        topic: str,
+        period_start: Optional[float] = None,
+        period_end: Optional[float] = None,
+        min_source_count: int = 2,
+    ) -> Optional[Dict[str, Any]]:
+        """Generate a topic-oriented thematic L3 summary."""
+        if self.l1 is None or self.l3 is None:
+            return None
+        return await self.l3.generate_thematic_summary(
+            l1_store=self.l1,
+            topic=topic,
+            period_start=period_start,
+            period_end=period_end,
+            min_source_count=min_source_count,
+        )
+
     async def persist_l3_candidate(
         self,
         *,

@@ -229,6 +229,80 @@ class L3SummaryStore:
         )
         return summary
 
+    async def generate_thematic_summary(
+        self,
+        *,
+        l1_store: L1EventStore,
+        topic: str,
+        period_start: float | None = None,
+        period_end: float | None = None,
+        min_source_count: int = 2,
+    ) -> Optional[Dict[str, Any]]:
+        """Build a topic-oriented thematic summary from eligible L1 events."""
+        await self.initialize()
+        normalized_topic = str(topic).strip().lower()
+        if not normalized_topic:
+            return None
+
+        candidates = await l1_store.query_events(
+            start_time=period_start,
+            end_time=period_end,
+            cognition_eligible=True,
+            limit=500,
+        )
+        topic_events = [
+            event
+            for event in candidates
+            if event["memory_domain"] != "runtime_telemetry"
+            and event["retention_class"] != "disposable"
+            and normalized_topic in str(event.get("raw_content") or "").lower()
+        ]
+        if len(topic_events) < max(1, int(min_source_count)):
+            return None
+
+        source_event_ids = [str(event["event_id"]) for event in topic_events]
+        snippets = [str(event.get("raw_content") or "").strip() for event in topic_events[:4] if str(event.get("raw_content") or "").strip()]
+        content = f"Topic '{topic}' recurred across {len(source_event_ids)} events. " + " ".join(snippets)
+        content = content.strip()
+        candidate = L3Candidate(
+            summary_type="thematic",
+            summary_category="topic",
+            content=content,
+            source_event_ids=source_event_ids,
+        )
+        decision = validate_candidate(candidate, evidence_events=topic_events)
+        if decision.action != "accept":
+            return None
+
+        timestamps = [float(event["timestamp"]) for event in topic_events if event.get("timestamp") is not None]
+        event_type_distribution: dict[str, int] = {}
+        for event in topic_events:
+            event_type = str(event.get("event_type") or "")
+            event_type_distribution[event_type] = event_type_distribution.get(event_type, 0) + 1
+        importance_values = [float(event["importance_score"]) for event in topic_events if event.get("importance_score") is not None]
+        summary = await self.upsert_candidate(
+            candidate=candidate,
+            summary_overrides={
+                "summary_id": f"summary_{uuid.uuid4().hex}",
+                "summary_type": "thematic",
+                "summary_category": "topic",
+                "period_start": float(period_start) if period_start is not None else (min(timestamps) if timestamps else time.time()),
+                "period_end": float(period_end) if period_end is not None else (max(timestamps) if timestamps else time.time()),
+                "key_topics": [str(topic).strip()],
+                "key_entities": [],
+                "sentiment_summary": None,
+                "change_and_pattern": None,
+                "source_event_ids": source_event_ids,
+                "source_event_count": len(source_event_ids),
+                "importance_aggregate": (sum(importance_values) / len(importance_values)) if importance_values else 0.0,
+                "event_type_distribution": event_type_distribution,
+                "generated_by_model": "rule-summary",
+                "generation_prompt": None,
+                "generation_reason": f"thematic:topic:{normalized_topic}",
+            },
+        )
+        return summary
+
     async def search_summaries(
         self,
         *,

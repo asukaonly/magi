@@ -270,3 +270,69 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
     assert summary is not None
     assert "switch jobs" in summary["content"].lower()
     assert summary["generated_by_model"] == "rule-summary"
+
+
+@pytest.mark.asyncio
+async def test_generate_thematic_summary_groups_topic_events_and_links_sources(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l1_store.initialize()
+    await l3_store.initialize()
+
+    await l1_store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "message": "I want to switch jobs this year."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-1",
+                timestamp=1710000000.0,
+            ),
+            event_id="evt-1",
+        )
+    )
+    await l1_store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.AI_RESPONSE,
+                data={"user_id": "u1", "session_id": "s1", "message": "The job market looks stronger for remote roles."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-2",
+                timestamp=1710000300.0,
+            ),
+            event_id="evt-2",
+        )
+    )
+    await l1_store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={"user_id": "u1", "session_id": "s1", "message": "I should finish my portfolio first."},
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-3",
+                timestamp=1710000600.0,
+            ),
+            event_id="evt-3",
+        )
+    )
+
+    summary = await l3_store.generate_thematic_summary(
+        l1_store=l1_store,
+        topic="job",
+        min_source_count=2,
+    )
+
+    assert summary is not None
+    assert summary["summary_type"] == "thematic"
+    assert summary["summary_category"] == "topic"
+    assert summary["key_topics"] == ["job"]
+    assert summary["source_event_ids"] == ["evt-2", "evt-1"]
+    assert summary["generated_by_model"] == "rule-summary"
+    event_links = await l3_store.list_summary_event_links(summary["summary_id"])
+    assert {link["event_id"] for link in event_links} == {"evt-1", "evt-2"}

@@ -170,6 +170,46 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
         await local_store.shutdown()
 
+    async def test_generate_thematic_summary_returns_topic_summary(self):
+        now = time.time()
+        await self.store.add_event(
+            {
+                "id": "evt-topic-1",
+                "type": EventTypes.USER_MESSAGE,
+                "timestamp": now,
+                "source": "chat",
+                "level": EventLevel.INFO.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "message": "I want to switch jobs this year.",
+                },
+                "metadata": {"user_id": "u1"},
+            }
+        )
+        await self.store.add_event(
+            {
+                "id": "evt-topic-2",
+                "type": EventTypes.AI_RESPONSE,
+                "timestamp": now + 5,
+                "source": "chat",
+                "level": EventLevel.INFO.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "message": "The job market looks stronger for remote roles.",
+                },
+                "metadata": {"user_id": "u1"},
+            }
+        )
+
+        summary = await self.store.generate_thematic_summary(topic="job", min_source_count=2)
+
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["summary_type"], "thematic")
+        self.assertEqual(summary["summary_category"], "topic")
+        self.assertEqual(summary["key_topics"], ["job"])
+
     async def test_timeline_events_round_trip_through_l1_and_l2(self):
         service = TimelineService(self.store)
         event = TimelineEvent(
