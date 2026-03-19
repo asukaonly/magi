@@ -847,6 +847,25 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
         await store.initialize()
         try:
             assert store.l2 is not None
+            assert store.l1 is not None
+            for event_id, ts in (
+                ("evt-old-1", 1710000000.0),
+                ("evt-old-2", 1710090000.0),
+                ("evt-old-3", 1710185000.0),
+            ):
+                await store.l1.store(
+                    normalize_runtime_event(
+                        Event(
+                            type=EventTypes.USER_MESSAGE,
+                            data={"user_id": "u1", "session_id": "s1", "message": f"Historical stress evidence {event_id}"},
+                            source="chat",
+                            level=EventLevel.INFO,
+                            correlation_id=event_id,
+                            timestamp=ts,
+                        ),
+                        event_id=event_id,
+                    )
+                )
             await store.l2.upsert_assertion_candidate(
                 {
                     "assertion_id": "assert-existing",
@@ -902,15 +921,17 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
 
             for _ in range(50):
                 stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1:
+                if stats["extract_completed"] >= 1 and stats["reconcile_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
 
             assertions = await store.l2.list_tom_assertions(entity_id="user:self")
+            summaries = await store.l3.list_summaries(limit=10) if store.l3 is not None else []
 
             assert assertions[0]["assertion_id"] == existing_assertion_id
             assert assertions[0]["validation_state"] == "contradicted"
             assert assertions[0]["confidence_score"] < 0.84
+            assert any(item["summary_category"] == "conflict_resolution" for item in summaries)
         finally:
             await store.shutdown()
 

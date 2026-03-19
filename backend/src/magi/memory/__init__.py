@@ -21,7 +21,8 @@ from .l2.entity_catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
 from .l2.models import ManualL2EventRequest
 from .l2.pipeline import L2Pipeline
-from .l3.models import L3Candidate, StateChangePacket, TaskOutcomePacket
+from .l3.contradiction_service import ContradictionInsightService
+from .l3.models import ContradictionPacket, L3Candidate, StateChangePacket, TaskOutcomePacket
 from .l3.state_change_service import StateChangeService
 from .l3.summary_store import L3SummaryStore
 from .l3.task_reflection_service import TaskReflectionService
@@ -89,6 +90,7 @@ class UnifiedMemoryStore:
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
         self.identity_resolver = identity_resolver or IdentityResolver(db_path=shared_memory_db)
+        self._contradiction_service = ContradictionInsightService()
         self._task_reflection_service = TaskReflectionService()
         self._state_change_service = StateChangeService()
 
@@ -335,6 +337,16 @@ class UnifiedMemoryStore:
             return None
         return await self.persist_l3_candidate(candidate=candidate)
 
+    async def persist_contradiction_insight(
+        self,
+        packet: ContradictionPacket,
+    ) -> Optional[Dict[str, Any]]:
+        """Build and persist a conflict-resolution insight from contradicted outcomes."""
+        candidate = await self._contradiction_service.build_candidate(packet)
+        if candidate is None:
+            return None
+        return await self.persist_l3_candidate(candidate=candidate)
+
     async def _handle_l2_state_change_outcomes(
         self,
         entity_id: str,
@@ -348,6 +360,28 @@ class UnifiedMemoryStore:
                 outcomes=outcomes,
             )
         )
+        contradiction_source_ids: list[str] = []
+        contradictions: list[dict[str, Any]] = []
+        for outcome in outcomes:
+            if str(outcome.get("status") or "") != "contradicted":
+                continue
+            contradictions.append(
+                {
+                    "trait_name": str(outcome.get("trait_name") or ""),
+                    "winning_value": str(outcome.get("winning_value") or ""),
+                }
+            )
+            for event_id in outcome.get("evidence_event_ids", []):
+                event_id_str = str(event_id).strip()
+                if event_id_str and event_id_str not in contradiction_source_ids:
+                    contradiction_source_ids.append(event_id_str)
+        if contradictions and contradiction_source_ids:
+            await self.persist_contradiction_insight(
+                ContradictionPacket(
+                    source_event_ids=contradiction_source_ids,
+                    contradictions=contradictions,
+                )
+            )
 
     async def search(self, query: str, *, search_type: str = "detail", limit: int = 10) -> list[dict[str, Any]]:
         """Perform a simple layer-aware search without the retrieval router."""
