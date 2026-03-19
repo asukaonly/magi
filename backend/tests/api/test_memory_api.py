@@ -452,11 +452,23 @@ def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
+    assert body["is_running"] is True
     assert body["canonical_self_id"] == "user:self"
     assert body["identity_link_count"] == 2
     assert body["relation_count"] == 0
     assert body["assertion_count"] == 0
+    assert body["extract_enqueued"] == 4
+    assert body["extract_completed"] == 3
+    assert body["extract_failed"] == 0
     assert body["extract_skipped"] == 2
+    assert body["reconcile_enqueued"] == 1
+    assert body["reconcile_completed"] == 1
+    assert body["reconcile_failed"] == 0
+    assert body["snapshot_enqueued"] == 1
+    assert body["snapshot_completed"] == 1
+    assert body["snapshot_failed"] == 0
+    assert body["relations_written"] == 2
+    assert body["assertions_written"] == 1
     assert body["extract_by_evidence_class"]["assistant_freeform"] == 1
     assert body["skip_by_reason"]["assistant_tool_grounded"] == 1
 
