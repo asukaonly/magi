@@ -119,3 +119,46 @@ class TemporalGenerationResult:
     candidate: L3Candidate
     summary_overrides: dict[str, object] = field(default_factory=dict)
     used_fallback: bool = False
+
+
+@dataclass(slots=True)
+class ThematicEvidenceItem:
+    """Compact thematic-summary evidence item derived from an L1 event."""
+
+    event_id: str
+    event_type: str
+    content: str
+    timestamp: float | None = None
+    importance_score: float | None = None
+
+
+@dataclass(slots=True)
+class ThematicEvidencePack:
+    """Compact prompt payload for thematic topic summarization."""
+
+    topic: str
+    source_event_count: int
+    source_event_ids: list[str] = field(default_factory=list)
+    events: list[ThematicEvidenceItem] = field(default_factory=list)
+    importance_aggregate: float | None = None
+    event_type_distribution: dict[str, int] = field(default_factory=dict)
+    rule_hints: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ThematicSummaryLLMOutput:
+    """Structured LLM output for thematic summary rewriting."""
+
+    content: str
+    key_topics: list[str] = field(default_factory=list)
+    key_entities: list[dict[str, object]] = field(default_factory=list)
+    importance_aggregate: float | None = None
+
+
+@dataclass(slots=True)
+class ThematicGenerationResult:
+    """Outcome of thematic summary generation with fallback awareness."""
+
+    candidate: L3Candidate
+    summary_overrides: dict[str, object] = field(default_factory=dict)
+    used_fallback: bool = False

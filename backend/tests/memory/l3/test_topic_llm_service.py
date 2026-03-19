@@ -1,0 +1,170 @@
+"""Tests for thematic topic LLM service contracts."""
+
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+
+import pytest
+
+from magi.memory.l3.models import ThematicEvidenceItem, ThematicEvidencePack
+from magi.memory.l3.topic_llm_service import TopicSummaryLLMService
+
+
+def test_build_topic_evidence_pack_preserves_topic_and_ids() -> None:
+    service = TopicSummaryLLMService()
+
+    pack = service.build_evidence_pack(
+        topic="job",
+        events=[
+            {
+                "event_id": "evt-1",
+                "event_type": "UserMessage",
+                "raw_content": "I want to switch jobs this year.",
+                "importance_score": 0.8,
+                "timestamp": 100.0,
+            },
+            {
+                "event_id": "evt-2",
+                "event_type": "AIResponse",
+                "raw_content": "The job market looks stronger for remote roles.",
+                "importance_score": 0.6,
+                "timestamp": 120.0,
+            },
+        ],
+    )
+
+    assert pack.topic == "job"
+    assert pack.source_event_ids == ["evt-1", "evt-2"]
+    assert pack.importance_aggregate == pytest.approx(0.7)
+    assert pack.rule_hints["top_terms"] == ["market", "remote"]
+    assert pack.rule_hints["high_importance_event_ids"] == ["evt-1", "evt-2"]
+    assert pack.rule_hints["repeated_event_types"] == []
+
+
+def test_parse_topic_llm_output_into_candidate() -> None:
+    service = TopicSummaryLLMService()
+    pack = ThematicEvidencePack(
+        topic="job",
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            ThematicEvidenceItem(event_id="evt-1", event_type="UserMessage", content="switch jobs"),
+            ThematicEvidenceItem(event_id="evt-2", event_type="AIResponse", content="job market"),
+        ],
+    )
+
+    candidate, overrides = service.parse_llm_output(
+        {
+            "content": "Job planning recurred across multiple events and focused on remote roles.",
+            "key_topics": ["job", "remote_roles"],
+            "importance_aggregate": 0.75,
+        },
+        pack=pack,
+    )
+
+    assert candidate.summary_type == "thematic"
+    assert candidate.summary_category == "topic"
+    assert overrides["key_topics"] == ["job", "remote_roles"]
+    assert overrides["importance_aggregate"] == 0.75
+
+
+def test_parse_topic_llm_output_rejects_out_of_range_importance() -> None:
+    service = TopicSummaryLLMService()
+    pack = ThematicEvidencePack(
+        topic="job",
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[
+            ThematicEvidenceItem(event_id="evt-1", event_type="UserMessage", content="switch jobs"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="importance_aggregate"):
+        service.parse_llm_output(
+            {
+                "content": "Job planning recurred across multiple events.",
+                "importance_aggregate": 1.5,
+            },
+            pack=pack,
+        )
+
+
+@pytest.mark.asyncio
+async def test_generate_topic_candidate_falls_back_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TopicSummaryLLMService(llm_timeout_seconds=0.01)
+    pack = ThematicEvidencePack(
+        topic="job",
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        events=[
+            ThematicEvidenceItem(event_id="evt-1", event_type="UserMessage", content="switch jobs"),
+            ThematicEvidenceItem(event_id="evt-2", event_type="AIResponse", content="job market"),
+        ],
+    )
+
+    async def _slow_call(_pack):  # type: ignore[no-untyped-def]
+        await asyncio.sleep(0.1)
+        return {"content": "should never arrive"}
+
+    monkeypatch.setattr(service, "_call_topic_model", _slow_call)
+
+    result = await service.generate_topic_candidate(pack, fallback_summary="rule topic text")
+
+    assert result.used_fallback is True
+    assert result.candidate.content == "rule topic text"
+
+
+@pytest.mark.asyncio
+async def test_call_topic_model_parses_json_from_llm_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TopicSummaryLLMService()
+    pack = ThematicEvidencePack(
+        topic="job",
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[
+            ThematicEvidenceItem(event_id="evt-1", event_type="UserMessage", content="switch jobs"),
+        ],
+    )
+
+    class _FakeBridge:
+        async def chat_response(self, **_: object) -> SimpleNamespace:
+            return SimpleNamespace(content='{"content":"LLM topic summary","key_topics":["job_search"]}')
+
+    fake_adapter = SimpleNamespace(provider_name="fake", model_name="fake-model")
+    monkeypatch.setattr(service, "_get_llm_target", lambda: (fake_adapter, _FakeBridge()))
+
+    payload = await service._call_topic_model(pack)
+
+    assert payload == {"content": "LLM topic summary", "key_topics": ["job_search"]}
+
+
+def test_render_topic_prompt_includes_rule_hints() -> None:
+    service = TopicSummaryLLMService()
+    pack = ThematicEvidencePack(
+        topic="job",
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        importance_aggregate=0.7,
+        event_type_distribution={"UserMessage": 2},
+        rule_hints={
+            "top_terms": ["growth", "remote"],
+            "high_importance_event_ids": ["evt-1"],
+            "repeated_event_types": ["UserMessage"],
+        },
+        events=[
+            ThematicEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+            ThematicEvidenceItem(event_id="evt-2", event_type="UserMessage", content="remote roles"),
+        ],
+    )
+
+    prompt = service.render_topic_prompt(pack)
+
+    assert "Task:" in prompt
+    assert "Output JSON Schema:" in prompt
+    assert "Evidence Pack:" in prompt
+    assert '"rule_hints"' in prompt
+    assert '"top_terms"' in prompt
+    assert '"growth"' in prompt
+    assert '"repeated_event_types"' in prompt
+    assert '"content"' in prompt

@@ -18,6 +18,7 @@ from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..l1.event_store import L1EventStore
 from ..sqlite_vec_index import SqliteVecIndex
 from .models import L3Candidate
+from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
 
@@ -50,6 +51,11 @@ class L3SummaryStore:
             enabled=enable_temporal_llm_summary,
             llm_timeout_seconds=temporal_llm_timeout_seconds,
             min_event_count_for_llm=temporal_llm_min_event_count,
+            scenario_llm_pool=scenario_llm_pool,
+        )
+        self._topic_llm_service = TopicSummaryLLMService(
+            enabled=enable_temporal_llm_summary,
+            llm_timeout_seconds=temporal_llm_timeout_seconds,
             scenario_llm_pool=scenario_llm_pool,
         )
         self._vector_index = (
@@ -260,28 +266,31 @@ class L3SummaryStore:
         if len(topic_events) < max(1, int(min_source_count)):
             return None
 
-        source_event_ids = [str(event["event_id"]) for event in topic_events]
-        snippets = [str(event.get("raw_content") or "").strip() for event in topic_events[:4] if str(event.get("raw_content") or "").strip()]
-        content = f"Topic '{topic}' recurred across {len(source_event_ids)} events. " + " ".join(snippets)
-        content = content.strip()
-        candidate = L3Candidate(
-            summary_type="thematic",
-            summary_category="topic",
-            content=content,
-            source_event_ids=source_event_ids,
+        evidence_pack = self._topic_llm_service.build_evidence_pack(
+            topic=topic,
+            events=topic_events,
         )
-        decision = validate_candidate(candidate, evidence_events=topic_events)
+        source_event_ids = list(evidence_pack.source_event_ids)
+        snippets = [str(event.get("raw_content") or "").strip() for event in topic_events[:4] if str(event.get("raw_content") or "").strip()]
+        fallback_summary = f"Topic '{topic}' recurred across {len(source_event_ids)} events. " + " ".join(snippets)
+        fallback_summary = fallback_summary.strip()
+        generation = await self._topic_llm_service.generate_topic_candidate(
+            evidence_pack,
+            fallback_summary=fallback_summary,
+        )
+        decision = validate_candidate(generation.candidate, evidence_events=topic_events)
+        if decision.action != "accept" and not generation.used_fallback:
+            generation = self._topic_llm_service._build_fallback_result(
+                evidence_pack,
+                fallback_summary,
+            )
+            decision = validate_candidate(generation.candidate, evidence_events=topic_events)
         if decision.action != "accept":
             return None
 
         timestamps = [float(event["timestamp"]) for event in topic_events if event.get("timestamp") is not None]
-        event_type_distribution: dict[str, int] = {}
-        for event in topic_events:
-            event_type = str(event.get("event_type") or "")
-            event_type_distribution[event_type] = event_type_distribution.get(event_type, 0) + 1
-        importance_values = [float(event["importance_score"]) for event in topic_events if event.get("importance_score") is not None]
         summary = await self.upsert_candidate(
-            candidate=candidate,
+            candidate=generation.candidate,
             summary_overrides={
                 "summary_id": f"summary_{uuid.uuid4().hex}",
                 "summary_type": "thematic",
@@ -294,11 +303,12 @@ class L3SummaryStore:
                 "change_and_pattern": None,
                 "source_event_ids": source_event_ids,
                 "source_event_count": len(source_event_ids),
-                "importance_aggregate": (sum(importance_values) / len(importance_values)) if importance_values else 0.0,
-                "event_type_distribution": event_type_distribution,
-                "generated_by_model": "rule-summary",
+                "importance_aggregate": evidence_pack.importance_aggregate or 0.0,
+                "event_type_distribution": dict(evidence_pack.event_type_distribution),
+                "generated_by_model": "rule-summary" if generation.used_fallback else "topic-llm",
                 "generation_prompt": None,
                 "generation_reason": f"thematic:topic:{normalized_topic}",
+                **generation.summary_overrides,
             },
         )
         return summary
