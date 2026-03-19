@@ -89,5 +89,8 @@ describe('toolchain drawer', () => {
     );
     expect(panesGrid).toBeTruthy();
     expect(panesGrid?.className).toContain('overflow-hidden');
+
+    const timestampValues = screen.getAllByText(/\d{2}:\d{2}:\d{2}\.\d{3}/);
+    expect(timestampValues.length).toBeGreaterThanOrEqual(2);
   });
 });

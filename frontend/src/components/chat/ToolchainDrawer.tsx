@@ -45,11 +45,13 @@ const toMilliseconds = (value?: number | null): number | null => {
 const formatTraceTime = (value?: number | null, locale?: string): string => {
   const normalized = toMilliseconds(value);
   if (!normalized) return '--';
-  return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'zh-CN', {
+  const formatted = new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
   }).format(new Date(normalized));
+  const milliseconds = String(new Date(normalized).getMilliseconds()).padStart(3, '0');
+  return `${formatted}.${milliseconds}`;
 };
 
 const formatExecutionTime = (value: unknown): string => {

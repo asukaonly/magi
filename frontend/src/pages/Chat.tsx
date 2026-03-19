@@ -2,7 +2,7 @@
  * Chat page - desktop-focused conversation workspace
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Loader2, Wrench, UserRound } from 'lucide-react';
+import { ArrowUp, Loader2, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
@@ -352,7 +352,15 @@ export const ChatPage: React.FC = () => {
     );
   };
 
-  const renderTraceButton = (message: ChatTimelineMessage) => {
+  const openTraceDrawer = useCallback((turnId: string) => {
+    if (!turnId) return;
+    window.setTimeout(() => {
+      openDrawer(turnId);
+      void loadTrace(turnId);
+    }, 0);
+  }, [loadTrace, openDrawer]);
+
+  const renderTraceEntry = (message: ChatTimelineMessage) => {
     const turnId = message.turnId;
     const traceSummary = turnId ? summaries[turnId] : undefined;
     const canOpenTrace = Boolean(
@@ -372,14 +380,10 @@ export const ChatPage: React.FC = () => {
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          window.setTimeout(() => {
-            openDrawer(turnId);
-            void loadTrace(turnId);
-          }, 0);
+          openTraceDrawer(turnId);
         }}
-        className="mt-3 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+        className="text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
       >
-        <Wrench className="h-3.5 w-3.5" />
         {t('chat.trace.view')}
       </button>
     );
@@ -415,7 +419,6 @@ export const ChatPage: React.FC = () => {
               )}
             </div>
           )}
-          {renderTraceButton(message)}
         </div>
       </div>
     </motion.div>
@@ -451,6 +454,7 @@ export const ChatPage: React.FC = () => {
                     <span className="text-[11px] text-muted-foreground">
                       {new Date(msg.timestamp).toLocaleTimeString(i18n.language === 'en' ? 'en-US' : 'zh-CN')}
                     </span>
+                    {msg.role === 'assistant' && renderTraceEntry(msg)}
                   </div>
                   <div
                     className={msg.role === 'user'
@@ -466,7 +470,6 @@ export const ChatPage: React.FC = () => {
                     ) : (
                       <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
                     )}
-                    {msg.role === 'assistant' && renderTraceButton(msg)}
                   </div>
                 </div>
               </div>
