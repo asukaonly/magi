@@ -84,4 +84,25 @@ describe('ChatPage', () => {
     });
     expect(screen.getByRole('button', { name: 'chat.trace.view' })).toBeInTheDocument();
   });
+
+  it('requests fresh history when a turn completes without an agent response event', () => {
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'execution_trace_update',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-2',
+          event_type: 'TURN_TRACE_COMPLETED',
+          status: 'completed',
+        },
+      });
+    });
+
+    expect(sendMock).toHaveBeenCalledWith({
+      type: 'get_history',
+      session_id: 'session-1',
+    });
+  });
 });
