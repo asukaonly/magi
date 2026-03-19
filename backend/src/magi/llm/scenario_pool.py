@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Callable
 
 from ..config import AppConfig
+from ..config.models import LLMProvider
 from ..config.models import LLMScenario
 
 
@@ -53,7 +54,7 @@ class ScenarioLLMPool:
                 f"LLM provider '{selection.provider_id}' is missing an API key for scenario '{scenario.value}'"
             )
 
-        provider_type = str(getattr(provider.provider_type, "value", provider.provider_type))
+        provider_type = self._resolve_runtime_provider_type(provider)
         adapter = self._adapter_factory(
             provider_type=provider_type,
             api_key=provider.api_key,
@@ -65,3 +66,15 @@ class ScenarioLLMPool:
         for configurator in self._adapter_configurators:
             configurator(adapter)
         return adapter
+
+    @staticmethod
+    def _resolve_runtime_provider_type(provider: object) -> str:
+        provider_type = str(getattr(getattr(provider, "provider_type", ""), "value", getattr(provider, "provider_type", "")))
+        if provider_type != LLMProvider.CUSTOM.value:
+            return provider_type
+
+        api_format = str(getattr(provider, "api_format", "") or "openai").strip().lower()
+        if api_format in {"openai", "anthropic"}:
+            return api_format
+
+        raise ValueError(f"Unsupported custom provider api_format: {getattr(provider, 'api_format', None)}")

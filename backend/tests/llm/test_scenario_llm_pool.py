@@ -162,3 +162,43 @@ def test_scenario_llm_pool_passes_embedding_dimension_for_embedding_scenario():
             "embedding_dimension": 512,
         }
     ]
+
+
+def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    created: list[dict[str, object]] = []
+    config = _build_test_config()
+    config.llm.providers["custom_openai"] = config.llm.providers["openai"].model_copy(
+        update={
+            "provider_type": LLMProvider.CUSTOM,
+            "display_name": "My Gateway",
+            "base_url": "https://llm.example.com/v1",
+            "api_key": "sk-custom",
+            "api_format": "openai",
+            "custom_models": ["gpt-4.1-mini"],
+            "custom_default_model": "gpt-4.1-mini",
+        }
+    )
+    config.llm.selections["core"].provider_id = "custom_openai"
+    config.llm.selections["core"].model = "gpt-4.1-mini"
+
+    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
+        created.append(dict(kwargs))
+        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
+
+    pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
+
+    core_llm = pool.get(LLMScenario.CORE)
+
+    assert core_llm.provider_name == "openai"
+    assert created == [
+        {
+            "provider_type": "openai",
+            "api_key": "sk-custom",
+            "model": "gpt-4.1-mini",
+            "base_url": "https://llm.example.com/v1",
+            "timeout": 60,
+            "embedding_dimension": None,
+        }
+    ]
