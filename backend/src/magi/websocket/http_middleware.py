@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 DESKTOP_SESSION_HEADER = "X-Magi-Session-Token"
 QUIET_REQUEST_PATHS = {
     "/api/health",
+    "/api/ready",
     "/api/messages/sessions",
     "/api/config",
     "/api/config/",
@@ -63,6 +64,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         "/api/redoc",
         "/api/openapi.json",
         "/api/health",
+        "/api/ready",
         "/api/auth/login",
     }
 

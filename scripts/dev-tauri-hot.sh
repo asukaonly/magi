@@ -92,6 +92,46 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
+wait_for_backend_ready() {
+  local ready_url="http://${CONNECT_HOST}:${BACKEND_PORT}/api/ready"
+  local deadline=$((SECONDS + 60))
+
+  echo "Waiting for backend readiness: ${ready_url}"
+
+  while true; do
+    if python - "${ready_url}" <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+
+url = sys.argv[1]
+
+try:
+    with urllib.request.urlopen(url, timeout=1.5) as response:
+        payload = json.load(response)
+except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
+    raise SystemExit(1)
+
+ready = bool(payload.get("data", {}).get("ready"))
+raise SystemExit(0 if ready else 1)
+PY
+    then
+      echo "Backend is ready."
+      return 0
+    fi
+
+    if (( SECONDS >= deadline )); then
+      echo "Backend did not become ready within 60 seconds."
+      echo "Recent backend logs:"
+      tail -n 40 "${BACKEND_LOG_FILE}" || true
+      return 1
+    fi
+
+    sleep 0.5
+  done
+}
+
 ensure_sidecar_placeholder
 kill_listeners_on_port "${BACKEND_PORT}"
 kill_listeners_on_port "${FRONTEND_PORT}"
@@ -110,6 +150,7 @@ echo "Tail backend logs manually: tail -f ${BACKEND_LOG_FILE}"
 echo "Backend bind host(from config): ${BACKEND_HOST}:${BACKEND_PORT}"
 echo "Backend connect endpoint: http://${CONNECT_HOST}:${BACKEND_PORT}"
 echo "Backend reload(from config): ${BACKEND_RELOAD}"
+wait_for_backend_ready
 
 echo "Starting Tauri desktop window (frontend HMR enabled by Vite)..."
 (

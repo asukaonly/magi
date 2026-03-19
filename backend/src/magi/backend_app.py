@@ -63,12 +63,15 @@ def create_backend_app() -> FastAPI:
     """Create full backend app with lifecycle-managed module startup/shutdown."""
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.state.backend_ready = False
         orchestrator = _build_app_lifecycle_orchestrator(app)
         app.state.module_lifecycle_orchestrator = orchestrator
         await orchestrator.startup()
+        app.state.backend_ready = True
         try:
             yield
         finally:
+            app.state.backend_ready = False
             await orchestrator.shutdown()
 
     app = create_transport_app(lifespan=_lifespan)

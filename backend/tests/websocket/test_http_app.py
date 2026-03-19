@@ -20,3 +20,33 @@ def test_transport_app_registers_health_and_websocket(monkeypatch) -> None:
     assert response.status_code == 200
     websocket_routes = [route.path for route in app.routes if not isinstance(route, APIRoute)]
     assert "/ws" in websocket_routes
+
+
+def test_transport_app_exposes_ready_state(monkeypatch) -> None:
+    from magi.websocket.http_app import create_transport_app
+
+    monkeypatch.setattr(
+        "magi.websocket.http_middleware.get_required_desktop_session_token",
+        lambda: None,
+    )
+
+    app = create_transport_app()
+    client = TestClient(app)
+
+    response = client.get("/api/ready")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "ready": False,
+        "status": "starting",
+    }
+
+    app.state.backend_ready = True
+
+    response = client.get("/api/ready")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "ready": True,
+        "status": "ready",
+    }

@@ -80,6 +80,7 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
     )
 
     app.openapi = _build_custom_openapi(app)
+    app.state.backend_ready = False
 
     add_cors_middleware(app)
     app.add_middleware(ErrorHandler)
@@ -97,6 +98,18 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
             "data": {
                 "status": "healthy",
                 "version": "1.0.0",
+            },
+        }
+
+    @app.get("/api/ready", tags=["Health"])
+    async def ready_check():
+        ready = bool(getattr(app.state, "backend_ready", False))
+        return {
+            "success": True,
+            "message": "Backend startup state",
+            "data": {
+                "ready": ready,
+                "status": "ready" if ready else "starting",
             },
         }
 

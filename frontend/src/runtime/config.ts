@@ -6,6 +6,14 @@ export interface RuntimeConfig {
   backendPid?: number;
 }
 
+interface ReadyCheckResponse {
+  success?: boolean;
+  data?: {
+    ready?: boolean;
+    status?: string;
+  };
+}
+
 interface StartBackendResult {
   ok: boolean;
   baseUrl?: string;
@@ -17,6 +25,8 @@ interface StartBackendResult {
 
 const DEFAULT_API_BASE_URL = "http://localhost:8000/api";
 const RESTRICTED_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
+const READY_CHECK_INTERVAL_MS = 250;
+const READY_CHECK_TIMEOUT_MS = 30000;
 
 let runtimeConfig: RuntimeConfig = {
   isDesktop: false,
@@ -71,6 +81,40 @@ export function buildWsBaseUrl(apiBaseUrl: string): string {
   return origin.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function waitForBackendReady(apiBaseUrl: string): Promise<void> {
+  const readyUrl = `${apiBaseUrl.replace(/\/+$/, "")}/ready`;
+  const deadline = Date.now() + READY_CHECK_TIMEOUT_MS;
+
+  while (Date.now() <= deadline) {
+    try {
+      const response = await fetch(readyUrl, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+      if (response.ok) {
+        const payload = (await response.json()) as ReadyCheckResponse;
+        if (payload.data?.ready) {
+          return;
+        }
+      }
+    } catch {
+      // Keep polling until timeout while the backend is still starting.
+    }
+
+    await sleep(READY_CHECK_INTERVAL_MS);
+  }
+
+  throw new Error("Backend readiness check timed out");
+}
+
 export async function initializeRuntime(): Promise<RuntimeConfig> {
   if (initialized) {
     if (startupError) {
@@ -80,10 +124,13 @@ export async function initializeRuntime(): Promise<RuntimeConfig> {
   }
 
   if (!isTauriRuntime()) {
+    const apiBaseUrl = runtimeConfig.apiBaseUrl;
+    await waitForBackendReady(apiBaseUrl);
     runtimeConfig = {
       ...runtimeConfig,
       isDesktop: false,
-      wsBaseUrl: buildWsBaseUrl(runtimeConfig.apiBaseUrl),
+      apiBaseUrl,
+      wsBaseUrl: buildWsBaseUrl(apiBaseUrl),
       sessionToken: undefined,
       backendPid: undefined,
     };
@@ -100,6 +147,7 @@ export async function initializeRuntime(): Promise<RuntimeConfig> {
     }
 
     const apiBaseUrl = normalizeApiBaseUrl(result.baseUrl);
+    await waitForBackendReady(apiBaseUrl);
     runtimeConfig = {
       isDesktop: true,
       apiBaseUrl,
@@ -126,4 +174,3 @@ export function resetRuntimeInitialization(): void {
 export function getRuntimeConfig(): RuntimeConfig {
   return window.__MAGI_RUNTIME__ || runtimeConfig;
 }
-
