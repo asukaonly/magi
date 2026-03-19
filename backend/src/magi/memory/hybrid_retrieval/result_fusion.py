@@ -67,6 +67,7 @@ class ResultFusion:
 
         # L2 entity cards: dedup by entity_id
         payload.l2_entity_cards = self._dedup_by_key(payload.l2_entity_cards, "entity_id")
+        payload.l2_assertions = self._dedup_by_key(payload.l2_assertions, "assertion_id")
 
         # L3 reflections: dedup by summary_id or id
         payload.l3_reflections = self._dedup_by_key(payload.l3_reflections, "summary_id", "id")
@@ -108,7 +109,7 @@ class ResultFusion:
         remaining -= estimate_tokens(payload.l0_workbench, char_per_token)
 
         # L2: full
-        l2_all = payload.l2_entity_cards + payload.l2_relationships
+        l2_all = payload.l2_entity_cards + payload.l2_relationships + payload.l2_assertions
         remaining -= estimate_tokens(l2_all, char_per_token)
 
         # L4: up to 20% of remaining

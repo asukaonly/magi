@@ -20,6 +20,7 @@ def _make_memory(**stores):
     mem.l0 = stores.get("l0")
     mem.l1 = stores.get("l1")
     mem.l2 = stores.get("l2")
+    mem.l2_entity_catalog = stores.get("l2_entity_catalog")
     mem.l3 = stores.get("l3")
     mem.l4 = stores.get("l4")
     return mem
@@ -195,10 +196,163 @@ class TestServiceLayerRouting:
         l2 = AsyncMock()
         l2.get_tom_snapshot.return_value = None
         l2.get_relationships.return_value = [{"subject": "a", "object": "b"}]
+        l2.list_tom_assertions.return_value = []
         mem = _make_memory(l2=l2)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         result = await svc.query(_make_request(query_mode="graph"))
         assert len(result.l2_relationships) >= 0  # may or may not have results
+
+    @pytest.mark.asyncio
+    async def test_graph_mode_returns_assertions(self):
+        l2 = AsyncMock()
+        l2.get_tom_snapshot.return_value = {"entity_id": "user:self", "entity_type": "user"}
+        l2.get_relationships.return_value = []
+        l2.list_tom_assertions.return_value = [
+            {
+                "assertion_id": "assert-1",
+                "entity_id": "user:self",
+                "entity_type": "user",
+                "trait_family": "preference_profile",
+                "trait_name": "dislike",
+                "trait_value": "rainy_weather",
+                "validation_state": "corroborated",
+            }
+        ]
+        mem = _make_memory(l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        result = await svc.query(_make_request(query_mode="graph"))
+
+        assert len(result.l2_assertions) == 1
+        l2.list_tom_assertions.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_graph_mode_filters_relationships_by_predicate_and_status(self):
+        l2 = AsyncMock()
+        l2.get_tom_snapshot.return_value = None
+        l2.get_relationships.return_value = [{"triple_id": "triple-1"}]
+        l2.list_tom_assertions.return_value = []
+        mem = _make_memory(l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        result = await svc.query(
+            _make_request(
+                query_mode="graph",
+                query="我讨厌什么天气",
+            )
+        )
+
+        assert len(result.l2_relationships) == 1
+        _, kwargs = l2.get_relationships.call_args
+        assert kwargs["predicates"] == ["DISLIKES"]
+        assert kwargs["status_filters"] == ["active", "conflicted"]
+
+    @pytest.mark.asyncio
+    async def test_graph_mode_resolves_alias_entities_via_entity_catalog(self):
+        l2 = AsyncMock()
+        l2.get_tom_snapshot.return_value = None
+        l2.get_relationships.return_value = [{"triple_id": "triple-1", "subject_id": "place:shanghai"}]
+        l2.list_tom_assertions.return_value = []
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "place:shanghai",
+                "entity_type": "place",
+                "canonical_name": "Shanghai",
+                "match_source": "alias",
+            }
+        ]
+        mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        await svc.query(
+            _make_request(
+                query_mode="graph",
+                query="我对魔都是什么感觉",
+            )
+        )
+
+        entity_catalog.resolve_query_entities.assert_called_once()
+        _, kwargs = l2.get_relationships.call_args
+        assert kwargs["subject_id"] == "place:shanghai"
+
+    @pytest.mark.asyncio
+    async def test_graph_mode_can_query_incoming_relationships(self):
+        l2 = AsyncMock()
+        l2.get_tom_snapshot.return_value = None
+        l2.get_relationships.return_value = [{"triple_id": "triple-in", "object_id": "user:self"}]
+        l2.list_tom_assertions.return_value = []
+        mem = _make_memory(l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        result = await svc.query(
+            _make_request(
+                query_mode="graph",
+                query="谁认识我",
+            )
+        )
+
+        assert len(result.l2_relationships) == 1
+        _, kwargs = l2.get_relationships.call_args
+        assert kwargs["object_id"] == "user:self"
+
+    @pytest.mark.asyncio
+    async def test_graph_mode_filters_assertions_by_target_entity(self):
+        l2 = AsyncMock()
+        l2.get_tom_snapshot.return_value = None
+        l2.get_relationships.return_value = []
+        l2.list_tom_assertions.return_value = [{"assertion_id": "assert-1"}]
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "weather_state:rainy-hangzhou",
+                "entity_type": "weather_state",
+                "canonical_name": "Rainy Hangzhou Weather",
+                "match_source": "canonical_name",
+            }
+        ]
+        mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        await svc.query(
+            _make_request(
+                query_mode="graph",
+                query="我讨厌什么天气",
+            )
+        )
+
+        _, kwargs = l2.list_tom_assertions.call_args
+        assert kwargs["target_entity_id"] == "weather_state:rainy-hangzhou"
+
+    @pytest.mark.asyncio
+    async def test_graph_mode_populates_l2_query_trace(self):
+        l2 = AsyncMock()
+        l2.get_tom_snapshot.return_value = None
+        l2.get_relationships.return_value = []
+        l2.list_tom_assertions.return_value = []
+        entity_catalog = AsyncMock()
+        entity_catalog.resolve_query_entities.return_value = [
+            {
+                "entity_id": "place:shanghai",
+                "entity_type": "place",
+                "canonical_name": "Shanghai",
+                "match_source": "alias",
+            }
+        ]
+        mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        result = await svc.query(
+            _make_request(
+                query_mode="graph",
+                query="我和魔都是什么关系",
+            )
+        )
+
+        l2_trace = result.trace.get("l2_query_trace")
+        assert isinstance(l2_trace, dict)
+        assert l2_trace["resolved_entities"][0]["entity_id"] == "place:shanghai"
+        assert "KNOWS" in l2_trace["predicates"]
 
 
 class TestServiceFallback:

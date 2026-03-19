@@ -466,6 +466,10 @@ class L2CognitionStore:
         *,
         entity_id: Optional[str] = None,
         entity_type: Optional[str] = None,
+        trait_families: Optional[List[str]] = None,
+        validation_states: Optional[List[str]] = None,
+        include_expired: bool = True,
+        target_entity_id: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """List ToM assertions ordered by recency."""
@@ -478,6 +482,21 @@ class L2CognitionStore:
         if entity_type:
             query += " AND entity_type = ?"
             args.append(entity_type)
+        if trait_families:
+            placeholders = ", ".join("?" for _ in trait_families)
+            query += f" AND trait_family IN ({placeholders})"
+            args.extend([str(item).strip().lower() for item in trait_families])
+        if validation_states:
+            placeholders = ", ".join("?" for _ in validation_states)
+            query += f" AND validation_state IN ({placeholders})"
+            args.extend([str(item).strip() for item in validation_states])
+        if target_entity_id:
+            query += " AND target_entity_id = ?"
+            args.append(target_entity_id)
+        if not include_expired:
+            now = time.time()
+            query += " AND (expires_at IS NULL OR expires_at > ?)"
+            args.append(now)
         query += " ORDER BY updated_at DESC LIMIT ?"
         args.append(int(limit))
 
@@ -531,18 +550,34 @@ class L2CognitionStore:
         subject_id: Optional[str] = None,
         object_id: Optional[str] = None,
         status: str = "active",
+        status_filters: Optional[List[str]] = None,
+        predicates: Optional[List[str]] = None,
+        object_types: Optional[List[str]] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """Query the knowledge graph."""
         await self.initialize()
-        query = "SELECT * FROM knowledge_graph WHERE status = ?"
-        args: list[Any] = [status]
+        if status_filters:
+            placeholders = ", ".join("?" for _ in status_filters)
+            query = f"SELECT * FROM knowledge_graph WHERE status IN ({placeholders})"
+            args: list[Any] = [str(item).strip() for item in status_filters]
+        else:
+            query = "SELECT * FROM knowledge_graph WHERE status = ?"
+            args = [status]
         if subject_id:
             query += " AND subject_id = ?"
             args.append(subject_id)
         if object_id:
             query += " AND object_id = ?"
             args.append(object_id)
+        if predicates:
+            placeholders = ", ".join("?" for _ in predicates)
+            query += f" AND predicate IN ({placeholders})"
+            args.extend([str(item).strip().upper() for item in predicates])
+        if object_types:
+            placeholders = ", ".join("?" for _ in object_types)
+            query += f" AND object_type IN ({placeholders})"
+            args.extend([str(item).strip().lower() for item in object_types])
         query += " ORDER BY updated_at DESC LIMIT ?"
         args.append(int(limit))
         async with aiosqlite.connect(self.db_path) as db:

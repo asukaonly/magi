@@ -300,6 +300,72 @@ class L2EntityCatalog:
         await self.initialize()
         return await self._list_entities(limit=limit, entity_type=_normalize_catalog_entity_type(entity_type))
 
+    async def resolve_query_entities(
+        self,
+        query_text: str,
+        *,
+        limit: int = 10,
+        entity_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Resolve natural-language query text into matching canonical entities."""
+        await self.initialize()
+        normalized_query = _normalize_alias(query_text)
+        if not normalized_query:
+            return []
+
+        type_filter = {
+            normalized
+            for item in (entity_types or [])
+            if (normalized := _normalize_catalog_entity_type(item))
+        }
+        entities = await self._list_entities(limit=500, entity_type=None)
+
+        matches: list[dict[str, Any]] = []
+        for entity in entities:
+            entity_type = str(entity.get("entity_type") or "").strip()
+            if type_filter and entity_type not in type_filter:
+                continue
+            canonical_name = str(entity.get("canonical_name") or "").strip()
+            aliases = [str(item).strip() for item in entity.get("aliases", []) if str(item).strip()]
+            candidate_surfaces = [(canonical_name, "canonical_name", 0.95)] + [
+                (alias, "alias", 0.9) for alias in aliases
+            ]
+            for surface, match_source, confidence in candidate_surfaces:
+                if not surface:
+                    continue
+                if _normalize_alias(surface) not in normalized_query:
+                    continue
+                matches.append(
+                    {
+                        "entity_id": str(entity["entity_id"]),
+                        "entity_type": entity_type,
+                        "canonical_name": canonical_name,
+                        "match_source": match_source,
+                        "matched_text": surface,
+                        "confidence": confidence,
+                    }
+                )
+                break
+
+        matches.sort(
+            key=lambda item: (
+                -len(str(item.get("matched_text") or "")),
+                -float(item.get("confidence", 0.0) or 0.0),
+                str(item.get("entity_id") or ""),
+            )
+        )
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in matches:
+            entity_id = str(item["entity_id"])
+            if entity_id in seen:
+                continue
+            seen.add(entity_id)
+            deduped.append(item)
+            if len(deduped) >= int(limit):
+                break
+        return deduped
+
     async def clear(self) -> int:
         """Delete all catalog entities, aliases, and mention evidence."""
         await self.initialize()

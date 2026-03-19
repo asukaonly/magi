@@ -248,8 +248,9 @@ class L1Handler:
 class L2Handler:
     """Execute L2 knowledge graph queries from structured conditions."""
 
-    def __init__(self, l2_store: Any) -> None:
+    def __init__(self, l2_store: Any, entity_catalog: Any | None = None) -> None:
         self._store = l2_store
+        self._entity_catalog = entity_catalog
 
     async def execute(
         self,
@@ -257,30 +258,225 @@ class L2Handler:
         time_range: Optional[TimeRange] = None,
     ) -> Dict[str, Any]:
         """Query L2 for entity cards and relationships."""
-        results: Dict[str, Any] = {"entity_cards": [], "relationships": []}
+        del time_range
+        results: Dict[str, Any] = {"entity_cards": [], "relationships": [], "assertions": [], "trace": {}}
+        resolved_entities = await self._resolve_entities(conditions)
+        predicates = conditions.predicates or self._infer_predicates(conditions.content_query)
+        status_filters = conditions.status_filter or self._infer_status_filters(conditions.content_query)
+        relation_direction = conditions.relation_direction or self._infer_relation_direction(conditions.content_query)
+        target_entity_id = self._infer_target_entity_id(
+            resolved_entities=resolved_entities,
+            predicates=predicates,
+        )
 
-        if conditions.include_tom_snapshot and conditions.entities:
-            for entity in conditions.entities:
+        if conditions.include_tom_snapshot and resolved_entities:
+            for entity in resolved_entities:
                 snapshot = await self._store.get_tom_snapshot(
-                    entity_id=entity,
-                    entity_type="user",
+                    entity_id=entity["entity_id"],
+                    entity_type=entity["entity_type"],
                 )
                 if snapshot:
                     results["entity_cards"].append(snapshot)
 
-        if conditions.include_relationships:
-            if conditions.entities:
-                for entity in conditions.entities:
-                    rels = await self._store.get_relationships(
-                        subject_id=entity,
+        if conditions.include_assertions:
+            if resolved_entities:
+                for entity in resolved_entities:
+                    assertions = await self._store.list_tom_assertions(
+                        entity_id=entity["entity_id"],
+                        entity_type=entity["entity_type"],
+                        trait_families=conditions.trait_families,
+                        validation_states=self._infer_assertion_states(status_filters),
+                        include_expired=False,
+                        target_entity_id=target_entity_id,
                         limit=conditions.limit,
                     )
-                    results["relationships"].extend(rels)
+                    results["assertions"].extend(assertions)
             else:
-                rels = await self._store.get_relationships(limit=conditions.limit)
+                results["assertions"] = await self._store.list_tom_assertions(
+                    trait_families=conditions.trait_families,
+                    validation_states=self._infer_assertion_states(status_filters),
+                    include_expired=False,
+                    target_entity_id=target_entity_id,
+                    limit=conditions.limit,
+                )
+
+        if conditions.include_relationships:
+            if resolved_entities:
+                for entity in resolved_entities:
+                    results["relationships"].extend(
+                        await self._query_relationships_for_entity(
+                            entity_id=entity["entity_id"],
+                            direction=relation_direction,
+                            predicates=predicates,
+                            status_filters=status_filters,
+                            limit=conditions.limit,
+                        )
+                    )
+            else:
+                rels = await self._store.get_relationships(
+                    predicates=predicates,
+                    status_filters=status_filters,
+                    limit=conditions.limit,
+                )
                 results["relationships"] = rels
 
+        results["trace"] = {
+            "resolved_entities": resolved_entities,
+            "predicates": predicates or [],
+            "status_filters": status_filters or [],
+            "relation_direction": relation_direction,
+            "target_entity_id": target_entity_id,
+        }
         return results
+
+    async def _query_relationships_for_entity(
+        self,
+        *,
+        entity_id: str,
+        direction: str,
+        predicates: list[str] | None,
+        status_filters: list[str] | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if direction == "incoming":
+            return await self._store.get_relationships(
+                object_id=entity_id,
+                predicates=predicates,
+                status_filters=status_filters,
+                limit=limit,
+            )
+        if direction == "both":
+            outgoing = await self._store.get_relationships(
+                subject_id=entity_id,
+                predicates=predicates,
+                status_filters=status_filters,
+                limit=limit,
+            )
+            incoming = await self._store.get_relationships(
+                object_id=entity_id,
+                predicates=predicates,
+                status_filters=status_filters,
+                limit=limit,
+            )
+            seen: set[str] = set()
+            merged: list[dict[str, Any]] = []
+            for item in outgoing + incoming:
+                triple_id = str(item.get("triple_id") or "")
+                if triple_id and triple_id in seen:
+                    continue
+                if triple_id:
+                    seen.add(triple_id)
+                merged.append(item)
+            return merged
+        return await self._store.get_relationships(
+            subject_id=entity_id,
+            predicates=predicates,
+            status_filters=status_filters,
+            limit=limit,
+        )
+
+    async def _resolve_entities(self, conditions: L2Conditions) -> list[dict[str, str]]:
+        resolved: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        for entity in conditions.entities or []:
+            normalized = str(entity).strip()
+            if not normalized:
+                continue
+            if ":" in normalized:
+                entity_type, _, _ = normalized.partition(":")
+                if normalized not in seen:
+                    resolved.append({"entity_id": normalized, "entity_type": entity_type or "entity"})
+                    seen.add(normalized)
+                continue
+            if self._entity_catalog is None:
+                continue
+            matches = await self._entity_catalog.resolve_query_entities(
+                normalized,
+                limit=5,
+                entity_types=conditions.entity_types,
+            )
+            for match in matches:
+                entity_id = str(match["entity_id"])
+                if entity_id in seen:
+                    continue
+                resolved.append({"entity_id": entity_id, "entity_type": str(match["entity_type"])})
+                seen.add(entity_id)
+
+        if resolved or self._entity_catalog is None or not conditions.content_query:
+            return resolved or self._infer_self_entities(conditions.content_query)
+
+        query_matches = await self._entity_catalog.resolve_query_entities(
+            conditions.content_query,
+            limit=max(conditions.limit, 5),
+            entity_types=conditions.entity_types,
+        )
+        for match in query_matches:
+            entity_id = str(match["entity_id"])
+            if entity_id in seen:
+                continue
+            resolved.append({"entity_id": entity_id, "entity_type": str(match["entity_type"])})
+            seen.add(entity_id)
+        return resolved or self._infer_self_entities(conditions.content_query)
+
+    def _infer_predicates(self, query: str) -> list[str] | None:
+        query_lower = query.lower()
+        predicates: list[str] = []
+        if any(token in query_lower for token in ("讨厌", "dislike", "dislikes", "不喜欢")):
+            predicates.append("DISLIKES")
+        if any(token in query_lower for token in ("喜欢", "like", "likes")):
+            predicates.append("LIKES")
+        if "偏好" in query_lower or "preference" in query_lower:
+            predicates.extend(["LIKES", "DISLIKES", "INTERESTED_IN"])
+        if "关系" in query_lower or "relationship" in query_lower:
+            predicates.extend(["KNOWS", "FAMILY_OF", "INTERACTED_WITH", "MEMBER_OF"])
+        unique = []
+        seen: set[str] = set()
+        for predicate in predicates:
+            if predicate in seen:
+                continue
+            seen.add(predicate)
+            unique.append(predicate)
+        return unique or None
+
+    def _infer_status_filters(self, query: str) -> list[str]:
+        query_lower = query.lower()
+        if "冲突" in query_lower or "conflict" in query_lower:
+            return ["conflicted"]
+        return ["active", "conflicted"]
+
+    def _infer_relation_direction(self, query: str) -> str:
+        query_lower = query.lower()
+        if "谁认识我" in query or "who knows me" in query_lower:
+            return "incoming"
+        if "关系" in query or "relationship" in query_lower:
+            return "both"
+        return "outgoing"
+
+    def _infer_assertion_states(self, status_filters: list[str] | None) -> list[str] | None:
+        if not status_filters:
+            return ["stable", "corroborated", "tentative"]
+        if status_filters == ["conflicted"]:
+            return ["contradicted"]
+        return ["stable", "corroborated", "tentative"]
+
+    def _infer_target_entity_id(
+        self,
+        *,
+        resolved_entities: list[dict[str, str]],
+        predicates: list[str] | None,
+    ) -> str | None:
+        if not resolved_entities or not predicates:
+            return None
+        if not any(predicate in {"LIKES", "DISLIKES", "INTERESTED_IN"} for predicate in predicates):
+            return None
+        first = resolved_entities[0]
+        return str(first["entity_id"])
+
+    def _infer_self_entities(self, query: str) -> list[dict[str, str]]:
+        if "我" not in query and " me " not in f" {query.lower()} ":
+            return []
+        return [{"entity_id": "user:self", "entity_type": "user"}]
 
 
 class L3Handler:

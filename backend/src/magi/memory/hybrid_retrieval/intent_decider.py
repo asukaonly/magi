@@ -404,9 +404,11 @@ class RuleBasedIntentDecider:
         elif layer == "L2":
             entities = self._extract_entities(inp.query)
             conditions = L2Conditions(
+                content_query=inp.query,
                 entities=entities if entities else None,
                 include_tom_snapshot=True,
                 include_relationships=True,
+                include_assertions=True,
             )
         elif layer == "L3":
             conditions = L3Conditions(
@@ -575,9 +577,11 @@ class LLMIntentDecider:
                 )
             elif layer == "L2":
                 conditions = L2Conditions(
+                    content_query=content_query,
                     entities=entities if entities else None,
                     include_tom_snapshot=True,
                     include_relationships=True,
+                    include_assertions=True,
                 )
             elif layer == "L3":
                 conditions = L3Conditions(content_query=content_query)

@@ -33,6 +33,7 @@ class RetrievalPayload:
     l1_events: List[Dict[str, Any]] = field(default_factory=list)
     l2_entity_cards: List[Dict[str, Any]] = field(default_factory=list)
     l2_relationships: List[Dict[str, Any]] = field(default_factory=list)
+    l2_assertions: List[Dict[str, Any]] = field(default_factory=list)
     l3_reflections: List[Dict[str, Any]] = field(default_factory=list)
     l4_procedures: List[Dict[str, Any]] = field(default_factory=list)
     trace: Dict[str, Any] = field(default_factory=dict)
@@ -80,11 +81,17 @@ class L1Conditions:
 class L2Conditions:
     """L2 query conditions: knowledge graph & ToM."""
 
+    content_query: str = ""
     entities: Optional[List[str]] = None
     entity_types: Optional[List[str]] = None
     predicates: Optional[List[str]] = None
+    trait_families: Optional[List[str]] = None
     include_tom_snapshot: bool = True
     include_relationships: bool = True
+    include_assertions: bool = True
+    relation_direction: Optional[str] = None
+    hop_count: int = 1
+    status_filter: Optional[List[str]] = None
     limit: int = 20
 
 
@@ -163,5 +170,4 @@ class RetrievalConfig:
     # Token estimation
     token_estimator: Literal["char_ratio"] = "char_ratio"
     char_per_token_ratio: float = 3.0
-
 

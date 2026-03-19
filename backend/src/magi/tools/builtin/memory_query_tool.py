@@ -116,6 +116,7 @@ class MemoryQueryTool(Tool):
                 "l1_events": getattr(payload, "l1_events", []),
                 "l2_entity_cards": getattr(payload, "l2_entity_cards", []),
                 "l2_relationships": getattr(payload, "l2_relationships", []),
+                "l2_assertions": getattr(payload, "l2_assertions", []),
                 "l3_reflections": getattr(payload, "l3_reflections", []),
                 "l4_procedures": getattr(payload, "l4_procedures", []),
                 "trace": getattr(payload, "trace", {}),
