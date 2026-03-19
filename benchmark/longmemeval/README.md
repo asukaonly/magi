@@ -48,6 +48,7 @@ python benchmark/longmemeval/replay_dataset.py \
 ```
 
 This writes `replay_manifest.jsonl` under `benchmark/outputs/longmemeval/<run-id>/`.
+By default this local mode is an L1-focused harness. For full backend-configured memory runtime, pass `--backend-url`.
 
 Query-only flow:
 
@@ -64,3 +65,21 @@ This reopens the same persisted memory state under `benchmark/outputs/longmemeva
 - `predictions.jsonl`
 - `predictions_with_trace.jsonl`
 - `summary.json`
+
+Backend-service flow:
+
+```bash
+python benchmark/longmemeval/replay_dataset.py \
+  --dataset data/longmemeval_oracle.json \
+  --output-root benchmark/outputs \
+  --run-id oracle-backend \
+  --backend-url http://127.0.0.1:8000
+
+python benchmark/longmemeval/query_dataset.py \
+  --dataset data/longmemeval_oracle.json \
+  --output-root benchmark/outputs \
+  --run-id oracle-backend \
+  --backend-url http://127.0.0.1:8000
+```
+
+This mode reuses the memory runtime already initialized by the backend service, including its provider and LLM configuration.

@@ -19,6 +19,7 @@ for candidate in (REPO_ROOT, BACKEND_SRC):
 from benchmark.common.io import write_jsonl
 from benchmark.common.paths import build_run_output_dir
 from benchmark.longmemeval.adapter import adapt_longmemeval_entry
+from benchmark.longmemeval.backend_client import BackendEvalService
 from benchmark.longmemeval.runner import create_default_runtime, load_longmemeval_rows
 from magi.memory.eval_support.namespace import build_eval_namespace
 
@@ -82,6 +83,14 @@ async def replay_longmemeval_rows(
 
 async def _run_cli(args: argparse.Namespace) -> LongMemEvalReplayArtifacts:
     rows = load_longmemeval_rows(args.dataset, limit=args.limit)
+    if args.backend_url:
+        return await replay_longmemeval_rows(
+            rows=rows,
+            eval_service=BackendEvalService(args.backend_url),
+            run_id=args.run_id,
+            output_root=args.output_root,
+        )
+
     output_dir = build_run_output_dir(
         root_dir=args.output_root,
         benchmark_name="longmemeval",
@@ -105,6 +114,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-root", default="benchmark/outputs", help="Directory for benchmark outputs.")
     parser.add_argument("--run-id", default="smoke", help="Logical run identifier.")
     parser.add_argument("--limit", type=int, default=None, help="Optional sample limit for quick runs.")
+    parser.add_argument("--backend-url", default=None, help="Optional Magi backend base URL for full-memory eval.")
     return parser.parse_args(argv)
 
 
