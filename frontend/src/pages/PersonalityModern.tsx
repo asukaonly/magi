@@ -8,6 +8,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { personalitiesApi } from '@/api';
 import {
   usePersonality,
   CONFIDENCE_OPTIONS,
@@ -38,6 +40,9 @@ interface PersonalityModernProps {
 
 const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false }) => {
   const { t } = useTranslation('app');
+  const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = React.useState(false);
+  const [avatarBroken, setAvatarBroken] = React.useState(false);
 
   const {
     // State
@@ -73,6 +78,39 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     reload,
   } = usePersonality();
 
+  const detailTitle = isNewMode
+    ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
+    : (config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title'));
+  const detailDescription = isNewMode
+    ? t('personality.newPersonalityDesc')
+    : (config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc'));
+  const avatarValue = config.persona_entity.basic_profile.avatar || '';
+  const avatarUrl = avatarValue && !avatarBroken ? personalitiesApi.getAvatarUrl(avatarValue) : '';
+
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingAvatar(true);
+    try {
+      const response = await personalitiesApi.uploadAvatar(file);
+      const nextAvatar = response.data?.url || response.data?.filename;
+      if (!nextAvatar) {
+        return;
+      }
+
+      patch((draft) => {
+        draft.persona_entity.basic_profile.avatar = nextAvatar;
+      });
+      setAvatarBroken(false);
+    } catch (error) {
+      toast.error((error as Error)?.message || t('personality.avatarUploadFailed'));
+    } finally {
+      setUploadingAvatar(false);
+      event.target.value = '';
+    }
+  };
+
   return (
     <div className={cn('flex h-full min-h-0 flex-col overflow-hidden', embedded ? 'bg-transparent' : 'bg-background')}>
       <div
@@ -96,20 +134,41 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
       ) : null}
       {/* Avatar selector row */}
       <div className="flex gap-3 overflow-x-auto pb-2">
-          {/* Add button – hidden in create mode */}
-          {!isNewMode && (
-            <button
-              onClick={startNewPersonality}
-              className="group flex shrink-0 flex-col items-center gap-2"
+          <button
+            type="button"
+            data-testid="personality-create-card"
+            onClick={startNewPersonality}
+            className="group relative flex shrink-0 flex-col items-center gap-2"
+          >
+            <div
+              className={cn(
+                'relative flex h-16 w-16 items-center justify-center rounded-2xl border-2 transition',
+                isNewMode
+                  ? 'border-primary bg-primary/10 shadow-sm'
+                  : 'border-dashed border-border bg-muted/30 group-hover:border-primary group-hover:bg-primary/5'
+              )}
             >
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-dashed border-border bg-muted/30 transition group-hover:border-primary group-hover:bg-primary/5">
-                <Plus className="h-6 w-6 text-muted-foreground transition group-hover:text-primary" />
-              </div>
-              <span className="text-xs font-medium text-muted-foreground transition group-hover:text-foreground">
-                {t('personality.create')}
-              </span>
-            </button>
-          )}
+              <Plus
+                className={cn(
+                  'h-6 w-6 transition',
+                  isNewMode ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'
+                )}
+              />
+              {isNewMode ? (
+                <div className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+                  <Check className="h-3 w-3" />
+                </div>
+              ) : null}
+            </div>
+            <span
+              className={cn(
+                'text-xs font-medium transition',
+                isNewMode ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground'
+              )}
+            >
+              {t('personality.create')}
+            </span>
+          </button>
 
           {/* Personality Avatars */}
           {list.map((item) => {
@@ -168,7 +227,47 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
           {/* Detail Header with Actions */}
           <div className="flex flex-col gap-4 rounded-3xl border border-primary/20 bg-muted/20 p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="max-w-2xl">
+              <div className="flex min-w-0 flex-1 items-start gap-4">
+                <input
+                  ref={avatarInputRef}
+                  data-testid="personality-avatar-input"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(event) => {
+                    void handleAvatarUpload(event);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={uploadingAvatar}
+                  className="group relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-border/60 bg-background transition hover:border-primary/50 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-70"
+                  aria-label={t('personality.actions.uploadAvatar')}
+                >
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt={detailTitle}
+                      className="h-full w-full object-cover"
+                      onError={() => setAvatarBroken(true)}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-1 text-muted-foreground transition group-hover:text-primary">
+                      <span className="text-xl font-semibold">
+                        {getInitials(detailTitle)}
+                      </span>
+                      <span className="text-[11px] font-medium">
+                        {uploadingAvatar ? t('personality.actions.uploadingAvatar') : t('personality.actions.uploadAvatar')}
+                      </span>
+                    </div>
+                  )}
+                  {!avatarUrl ? (
+                    <div className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-inset ring-border/40" />
+                  ) : null}
+                </button>
+
+                <div className="min-w-0 flex-1">
                 {isNewMode ? (
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">
                     {t('personality.creating')}
@@ -176,9 +275,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                 ) : null}
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                   <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-                    {isNewMode
-                      ? (config.persona_entity.basic_profile.name || t('personality.newPersonality'))
-                      : (config.persona_entity.basic_profile.name || selectedInfo?.displayName || t('personality.title'))}
+                    {detailTitle}
                   </h2>
                   {!isNewMode && selectedName === currentName ? (
                     <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
@@ -187,10 +284,9 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   ) : null}
                 </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {isNewMode
-                    ? t('personality.newPersonalityDesc')
-                    : (config.persona_entity.basic_profile.description || selectedInfo?.subtitle || t('settings.personalityDesc'))}
+                  {detailDescription}
                 </p>
+                </div>
               </div>
 
               {/* Action Buttons */}
@@ -244,34 +340,36 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
             </div>
 
             {/* AI Generate Section */}
-            <div className="w-full max-w-2xl space-y-3 border-t border-border/30 pt-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Sparkles className="h-4 w-4 text-primary" />
-                {t('personality.generate')}
-              </div>
-              <div className="flex flex-col gap-2 xl:flex-row">
-                <Input
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  placeholder={t('personality.generatePlaceholder')}
-                  className="h-11 rounded-2xl"
-                />
-                <select
-                  className="h-11 rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  value={targetLanguage}
-                  onChange={(event) => setTargetLanguage(event.target.value)}
-                >
-                  <option value="Auto">{t('personality.languages.auto')}</option>
-                  <option value="Chinese">{t('personality.languages.chinese')}</option>
-                  <option value="English">{t('personality.languages.english')}</option>
-                  <option value="Japanese">{t('personality.languages.japanese')}</option>
-                </select>
-                <Button onClick={generate} disabled={generating} className="h-11 rounded-2xl px-5">
-                  <Sparkles className="mr-2 h-4 w-4" />
+            {isNewMode ? (
+              <div className="w-full max-w-2xl space-y-3 border-t border-border/30 pt-4">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Sparkles className="h-4 w-4 text-primary" />
                   {t('personality.generate')}
-                </Button>
+                </div>
+                <div className="flex flex-col gap-2 xl:flex-row">
+                  <Input
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    placeholder={t('personality.generatePlaceholder')}
+                    className="h-11 rounded-2xl"
+                  />
+                  <select
+                    className="h-11 rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    value={targetLanguage}
+                    onChange={(event) => setTargetLanguage(event.target.value)}
+                  >
+                    <option value="Auto">{t('personality.languages.auto')}</option>
+                    <option value="Chinese">{t('personality.languages.chinese')}</option>
+                    <option value="English">{t('personality.languages.english')}</option>
+                    <option value="Japanese">{t('personality.languages.japanese')}</option>
+                  </select>
+                  <Button onClick={generate} disabled={generating} className="h-11 rounded-2xl px-5">
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    {t('personality.generate')}
+                  </Button>
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
 
           {/* Configuration Cards */}

@@ -1062,6 +1062,7 @@
     "generatePromptRequired": "Please describe the personality in one sentence",
     "generateSuccess": "Draft generated",
     "generateFailed": "Generation failed",
+    "avatarUploadFailed": "Failed to upload avatar",
     "switchConfirm": "Switch personality from {{from}} to {{to}}?",
     "switchPromptTitle": "Confirm personality switch",
     "switchPromptFallback": "Give me one more chance before you switch away.",
@@ -1122,7 +1123,9 @@
     },
     "actions": {
       "addTransition": "Add Transition",
-      "removeTransition": "Remove Transition"
+      "removeTransition": "Remove Transition",
+      "uploadAvatar": "Upload avatar",
+      "uploadingAvatar": "Uploading..."
     },
     "languages": {
       "auto": "Auto Detect",

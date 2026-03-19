@@ -1062,6 +1062,7 @@
     "generatePromptRequired": "请输入一句话描述",
     "generateSuccess": "已生成草稿",
     "generateFailed": "生成失败",
+    "avatarUploadFailed": "头像上传失败",
     "switchConfirm": "确认切换人格：{{from}} -> {{to}} ?",
     "switchPromptTitle": "确认切换人格",
     "switchPromptFallback": "先别急着走，再给我一次机会。",
@@ -1122,7 +1123,9 @@
     },
     "actions": {
       "addTransition": "新增状态切换",
-      "removeTransition": "移除该切换"
+      "removeTransition": "移除该切换",
+      "uploadAvatar": "上传头像",
+      "uploadingAvatar": "上传中..."
     },
     "languages": {
       "auto": "自动检测",
