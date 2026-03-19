@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import PersonalityModern from '@/pages/PersonalityModern';
@@ -236,9 +236,13 @@ describe('PersonalityModern', () => {
 
     render(<PersonalityModern embedded />);
 
-    expect(screen.getByTestId('personality-create-card')).toBeInTheDocument();
-    expect(screen.getByTestId('personality-create-card').firstElementChild).toHaveClass('border-primary');
+    const createCard = screen.getByTestId('personality-create-card');
+
+    expect(createCard).toBeInTheDocument();
+    expect(createCard.firstElementChild).toHaveClass('border-primary');
     expect(screen.getAllByText('personality.generate')).toHaveLength(2);
+    expect(within(createCard).queryByText('personality.current')).not.toBeInTheDocument();
+    expect(createCard.querySelectorAll('.lucide-check')).toHaveLength(0);
   });
 
   it('hides AI generation when editing an existing personality', () => {
