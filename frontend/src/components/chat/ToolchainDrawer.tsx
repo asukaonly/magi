@@ -70,6 +70,19 @@ const formatBoolean = (value: unknown, truthyLabel: string, falsyLabel: string):
   value ? truthyLabel : falsyLabel
 );
 
+const formatSummaryStatus = (status: string, t: (key: string) => string): string => {
+  if (status === 'completed') return t('chat.trace.statusCompleted');
+  if (status === 'failed') return t('chat.trace.statusError');
+  return t('chat.trace.statusRunning');
+};
+
+const formatTraceMode = (mode: string, t: (key: string) => string): string => {
+  if (mode === 'orchestration') return t('chat.trace.modeOrchestration');
+  if (mode === 'direct_llm') return t('chat.trace.modeDirectLlm');
+  if (mode === 'function_calling') return t('chat.trace.modeFunctionCalling');
+  return mode || '--';
+};
+
 const stringifyStructuredValue = (value: unknown): string => {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value;
@@ -146,7 +159,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="!max-w-none flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0"
+        className="flex h-full w-[min(1120px,calc(100vw-24px))] max-w-[1120px] flex-col overflow-hidden rounded-l-3xl border-l border-border/60 bg-card p-0 shadow-2xl sm:w-[min(1120px,calc(100vw-40px))]"
       >
         <SheetHeader className="border-b border-border/50 bg-muted/30 px-8 py-6">
           <SheetTitle className="text-[28px] font-semibold tracking-[-0.04em] text-foreground">{title}</SheetTitle>
@@ -169,7 +182,9 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
               <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border/40 bg-muted/30 px-8 py-3 xl:grid-cols-4">
                 <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryStatus')}</div>
-                  <div className="mt-1.5 text-base font-semibold text-foreground">{snapshot.summary.headline}</div>
+                  <div className="mt-1.5 text-base font-semibold capitalize text-foreground">
+                    {formatSummaryStatus(snapshot.summary.status, t)}
+                  </div>
                 </div>
                 <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryDuration')}</div>
@@ -186,20 +201,13 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                 </div>
                 <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryMode')}</div>
-                  <div className="mt-1.5 text-base font-semibold capitalize text-foreground">{snapshot.mode}</div>
+                  <div className="mt-1.5 text-base font-semibold text-foreground">
+                    {formatTraceMode(snapshot.mode, t)}
+                  </div>
                 </div>
               </div>
               <div className="grid min-h-0 flex-1 gap-0 overflow-hidden xl:grid-cols-[minmax(520px,0.92fr)_minmax(720px,1.08fr)]">
                 <div className="min-h-0 overflow-y-auto border-r border-border/40 bg-muted/20 px-8 py-6">
-                  <div className="mb-3 flex items-center justify-between rounded-2xl border border-border/40 bg-card px-4 py-2.5">
-                    <div>
-                      <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">Execution Timeline</div>
-                      <div className="mt-1 text-[13px] text-foreground/90">View orchestration, branches and tool calls in execution order.</div>
-                    </div>
-                    <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">
-                      {snapshot.summary.completedSteps + snapshot.summary.failedSteps} steps
-                    </div>
-                  </div>
                   {displayRoot && (
                     <TraceTree node={displayRoot} selectedNodeId={selectedNode?.id || null} onSelectNode={setSelectedNode} />
                   )}

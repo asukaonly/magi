@@ -65,7 +65,7 @@ const SNAPSHOT: NormalizedExecutionTraceSnapshot = {
 };
 
 describe('toolchain drawer', () => {
-  it('constrains the detail pane inside the drawer so the right side can scroll independently', async () => {
+  it('renders as a right-side drawer with compact trace navigation', async () => {
     render(
       <ToolchainDrawer
         open
@@ -83,6 +83,7 @@ describe('toolchain drawer', () => {
     expect(dialog.className).toContain('flex');
     expect(dialog.className).toContain('flex-col');
     expect(dialog.className).toContain('overflow-hidden');
+    expect(dialog.className).not.toContain('w-full');
 
     const panesGrid = Array.from(document.body.querySelectorAll('div')).find((element) =>
       element.className.includes('xl:grid-cols-[minmax(520px,0.92fr)_minmax(720px,1.08fr)]')
@@ -92,5 +93,7 @@ describe('toolchain drawer', () => {
 
     const timestampValues = screen.getAllByText(/\d{2}:\d{2}:\d{2}\.\d{3}/);
     expect(timestampValues.length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('Execution Timeline')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 steps')).not.toBeInTheDocument();
   });
 });
