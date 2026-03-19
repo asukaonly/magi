@@ -255,11 +255,16 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
 
     prompt = service._render_temporal_summary_prompt(pack)
 
+    assert "Task:" in prompt
+    assert "Output JSON Schema:" in prompt
+    assert "Evidence Pack:" in prompt
     assert '"rule_hints"' in prompt
     assert '"top_terms"' in prompt
     assert '"growth"' in prompt
     assert '"window_change_candidates"' in prompt
     assert '"recurring_constraints"' in prompt
+    assert '"content"' in prompt
+    assert '"change_and_pattern"' in prompt
 
 
 @pytest.mark.asyncio

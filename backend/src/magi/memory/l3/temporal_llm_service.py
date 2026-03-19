@@ -77,6 +77,17 @@ Rules:
 - Return a JSON object with: content, key_topics, key_entities, sentiment_summary, change_and_pattern, importance_aggregate.
 - If evidence is weak, stay conservative and summarize only explicit content.
 """
+TEMPORAL_SUMMARY_OUTPUT_SCHEMA = {
+    "content": "A concise temporal recap grounded in the evidence pack.",
+    "key_topics": ["short_topic_label"],
+    "key_entities": [{"entity_id": "optional_entity_id", "entity_type": "optional_entity_type"}],
+    "sentiment_summary": {"tone": "optional_tone", "stress_level": 0.0},
+    "change_and_pattern": {
+        "changes": ["explicit shift observed in the window"],
+        "patterns": ["recurring behavior or constraint grounded in evidence"],
+    },
+    "importance_aggregate": 0.0,
+}
 
 
 class TemporalSummaryLLMService:
@@ -307,7 +318,22 @@ class TemporalSummaryLLMService:
                 for item in pack.events
             ],
         }
-        return json.dumps(payload, ensure_ascii=False, indent=2)
+        schema = json.dumps(TEMPORAL_SUMMARY_OUTPUT_SCHEMA, ensure_ascii=False, indent=2)
+        evidence = json.dumps(payload, ensure_ascii=False, indent=2)
+        return (
+            "Task:\n"
+            "Write a temporal summary for the provided memory window.\n"
+            "Use the rule_hints as guidance, not as independent evidence.\n"
+            "Prioritize explicit changes, recurring constraints, and high-importance events.\n\n"
+            "Output Requirements:\n"
+            "- Return one JSON object only.\n"
+            "- Keep content concise and evidence-grounded.\n"
+            "- Use empty lists or nulls when a field has no support.\n\n"
+            "Output JSON Schema:\n"
+            f"{schema}\n\n"
+            "Evidence Pack:\n"
+            f"{evidence}\n"
+        )
 
     def _get_adapter(self) -> Any | None:
         if self._scenario_llm_pool is None:
