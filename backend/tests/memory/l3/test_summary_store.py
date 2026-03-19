@@ -89,6 +89,76 @@ async def test_upsert_candidate_persists_event_and_task_links(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_search_summaries_fuses_bm25_and_vector_hits(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l3_store.initialize()
+
+    await l3_store._store_summary(
+        {
+            "summary_id": "summary-bm25",
+            "summary_type": "thematic",
+            "summary_category": "topic",
+            "period_start": 1.0,
+            "period_end": 2.0,
+            "content": "remote role planning recap",
+            "key_topics": ["job"],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "change_and_pattern": None,
+            "source_event_ids": ["evt-1"],
+            "source_event_count": 1,
+            "importance_aggregate": 0.7,
+            "event_type_distribution": {},
+            "generated_by_model": "rule-summary",
+            "generation_prompt": None,
+            "generation_reason": "thematic:topic:job",
+            "created_at": 1.0,
+            "updated_at": 1.0,
+        }
+    )
+    await l3_store._store_summary(
+        {
+            "summary_id": "summary-vector",
+            "summary_type": "thematic",
+            "summary_category": "topic",
+            "period_start": 1.0,
+            "period_end": 2.0,
+            "content": "growth oriented career summary",
+            "key_topics": ["career"],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "change_and_pattern": None,
+            "source_event_ids": ["evt-2"],
+            "source_event_count": 1,
+            "importance_aggregate": 0.8,
+            "event_type_distribution": {},
+            "generated_by_model": "rule-summary",
+            "generation_prompt": None,
+            "generation_reason": "thematic:topic:career",
+            "created_at": 1.0,
+            "updated_at": 1.0,
+        }
+    )
+
+    async def _fake_bm25(_query: str, *, limit: int = 20):  # type: ignore[no-untyped-def]
+        _ = limit
+        return [("summary-bm25", -1.0)]
+
+    async def _fake_semantic(*, query: str, summary_type: str | None, limit: int):  # type: ignore[no-untyped-def]
+        _ = query, summary_type, limit
+        return [{"summary_id": "summary-vector"}]
+
+    monkeypatch.setattr(l3_store, "bm25_search", _fake_bm25)
+    monkeypatch.setattr(l3_store, "_semantic_search_summaries", _fake_semantic)
+
+    results = await l3_store.search_summaries(query="career planning", summary_type="thematic", limit=5)
+
+    assert [item["summary_id"] for item in results] == ["summary-bm25", "summary-vector"]
+
+
+@pytest.mark.asyncio
 async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_path, monkeypatch: pytest.MonkeyPatch):
     from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore

@@ -15,6 +15,7 @@ import aiosqlite
 from ...llm import ScenarioLLMPool
 from ..embedding_service import MemoryEmbeddingService
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
+from ..hybrid_retrieval.handlers import rrf_fuse
 from ..l1.event_store import L1EventStore
 from ..sqlite_vec_index import SqliteVecIndex
 from .models import L3Candidate
@@ -320,23 +321,39 @@ class L3SummaryStore:
         summary_type: Optional[str] = None,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
-        """Search summaries using sqlite-vec and fall back to keyword matching."""
+        """Search summaries using BM25 + vector + keyword fusion."""
         await self.initialize()
-        semantic = await self._semantic_search_summaries(query=query, summary_type=summary_type, limit=limit)
-        if semantic:
-            return semantic
-        sql = "SELECT * FROM summaries WHERE content LIKE ?"
-        args: List[Any] = [f"%{query}%"]
-        if summary_type:
-            sql += " AND summary_type = ?"
-            args.append(summary_type)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
-        args.append(int(limit))
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        return [self._row_to_dict(row) for row in rows]
+        if not query.strip():
+            return []
+
+        fetch_k = max(int(limit) * 5, 20)
+        bm25_task = asyncio.ensure_future(self.bm25_search(query, limit=fetch_k))
+        semantic_task = asyncio.ensure_future(self._semantic_search_summaries(query=query, summary_type=summary_type, limit=fetch_k))
+        keyword_task = asyncio.ensure_future(self._keyword_search_summaries(query=query, summary_type=summary_type, limit=fetch_k))
+
+        results_or_errors = await asyncio.gather(bm25_task, semantic_task, keyword_task, return_exceptions=True)
+
+        bm25_ids: List[str] = [summary_id for summary_id, _score in results_or_errors[0]] if isinstance(results_or_errors[0], list) else []
+        semantic_ids: List[str] = [item["summary_id"] for item in results_or_errors[1]] if isinstance(results_or_errors[1], list) else []
+        keyword_ids: List[str] = [item["summary_id"] for item in results_or_errors[2]] if isinstance(results_or_errors[2], list) else []
+
+        for index, result in enumerate(results_or_errors):
+            if isinstance(result, BaseException):
+                logger.warning("L3 search path %d failed: %s", index, result)
+
+        if not bm25_ids and not semantic_ids and not keyword_ids:
+            return []
+
+        fused = rrf_fuse(
+            [bm25_ids, semantic_ids, keyword_ids],
+            [1.0, 1.0, 1.0],
+            k=60,
+        )
+        summary_ids = [summary_id for summary_id, _score in fused[:fetch_k]]
+        if not summary_ids:
+            return []
+        summaries = await self._fetch_summaries_by_ids(summary_ids, summary_type=summary_type)
+        return summaries[:limit]
 
     async def list_summaries(self, *, limit: int = 100) -> List[Dict[str, Any]]:
         """List most recent summaries."""
@@ -706,6 +723,47 @@ class L3SummaryStore:
             if len(ranked) >= limit:
                 break
         return ranked
+
+    async def _keyword_search_summaries(
+        self,
+        *,
+        query: str,
+        summary_type: Optional[str],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        sql = "SELECT * FROM summaries WHERE content LIKE ?"
+        args: List[Any] = [f"%{query}%"]
+        if summary_type:
+            sql += " AND summary_type = ?"
+            args.append(summary_type)
+        sql += " ORDER BY updated_at DESC LIMIT ?"
+        args.append(int(limit))
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    async def _fetch_summaries_by_ids(
+        self,
+        summary_ids: List[str],
+        *,
+        summary_type: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        if not summary_ids:
+            return []
+        placeholders = ", ".join("?" for _ in summary_ids)
+        sql = f"SELECT * FROM summaries WHERE summary_id IN ({placeholders})"
+        args: List[Any] = list(summary_ids)
+        if summary_type:
+            sql += " AND summary_type = ?"
+            args.append(summary_type)
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        summaries_by_id = {str(row["summary_id"]): self._row_to_dict(row) for row in rows}
+        return [summaries_by_id[summary_id] for summary_id in summary_ids if summary_id in summaries_by_id]
 
     async def _schedule_summary_embedding(self, summary: Dict[str, Any]) -> None:
         if not self._vector_enabled:
