@@ -131,6 +131,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             get_sensor_hub=lambda: self._sensor_hub,
             memory=memory,
             other_memory=other_memory,
+            unified_memory=unified_memory,
             max_fact_memory=self._max_fact_memory,
             trace_read_service=trace_read_service,
         )

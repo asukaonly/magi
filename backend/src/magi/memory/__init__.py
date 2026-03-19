@@ -21,7 +21,13 @@ from .l2.entity_catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
 from .l2.models import ManualL2EventRequest
 from .l2.pipeline import L2Pipeline
+from .l3.contradiction_service import ContradictionInsightService
+from .l3.models import ContradictionPacket, L3Candidate, StateChangePacket, TaskOutcomePacket, TrendShiftPacket
+from .l3.state_change_service import StateChangeService
 from .l3.summary_store import L3SummaryStore
+from .l3.task_reflection_service import TaskReflectionService
+from .l3.trend_shift_service import TrendShiftService
+from .l3.validator import validate_candidate
 from .l4.procedural_memory import L4ProceduralMemoryStore
 
 logger = logging.getLogger(__name__)
@@ -53,6 +59,9 @@ class UnifiedMemoryStore:
         enable_l1_vectors: bool = True,
         enable_l3_vectors: bool = True,
         enable_l4_vectors: bool = True,
+        enable_l3_llm_summary: bool = True,
+        temporal_l3_llm_timeout_seconds: float = 3.0,
+        temporal_l3_llm_min_event_count: int = 2,
         identity_resolver: IdentityResolver | None = None,
     ) -> None:
         from ..utils.runtime import get_runtime_paths
@@ -82,6 +91,10 @@ class UnifiedMemoryStore:
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
         self.identity_resolver = identity_resolver or IdentityResolver(db_path=shared_memory_db)
+        self._contradiction_service = ContradictionInsightService()
+        self._task_reflection_service = TaskReflectionService()
+        self._state_change_service = StateChangeService()
+        self._trend_shift_service = TrendShiftService()
 
         if enable_l0:
             self.l0 = L0WorkingMemoryStore(
@@ -106,6 +119,7 @@ class UnifiedMemoryStore:
                 l1_store=self.l1,
                 entity_catalog=self.l2_entity_catalog,
                 llm_service=self.l2_llm_service,
+                state_change_callback=self._handle_l2_state_change_outcomes,
             )
         if enable_l3:
             self.l3 = L3SummaryStore(
@@ -113,6 +127,10 @@ class UnifiedMemoryStore:
                 embedding_service=embedding_service,
                 vector_enabled=enable_l3_vectors,
                 async_embeddings=async_embeddings,
+                enable_temporal_llm_summary=enable_l3_llm_summary,
+                temporal_llm_timeout_seconds=temporal_l3_llm_timeout_seconds,
+                temporal_llm_min_event_count=temporal_l3_llm_min_event_count,
+                scenario_llm_pool=scenario_llm_pool,
             )
         if enable_l4:
             self.l4 = L4ProceduralMemoryStore(
@@ -248,6 +266,142 @@ class UnifiedMemoryStore:
             period_end=period_end,
         )
 
+    async def generate_thematic_summary(
+        self,
+        *,
+        topic: str,
+        period_start: Optional[float] = None,
+        period_end: Optional[float] = None,
+        min_source_count: int = 2,
+    ) -> Optional[Dict[str, Any]]:
+        """Generate a topic-oriented thematic L3 summary."""
+        if self.l1 is None or self.l3 is None:
+            return None
+        return await self.l3.generate_thematic_summary(
+            l1_store=self.l1,
+            topic=topic,
+            period_start=period_start,
+            period_end=period_end,
+            min_source_count=min_source_count,
+        )
+
+    async def persist_l3_candidate(
+        self,
+        *,
+        candidate: L3Candidate,
+        task_outcome: TaskOutcomePacket | None = None,
+        source_task_ids: list[str] | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Validate and persist an explicit L3 candidate."""
+        if self.l1 is None or self.l3 is None:
+            return None
+
+        evidence_events: list[dict[str, Any]] = []
+        for event_id in candidate.source_event_ids:
+            event = await self.l1.get_memory_event(event_id)
+            if event is not None:
+                evidence_events.append(event.to_dict() if hasattr(event, "to_dict") else dict(event))
+
+        decision = validate_candidate(
+            candidate,
+            evidence_events=evidence_events,
+            task_outcome=task_outcome,
+        )
+        if decision.action != "accept":
+            return None
+
+        task_ids = list(source_task_ids or [])
+        if task_outcome is not None and task_outcome.task_id not in task_ids:
+            task_ids.append(task_outcome.task_id)
+        return await self.l3.upsert_candidate(candidate=candidate, source_task_ids=task_ids)
+
+    async def persist_task_outcome_reflection(
+        self,
+        task_outcome: TaskOutcomePacket,
+    ) -> Optional[Dict[str, Any]]:
+        """Build and persist a task-driven L3 reflection when it has user value."""
+        candidate = await self._task_reflection_service.build_candidate(task_outcome)
+        if candidate is None:
+            return None
+        return await self.persist_l3_candidate(
+            candidate=candidate,
+            task_outcome=task_outcome,
+            source_task_ids=[task_outcome.task_id],
+        )
+
+    async def persist_state_change_insight(
+        self,
+        packet: StateChangePacket,
+    ) -> Optional[Dict[str, Any]]:
+        """Build and persist an insight summary from L2 reconcile outcomes."""
+        candidate = await self._state_change_service.build_candidate(packet)
+        if candidate is None:
+            return None
+        return await self.persist_l3_candidate(candidate=candidate)
+
+    async def persist_contradiction_insight(
+        self,
+        packet: ContradictionPacket,
+    ) -> Optional[Dict[str, Any]]:
+        """Build and persist a conflict-resolution insight from contradicted outcomes."""
+        candidate = await self._contradiction_service.build_candidate(packet)
+        if candidate is None:
+            return None
+        return await self.persist_l3_candidate(candidate=candidate)
+
+    async def persist_trend_shift_insight(
+        self,
+        packet: TrendShiftPacket,
+    ) -> Optional[Dict[str, Any]]:
+        """Build and persist a trend-shift insight from long-span reconcile outcomes."""
+        candidate = await self._trend_shift_service.build_candidate(packet)
+        if candidate is None:
+            return None
+        return await self.persist_l3_candidate(candidate=candidate)
+
+    async def _handle_l2_state_change_outcomes(
+        self,
+        entity_id: str,
+        entity_type: str,
+        outcomes: list[dict[str, Any]],
+    ) -> None:
+        await self.persist_state_change_insight(
+            StateChangePacket(
+                entity_id=entity_id,
+                entity_type=entity_type,
+                outcomes=outcomes,
+            )
+        )
+        contradiction_source_ids: list[str] = []
+        contradictions: list[dict[str, Any]] = []
+        for outcome in outcomes:
+            if str(outcome.get("status") or "") != "contradicted":
+                continue
+            contradictions.append(
+                {
+                    "trait_name": str(outcome.get("trait_name") or ""),
+                    "winning_value": str(outcome.get("winning_value") or ""),
+                }
+            )
+            for event_id in outcome.get("evidence_event_ids", []):
+                event_id_str = str(event_id).strip()
+                if event_id_str and event_id_str not in contradiction_source_ids:
+                    contradiction_source_ids.append(event_id_str)
+        if contradictions and contradiction_source_ids:
+            await self.persist_contradiction_insight(
+                ContradictionPacket(
+                    source_event_ids=contradiction_source_ids,
+                    contradictions=contradictions,
+                )
+            )
+        await self.persist_trend_shift_insight(
+            TrendShiftPacket(
+                entity_id=entity_id,
+                entity_type=entity_type,
+                outcomes=outcomes,
+            )
+        )
+
     async def search(self, query: str, *, search_type: str = "detail", limit: int = 10) -> list[dict[str, Any]]:
         """Perform a simple layer-aware search without the retrieval router."""
         if search_type in {"detail", "hybrid", "keyword"} and self.l1 is not None:
@@ -286,7 +440,16 @@ class UnifiedMemoryStore:
         if self.l0 is not None:
             removed["expired_sessions"] = len(await self.l0.expire_idle_sessions())
             await self.l0.checkpoint_all()
-        _ = older_than_days
+        if self.l1 is not None and self.l3 is not None:
+            cutoff = time.time() - (max(int(older_than_days), 0) * 86400)
+            candidate_event_ids = await self.l1.list_compressible_event_ids(
+                older_than=cutoff,
+                limit=10_000,
+            )
+            linked_event_ids = await self.l3.filter_linked_event_ids(candidate_event_ids)
+            for event_id in linked_event_ids:
+                if await self.l1.mark_deleted(event_id):
+                    removed["deleted_events"] += 1
         return removed
 
     async def run_maintenance(self, retention_days: int = 30) -> Dict[str, int]:

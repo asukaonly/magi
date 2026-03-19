@@ -496,11 +496,18 @@ class L3Handler:
             return []
 
         summary_type = conditions.summary_types[0] if conditions.summary_types else None
+        summary_category = conditions.summary_categories[0] if conditions.summary_categories else None
         fetch_k = max(conditions.limit * 5, 20)
 
-        bm25_task = asyncio.ensure_future(self._bm25_path(conditions.content_query, fetch_k))
-        vec_task = asyncio.ensure_future(self._vector_path(conditions.content_query, summary_type, fetch_k))
-        kw_task = asyncio.ensure_future(self._keyword_path(conditions.content_query, summary_type, fetch_k))
+        bm25_task = asyncio.ensure_future(
+            self._bm25_path(conditions.content_query, summary_type, summary_category, fetch_k)
+        )
+        vec_task = asyncio.ensure_future(
+            self._vector_path(conditions.content_query, summary_type, summary_category, fetch_k)
+        )
+        kw_task = asyncio.ensure_future(
+            self._keyword_path(conditions.content_query, summary_type, summary_category, fetch_k)
+        )
 
         results_or_errors = await asyncio.gather(bm25_task, vec_task, kw_task, return_exceptions=True)
 
@@ -526,28 +533,56 @@ class L3Handler:
         if not top_ids:
             return []
 
-        results = await self._fetch_by_ids(top_ids, summary_type)
+        results = await self._fetch_by_ids(top_ids, summary_type, summary_category)
         if time_range and results:
             results = self._filter_by_time(results, time_range)
         return results[:conditions.limit]
 
-    async def _bm25_path(self, query: str, limit: int) -> List[str]:
+    async def _bm25_path(
+        self,
+        query: str,
+        summary_type: Optional[str],
+        summary_category: Optional[str],
+        limit: int,
+    ) -> List[str]:
         try:
-            hits = await self._store.bm25_search(query, limit=limit)
+            hits = await self._store.bm25_search(
+                query,
+                summary_type=summary_type,
+                summary_category=summary_category,
+                limit=limit,
+            )
             return [sid for sid, _score in hits]
         except Exception as exc:
             logger.warning("L3 BM25 path failed: %s", exc)
             return []
 
-    async def _vector_path(self, query: str, summary_type: Optional[str], limit: int) -> List[str]:
+    async def _vector_path(
+        self,
+        query: str,
+        summary_type: Optional[str],
+        summary_category: Optional[str],
+        limit: int,
+    ) -> List[str]:
         try:
-            results = await self._store._semantic_search_summaries(query=query, summary_type=summary_type, limit=limit)
+            results = await self._store._semantic_search_summaries(
+                query=query,
+                summary_type=summary_type,
+                summary_category=summary_category,
+                limit=limit,
+            )
             return [r["summary_id"] for r in results]
         except Exception as exc:
             logger.warning("L3 vector path failed: %s", exc)
             return []
 
-    async def _keyword_path(self, query: str, summary_type: Optional[str], limit: int) -> List[str]:
+    async def _keyword_path(
+        self,
+        query: str,
+        summary_type: Optional[str],
+        summary_category: Optional[str],
+        limit: int,
+    ) -> List[str]:
         try:
             import aiosqlite
 
@@ -556,6 +591,9 @@ class L3Handler:
             if summary_type:
                 sql += " AND summary_type = ?"
                 args.append(summary_type)
+            if summary_category:
+                sql += " AND summary_category = ?"
+                args.append(summary_category)
             sql += " ORDER BY updated_at DESC LIMIT ?"
             args.append(limit)
             async with aiosqlite.connect(self._store.db_path) as db:
@@ -566,7 +604,12 @@ class L3Handler:
             logger.warning("L3 keyword path failed: %s", exc)
             return []
 
-    async def _fetch_by_ids(self, summary_ids: List[str], summary_type: Optional[str]) -> List[Dict[str, Any]]:
+    async def _fetch_by_ids(
+        self,
+        summary_ids: List[str],
+        summary_type: Optional[str],
+        summary_category: Optional[str],
+    ) -> List[Dict[str, Any]]:
         if not summary_ids:
             return []
         import aiosqlite
@@ -577,6 +620,9 @@ class L3Handler:
         if summary_type:
             sql += " AND summary_type = ?"
             args.append(summary_type)
+        if summary_category:
+            sql += " AND summary_category = ?"
+            args.append(summary_category)
         async with aiosqlite.connect(self._store.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:

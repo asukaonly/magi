@@ -8,7 +8,7 @@ import re
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from ...core.logger import get_logger
 from ..event_contracts import MemoryEvent
@@ -77,11 +77,13 @@ class L2Pipeline:
         l1_store: Optional[L1EventStore] = None,
         entity_catalog: Optional[L2EntityCatalog] = None,
         llm_service: Optional[L2LLMService] = None,
+        state_change_callback: Callable[[str, str, list[dict[str, Any]]], Awaitable[None]] | None = None,
     ) -> None:
         self._cognition_store = cognition_store
         self._l1_store = l1_store
         self._entity_catalog = entity_catalog
         self._llm_service = llm_service
+        self._state_change_callback = state_change_callback
         self._extract_queue: asyncio.Queue[MemoryEvent | None] = asyncio.Queue()
         self._reconcile_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
         self._snapshot_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
@@ -230,6 +232,11 @@ class L2Pipeline:
                         total_outcomes += len(outcomes)
                         if outcomes:
                             snapshot_candidates.add(entity_id)
+                            await self._emit_state_change_insight(
+                                entity_id=entity_id,
+                                entity_type=self._entity_type_from_id(entity_id),
+                                outcomes=outcomes,
+                            )
                 if snapshot_candidates:
                     await self.enqueue_snapshot_refresh(sorted(snapshot_candidates))
                 self._stats.reconcile_completed += 1
@@ -249,6 +256,25 @@ class L2Pipeline:
                 )
             finally:
                 self._reconcile_queue.task_done()
+
+    async def _emit_state_change_insight(
+        self,
+        *,
+        entity_id: str,
+        entity_type: str,
+        outcomes: list[dict[str, Any]],
+    ) -> None:
+        if self._state_change_callback is None or not outcomes:
+            return
+        try:
+            await self._state_change_callback(entity_id, entity_type, outcomes)
+        except Exception:
+            logger.exception(
+                "L2 state change insight callback failed",
+                entity_id=entity_id,
+                entity_type=entity_type,
+                outcome_count=len(outcomes),
+            )
 
     async def _run_snapshot_worker(self) -> None:
         while True:

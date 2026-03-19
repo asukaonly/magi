@@ -101,6 +101,7 @@ class L3Conditions:
 
     content_query: str = ""
     summary_types: Optional[List[str]] = None
+    summary_categories: Optional[List[str]] = None
     limit: int = 5
 
 

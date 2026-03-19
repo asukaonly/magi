@@ -464,6 +464,45 @@ class L1EventStore:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
+    async def list_compressible_event_ids(
+        self,
+        *,
+        older_than: float,
+        limit: int = 1000,
+    ) -> List[str]:
+        """List non-deleted compressible L1 events older than a cutoff timestamp."""
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                f"""
+                SELECT event_id
+                FROM (
+                    SELECT event_id, timestamp
+                    FROM {FACT_EVENTS_TABLE}
+                    WHERE deleted_at IS NULL
+                      AND retention_class = ?
+                      AND timestamp < ?
+                    UNION ALL
+                    SELECT event_id, timestamp
+                    FROM {RUNTIME_OBSERVATIONS_TABLE}
+                    WHERE deleted_at IS NULL
+                      AND retention_class = ?
+                      AND timestamp < ?
+                )
+                ORDER BY timestamp ASC
+                LIMIT ?
+                """,
+                (
+                    int(RetentionClass.COMPRESSIBLE),
+                    float(older_than),
+                    int(RetentionClass.COMPRESSIBLE),
+                    float(older_than),
+                    int(limit),
+                ),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [str(row[0]) for row in rows]
+
     async def clear(self) -> int:
         """Delete all events and return the removed count."""
         count = await self.count_events()
@@ -486,15 +525,22 @@ class L1EventStore:
     async def mark_deleted(self, event_id: str, *, deleted_at: Optional[float] = None) -> bool:
         """Soft-delete an event."""
         await self.initialize()
+        deleted_timestamp = float(deleted_at or time.time())
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 f"UPDATE {FACT_EVENTS_TABLE} SET deleted_at = ? WHERE event_id = ?",
-                (float(deleted_at or time.time()), event_id),
+                (deleted_timestamp, event_id),
             )
-            await db.execute(
-                "DELETE FROM l1_events_fts WHERE event_id = ?",
-                (event_id,),
-            )
+            if cursor.rowcount == 0:
+                cursor = await db.execute(
+                    f"UPDATE {RUNTIME_OBSERVATIONS_TABLE} SET deleted_at = ? WHERE event_id = ?",
+                    (deleted_timestamp, event_id),
+                )
+            if cursor.rowcount > 0:
+                await db.execute(
+                    "DELETE FROM l1_events_fts WHERE event_id = ?",
+                    (event_id,),
+                )
             await db.commit()
         if cursor.rowcount > 0 and self._vector_index is not None:
             await self._vector_index.delete_entity(entity_id=event_id)

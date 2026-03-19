@@ -52,7 +52,7 @@ def _make_l3_store(tmp_path, summaries=None):
         CREATE TABLE IF NOT EXISTS summaries (
             summary_id TEXT PRIMARY KEY, summary_type TEXT, summary_category TEXT,
             period_start REAL, period_end REAL, content TEXT,
-            key_topics TEXT, key_entities TEXT, sentiment_summary TEXT,
+            key_topics TEXT, key_entities TEXT, sentiment_summary TEXT, change_and_pattern TEXT,
             source_event_ids TEXT, source_event_count INTEGER,
             importance_aggregate REAL, event_type_distribution TEXT,
             generated_by_model TEXT, generation_prompt TEXT,

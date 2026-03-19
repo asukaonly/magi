@@ -123,6 +123,25 @@ class _FakeIntentDecision:
         }
 
 
+class _FakeL1Store:
+    def __init__(self, events: list[dict[str, object]]) -> None:
+        self._events = events
+
+    async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return list(self._events)
+
+
+class _FakeUnifiedMemory:
+    def __init__(self, events: list[dict[str, object]] | None = None) -> None:
+        self.l1 = _FakeL1Store(events or [])
+        self.task_packets = []
+
+    async def persist_task_outcome_reflection(self, packet):  # type: ignore[no-untyped-def]
+        self.task_packets.append(packet)
+        return {"summary_id": "summary-1", "summary_category": "task_reflection"}
+
+
 @pytest.mark.asyncio
 async def test_record_tool_interaction_preserves_trace_identity() -> None:
     action_emitter = _FakeActionEmitter()
@@ -430,3 +449,144 @@ async def test_handle_emits_direct_llm_trace_node_when_result_has_llm_trace() ->
     assert llm_payload["metrics"]["model"] == "gpt-test"
     assert llm_payload["metrics"]["input_tokens"] == 64
     assert llm_payload["tags"]["role"] == "main"
+
+
+@pytest.mark.asyncio
+async def test_handle_records_task_reflection_for_explore_completion() -> None:
+    action_emitter = _FakeActionEmitter()
+    unified_memory = _FakeUnifiedMemory(
+        events=[
+            {"event_id": "evt-1"},
+            {"event_id": "evt-2"},
+        ]
+    )
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        unified_memory=unified_memory,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type="EXPLORE_TASK_COMPLETED",
+        payload={
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "root_user_message": "Analyze the repository architecture",
+            "markdown_dossier": "# Request\nAnalyze the repository architecture",
+            "orchestration_id": "orch-1",
+            "turn_id": "turn-1",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="Analyze the repository architecture",
+        incoming_fact_kind=IncomingFactKind.EXPLORE_TASK_COMPLETED,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            message="Analyze the repository architecture",
+            turn_id="turn-1",
+        ),
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.EXPLORE_TASK_RENDER,
+        response_text="Here is the final architecture analysis.",
+        root_user_message="Analyze the repository architecture",
+        correlation_id="corr-1",
+        orchestration_id="orch-1",
+        turn_id="turn-1",
+    )
+
+    outcome = await service.handle(context, result)
+
+    assert outcome.emitted is True
+    assert outcome.memory_updated is True
+    assert len(unified_memory.task_packets) == 1
+    packet = unified_memory.task_packets[0]
+    assert packet.task_id == "orch-1"
+    assert packet.task_kind == "user_goal_task"
+    assert packet.user_goal == "Analyze the repository architecture"
+    assert packet.result_summary == "Here is the final architecture analysis."
+    assert packet.evidence_event_ids == ["evt-1", "evt-2"]
+
+
+@pytest.mark.asyncio
+async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> None:
+    action_emitter = _FakeActionEmitter()
+    unified_memory = _FakeUnifiedMemory(events=[{"event_id": "evt-1"}])
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        unified_memory=unified_memory,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "message": "Hello there",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="Hello there",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            message="Hello there",
+            turn_id="turn-1",
+        ),
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="Hi!",
+        correlation_id="corr-1",
+        turn_id="turn-1",
+    )
+
+    await service.handle(context, result)
+
+    assert unified_memory.task_packets == []
