@@ -84,6 +84,30 @@ async def test_clear_skips_missing_registry_table_when_index_state_is_stale(tmp_
 
 
 @pytest.mark.asyncio
+async def test_clear_keeps_registry_table_when_name_shares_vec_prefix(tmp_path):
+    idx = SqliteVecIndex(
+        db_path=str(tmp_path / "vec.db"),
+        registry_table="l1_event_vectors",
+        entity_column="event_id",
+        vec_table_prefix="l1_event_vec",
+    )
+    idx._db = await aiosqlite.connect(str(tmp_path / "vec.db"))
+    idx._db.row_factory = aiosqlite.Row
+    idx._initialized = True
+
+    try:
+        await idx.clear()
+
+        async with idx._db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'l1_event_vectors'"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        assert [row[0] for row in rows] == ["l1_event_vectors"]
+    finally:
+        await idx.close()
+
+
+@pytest.mark.asyncio
 async def test_upsert_recreates_missing_registry_table_when_index_state_is_stale(tmp_path):
     idx = SqliteVecIndex(
         db_path=str(tmp_path / "vec.db"),

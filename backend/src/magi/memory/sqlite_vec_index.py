@@ -197,8 +197,8 @@ class SqliteVecIndex:
             db = self._require_db()
             await self._ensure_registry_schema(db)
             async with db.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ?",
-                (f"{self._vec_table_prefix}%",),
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ? AND name != ?",
+                (f"{self._vec_table_prefix}%", self._registry_table),
             ) as cursor:
                 vec_tables = [str(row[0]) for row in await cursor.fetchall()]
             for table_name in vec_tables:
