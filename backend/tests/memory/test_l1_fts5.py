@@ -248,6 +248,14 @@ class TestBm25Search:
         assert len(results) > 0
         assert results[0][0] == "evt-py"
 
+    async def test_bm25_search_ignores_single_quote_syntax(self, store: L1EventStore) -> None:
+        await store.store(_make_event(event_id="evt-py", raw_content="Python programming tutorial"))
+
+        results = await store.bm25_search("Python'", limit=10)
+
+        assert len(results) > 0
+        assert results[0][0] == "evt-py"
+
     async def test_bm25_search_empty_query(self, store: L1EventStore) -> None:
         await store.store(_make_event(raw_content="some content"))
         results = await store.bm25_search("", limit=10)

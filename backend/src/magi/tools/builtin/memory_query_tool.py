@@ -87,8 +87,18 @@ class MemoryQueryTool(Tool):
 
     def _get_service(self) -> HybridRetrievalService:
         """Return an initialized retrieval service when runtime memory is available."""
-        if self._service is None:
+        try:
+            runtime_memory = require_unified_memory()
+        except RuntimeError:
+            runtime_memory = None
+
+        if (
+            self._service is None
+            or runtime_memory is None
+            or getattr(self._service, "_memory", None) is not runtime_memory
+        ):
             self._service = self._build_service()
+
         if self._service is None:
             raise RuntimeError("unified_memory binding is not initialized")
         return self._service

@@ -93,14 +93,44 @@ class TestMemoryQueryTool:
         assert getattr(captured["llm_provider_bridge"], "llm", None) is fake_adapter
         assert tool._service is not None
 
+    def test_tool_rebuilds_service_when_runtime_memory_binding_changes(self, monkeypatch):
+        """Should rebuild the retrieval service if the bound unified memory instance changes."""
+        import magi.tools.builtin.memory_query_tool as memory_query_module
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+
+        first_memory = MagicMock(name="first_memory")
+        second_memory = MagicMock(name="second_memory")
+        current = {"memory": first_memory}
+
+        class _FakeHybridRetrievalService:
+            def __init__(self, unified_memory, *, llm_provider_bridge=None, config=None):
+                self._memory = unified_memory
+
+        monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: current["memory"])
+        monkeypatch.setattr(memory_query_module, "require_scenario_llm_pool", lambda: None)
+        monkeypatch.setattr(memory_query_module, "HybridRetrievalService", _FakeHybridRetrievalService)
+
+        tool = MemoryQueryTool()
+        assert tool._service is not None
+        assert tool._service._memory is first_memory
+
+        current["memory"] = second_memory
+
+        service = tool._get_service()
+        assert service._memory is second_memory
+
     @pytest.mark.asyncio
     async def test_tool_execution(self, monkeypatch):
         """Should execute query and return a retrieval payload."""
+        import magi.tools.builtin.memory_query_tool as memory_query_module
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
         from magi.tools.schema import ToolExecutionContext
 
+        fake_unified_memory = MagicMock(name="runtime_memory")
+        monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: fake_unified_memory)
         tool = MemoryQueryTool()
         tool._service = MagicMock()
+        tool._service._memory = fake_unified_memory
         tool._service.query = AsyncMock(
             return_value=MagicMock(
                 l0_workbench=[{"summary": "Current goal"}],
