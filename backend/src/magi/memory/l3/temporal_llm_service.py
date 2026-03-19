@@ -52,6 +52,21 @@ _STOP_TERMS = {
     "you",
     "your",
 }
+_CONSTRAINT_KEYWORDS = {
+    "avoid",
+    "budget",
+    "cannot",
+    "deadline",
+    "hybrid",
+    "must",
+    "need",
+    "prefer",
+    "priority",
+    "remote",
+    "salary",
+    "should",
+    "time",
+}
 
 TEMPORAL_SUMMARY_SYSTEM_PROMPT = """You generate temporal memory summaries for a local-first agent.
 
@@ -334,8 +349,70 @@ class TemporalSummaryLLMService:
             for event_type, count in sorted(event_type_distribution.items())
             if count > 1
         ]
+        ordered_items = sorted(
+            evidence_items,
+            key=lambda item: (float(item.timestamp) if item.timestamp is not None else float("inf")),
+        )
+        window_change_candidates = self._build_window_change_candidates(ordered_items)
+        recurring_constraints = self._build_recurring_constraints(evidence_items)
         return {
             "top_terms": [term for term, _count in term_counter.most_common(5)],
             "high_importance_event_ids": high_importance_event_ids,
             "repeated_event_types": repeated_event_types,
+            "window_change_candidates": window_change_candidates,
+            "recurring_constraints": recurring_constraints,
         }
+
+    def _build_window_change_candidates(
+        self,
+        evidence_items: list[TemporalEvidenceItem],
+    ) -> list[dict[str, object]]:
+        if len(evidence_items) < 2:
+            return []
+        early_terms = self._extract_ranked_terms(evidence_items[0].content)[:3]
+        late_terms = self._extract_ranked_terms(evidence_items[-1].content)[:3]
+        new_terms = [term for term in late_terms if term not in early_terms][:3]
+        dropped_terms = [term for term in early_terms if term not in late_terms][:3]
+        if not early_terms and not late_terms:
+            return []
+        return [
+            {
+                "kind": "first_last_focus_shift",
+                "from_event_id": evidence_items[0].event_id,
+                "to_event_id": evidence_items[-1].event_id,
+                "early_terms": early_terms,
+                "late_terms": late_terms,
+                "new_terms": new_terms,
+                "dropped_terms": dropped_terms,
+            }
+        ]
+
+    def _build_recurring_constraints(
+        self,
+        evidence_items: list[TemporalEvidenceItem],
+    ) -> list[dict[str, object]]:
+        hits: dict[str, list[str]] = {}
+        for item in evidence_items:
+            content = item.content.lower()
+            matched = [keyword for keyword in _CONSTRAINT_KEYWORDS if keyword in content]
+            for keyword in matched:
+                hits.setdefault(keyword, [])
+                if item.event_id not in hits[keyword]:
+                    hits[keyword].append(item.event_id)
+        recurring = [
+            {
+                "keyword": keyword,
+                "event_ids": event_ids,
+            }
+            for keyword, event_ids in sorted(hits.items())
+            if len(event_ids) >= 2
+        ]
+        return recurring
+
+    def _extract_ranked_terms(self, content: str) -> list[str]:
+        counter: Counter[str] = Counter()
+        for token in _TOP_TERM_PATTERN.findall(content.lower()):
+            if token in _STOP_TERMS:
+                continue
+            counter[token] += 1
+        return [term for term, _count in counter.most_common(5)]

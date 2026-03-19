@@ -71,6 +71,18 @@ async def test_build_temporal_evidence_pack_filters_runtime_and_preserves_import
     assert {"growth", "salary", "remote-work"} <= set(pack.rule_hints["top_terms"])
     assert pack.rule_hints["high_importance_event_ids"] == ["evt-1", "evt-2"]
     assert pack.rule_hints["repeated_event_types"] == []
+    assert pack.rule_hints["window_change_candidates"] == [
+        {
+            "kind": "first_last_focus_shift",
+            "from_event_id": "evt-1",
+            "to_event_id": "evt-2",
+            "early_terms": ["growth", "salary"],
+            "late_terms": ["remote-work"],
+            "new_terms": ["remote-work"],
+            "dropped_terms": ["growth", "salary"],
+        }
+    ]
+    assert pack.rule_hints["recurring_constraints"] == []
 
 
 def test_parse_temporal_llm_output_into_candidate() -> None:
@@ -232,6 +244,8 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
             "top_terms": ["growth", "portfolio"],
             "high_importance_event_ids": ["evt-1"],
             "repeated_event_types": ["UserMessage"],
+            "window_change_candidates": [{"kind": "first_last_focus_shift"}],
+            "recurring_constraints": [{"keyword": "remote", "event_ids": ["evt-1", "evt-2"]}],
         },
         events=[
             TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
@@ -244,3 +258,38 @@ def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
     assert '"rule_hints"' in prompt
     assert '"top_terms"' in prompt
     assert '"growth"' in prompt
+    assert '"window_change_candidates"' in prompt
+    assert '"recurring_constraints"' in prompt
+
+
+@pytest.mark.asyncio
+async def test_build_temporal_evidence_pack_extracts_recurring_constraints() -> None:
+    service = TemporalSummaryLLMService()
+
+    pack = service.build_evidence_pack(
+        events=[
+            {
+                "event_id": "evt-1",
+                "event_type": "UserMessage",
+                "raw_content": "I prefer remote work because time flexibility matters.",
+                "memory_domain": "user_authored",
+                "importance_score": 0.8,
+                "timestamp": 100.0,
+            },
+            {
+                "event_id": "evt-2",
+                "event_type": "AIResponse",
+                "raw_content": "We should optimize for remote roles first.",
+                "memory_domain": "interaction",
+                "importance_score": 0.6,
+                "timestamp": 120.0,
+            },
+        ],
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+    )
+
+    assert pack.rule_hints["recurring_constraints"] == [
+        {"keyword": "remote", "event_ids": ["evt-1", "evt-2"]}
+    ]
