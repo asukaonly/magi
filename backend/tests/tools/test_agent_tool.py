@@ -216,6 +216,7 @@ async def test_agent_tool_publishes_worker_trace_nodes_to_message_bus(monkeypatc
     trace_events = [item for item in published_events if item[0] in {TRACE_NODE_STARTED_EVENT_TYPE, TRACE_NODE_COMPLETED_EVENT_TYPE}]
     node_types = [payload["node_type"] for _, payload in trace_events]
     assert "worker_dispatch" in node_types
+    assert "worker_attempt" in node_types
     assert "worker" in node_types
     assert "llm_call" in node_types
     assert "tool_call" in node_types

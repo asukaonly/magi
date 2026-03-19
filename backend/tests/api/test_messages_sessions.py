@@ -607,6 +607,132 @@ def test_trace_snapshot_prefers_normalized_span_tree_without_ai_response(tmp_pat
     assert {"llm", "tool"} <= worker_child_kinds
 
 
+def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_path):
+    service = ChatTraceReadService()
+    service._l1_db_path = tmp_path / "events.sqlite3"
+    service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    _init_event_store(service._l1_db_path)
+
+    _insert_event(
+        service._l1_db_path,
+        "UserMessage",
+        {"user_id": "u1", "session_id": "s1", "message": "scan auth flow", "turn_id": "turn_retry"},
+        4000,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_retry",
+            "turn_id": "turn_retry",
+            "span_id": "turn_retry:worker_dispatch:subtask_1",
+            "parent_span_id": "turn_retry:turn",
+            "node_type": "worker_dispatch",
+            "name": "Worker dispatch",
+            "status": "completed",
+            "started_at_ms": 4000000,
+            "ended_at_ms": 4000000,
+            "duration_ms": 0,
+            "tags": {
+                "user_id": "u1",
+                "session_id": "s1",
+                "subtask_id": "subtask_1",
+                "orchestration_id": "orch_retry",
+            },
+        },
+        4000,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_FAILED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_retry",
+            "turn_id": "turn_retry",
+            "span_id": "turn_retry:worker_attempt:subtask_1:1",
+            "parent_span_id": "turn_retry:worker_dispatch:subtask_1",
+            "node_type": "worker_attempt",
+            "name": "Attempt 1",
+            "status": "failed",
+            "attempt_index": 1,
+            "retry_count": 0,
+            "started_at_ms": 4000000,
+            "ended_at_ms": 4000300,
+            "duration_ms": 300,
+            "error": {"message": "rate limited"},
+            "tags": {
+                "user_id": "u1",
+                "session_id": "s1",
+                "subtask_id": "subtask_1",
+                "orchestration_id": "orch_retry",
+            },
+        },
+        4000.3,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_retry",
+            "turn_id": "turn_retry",
+            "span_id": "turn_retry:worker_attempt:subtask_1:2",
+            "parent_span_id": "turn_retry:worker_dispatch:subtask_1",
+            "node_type": "worker_attempt",
+            "name": "Attempt 2",
+            "status": "completed",
+            "attempt_index": 2,
+            "retry_count": 1,
+            "started_at_ms": 4000400,
+            "ended_at_ms": 4000900,
+            "duration_ms": 500,
+            "tags": {
+                "user_id": "u1",
+                "session_id": "s1",
+                "subtask_id": "subtask_1",
+                "orchestration_id": "orch_retry",
+            },
+        },
+        4000.9,
+    )
+    _insert_event(
+        service._l1_db_path,
+        "TRACE_NODE_COMPLETED",
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "trace_id": "trace:turn_retry",
+            "turn_id": "turn_retry",
+            "span_id": "turn_retry:turn",
+            "parent_span_id": None,
+            "node_type": "turn",
+            "name": "Chat turn",
+            "status": "completed",
+            "started_at_ms": 4000000,
+            "ended_at_ms": 4001000,
+            "duration_ms": 1000,
+            "tags": {"user_id": "u1", "session_id": "s1"},
+        },
+        4001,
+    )
+
+    snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_retry")
+
+    assert snapshot is not None
+    dispatch_node = next(child for child in snapshot["root"]["children"] if child["kind"] == "dispatch")
+    attempt_nodes = dispatch_node["children"]
+    assert len(attempt_nodes) == 2
+    assert [item["kind"] for item in attempt_nodes] == ["attempt", "attempt"]
+    assert attempt_nodes[0]["status"] == "failed"
+    assert attempt_nodes[1]["status"] == "completed"
+    assert attempt_nodes[1]["metadata"]["attempt_index"] == 2
+    assert attempt_nodes[1]["metadata"]["retry_count"] == 1
+
+
 def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     service = ChatTraceReadService()
     service._l1_db_path = tmp_path / "events.sqlite3"

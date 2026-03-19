@@ -629,6 +629,7 @@ class ChatTraceReadService:
             "llm_call": "llm",
             "tool_call": "tool",
             "worker_dispatch": "dispatch",
+            "worker_attempt": "attempt",
             "response_emit": "response",
         }
         return mapping.get(node_type, node_type or "step")
