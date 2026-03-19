@@ -2113,6 +2113,7 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
             assert snapshot["core_traits"]["stress_level"] == "high"
             assert snapshot["current_stress_level"] == 1.0
             assert any(item["summary_category"] == "state_change" for item in summaries)
+            assert any(item["summary_category"] == "trend_shift" for item in summaries)
             messages = [record.getMessage() for record in caplog.records]
             assert any("L2 reconcile completed" in message for message in messages)
             assert any("L2 snapshot completed" in message for message in messages)

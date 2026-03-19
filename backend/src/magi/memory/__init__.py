@@ -22,10 +22,11 @@ from .l2.llm_service import L2LLMService
 from .l2.models import ManualL2EventRequest
 from .l2.pipeline import L2Pipeline
 from .l3.contradiction_service import ContradictionInsightService
-from .l3.models import ContradictionPacket, L3Candidate, StateChangePacket, TaskOutcomePacket
+from .l3.models import ContradictionPacket, L3Candidate, StateChangePacket, TaskOutcomePacket, TrendShiftPacket
 from .l3.state_change_service import StateChangeService
 from .l3.summary_store import L3SummaryStore
 from .l3.task_reflection_service import TaskReflectionService
+from .l3.trend_shift_service import TrendShiftService
 from .l3.validator import validate_candidate
 from .l4.procedural_memory import L4ProceduralMemoryStore
 
@@ -93,6 +94,7 @@ class UnifiedMemoryStore:
         self._contradiction_service = ContradictionInsightService()
         self._task_reflection_service = TaskReflectionService()
         self._state_change_service = StateChangeService()
+        self._trend_shift_service = TrendShiftService()
 
         if enable_l0:
             self.l0 = L0WorkingMemoryStore(
@@ -347,6 +349,16 @@ class UnifiedMemoryStore:
             return None
         return await self.persist_l3_candidate(candidate=candidate)
 
+    async def persist_trend_shift_insight(
+        self,
+        packet: TrendShiftPacket,
+    ) -> Optional[Dict[str, Any]]:
+        """Build and persist a trend-shift insight from long-span reconcile outcomes."""
+        candidate = await self._trend_shift_service.build_candidate(packet)
+        if candidate is None:
+            return None
+        return await self.persist_l3_candidate(candidate=candidate)
+
     async def _handle_l2_state_change_outcomes(
         self,
         entity_id: str,
@@ -382,6 +394,13 @@ class UnifiedMemoryStore:
                     contradictions=contradictions,
                 )
             )
+        await self.persist_trend_shift_insight(
+            TrendShiftPacket(
+                entity_id=entity_id,
+                entity_type=entity_type,
+                outcomes=outcomes,
+            )
+        )
 
     async def search(self, query: str, *, search_type: str = "detail", limit: int = 10) -> list[dict[str, Any]]:
         """Perform a simple layer-aware search without the retrieval router."""
