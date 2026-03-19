@@ -36,3 +36,31 @@ python benchmark/longmemeval/runner.py \
   --run-id oracle-smoke \
   --limit 5
 ```
+
+Replay-only flow:
+
+```bash
+python benchmark/longmemeval/replay_dataset.py \
+  --dataset data/longmemeval_oracle.json \
+  --output-root benchmark/outputs \
+  --run-id oracle-replay \
+  --limit 10
+```
+
+This writes `replay_manifest.jsonl` under `benchmark/outputs/longmemeval/<run-id>/`.
+
+Query-only flow:
+
+```bash
+python benchmark/longmemeval/query_dataset.py \
+  --dataset data/longmemeval_oracle.json \
+  --output-root benchmark/outputs \
+  --run-id oracle-replay \
+  --limit 10
+```
+
+This reopens the same persisted memory state under `benchmark/outputs/longmemeval/<run-id>/state/` and writes:
+
+- `predictions.jsonl`
+- `predictions_with_trace.jsonl`
+- `summary.json`
