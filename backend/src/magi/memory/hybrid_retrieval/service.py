@@ -61,6 +61,7 @@ class HybridRetrievalService:
 
     async def query(self, request: RetrievalQuery) -> RetrievalPayload:
         """Execute a layer-aware retrieval query."""
+        self._refresh_handlers()
         payload = RetrievalPayload(
             trace={
                 "query": request.query,
@@ -139,6 +140,17 @@ class HybridRetrievalService:
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
 
         return payload
+
+    def _refresh_handlers(self) -> None:
+        """Refresh layer handlers in case stores are initialized after service construction."""
+        self._l1 = L1Handler(self._memory.l1, self._config) if getattr(self._memory, "l1", None) else None
+        self._l2 = (
+            L2Handler(self._memory.l2, entity_catalog=getattr(self._memory, "l2_entity_catalog", None))
+            if getattr(self._memory, "l2", None)
+            else None
+        )
+        self._l3 = L3Handler(self._memory.l3, self._config) if getattr(self._memory, "l3", None) else None
+        self._l4 = L4Handler(self._memory.l4, self._config) if getattr(self._memory, "l4", None) else None
 
     async def _load_l0(self, session_id: str) -> List[Dict[str, Any]]:
         """Load L0 workbench data."""

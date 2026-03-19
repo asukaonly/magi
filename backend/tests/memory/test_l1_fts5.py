@@ -107,6 +107,8 @@ def _make_event(
         retention_class=RetentionClass.COMPRESSIBLE,
         session_id=None,
         user_id=None,
+        runtime_user_id=None,
+        memory_owner_id=None,
         task_id=None,
         goal_id=None,
         raw_content=raw_content,
@@ -235,6 +237,14 @@ class TestBm25Search:
         await store.store(_make_event(event_id="evt-js", raw_content="JavaScript web development"))
 
         results = await store.bm25_search("Python", limit=10)
+        assert len(results) > 0
+        assert results[0][0] == "evt-py"
+
+    async def test_bm25_search_ignores_question_mark_syntax(self, store: L1EventStore) -> None:
+        await store.store(_make_event(event_id="evt-py", raw_content="Python programming tutorial"))
+
+        results = await store.bm25_search("Python?", limit=10)
+
         assert len(results) > 0
         assert results[0][0] == "evt-py"
 

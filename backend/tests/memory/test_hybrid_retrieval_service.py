@@ -184,6 +184,17 @@ class TestServiceLayerRouting:
         assert l3.bm25_search.called
 
     @pytest.mark.asyncio
+    async def test_summary_mode_picks_up_l3_initialized_after_service_construction(self, tmp_path):
+        mem = _make_memory(l3=None)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        late_l3 = _make_l3_store(tmp_path, [{"summary_id": "s1", "content": "summary"}])
+        mem.l3 = late_l3
+
+        await svc.query(_make_request(query_mode="summary"))
+
+        assert late_l3.bm25_search.called
+
+    @pytest.mark.asyncio
     async def test_experience_mode_queries_l4(self, tmp_path):
         l4 = _make_l4_store(tmp_path, [{"skill_id": "p1", "skill_name": "test"}])
         mem = _make_memory(l4=l4)
