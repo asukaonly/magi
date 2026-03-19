@@ -174,8 +174,16 @@ export interface L3Summary {
   period_end: number;
   content: string;
   key_topics: string[];
+  key_entities?: Array<{ entity_id?: string; entity_type?: string }>;
+  sentiment_summary?: Record<string, unknown> | null;
+  change_and_pattern?: { changes?: string[]; patterns?: string[] } | null;
+  source_event_ids?: string[];
   source_event_count: number;
+  importance_aggregate?: number;
+  event_type_distribution?: Record<string, number>;
+  generated_by_model?: string | null;
   created_at: number;
+  updated_at?: number;
 }
 
 // L4 Procedural Types
@@ -277,7 +285,7 @@ export const memoryApi = {
     }) as unknown as Promise<L2GraphConflictRule>,
 
   // L3 Reflection
-  getL3Summaries: (params?: { limit?: number; summary_type?: string }) =>
+  getL3Summaries: (params?: { limit?: number; summary_type?: string; summary_category?: string }) =>
     api.get<L3Summary[]>('/memory/l3/summaries', { params }) as unknown as Promise<L3Summary[]>,
 
   // L4 Procedural

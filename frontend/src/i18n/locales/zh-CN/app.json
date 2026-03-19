@@ -845,7 +845,31 @@
         "cadenceBody": "先确认当前有哪些摘要类型在活跃，再深入阅读具体内容会更自然。",
         "topicsTitle": "主题碎片",
         "topicsBody": "这里保留最近反思里反复出现的主题，帮助你快速把握整理方向。",
-        "noTopics": "当前摘要里还没有显式主题"
+        "insightTitle": "洞察分区",
+        "insightBody": "任务复盘、状态变化和趋势漂移应该分区阅读，而不是混成一条列表。",
+        "noTopics": "当前摘要里还没有显式主题",
+        "types": {
+          "temporal": "时间摘要",
+          "thematic": "主题摘要",
+          "insight": "洞察反思"
+        },
+        "categories": {
+          "task_reflection": "任务复盘",
+          "state_change": "状态变化",
+          "trend_shift": "趋势漂移",
+          "conflict_resolution": "冲突消解",
+          "topic": "主题聚合"
+        },
+        "cards": {
+          "window": "时间窗口",
+          "sources": "来源事件",
+          "entities": "关联实体",
+          "sentiment": "情绪基调",
+          "importance": "重要度",
+          "generatedBy": "生成方式",
+          "changes": "变化",
+          "patterns": "模式"
+        }
       },
       "skills": {
         "eyebrow": "L4 技能档案",

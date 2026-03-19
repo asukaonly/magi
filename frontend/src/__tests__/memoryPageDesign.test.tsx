@@ -5,11 +5,19 @@ import { MemoryRouter } from 'react-router-dom';
 import { MemoryOverviewPage } from '@/pages/memory-pages/MemoryOverviewPage';
 import { MemoryWorkbenchPage } from '@/pages/memory-pages/MemoryWorkbenchPage';
 import { MemoryEventsPage } from '@/pages/memory-pages/MemoryEventsPage';
+import { MemoryReflectionPage } from '@/pages/memory-pages/MemoryReflectionPage';
 import { useMemory } from '@/hooks/useMemory';
+
+const TRANSLATION_MAP: Record<string, string> = {
+  'memory.pages.reflection.types.temporal': 'Temporal',
+  'memory.pages.reflection.types.thematic': 'Thematic',
+  'memory.pages.reflection.types.insight': 'Insight',
+  'memory.pages.reflection.categories.task_reflection': 'Task Reflection',
+};
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string) => TRANSLATION_MAP[key] ?? key,
   }),
 }));
 
@@ -18,11 +26,15 @@ vi.mock('@/hooks/useMemory', () => ({
   formatTimestamp: () => 'mock-time',
 }));
 
-vi.mock('@/components/memory', () => ({
-  ClearMemoryDialog: () => null,
-  L0Tab: () => <div data-testid="l0-tab">l0-tab</div>,
-  L1Tab: () => <div data-testid="l1-tab">l1-tab</div>,
-}));
+vi.mock('@/components/memory', async () => {
+  const actual = await vi.importActual<typeof import('@/components/memory')>('@/components/memory');
+  return {
+    ...actual,
+    ClearMemoryDialog: () => null,
+    L0Tab: () => <div data-testid="l0-tab">l0-tab</div>,
+    L1Tab: () => <div data-testid="l1-tab">l1-tab</div>,
+  };
+});
 
 const mockUseMemory = vi.mocked(useMemory);
 
@@ -67,7 +79,44 @@ describe('memory page design', () => {
       runL2Reconcile: vi.fn(),
       runL2SnapshotRefresh: vi.fn(),
       upsertL2GraphConflictRule: vi.fn(),
-      l3Summaries: [],
+      l3Summaries: [
+        {
+          summary_id: 'sum-temporal',
+          summary_type: 'temporal',
+          summary_category: 'day',
+          period_start: 1710000000,
+          period_end: 1710003600,
+          content: 'Daily planning focused on portfolio updates.',
+          key_topics: ['portfolio'],
+          key_entities: [],
+          source_event_count: 3,
+          created_at: 1710003600,
+        },
+        {
+          summary_id: 'sum-thematic',
+          summary_type: 'thematic',
+          summary_category: 'topic',
+          period_start: 1710000000,
+          period_end: 1710086400,
+          content: 'Career transition remained a recurring topic.',
+          key_topics: ['career_switch'],
+          key_entities: [{ entity_id: 'project:career-switch', entity_type: 'project' }],
+          source_event_count: 5,
+          created_at: 1710086400,
+        },
+        {
+          summary_id: 'sum-insight',
+          summary_type: 'insight',
+          summary_category: 'task_reflection',
+          period_start: 1710000000,
+          period_end: 1710086400,
+          content: 'The main blocker is still portfolio output, not direction clarity.',
+          key_topics: ['career_switch', 'portfolio'],
+          key_entities: [{ entity_id: 'project:career-switch', entity_type: 'project' }],
+          source_event_count: 4,
+          created_at: 1710086400,
+        },
+      ],
       l4Skills: [],
       searchResults: {
         l0_workbench: [],
@@ -153,5 +202,18 @@ describe('memory page design', () => {
     expect(screen.getByTestId('memory-page-filters')).toBeInTheDocument();
     expect(screen.getByTestId('memory-events-source-summary')).toBeInTheDocument();
     expect(screen.getByTestId('l1-tab')).toBeInTheDocument();
+  });
+
+  it('renders the reflection page as a type-driven workspace with tabs and insight category groups', () => {
+    render(
+      <MemoryRouter>
+        <MemoryReflectionPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('tab', { name: 'Temporal' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Thematic' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Insight' })).toBeInTheDocument();
+    expect(screen.getAllByText('Task Reflection').length).toBeGreaterThan(0);
   });
 });
