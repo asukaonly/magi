@@ -2,6 +2,10 @@
 
 This directory contains the Magi-specific adapter and runner code for LongMemEval.
 
+Quick ops guide:
+
+- See [RUNBOOK.md](/Users/asuka/code/magi/benchmark/longmemeval/RUNBOOK.md) for the backend-service workflow from startup to replay/query commands.
+
 Responsibilities:
 
 - load LongMemEval dataset rows
