@@ -97,6 +97,7 @@ class TemporalEvidencePack:
     events: list[TemporalEvidenceItem] = field(default_factory=list)
     importance_aggregate: float | None = None
     event_type_distribution: dict[str, int] = field(default_factory=dict)
+    rule_hints: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
+from collections import Counter
 from typing import Any
 
 from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
@@ -18,6 +20,38 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+_TOP_TERM_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
+_STOP_TERMS = {
+    "about",
+    "after",
+    "and",
+    "are",
+    "care",
+    "but",
+    "for",
+    "from",
+    "have",
+    "into",
+    "job",
+    "jobs",
+    "just",
+    "more",
+    "posts",
+    "read",
+    "several",
+    "than",
+    "that",
+    "the",
+    "their",
+    "them",
+    "they",
+    "this",
+    "want",
+    "with",
+    "year",
+    "you",
+    "your",
+}
 
 TEMPORAL_SUMMARY_SYSTEM_PROMPT = """You generate temporal memory summaries for a local-first agent.
 
@@ -87,6 +121,7 @@ class TemporalSummaryLLMService:
             events=evidence_items,
             importance_aggregate=(sum(importance_values) / len(importance_values)) if importance_values else None,
             event_type_distribution=event_type_distribution,
+            rule_hints=self._build_rule_hints(evidence_items, event_type_distribution),
         )
 
     def parse_llm_output(
@@ -244,6 +279,7 @@ class TemporalSummaryLLMService:
             "source_event_ids": pack.source_event_ids,
             "importance_aggregate": pack.importance_aggregate,
             "event_type_distribution": pack.event_type_distribution,
+            "rule_hints": pack.rule_hints,
             "events": [
                 {
                     "event_id": item.event_id,
@@ -272,3 +308,34 @@ class TemporalSummaryLLMService:
         if adapter is None:
             return None
         return adapter, LLMProviderBridge(adapter)
+
+    def _build_rule_hints(
+        self,
+        evidence_items: list[TemporalEvidenceItem],
+        event_type_distribution: dict[str, int],
+    ) -> dict[str, object]:
+        term_counter: Counter[str] = Counter()
+        for item in evidence_items:
+            for token in _TOP_TERM_PATTERN.findall(item.content.lower()):
+                if token in _STOP_TERMS:
+                    continue
+                term_counter[token] += 1
+        high_importance_event_ids = [
+            item.event_id
+            for item in sorted(
+                evidence_items,
+                key=lambda candidate: float(candidate.importance_score or 0.0),
+                reverse=True,
+            )[:3]
+            if item.event_id
+        ]
+        repeated_event_types = [
+            event_type
+            for event_type, count in sorted(event_type_distribution.items())
+            if count > 1
+        ]
+        return {
+            "top_terms": [term for term, _count in term_counter.most_common(5)],
+            "high_importance_event_ids": high_importance_event_ids,
+            "repeated_event_types": repeated_event_types,
+        }

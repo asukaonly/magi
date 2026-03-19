@@ -68,6 +68,9 @@ async def test_build_temporal_evidence_pack_filters_runtime_and_preserves_import
     assert pack.source_event_count == 2
     assert pack.importance_aggregate == pytest.approx(0.7)
     assert pack.event_type_distribution == {"UserMessage": 1, "TimelineEvent": 1}
+    assert {"growth", "salary", "remote-work"} <= set(pack.rule_hints["top_terms"])
+    assert pack.rule_hints["high_importance_event_ids"] == ["evt-1", "evt-2"]
+    assert pack.rule_hints["repeated_event_types"] == []
 
 
 def test_parse_temporal_llm_output_into_candidate() -> None:
@@ -213,3 +216,31 @@ async def test_call_temporal_model_parses_json_from_llm_target(monkeypatch: pyte
     payload = await service._call_temporal_model(pack)
 
     assert payload == {"content": "LLM day summary", "key_topics": ["job_search"]}
+
+
+def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=2,
+        source_event_ids=["evt-1", "evt-2"],
+        importance_aggregate=0.7,
+        event_type_distribution={"UserMessage": 2},
+        rule_hints={
+            "top_terms": ["growth", "portfolio"],
+            "high_importance_event_ids": ["evt-1"],
+            "repeated_event_types": ["UserMessage"],
+        },
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="UserMessage", content="finish portfolio"),
+        ],
+    )
+
+    prompt = service._render_temporal_summary_prompt(pack)
+
+    assert '"rule_hints"' in prompt
+    assert '"top_terms"' in prompt
+    assert '"growth"' in prompt
