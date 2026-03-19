@@ -35,7 +35,11 @@ class HybridRetrievalService:
 
         # Build handlers from available stores
         self._l1 = L1Handler(unified_memory.l1, self._config) if unified_memory.l1 else None
-        self._l2 = L2Handler(unified_memory.l2) if unified_memory.l2 else None
+        self._l2 = (
+            L2Handler(unified_memory.l2, entity_catalog=getattr(unified_memory, "l2_entity_catalog", None))
+            if unified_memory.l2
+            else None
+        )
         self._l3 = L3Handler(unified_memory.l3, self._config) if unified_memory.l3 else None
         self._l4 = L4Handler(unified_memory.l4, self._config) if unified_memory.l4 else None
 
@@ -162,6 +166,7 @@ class HybridRetrievalService:
             if isinstance(result, dict):
                 payload.l2_entity_cards.extend(result.get("entity_cards", []))
                 payload.l2_relationships.extend(result.get("relationships", []))
+                payload.l2_assertions.extend(result.get("assertions", []))
         elif layer == "L3":
             payload.l3_reflections.extend(result if isinstance(result, list) else [])
         elif layer == "L4":
@@ -174,6 +179,7 @@ class HybridRetrievalService:
             len(payload.l1_events)
             + len(payload.l2_entity_cards)
             + len(payload.l2_relationships)
+            + len(payload.l2_assertions)
             + len(payload.l3_reflections)
             + len(payload.l4_procedures)
         )
