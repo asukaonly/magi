@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -153,6 +155,7 @@ class _FakeUnifiedMemory:
         self.l3 = _FakeL3Store()
         self.l4 = _FakeL4Store()
         self.identity_resolver = type("Resolver", (), {"default_memory_owner_id": "user:self"})()
+        self.ingested_events: list = []
 
     async def get_statistics(self):
         return {
@@ -161,6 +164,14 @@ class _FakeUnifiedMemory:
             "l2": {"db_path": "/tmp/l2.db"},
             "l3": {"db_path": "/tmp/l3.db"},
             "l4": {"db_path": "/tmp/l4.db"},
+        }
+
+    async def ingest_event(self, event):
+        self.ingested_events.append(event)
+        return {
+            "event_id": f"evt-{len(self.ingested_events)}",
+            "ingest_target": "l1_only",
+            "l1_written": True,
         }
 
     async def ingest_manual_l2_event(self, request):
@@ -250,6 +261,87 @@ def test_memory_procedures_api_lists_skills(monkeypatch):
     body = response.json()
     assert body[0]["skill_name"] == "browser.open"
     assert body[0]["success_rate"] == 0.75
+
+
+def test_memory_eval_replay_api_writes_records(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    fake_memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/replay",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "records": [
+                {
+                    "namespace": "benchmark/longmemeval/run-1/q-1",
+                    "session_id": "sess-1",
+                    "turn_id": "sess-1:turn-1",
+                    "timestamp": 1.0,
+                    "role": "user",
+                    "content": "I like pasta.",
+                    "metadata": {"source_dataset": "longmemeval"},
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["written"] == 1
+    assert body["namespace"] == "benchmark/longmemeval/run-1/q-1"
+    assert fake_memory.ingested_events[0].metadata["turn_id"] == "sess-1:turn-1"
+
+
+def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    fake_memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    class _FakeHybridRetrievalService:
+        def __init__(self, unified_memory):
+            self._memory = unified_memory
+
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-1",
+                        "session_id": "sess-2",
+                        "raw_content": "Actually sushi is my favorite.",
+                        "score": 0.99,
+                        "metadata": {"turn_id": "sess-2:turn-1"},
+                    }
+                ],
+                trace={"intent_source": "rule"},
+            )
+
+    monkeypatch.setattr("magi.api.routers.memory.HybridRetrievalService", _FakeHybridRetrievalService)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "What food do I prefer?",
+            "top_k": 10,
+            "mode": "auto",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["retrieved_session_ids"] == ["sess-2"]
+    assert body["retrieved_turn_ids"] == ["sess-2:turn-1"]
+    assert body["trace"]["intent_source"] == "rule"
 
 
 def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):

@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field, field_validator
 from ..services import get_chat_read_service
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_memory_integration, require_unified_memory
+from ...memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
+from ...memory.eval_support.reader import EvalMemoryReader
+from ...memory.eval_support.writer import EvalMemoryWriter
 from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
 from ...memory.l2.models import ManualL2EventRequest
 
@@ -45,6 +48,29 @@ class ManualL2EventBody(BaseModel):
     session_id: Optional[str] = Field(default=None, description="Optional session id")
     source: str = Field(default="l2_lab", description="Synthetic event source label")
     entity_focus_hint: Optional[str] = Field(default=None, description="Optional focus entity id")
+
+
+class EvalReplayRecordBody(BaseModel):
+    namespace: str = Field(..., description="Benchmark namespace")
+    session_id: str = Field(..., description="Replay session id")
+    timestamp: float = Field(..., description="Replay timestamp")
+    role: str = Field(..., description="Replay speaker role")
+    content: str = Field(..., description="Replay text content")
+    turn_id: Optional[str] = Field(default=None, description="Optional replay turn id")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Optional replay metadata")
+
+
+class EvalReplayRequest(BaseModel):
+    namespace: str = Field(..., description="Benchmark namespace")
+    records: List[EvalReplayRecordBody] = Field(default_factory=list, description="Replay records")
+
+
+class EvalQueryRequest(BaseModel):
+    namespace: str = Field(..., description="Benchmark namespace")
+    query: str = Field(..., description="Benchmark memory query")
+    query_timestamp: Optional[float] = Field(default=None, description="Optional query timestamp")
+    top_k: int = Field(default=10, ge=1, le=200, description="Top-k retrieval limit")
+    mode: str = Field(default="auto", description="Retrieval mode hint")
 
 
 class L2EntityActionBody(BaseModel):
@@ -320,6 +346,61 @@ async def create_manual_l2_event(body: ManualL2EventBody):
         )
     )
     return {"queued": True, **result}
+
+
+@memory_router.post("/eval/replay")
+async def replay_eval_records(body: EvalReplayRequest):
+    """Replay benchmark records through the standard memory ingest path."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+
+    writer = EvalMemoryWriter(unified_memory)
+    results = await writer.write_records(
+        [
+            EvalMemoryWriteRecord(
+                namespace=record.namespace,
+                session_id=record.session_id,
+                timestamp=record.timestamp,
+                role=record.role,
+                content=record.content,
+                turn_id=record.turn_id,
+                metadata=dict(record.metadata),
+            )
+            for record in body.records
+        ]
+    )
+    return {
+        "namespace": body.namespace,
+        "written": len(results),
+        "results": results,
+    }
+
+
+@memory_router.post("/eval/query")
+async def query_eval_memory(body: EvalQueryRequest):
+    """Query benchmark memory directly without chat rendering."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not initialized",
+        )
+
+    reader = EvalMemoryReader(HybridRetrievalService(unified_memory))
+    result = await reader.query_memory(
+        EvalMemoryQuery(
+            namespace=body.namespace,
+            query=body.query,
+            query_timestamp=body.query_timestamp,
+            top_k=body.top_k,
+            mode=body.mode,
+        )
+    )
+    return asdict(result)
 
 
 @memory_router.post("/l2/extract/{event_id}")
