@@ -71,6 +71,8 @@ class L3SummaryStore:
         )
         self._embedding_queue: asyncio.Queue[Dict[str, Any] | None] | None = asyncio.Queue() if self._vector_enabled and self._async_embeddings else None
         self._embedding_worker: asyncio.Task[None] | None = None
+        self._embedding_batch_size = 5
+        self._embedding_batch_wait_seconds = 1.0
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -727,19 +729,32 @@ class L3SummaryStore:
         return value
 
     async def _maybe_upsert_summary_embedding(self, summary: Dict[str, Any]) -> None:
+        await self._maybe_upsert_summary_embeddings([summary])
+
+    async def _maybe_upsert_summary_embeddings(self, summaries: List[Dict[str, Any]]) -> None:
         if not self._vector_enabled or self._embedding_service is None or self._vector_index is None:
             return
-        embedding = await self._embedding_service.embed_text(str(summary.get("content") or ""))
-        if embedding is None:
+        contents = [str(summary.get("content") or "") for summary in summaries]
+        if hasattr(self._embedding_service, "embed_texts"):
+            embeddings = await self._embedding_service.embed_texts(contents)
+        else:
+            embeddings = [
+                await self._embedding_service.embed_text(content)
+                for content in contents
+            ]
+        if not embeddings:
             return
-        try:
-            await self._vector_index.upsert(
-                entity_id=str(summary["summary_id"]),
-                embedding=embedding,
-                metadata={"summary_type": summary.get("summary_type"), "summary_category": summary.get("summary_category")},
-            )
-        except Exception as exc:
-            logger.warning("Failed to upsert summary embedding for %s: %s", summary.get("summary_id"), exc)
+        for summary, embedding in zip(summaries, embeddings):
+            if embedding is None:
+                continue
+            try:
+                await self._vector_index.upsert(
+                    entity_id=str(summary["summary_id"]),
+                    embedding=embedding,
+                    metadata={"summary_type": summary.get("summary_type"), "summary_category": summary.get("summary_category")},
+                )
+            except Exception as exc:
+                logger.warning("Failed to upsert summary embedding for %s: %s", summary.get("summary_id"), exc)
 
     async def _semantic_search_summaries(
         self,
@@ -852,10 +867,30 @@ class L3SummaryStore:
             if item is None:
                 self._embedding_queue.task_done()
                 break
+            batch = [item]
+            should_stop = False
+            batch_size = max(1, int(self._embedding_batch_size))
+            deadline = time.monotonic() + max(0.0, float(self._embedding_batch_wait_seconds))
+            while len(batch) < batch_size:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    break
+                try:
+                    next_item = await asyncio.wait_for(self._embedding_queue.get(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    break
+                if next_item is None:
+                    self._embedding_queue.task_done()
+                    should_stop = True
+                    break
+                batch.append(next_item)
             try:
-                await self._maybe_upsert_summary_embedding(item)
+                await self._maybe_upsert_summary_embeddings(batch)
             finally:
-                self._embedding_queue.task_done()
+                for _ in batch:
+                    self._embedding_queue.task_done()
+            if should_stop:
+                break
 
 
 __all__ = ["L3SummaryStore"]

@@ -1,10 +1,42 @@
 from __future__ import annotations
 
+import asyncio
+import time
+
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.l3.models import L3Candidate, ValidationDecision
+
+
+class _BatchTrackingEmbeddingService:
+    def __init__(self) -> None:
+        self.single_calls: list[str] = []
+        self.batch_calls: list[list[str]] = []
+
+    async def embed_text(self, text: str):
+        self.single_calls.append(text)
+        return self._make_result(text)
+
+    async def embed_texts(self, texts: list[str]):
+        self.batch_calls.append(list(texts))
+        return [self._make_result(text) for text in texts]
+
+    def _make_result(self, text: str):
+        from magi.memory.embedding_service import EmbeddingResult
+
+        lowered = text.lower()
+        vector = [0.0, 0.0, 0.0, 0.0]
+        if "stress" in lowered:
+            vector[0] = 1.0
+        if "career" in lowered:
+            vector[1] = 1.0
+        if "summary" in lowered:
+            vector[2] = 1.0
+        if not any(vector):
+            vector[3] = 1.0
+        return EmbeddingResult(model_name="test-embedding", dimension=4, vector=vector)
 
 
 @pytest.mark.asyncio
@@ -553,3 +585,102 @@ async def test_generate_thematic_summary_uses_llm_candidate_when_available(tmp_p
     assert summary["generated_by_model"] == "topic-llm"
     assert summary["content"] == "Job-switch planning kept centering on remote opportunities."
     assert summary["key_topics"] == ["job_search", "remote_roles"]
+
+
+@pytest.mark.asyncio
+async def test_l3_async_embeddings_flush_full_batches_via_batch_api(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L3SummaryStore(
+        db_path=str(tmp_path / "memory.db"),
+        embedding_service=embedding_service,
+        async_embeddings=True,
+    )
+    store._embedding_batch_wait_seconds = 5.0
+    await store.initialize()
+
+    try:
+        for idx in range(5):
+            await store._store_summary(
+                {
+                    "summary_id": f"summary-batch-{idx}",
+                    "summary_type": "thematic",
+                    "summary_category": "topic",
+                    "period_start": 1.0,
+                    "period_end": 2.0,
+                    "content": f"career summary {idx}",
+                    "key_topics": ["career"],
+                    "key_entities": [],
+                    "sentiment_summary": None,
+                    "change_and_pattern": None,
+                    "source_event_ids": [f"evt-{idx}"],
+                    "source_event_count": 1,
+                    "importance_aggregate": 0.7,
+                    "event_type_distribution": {},
+                    "generated_by_model": "rule-summary",
+                    "generation_prompt": None,
+                    "generation_reason": "thematic:topic:career",
+                    "created_at": 1.0,
+                    "updated_at": 1.0,
+                }
+            )
+
+        assert store._embedding_queue is not None
+        await asyncio.wait_for(store._embedding_queue.join(), timeout=2.0)
+    finally:
+        await store.shutdown()
+
+    assert embedding_service.single_calls == []
+    assert len(embedding_service.batch_calls) == 1
+    assert len(embedding_service.batch_calls[0]) == 5
+
+
+@pytest.mark.asyncio
+async def test_l3_async_embeddings_flush_partial_batches_after_timeout(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L3SummaryStore(
+        db_path=str(tmp_path / "memory.db"),
+        embedding_service=embedding_service,
+        async_embeddings=True,
+    )
+    store._embedding_batch_wait_seconds = 0.05
+    await store.initialize()
+
+    started_at = time.monotonic()
+    try:
+        for idx in range(2):
+            await store._store_summary(
+                {
+                    "summary_id": f"summary-timeout-{idx}",
+                    "summary_type": "thematic",
+                    "summary_category": "topic",
+                    "period_start": 1.0,
+                    "period_end": 2.0,
+                    "content": f"stress summary {idx}",
+                    "key_topics": ["stress"],
+                    "key_entities": [],
+                    "sentiment_summary": None,
+                    "change_and_pattern": None,
+                    "source_event_ids": [f"evt-timeout-{idx}"],
+                    "source_event_count": 1,
+                    "importance_aggregate": 0.7,
+                    "event_type_distribution": {},
+                    "generated_by_model": "rule-summary",
+                    "generation_prompt": None,
+                    "generation_reason": "thematic:topic:stress",
+                    "created_at": 1.0,
+                    "updated_at": 1.0,
+                }
+            )
+
+        assert store._embedding_queue is not None
+        await asyncio.wait_for(store._embedding_queue.join(), timeout=1.0)
+    finally:
+        await store.shutdown()
+
+    assert time.monotonic() - started_at >= 0.04
+    assert embedding_service.single_calls == []
+    assert embedding_service.batch_calls == [["stress summary 0", "stress summary 1"]]

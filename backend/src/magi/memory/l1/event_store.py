@@ -75,6 +75,8 @@ class L1EventStore:
         )
         self._embedding_queue: asyncio.Queue[MemoryEvent | None] | None = asyncio.Queue() if self._vector_enabled and self._async_embeddings else None
         self._embedding_worker: asyncio.Task[None] | None = None
+        self._embedding_batch_size = 5
+        self._embedding_batch_wait_seconds = 1.0
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -667,21 +669,38 @@ class L1EventStore:
         return FACT_EVENTS_TABLE
 
     async def _maybe_upsert_event_embedding(self, event: MemoryEvent) -> None:
+        await self._maybe_upsert_event_embeddings([event])
+
+    async def _maybe_upsert_event_embeddings(self, events: list[MemoryEvent]) -> None:
         if not self._vector_enabled or self._embedding_service is None or self._vector_index is None:
             return
-        if event.memory_domain in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}:
+        eligible_events = [
+            event
+            for event in events
+            if event.memory_domain not in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL}
+        ]
+        if not eligible_events:
             return
-        embedding = await self._embedding_service.embed_text(event.raw_content)
-        if embedding is None:
+        if hasattr(self._embedding_service, "embed_texts"):
+            embeddings = await self._embedding_service.embed_texts([event.raw_content for event in eligible_events])
+        else:
+            embeddings = [
+                await self._embedding_service.embed_text(event.raw_content)
+                for event in eligible_events
+            ]
+        if not embeddings:
             return
-        try:
-            await self._vector_index.upsert(
-                entity_id=event.event_id,
-                embedding=embedding,
-                metadata={"event_type": event.event_type, "source": event.source},
-            )
-        except Exception as exc:
-            logger.warning("Failed to upsert event embedding for %s: %s", event.event_id, exc)
+        for event, embedding in zip(eligible_events, embeddings):
+            if embedding is None:
+                continue
+            try:
+                await self._vector_index.upsert(
+                    entity_id=event.event_id,
+                    embedding=embedding,
+                    metadata={"event_type": event.event_type, "source": event.source},
+                )
+            except Exception as exc:
+                logger.warning("Failed to upsert event embedding for %s: %s", event.event_id, exc)
 
     async def _semantic_search_event_hits(self, *, query: str, limit: int) -> list[VectorSearchHit]:
         if not self._vector_enabled or self._embedding_service is None or self._vector_index is None or not query.strip():
@@ -711,10 +730,30 @@ class L1EventStore:
             if item is None:
                 self._embedding_queue.task_done()
                 break
+            batch = [item]
+            should_stop = False
+            batch_size = max(1, int(self._embedding_batch_size))
+            deadline = time.monotonic() + max(0.0, float(self._embedding_batch_wait_seconds))
+            while len(batch) < batch_size:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    break
+                try:
+                    next_item = await asyncio.wait_for(self._embedding_queue.get(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    break
+                if next_item is None:
+                    self._embedding_queue.task_done()
+                    should_stop = True
+                    break
+                batch.append(next_item)
             try:
-                await self._maybe_upsert_event_embedding(item)
+                await self._maybe_upsert_event_embeddings(batch)
             finally:
-                self._embedding_queue.task_done()
+                for _ in batch:
+                    self._embedding_queue.task_done()
+            if should_stop:
+                break
 
     async def _fetch_ranked_events(
         self,

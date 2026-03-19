@@ -1,9 +1,41 @@
 from __future__ import annotations
 
+import asyncio
+import time
+
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event
+
+
+class _BatchTrackingEmbeddingService:
+    def __init__(self) -> None:
+        self.single_calls: list[str] = []
+        self.batch_calls: list[list[str]] = []
+
+    async def embed_text(self, text: str):
+        self.single_calls.append(text)
+        return self._make_result(text)
+
+    async def embed_texts(self, texts: list[str]):
+        self.batch_calls.append(list(texts))
+        return [self._make_result(text) for text in texts]
+
+    def _make_result(self, text: str):
+        from magi.memory.embedding_service import EmbeddingResult
+
+        lowered = text.lower()
+        vector = [0.0, 0.0, 0.0, 0.0]
+        if "stress" in lowered:
+            vector[0] = 1.0
+        if "calm" in lowered:
+            vector[1] = 1.0
+        if "career" in lowered:
+            vector[2] = 1.0
+        if not any(vector):
+            vector[3] = 1.0
+        return EmbeddingResult(model_name="test-embedding", dimension=4, vector=vector)
 
 
 @pytest.mark.asyncio
@@ -187,3 +219,83 @@ async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
     assert fetched["ingest_target"] == "l1_only"
     assert fetched["tom_depth"] == "defensive_psychology"
     assert fetched["retention_class"] == "permanent"
+
+
+@pytest.mark.asyncio
+async def test_l1_async_embeddings_flush_full_batches_via_batch_api(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=True,
+    )
+    store._embedding_batch_wait_seconds = 5.0
+    await store.initialize()
+
+    try:
+        for idx in range(5):
+            await store.store(
+                normalize_runtime_event(
+                    Event(
+                        type=EventTypes.USER_MESSAGE,
+                        data={"user_id": "u1", "session_id": "s1", "message": f"career note {idx}"},
+                        source="chat",
+                        level=EventLevel.INFO,
+                        correlation_id=f"corr-batch-{idx}",
+                    ),
+                    event_id=f"evt-batch-{idx}",
+                )
+            )
+
+        assert store._embedding_queue is not None
+        await asyncio.wait_for(store._embedding_queue.join(), timeout=2.0)
+    finally:
+        await store.shutdown()
+
+    assert embedding_service.single_calls == []
+    assert len(embedding_service.batch_calls) == 1
+    assert len(embedding_service.batch_calls[0]) == 5
+
+
+@pytest.mark.asyncio
+async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    embedding_service = _BatchTrackingEmbeddingService()
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=embedding_service,
+        async_embeddings=True,
+    )
+    store._embedding_batch_wait_seconds = 0.05
+    await store.initialize()
+
+    started_at = time.monotonic()
+    try:
+        for idx in range(2):
+            await store.store(
+                normalize_runtime_event(
+                    Event(
+                        type=EventTypes.USER_MESSAGE,
+                        data={"user_id": "u1", "session_id": "s1", "message": f"stress note {idx}"},
+                        source="chat",
+                        level=EventLevel.INFO,
+                        correlation_id=f"corr-timeout-{idx}",
+                    ),
+                    event_id=f"evt-timeout-{idx}",
+                )
+            )
+
+        assert store._embedding_queue is not None
+        await asyncio.wait_for(store._embedding_queue.join(), timeout=1.0)
+    finally:
+        await store.shutdown()
+
+    assert time.monotonic() - started_at >= 0.04
+    assert embedding_service.single_calls == []
+    assert embedding_service.batch_calls == [[
+        "UserMessage u1 s1 stress note 0",
+        "UserMessage u1 s1 stress note 1",
+    ]]
