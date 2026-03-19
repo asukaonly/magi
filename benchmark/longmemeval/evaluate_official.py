@@ -7,12 +7,15 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from benchmark.common.paths import build_run_output_dir
 
 
 @dataclass(slots=True)
@@ -25,7 +28,11 @@ class OfficialEvalArtifacts:
 
 
 def build_predictions_path(*, output_root: str | Path, run_id: str) -> Path:
-    return Path(output_root) / "longmemeval" / run_id / "predictions.jsonl"
+    return build_run_output_dir(
+        root_dir=output_root,
+        benchmark_name="longmemeval",
+        run_id=run_id,
+    ) / "predictions.jsonl"
 
 
 def build_official_eval_command(

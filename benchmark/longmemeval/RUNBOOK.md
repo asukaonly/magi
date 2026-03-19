@@ -40,7 +40,30 @@ export LONGMEM_RUN=oracle-backend
 export MAGI_BACKEND=http://127.0.0.1:8000
 ```
 
-## 4. Replay LongMemEval History Into Memory
+## 4. Shortest Path: Run Everything In One Command
+
+```bash
+python /Users/asuka/code/magi/benchmark/longmemeval/run_all.py \
+  --dataset "$LONGMEM_DATA" \
+  --output-root "$LONGMEM_OUT"
+```
+
+This command:
+
+- uses backend `http://127.0.0.1:8000`
+- generates a readable run id from current local time
+- runs replay
+- runs query
+- runs official QA evaluation
+- prints a final JSON summary to stdout
+
+If LongMemEval is not checked out at `/Users/asuka/code/LongMemEval`, set:
+
+```bash
+export LONGMEMEVAL_ROOT=/absolute/path/to/LongMemEval
+```
+
+## 5. Replay LongMemEval History Into Memory
 
 ```bash
 python /Users/asuka/code/magi/benchmark/longmemeval/replay_dataset.py \
@@ -58,7 +81,7 @@ Expected output:
 - per-question console progress lines for L1 writes
 - console output for current `L2 pipeline stats`
 
-## 5. Run Memory Query Evaluation
+## 6. Run Memory Query Evaluation
 
 ```bash
 python /Users/asuka/code/magi/benchmark/longmemeval/query_dataset.py \
@@ -75,7 +98,7 @@ Expected output files under `benchmark/outputs/longmemeval/<run-id>/`:
 - `summary.json`
 - per-question console progress lines for query execution
 
-## 6. Inspect the Results
+## 7. Inspect the Results
 
 Quick summary:
 
@@ -95,7 +118,7 @@ First few traces:
 head "$LONGMEM_OUT/longmemeval/$LONGMEM_RUN/predictions_with_trace.jsonl"
 ```
 
-## 7. Run Official LongMemEval QA Scoring
+## 8. Run Official LongMemEval QA Scoring
 
 ```bash
 python /Users/asuka/code/magi/benchmark/longmemeval/evaluate_official.py \
@@ -111,7 +134,7 @@ Expected output files under `benchmark/outputs/longmemeval/<run-id>/`:
 - `predictions.jsonl.eval-results-gpt-4o`
 - `official_eval_summary.json`
 
-## 8. Optional: Run a Small Smoke Sample First
+## 9. Optional: Run a Small Smoke Sample First
 
 ```bash
 python /Users/asuka/code/magi/benchmark/longmemeval/replay_dataset.py \

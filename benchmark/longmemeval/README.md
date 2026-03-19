@@ -6,6 +6,20 @@ Quick ops guide:
 
 - See [RUNBOOK.md](/Users/asuka/code/magi/benchmark/longmemeval/RUNBOOK.md) for the backend-service workflow from startup to replay/query commands.
 
+One-shot runner:
+
+```bash
+python benchmark/longmemeval/run_all.py \
+  --dataset /absolute/path/to/longmemeval_oracle.json \
+  --output-root benchmark/outputs
+```
+
+This fixed-flow runner uses:
+
+- backend URL: `http://127.0.0.1:8000`
+- run id: local time formatted as `YYYY-MM-DD HH:MM:SS`
+- LongMemEval root: `LONGMEMEVAL_ROOT` env var first, then `/Users/asuka/code/LongMemEval`
+
 Responsibilities:
 
 - load LongMemEval dataset rows
