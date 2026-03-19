@@ -119,6 +119,52 @@ def test_parse_temporal_llm_output_into_candidate() -> None:
     assert summary_overrides["importance_aggregate"] == 0.8
 
 
+def test_parse_temporal_llm_output_rejects_out_of_range_importance() -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="importance_aggregate"):
+        service.parse_llm_output(
+            {
+                "content": "The day centered on clarifying job-switch priorities.",
+                "importance_aggregate": 1.5,
+            },
+            pack=pack,
+        )
+
+
+def test_parse_temporal_llm_output_rejects_malformed_change_and_pattern() -> None:
+    service = TemporalSummaryLLMService()
+    pack = TemporalEvidencePack(
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[
+            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="change_and_pattern"):
+        service.parse_llm_output(
+            {
+                "content": "The day centered on clarifying job-switch priorities.",
+                "change_and_pattern": {"changes": ["valid", 2], "patterns": "not-a-list"},
+            },
+            pack=pack,
+        )
+
+
 @pytest.mark.asyncio
 async def test_generate_temporal_candidate_falls_back_to_rule_summary_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     service = TemporalSummaryLLMService(llm_timeout_seconds=0.01)
