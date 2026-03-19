@@ -33,6 +33,15 @@ TRACE_RUNTIME_EVENT_TYPES: Set[str] = {
     "TRACE_NODE_FAILED",
 }
 
+MEMORY_DIAGNOSTIC_EVENT_TYPES: Set[str] = {
+    EventTypes.USER_MESSAGE,
+    EventTypes.AI_RESPONSE,
+    EventTypes.ACTION_EXECUTED,
+    "TURN_TRACE_STARTED",
+    "TURN_TRACE_COMPLETED",
+    "TRACE_NODE_COMPLETED",
+}
+
 
 @dataclass
 class MemoryIntegrationConfig:
@@ -150,8 +159,28 @@ class MemoryIntegrationModule:
 
     async def _handle_event(self, event: Event) -> None:
         self._stats.events_received += 1
+        if event.type in MEMORY_DIAGNOSTIC_EVENT_TYPES:
+            payload = event.data if isinstance(event.data, dict) else {}
+            logger.info(
+                "MemoryIntegration received event",
+                event_type=event.type,
+                correlation_id=event.correlation_id,
+                session_id=payload.get("session_id"),
+                user_id=payload.get("user_id"),
+                turn_id=payload.get("turn_id"),
+                source=event.source,
+            )
         try:
             result = await self.unified_memory.ingest_event(event)
+            if event.type in MEMORY_DIAGNOSTIC_EVENT_TYPES:
+                logger.info(
+                    "MemoryIntegration ingested event",
+                    event_type=event.type,
+                    correlation_id=event.correlation_id,
+                    event_id=result.get("event_id"),
+                    ingest_target=result.get("ingest_target"),
+                    l1_written=result.get("l1_written"),
+                )
             if result["l1_written"]:
                 self._stats.l1_stored += 1
             else:
@@ -163,7 +192,19 @@ class MemoryIntegrationModule:
             self._stats.events_processed += 1
         except Exception as exc:
             self._stats.events_failed += 1
-            logger.exception("Failed to process event %s: %s", event.type, exc)
+            payload = event.data if isinstance(event.data, dict) else {}
+            logger.exception(
+                "Failed to process event %s: %s",
+                event.type,
+                exc,
+                extra={
+                    "correlation_id": event.correlation_id,
+                    "session_id": payload.get("session_id"),
+                    "user_id": payload.get("user_id"),
+                    "turn_id": payload.get("turn_id"),
+                    "source": event.source,
+                },
+            )
 
     async def _maybe_store_l1(self, event: Event) -> bool:
         """Test helper for the L1 routing decision."""

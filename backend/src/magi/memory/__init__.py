@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any, Dict, Optional
 
-from ..events.events import Event, EventLevel
+from ..events.events import Event, EventLevel, EventTypes
 from .embedding_service import MemoryEmbeddingService
 from .event_contracts import IngestTarget, MemoryEvent, normalize_runtime_event
 from .identity_resolver import IdentityResolver
@@ -31,6 +31,15 @@ from .l3.validator import validate_candidate
 from .l4.procedural_memory import L4ProceduralMemoryStore
 
 logger = logging.getLogger(__name__)
+
+MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES = {
+    EventTypes.USER_MESSAGE,
+    EventTypes.AI_RESPONSE,
+    EventTypes.ACTION_EXECUTED,
+    "TURN_TRACE_STARTED",
+    "TURN_TRACE_COMPLETED",
+    "TRACE_NODE_COMPLETED",
+}
 
 if TYPE_CHECKING:
     from ..llm import ScenarioLLMPool
@@ -166,6 +175,17 @@ class UnifiedMemoryStore:
     async def ingest_event(self, event: Dict[str, Any] | Event | MemoryEvent) -> Dict[str, Any]:
         """Ingest an event through the new L0-L4 pipeline."""
         memory_event = self._normalize_event(event)
+        if memory_event.event_type in MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES:
+            logger.info(
+                "UnifiedMemory normalized event",
+                event_id=memory_event.event_id,
+                event_type=memory_event.event_type,
+                ingest_target=memory_event.ingest_target.label,
+                memory_domain=memory_event.memory_domain.label,
+                session_id=memory_event.session_id,
+                user_id=memory_event.user_id,
+                correlation_id=memory_event.correlation_id,
+            )
         l2_result = {"relation_count": 0, "assertion_count": 0}
         l4_skill_id: Optional[str] = None
 
@@ -175,6 +195,14 @@ class UnifiedMemoryStore:
 
             if self.l1 is not None and memory_event.ingest_target.includes_l1:
                 await self.l1.store(memory_event)
+                if memory_event.event_type in MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES:
+                    logger.info(
+                        "UnifiedMemory stored event in L1",
+                        event_id=memory_event.event_id,
+                        event_type=memory_event.event_type,
+                        session_id=memory_event.session_id,
+                        user_id=memory_event.user_id,
+                    )
                 if self.l2_pipeline is not None:
                     await self.l2_pipeline.enqueue_event(memory_event)
                 if self.l4 is not None:

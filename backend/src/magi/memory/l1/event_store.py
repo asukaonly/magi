@@ -47,6 +47,15 @@ RUNTIME_OBSERVATION_EVENT_TYPES = {
 
 logger = logging.getLogger(__name__)
 
+L1_STORE_DIAGNOSTIC_EVENT_TYPES = {
+    EventTypes.USER_MESSAGE,
+    EventTypes.AI_RESPONSE,
+    EventTypes.ACTION_EXECUTED,
+    "TURN_TRACE_STARTED",
+    "TURN_TRACE_COMPLETED",
+    "TRACE_NODE_COMPLETED",
+}
+
 
 class L1EventStore:
     """Stores immutable normalized memory events in SQLite."""
@@ -219,6 +228,16 @@ class L1EventStore:
         """Persist a normalized memory event."""
         await self.initialize()
         table_name = self._resolve_target_table(event)
+        if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
+            logger.info(
+                "L1EventStore persisting event",
+                event_id=event.event_id,
+                event_type=event.event_type,
+                target_table=table_name,
+                session_id=event.session_id,
+                user_id=event.user_id,
+                correlation_id=event.correlation_id,
+            )
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 f"""
@@ -274,6 +293,13 @@ class L1EventStore:
                 (event.event_id, tokenized),
             )
             await db.commit()
+        if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
+            logger.info(
+                "L1EventStore persisted event",
+                event_id=event.event_id,
+                event_type=event.event_type,
+                target_table=table_name,
+            )
         await self._schedule_event_embedding(event)
         return event.event_id
 
