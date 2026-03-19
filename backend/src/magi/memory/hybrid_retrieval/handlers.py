@@ -259,10 +259,15 @@ class L2Handler:
     ) -> Dict[str, Any]:
         """Query L2 for entity cards and relationships."""
         del time_range
-        results: Dict[str, Any] = {"entity_cards": [], "relationships": [], "assertions": []}
+        results: Dict[str, Any] = {"entity_cards": [], "relationships": [], "assertions": [], "trace": {}}
         resolved_entities = await self._resolve_entities(conditions)
         predicates = conditions.predicates or self._infer_predicates(conditions.content_query)
         status_filters = conditions.status_filter or self._infer_status_filters(conditions.content_query)
+        relation_direction = conditions.relation_direction or self._infer_relation_direction(conditions.content_query)
+        target_entity_id = self._infer_target_entity_id(
+            resolved_entities=resolved_entities,
+            predicates=predicates,
+        )
 
         if conditions.include_tom_snapshot and resolved_entities:
             for entity in resolved_entities:
@@ -282,6 +287,7 @@ class L2Handler:
                         trait_families=conditions.trait_families,
                         validation_states=self._infer_assertion_states(status_filters),
                         include_expired=False,
+                        target_entity_id=target_entity_id,
                         limit=conditions.limit,
                     )
                     results["assertions"].extend(assertions)
@@ -290,19 +296,22 @@ class L2Handler:
                     trait_families=conditions.trait_families,
                     validation_states=self._infer_assertion_states(status_filters),
                     include_expired=False,
+                    target_entity_id=target_entity_id,
                     limit=conditions.limit,
                 )
 
         if conditions.include_relationships:
             if resolved_entities:
                 for entity in resolved_entities:
-                    rels = await self._store.get_relationships(
-                        subject_id=entity["entity_id"],
-                        predicates=predicates,
-                        status_filters=status_filters,
-                        limit=conditions.limit,
+                    results["relationships"].extend(
+                        await self._query_relationships_for_entity(
+                            entity_id=entity["entity_id"],
+                            direction=relation_direction,
+                            predicates=predicates,
+                            status_filters=status_filters,
+                            limit=conditions.limit,
+                        )
                     )
-                    results["relationships"].extend(rels)
             else:
                 rels = await self._store.get_relationships(
                     predicates=predicates,
@@ -311,7 +320,60 @@ class L2Handler:
                 )
                 results["relationships"] = rels
 
+        results["trace"] = {
+            "resolved_entities": resolved_entities,
+            "predicates": predicates or [],
+            "status_filters": status_filters or [],
+            "relation_direction": relation_direction,
+            "target_entity_id": target_entity_id,
+        }
         return results
+
+    async def _query_relationships_for_entity(
+        self,
+        *,
+        entity_id: str,
+        direction: str,
+        predicates: list[str] | None,
+        status_filters: list[str] | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if direction == "incoming":
+            return await self._store.get_relationships(
+                object_id=entity_id,
+                predicates=predicates,
+                status_filters=status_filters,
+                limit=limit,
+            )
+        if direction == "both":
+            outgoing = await self._store.get_relationships(
+                subject_id=entity_id,
+                predicates=predicates,
+                status_filters=status_filters,
+                limit=limit,
+            )
+            incoming = await self._store.get_relationships(
+                object_id=entity_id,
+                predicates=predicates,
+                status_filters=status_filters,
+                limit=limit,
+            )
+            seen: set[str] = set()
+            merged: list[dict[str, Any]] = []
+            for item in outgoing + incoming:
+                triple_id = str(item.get("triple_id") or "")
+                if triple_id and triple_id in seen:
+                    continue
+                if triple_id:
+                    seen.add(triple_id)
+                merged.append(item)
+            return merged
+        return await self._store.get_relationships(
+            subject_id=entity_id,
+            predicates=predicates,
+            status_filters=status_filters,
+            limit=limit,
+        )
 
     async def _resolve_entities(self, conditions: L2Conditions) -> list[dict[str, str]]:
         resolved: list[dict[str, str]] = []
@@ -342,7 +404,7 @@ class L2Handler:
                 seen.add(entity_id)
 
         if resolved or self._entity_catalog is None or not conditions.content_query:
-            return resolved
+            return resolved or self._infer_self_entities(conditions.content_query)
 
         query_matches = await self._entity_catalog.resolve_query_entities(
             conditions.content_query,
@@ -355,7 +417,7 @@ class L2Handler:
                 continue
             resolved.append({"entity_id": entity_id, "entity_type": str(match["entity_type"])})
             seen.add(entity_id)
-        return resolved
+        return resolved or self._infer_self_entities(conditions.content_query)
 
     def _infer_predicates(self, query: str) -> list[str] | None:
         query_lower = query.lower()
@@ -383,12 +445,38 @@ class L2Handler:
             return ["conflicted"]
         return ["active", "conflicted"]
 
+    def _infer_relation_direction(self, query: str) -> str:
+        query_lower = query.lower()
+        if "谁认识我" in query or "who knows me" in query_lower:
+            return "incoming"
+        if "关系" in query or "relationship" in query_lower:
+            return "both"
+        return "outgoing"
+
     def _infer_assertion_states(self, status_filters: list[str] | None) -> list[str] | None:
         if not status_filters:
             return ["stable", "corroborated", "tentative"]
         if status_filters == ["conflicted"]:
             return ["contradicted"]
         return ["stable", "corroborated", "tentative"]
+
+    def _infer_target_entity_id(
+        self,
+        *,
+        resolved_entities: list[dict[str, str]],
+        predicates: list[str] | None,
+    ) -> str | None:
+        if not resolved_entities or not predicates:
+            return None
+        if not any(predicate in {"LIKES", "DISLIKES", "INTERESTED_IN"} for predicate in predicates):
+            return None
+        first = resolved_entities[0]
+        return str(first["entity_id"])
+
+    def _infer_self_entities(self, query: str) -> list[dict[str, str]]:
+        if "我" not in query and " me " not in f" {query.lower()} ":
+            return []
+        return [{"entity_id": "user:self", "entity_type": "user"}]
 
 
 class L3Handler:

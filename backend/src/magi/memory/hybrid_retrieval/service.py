@@ -167,6 +167,8 @@ class HybridRetrievalService:
                 payload.l2_entity_cards.extend(result.get("entity_cards", []))
                 payload.l2_relationships.extend(result.get("relationships", []))
                 payload.l2_assertions.extend(result.get("assertions", []))
+                if isinstance(result.get("trace"), dict):
+                    payload.trace["l2_query_trace"] = result["trace"]
         elif layer == "L3":
             payload.l3_reflections.extend(result if isinstance(result, list) else [])
         elif layer == "L4":
