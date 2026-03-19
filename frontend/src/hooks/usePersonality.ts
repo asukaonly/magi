@@ -27,6 +27,7 @@ export interface PersonalityInfo {
   name: string;
   displayName: string;
   subtitle?: string;
+  avatar?: string;
 }
 
 export interface UsePersonalityOptions {
@@ -203,6 +204,7 @@ export function usePersonality(
             name,
             displayName: profile?.name || name,
             subtitle: profile?.occupation,
+            avatar: profile?.avatar || '',
           });
         } catch {
           items.push({ name, displayName: name });

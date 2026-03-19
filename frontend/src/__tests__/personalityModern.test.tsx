@@ -79,8 +79,8 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
     ],
   },
   list: [
-    { name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师' },
-    { name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员' },
+    { name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师', avatar: '/static/user-avatars/seven.png' },
+    { name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员', avatar: '' },
   ],
   currentName: '七号',
   selectedName: '七号',
@@ -271,5 +271,14 @@ describe('PersonalityModern', () => {
     const updater = patch.mock.calls[0][0] as (value: typeof draft) => void;
     updater(draft);
     expect(draft.persona_entity.basic_profile.avatar).toBe('/static/user-avatars/test-avatar.png');
+  });
+
+  it('shows avatars in the selector cards before falling back to initials', () => {
+    vi.mocked(usePersonality).mockReturnValue(buildHookState() as any);
+
+    render(<PersonalityModern embedded />);
+
+    expect(screen.getByAltText('七号')).toBeInTheDocument();
+    expect(screen.getByText('明')).toBeInTheDocument();
   });
 });

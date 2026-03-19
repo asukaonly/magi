@@ -175,6 +175,12 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
             const isSelected = item.name === selectedName;
             const isCurrent = item.name === currentName;
             const initials = getInitials(item.displayName);
+            const selectorAvatarValue =
+              item.name === selectedName ? (avatarValue || item.avatar || '') : (item.avatar || '');
+            const selectorAvatarUrl =
+              selectorAvatarValue && !(item.name === selectedName && avatarBroken)
+                ? personalitiesApi.getAvatarUrl(selectorAvatarValue)
+                : '';
 
             return (
               <button
@@ -190,14 +196,22 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                       : 'border-border/50 bg-muted/30 hover:border-primary/50 hover:bg-muted/50'
                   )}
                 >
-                  <span
-                    className={cn(
-                      'text-lg font-semibold',
-                      isSelected ? 'text-primary' : 'text-muted-foreground'
-                    )}
-                  >
-                    {initials}
-                  </span>
+                  {selectorAvatarUrl ? (
+                    <img
+                      src={selectorAvatarUrl}
+                      alt={item.displayName}
+                      className="h-full w-full rounded-[14px] object-cover"
+                    />
+                  ) : (
+                    <span
+                      className={cn(
+                        'text-lg font-semibold',
+                        isSelected ? 'text-primary' : 'text-muted-foreground'
+                      )}
+                    >
+                      {initials}
+                    </span>
+                  )}
                   {/* Current-in-use badge */}
                   {isCurrent && (
                     <div className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
