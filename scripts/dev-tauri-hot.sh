@@ -29,6 +29,7 @@ if [[ "${CONNECT_HOST}" == "0.0.0.0" || "${CONNECT_HOST}" == "::" || "${CONNECT_
 fi
 
 BACKEND_PID=""
+BACKEND_CLEANUP_DONE=0
 
 kill_listeners_on_port() {
   local port="$1"
@@ -45,6 +46,67 @@ kill_listeners_on_port() {
   done <<< "${pids}"
 
   sleep 1
+
+  pids="$(lsof -tiTCP:${port} -sTCP:LISTEN 2>/dev/null || true)"
+  if [[ -z "${pids}" ]]; then
+    return 0
+  fi
+
+  echo "Port ${port} listener(s) still active after TERM, forcing stop: ${pids}"
+  while IFS= read -r pid; do
+    [[ -z "${pid}" ]] && continue
+    kill -KILL "${pid}" 2>/dev/null || true
+  done <<< "${pids}"
+}
+
+collect_descendant_pids() {
+  local parent_pid="$1"
+  local child_pid
+  while IFS= read -r child_pid; do
+    [[ -z "${child_pid}" ]] && continue
+    echo "${child_pid}"
+    collect_descendant_pids "${child_pid}"
+  done < <(pgrep -P "${parent_pid}" 2>/dev/null || true)
+}
+
+signal_process_tree() {
+  local signal_name="$1"
+  local root_pid="$2"
+  local descendants
+
+  descendants="$(collect_descendant_pids "${root_pid}" | awk '!seen[$0]++')"
+  if [[ -n "${descendants}" ]]; then
+    while IFS= read -r pid; do
+      [[ -z "${pid}" ]] && continue
+      kill "-${signal_name}" "${pid}" 2>/dev/null || true
+    done <<< "${descendants}"
+  fi
+
+  kill "-${signal_name}" "${root_pid}" 2>/dev/null || true
+}
+
+stop_backend_process_tree() {
+  local root_pid="$1"
+  local deadline
+
+  if ! kill -0 "${root_pid}" 2>/dev/null; then
+    return 0
+  fi
+
+  echo "Stopping backend process tree rooted at PID ${root_pid}..."
+  signal_process_tree TERM "${root_pid}"
+
+  deadline=$((SECONDS + 5))
+  while kill -0 "${root_pid}" 2>/dev/null; do
+    if (( SECONDS >= deadline )); then
+      echo "Backend process tree did not exit after TERM, forcing stop..."
+      signal_process_tree KILL "${root_pid}"
+      break
+    fi
+    sleep 0.2
+  done
+
+  sleep 0.5
 }
 
 ensure_sidecar_placeholder() {
@@ -72,25 +134,26 @@ EOF
 }
 
 cleanup() {
+  if [[ "${BACKEND_CLEANUP_DONE}" -eq 1 ]]; then
+    return 0
+  fi
+  BACKEND_CLEANUP_DONE=1
+
   echo
   echo "Stopping Tauri hot-reload dev environment..."
 
   if [[ -n "${BACKEND_PID}" ]] && kill -0 "${BACKEND_PID}" 2>/dev/null; then
-    kill -TERM "${BACKEND_PID}" 2>/dev/null || true
-    sleep 1
+    stop_backend_process_tree "${BACKEND_PID}"
   fi
 
   local remain_port_pids
   remain_port_pids="$(lsof -tiTCP:${BACKEND_PORT} -sTCP:LISTEN 2>/dev/null || true)"
   if [[ -n "${remain_port_pids}" ]]; then
-    while IFS= read -r pid; do
-      [[ -z "${pid}" ]] && continue
-      kill -TERM "${pid}" 2>/dev/null || true
-    done <<< "${remain_port_pids}"
+    kill_listeners_on_port "${BACKEND_PORT}"
   fi
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP QUIT
 
 wait_for_backend_ready() {
   local ready_url="http://${CONNECT_HOST}:${BACKEND_PORT}/api/ready"
