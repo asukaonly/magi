@@ -8,6 +8,9 @@ from time import time
 import uuid
 
 
+REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY = "require_subscriber_delivery"
+
+
 class EventLevel(IntEnum):
     """
     event level (affects priority and persistence strategy)

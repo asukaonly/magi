@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...core.runtime_bindings import require_agent_runtime, require_message_bus
-from ...events.events import Event, EventLevel, EventTypes
+from ...events.events import (
+    Event,
+    EventLevel,
+    EventTypes,
+    REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY,
+)
 from .chat_read_service import get_chat_read_service
 
 
@@ -80,6 +85,7 @@ async def dispatch_user_message(
             data=payload,
             source=source,
             level=EventLevel.INFO,
+            metadata={REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True},
         )
     )
     if not published:

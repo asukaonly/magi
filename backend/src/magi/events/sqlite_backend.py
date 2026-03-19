@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from typing import Callable, Dict, List, Optional
 from collections import defaultdict
 from .backend import MessageBusBackend
-from .events import Event
+from .events import Event, REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,10 @@ STATUS_PENDING = "pending"
 STATUS_PROCESSING = "processing"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
+
+PROCESS_OUTCOME_COMPLETED = "completed"
+PROCESS_OUTCOME_FAILED = "failed"
+PROCESS_OUTCOME_REQUEUE = "requeue"
 
 
 @dataclass
@@ -356,11 +360,15 @@ class SQLiteMessageBackend(MessageBusBackend):
                 event_id, event = result
 
                 # Process event
-                success = await self._process_event(event)
+                outcome = await self._process_event(event)
 
                 # Update message status based on result
-                if success:
+                if outcome == PROCESS_OUTCOME_COMPLETED:
                     await self._mark_completed(event_id)
+                elif outcome == PROCESS_OUTCOME_REQUEUE:
+                    await self._requeue_for_other_subscribers(event_id)
+                    if self.retry_delay_seconds > 0:
+                        await asyncio.sleep(self.retry_delay_seconds)
                 else:
                     await self._mark_failed(event_id, "Handler failed")
 
@@ -447,17 +455,36 @@ class SQLiteMessageBackend(MessageBusBackend):
 
             await db.commit()
 
-    async def _process_event(self, event: Event) -> bool:
+    async def _requeue_for_other_subscribers(self, event_id: int) -> None:
+        """Release a critical event back to pending when this instance has no local subscribers."""
+        async with aiosqlite.connect(self._expanded_db_path) as db:
+            await db.execute(
+                "UPDATE message_queue SET status = ?, last_error = NULL WHERE id = ?",
+                (STATUS_PENDING, event_id),
+            )
+            await db.commit()
+
+    async def _process_event(self, event: Event) -> str:
         """
         Process event with parallel broadcast dispatch.
 
         Returns:
-            True if all handlers succeeded, False otherwise
+            Processing outcome for the current worker instance.
         """
         subscriptions = self._subscriptions.get(event.type, [])
 
         if not subscriptions:
-            return True  # No subscribers = success
+            if self._requires_subscriber_delivery(event):
+                logger.warning(
+                    "Requeueing critical event because this backend has no local subscribers",
+                    extra={
+                        "event_type": event.type,
+                        "event_source": event.source,
+                        "correlation_id": event.correlation_id,
+                    },
+                )
+                return PROCESS_OUTCOME_REQUEUE
+            return PROCESS_OUTCOME_COMPLETED
 
         broadcast_subscriptions = [s for s in subscriptions if s["mode"] == "broadcast"]
         competing_subscriptions = [s for s in subscriptions if s["mode"] == "competing"]
@@ -488,7 +515,11 @@ class SQLiteMessageBackend(MessageBusBackend):
             if result is False:
                 all_success = False
 
-        return all_success
+        return PROCESS_OUTCOME_COMPLETED if all_success else PROCESS_OUTCOME_FAILED
+
+    def _requires_subscriber_delivery(self, event: Event) -> bool:
+        metadata = event.metadata if isinstance(event.metadata, dict) else {}
+        return bool(metadata.get(REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY))
 
     async def _handle_event_with_timeout(self, subscription: Dict, event: Event) -> bool:
         """

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.api.services import message_dispatch_service as service
+from magi.events.events import REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY
 
 
 class _FakeReadService:
@@ -62,6 +63,7 @@ async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: p
     assert event.type == "UserMessage"
     assert event.source == "api"
     assert event.data["metadata"]["origin"] == "test"
+    assert event.metadata[REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY] is True
 
 
 @pytest.mark.asyncio

@@ -8,9 +8,18 @@ from typing import Any
 from .contracts import ActionEmissionRecord
 from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
-from ..events.events import Event, EventLevel, EventTypes
+from ..events.events import (
+    Event,
+    EventLevel,
+    EventTypes,
+    REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY,
+)
 
 logger = get_logger(__name__)
+
+
+def _critical_delivery_metadata() -> dict[str, bool]:
+    return {REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True}
 
 
 class ActionEmitter:
@@ -50,6 +59,7 @@ class ActionEmitter:
                 source="runtime_action_emitter",
                 level=EventLevel.INFO,
                 correlation_id=correlation_id,
+                metadata=_critical_delivery_metadata(),
             )
         )
         logger.info(
@@ -105,6 +115,7 @@ class ActionEmitter:
                     source="runtime_action_emitter",
                     level=EventLevel.INFO if success else EventLevel.ERROR,
                     correlation_id=record.correlation_id,
+                    metadata=_critical_delivery_metadata(),
                 )
             )
         except Exception as exc:
@@ -125,5 +136,6 @@ class ActionEmitter:
                 source="runtime_action_emitter",
                 level=EventLevel.INFO if success else EventLevel.ERROR,
                 correlation_id=correlation_id,
+                metadata=_critical_delivery_metadata(),
             )
         )
