@@ -50,6 +50,7 @@ class TestLayerConditions:
     def test_l3_defaults(self):
         c = L3Conditions(content_query="summary")
         assert c.summary_types is None
+        assert c.summary_categories is None
         assert c.limit == 5
 
     def test_l4_defaults(self):

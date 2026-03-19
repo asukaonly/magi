@@ -142,12 +142,24 @@ async def test_search_summaries_fuses_bm25_and_vector_hits(tmp_path, monkeypatch
         }
     )
 
-    async def _fake_bm25(_query: str, *, limit: int = 20):  # type: ignore[no-untyped-def]
-        _ = limit
+    async def _fake_bm25(
+        _query: str,
+        *,
+        summary_type: str | None = None,
+        summary_category: str | None = None,
+        limit: int = 20,
+    ):  # type: ignore[no-untyped-def]
+        _ = summary_type, summary_category, limit
         return [("summary-bm25", -1.0)]
 
-    async def _fake_semantic(*, query: str, summary_type: str | None, limit: int):  # type: ignore[no-untyped-def]
-        _ = query, summary_type, limit
+    async def _fake_semantic(
+        *,
+        query: str,
+        summary_type: str | None,
+        summary_category: str | None,
+        limit: int,
+    ):  # type: ignore[no-untyped-def]
+        _ = query, summary_type, summary_category, limit
         return [{"summary_id": "summary-vector"}]
 
     monkeypatch.setattr(l3_store, "bm25_search", _fake_bm25)
@@ -156,6 +168,81 @@ async def test_search_summaries_fuses_bm25_and_vector_hits(tmp_path, monkeypatch
     results = await l3_store.search_summaries(query="career planning", summary_type="thematic", limit=5)
 
     assert [item["summary_id"] for item in results] == ["summary-bm25", "summary-vector"]
+
+
+@pytest.mark.asyncio
+async def test_search_summaries_filters_summary_category(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l3_store.initialize()
+
+    await l3_store._store_summary(
+        {
+            "summary_id": "summary-state-change",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "period_start": 1.0,
+            "period_end": 2.0,
+            "content": "stress level remained high across the week",
+            "key_topics": ["stress"],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "change_and_pattern": None,
+            "source_event_ids": ["evt-1"],
+            "source_event_count": 1,
+            "importance_aggregate": 0.8,
+            "event_type_distribution": {},
+            "generated_by_model": "rule-summary",
+            "generation_prompt": None,
+            "generation_reason": "insight:state_change",
+            "created_at": 1.0,
+            "updated_at": 1.0,
+        }
+    )
+    await l3_store._store_summary(
+        {
+            "summary_id": "summary-trend-shift",
+            "summary_type": "insight",
+            "summary_category": "trend_shift",
+            "period_start": 1.0,
+            "period_end": 2.0,
+            "content": "stress planning shifted toward relief and recovery",
+            "key_topics": ["stress"],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "change_and_pattern": None,
+            "source_event_ids": ["evt-2"],
+            "source_event_count": 1,
+            "importance_aggregate": 0.8,
+            "event_type_distribution": {},
+            "generated_by_model": "rule-summary",
+            "generation_prompt": None,
+            "generation_reason": "insight:trend_shift",
+            "created_at": 1.0,
+            "updated_at": 1.0,
+        }
+    )
+
+    async def _fake_bm25(_query: str, *, summary_type: str | None = None, summary_category: str | None = None, limit: int = 20):  # type: ignore[no-untyped-def]
+        _ = summary_type, summary_category, limit
+        return [("summary-state-change", -1.0), ("summary-trend-shift", -0.8)]
+
+    async def _fake_semantic(*, query: str, summary_type: str | None, summary_category: str | None, limit: int):  # type: ignore[no-untyped-def]
+        _ = query, summary_type, summary_category, limit
+        return [{"summary_id": "summary-trend-shift"}, {"summary_id": "summary-state-change"}]
+
+    monkeypatch.setattr(l3_store, "bm25_search", _fake_bm25)
+    monkeypatch.setattr(l3_store, "_semantic_search_summaries", _fake_semantic)
+
+    results = await l3_store.search_summaries(
+        query="stress",
+        summary_type="insight",
+        summary_category="state_change",
+        limit=5,
+    )
+
+    assert [item["summary_id"] for item in results] == ["summary-state-change"]
 
 
 @pytest.mark.asyncio

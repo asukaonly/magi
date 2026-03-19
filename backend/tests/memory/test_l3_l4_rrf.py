@@ -172,6 +172,36 @@ class TestL3HandlerTriplePath:
         # weekly should be filtered out by summary_type
         assert "s-weekly" not in ids
 
+    async def test_summary_category_filter(self, l3_store: L3SummaryStore) -> None:
+        await l3_store.initialize()
+        await _seed_summary(
+            l3_store,
+            summary_id="s-state",
+            summary_type="insight",
+            summary_category="state_change",
+            content="stress pattern remained elevated",
+        )
+        await _seed_summary(
+            l3_store,
+            summary_id="s-trend",
+            summary_type="insight",
+            summary_category="trend_shift",
+            content="stress pattern shifted toward recovery",
+        )
+
+        handler = L3Handler(l3_store)
+        conds = L3Conditions(
+            content_query="stress pattern",
+            summary_types=["insight"],
+            summary_categories=["state_change"],
+            limit=10,
+        )
+        results = await handler.execute(conds)
+
+        ids = [r["summary_id"] for r in results]
+        assert "s-state" in ids
+        assert "s-trend" not in ids
+
     async def test_time_range_filter(self, l3_store: L3SummaryStore) -> None:
         base = 1700000000.0
         await l3_store.initialize()

@@ -319,6 +319,7 @@ class L3SummaryStore:
         *,
         query: str,
         summary_type: Optional[str] = None,
+        summary_category: Optional[str] = None,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """Search summaries using BM25 + vector + keyword fusion."""
@@ -327,9 +328,30 @@ class L3SummaryStore:
             return []
 
         fetch_k = max(int(limit) * 5, 20)
-        bm25_task = asyncio.ensure_future(self.bm25_search(query, limit=fetch_k))
-        semantic_task = asyncio.ensure_future(self._semantic_search_summaries(query=query, summary_type=summary_type, limit=fetch_k))
-        keyword_task = asyncio.ensure_future(self._keyword_search_summaries(query=query, summary_type=summary_type, limit=fetch_k))
+        bm25_task = asyncio.ensure_future(
+            self.bm25_search(
+                query,
+                summary_type=summary_type,
+                summary_category=summary_category,
+                limit=fetch_k,
+            )
+        )
+        semantic_task = asyncio.ensure_future(
+            self._semantic_search_summaries(
+                query=query,
+                summary_type=summary_type,
+                summary_category=summary_category,
+                limit=fetch_k,
+            )
+        )
+        keyword_task = asyncio.ensure_future(
+            self._keyword_search_summaries(
+                query=query,
+                summary_type=summary_type,
+                summary_category=summary_category,
+                limit=fetch_k,
+            )
+        )
 
         results_or_errors = await asyncio.gather(bm25_task, semantic_task, keyword_task, return_exceptions=True)
 
@@ -352,7 +374,11 @@ class L3SummaryStore:
         summary_ids = [summary_id for summary_id, _score in fused[:fetch_k]]
         if not summary_ids:
             return []
-        summaries = await self._fetch_summaries_by_ids(summary_ids, summary_type=summary_type)
+        summaries = await self._fetch_summaries_by_ids(
+            summary_ids,
+            summary_type=summary_type,
+            summary_category=summary_category,
+        )
         return summaries[:limit]
 
     async def list_summaries(self, *, limit: int = 100) -> List[Dict[str, Any]]:
@@ -499,6 +525,8 @@ class L3SummaryStore:
         self,
         query: str,
         *,
+        summary_type: Optional[str] = None,
+        summary_category: Optional[str] = None,
         limit: int = 20,
     ) -> List[Tuple[str, float]]:
         """Search L3 summaries via FTS5 BM25 ranking.
@@ -516,13 +544,23 @@ class L3SummaryStore:
             try:
                 async with db.execute(
                     """
-                    SELECT summary_id, bm25(l3_summaries_fts) AS score
+                    SELECT l3_summaries_fts.summary_id, bm25(l3_summaries_fts) AS score
                     FROM l3_summaries_fts
+                    JOIN summaries ON summaries.summary_id = l3_summaries_fts.summary_id
                     WHERE l3_summaries_fts MATCH ?
+                      AND (? IS NULL OR summaries.summary_type = ?)
+                      AND (? IS NULL OR summaries.summary_category = ?)
                     ORDER BY score
                     LIMIT ?
                     """,
-                    (escaped, limit),
+                    (
+                        escaped,
+                        summary_type,
+                        summary_type,
+                        summary_category,
+                        summary_category,
+                        limit,
+                    ),
                 ) as cursor:
                     rows = await cursor.fetchall()
                 return [(str(row[0]), float(row[1])) for row in rows]
@@ -708,6 +746,7 @@ class L3SummaryStore:
         *,
         query: str,
         summary_type: Optional[str],
+        summary_category: Optional[str],
         limit: int,
     ) -> List[Dict[str, Any]]:
         if not self._vector_enabled or self._embedding_service is None or self._vector_index is None or not query.strip():
@@ -729,6 +768,9 @@ class L3SummaryStore:
         if summary_type:
             sql += " AND summary_type = ?"
             args.append(summary_type)
+        if summary_category:
+            sql += " AND summary_category = ?"
+            args.append(summary_category)
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
@@ -750,6 +792,7 @@ class L3SummaryStore:
         *,
         query: str,
         summary_type: Optional[str],
+        summary_category: Optional[str],
         limit: int,
     ) -> List[Dict[str, Any]]:
         sql = "SELECT * FROM summaries WHERE content LIKE ?"
@@ -757,6 +800,9 @@ class L3SummaryStore:
         if summary_type:
             sql += " AND summary_type = ?"
             args.append(summary_type)
+        if summary_category:
+            sql += " AND summary_category = ?"
+            args.append(summary_category)
         sql += " ORDER BY updated_at DESC LIMIT ?"
         args.append(int(limit))
         async with aiosqlite.connect(self.db_path) as db:
@@ -770,6 +816,7 @@ class L3SummaryStore:
         summary_ids: List[str],
         *,
         summary_type: Optional[str],
+        summary_category: Optional[str],
     ) -> List[Dict[str, Any]]:
         if not summary_ids:
             return []
@@ -779,6 +826,9 @@ class L3SummaryStore:
         if summary_type:
             sql += " AND summary_type = ?"
             args.append(summary_type)
+        if summary_category:
+            sql += " AND summary_category = ?"
+            args.append(summary_category)
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
