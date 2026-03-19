@@ -37,7 +37,8 @@ def test_resolve_longmemeval_root_falls_back_to_default(monkeypatch, tmp_path) -
     assert resolve_longmemeval_root() == default_root
 
 
-def test_run_all_executes_replay_query_and_official_eval_in_order(tmp_path) -> None:
+def test_run_all_executes_replay_query_and_official_eval_in_order(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     calls: list[tuple[str, dict[str, object]]] = []
     output_root = tmp_path / "outputs"
     run_id = "2026-03-19 18:05:07"
@@ -95,3 +96,28 @@ def test_run_all_executes_replay_query_and_official_eval_in_order(tmp_path) -> N
     assert summary["run_dir"] == str(run_dir)
     assert summary["backend_url"] == DEFAULT_BACKEND_URL
     assert summary["official_eval"]["overall_accuracy"] == 0.8
+
+
+def test_run_all_skips_official_eval_when_openai_key_missing(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    calls: list[str] = []
+
+    def fake_replay(**kwargs):
+        calls.append("replay")
+
+    def fake_query(**kwargs):
+        calls.append("query")
+
+    summary = run_longmemeval_pipeline(
+        dataset_path=tmp_path / "oracle.json",
+        output_root=tmp_path / "outputs",
+        run_id="2026-03-19 18:05:07",
+        replay_runner=fake_replay,
+        query_runner=fake_query,
+        official_eval_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+        longmemeval_root=tmp_path / "LongMemEval",
+    )
+
+    assert calls == ["replay", "query"]
+    assert summary["official_eval"]["status"] == "skipped"
+    assert "OPENAI_API_KEY" in summary["official_eval"]["reason"]

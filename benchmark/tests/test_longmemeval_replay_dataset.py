@@ -15,6 +15,7 @@ class FakeReplayService:
     def __post_init__(self) -> None:
         self.write_calls: list[tuple[str, int]] = []
         self.finalize_calls = 0
+        self.l2_stats_calls = 0
 
     async def write_records(self, *, namespace: str, records):
         self.write_calls.append((namespace, len(records)))
@@ -32,8 +33,46 @@ class FakeReplayService:
             "l2_pipeline_stats": {
                 "is_running": True,
                 "extract_enqueued": 10,
-                "extract_completed": 9,
+                "extract_completed": 1,
+                "extract_failed": 0,
+                "extract_skipped": 0,
+                "reconcile_enqueued": 0,
+                "reconcile_completed": 0,
+                "reconcile_failed": 0,
+                "snapshot_enqueued": 0,
+                "snapshot_completed": 0,
+                "snapshot_failed": 0,
             },
+        }
+
+    async def get_l2_pipeline_stats(self):
+        self.l2_stats_calls += 1
+        if self.l2_stats_calls == 1:
+            return {
+                "is_running": True,
+                "extract_enqueued": 10,
+                "extract_completed": 1,
+                "extract_failed": 0,
+                "extract_skipped": 0,
+                "reconcile_enqueued": 2,
+                "reconcile_completed": 1,
+                "reconcile_failed": 0,
+                "snapshot_enqueued": 1,
+                "snapshot_completed": 0,
+                "snapshot_failed": 0,
+            }
+        return {
+            "is_running": True,
+            "extract_enqueued": 10,
+            "extract_completed": 10,
+            "extract_failed": 0,
+            "extract_skipped": 0,
+            "reconcile_enqueued": 2,
+            "reconcile_completed": 2,
+            "reconcile_failed": 0,
+            "snapshot_enqueued": 1,
+            "snapshot_completed": 1,
+            "snapshot_failed": 0,
         }
 
 
@@ -65,6 +104,7 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
             run_id="run-1",
             output_root=tmp_path,
             progress_reporter=lambda progress: progress_events.append(asdict(progress)),
+            poll_interval_seconds=0.0,
         )
     )
 
@@ -97,4 +137,5 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
     ]
     post_replay = json.loads(artifacts.post_replay_path.read_text(encoding="utf-8"))
     assert post_replay["summaries"]["hour"]["summary_id"] == "sum-hour-1"
-    assert post_replay["l2_pipeline_stats"]["extract_completed"] == 9
+    assert post_replay["l2_pipeline_stats"]["extract_completed"] == 10
+    assert service.l2_stats_calls == 2

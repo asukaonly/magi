@@ -77,17 +77,26 @@ def run_longmemeval_pipeline(
         run_id=run_id,
         backend_url=DEFAULT_BACKEND_URL,
     )
-    official_artifacts = official_callable(
-        longmemeval_root=resolved_longmemeval_root,
-        dataset_path=dataset,
-        output_root=output,
-        run_id=run_id,
-    )
+    official_artifacts = None
+    if os.getenv("OPENAI_API_KEY"):
+        official_artifacts = official_callable(
+            longmemeval_root=resolved_longmemeval_root,
+            dataset_path=dataset,
+            output_root=output,
+            run_id=run_id,
+        )
+    else:
+        print("Skipping official evaluation because OPENAI_API_KEY is not set.")
 
     summary_path = getattr(official_artifacts, "summary_path", None)
     official_summary = {}
     if summary_path is not None and Path(summary_path).exists():
         official_summary = json.loads(Path(summary_path).read_text(encoding="utf-8"))
+    elif official_artifacts is None:
+        official_summary = {
+            "status": "skipped",
+            "reason": "OPENAI_API_KEY is not set",
+        }
 
     return {
         "run_id": run_id,

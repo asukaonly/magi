@@ -34,6 +34,9 @@ class SupportsReplayService(Protocol):
     async def finalize_replay(self) -> dict[str, Any]:
         """Run post-replay summary generation and return L2 pipeline status."""
 
+    async def get_l2_pipeline_stats(self) -> dict[str, Any]:
+        """Return current L2 pipeline counters."""
+
 
 class LocalReplayServiceAdapter:
     """Bridge the local eval harness with replay finalization hooks."""
@@ -58,6 +61,13 @@ class LocalReplayServiceAdapter:
             "summaries": summaries,
             "l2_pipeline_stats": l2_pipeline_stats,
         }
+
+    async def get_l2_pipeline_stats(self) -> dict[str, Any]:
+        return (
+            self._unified_memory.get_l2_pipeline_stats()
+            if hasattr(self._unified_memory, "get_l2_pipeline_stats")
+            else {}
+        )
 
 
 @dataclass(slots=True)
@@ -89,6 +99,7 @@ async def replay_longmemeval_rows(
     output_root: str | Path,
     benchmark_name: str = "longmemeval",
     progress_reporter: Callable[[ReplayProgress], None] | None = None,
+    poll_interval_seconds: float = 5.0,
 ) -> LongMemEvalReplayArtifacts:
     output_dir = build_run_output_dir(
         root_dir=output_root,
@@ -136,6 +147,10 @@ async def replay_longmemeval_rows(
 
     manifest_path = write_jsonl(output_dir / "replay_manifest.jsonl", manifest_rows)
     post_replay = await eval_service.finalize_replay()
+    post_replay["l2_pipeline_stats"] = await wait_for_l2_pipeline_idle(
+        eval_service,
+        poll_interval_seconds=poll_interval_seconds,
+    )
     post_replay_path = output_dir / "post_replay.json"
     post_replay_path.write_text(json.dumps(post_replay, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return LongMemEvalReplayArtifacts(
@@ -154,6 +169,58 @@ def print_replay_progress(progress: ReplayProgress) -> None:
         f"records={progress.question_record_count} "
         f"total_records={progress.total_record_count}"
     )
+
+
+def print_l2_pipeline_stats(stats: dict[str, Any]) -> None:
+    pending = describe_l2_pending(stats)
+    print(
+        "[L2 drain] "
+        f"extract_pending={pending['extract_pending']} "
+        f"reconcile_pending={pending['reconcile_pending']} "
+        f"snapshot_pending={pending['snapshot_pending']}"
+    )
+
+
+def describe_l2_pending(stats: dict[str, Any]) -> dict[str, int]:
+    return {
+        "extract_pending": max(
+            int(stats.get("extract_enqueued", 0))
+            - int(stats.get("extract_completed", 0))
+            - int(stats.get("extract_failed", 0))
+            - int(stats.get("extract_skipped", 0)),
+            0,
+        ),
+        "reconcile_pending": max(
+            int(stats.get("reconcile_enqueued", 0))
+            - int(stats.get("reconcile_completed", 0))
+            - int(stats.get("reconcile_failed", 0)),
+            0,
+        ),
+        "snapshot_pending": max(
+            int(stats.get("snapshot_enqueued", 0))
+            - int(stats.get("snapshot_completed", 0))
+            - int(stats.get("snapshot_failed", 0)),
+            0,
+        ),
+    }
+
+
+def is_l2_pipeline_idle(stats: dict[str, Any]) -> bool:
+    pending = describe_l2_pending(stats)
+    return all(value == 0 for value in pending.values())
+
+
+async def wait_for_l2_pipeline_idle(
+    eval_service: SupportsReplayService,
+    *,
+    poll_interval_seconds: float,
+) -> dict[str, Any]:
+    while True:
+        stats = await eval_service.get_l2_pipeline_stats()
+        print_l2_pipeline_stats(stats)
+        if is_l2_pipeline_idle(stats):
+            return stats
+        await asyncio.sleep(poll_interval_seconds)
 
 
 async def _run_cli(args: argparse.Namespace) -> LongMemEvalReplayArtifacts:

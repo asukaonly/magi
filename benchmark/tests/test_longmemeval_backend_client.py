@@ -118,3 +118,30 @@ def test_backend_client_posts_finalize_replay_request() -> None:
         )
     ]
     assert result["summaries"]["hour"]["summary_id"] == "sum-hour-1"
+
+
+def test_backend_client_reads_l2_statistics_endpoint() -> None:
+    service = BackendEvalService("http://localhost:8000")
+    calls: list[str] = []
+
+    def fake_get(path: str):
+        calls.append(path)
+        return {
+            "extract_enqueued": 10,
+            "extract_completed": 8,
+            "extract_failed": 0,
+            "extract_skipped": 1,
+            "reconcile_enqueued": 2,
+            "reconcile_completed": 2,
+            "reconcile_failed": 0,
+            "snapshot_enqueued": 1,
+            "snapshot_completed": 1,
+            "snapshot_failed": 0,
+        }
+
+    service._get_json_sync = fake_get  # type: ignore[method-assign]
+
+    result = asyncio.run(service.get_l2_pipeline_stats())
+
+    assert calls == ["/api/memory/l2/statistics"]
+    assert result["extract_completed"] == 8

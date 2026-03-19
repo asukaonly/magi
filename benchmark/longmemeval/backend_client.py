@@ -50,6 +50,16 @@ class BackendEvalService:
             {"period_types": ["hour", "day", "week", "month"]},
         )
 
+    async def get_l2_pipeline_stats(self) -> dict[str, Any]:
+        response = await asyncio.to_thread(self._get_json_sync, "/api/memory/l2/statistics")
+        stats = dict(response)
+        stats.pop("canonical_self_id", None)
+        stats.pop("identity_link_count", None)
+        stats.pop("relation_count", None)
+        stats.pop("assertion_count", None)
+        stats.pop("db_path", None)
+        return stats
+
     def _post_json_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._backend_url}{path}"
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -59,6 +69,16 @@ class BackendEvalService:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        try:
+            with request.urlopen(req) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Backend request failed with {exc.code}: {detail}") from exc
+
+    def _get_json_sync(self, path: str) -> dict[str, Any]:
+        url = f"{self._backend_url}{path}"
+        req = request.Request(url, headers={"Accept": "application/json"}, method="GET")
         try:
             with request.urlopen(req) as response:
                 return json.loads(response.read().decode("utf-8"))
