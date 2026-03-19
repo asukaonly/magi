@@ -300,7 +300,7 @@ async def test_record_tool_loop_fact_emits_llm_trace_node_when_metrics_present()
 
 
 @pytest.mark.asyncio
-async def test_handle_emits_targeted_chat_timeline_event(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.MonkeyPatch) -> None:
     action_emitter = _FakeActionEmitter()
     runtime = _FakeRuntime()
     service = ChatPostProcessService(
@@ -359,15 +359,7 @@ async def test_handle_emits_targeted_chat_timeline_event(monkeypatch: pytest.Mon
 
     assert outcome.emitted is True
     assert len(action_emitter.chat_response_events) == 1
-    assert len(runtime.sensor_hub.sensor_events) == 1
-    timeline_event = runtime.sensor_hub.sensor_events[0]
-    assert timeline_event.event_type == "TimelineSourceDetected"
-    assert timeline_event.payload["target_task_agent_type"] == "timeline"
-    assert timeline_event.payload["target_task_agent_id"] == "timeline-main"
-    assert timeline_event.payload["source_type"] == "chat"
-    assert timeline_event.payload["message"] == "I still like Asuka best."
-    assert timeline_event.payload["assistant_message"] == "You bring up Asuka a lot."
-    assert timeline_event.payload["turn_id"] == "turn-1"
+    assert runtime.sensor_hub.sensor_events == []
     event_types = [item["event_type"] for item in action_emitter.runtime_events]
     assert TRACE_NODE_COMPLETED_EVENT_TYPE in event_types
     assert TURN_TRACE_COMPLETED_EVENT_TYPE in event_types

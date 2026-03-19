@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from ....core.logger import get_logger
-from ....awareness.contracts import ActionEmissionRecord, SensorEvent
+from ....awareness.contracts import ActionEmissionRecord
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
 from ....agent.trace import (
@@ -191,18 +191,6 @@ class ChatPostProcessService:
             ),
             success=True,
             error=None,
-        )
-        await self._emit_chat_timeline_event(
-            user_id=context.user_id,
-            session_id=context.session_id,
-            turn_id=turn_id,
-            user_message=user_message,
-            assistant_message=response_text,
-            timestamp=float(latest_fact.timestamp or message_started_at or now),
-            correlation_id=correlation_id,
-            orchestration_id=result.orchestration_id,
-            relation_candidates=list(action_payload.get("relation_candidates", [])),
-            entities=list(action_payload.get("entities", [])),
         )
         return ChatParseOutcome(True, history_stored, memory_updated, False)
 
@@ -504,58 +492,6 @@ class ChatPostProcessService:
             except Exception as exc:
                 logger.warning("Failed to update other memory: %s", exc)
         return updated
-
-    async def _emit_chat_timeline_event(
-        self,
-        *,
-        user_id: str,
-        session_id: str,
-        turn_id: str | None,
-        user_message: str,
-        assistant_message: str,
-        timestamp: float,
-        correlation_id: str | None,
-        orchestration_id: str | None,
-        relation_candidates: list[dict[str, Any]],
-        entities: list[dict[str, Any]],
-    ) -> None:
-        if not user_message and not assistant_message:
-            return
-        sensor_hub = self._get_sensor_hub()
-        if sensor_hub is None:
-            return
-        try:
-            source_item_id = turn_id or f"chat-{uuid.uuid4().hex[:12]}"
-            payload: dict[str, Any] = {
-                "target_task_agent_type": TaskAgentType.TIMELINE.value,
-                "target_task_agent_id": "timeline-main",
-                "source_type": "chat",
-                "source_item_id": source_item_id,
-                "user_id": user_id,
-                "session_id": session_id,
-                "turn_id": turn_id or source_item_id,
-                "message": user_message,
-                "user_message": user_message,
-                "assistant_message": assistant_message,
-                "timestamp": timestamp,
-                "entities": entities,
-                "relation_candidates": relation_candidates,
-            }
-            if correlation_id:
-                payload["correlation_id"] = correlation_id
-            if orchestration_id:
-                payload["orchestration_id"] = orchestration_id
-            await sensor_hub.push_sensor_event(
-                SensorEvent(
-                    sensor_name="timeline.chat_bridge",
-                    event_type="TimelineSourceDetected",
-                    payload=payload,
-                    timestamp=timestamp,
-                    correlation_id=correlation_id or str(uuid.uuid4()),
-                )
-            )
-        except Exception as exc:
-            logger.warning("Failed to enqueue chat timeline event: %s", exc)
 
     def _resolve_turn_id(self, context: ChatRuntimeContext, payload: dict[str, Any]) -> str | None:
         latest_payload = context.latest_payload
