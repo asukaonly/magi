@@ -229,6 +229,7 @@ class ChatPostProcessService:
             started_at_ms=started_at_ms,
             ended_at_ms=ended_at_ms,
             duration_ms=max(0, ended_at_ms - started_at_ms),
+            metrics=dict(getattr(decision, "llm_trace", {}) or {}),
             output={
                 "intent": str(getattr(decision, "intent", "") or ""),
                 "execution_mode": str(getattr(getattr(decision, "execution_mode", None), "value", "") or ""),

@@ -21,6 +21,7 @@ class _FakeContextDecision:
         orchestration_strategy: dict,
         memory_route: str = "none",
         memory_query_hint: dict | None = None,
+        llm_trace: dict | None = None,
     ):
         self.intent = intent
         self.tools = tools
@@ -29,6 +30,7 @@ class _FakeContextDecision:
         self.orchestration_strategy = orchestration_strategy
         self.memory_route = memory_route
         self.memory_query_hint = memory_query_hint
+        self.llm_trace = llm_trace or {}
 
 
 class _FakeContextDecider:
@@ -120,6 +122,69 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
             "reasoning": "decompose",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_coordinator_carries_intent_llm_trace_metrics() -> None:
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            _FakeContextDecision(
+                intent="chat",
+                tools=[],
+                deep_thinking=False,
+                reasoning="direct response",
+                orchestration_strategy={
+                    "mode": "direct",
+                    "planner": "task_agent",
+                    "default_leaf_type": "general-purpose",
+                    "allow_parallel": False,
+                },
+                llm_trace={
+                    "provider": "openai",
+                    "model": "gpt-4.1-mini",
+                    "input_tokens": 48,
+                    "output_tokens": 12,
+                    "total_tokens": 60,
+                    "reasoning_tokens": 0,
+                    "thinking_enabled": False,
+                    "duration_ms": 310,
+                },
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "message": "你好"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="你好",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.llm_trace["provider"] == "openai"
+    assert decision.llm_trace["model"] == "gpt-4.1-mini"
+    assert decision.llm_trace["input_tokens"] == 48
+    assert decision.llm_trace["output_tokens"] == 12
+    assert decision.llm_trace["duration_ms"] == 310
 
 
 @pytest.mark.asyncio

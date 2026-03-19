@@ -101,6 +101,7 @@ class ChatExecutionCoordinator:
             difficulty="hard" if decision.deep_thinking else "normal",
             execution_mode=execution_mode,
             tools=list(decision.tools),
+            llm_trace=dict(getattr(decision, "llm_trace", {}) or {}),
             deep_thinking=bool(decision.deep_thinking),
             reasoning=str(decision.reasoning),
             orchestration_plan=orchestration_plan,

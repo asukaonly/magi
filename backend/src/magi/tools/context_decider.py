@@ -38,6 +38,7 @@ class ContextDecision:
         memory_layer: Optional[str] = None,  # TODO: implement memory layer selection
         memory_route: str = "none",
         memory_query_hint: Optional[Dict[str, Any]] = None,
+        llm_trace: Optional[Dict[str, Any]] = None,
     ):
         self.intent = intent  # User's intent (e.g., "file_read", "web_search", "chat")
         self.tools = tools  # List of up to 5 tool names
@@ -47,6 +48,7 @@ class ContextDecision:
         self.memory_layer = memory_layer  # Which memory layer to use (L1-L4)
         self.memory_route = memory_route
         self.memory_query_hint = memory_query_hint
+        self.llm_trace = dict(llm_trace or {})
 
 
 @dataclass
@@ -252,7 +254,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 messages=[{"role": "user", "content": user_prompt}],
             )
 
-            response = await self.provider_bridge.chat(
+            provider_response = await self.provider_bridge.chat_response(
                 system_prompt=self.system_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
                 max_tokens=DEFAULT_THINKING_TOKENS,
@@ -265,6 +267,7 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                     "agent_id": "context_decider",
                 },
             )
+            response = provider_response.content
 
             # Check if response is empty or incomplete
             if not response or not response.strip():
@@ -299,6 +302,11 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 decision=decision,
                 available_tools=available_tools,
             )
+            decision.llm_trace = self._build_llm_trace(
+                metadata=provider_response.metadata,
+                disable_thinking=True,
+                duration_ms=duration_ms,
+            )
 
             logger.info(
                 f"[ContextDecider] Decision made | Intent: {decision.intent} | "
@@ -317,6 +325,26 @@ Note: Always match tools/skills from the "Available Tools" and "Available Skills
                 reasoning=f"error: {str(e)}",
                 orchestration_strategy=self._default_orchestration_strategy(),
             )
+
+    def _build_llm_trace(
+        self,
+        *,
+        metadata: Optional[Dict[str, Any]],
+        disable_thinking: bool,
+        duration_ms: int,
+    ) -> Dict[str, Any]:
+        trace_metrics = dict((metadata or {}).get("trace_metrics") or {})
+        trace_metrics.setdefault("provider", getattr(self.llm, "provider_name", "unknown"))
+        trace_metrics.setdefault("model", str(getattr(self.llm, "model_name", "unknown")))
+        trace_metrics.setdefault("input_tokens", 0)
+        trace_metrics.setdefault("output_tokens", 0)
+        trace_metrics.setdefault("total_tokens", 0)
+        trace_metrics.setdefault("reasoning_tokens", 0)
+        trace_metrics.setdefault("cache_read_tokens", 0)
+        trace_metrics.setdefault("cache_write_tokens", 0)
+        trace_metrics.setdefault("thinking_enabled", not disable_thinking)
+        trace_metrics.setdefault("duration_ms", duration_ms)
+        return trace_metrics
 
     def _get_available_tools(self) -> List[Dict[str, Any]]:
         """Get list of available tools with metadata"""

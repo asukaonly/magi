@@ -111,6 +111,16 @@ class _FakeIntentDecision:
         self.tools: list[str] = []
         self.reasoning = "direct response"
         self.orchestration_plan = None
+        self.llm_trace = {
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "input_tokens": 48,
+            "output_tokens": 12,
+            "total_tokens": 60,
+            "reasoning_tokens": 0,
+            "thinking_enabled": False,
+            "duration_ms": 310,
+        }
 
 
 @pytest.mark.asyncio
@@ -218,6 +228,10 @@ async def test_record_intent_resolution_emits_turn_and_intent_trace_events() -> 
     ]
     assert action_emitter.runtime_events[-1]["payload"]["node_type"] == "intent_resolution"
     assert action_emitter.runtime_events[-1]["payload"]["output"]["intent"] == "chat"
+    assert action_emitter.runtime_events[-1]["payload"]["metrics"]["provider"] == "openai"
+    assert action_emitter.runtime_events[-1]["payload"]["metrics"]["model"] == "gpt-4.1-mini"
+    assert action_emitter.runtime_events[-1]["payload"]["metrics"]["input_tokens"] == 48
+    assert action_emitter.runtime_events[-1]["payload"]["metrics"]["output_tokens"] == 12
 
 
 @pytest.mark.asyncio
