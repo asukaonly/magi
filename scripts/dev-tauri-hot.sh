@@ -31,6 +31,46 @@ fi
 BACKEND_PID=""
 BACKEND_CLEANUP_DONE=0
 
+cleanup_stale_backend_log_holders() {
+  local holder_pids
+  local pid
+  local command
+
+  holder_pids="$(lsof -t "${BACKEND_LOG_FILE}" 2>/dev/null | awk '!seen[$0]++' || true)"
+  if [[ -z "${holder_pids}" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r pid; do
+    [[ -z "${pid}" ]] && continue
+    command="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
+    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|spawn_main|resource_tracker) ]]; then
+      continue
+    fi
+
+    echo "Stopping stale backend log holder PID ${pid}: ${command}"
+    kill -TERM "${pid}" 2>/dev/null || true
+  done <<< "${holder_pids}"
+
+  sleep 1
+
+  holder_pids="$(lsof -t "${BACKEND_LOG_FILE}" 2>/dev/null | awk '!seen[$0]++' || true)"
+  if [[ -z "${holder_pids}" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r pid; do
+    [[ -z "${pid}" ]] && continue
+    command="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
+    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|spawn_main|resource_tracker) ]]; then
+      continue
+    fi
+
+    echo "Force stopping stale backend log holder PID ${pid}: ${command}"
+    kill -KILL "${pid}" 2>/dev/null || true
+  done <<< "${holder_pids}"
+}
+
 kill_listeners_on_port() {
   local port="$1"
   local pids
@@ -196,6 +236,7 @@ PY
 }
 
 ensure_sidecar_placeholder
+cleanup_stale_backend_log_holders
 kill_listeners_on_port "${BACKEND_PORT}"
 kill_listeners_on_port "${FRONTEND_PORT}"
 
