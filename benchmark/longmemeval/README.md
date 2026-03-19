@@ -72,6 +72,8 @@ This reopens the same persisted memory state under `benchmark/outputs/longmemeva
 - `predictions_with_trace.jsonl`
 - `summary.json`
 
+During query replay it prints per-question query progress in the form `[Query replay] current/total ...`.
+
 Backend-service flow:
 
 ```bash
@@ -89,3 +91,16 @@ python benchmark/longmemeval/query_dataset.py \
 ```
 
 This mode reuses the memory runtime already initialized by the backend service, including its provider and LLM configuration.
+
+Official QA scoring wrapper:
+
+```bash
+python benchmark/longmemeval/evaluate_official.py \
+  --longmemeval-root /absolute/path/to/LongMemEval \
+  --dataset data/longmemeval_oracle.json \
+  --output-root benchmark/outputs \
+  --run-id oracle-backend \
+  --judge-model gpt-4o
+```
+
+This reads the current run's `predictions.jsonl`, calls LongMemEval's official `evaluate_qa.py`, and writes `official_eval_summary.json` next to the benchmark outputs.

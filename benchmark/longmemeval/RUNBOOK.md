@@ -73,6 +73,7 @@ Expected output files under `benchmark/outputs/longmemeval/<run-id>/`:
 - `predictions.jsonl`
 - `predictions_with_trace.jsonl`
 - `summary.json`
+- per-question console progress lines for query execution
 
 ## 6. Inspect the Results
 
@@ -94,7 +95,23 @@ First few traces:
 head "$LONGMEM_OUT/longmemeval/$LONGMEM_RUN/predictions_with_trace.jsonl"
 ```
 
-## 7. Optional: Run a Small Smoke Sample First
+## 7. Run Official LongMemEval QA Scoring
+
+```bash
+python /Users/asuka/code/magi/benchmark/longmemeval/evaluate_official.py \
+  --longmemeval-root /absolute/path/to/LongMemEval \
+  --dataset "$LONGMEM_DATA" \
+  --output-root "$LONGMEM_OUT" \
+  --run-id "$LONGMEM_RUN" \
+  --judge-model gpt-4o
+```
+
+Expected output files under `benchmark/outputs/longmemeval/<run-id>/`:
+
+- `predictions.jsonl.eval-results-gpt-4o`
+- `official_eval_summary.json`
+
+## 8. Optional: Run a Small Smoke Sample First
 
 ```bash
 python /Users/asuka/code/magi/benchmark/longmemeval/replay_dataset.py \
