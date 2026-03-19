@@ -36,7 +36,7 @@ class _FakeOpenAIClient:
 class _FakeAdapter:
     def __init__(
         self,
-        response: str,
+        response: str | list[object],
         *,
         provider_name: str = "openai",
         model_name: str = "gpt-test",
@@ -45,6 +45,10 @@ class _FakeAdapter:
     ) -> None:
         self.provider_name = provider_name
         self.model_name = model_name
+        if isinstance(response, list):
+            self._responses = list(response)
+        else:
+            self._responses = [response]
         usage_obj = (
             SimpleNamespace(
                 prompt_tokens=usage[0],
@@ -62,6 +66,20 @@ class _FakeAdapter:
             )
         )
         self._llm_usage_event_publisher = usage_publisher
+
+        async def _create_completion(**kwargs):  # type: ignore[no-untyped-def]
+            self._client.completions.kwargs = kwargs
+            next_response = self._responses.pop(0) if self._responses else "{}"
+            if isinstance(next_response, Exception):
+                raise next_response
+            message = SimpleNamespace(content=str(next_response), tool_calls=[], role="assistant")
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=message, finish_reason="stop")],
+                usage=usage_obj,
+            )
+
+        self._client.completions.create = _create_completion
+        self._client.chat.completions.create = _create_completion
 
 
 class _FakeScenarioPool:
@@ -341,3 +359,80 @@ async def test_unified_extraction_publishes_usage_events_for_llm_stats(tmp_path:
     finally:
         await usage_store.stop()
         await message_bus.stop()
+
+
+def test_unified_extraction_retries_after_rate_limit() -> None:
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
+
+    adapter = _FakeAdapter(
+        [
+            RuntimeError("429 Too Many Requests"),
+            json.dumps(
+                {
+                    "mentions": [],
+                    "graph_candidates": [],
+                    "assertion_candidates": [],
+                    "diagnostics": {"entity_status": "none"},
+                }
+            ),
+        ]
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    sleep_calls: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    with patch("magi.memory.l2.llm_service.asyncio.sleep", side_effect=_fake_sleep):
+        result = asyncio.run(
+            service.extract_unified_candidates(
+                event_window={"event_ids": ["evt-rate-limit-1"], "texts": ["hello"]},
+                profile=ExtractionProfile(profile_id="chat.user_message"),
+                focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+                context_bundle=None,
+            )
+        )
+
+    assert result["diagnostics"] == {"entity_status": "none"}
+    assert sleep_calls == [1.0]
+
+
+def test_unified_extraction_returns_empty_after_retry_budget_exhausted() -> None:
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
+
+    adapter = _FakeAdapter(
+        [
+            RuntimeError("rate limit"),
+            RuntimeError("429 Too Many Requests"),
+            RuntimeError("RateLimitError"),
+            RuntimeError("still rate limited"),
+        ]
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    sleep_calls: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    with patch("magi.memory.l2.llm_service.asyncio.sleep", side_effect=_fake_sleep):
+        result = asyncio.run(
+            service.extract_unified_candidates(
+                event_window={"event_ids": ["evt-rate-limit-2"], "texts": ["hello"]},
+                profile=ExtractionProfile(profile_id="chat.user_message"),
+                focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+                context_bundle=None,
+            )
+        )
+
+    assert result == {
+        "mentions": [],
+        "resolved_context_refs": [],
+        "graph_candidates": [],
+        "assertion_candidates": [],
+        "diagnostics": {"entity_status": "none"},
+    }
+    assert sleep_calls == [1.0, 2.0, 4.0]

@@ -44,6 +44,7 @@ _GRAPH_ELIGIBLE_ENTITY_TYPES = {
     "other",
 }
 logger = get_logger(__name__)
+DEFAULT_L2_EXTRACT_WORKER_COUNT = 5
 
 
 @dataclass(slots=True)
@@ -87,6 +88,8 @@ class L2Pipeline:
         self._extract_queue: asyncio.Queue[MemoryEvent | None] = asyncio.Queue()
         self._reconcile_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
         self._snapshot_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
+        self._extract_worker_count = DEFAULT_L2_EXTRACT_WORKER_COUNT
+        self._extract_workers: list[asyncio.Task[None]] = []
         self._extract_worker: asyncio.Task[None] | None = None
         self._reconcile_worker: asyncio.Task[None] | None = None
         self._snapshot_worker: asyncio.Task[None] | None = None
@@ -97,7 +100,8 @@ class L2Pipeline:
             return
 
         self._stats.is_running = True
-        self._extract_worker = asyncio.create_task(self._run_extract_worker())
+        self._extract_workers = [asyncio.create_task(self._run_extract_worker()) for _ in range(self._extract_worker_count)]
+        self._extract_worker = self._extract_workers[0] if self._extract_workers else None
         self._reconcile_worker = asyncio.create_task(self._run_reconcile_worker())
         self._snapshot_worker = asyncio.create_task(self._run_snapshot_worker())
 
@@ -106,11 +110,12 @@ class L2Pipeline:
             return
 
         self._stats.is_running = False
-        await self._extract_queue.put(None)
+        for _ in range(self._extract_worker_count):
+            await self._extract_queue.put(None)
         await self._reconcile_queue.put(None)
         await self._snapshot_queue.put(None)
 
-        for worker in (self._extract_worker, self._reconcile_worker, self._snapshot_worker):
+        for worker in [*self._extract_workers, self._reconcile_worker, self._snapshot_worker]:
             if worker is None:
                 continue
             try:
@@ -118,6 +123,7 @@ class L2Pipeline:
             except asyncio.CancelledError:
                 pass
 
+        self._extract_workers = []
         self._extract_worker = None
         self._reconcile_worker = None
         self._snapshot_worker = None

@@ -471,6 +471,25 @@ async def test_shutdown_drains_l2_pipeline_workers_cleanly():
         assert stats["is_running"] is False
 
 
+@pytest.mark.asyncio
+async def test_l2_pipeline_starts_with_five_extract_workers():
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+        await cognition_store.initialize()
+        pipeline = L2Pipeline(cognition_store)
+        try:
+            await pipeline.start()
+
+            assert pipeline._extract_worker_count == 5
+            assert len(pipeline._extract_workers) == 5
+            assert all(worker is not None and not worker.done() for worker in pipeline._extract_workers)
+        finally:
+            await pipeline.shutdown()
+
+
 def test_entity_mention_prompt_rendering_is_deterministic():
     from magi.memory.l2.llm_service import L2LLMService
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -26,6 +27,7 @@ from .prompts import (
 )
 
 logger = logging.getLogger(__name__)
+_RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 
 
 class L2LLMService:
@@ -285,25 +287,40 @@ class L2LLMService:
 
         started_at = time.perf_counter()
 
-        try:
-            response = await provider_bridge.chat_response(
-                system_prompt=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                json_mode=True,
-                disable_thinking=True,
-                event_context={
-                    "request_kind": request_kind,
-                    "turn_id": turn_id,
-                    "session_id": session_id,
-                    "agent_id": "memory:l2",
-                },
-            )
-        except Exception as exc:
-            failure_context = dict(context)
-            failure_context["duration_ms"] = round((time.perf_counter() - started_at) * 1000.0, 2)
-            failure_context["error"] = str(exc)
-            logger.warning("L2 LLM call failed", extra=failure_context)
+        response = None
+        for attempt_index in range(len(_RATE_LIMIT_BACKOFF_SECONDS) + 1):
+            try:
+                response = await provider_bridge.chat_response(
+                    system_prompt=system_prompt,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    json_mode=True,
+                    disable_thinking=True,
+                    event_context={
+                        "request_kind": request_kind,
+                        "turn_id": turn_id,
+                        "session_id": session_id,
+                        "agent_id": "memory:l2",
+                    },
+                )
+                break
+            except Exception as exc:
+                is_rate_limited = self._is_rate_limit_error(exc)
+                failure_context = dict(context)
+                failure_context["duration_ms"] = round((time.perf_counter() - started_at) * 1000.0, 2)
+                failure_context["error"] = str(exc)
+                failure_context["attempt_index"] = attempt_index + 1
+                if is_rate_limited and attempt_index < len(_RATE_LIMIT_BACKOFF_SECONDS):
+                    backoff_seconds = _RATE_LIMIT_BACKOFF_SECONDS[attempt_index]
+                    failure_context["backoff_seconds"] = backoff_seconds
+                    logger.warning("L2 LLM rate limited", extra=failure_context)
+                    logger.info("L2 LLM retry scheduled", extra=failure_context)
+                    await asyncio.sleep(backoff_seconds)
+                    continue
+                logger.warning("L2 LLM call failed", extra=failure_context)
+                return {}
+
+        if response is None:
             return {}
 
         raw = response.content
@@ -320,6 +337,24 @@ class L2LLMService:
             logger.warning("L2 LLM returned invalid JSON", extra=invalid_context)
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    def _is_rate_limit_error(self, exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        if status_code == 429:
+            return True
+        response = getattr(exc, "response", None)
+        if getattr(response, "status_code", None) == 429:
+            return True
+        message = str(exc).lower()
+        return any(
+            marker in message
+            for marker in (
+                "429",
+                "rate limit",
+                "ratelimit",
+                "too many requests",
+            )
+        )
 
     def _get_adapter(self) -> Optional[Any]:
         if self._scenario_llm_pool is None:
