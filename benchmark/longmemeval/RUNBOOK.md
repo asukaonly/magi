@@ -134,6 +134,24 @@ Expected output files under `benchmark/outputs/longmemeval/<run-id>/`:
 - `predictions.jsonl.eval-results-gpt-4o`
 - `official_eval_summary.json`
 
+## 8.5. Rerun Query And Scoring Without Replay
+
+If you changed retrieval or query logic and want to reuse previously replayed memory, run:
+
+```bash
+python /Users/asuka/code/magi/benchmark/longmemeval/rerun_query_and_score.py \
+  --dataset "$LONGMEM_DATA" \
+  --output-root "$LONGMEM_OUT" \
+  --run-id "$LONGMEM_RUN"
+```
+
+This command:
+
+- reuses the existing replayed namespaces for the same `run-id`
+- reruns `query_dataset.py`
+- reruns official QA evaluation when `OPENAI_API_KEY` is set
+- skips official evaluation with a clear status when `OPENAI_API_KEY` is missing
+
 ## 9. Optional: Run a Small Smoke Sample First
 
 ```bash
