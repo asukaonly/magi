@@ -245,11 +245,12 @@ def test_unified_extraction_logs_timing():
     assert result["diagnostics"] == {"entity_status": "found"}
     assert [call.args[0] for call in mock_info.call_args_list] == [
         "L2 unified extraction started",
-        "L2 LLM call started",
         "L2 LLM call completed",
         "L2 unified extraction completed",
     ]
-    extras = mock_info.call_args_list[3].kwargs
+    llm_completed_extras = mock_info.call_args_list[1].kwargs
+    extras = mock_info.call_args_list[2].kwargs
+    assert llm_completed_extras["duration_ms"] >= 0.0
     assert extras["profile_id"] == "chat.user_message"
     assert extras["mention_count"] == 1
     assert extras["duration_ms"] >= 0.0
@@ -285,20 +286,18 @@ def test_unified_extraction_uses_provider_bridge_and_logs_usage():
     assert create_kwargs["response_format"] == {"type": "json_object"}
     assert [call.args[0] for call in mock_info.call_args_list] == [
         "L2 unified extraction started",
-        "L2 LLM call started",
         "L2 LLM call completed",
         "L2 unified extraction completed",
     ]
     started_extra = mock_info.call_args_list[0].kwargs
-    llm_started_extra = mock_info.call_args_list[1].kwargs
-    llm_completed_extra = mock_info.call_args_list[2].kwargs
-    completed_extra = mock_info.call_args_list[3].kwargs
+    llm_completed_extra = mock_info.call_args_list[1].kwargs
+    completed_extra = mock_info.call_args_list[2].kwargs
     assert started_extra["event_ids"] == ["evt-1"]
     assert started_extra["profile_id"] == "chat.user_message"
-    assert llm_started_extra["request_kind"] == "memory:l2_unified_extraction"
-    assert llm_started_extra["provider"] == "glm"
-    assert llm_started_extra["model"] == "glm-4.5"
     assert llm_completed_extra["request_kind"] == "memory:l2_unified_extraction"
+    assert llm_completed_extra["provider"] == "glm"
+    assert llm_completed_extra["model"] == "glm-4.5"
+    assert llm_completed_extra["duration_ms"] >= 0.0
     assert llm_completed_extra["usage_available"] is True
     assert llm_completed_extra["prompt_tokens"] == 21
     assert llm_completed_extra["completion_tokens"] == 9

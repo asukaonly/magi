@@ -279,7 +279,6 @@ class L2LLMService:
                 "system_prompt_char_count": len(system_prompt),
             }
         )
-        logger.info("L2 LLM call started", **context)
 
         started_at = time.perf_counter()
 
