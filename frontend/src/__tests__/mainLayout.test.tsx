@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import MainLayout from '@/components/layout/MainLayout';
-import { useChatShellStore } from '@/stores';
+import { useChatShellStore, useChatTraceStore } from '@/stores';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -32,6 +32,7 @@ describe('main layout', () => {
       sidebarCollapsed: false,
       activePanel: 'none',
     });
+    useChatTraceStore.getState().reset();
   });
 
   it('renders a compact titlebar toggle beside the window controls and keeps the drag strip shallow enough to avoid page actions', async () => {
@@ -51,15 +52,33 @@ describe('main layout', () => {
     const dragStrip = container.querySelector('div[data-tauri-drag-region]') as HTMLDivElement | null;
 
     expect(dragStrip).not.toBeNull();
-    expect(toggleButton).toHaveClass('top-4', 'h-7', 'w-7');
+    expect(toggleButton).toHaveClass('h-7', 'w-7');
     expect(dragStrip).toHaveClass('h-4');
-    expect((toggleButton as HTMLButtonElement).style.left).toBe('112px');
-    expect(dragStrip?.style.left).toBe('148px');
+    expect((toggleButton as HTMLButtonElement).style.left).toBe('84px');
+    expect((toggleButton as HTMLButtonElement).style.top).toBe('14px');
+    expect(dragStrip?.style.left).toBe('120px');
     expect(screen.getByText('chat page').closest('div.min-h-0.min-w-0')).toHaveClass('col-start-2');
 
     await user.click(toggleButton);
 
     expect(useChatShellStore.getState().sidebarCollapsed).toBe(true);
     expect(screen.getByRole('button', { name: 'shell.expandSidebar' })).toBeInTheDocument();
+  });
+
+  it('hides the sidebar toggle while the toolchain drawer is open', () => {
+    useChatTraceStore.getState().openDrawer('turn-1');
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Routes>
+          <Route element={<MainLayout />}>
+            <Route path="/chat" element={<div>chat page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole('button', { name: 'shell.collapseSidebar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'shell.expandSidebar' })).not.toBeInTheDocument();
   });
 });
