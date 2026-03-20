@@ -60,7 +60,7 @@ describe('ChatPage', () => {
         event: 'agent_response',
         data: {
           session_id: 'session-1',
-          response: '整理好了',
+          content: '整理好了',
           timestamp: Date.now() / 1000,
           turn_id: 'turn-1',
           trace_available: true,

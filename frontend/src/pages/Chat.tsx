@@ -189,7 +189,7 @@ export const ChatPage: React.FC = () => {
       if (sessionId) {
         receiveAgentResponse({
           sessionId,
-          response: String(payload?.response || ''),
+          content: String(payload?.content || ''),
           timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
           turnId: turnId || undefined,
           traceSummary: summary,
@@ -259,7 +259,7 @@ export const ChatPage: React.FC = () => {
             if (currentSessionId && messages.length === 0 && data.data.greeting) {
               receiveAgentResponse({
                 sessionId: currentSessionId,
-                response: String(data.data.greeting),
+                content: String(data.data.greeting),
                 timestamp: Date.now(),
               });
             }

@@ -89,7 +89,7 @@ describe('realtime provider', () => {
         event: 'agent_response',
         data: {
           session_id: 'session-b',
-          response: 'hello',
+          content: 'hello',
           timestamp: Date.now() / 1000,
           turn_id: 'turn-b',
         },

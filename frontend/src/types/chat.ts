@@ -98,7 +98,7 @@ export interface ChatSessionState {
 
 export interface AgentResponsePayload {
   sessionId: string;
-  response: string;
+  content: string;
   timestamp: number;
   turnId?: string;
   traceSummary?: NormalizedTraceSummary | null;

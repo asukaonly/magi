@@ -203,7 +203,7 @@ export const upsertTraceSummary = (
 export const applyAgentResponse = (
   messages: ChatTimelineMessage[],
   payload: {
-    response: string;
+    content: string;
     timestamp?: number;
     turnId?: string;
     traceSummary?: NormalizedExecutionTraceSummary | null;
@@ -218,7 +218,7 @@ export const applyAgentResponse = (
     id: `${resolvedTurnId || turnId || 'assistant'}-assistant-${timestamp}`,
     role: 'assistant',
     kind: 'assistant',
-    content: payload.response,
+    content: payload.content,
     timestamp,
     turnId: resolvedTurnId || turnId || undefined,
     traceSummary,

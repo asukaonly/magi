@@ -44,7 +44,7 @@ describe('chat trace state helpers', () => {
   it('replaces the pending status card with the final assistant answer', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking');
     const next = applyAgentResponse(initial, {
-      response: 'Here is the final answer.',
+      content: 'Here is the final answer.',
       timestamp: 2000,
       turnId: 'turn_1',
       traceSummary: normalizeTraceSummary({
@@ -71,7 +71,7 @@ describe('chat trace state helpers', () => {
   it('reuses the pending turn id when the final response arrives without turn metadata', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_9', 1000, 'Thinking');
     const next = applyAgentResponse(initial, {
-      response: 'Final answer from the backend.',
+      content: 'Final answer from the backend.',
       timestamp: 2000,
     });
 

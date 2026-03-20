@@ -12,7 +12,7 @@ describe('conversation store', () => {
     store.setCurrentSessionId('session-a');
     store.receiveAgentResponse({
       sessionId: 'session-b',
-      response: 'hello',
+      content: 'hello',
       timestamp: Date.now(),
       turnId: 'turn-b',
     });
@@ -25,13 +25,13 @@ describe('conversation store', () => {
 
     store.receiveAgentResponse({
       sessionId: 'session-b',
-      response: 'hello',
+      content: 'hello',
       timestamp: Date.now(),
       turnId: 'turn-b',
     });
     store.receiveAgentResponse({
       sessionId: 'session-b',
-      response: 'again',
+      content: 'again',
       timestamp: Date.now() + 1,
       turnId: 'turn-c',
     });

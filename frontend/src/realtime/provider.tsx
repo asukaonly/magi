@@ -82,7 +82,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
         if (sessionId) {
           conversationStore.receiveAgentResponse({
             sessionId,
-            response: String(payload.response || ''),
+            content: String(payload.content || ''),
             timestamp: Number(payload.timestamp || Date.now() / 1000) * 1000,
             turnId: String(payload.turn_id || '').trim() || undefined,
             traceSummary: normalizeTraceSummary(payload.trace_summary),

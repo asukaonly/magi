@@ -187,8 +187,20 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const handleAgentResponseEvent = useCallback(
     (payload: unknown) => {
       const data = payload as Record<string, unknown>;
+      const sessionId = String(data?.session_id || currentSessionId || '').trim();
       const turnId = String(data?.turn_id || '').trim();
       const summary = normalizeTraceSummary(data?.trace_summary);
+
+      if (sessionId) {
+        receiveAgentResponse({
+          sessionId,
+          content: String(data?.content || ''),
+          timestamp: Number(data?.timestamp || Date.now() / 1000) * 1000,
+          turnId: turnId || undefined,
+          traceSummary: summary,
+          traceAvailable: Boolean(data?.trace_available),
+        });
+      }
 
       if (summary) {
         upsertSummary({
@@ -211,7 +223,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         void loadTrace(turnId);
       }
     },
-    [activeTurnId, drawerOpen, loadTrace, upsertSummary]
+    [activeTurnId, currentSessionId, drawerOpen, loadTrace, receiveAgentResponse, upsertSummary]
   );
 
   const handleWSMessage = useCallback(
@@ -249,7 +261,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
             if (currentSessionId && messages.length === 0 && info.greeting) {
               receiveAgentResponse({
                 sessionId: currentSessionId,
-                response: String(info.greeting),
+                content: String(info.greeting),
                 timestamp: Date.now(),
               });
             }

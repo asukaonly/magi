@@ -10,7 +10,7 @@ import {
 
 type AgentResponsePayload = {
   sessionId: string;
-  response: string;
+  content: string;
   timestamp: number;
   turnId?: string;
   traceSummary?: NormalizedExecutionTraceSummary | null;
@@ -178,17 +178,17 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  receiveAgentResponse: ({ sessionId, response, timestamp, turnId, traceSummary, traceAvailable }) => set((state) => {
+  receiveAgentResponse: ({ sessionId, content, timestamp, turnId, traceSummary, traceAvailable }) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
     const nextMessages = applyAgentResponse(previousMessages, {
-      response,
+      content,
       timestamp,
       turnId,
       traceSummary,
       traceAvailable,
     });
-    const lastMessagePreview = response.trim() || ensured.sessionsById[sessionId]?.last_message_preview || '';
+    const lastMessagePreview = content.trim() || ensured.sessionsById[sessionId]?.last_message_preview || '';
     const sessionSummary: ChatSessionListItem = {
       ...(ensured.sessionsById[sessionId] || {
         session_id: sessionId,
