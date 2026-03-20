@@ -348,7 +348,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
   return (
     <aside
-      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/30 pt-14"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/30 pt-7"
     >
       {sessionMenu && sessionMenuSession ? (
         <div

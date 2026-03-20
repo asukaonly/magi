@@ -508,6 +508,6 @@ describe('sidebar navigation', () => {
     const conversationAction = await screen.findByRole('button', { name: 'shell.conversation' });
     const sidebar = conversationAction.closest('aside');
 
-    expect(sidebar).toHaveClass('pt-14');
+    expect(sidebar).toHaveClass('pt-7');
   });
 });
