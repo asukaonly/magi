@@ -1,5 +1,6 @@
 """Tests for ContextDecider memory retrieval guidance."""
 import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, AsyncMock
 
 
@@ -70,14 +71,17 @@ class TestContextDeciderMemoryGuidance:
         llm_adapter.model_name = "dummy-model"
         decider = ContextDecider(tool_registry, llm_adapter)
 
-        async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+        async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
-            return (
-                '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"history question",'
-                '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+            return SimpleNamespace(
+                content=(
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"history question",'
+                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                ),
+                metadata={},
             )
 
-        decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+        decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
         decision = await decider.decide("What did I browse yesterday?", {"current_date": "2024-01-15"})
 
@@ -106,14 +110,17 @@ class TestContextDeciderMemoryGuidance:
         llm_adapter.model_name = "dummy-model"
         decider = ContextDecider(tool_registry, llm_adapter)
 
-        async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+        async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
-            return (
-                '{"intent":"code_execution","tools":[],"deep_thinking":false,"reasoning":"workflow reuse",'
-                '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+            return SimpleNamespace(
+                content=(
+                    '{"intent":"code_execution","tools":[],"deep_thinking":false,"reasoning":"workflow reuse",'
+                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                ),
+                metadata={},
             )
 
-        decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+        decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
         decision = await decider.decide("按之前那套流程修一下这个 bug", {"current_date": "2024-01-15"})
 
@@ -137,14 +144,17 @@ class TestContextDeciderMemoryGuidance:
         llm_adapter.model_name = "dummy-model"
         decider = ContextDecider(tool_registry, llm_adapter)
 
-        async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+        async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
-            return (
-                '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"history question",'
-                '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+            return SimpleNamespace(
+                content=(
+                    '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"history question",'
+                    '"orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+                ),
+                metadata={},
             )
 
-        decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+        decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
         decision = await decider.decide("What did I browse yesterday?", {"current_date": "2024-01-15"})
 

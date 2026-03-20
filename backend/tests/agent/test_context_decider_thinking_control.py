@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 import pytest
@@ -65,6 +66,8 @@ class _DummyLLMAdapter(LLMAdapter):
 
 
 class _DummyToolRegistry:
+    _skills: Dict[str, Any] = {}
+
     def get_all_tools_info(self) -> List[Dict[str, Any]]:
         return [{"name": "agent", "description": "worker launch", "type": "tool"}]
 
@@ -77,6 +80,8 @@ class _DummyToolRegistry:
 
 
 class _ResearchToolRegistry:
+    _skills: Dict[str, Any] = {}
+
     def get_all_tools_info(self) -> List[Dict[str, Any]]:
         return [
             {"name": "web-search", "description": "Search the web", "type": "tool"},
@@ -106,11 +111,14 @@ async def test_context_decider_always_disables_thinking() -> None:
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
     seen: Dict[str, Any] = {}
 
-    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
         seen.update(kwargs)
-        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+        return SimpleNamespace(
+            content='{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}',
+            metadata={},
+        )
 
-    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+    decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
     await decider.decide("hello", {"os": "Darwin"})
 
@@ -123,9 +131,12 @@ async def test_context_decider_requests_context_scenario_from_pool(monkeypatch: 
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_pool=pool)  # type: ignore[arg-type]
 
     class _FakeBridge:
-        async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
+        async def chat_response(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
-            return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+            return SimpleNamespace(
+                content='{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}',
+                metadata={},
+            )
 
     monkeypatch.setattr(decider, "provider_bridge", _FakeBridge())
 
@@ -140,11 +151,14 @@ async def test_context_decider_ignores_context_toggle_and_keeps_disable_thinking
     decider = ContextDecider(tool_registry=_DummyToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
     seen: Dict[str, Any] = {}
 
-    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
         seen.update(kwargs)
-        return '{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+        return SimpleNamespace(
+            content='{"intent":"chat","tools":[],"deep_thinking":false,"reasoning":"ok","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}',
+            metadata={},
+        )
 
-    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+    decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
     await decider.decide("hello", {"disable_thinking": False, "deep_thinking": True})
 
@@ -205,14 +219,17 @@ def test_context_decider_rule_fallback_routes_complex_news_to_generic_decompose(
 async def test_context_decider_overrides_llm_direct_news_with_research_guardrail() -> None:
     decider = ContextDecider(tool_registry=_ResearchToolRegistry(), llm_adapter=_DummyLLMAdapter())  # type: ignore[arg-type]
 
-    async def _fake_chat(**kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
         _ = kwargs
-        return (
-            '{"intent":"realtime_query","tools":["web-search"],"deep_thinking":false,'
-            '"reasoning":"simple search","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+        return SimpleNamespace(
+            content=(
+                '{"intent":"realtime_query","tools":["web-search"],"deep_thinking":false,'
+                '"reasoning":"simple search","orchestration_strategy":{"mode":"direct","planner":"task_agent","default_leaf_type":"general-purpose","allow_parallel":false}}'
+            ),
+            metadata={},
         )
 
-    decider.provider_bridge.chat = _fake_chat  # type: ignore[method-assign]
+    decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
     decision = await decider.decide("搜一下最近7天杭州有什么重要的新闻，给我来10条并附上链接", {"os": "Darwin"})
 
