@@ -215,6 +215,7 @@ class AgentTool(Tool):
         tool_registry_instance: Optional[ToolRegistry] = None,
         task_agent_manager=None,
         message_bus=None,
+        runtime_trace_store=None,
     ) -> None:
         """Inject runtime dependencies after bootstrap."""
         self._manager.configure(
@@ -222,6 +223,7 @@ class AgentTool(Tool):
             tool_registry_instance=tool_registry_instance,
             task_agent_manager=task_agent_manager,
             message_bus=message_bus,
+            runtime_trace_store=runtime_trace_store,
         )
 
     async def validate_parameters(

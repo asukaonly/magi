@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 try:
     import pytest
@@ -20,10 +21,7 @@ from magi.tools.builtin.agent_tool import (
     WORKER_AGENT_PROGRESS,
 )
 from magi.agent.execution.function_calling import ExecutionOutcome
-from magi.agent.trace.contracts import (
-    TRACE_NODE_COMPLETED_EVENT_TYPE,
-    TRACE_NODE_STARTED_EVENT_TYPE,
-)
+from magi.runtime_trace.store import RuntimeTraceStore
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -37,9 +35,18 @@ class _FakeToolRegistry:
 
 
 class _FakeFunctionCallingOrchestrator:
-    def __init__(self, llm_adapter, tool_registry, skill_runner=None, tool_result_callback=None, loop_event_callback=None):
+    def __init__(
+        self,
+        llm_adapter,
+        tool_registry,
+        skill_runner=None,
+        tool_result_callback=None,
+        loop_event_callback=None,
+        runtime_trace_store=None,
+    ):
         self._tool_result_callback = tool_result_callback
         self._loop_event_callback = loop_event_callback
+        self._runtime_trace_store = runtime_trace_store
 
     async def execute_with_tools(
         self,
@@ -169,57 +176,60 @@ async def test_agent_tool_launch_foreground(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_publishes_worker_trace_nodes_to_message_bus(monkeypatch):
+async def test_agent_tool_persists_worker_trace_nodes_to_runtime_trace_store(
+    monkeypatch,
+    tmp_path: Path,
+):
     from magi.agent.workers import worker_manager as worker_manager_module
 
     monkeypatch.setattr(worker_manager_module, "FunctionCallingOrchestrator", _FakeFunctionCallingOrchestrator)
     tool = AgentTool()
+    runtime_trace_store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    await runtime_trace_store.initialize()
 
-    published_events = []
+    try:
+        tool.configure(
+            llm_adapter=_FakeLLMAdapter(),
+            tool_registry_instance=_FakeToolRegistry(),
+            runtime_trace_store=runtime_trace_store,
+        )
 
-    class _FakeMessageBus:
-        async def publish(self, event):  # type: ignore[no-untyped-def]
-            published_events.append((event.type, event.data))
-            return True
+        async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
+            _ = (run_state, event_type, internal_payload, public_payload)
 
-    tool.configure(
-        llm_adapter=_FakeLLMAdapter(),
-        tool_registry_instance=_FakeToolRegistry(),
-        message_bus=_FakeMessageBus(),
-    )
+        monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
 
-    async def _fake_publish(run_state, event_type, internal_payload, public_payload=None):
-        _ = (run_state, event_type, internal_payload, public_payload)
+        result = await tool.execute(
+            parameters={
+                "action": "launch",
+                "subagent_type": "Explore",
+                "description": "scan auth flow",
+                "prompt": "Locate token generation points",
+                "run_in_background": False,
+                "orchestration_id": "orch-1",
+                "subtask_id": "subtask-1",
+                "turn_id": "turn-1",
+            },
+            context=ToolExecutionContext(
+                agent_id="chat:u-chat",
+                workspace="/tmp",
+                env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+                permissions=["authenticated"],
+            ),
+        )
 
-    monkeypatch.setattr(tool._manager, "_publish_worker_fact", _fake_publish)
+        dispatch_span = await runtime_trace_store.get_span("turn-1:worker_dispatch:subtask-1")
+        attempt_span = await runtime_trace_store.get_span("turn-1:worker_attempt:subtask-1:1")
+        worker_span = await runtime_trace_store.get_span("turn-1:worker:subtask-1:1")
+        llm_call = await runtime_trace_store.get_llm_call("turn-1:worker_llm:subtask-1:1:final_response:1")
 
-    result = await tool.execute(
-        parameters={
-            "action": "launch",
-            "subagent_type": "Explore",
-            "description": "scan auth flow",
-            "prompt": "Locate token generation points",
-            "run_in_background": False,
-            "orchestration_id": "orch-1",
-            "subtask_id": "subtask-1",
-            "turn_id": "turn-1",
-        },
-        context=ToolExecutionContext(
-            agent_id="chat:u-chat",
-            workspace="/tmp",
-            env_vars={"user_id": "u-chat", "session_id": "s-chat"},
-            permissions=["authenticated"],
-        ),
-    )
-
-    assert result.success is True
-    trace_events = [item for item in published_events if item[0] in {TRACE_NODE_STARTED_EVENT_TYPE, TRACE_NODE_COMPLETED_EVENT_TYPE}]
-    node_types = [payload["node_type"] for _, payload in trace_events]
-    assert "worker_dispatch" in node_types
-    assert "worker_attempt" in node_types
-    assert "worker" in node_types
-    assert "llm_call" in node_types
-    assert "tool_call" in node_types
+        assert result.success is True
+        assert dispatch_span is not None
+        assert attempt_span is not None
+        assert worker_span is not None
+        assert llm_call is not None
+    finally:
+        await runtime_trace_store.shutdown()
 
 
 @pytest.mark.asyncio
