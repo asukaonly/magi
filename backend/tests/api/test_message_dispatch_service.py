@@ -6,11 +6,6 @@ from magi.api.services import message_dispatch_service as service
 from magi.events.events import REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY
 
 
-class _FakeReadService:
-    def get_current_session_id(self, user_id: str) -> str:
-        return f"session-for-{user_id}"
-
-
 class _FakeBus:
     def __init__(self, publish_result: bool = True) -> None:
         self.publish_result = publish_result
@@ -45,12 +40,12 @@ async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: p
     bus = _FakeBus()
     monkeypatch.setattr(service, "require_agent_runtime", lambda: object())
     monkeypatch.setattr(service, "require_message_bus", lambda: bus)
-    monkeypatch.setattr(service, "get_chat_read_service", lambda: _FakeReadService())
 
     outcome = await service.dispatch_user_message(
         source="api",
         user_id="u1",
         message="hello",
+        session_id="session-for-u1",
         metadata={"origin": "test"},
     )
 
@@ -75,12 +70,12 @@ async def test_dispatch_user_message_returns_publish_failure(monkeypatch: pytest
     bus = _FakeBus(publish_result=False)
     monkeypatch.setattr(service, "require_agent_runtime", lambda: object())
     monkeypatch.setattr(service, "require_message_bus", lambda: bus)
-    monkeypatch.setattr(service, "get_chat_read_service", lambda: _FakeReadService())
 
     outcome = await service.dispatch_user_message(
         source="websocket",
         user_id="u1",
         message="hello",
+        session_id="session-for-u1",
     )
 
     assert outcome.success is False
@@ -92,10 +87,8 @@ async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bus = _FakeBus()
-    read_service = _FakeReadService()
     monkeypatch.setattr(service, "require_agent_runtime", lambda: object())
     monkeypatch.setattr(service, "require_message_bus", lambda: bus)
-    monkeypatch.setattr(service, "get_chat_read_service", lambda: read_service)
 
     outcome = await service.dispatch_user_message(
         source="websocket",
@@ -113,3 +106,21 @@ async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime
     assert event.data["session_id"] == "explicit-session"
     assert event.data["turn_id"] == "turn-client-1"
     assert event.data["runtime_namespace"] == "telegram"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_rejects_missing_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    bus = _FakeBus()
+    monkeypatch.setattr(service, "require_agent_runtime", lambda: object())
+    monkeypatch.setattr(service, "require_message_bus", lambda: bus)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="hello",
+        session_id=None,
+    )
+
+    assert outcome.success is False
+    assert outcome.error_code == service.SESSION_ID_REQUIRED
+    assert bus.events == []

@@ -3,6 +3,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import pytest
+
 BACKEND_SRC = Path(__file__).resolve().parents[1] / "src"
 if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
@@ -17,6 +19,7 @@ from magi.api.services.chat_read_service import (
 from magi.api.services.chat_trace_read_service import ChatTraceReadService
 
 FACT_EVENTS_TABLE = "fact_events"
+CHAT_SESSIONS_TABLE = "chat_sessions"
 
 
 def _init_event_store(db_path: Path) -> None:
@@ -38,6 +41,64 @@ def _init_event_store(db_path: Path) -> None:
     )
     cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{FACT_EVENTS_TABLE}_user ON {FACT_EVENTS_TABLE}(user_id)")
     cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{FACT_EVENTS_TABLE}_session ON {FACT_EVENTS_TABLE}(session_id)")
+    conn.commit()
+    conn.close()
+
+
+def _init_chat_session_store(db_path: Path) -> None:
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
+            session_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            last_message_at REAL,
+            last_user_message_at REAL,
+            last_message_preview TEXT NOT NULL DEFAULT '',
+            last_user_message_preview TEXT NOT NULL DEFAULT '',
+            message_count INTEGER NOT NULL DEFAULT 0,
+            archived_at REAL,
+            deleted_at REAL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_session(db_path: Path, **values) -> None:
+    payload = {
+        "session_id": values.get("session_id"),
+        "user_id": values.get("user_id"),
+        "title": values.get("title", "New Chat"),
+        "summary": values.get("summary", ""),
+        "created_at": values.get("created_at", 0.0),
+        "updated_at": values.get("updated_at", values.get("created_at", 0.0)),
+        "last_message_at": values.get("last_message_at"),
+        "last_user_message_at": values.get("last_user_message_at"),
+        "last_message_preview": values.get("last_message_preview", ""),
+        "last_user_message_preview": values.get("last_user_message_preview", ""),
+        "message_count": values.get("message_count", 0),
+        "archived_at": values.get("archived_at"),
+        "deleted_at": values.get("deleted_at"),
+    }
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        INSERT INTO {CHAT_SESSIONS_TABLE} (
+            session_id, user_id, title, summary, created_at, updated_at,
+            last_message_at, last_user_message_at, last_message_preview,
+            last_user_message_preview, message_count, archived_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        tuple(payload.values()),
+    )
     conn.commit()
     conn.close()
 
@@ -284,54 +345,65 @@ def _insert_event(db_path: Path, event_type: str, data: dict, timestamp: float) 
 def _build_service(tmp_path: Path) -> ChatReadService:
     service = ChatReadService()
     service._l1_db_path = tmp_path / "events.sqlite3"
-    service._session_state_file = tmp_path / "chat_sessions.json"
     return service
 
 
-def test_list_sessions_returns_current_session_when_no_history(tmp_path):
+def test_list_sessions_reads_from_canonical_session_rows(tmp_path):
     service = _build_service(tmp_path)
-    service._save_session_mapping({"u1": "s-current"})
+    _init_chat_session_store(service._l1_db_path)
+    _insert_session(
+        service._l1_db_path,
+        session_id="s-current",
+        user_id="u1",
+        title="Current Chat",
+        created_at=1000,
+        updated_at=1010,
+    )
 
     sessions = service.list_sessions("u1", limit=10)
 
     assert len(sessions) == 1
     assert sessions[0].session_id == "s-current"
     assert sessions[0].message_count == 0
+    assert sessions[0].title == "Current Chat"
 
 
-def test_list_sessions_aggregates_and_sorts(tmp_path):
+def test_list_sessions_orders_by_session_metadata(tmp_path):
     service = _build_service(tmp_path)
-    _init_event_store(service._l1_db_path)
-
-    _insert_event(
+    _init_chat_session_store(service._l1_db_path)
+    _insert_session(
         service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "content": "hello from session one"},
-        1000,
+        session_id="s1",
+        user_id="u1",
+        title="Session One",
+        last_message_preview="response one",
+        last_user_message_preview="hello from session one",
+        message_count=2,
+        created_at=1000,
+        updated_at=1010,
+        last_message_at=1010,
+        last_user_message_at=1000,
     )
-    _insert_event(
+    _insert_session(
         service._l1_db_path,
-        "AIResponse",
-        {"user_id": "u1", "session_id": "s1", "content": "response one"},
-        1010,
+        session_id="s2",
+        user_id="u1",
+        title="Session Two",
+        last_message_preview="response two",
+        last_user_message_preview="hello from session two",
+        message_count=2,
+        created_at=2000,
+        updated_at=2010,
+        last_message_at=2010,
+        last_user_message_at=2000,
     )
-    _insert_event(
+    _insert_session(
         service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s2", "content": "hello from session two"},
-        2000,
-    )
-    _insert_event(
-        service._l1_db_path,
-        "AIResponse",
-        {"user_id": "u1", "session_id": "s2", "content": "response two"},
-        2010,
-    )
-    _insert_event(
-        service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u2", "session_id": "s-other", "content": "ignore me"},
-        5000,
+        session_id="s-other",
+        user_id="u2",
+        title="Ignore Me",
+        created_at=5000,
+        updated_at=5000,
     )
 
     sessions = service.list_sessions("u1", limit=10)
@@ -340,23 +412,21 @@ def test_list_sessions_aggregates_and_sorts(tmp_path):
     assert sessions[0].message_count == 2
     assert sessions[1].message_count == 2
     assert sessions[0].last_timestamp == 2010
-    assert sessions[0].title == "hello from session two"
+    assert sessions[0].title == "Session Two"
 
 
 def test_list_sessions_respects_limit(tmp_path):
     service = _build_service(tmp_path)
-    _init_event_store(service._l1_db_path)
+    _init_chat_session_store(service._l1_db_path)
 
     for index in range(5):
-        _insert_event(
+        _insert_session(
             service._l1_db_path,
-            "UserMessage",
-            {
-                "user_id": "u1",
-                "session_id": f"s{index}",
-                "content": f"session {index}",
-            },
-            1000 + index,
+            session_id=f"s{index}",
+            user_id="u1",
+            title=f"session {index}",
+            created_at=1000 + index,
+            updated_at=1000 + index,
         )
 
     sessions = service.list_sessions("u1", limit=2)
@@ -365,12 +435,14 @@ def test_list_sessions_respects_limit(tmp_path):
 
 def test_rename_session_persists_custom_title(tmp_path):
     service = _build_service(tmp_path)
-    _init_event_store(service._l1_db_path)
-    _insert_event(
+    _init_chat_session_store(service._l1_db_path)
+    _insert_session(
         service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "content": "原始标题"},
-        1000,
+        session_id="s1",
+        user_id="u1",
+        title="原始标题",
+        created_at=1000,
+        updated_at=1000,
     )
 
     service.rename_session("u1", "s1", "新的会话名")
@@ -381,19 +453,30 @@ def test_rename_session_persists_custom_title(tmp_path):
     assert renamed[0].title == "新的会话名"
 
     reloaded = _build_service(tmp_path)
+    _init_chat_session_store(reloaded._l1_db_path)
     reloaded_sessions = reloaded.list_sessions("u1", limit=10)
     assert reloaded_sessions[0].title == "新的会话名"
 
 
-def test_delete_session_removes_events_and_rotates_current_session(tmp_path):
+def test_delete_session_removes_session_row_and_related_data(tmp_path):
     service = _build_service(tmp_path)
     _init_event_store(service._l1_db_path)
-    service._save_session_mapping({"u1": "s2"})
-    _insert_event(
+    _init_chat_session_store(service._l1_db_path)
+    _insert_session(
         service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "content": "保留会话"},
-        1000,
+        session_id="s1",
+        user_id="u1",
+        title="保留会话",
+        created_at=1000,
+        updated_at=1000,
+    )
+    _insert_session(
+        service._l1_db_path,
+        session_id="s2",
+        user_id="u1",
+        title="删除会话",
+        created_at=2000,
+        updated_at=2010,
     )
     _insert_event(
         service._l1_db_path,
@@ -408,12 +491,10 @@ def test_delete_session_removes_events_and_rotates_current_session(tmp_path):
         2010,
     )
 
-    next_session_id = service.delete_session("u1", "s2")
+    service.delete_session("u1", "s2")
 
     remaining = service.list_sessions("u1", limit=10)
     assert [item.session_id for item in remaining] == ["s1"]
-    assert next_session_id == "s1"
-    assert service.get_current_session_id("u1") == "s1"
 
     history = service.get_conversation_history("u1", "s2", limit=20)
     assert history == []
@@ -436,15 +517,10 @@ def test_list_sessions_router_response(monkeypatch):
                 )
             ]
 
-        def get_current_session_id(self, user_id: str):
-            assert user_id == "u1"
-            return "s1"
-
     monkeypatch.setattr(messages, "get_chat_read_service", lambda: _FakeReadService())
 
     result = __import__("asyncio").run(messages.list_sessions(user_id="u1", limit=5))
     assert result["user_id"] == "u1"
-    assert result["current_session_id"] == "s1"
     assert result["count"] == 1
 
 
@@ -474,14 +550,35 @@ def test_delete_session_router_response(monkeypatch):
         def delete_session(self, user_id: str, session_id: str):
             assert user_id == "u1"
             assert session_id == "s1"
-            return "s-next"
+            return None
 
     monkeypatch.setattr(messages, "get_chat_read_service", lambda: _FakeReadService())
 
     result = __import__("asyncio").run(messages.delete_session(session_id="s1", user_id="u1"))
 
     assert result["success"] is True
-    assert result["current_session_id"] == "s-next"
+    assert result["deleted_session_id"] == "s1"
+
+
+def test_history_requires_explicit_session_id():
+    with pytest.raises(messages.HTTPException) as exc_info:
+        __import__("asyncio").run(messages.get_conversation_history(user_id="u1", session_id=None))
+
+    assert exc_info.value.status_code == 400
+
+
+def test_trace_requires_explicit_session_id():
+    with pytest.raises(messages.HTTPException) as exc_info:
+        __import__("asyncio").run(messages.get_execution_trace(user_id="u1", session_id=None, turn_id="turn-1"))
+
+    assert exc_info.value.status_code == 400
+
+
+def test_clear_history_requires_explicit_session_id():
+    with pytest.raises(messages.HTTPException) as exc_info:
+        __import__("asyncio").run(messages.clear_conversation_history(user_id="u1", session_id=None))
+
+    assert exc_info.value.status_code == 400
 
 
 def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tmp_path, monkeypatch):

@@ -139,6 +139,8 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
 
         if not message:
             return {"type": "error", "message": "Message is required"}
+        if not str(session_id or "").strip():
+            return {"type": "error", "message": "Session ID is required"}
 
         outcome = await dispatch_user_message(
             source="websocket",
@@ -173,36 +175,6 @@ async def handle_send_message(ctx: WebSocketContext, data: dict) -> dict:
         return {"type": "error", "message": f"Failed to send message: {str(exc)}"}
 
 
-@handler_registry.register("get_current_session")
-async def handle_get_current_session(ctx: WebSocketContext, data: dict) -> dict:
-    """Handle current session ID requests."""
-    try:
-        from ..api.services import get_chat_read_service
-
-        user_id = data.get("user_id", "web_user")
-        read_service = get_chat_read_service()
-        session_id = read_service.get_current_session_id(user_id)
-
-        return {
-            "type": "current_session",
-            "data": {
-                "user_id": user_id,
-                "session_id": session_id,
-            },
-        }
-    except RuntimeError:
-        return {
-            "type": "current_session",
-            "data": {
-                "user_id": data.get("user_id", "web_user"),
-                "session_id": None,
-            },
-        }
-    except Exception as exc:
-        logger.error("Failed to get current session", sid=ctx.sid, error=str(exc))
-        return {"type": "error", "message": f"Failed to get current session: {str(exc)}"}
-
-
 @handler_registry.register("get_history")
 async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
     """Handle conversation history requests."""
@@ -211,9 +183,11 @@ async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
 
         user_id = data.get("user_id", "web_user")
         session_id = data.get("session_id")
+        resolved_session = str(session_id or "").strip()
+        if not resolved_session:
+            return {"type": "error", "message": "Session ID is required"}
 
         read_service = get_chat_read_service()
-        resolved_session = session_id or read_service.get_current_session_id(user_id)
         history = read_service.get_display_history(user_id, resolved_session)
 
         messages = [msg.to_dict() for msg in history]

@@ -40,6 +40,13 @@ class RenameSessionRequest(BaseModel):
 # ============ API Endpoints ============
 
 
+def _require_session_id(session_id: str | None) -> str:
+    normalized = str(session_id or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Session ID is required")
+    return normalized
+
+
 @user_messages_router.post("/send", response_model=MessageResponse)
 async def send_user_message(
     request: UserMessageRequest,
@@ -97,7 +104,7 @@ async def send_user_message(
 @user_messages_router.get("/history", response_model=Dict[str, Any])
 async def get_conversation_history(
     user_id: str = "web_user",
-    session_id: Optional[str] = Query(default=None, description="Session ID; omit to use current session"),
+    session_id: Optional[str] = Query(default=None, description="Session ID"),
 ):
     """
     Get conversation history.
@@ -110,7 +117,7 @@ async def get_conversation_history(
     """
     try:
         read_service = get_chat_read_service()
-        resolved_session_id = session_id or read_service.get_current_session_id(user_id)
+        resolved_session_id = _require_session_id(session_id)
         history = read_service.get_display_history(user_id, resolved_session_id)
 
         # Convert to format expected by frontend
@@ -148,14 +155,14 @@ async def get_worker_result(worker_id: str, user_id: str = "web_user"):
 @user_messages_router.get("/trace", response_model=Dict[str, Any])
 async def get_execution_trace(
     user_id: str = "web_user",
-    session_id: Optional[str] = Query(default=None, description="Session ID; omit to use current session"),
+    session_id: Optional[str] = Query(default=None, description="Session ID"),
     turn_id: str = Query(..., description="Turn ID for the target user message"),
 ):
     """Get structured execution trace for one chat turn."""
     from ..services import get_chat_trace_read_service
 
     read_service = get_chat_read_service()
-    resolved_session_id = session_id or read_service.get_current_session_id(user_id)
+    resolved_session_id = _require_session_id(session_id)
     trace_service = get_chat_trace_read_service()
     snapshot = trace_service.get_trace_snapshot(
         user_id=user_id,
@@ -174,7 +181,7 @@ async def get_execution_trace(
 @user_messages_router.post("/history/clear")
 async def clear_conversation_history(
     user_id: str = "web_user",
-    session_id: Optional[str] = Query(default=None, description="Session ID; omit to clear current session"),
+    session_id: Optional[str] = Query(default=None, description="Session ID"),
 ):
     """
     Clear conversation history.
@@ -187,7 +194,7 @@ async def clear_conversation_history(
     """
     try:
         read_service = get_chat_read_service()
-        resolved_session_id = session_id or read_service.get_current_session_id(user_id)
+        resolved_session_id = _require_session_id(session_id)
         read_service.clear_conversation_history(user_id, resolved_session_id)
 
         return {
@@ -204,17 +211,6 @@ async def clear_conversation_history(
             "user_id": user_id,
             "session_id": session_id,
         }
-
-
-@user_messages_router.get("/session/current", response_model=Dict[str, Any])
-async def get_current_session(user_id: str = "web_user"):
-    """Get current session ID."""
-    try:
-        read_service = get_chat_read_service()
-        session_id = read_service.get_current_session_id(user_id)
-        return {"user_id": user_id, "session_id": session_id}
-    except RuntimeError:
-        return {"user_id": user_id, "session_id": None}
 
 
 @user_messages_router.post("/session/new", response_model=Dict[str, Any])
@@ -247,15 +243,14 @@ async def rename_session(session_id: str, request: RenameSessionRequest):
 
 @user_messages_router.delete("/session/{session_id}", response_model=Dict[str, Any])
 async def delete_session(session_id: str, user_id: str = "web_user"):
-    """Delete one session and rotate current session when necessary."""
+    """Delete one session and its related chat data."""
     try:
         read_service = get_chat_read_service()
-        current_session_id = read_service.delete_session(user_id, session_id)
+        read_service.delete_session(user_id, session_id)
         return {
             "success": True,
             "user_id": user_id,
             "deleted_session_id": session_id,
-            "current_session_id": current_session_id,
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -272,17 +267,14 @@ async def list_sessions(
     try:
         read_service = get_chat_read_service()
         sessions = read_service.list_sessions(user_id=user_id, limit=limit)
-        current_session_id = read_service.get_current_session_id(user_id)
         return {
             "user_id": user_id,
-            "current_session_id": current_session_id,
             "sessions": [session.to_dict() for session in sessions],
             "count": len(sessions),
         }
     except RuntimeError:
         return {
             "user_id": user_id,
-            "current_session_id": None,
             "sessions": [],
             "count": 0,
         }

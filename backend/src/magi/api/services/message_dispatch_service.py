@@ -14,12 +14,12 @@ from ...events.events import (
     EventTypes,
     REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY,
 )
-from .chat_read_service import get_chat_read_service
 
 
 RUNTIME_NOT_INITIALIZED = "RUNTIME_NOT_INITIALIZED"
 MESSAGE_BUS_NOT_INITIALIZED = "MESSAGE_BUS_NOT_INITIALIZED"
 MESSAGE_BUS_PUBLISH_FAILED = "MESSAGE_BUS_PUBLISH_FAILED"
+SESSION_ID_REQUIRED = "SESSION_ID_REQUIRED"
 
 
 @dataclass(slots=True)
@@ -65,8 +65,14 @@ async def dispatch_user_message(
             error_message="Message bus not initialized. Please complete onboarding or check the saved configuration.",
         )
 
-    read_service = get_chat_read_service()
-    resolved_session_id = session_id or read_service.get_current_session_id(user_id)
+    resolved_session_id = str(session_id or "").strip()
+    if not resolved_session_id:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            error_code=SESSION_ID_REQUIRED,
+            error_message="Session ID is required.",
+        )
     turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
     payload = {
         "content": message,
