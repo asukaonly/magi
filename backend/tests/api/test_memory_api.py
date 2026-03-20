@@ -340,6 +340,7 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
 def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
+    log_calls: list[tuple[str, dict]] = []
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
@@ -369,8 +370,12 @@ def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
             _ = scenario
             return _FakeLLMAdapter()
 
+    def fake_log(message, **kwargs):
+        log_calls.append((message, kwargs))
+
     monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
     monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
 
     client = TestClient(app)
     response = client.post(
@@ -388,6 +393,12 @@ def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
     body = response.json()
     assert body["answer"] == "Sushi"
     assert body["answer_trace"]["answer_source"] == "llm"
+    assert [message for message, _ in log_calls] == [
+        "Eval query answer synthesis started",
+        "Eval query answer synthesis completed",
+    ]
+    assert log_calls[0][1]["evidence_hit_count"] == 1
+    assert log_calls[1][1]["answer"] == "Sushi"
 
 
 def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):

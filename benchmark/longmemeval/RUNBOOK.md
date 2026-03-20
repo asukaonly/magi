@@ -124,6 +124,37 @@ First few traces:
 head "$LONGMEM_OUT/longmemeval/$LONGMEM_RUN/predictions_with_trace.jsonl"
 ```
 
+## 7.5. Debug One Question At A Time
+
+If you want to inspect one replayed question without rerunning the whole dataset:
+
+```bash
+python /Users/asuka/code/magi/benchmark/longmemeval/query_one.py \
+  --dataset "$LONGMEM_DATA" \
+  --run-id "$LONGMEM_RUN" \
+  --question-id "gpt4_2655b836"
+```
+
+To debug the retrieval + answer-model path, add:
+
+```bash
+  --answer-with-llm
+```
+
+This prints:
+
+- the original question
+- the expected answer
+- the resolved namespace
+- retrieved hits
+- retrieval trace
+- optional `answer` and `answer_trace`
+
+When `--answer-with-llm` is enabled, the backend logs also print:
+
+- `Eval query answer synthesis started`
+- `Eval query answer synthesis completed`
+
 ## 8. Run Official LongMemEval QA Scoring
 
 ```bash

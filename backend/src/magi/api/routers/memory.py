@@ -175,6 +175,12 @@ async def _synthesize_eval_answer(
         evidence_blocks.append(f"[{index}] session={session_id} turn={turn_id}\n{content}")
 
     evidence_text = "\n\n".join(evidence_blocks) if evidence_blocks else "(no evidence retrieved)"
+    logger.info(
+        "Eval query answer synthesis started",
+        question=question,
+        evidence_hit_count=len(hits),
+        evidence_preview=evidence_text[:800],
+    )
     prompt = (
         "You are answering a benchmark question using retrieved memory evidence only.\n"
         "Return a concise final answer to the question.\n"
@@ -188,6 +194,12 @@ async def _synthesize_eval_answer(
         temperature=0.0,
     )
     normalized_answer = str(answer or "").strip() or "unknown"
+    logger.info(
+        "Eval query answer synthesis completed",
+        question=question,
+        evidence_hit_count=len(hits),
+        answer=normalized_answer,
+    )
     return normalized_answer, {
         "answer_source": "llm",
         "llm_scenario": LLMScenario.CORE.value,
