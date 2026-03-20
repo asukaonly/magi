@@ -10,12 +10,16 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..services import get_chat_read_service
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_memory_integration, require_unified_memory
+from ...core.runtime_bindings import (
+    require_hybrid_retrieval_service,
+    require_memory_integration,
+    require_unified_memory,
+)
 from ...memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 from ...memory.eval_support.reader import EvalMemoryReader
 from ...memory.eval_support.writer import EvalMemoryWriter
 from ...memory.event_contracts import MemoryEvent
-from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
+from ...memory.hybrid_retrieval import build_query
 from ...memory.l2.models import ManualL2EventRequest
 
 logger = get_logger(__name__)
@@ -120,6 +124,13 @@ def _resolve_unified_memory():
 def _resolve_memory_integration():
     try:
         return require_memory_integration()
+    except RuntimeError:
+        return None
+
+
+def _resolve_hybrid_retrieval_service():
+    try:
+        return require_hybrid_retrieval_service()
     except RuntimeError:
         return None
 
@@ -436,14 +447,14 @@ async def replay_eval_records(body: EvalReplayRequest):
 @memory_router.post("/eval/query")
 async def query_eval_memory(body: EvalQueryRequest):
     """Query benchmark memory directly without chat rendering."""
-    unified_memory = _resolve_unified_memory()
-    if not unified_memory:
+    retrieval_service = _resolve_hybrid_retrieval_service()
+    if retrieval_service is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory system not initialized",
+            detail="Hybrid retrieval service not initialized",
         )
 
-    reader = EvalMemoryReader(HybridRetrievalService(unified_memory))
+    reader = EvalMemoryReader(retrieval_service)
     result = await reader.query_memory(
         EvalMemoryQuery(
             namespace=body.namespace,
@@ -687,15 +698,14 @@ async def get_l1_events(
 
 @memory_router.post("/search")
 async def search_memory(request: RetrievalRequest):
-    unified_memory = _resolve_unified_memory()
-    if not unified_memory:
+    retrieval_service = _resolve_hybrid_retrieval_service()
+    if retrieval_service is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Memory system not initialized",
+            detail="Hybrid retrieval service not initialized",
         )
 
-    service = HybridRetrievalService(unified_memory)
-    payload = await service.query(
+    payload = await retrieval_service.query(
         build_query(
             query=request.query,
             user_id=request.user_id,

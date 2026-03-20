@@ -13,6 +13,7 @@ from magi.memory.event_contracts import (
     RetentionClass,
     TomDepth,
 )
+from magi.memory.hybrid_retrieval import RetrievalPayload
 
 
 class _FakeL0Store:
@@ -300,14 +301,7 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    fake_memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
     class _FakeHybridRetrievalService:
-        def __init__(self, unified_memory):
-            self._memory = unified_memory
-
         async def query(self, request):
             _ = request
             return SimpleNamespace(
@@ -323,7 +317,7 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
                 trace={"intent_source": "rule"},
             )
 
-    monkeypatch.setattr("magi.api.routers.memory.HybridRetrievalService", _FakeHybridRetrievalService)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
 
     client = TestClient(app)
     response = client.post(
@@ -340,6 +334,39 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
     body = response.json()
     assert body["retrieved_session_ids"] == ["sess-2"]
     assert body["retrieved_turn_ids"] == ["sess-2:turn-1"]
+    assert body["trace"]["intent_source"] == "rule"
+
+
+def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            assert request.query == "switch jobs"
+            return RetrievalPayload(
+                l0_workbench=[{"summary": "Current goal"}],
+                l1_events=[],
+                l2_entity_cards=[],
+                l2_relationships=[],
+                l2_assertions=[],
+                l3_reflections=[{"summary_id": "sum-1"}],
+                l4_procedures=[],
+                trace={"intent_source": "rule"},
+            )
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/search",
+        json={"query": "switch jobs", "query_mode": "summary", "limit": 5},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["l0_workbench"][0]["summary"] == "Current goal"
+    assert body["l3_reflections"][0]["summary_id"] == "sum-1"
     assert body["trace"]["intent_source"] == "rule"
 
 

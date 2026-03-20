@@ -5,10 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, Optional
 
-from ...config.models import LLMScenario
-from ...core.runtime_bindings import require_scenario_llm_pool, require_unified_memory
-from ...llm.provider_bridge import LLMProviderBridge
-from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
+from ...core.runtime_bindings import require_hybrid_retrieval_service
+from ...memory.hybrid_retrieval import build_query
 from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
 
 
@@ -64,43 +62,11 @@ class MemoryQueryTool(Tool):
             tags=["memory", "search", "history"],
             timeout=30,
         )
-        self._service: Optional[HybridRetrievalService] = self._build_service()
+        self._service: Optional[Any] = None
 
-    def _build_service(self) -> Optional[HybridRetrievalService]:
-        try:
-            unified_memory = require_unified_memory()
-        except RuntimeError:
-            return None
-        llm_provider_bridge: LLMProviderBridge | None = None
-        try:
-            scenario_llm_pool = require_scenario_llm_pool()
-            if scenario_llm_pool is not None:
-                llm_provider_bridge = LLMProviderBridge(
-                    scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
-                )
-        except RuntimeError:
-            llm_provider_bridge = None
-        return HybridRetrievalService(
-            unified_memory,
-            llm_provider_bridge=llm_provider_bridge,
-        )
-
-    def _get_service(self) -> HybridRetrievalService:
+    def _get_service(self):
         """Return an initialized retrieval service when runtime memory is available."""
-        try:
-            runtime_memory = require_unified_memory()
-        except RuntimeError:
-            runtime_memory = None
-
-        if (
-            self._service is None
-            or runtime_memory is None
-            or getattr(self._service, "_memory", None) is not runtime_memory
-        ):
-            self._service = self._build_service()
-
-        if self._service is None:
-            raise RuntimeError("unified_memory binding is not initialized")
+        self._service = require_hybrid_retrieval_service()
         return self._service
 
     async def execute(

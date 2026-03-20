@@ -12,9 +12,9 @@ class TestMemoryQueryTool:
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
         def _raise_uninitialized() -> None:
-            raise RuntimeError("unified_memory binding is not initialized")
+            raise RuntimeError("hybrid_retrieval_service binding is not initialized")
 
-        monkeypatch.setattr(memory_query_module, "require_unified_memory", _raise_uninitialized)
+        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", _raise_uninitialized)
 
         tool = MemoryQueryTool()
 
@@ -50,74 +50,33 @@ class TestMemoryQueryTool:
         time_range_param = next(p for p in schema.parameters if p.name == "time_range")
         assert time_range_param.required is False
 
-    def test_tool_uses_runtime_unified_memory_for_hybrid_queries(self, monkeypatch):
-        """Should build its service with a HybridRetrievalService-backed runtime memory store."""
+    def test_tool_uses_runtime_hybrid_retrieval_binding(self, monkeypatch):
+        """Should resolve the shared runtime retrieval service."""
         import magi.tools.builtin.memory_query_tool as memory_query_module
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
-        fake_unified_memory = MagicMock()
-        monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: fake_unified_memory)
-        monkeypatch.setattr(memory_query_module, "require_scenario_llm_pool", lambda: None)
+        fake_service = MagicMock(name="retrieval_service")
+        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", lambda: fake_service)
 
         tool = MemoryQueryTool()
 
-        assert tool._service.__class__.__name__ == "HybridRetrievalService"
+        assert tool._get_service() is fake_service
 
-    def test_tool_passes_llm_provider_bridge_into_hybrid_retrieval_service(self, monkeypatch):
-        """Should wire a provider bridge for retrieval intent decisions when scenario pool is available."""
-        import magi.tools.builtin.memory_query_tool as memory_query_module
-        from magi.config.models import LLMScenario
-        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-
-        fake_unified_memory = MagicMock()
-        fake_adapter = MagicMock()
-        fake_scenario_pool = MagicMock()
-        fake_scenario_pool.get.return_value = fake_adapter
-        captured = {}
-
-        class _FakeHybridRetrievalService:
-            def __init__(self, unified_memory, *, llm_provider_bridge=None, config=None):
-                captured["unified_memory"] = unified_memory
-                captured["llm_provider_bridge"] = llm_provider_bridge
-                captured["config"] = config
-
-        monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: fake_unified_memory)
-        monkeypatch.setattr(memory_query_module, "require_scenario_llm_pool", lambda: fake_scenario_pool)
-        monkeypatch.setattr(memory_query_module, "HybridRetrievalService", _FakeHybridRetrievalService)
-
-        tool = MemoryQueryTool()
-
-        assert captured["unified_memory"] is fake_unified_memory
-        assert captured["llm_provider_bridge"] is not None
-        fake_scenario_pool.get.assert_called_once_with(LLMScenario.CONTEXT_DECIDER)
-        assert getattr(captured["llm_provider_bridge"], "llm", None) is fake_adapter
-        assert tool._service is not None
-
-    def test_tool_rebuilds_service_when_runtime_memory_binding_changes(self, monkeypatch):
-        """Should rebuild the retrieval service if the bound unified memory instance changes."""
+    def test_tool_get_service_raises_when_runtime_binding_is_missing(self, monkeypatch):
+        """Should fail fast when the runtime retrieval service is not available."""
         import magi.tools.builtin.memory_query_tool as memory_query_module
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
-        first_memory = MagicMock(name="first_memory")
-        second_memory = MagicMock(name="second_memory")
-        current = {"memory": first_memory}
-
-        class _FakeHybridRetrievalService:
-            def __init__(self, unified_memory, *, llm_provider_bridge=None, config=None):
-                self._memory = unified_memory
-
-        monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: current["memory"])
-        monkeypatch.setattr(memory_query_module, "require_scenario_llm_pool", lambda: None)
-        monkeypatch.setattr(memory_query_module, "HybridRetrievalService", _FakeHybridRetrievalService)
+        monkeypatch.setattr(
+            memory_query_module,
+            "require_hybrid_retrieval_service",
+            lambda: (_ for _ in ()).throw(RuntimeError("hybrid_retrieval_service binding is not initialized")),
+        )
 
         tool = MemoryQueryTool()
-        assert tool._service is not None
-        assert tool._service._memory is first_memory
 
-        current["memory"] = second_memory
-
-        service = tool._get_service()
-        assert service._memory is second_memory
+        with pytest.raises(RuntimeError, match="hybrid_retrieval_service"):
+            tool._get_service()
 
     @pytest.mark.asyncio
     async def test_tool_execution(self, monkeypatch):
@@ -126,12 +85,10 @@ class TestMemoryQueryTool:
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
         from magi.tools.schema import ToolExecutionContext
 
-        fake_unified_memory = MagicMock(name="runtime_memory")
-        monkeypatch.setattr(memory_query_module, "require_unified_memory", lambda: fake_unified_memory)
+        fake_service = MagicMock(name="retrieval_service")
+        monkeypatch.setattr(memory_query_module, "require_hybrid_retrieval_service", lambda: fake_service)
         tool = MemoryQueryTool()
-        tool._service = MagicMock()
-        tool._service._memory = fake_unified_memory
-        tool._service.query = AsyncMock(
+        fake_service.query = AsyncMock(
             return_value=MagicMock(
                 l0_workbench=[{"summary": "Current goal"}],
                 l1_events=[],
