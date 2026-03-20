@@ -62,7 +62,11 @@ async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: p
     event = bus.events[0]
     assert event.type == "UserMessage"
     assert event.source == "api"
+    assert event.data["content"] == "hello"
+    assert event.data["author_type"] == "user"
+    assert event.data["content_type"] == "text"
     assert event.data["metadata"]["origin"] == "test"
+    assert "message" not in event.data
     assert event.metadata[REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY] is True
 
 

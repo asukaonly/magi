@@ -34,6 +34,10 @@ async def test_emit_chat_response_marks_event_for_subscriber_delivery() -> None:
 
     event = message_bus.events[0]
     assert event.type == EventTypes.AI_RESPONSE
+    assert event.data["content"] == "hello"
+    assert event.data["author_type"] == "assistant"
+    assert event.data["content_type"] == "text"
+    assert "response" not in event.data
     assert event.metadata[REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY] is True
 
 

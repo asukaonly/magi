@@ -40,7 +40,9 @@ class ActionEmitter:
         trace_available: bool = False,
     ) -> None:
         response_data = {
-            "response": response,
+            "content": response,
+            "author_type": "assistant",
+            "content_type": "text",
             "timestamp": time.time(),
             "user_id": user_id,
             "session_id": session_id,

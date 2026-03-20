@@ -69,7 +69,9 @@ async def dispatch_user_message(
     resolved_session_id = session_id or read_service.get_current_session_id(user_id)
     turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
     payload = {
-        "message": message,
+        "content": message,
+        "author_type": "user",
+        "content_type": "text",
         "user_id": user_id,
         "runtime_namespace": str(runtime_namespace or "").strip() or None,
         "session_id": resolved_session_id,
