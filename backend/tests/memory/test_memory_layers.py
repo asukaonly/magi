@@ -17,6 +17,16 @@ from magi.timeline import TimelineContentBlock, TimelineEvent
 from magi.timeline.service import TimelineService
 
 
+async def _wait_for_async_condition(predicate, *, timeout: float = 1.0, interval: float = 0.02):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        result = await predicate()
+        if result:
+            return result
+        await asyncio.sleep(interval)
+    return await predicate()
+
+
 class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -87,9 +97,13 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         workbench = await self.store.l0.get_workbench("s1")
         l1_count = await self.store.l1.count_events()
         runtime_count = await self.store.l1.count_runtime_observations()
-        assertions = await self.store.l2.list_tom_assertions(entity_id="user:u1")
+        assertions = await _wait_for_async_condition(
+            lambda: self.store.l2.list_tom_assertions(entity_id="user:u1")
+        )
         summary = await self.store.generate_summary(period_type="day", period_start=now - 10, period_end=now + 60)
-        procedures = await self.store.l4.query_strategies(query="browser", limit=5)
+        procedures = await _wait_for_async_condition(
+            lambda: self.store.l4.query_strategies(query="browser", limit=5)
+        )
 
         self.assertEqual(workbench["session"]["user_id"], "u1")
         self.assertEqual(l1_count, 1)
