@@ -55,6 +55,89 @@ class TestL1Handler:
         assert results == []
         store.bm25_search.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_reranks_user_fact_above_verbose_assistant_guidance(self, store, monkeypatch):
+        handler = L1Handler(store)
+        conds = L1Conditions(content_query="What was the first issue I had with my new car after its first service?", limit=2)
+
+        async def _bm25_path(_query, _limit):
+            return ["assistant-generic", "user-fact"]
+
+        async def _vector_path(_query, _limit):
+            return []
+
+        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
+            return ["assistant-generic", "user-fact"]
+
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+            by_id = {
+                "assistant-generic": {
+                    "event_id": "assistant-generic",
+                    "content": (
+                        "That is great to hear. Here are ten general tips for protecting your car and "
+                        "keeping it in good condition over the long term while thinking about detailing, "
+                        "wax products, paint protection, interior cleaning, insurance shopping, and "
+                        "other maintenance ideas that are not directly answering the issue question."
+                    ),
+                    "timestamp": 2000.0,
+                    "author_type": "assistant",
+                },
+                "user-fact": {
+                    "event_id": "user-fact",
+                    "content": (
+                        "I recently had an issue with my car's GPS system on 3/22, and I had to take "
+                        "it back to the dealership to get it fixed after the first service."
+                    ),
+                    "timestamp": 1900.0,
+                    "author_type": "user",
+                },
+            }
+            return [by_id[event_id] for event_id in event_ids if event_id in by_id]
+
+        monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
+        monkeypatch.setattr(handler, "_vector_path", _vector_path)
+        monkeypatch.setattr(handler, "_keyword_path", _keyword_path)
+        monkeypatch.setattr(handler, "_fetch_and_filter", _fetch_and_filter)
+
+        results = await handler.execute(conds)
+
+        assert [item["event_id"] for item in results] == ["user-fact", "assistant-generic"]
+
+    @pytest.mark.asyncio
+    async def test_attaches_retrieval_trace_metadata_to_results(self, store, monkeypatch):
+        handler = L1Handler(store)
+        conds = L1Conditions(content_query="Where did I mention the GPS issue?", limit=1)
+
+        async def _bm25_path(_query, _limit):
+            return ["user-fact"]
+
+        async def _vector_path(_query, _limit):
+            return []
+
+        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
+            return ["user-fact"]
+
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+            return [
+                {
+                    "event_id": "user-fact",
+                    "content": "I had an issue with my car's GPS system after the first service.",
+                    "timestamp": 1900.0,
+                    "author_type": "user",
+                }
+            ]
+
+        monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
+        monkeypatch.setattr(handler, "_vector_path", _vector_path)
+        monkeypatch.setattr(handler, "_keyword_path", _keyword_path)
+        monkeypatch.setattr(handler, "_fetch_and_filter", _fetch_and_filter)
+
+        results = await handler.execute(conds)
+
+        assert "retrieval_trace" in results[0]
+        assert results[0]["retrieval_trace"]["base_rrf_score"] > 0
+        assert "role_bias" in results[0]["retrieval_trace"]
+
 
 # -----------------------------------------------------------------------
 # L2Handler
