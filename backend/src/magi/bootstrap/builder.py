@@ -21,6 +21,29 @@ from ..context.lifecycle import ContextModule
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..timeline.lifecycle import TimelineModule, TimelineScheduleRegistrationModule
 from ..scheduler.lifecycle import SchedulerModule
+from ..runtime_trace import RuntimeTraceStore
+
+
+def _build_runtime_trace_module(context: RuntimeBootstrapContext) -> LifecycleModule:
+    async def _init_runtime_trace() -> None:
+        runtime_paths = context.core.runtime_paths
+        if runtime_paths is None:
+            raise RuntimeError("runtime paths is not initialized")
+        store = RuntimeTraceStore(db_path=str(runtime_paths.runtime_trace_db_path))
+        await store.initialize()
+        context.runtime_trace.store = store
+
+    async def _shutdown_runtime_trace() -> None:
+        if context.runtime_trace.store is not None:
+            await context.runtime_trace.store.shutdown()
+            context.runtime_trace.store = None
+
+    return LifecycleModule(
+        name="runtime_trace",
+        dependencies=("runtime_core_dependencies",),
+        init=_init_runtime_trace,
+        shutdown=_shutdown_runtime_trace,
+    )
 
 
 def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleModule]:
@@ -33,19 +56,20 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
     L4  PluginSystemModule        - Plugin system
     L5  LLMRuntimeModule          - LLM runtime
     L6  MemoryStoreModule         - Memory stores (L0-L4)
-    L7  ToolsModule               - Tool integrations
-    L8  SkillsModule              - Shared skills lifecycle
-    L9  PersonalityModule         - Personality layer
-    L10 SensorsAndActionsModule   - Sensors and actuators
-    L11 ContextModule             - Context/prompt assembly
-    L12 AgentRuntimeModule        - Agent runtime
-    L13 TimelineModule            - Timeline service
-    L14 SchedulerModule           - Scheduler engine
-    L15 AgentScheduleRegistrationModule - Agent schedule registration
-    L16 ActionScheduleRegistrationModule - Action schedule registration
-    L17 TimelineScheduleRegistrationModule - Timeline schedule registration
-    L18 RuntimeExportsModule      - DI container exports
-    L19 OtherDependenciesModule   - Maintenance daemon
+    L7  Runtime trace module      - Execution observability store
+    L8  ToolsModule               - Tool integrations
+    L9  SkillsModule              - Shared skills lifecycle
+    L10 PersonalityModule         - Personality layer
+    L11 SensorsAndActionsModule   - Sensors and actuators
+    L12 ContextModule             - Context/prompt assembly
+    L13 AgentRuntimeModule        - Agent runtime
+    L14 TimelineModule            - Timeline service
+    L15 SchedulerModule           - Scheduler engine
+    L16 AgentScheduleRegistrationModule - Agent schedule registration
+    L17 ActionScheduleRegistrationModule - Action schedule registration
+    L18 TimelineScheduleRegistrationModule - Timeline schedule registration
+    L19 RuntimeExportsModule      - DI container exports
+    L20 OtherDependenciesModule   - Maintenance daemon
 
     Args:
         context: The shared bootstrap context containing layer state slices
@@ -60,17 +84,18 @@ def build_runtime_modules(context: RuntimeBootstrapContext) -> list[LifecycleMod
         PluginSystemModule(context),          # L4
         LLMRuntimeModule(context),            # L5
         MemoryStoreModule(context),           # L6
-        ToolsModule(context),                 # L7
-        SkillsModule(context),                # L8
-        PersonalityModule(context),           # L9
-        SensorsAndActionsModule(context),     # L10
-        ContextModule(context),               # L11
-        AgentRuntimeModule(context),          # L12
-        TimelineModule(context),              # L13
-        SchedulerModule(context),             # L14 (scheduler engine)
-        AgentScheduleRegistrationModule(context),  # L15
-        ActionScheduleRegistrationModule(context),  # L16
-        TimelineScheduleRegistrationModule(context),  # L17
-        RuntimeExportsModule(context),        # L18
-        OtherDependenciesModule(context),     # L19
+        _build_runtime_trace_module(context),  # L7
+        ToolsModule(context),                 # L8
+        SkillsModule(context),                # L9
+        PersonalityModule(context),           # L10
+        SensorsAndActionsModule(context),     # L11
+        ContextModule(context),               # L12
+        AgentRuntimeModule(context),          # L13
+        TimelineModule(context),              # L14
+        SchedulerModule(context),             # L15 (scheduler engine)
+        AgentScheduleRegistrationModule(context),  # L16
+        ActionScheduleRegistrationModule(context),  # L17
+        TimelineScheduleRegistrationModule(context),  # L18
+        RuntimeExportsModule(context),        # L19
+        OtherDependenciesModule(context),     # L20
     ]

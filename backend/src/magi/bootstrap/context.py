@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ..timeline.service import TimelineService
     from ..timeline.scheduler_contrib import TimelineSchedulerContrib
     from ..scheduler import SchedulerService
+    from ..runtime_trace import RuntimeTraceStore
 
 
 def require_initialized(value: Any, name: str) -> Any:
@@ -146,6 +147,13 @@ class MaintenanceBootstrapState:
 
 
 @dataclass
+class RuntimeTraceBootstrapState:
+    """Runtime trace observability state slice."""
+
+    store: RuntimeTraceStore | None = None
+
+
+@dataclass
 class RuntimeBootstrapContext:
     """Slice-based bootstrap context shared across layer lifecycle modules.
 
@@ -164,4 +172,5 @@ class RuntimeBootstrapContext:
     agent_runtime: AgentRuntimeBootstrapState = field(default_factory=AgentRuntimeBootstrapState)
     timeline: TimelineBootstrapState = field(default_factory=TimelineBootstrapState)
     scheduler: SchedulerBootstrapState = field(default_factory=SchedulerBootstrapState)
+    runtime_trace: RuntimeTraceBootstrapState = field(default_factory=RuntimeTraceBootstrapState)
     maintenance: MaintenanceBootstrapState = field(default_factory=MaintenanceBootstrapState)

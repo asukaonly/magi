@@ -25,6 +25,7 @@ class RuntimeExportsModule(LifecycleModule):
                 "runtime_plugin_system",
                 "runtime_scheduler",
                 "runtime_llm",
+                "runtime_trace",
             ),
         )
         self._context = context
@@ -38,6 +39,7 @@ class RuntimeExportsModule(LifecycleModule):
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
         sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
         action_registry = require_initialized(self._context.plugins.action_registry, "action registry")
+        runtime_trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
 
         container = get_container()
         container.message_bus.override(providers.Object(message_bus))
@@ -48,6 +50,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.plugin_manager.override(providers.Object(plugin_manager))
         container.sensor_registry.override(providers.Object(sensor_registry))
         container.action_registry.override(providers.Object(action_registry))
+        container.runtime_trace_store.override(providers.Object(runtime_trace_store))
 
         if self._context.scheduler.scheduler_service is not None:
             container.scheduler_service.override(providers.Object(self._context.scheduler.scheduler_service))
@@ -85,6 +88,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.plugin_manager.reset_override()
         container.sensor_registry.reset_override()
         container.action_registry.reset_override()
+        container.runtime_trace_store.reset_override()
         container.skill_indexer.reset_override()
         container.skill_loader.reset_override()
         container.skill_runner.reset_override()

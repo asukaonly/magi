@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from ..api.services import ChatReadService
     from ..plugins import ActionRegistry, PluginManager, SensorRegistry
     from ..personality.other_memory import OtherMemory
+    from ..runtime_trace import RuntimeTraceStore
     from ..timeline.scheduler_contrib import TimelineSchedulerContrib
 
 
@@ -67,6 +68,7 @@ class Container(containers.DeclarativeContainer):
     plugin_manager: providers.Singleton[PluginManager] = providers.Singleton(object)
     sensor_registry: providers.Singleton[SensorRegistry] = providers.Singleton(object)
     action_registry: providers.Singleton[ActionRegistry] = providers.Singleton(object)
+    runtime_trace_store: providers.Singleton[RuntimeTraceStore] = providers.Singleton(object)
     skill_indexer: providers.Singleton[Any] = providers.Singleton(object)
     skill_loader: providers.Singleton[Any] = providers.Singleton(object)
     skill_runner: providers.Singleton[Any] = providers.Singleton(object)
