@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from dataclasses import asdict
 from typing import Any
 from urllib import error, request
@@ -78,6 +79,10 @@ class BackendEvalService:
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"Backend request failed with {exc.code}: {detail}") from exc
+        except (TimeoutError, socket.timeout) as exc:
+            raise RuntimeError(
+                f"Backend request to {path} timed out after {self._timeout_seconds:.1f}s"
+            ) from exc
 
     def _get_json_sync(self, path: str) -> dict[str, Any]:
         url = f"{self._backend_url}{path}"
@@ -88,6 +93,10 @@ class BackendEvalService:
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"Backend request failed with {exc.code}: {detail}") from exc
+        except (TimeoutError, socket.timeout) as exc:
+            raise RuntimeError(
+                f"Backend request to {path} timed out after {self._timeout_seconds:.1f}s"
+            ) from exc
 
 
 def _normalize_optional_text(value: Any) -> str | None:

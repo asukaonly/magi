@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 
 from magi.memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 
@@ -188,3 +189,35 @@ def test_backend_client_uses_configured_timeout_for_post_requests() -> None:
         urllib_request.urlopen = original  # type: ignore[assignment]
 
     assert captured == [12.5]
+
+
+def test_backend_client_wraps_post_timeouts_with_actionable_error() -> None:
+    service = BackendEvalService("http://localhost:8000", timeout_seconds=3.0)
+
+    def fake_urlopen(req, timeout=None):
+        _ = (req, timeout)
+        raise socket.timeout("timed out")
+
+    import urllib.request as urllib_request
+
+    original = urllib_request.urlopen
+    urllib_request.urlopen = fake_urlopen  # type: ignore[assignment]
+    try:
+        try:
+            asyncio.run(
+                service.query_memory(
+                    EvalMemoryQuery(
+                        namespace="benchmark/longmemeval/run-1/q-1",
+                        query="What food do I prefer?",
+                    )
+                )
+            )
+        except RuntimeError as exc:
+            message = str(exc)
+        else:
+            raise AssertionError("expected RuntimeError")
+    finally:
+        urllib_request.urlopen = original  # type: ignore[assignment]
+
+    assert "/api/memory/eval/query" in message
+    assert "timed out after 3.0s" in message
