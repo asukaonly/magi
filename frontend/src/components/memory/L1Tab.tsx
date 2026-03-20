@@ -18,8 +18,8 @@ interface L1TabProps {
 export const L1Tab: React.FC<L1TabProps> = ({ stats, events }) => {
   const { t } = useTranslation('app');
 
-  const userAuthoredCount = events.filter((e) => e.source === 'user').length;
-  const interactionCount = events.filter((e) => e.source !== 'user').length;
+  const userAuthoredCount = events.filter((event) => event.author_type === 'user').length;
+  const interactionCount = events.length - userAuthoredCount;
 
   return (
     <div className="space-y-4">
@@ -66,18 +66,21 @@ export const L1Tab: React.FC<L1TabProps> = ({ stats, events }) => {
                       {formatTimestamp(event.timestamp)}
                     </span>
                   </div>
-                  <div className="text-sm truncate">{event.raw_content}</div>
-                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    <div>
-                      {t('memory.identity.runtimeUserLabel')}: {event.runtime_user_id || '-'}
-                    </div>
-                    <div>
-                      {t('memory.identity.memoryOwnerLabel')}: {event.memory_owner_id || '-'}
-                    </div>
-                  </div>
+                  <div className="text-sm truncate">{event.content}</div>
+                  {event.user_id ? (
+                    <div className="mt-2 font-mono text-xs text-muted-foreground">{event.user_id}</div>
+                  ) : null}
                   <div className="flex gap-2 mt-2">
-                    <Badge variant="secondary" className="text-xs">{event.source}</Badge>
+                    {event.source ? (
+                      <Badge variant="secondary" className="text-xs">{event.source}</Badge>
+                    ) : null}
                     <Badge variant="secondary" className="text-xs">{event.memory_domain}</Badge>
+                    {event.author_type ? (
+                      <Badge variant="secondary" className="text-xs">{event.author_type}</Badge>
+                    ) : null}
+                    {event.content_type ? (
+                      <Badge variant="secondary" className="text-xs">{event.content_type}</Badge>
+                    ) : null}
                   </div>
                 </div>
               ))}

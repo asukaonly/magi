@@ -123,7 +123,7 @@ describe('memory page design', () => {
         l1_events: [
           {
             event_id: 'evt-1',
-            raw_content: 'User mentioned a strong preference for calm lake walks',
+            content: 'User mentioned a strong preference for calm lake walks',
             source: 'user',
             memory_domain: 'preference',
           },

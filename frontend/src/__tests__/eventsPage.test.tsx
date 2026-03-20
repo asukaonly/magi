@@ -48,15 +48,16 @@ vi.mock('sonner', () => ({
 const L1_EVENT = {
   event_id: 'event-1',
   event_type: 'AI_RESPONSE',
-  raw_content: 'hello',
+  content: 'hello',
   timestamp: 1710000000,
   source: 'assistant',
   memory_domain: 'interaction',
   retention_class: 'compressible',
   importance_score: 0.5,
   cognition_eligible: true,
-  runtime_user_id: 'web_user',
-  memory_owner_id: 'user:self',
+  user_id: 'web_user',
+  author_type: 'assistant',
+  content_type: 'text',
 };
 
 describe('events page', () => {
@@ -156,8 +157,10 @@ describe('events page', () => {
 
     expect(eventCard).toBeInTheDocument();
     expect(eventCard).toHaveClass('rounded-lg');
-    expect(screen.getByText('memory.identity.runtimeUserLabel: web_user')).toBeInTheDocument();
-    expect(screen.getByText('memory.identity.memoryOwnerLabel: user:self')).toBeInTheDocument();
+    expect(screen.getByText('hello')).toBeInTheDocument();
+    expect(screen.getByText('web_user')).toBeInTheDocument();
+    expect(screen.getAllByText('assistant').length).toBeGreaterThan(0);
+    expect(screen.getByText('text')).toBeInTheDocument();
   });
 
   it('opens the clear confirmation in a compact dialog container', async () => {

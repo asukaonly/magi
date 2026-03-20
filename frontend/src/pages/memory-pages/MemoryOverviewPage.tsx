@@ -314,7 +314,6 @@ const describeSearchItem = (item: Record<string, unknown> | undefined): string =
   if (!item) return '';
 
   const previewKeys = [
-    'raw_content',
     'canonical_name',
     'content',
     'skill_name',

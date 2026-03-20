@@ -25,8 +25,11 @@ const createMemoryStub = () =>
       {
         event_id: 'evt-1',
         event_type: 'conversation',
-        raw_content: 'User said West Lake feels calm.',
+        content: 'User said West Lake feels calm.',
         source: 'user',
+        author_type: 'user',
+        content_type: 'text',
+        user_id: 'web_user',
       },
     ],
     l2Relations: [

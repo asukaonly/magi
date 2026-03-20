@@ -38,16 +38,28 @@ export interface L0Workbench {
 // L1 Event Types
 export interface L1Event {
   event_id: string;
+  correlation_id?: string | null;
   event_type: string;
-  raw_content: string;
+  source?: string;
+  source_item_id?: string | null;
   timestamp: number;
-  source: string;
+  created_at?: number;
+  session_id?: string | null;
+  turn_id?: string | null;
+  user_id?: string | null;
+  task_id?: string | null;
+  content: string;
+  author_type?: string | null;
+  content_type?: string | null;
   memory_domain: string;
+  ingest_target?: string | string[] | null;
+  tom_depth?: string | null;
   retention_class: string;
   importance_score: number;
   cognition_eligible: boolean;
-  runtime_user_id?: string | null;
-  memory_owner_id?: string | null;
+  level?: string | null;
+  media_path?: string | null;
+  deleted_at?: number | null;
 }
 
 // L2 Cognition Types

@@ -597,7 +597,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
                 <span className="font-medium text-[#2f231b]">{event.event_type}</span>
                 <Badge variant="outline">{event.source}</Badge>
               </div>
-              <div className="mt-2 line-clamp-3 text-[#6e5a4a]">{event.raw_content}</div>
+              <div className="mt-2 line-clamp-3 text-[#6e5a4a]">{event.content}</div>
             </div>
           ))}
         </InfoCard>

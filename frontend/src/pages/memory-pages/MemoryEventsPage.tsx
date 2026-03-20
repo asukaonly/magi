@@ -30,7 +30,7 @@ export const MemoryEventsPage = () => {
         const normalizedQuery = query.trim().toLowerCase();
         const matchesQuery =
           normalizedQuery.length === 0 ||
-          event.raw_content.toLowerCase().includes(normalizedQuery) ||
+          event.content.toLowerCase().includes(normalizedQuery) ||
           event.event_type.toLowerCase().includes(normalizedQuery) ||
           event.memory_domain.toLowerCase().includes(normalizedQuery);
         const matchesSource = sourceFilter === 'all' || event.source === sourceFilter;
