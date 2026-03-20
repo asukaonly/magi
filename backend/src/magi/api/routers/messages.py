@@ -215,7 +215,7 @@ async def clear_conversation_history(
 
 @user_messages_router.post("/session/new", response_model=Dict[str, Any])
 async def create_new_session(user_id: str = "web_user"):
-    """Create a new session and set it as the current session."""
+    """Create a new chat session row for the given user."""
     try:
         read_service = get_chat_read_service()
         session_id = read_service.create_new_session(user_id)

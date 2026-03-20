@@ -127,7 +127,7 @@ Execution observability is now a separate concern from durable memory:
   Message-bus queue persistence only
 
 - `~/.magi/data/memories/l1_events.db`
-  Canonical L1 fact storage for durable memory events
+  Canonical L1 fact storage for durable memory events and `chat_sessions` metadata rows
 
 - `~/.magi/data/memories/memory.db`
   Shared L0/L2/L3/L4 storage
@@ -140,6 +140,12 @@ Execution observability is now a separate concern from durable memory:
 
 - `~/.magi/data/llm_usage.db`
   LLM usage metrics and usage-event persistence
+
+Chat session ownership is intentionally split:
+
+- `chat_sessions` rows store durable session metadata such as title, previews, timestamps, and counts
+- L1 `fact_events` store the actual durable chat messages keyed by `session_id`
+- the frontend owns which session is currently selected and always sends an explicit `session_id`
 
 ## Repository Structure
 

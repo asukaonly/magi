@@ -144,7 +144,7 @@ Prompt assembly ownership lives in `backend/src/magi/context/`.
 The current split is:
 
 - `ChatTaskAgent.build_context`
-  Builds typed runtime context such as fact classification, session identity, conversation history, tool errors, and active orchestrations
+  Builds typed runtime context such as fact classification, explicit session identity, conversation history, tool errors, and active orchestrations
 
 - `ContextAssemblyService`
   Owns prompt-context policy, implicit retrieval query selection, prompt module assembly, and final system prompt rendering
@@ -268,7 +268,7 @@ It owns:
 
 - runtime initialization checks
 - message-bus availability checks
-- session resolution for incoming messages
+- explicit `session_id` validation for incoming messages
 - `USER_MESSAGE` event publication
 - queue-size reporting for callers
 
@@ -279,6 +279,8 @@ This keeps `api/routers/messages.py` and `websocket/handlers.py` transport-thin.
 `ChatReadService` and `ChatTraceReadService` remain shared read-side services.
 
 They are intentionally separated from runtime orchestration, but they still use module-scoped shared instances today and are tracked in the backlog for further cleanup.
+
+`ChatReadService` now reads canonical session metadata from the `chat_sessions` table instead of aggregating sessions on demand from L1 fact rows. The frontend owns the currently selected session and reads history or trace data by passing an explicit `session_id`.
 
 ## Runtime Binding Boundary
 
