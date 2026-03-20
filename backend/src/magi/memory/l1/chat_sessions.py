@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
     session_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     title TEXT NOT NULL,
+    title_overridden INTEGER NOT NULL DEFAULT 0,
     summary TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
@@ -41,6 +42,7 @@ class ChatSessionRecord:
     session_id: str
     user_id: str
     title: str
+    title_overridden: bool
     summary: str
     created_at: float
     updated_at: float
@@ -75,6 +77,7 @@ def create_chat_session_record(
         session_id=normalized_session_id,
         user_id=str(user_id).strip(),
         title=str(title).strip() or "New Chat",
+        title_overridden=False,
         summary=str(summary),
         created_at=timestamp,
         updated_at=timestamp,
@@ -86,3 +89,96 @@ def create_chat_session_record(
         archived_at=None,
         deleted_at=None,
     )
+
+
+async def project_chat_event_to_session(
+    db: aiosqlite.Connection,
+    *,
+    user_id: str | None,
+    session_id: str | None,
+    event_type: str,
+    content: str | None,
+    timestamp: float,
+) -> None:
+    """Project chat fact activity into the canonical session row."""
+
+    normalized_user_id = str(user_id or "").strip()
+    normalized_session_id = str(session_id or "").strip()
+    normalized_content = str(content or "").strip()
+    if not normalized_user_id or not normalized_session_id or not normalized_content:
+        return
+
+    await db.execute(
+        f"""
+        INSERT INTO {CHAT_SESSIONS_TABLE} (
+            session_id, user_id, title, title_overridden, summary, created_at, updated_at,
+            last_message_at, last_user_message_at, last_message_preview,
+            last_user_message_preview, message_count, archived_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id) DO NOTHING
+        """,
+        (
+            normalized_session_id,
+            normalized_user_id,
+            "New Chat",
+            0,
+            "",
+            float(timestamp),
+            float(timestamp),
+            None,
+            None,
+            "",
+            "",
+            0,
+            None,
+            None,
+        ),
+    )
+    if event_type == "UserMessage":
+        await db.execute(
+            f"""
+            UPDATE {CHAT_SESSIONS_TABLE}
+            SET
+                updated_at = ?,
+                last_message_at = ?,
+                last_user_message_at = ?,
+                last_message_preview = ?,
+                last_user_message_preview = ?,
+                message_count = message_count + 1
+            WHERE session_id = ?
+              AND user_id = ?
+              AND deleted_at IS NULL
+            """,
+            (
+                float(timestamp),
+                float(timestamp),
+                float(timestamp),
+                normalized_content[:120],
+                normalized_content[:120],
+                normalized_session_id,
+                normalized_user_id,
+            ),
+        )
+        return
+
+    if event_type == "AIResponse":
+        await db.execute(
+            f"""
+            UPDATE {CHAT_SESSIONS_TABLE}
+            SET
+                updated_at = ?,
+                last_message_at = ?,
+                last_message_preview = ?,
+                message_count = message_count + 1
+            WHERE session_id = ?
+              AND user_id = ?
+              AND deleted_at IS NULL
+            """,
+            (
+                float(timestamp),
+                float(timestamp),
+                normalized_content[:120],
+                normalized_session_id,
+                normalized_user_id,
+            ),
+        )

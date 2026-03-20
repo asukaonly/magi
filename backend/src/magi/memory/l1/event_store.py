@@ -15,6 +15,7 @@ from ...timeline.contracts import TimelineEvent
 from ..embedding_service import MemoryEmbeddingService
 from ..event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
 from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
+from .chat_sessions import ensure_chat_sessions_schema_async, project_chat_event_to_session
 from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
@@ -125,6 +126,7 @@ class L1EventStore:
                 );
                 """
             )
+            await ensure_chat_sessions_schema_async(db)
             if self._vector_enabled:
                 await self._vector_index.initialize()
             await db.commit()
@@ -199,6 +201,14 @@ class L1EventStore:
             await db.execute(
                 "INSERT INTO l1_events_fts(event_id, content) VALUES (?, ?)",
                 (event.event_id, tokenized),
+            )
+            await project_chat_event_to_session(
+                db,
+                user_id=event.user_id,
+                session_id=event.session_id,
+                event_type=event.event_type,
+                content=event.content,
+                timestamp=float(event.timestamp),
             )
             await db.commit()
         if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:

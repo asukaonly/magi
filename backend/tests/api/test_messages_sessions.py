@@ -54,6 +54,7 @@ def _init_chat_session_store(db_path: Path) -> None:
             session_id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             title TEXT NOT NULL,
+            title_overridden INTEGER NOT NULL DEFAULT 0,
             summary TEXT NOT NULL DEFAULT '',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL,
@@ -76,6 +77,7 @@ def _insert_session(db_path: Path, **values) -> None:
         "session_id": values.get("session_id"),
         "user_id": values.get("user_id"),
         "title": values.get("title", "New Chat"),
+        "title_overridden": int(values.get("title_overridden", False)),
         "summary": values.get("summary", ""),
         "created_at": values.get("created_at", 0.0),
         "updated_at": values.get("updated_at", values.get("created_at", 0.0)),
@@ -92,10 +94,10 @@ def _insert_session(db_path: Path, **values) -> None:
     cur.execute(
         f"""
         INSERT INTO {CHAT_SESSIONS_TABLE} (
-            session_id, user_id, title, summary, created_at, updated_at,
+            session_id, user_id, title, title_overridden, summary, created_at, updated_at,
             last_message_at, last_user_message_at, last_message_preview,
             last_user_message_preview, message_count, archived_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
     )

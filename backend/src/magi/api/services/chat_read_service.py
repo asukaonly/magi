@@ -124,15 +124,16 @@ class ChatReadService:
         conn.execute(
             f"""
             INSERT INTO {CHAT_SESSIONS_TABLE} (
-                session_id, user_id, title, summary, created_at, updated_at,
+                session_id, user_id, title, title_overridden, summary, created_at, updated_at,
                 last_message_at, last_user_message_at, last_message_preview,
                 last_user_message_preview, message_count, archived_at, deleted_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.session_id,
                 record.user_id,
                 record.title,
+                1 if record.title_overridden else 0,
                 record.summary,
                 record.created_at,
                 record.updated_at,
@@ -166,6 +167,7 @@ class ChatReadService:
                 SELECT
                     session_id,
                     title,
+                    title_overridden,
                     last_message_preview,
                     last_user_message_preview,
                     updated_at,
@@ -190,7 +192,7 @@ class ChatReadService:
                 title=str(row["title"] or "New Chat"),
                 last_message_preview=str(row["last_message_preview"] or ""),
                 last_user_message_preview=str(row["last_user_message_preview"] or ""),
-                title_overridden=bool(str(row["title"] or "").strip()),
+                title_overridden=bool(int(row["title_overridden"] or 0)),
                 last_timestamp=int(float(row["last_message_at"] or row["updated_at"] or 0)),
                 message_count=int(row["message_count"] or 0),
             )
@@ -209,7 +211,7 @@ class ChatReadService:
         cur = conn.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
-            SET title = ?, updated_at = strftime('%s', 'now')
+            SET title = ?, title_overridden = 1, updated_at = strftime('%s', 'now')
             WHERE session_id = ?
               AND user_id = ?
               AND deleted_at IS NULL

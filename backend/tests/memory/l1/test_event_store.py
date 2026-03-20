@@ -7,6 +7,7 @@ import time
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
+from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event
 
 
@@ -208,6 +209,114 @@ async def test_l1_event_store_persists_action_events_in_fact_events(tmp_path):
     assert fetched_fact["event_id"] == "evt-runtime-1"
     assert fetched_fact["event_type"] == EventTypes.ACTION_EXECUTED
     assert fetched_fact["content"] == "bash succeeded"
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_projects_user_message_into_chat_session_row(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+
+    event = Event(
+        type=EventTypes.USER_MESSAGE,
+        data={
+            "user_id": "user-1",
+            "session_id": "session-1",
+            "content": "First message preview",
+            "author_type": "user",
+            "content_type": "text",
+        },
+        source="chat",
+        level=EventLevel.INFO,
+        correlation_id="corr-chat-session-user",
+    )
+
+    await store.store(normalize_runtime_event(event, event_id="evt-chat-session-user"))
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute(
+        f"""
+        SELECT title, title_overridden, last_message_preview, last_user_message_preview,
+               message_count, last_message_at, last_user_message_at
+        FROM {CHAT_SESSIONS_TABLE}
+        WHERE session_id = ?
+        """,
+        ("session-1",),
+    ).fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == "New Chat"
+    assert row[1] == 0
+    assert row[2] == "First message preview"
+    assert row[3] == "First message preview"
+    assert row[4] == 1
+    assert row[5] is not None
+    assert row[6] is not None
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_projects_ai_response_into_existing_chat_session_row(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+
+    await store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "User preview",
+                    "author_type": "user",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-chat-session-seed",
+            ),
+            event_id="evt-chat-session-seed",
+        )
+    )
+    await store.store(
+        normalize_runtime_event(
+            Event(
+                type=EventTypes.AI_RESPONSE,
+                data={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "content": "Assistant preview",
+                    "author_type": "assistant",
+                    "content_type": "text",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="corr-chat-session-ai",
+            ),
+            event_id="evt-chat-session-ai",
+        )
+    )
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute(
+        f"""
+        SELECT last_message_preview, last_user_message_preview, message_count
+        FROM {CHAT_SESSIONS_TABLE}
+        WHERE session_id = ?
+        """,
+        ("session-1",),
+    ).fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == "Assistant preview"
+    assert row[1] == "User preview"
+    assert row[2] == 2
 
 
 @pytest.mark.asyncio
