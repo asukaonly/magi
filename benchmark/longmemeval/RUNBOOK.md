@@ -141,6 +141,12 @@ To debug the retrieval + answer-model path, add:
   --answer-with-llm
 ```
 
+If you also want the exact prompt sent to the backend LLM in the debug JSON output, add:
+
+```bash
+  --show-prompt
+```
+
 This prints:
 
 - the original question

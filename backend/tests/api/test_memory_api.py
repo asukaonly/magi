@@ -386,6 +386,7 @@ def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
             "top_k": 10,
             "mode": "auto",
             "answer_with_llm": True,
+            "show_prompt": True,
         },
     )
 
@@ -393,6 +394,8 @@ def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
     body = response.json()
     assert body["answer"] == "Sushi"
     assert body["answer_trace"]["answer_source"] == "llm"
+    assert "What food do I prefer?" in body["answer_trace"]["prompt"]
+    assert "Actually sushi is my favorite." in body["answer_trace"]["prompt"]
     assert [message for message, _ in log_calls] == [
         "Eval query answer synthesis started",
         "Eval query answer synthesis completed",

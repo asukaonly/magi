@@ -45,6 +45,7 @@ async def build_single_query_payload(
     eval_service: SupportsQueryService,
     run_id: str,
     answer_with_llm: bool = False,
+    show_prompt: bool = False,
     benchmark_name: str = "longmemeval",
 ) -> dict[str, Any]:
     """Query one replayed LongMemEval item and return a JSON-friendly debug payload."""
@@ -56,7 +57,7 @@ async def build_single_query_payload(
     )
     adapted = adapt_longmemeval_entry(row, namespace=namespace)
     query_result = await eval_service.query_memory(
-        replace(adapted.query, answer_with_llm=answer_with_llm)
+        replace(adapted.query, answer_with_llm=answer_with_llm, show_prompt=show_prompt)
     )
     hypothesis = query_result.answer or synthesize_hypothesis_from_hits(hits=query_result.hits)
     return {
@@ -96,6 +97,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Use the backend LLM to synthesize a final answer from retrieved hits.",
     )
+    parser.add_argument(
+        "--show-prompt",
+        action="store_true",
+        help="Include the synthesized LLM prompt in the debug output.",
+    )
     return parser.parse_args(argv)
 
 
@@ -112,7 +118,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(
         f"Querying LongMemEval question_id={question_id} "
         f"namespace={namespace} "
-        f"answer_with_llm={args.answer_with_llm}",
+        f"answer_with_llm={args.answer_with_llm} "
+        f"show_prompt={args.show_prompt}",
         flush=True,
     )
     build_result = build_single_query_payload(
@@ -120,6 +127,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         eval_service=BackendEvalService(args.backend_url, timeout_seconds=args.request_timeout),
         run_id=args.run_id,
         answer_with_llm=args.answer_with_llm,
+        show_prompt=args.show_prompt,
     )
     payload = asyncio.run(build_result) if inspect.iscoroutine(build_result) else build_result
     print(json.dumps(payload, ensure_ascii=False, indent=2))

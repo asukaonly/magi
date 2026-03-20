@@ -29,6 +29,7 @@ class EvalMemoryQuery:
     top_k: int = 10
     mode: str = "auto"
     answer_with_llm: bool = False
+    show_prompt: bool = False
 
 
 @dataclass(slots=True)

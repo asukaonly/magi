@@ -60,7 +60,7 @@ def test_build_single_query_payload_returns_debug_shape() -> None:
             ],
             trace={"intent_source": "rule"},
             answer="Sushi",
-            answer_trace={"answer_source": "llm"},
+            answer_trace={"answer_source": "llm", "prompt": "Question: What food do I prefer?"},
         )
     )
 
@@ -70,15 +70,18 @@ def test_build_single_query_payload_returns_debug_shape() -> None:
             eval_service=service,
             run_id="run-1",
             answer_with_llm=True,
+            show_prompt=True,
         )
     )
 
     assert service.queries[0].answer_with_llm is True
+    assert service.queries[0].show_prompt is True
     assert payload["question_id"] == "q-1"
     assert payload["expected_answer"] == "Sushi"
     assert payload["hypothesis"] == "Sushi"
     assert payload["retrieved_session_ids"] == ["sess-2"]
     assert payload["answer_trace"]["answer_source"] == "llm"
+    assert "Question: What food do I prefer?" in payload["answer_trace"]["prompt"]
 
 
 def test_query_one_main_prints_progress_before_result(monkeypatch, tmp_path) -> None:
@@ -109,6 +112,7 @@ def test_query_one_main_prints_progress_before_result(monkeypatch, tmp_path) -> 
                 "--question-id",
                 "q-1",
                 "--answer-with-llm",
+                "--show-prompt",
             ]
         )
 

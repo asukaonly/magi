@@ -79,6 +79,7 @@ class EvalQueryRequest(BaseModel):
     top_k: int = Field(default=10, ge=1, le=200, description="Top-k retrieval limit")
     mode: str = Field(default="auto", description="Retrieval mode hint")
     answer_with_llm: bool = Field(default=False, description="Whether to synthesize a final answer with the runtime LLM")
+    show_prompt: bool = Field(default=False, description="Whether to include the synthesized LLM prompt in debug output")
 
 
 class EvalFinalizeReplayRequest(BaseModel):
@@ -156,6 +157,7 @@ async def _synthesize_eval_answer(
     *,
     question: str,
     hits: list[dict[str, Any]],
+    show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     llm_pool = _resolve_scenario_llm_pool()
     if llm_pool is None:
@@ -200,11 +202,14 @@ async def _synthesize_eval_answer(
         evidence_hit_count=len(hits),
         answer=normalized_answer,
     )
-    return normalized_answer, {
+    answer_trace = {
         "answer_source": "llm",
         "llm_scenario": LLMScenario.CORE.value,
         "evidence_hit_count": len(hits),
     }
+    if show_prompt:
+        answer_trace["prompt"] = prompt
+    return normalized_answer, answer_trace
 
 
 def _build_l2_pending_breakdown(pipeline_stats: Dict[str, Any]) -> Dict[str, int]:
@@ -528,12 +533,14 @@ async def query_eval_memory(body: EvalQueryRequest):
             top_k=body.top_k,
             mode=body.mode,
             answer_with_llm=body.answer_with_llm,
+            show_prompt=body.show_prompt,
         )
     )
     if body.answer_with_llm:
         answer, answer_trace = await _synthesize_eval_answer(
             question=body.query,
             hits=[asdict(hit) for hit in result.hits],
+            show_prompt=body.show_prompt,
         )
         result.answer = answer
         result.answer_trace = answer_trace
