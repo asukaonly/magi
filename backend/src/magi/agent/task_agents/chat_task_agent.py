@@ -13,6 +13,7 @@ from ...agent.runtime.types import TaskAgentType
 from ...context import ContextAssemblyService, ContextRetrievalService, PromptContextAssembler, PromptContextRenderer
 from ...tools.context_decider import ContextDecider
 from ...tools.registry import tool_registry
+from ...runtime_trace import RuntimeTraceStore
 from ...utils.runtime import get_runtime_paths
 from ..execution.function_calling import FunctionCallingOrchestrator
 from .chat import (
@@ -57,6 +58,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         history_fetch_limit: int = 200,
         scenario_prompts_store=None,
         skill_runner=None,
+        runtime_trace_store: RuntimeTraceStore | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         self.llm = llm_adapter
@@ -134,6 +136,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             unified_memory=unified_memory,
             max_fact_memory=self._max_fact_memory,
             trace_read_service=trace_read_service,
+            runtime_trace_store=runtime_trace_store,
         )
         self.function_calling_orchestrator = FunctionCallingOrchestrator(
             llm_adapter=llm_adapter,

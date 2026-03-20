@@ -1,6 +1,7 @@
 """Post-processing and side effects for chat execution results."""
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
@@ -10,9 +11,6 @@ from ....awareness.contracts import ActionEmissionRecord
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
 from ....agent.trace import (
-    TURN_TRACE_COMPLETED_EVENT_TYPE,
-    TURN_TRACE_STARTED_EVENT_TYPE,
-    TraceEventEmitter,
     now_wall_ms,
 )
 from ....events.events import EventTypes
@@ -20,6 +18,13 @@ from ....personality.behavior_evolution import SatisfactionLevel
 from ....personality.emotional_state import EngagementLevel, InteractionOutcome
 from ....personality.growth_memory import InteractionType
 from ....memory.l3.models import TaskOutcomePacket
+from ....runtime_trace import (
+    RuntimeTraceStore,
+    TraceIntentResolutionRecord,
+    TraceLlmCallRecord,
+    TraceSpanRecord,
+    TraceTurnRecord,
+)
 from ..common import ExecutionResult, FunctionCallingExecutionResult, IncomingFactKind
 from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext
@@ -51,6 +56,7 @@ class ChatPostProcessService:
         unified_memory=None,
         max_fact_memory: int = 200,
         trace_read_service: "ChatTraceReadService | None" = None,
+        runtime_trace_store: RuntimeTraceStore | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._session_service = session_service
@@ -63,6 +69,7 @@ class ChatPostProcessService:
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
         self._trace_read_service = trace_read_service
+        self._runtime_trace_store = runtime_trace_store
         self._started_turn_traces: set[str] = set()
 
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
@@ -125,6 +132,7 @@ class ChatPostProcessService:
             turn_id=turn_id,
             llm_trace=getattr(result, "llm_trace", {}),
             started_at_ms=started_at_ms,
+            user_message=context.latest_user_message,
         )
 
         await self._emit_response_trace(
@@ -135,6 +143,8 @@ class ChatPostProcessService:
             started_at_ms=started_at_ms,
             ended_at_ms=now_ms,
             orchestration_id=result.orchestration_id,
+            mode=self._normalize_mode(result.mode),
+            user_message=context.latest_user_message,
         )
 
         # Fetch trace summary before emitting the response event
@@ -195,46 +205,56 @@ class ChatPostProcessService:
         return ChatParseOutcome(True, history_stored, memory_updated, False)
 
     async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
-        action_emitter = self._get_action_emitter()
         latest_fact = context.latest_fact
-        if action_emitter is None or not isinstance(latest_fact, FactRecord):
+        if self._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
             return
         turn_id = self._resolve_turn_id(context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {})
         if not turn_id:
             return
         trace_id = self._build_trace_id(turn_id)
         started_at_ms = self._resolve_started_at_ms(None, latest_fact)
-        await self._emit_turn_trace_started(
-            action_emitter=action_emitter,
+        await self._ensure_turn_trace_started(
             trace_id=trace_id,
             turn_id=turn_id,
             user_id=context.user_id,
             session_id=context.session_id,
             started_at_ms=started_at_ms,
             user_message=context.latest_user_message,
+            mode=self._normalize_mode(getattr(decision, "execution_mode", None)),
         )
-        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
         ended_at_ms = now_wall_ms()
-        await trace_emitter.emit_node_completed(
-            trace_id=trace_id,
-            turn_id=turn_id,
-            span_id=self._build_span_id(turn_id, "intent_resolution"),
-            parent_span_id=self._build_root_span_id(turn_id),
-            node_type="intent_resolution",
-            name="Intent resolution",
-            user_id=context.user_id,
-            session_id=context.session_id,
-            started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
-            duration_ms=max(0, ended_at_ms - started_at_ms),
-            metrics=dict(getattr(decision, "llm_trace", {}) or {}),
-            output={
-                "intent": str(getattr(decision, "intent", "") or ""),
-                "execution_mode": str(getattr(getattr(decision, "execution_mode", None), "value", "") or ""),
-                "route_reason": str(getattr(decision, "reasoning", "") or ""),
-                "selected_tools": list(getattr(decision, "tools", []) or []),
-                "selected_worker_type": getattr(getattr(decision, "orchestration_plan", None), "default_leaf_type", None),
-            },
+        span_id = self._build_span_id(turn_id, "intent_resolution")
+        await self._runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=span_id,
+                trace_id=trace_id,
+                turn_id=turn_id,
+                parent_span_id=self._build_root_span_id(turn_id),
+                node_type="intent_resolution",
+                name="Intent resolution",
+                status="completed",
+                result_preview=str(getattr(decision, "intent", "") or "")[:240] or None,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=max(0, ended_at_ms - started_at_ms),
+                created_at_ms=started_at_ms,
+                updated_at_ms=ended_at_ms,
+            )
+        )
+        await self._runtime_trace_store.upsert_intent_resolution(
+            TraceIntentResolutionRecord(
+                span_id=span_id,
+                trace_id=trace_id,
+                turn_id=turn_id,
+                intent=str(getattr(decision, "intent", "") or ""),
+                execution_mode=self._normalize_mode(getattr(decision, "execution_mode", None)),
+                route_reason=str(getattr(decision, "reasoning", "") or "") or None,
+                selected_tools_json=json.dumps(list(getattr(decision, "tools", []) or [])),
+                selected_worker_type=(
+                    str(getattr(getattr(decision, "orchestration_plan", None), "default_leaf_type", "") or "")
+                    or None
+                ),
+            )
         )
 
     async def _record_task_reflection(
@@ -511,114 +531,115 @@ class ChatPostProcessService:
         started_at_ms: int,
         ended_at_ms: int,
         orchestration_id: str | None,
+        mode: str,
+        user_message: str,
     ) -> None:
-        action_emitter = self._get_action_emitter()
         normalized_turn_id = str(turn_id or "").strip()
-        if action_emitter is None or not normalized_turn_id:
+        if self._runtime_trace_store is None or not normalized_turn_id:
             return
         trace_id = self._build_trace_id(normalized_turn_id)
-        await self._emit_turn_trace_started(
-            action_emitter=action_emitter,
+        await self._ensure_turn_trace_started(
             trace_id=trace_id,
             turn_id=normalized_turn_id,
             user_id=user_id,
             session_id=session_id,
             started_at_ms=started_at_ms,
-            user_message="",
+            user_message=user_message,
+            mode=mode,
         )
-        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
-        await trace_emitter.emit_node_completed(
-            trace_id=trace_id,
-            turn_id=normalized_turn_id,
-            span_id=self._build_span_id(normalized_turn_id, "response_emit"),
-            parent_span_id=self._build_root_span_id(normalized_turn_id),
-            node_type="response_emit",
-            name="Response emission",
-            user_id=user_id,
-            session_id=session_id,
-            started_at_ms=ended_at_ms,
-            ended_at_ms=ended_at_ms,
-            duration_ms=0,
-            output={
-                "response_preview": response_text[:240],
-                "response_chars": len(response_text),
-                "orchestration_id": orchestration_id,
-            },
+        await self._runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=self._build_span_id(normalized_turn_id, "response_emit"),
+                trace_id=trace_id,
+                turn_id=normalized_turn_id,
+                parent_span_id=self._build_root_span_id(normalized_turn_id),
+                node_type="response_emit",
+                name="Response emission",
+                status="completed",
+                result_preview=response_text[:240] or None,
+                started_at_ms=ended_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=0,
+                created_at_ms=ended_at_ms,
+                updated_at_ms=ended_at_ms,
+            )
         )
-        await trace_emitter.emit_node_completed(
-            trace_id=trace_id,
-            turn_id=normalized_turn_id,
-            span_id=self._build_root_span_id(normalized_turn_id),
-            parent_span_id=None,
-            node_type="turn",
-            name="Chat turn",
-            user_id=user_id,
-            session_id=session_id,
-            started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
-            duration_ms=max(0, ended_at_ms - started_at_ms),
-            output={
-                "response_preview": response_text[:240],
-            },
+        await self._runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=self._build_root_span_id(normalized_turn_id),
+                trace_id=trace_id,
+                turn_id=normalized_turn_id,
+                parent_span_id=None,
+                node_type="turn",
+                name="Chat turn",
+                status="completed",
+                result_preview=response_text[:240] or None,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=max(0, ended_at_ms - started_at_ms),
+                created_at_ms=started_at_ms,
+                updated_at_ms=ended_at_ms,
+            )
         )
-        await action_emitter.emit_runtime_event(
-            event_type=TURN_TRACE_COMPLETED_EVENT_TYPE,
-            payload={
-                "trace_id": trace_id,
-                "turn_id": normalized_turn_id,
-                "span_id": self._build_root_span_id(normalized_turn_id),
-                "status": "completed",
-                "started_at_ms": started_at_ms,
-                "ended_at_ms": ended_at_ms,
-                "duration_ms": max(0, ended_at_ms - started_at_ms),
-                "user_id": user_id,
-                "session_id": session_id,
-            },
-            correlation_id=normalized_turn_id,
-            success=True,
+        await self._runtime_trace_store.upsert_turn(
+            TraceTurnRecord(
+                trace_id=trace_id,
+                turn_id=normalized_turn_id,
+                session_id=session_id,
+                user_id=user_id,
+                status="completed",
+                mode=mode,
+                orchestration_id=orchestration_id,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=max(0, ended_at_ms - started_at_ms),
+                user_message_preview=user_message[:240] or None,
+                response_preview=response_text[:240] or None,
+                created_at_ms=started_at_ms,
+                updated_at_ms=ended_at_ms,
+            )
         )
 
-    async def _emit_turn_trace_started(
+    async def _ensure_turn_trace_started(
         self,
         *,
-        action_emitter: Any,
         trace_id: str,
         turn_id: str,
         user_id: str,
         session_id: str,
         started_at_ms: int,
         user_message: str,
+        mode: str,
     ) -> None:
-        if turn_id in self._started_turn_traces:
+        if self._runtime_trace_store is None or turn_id in self._started_turn_traces:
             return
-        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
-        await action_emitter.emit_runtime_event(
-            event_type=TURN_TRACE_STARTED_EVENT_TYPE,
-            payload={
-                "trace_id": trace_id,
-                "turn_id": turn_id,
-                "span_id": self._build_root_span_id(turn_id),
-                "status": "running",
-                "started_at_ms": started_at_ms,
-                "user_id": user_id,
-                "session_id": session_id,
-            },
-            correlation_id=turn_id,
-            success=True,
+        await self._runtime_trace_store.upsert_turn(
+            TraceTurnRecord(
+                trace_id=trace_id,
+                turn_id=turn_id,
+                session_id=session_id,
+                user_id=user_id,
+                status="running",
+                mode=mode,
+                started_at_ms=started_at_ms,
+                user_message_preview=user_message[:240] or None,
+                created_at_ms=started_at_ms,
+                updated_at_ms=started_at_ms,
+            )
         )
-        await trace_emitter.emit_node_started(
-            trace_id=trace_id,
-            turn_id=turn_id,
-            span_id=self._build_root_span_id(turn_id),
-            parent_span_id=None,
-            node_type="turn",
-            name="Chat turn",
-            user_id=user_id,
-            session_id=session_id,
-            started_at_ms=started_at_ms,
-            input={
-                "user_message_preview": user_message[:240],
-            } if user_message else {},
+        await self._runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=self._build_root_span_id(turn_id),
+                trace_id=trace_id,
+                turn_id=turn_id,
+                parent_span_id=None,
+                node_type="turn",
+                name="Chat turn",
+                status="running",
+                started_at_ms=started_at_ms,
+                created_at_ms=started_at_ms,
+                updated_at_ms=started_at_ms,
+            )
         )
         self._started_turn_traces.add(turn_id)
 
@@ -664,34 +685,48 @@ class ChatPostProcessService:
         duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
         ended_at_ms = now_wall_ms()
         started_at_ms = max(0, ended_at_ms - duration_ms)
-        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
-        await trace_emitter.emit_node_completed(
-            trace_id=self._build_trace_id(normalized_turn_id),
-            turn_id=normalized_turn_id,
-            span_id=self._build_span_id(
-                normalized_turn_id,
-                f"llm_call:{stage}:{int(iteration or 0)}",
-            ),
-            parent_span_id=self._build_span_id(normalized_turn_id, f"iteration:{int(iteration or 0)}"),
-            node_type="llm_call",
-            name="Function-calling LLM call",
-            user_id=user_id,
-            session_id=session_id,
-            started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
-            duration_ms=duration_ms,
-            output={
-                "iteration": int(iteration or 0),
-                "stage": stage,
-                "tool_count": int(tool_count or 0),
-                "tool_names": list(tool_names) if isinstance(tool_names, list) else [],
-                "response_preview": str(response_preview or "")[:240],
-            },
-            metrics=dict(llm_trace),
-            tags={
-                "role": "main",
-                "execution_agent_id": execution_agent_id,
-            },
+        _ = (action_emitter, user_id, session_id, tool_count, tool_names, response_preview, execution_agent_id)
+        if self._runtime_trace_store is None:
+            return
+        span_id = self._build_span_id(
+            normalized_turn_id,
+            f"llm_call:{stage}:{int(iteration or 0)}",
+        )
+        trace_id = self._build_trace_id(normalized_turn_id)
+        await self._runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=span_id,
+                trace_id=trace_id,
+                turn_id=normalized_turn_id,
+                parent_span_id=self._build_span_id(normalized_turn_id, f"iteration:{int(iteration or 0)}"),
+                node_type="llm_call",
+                name="Function-calling LLM call",
+                status="completed",
+                iteration=int(iteration or 0),
+                execution_agent_id=str(execution_agent_id or "") or None,
+                result_preview=str(response_preview or "")[:240] or None,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=duration_ms,
+                created_at_ms=started_at_ms,
+                updated_at_ms=ended_at_ms,
+            )
+        )
+        await self._runtime_trace_store.upsert_llm_call(
+            TraceLlmCallRecord(
+                span_id=span_id,
+                trace_id=trace_id,
+                turn_id=normalized_turn_id,
+                provider=str(llm_trace.get("provider") or "unknown"),
+                model=str(llm_trace.get("model") or "unknown"),
+                input_tokens=int(llm_trace.get("input_tokens") or 0),
+                output_tokens=int(llm_trace.get("output_tokens") or 0),
+                reasoning_tokens=int(llm_trace.get("reasoning_tokens") or 0),
+                cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
+                cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
+                thinking_enabled=bool(llm_trace.get("thinking_enabled")),
+                response_preview=str(response_preview or "")[:240] or None,
+            )
         )
 
     async def _emit_result_llm_trace(
@@ -702,31 +737,56 @@ class ChatPostProcessService:
         turn_id: str | None,
         llm_trace: Any,
         started_at_ms: int,
+        user_message: str,
     ) -> None:
-        action_emitter = self._get_action_emitter()
         normalized_turn_id = str(turn_id or "").strip()
-        if action_emitter is None or not normalized_turn_id or not isinstance(llm_trace, dict) or not llm_trace:
+        if self._runtime_trace_store is None or not normalized_turn_id or not isinstance(llm_trace, dict) or not llm_trace:
             return
-        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
-        ended_at_ms = max(started_at_ms, started_at_ms + duration_ms)
-        trace_emitter = TraceEventEmitter(emit_runtime_event=action_emitter.emit_runtime_event)
-        await trace_emitter.emit_node_completed(
-            trace_id=self._build_trace_id(normalized_turn_id),
+        trace_id = self._build_trace_id(normalized_turn_id)
+        await self._ensure_turn_trace_started(
+            trace_id=trace_id,
             turn_id=normalized_turn_id,
-            span_id=self._build_span_id(normalized_turn_id, "llm_call:direct"),
-            parent_span_id=self._build_root_span_id(normalized_turn_id),
-            node_type="llm_call",
-            name="Main LLM call",
             user_id=user_id,
             session_id=session_id,
             started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
-            duration_ms=duration_ms,
-            output={
-                "stage": "direct_response",
-            },
-            metrics=dict(llm_trace),
-            tags={
-                "role": "main",
-            },
+            user_message=user_message,
+            mode="direct_llm",
         )
+        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
+        ended_at_ms = max(started_at_ms, started_at_ms + duration_ms)
+        span_id = self._build_span_id(normalized_turn_id, "llm_call:direct")
+        await self._runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=span_id,
+                trace_id=trace_id,
+                turn_id=normalized_turn_id,
+                parent_span_id=self._build_root_span_id(normalized_turn_id),
+                node_type="llm_call",
+                name="Main LLM call",
+                status="completed",
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=duration_ms,
+                created_at_ms=started_at_ms,
+                updated_at_ms=ended_at_ms,
+            )
+        )
+        await self._runtime_trace_store.upsert_llm_call(
+            TraceLlmCallRecord(
+                span_id=span_id,
+                trace_id=trace_id,
+                turn_id=normalized_turn_id,
+                provider=str(llm_trace.get("provider") or "unknown"),
+                model=str(llm_trace.get("model") or "unknown"),
+                input_tokens=int(llm_trace.get("input_tokens") or 0),
+                output_tokens=int(llm_trace.get("output_tokens") or 0),
+                reasoning_tokens=int(llm_trace.get("reasoning_tokens") or 0),
+                cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
+                cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
+                thinking_enabled=bool(llm_trace.get("thinking_enabled")),
+            )
+        )
+
+    @staticmethod
+    def _normalize_mode(mode: Any) -> str:
+        return str(getattr(mode, "value", mode) or "unknown")

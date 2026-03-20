@@ -8,6 +8,7 @@ from ...config import AppConfig
 from ...agent.runtime.types import TaskAgentType
 from ...memory import UnifiedMemoryStore
 from ...memory.integration import MemoryIntegrationModule
+from ...runtime_trace import RuntimeTraceStore
 from ...timeline.handler import build_timeline_handler
 from . import ChatTaskAgent, DefaultTaskAgent, ExploreTaskAgent, TimelineTaskAgent
 
@@ -22,6 +23,7 @@ def create_chat_agent_factory(
     memory_integration: MemoryIntegrationModule,
     scenario_prompts_store: Any,
     skill_runner: Any,
+    runtime_trace_store: RuntimeTraceStore | None,
     config: AppConfig,
 ) -> Callable[[str], ChatTaskAgent]:
     """Return a factory callable that creates ChatTaskAgent instances."""
@@ -39,6 +41,7 @@ def create_chat_agent_factory(
             history_fetch_limit=config.agent.runtime.chat_history_fetch_limit,
             scenario_prompts_store=scenario_prompts_store,
             skill_runner=skill_runner,
+            runtime_trace_store=runtime_trace_store,
         )
 
     return _create

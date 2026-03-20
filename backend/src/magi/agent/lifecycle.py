@@ -41,6 +41,7 @@ class AgentRuntimeModule(LifecycleModule):
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
         memory_integration = require_initialized(self._context.memory.memory_integration, "memory integration")
         scenario_prompts_store = require_initialized(self._context.context.scenario_prompts_store, "scenario prompts store")
+        runtime_trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
         sensor_hub = require_initialized(self._context.agent_runtime.sensor_hub, "sensor hub")
         action_emitter = require_initialized(self._context.agent_runtime.action_emitter, "action emitter")
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
@@ -56,6 +57,7 @@ class AgentRuntimeModule(LifecycleModule):
                 memory_integration=memory_integration,
                 scenario_prompts_store=scenario_prompts_store,
                 skill_runner=self._context.skills.skill_runner,
+                runtime_trace_store=runtime_trace_store,
                 config=config,
             ),
             create_default_agent=create_default_agent_factory(

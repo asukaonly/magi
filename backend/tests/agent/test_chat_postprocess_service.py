@@ -1,19 +1,15 @@
 from __future__ import annotations
 
+import json
 import pytest
 
-from magi.agent.trace.contracts import (
-    TRACE_NODE_COMPLETED_EVENT_TYPE,
-    TRACE_NODE_STARTED_EVENT_TYPE,
-    TURN_TRACE_COMPLETED_EVENT_TYPE,
-    TURN_TRACE_STARTED_EVENT_TYPE,
-)
 from magi.awareness.contracts import ActionEmissionRecord
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
 from magi.agent.runtime.contracts import FactRecord
 from magi.events.events import EventTypes
+from magi.runtime_trace.store import RuntimeTraceStore
 
 
 class _FakeSessionService:
@@ -142,6 +138,16 @@ class _FakeUnifiedMemory:
         return {"summary_id": "summary-1", "summary_category": "task_reflection"}
 
 
+@pytest.fixture
+async def runtime_trace_store(tmp_path):
+    store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    await store.initialize()
+    try:
+        yield store
+    finally:
+        await store.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_record_tool_interaction_preserves_trace_identity() -> None:
     action_emitter = _FakeActionEmitter()
@@ -189,7 +195,9 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_intent_resolution_emits_turn_and_intent_trace_events() -> None:
+async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
@@ -197,6 +205,7 @@ async def test_record_intent_resolution_emits_turn_and_intent_trace_events() -> 
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
@@ -239,22 +248,13 @@ async def test_record_intent_resolution_emits_turn_and_intent_trace_events() -> 
 
     await service.record_intent_resolution(context, _FakeIntentDecision())
 
-    event_types = [item["event_type"] for item in action_emitter.runtime_events]
-    assert event_types == [
-        TURN_TRACE_STARTED_EVENT_TYPE,
-        TRACE_NODE_STARTED_EVENT_TYPE,
-        TRACE_NODE_COMPLETED_EVENT_TYPE,
-    ]
-    assert action_emitter.runtime_events[-1]["payload"]["node_type"] == "intent_resolution"
-    assert action_emitter.runtime_events[-1]["payload"]["output"]["intent"] == "chat"
-    assert action_emitter.runtime_events[-1]["payload"]["metrics"]["provider"] == "openai"
-    assert action_emitter.runtime_events[-1]["payload"]["metrics"]["model"] == "gpt-4.1-mini"
-    assert action_emitter.runtime_events[-1]["payload"]["metrics"]["input_tokens"] == 48
-    assert action_emitter.runtime_events[-1]["payload"]["metrics"]["output_tokens"] == 12
+    assert action_emitter.runtime_events == []
 
 
 @pytest.mark.asyncio
-async def test_record_tool_loop_fact_emits_llm_trace_node_when_metrics_present() -> None:
+async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
@@ -262,6 +262,79 @@ async def test_record_tool_loop_fact_emits_llm_trace_node_when_metrics_present()
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "hello",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="hello",
+            turn_id="turn-1",
+        ),
+    )
+
+    await service.record_intent_resolution(context, _FakeIntentDecision())
+
+    turn = await runtime_trace_store.get_turn("turn-1")
+    intent_span = await runtime_trace_store.get_span("turn-1:intent_resolution")
+    intent_resolution = await runtime_trace_store.get_intent_resolution("turn-1:intent_resolution")
+
+    assert turn is not None
+    assert turn.trace_id == "trace:turn-1"
+    assert turn.status == "running"
+    assert turn.user_message_preview == "hello"
+    assert intent_span is not None
+    assert intent_span.parent_span_id == "turn-1:turn"
+    assert intent_span.node_type == "intent_resolution"
+    assert intent_span.status == "completed"
+    assert intent_resolution is not None
+    assert intent_resolution.intent == "chat"
+    assert intent_resolution.execution_mode == "direct_llm"
+    assert json.loads(intent_resolution.selected_tools_json) == []
+
+
+@pytest.mark.asyncio
+async def test_record_tool_loop_fact_persists_llm_trace_row_when_metrics_present(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
     )
 
@@ -287,16 +360,14 @@ async def test_record_tool_loop_fact_emits_llm_trace_node_when_metrics_present()
         }
     )
 
-    llm_events = [
-        item for item in action_emitter.runtime_events
-        if item["event_type"] == TRACE_NODE_COMPLETED_EVENT_TYPE
-        and item["payload"]["node_type"] == "llm_call"
-    ]
-    assert len(llm_events) == 1
-    llm_payload = llm_events[0]["payload"]
-    assert llm_payload["metrics"]["model"] == "gpt-test"
-    assert llm_payload["metrics"]["input_tokens"] == 120
-    assert llm_payload["output"]["iteration"] == 2
+    llm_span = await runtime_trace_store.get_span("turn-1:llm_call:llm_requested_tools:2")
+    llm_call = await runtime_trace_store.get_llm_call("turn-1:llm_call:llm_requested_tools:2")
+
+    assert llm_span is not None
+    assert llm_span.iteration == 2
+    assert llm_call is not None
+    assert llm_call.model == "gpt-test"
+    assert llm_call.input_tokens == 120
 
 
 @pytest.mark.asyncio
@@ -360,13 +431,13 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
     assert outcome.emitted is True
     assert len(action_emitter.chat_response_events) == 1
     assert runtime.sensor_hub.sensor_events == []
-    event_types = [item["event_type"] for item in action_emitter.runtime_events]
-    assert TRACE_NODE_COMPLETED_EVENT_TYPE in event_types
-    assert TURN_TRACE_COMPLETED_EVENT_TYPE in event_types
+    assert action_emitter.runtime_events == []
 
 
 @pytest.mark.asyncio
-async def test_handle_emits_direct_llm_trace_node_when_result_has_llm_trace() -> None:
+async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
@@ -374,6 +445,7 @@ async def test_handle_emits_direct_llm_trace_node_when_result_has_llm_trace() ->
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
@@ -431,16 +503,98 @@ async def test_handle_emits_direct_llm_trace_node_when_result_has_llm_trace() ->
 
     await service.handle(context, result)
 
-    llm_events = [
-        item for item in action_emitter.runtime_events
-        if item["event_type"] == TRACE_NODE_COMPLETED_EVENT_TYPE
-        and item["payload"]["node_type"] == "llm_call"
-    ]
-    assert len(llm_events) == 1
-    llm_payload = llm_events[0]["payload"]
-    assert llm_payload["metrics"]["model"] == "gpt-test"
-    assert llm_payload["metrics"]["input_tokens"] == 64
-    assert llm_payload["tags"]["role"] == "main"
+    assert action_emitter.runtime_events == []
+
+
+@pytest.mark.asyncio
+async def test_handle_persists_turn_response_and_llm_trace_rows(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
+    action_emitter = _FakeActionEmitter()
+    service = ChatPostProcessService(
+        agent_id="chat:web_user",
+        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        get_action_emitter=lambda: action_emitter,
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        max_fact_memory=10,
+    )
+    latest_fact = FactRecord(
+        agent_id="chat:web_user",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "content": "hello",
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+        },
+        agent_type="chat",
+        agent_instance_id="web_user",
+        timestamp=1710000000.0,
+        correlation_id="corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=latest_fact,
+        recent_facts=[latest_fact],
+        batch_facts=[latest_fact],
+        agent_id="web_user",
+        agent_type="chat",
+        runtime_key="chat:web_user",
+        user_id="web_user",
+        session_id="session-1",
+        history_key="web_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="hello",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="web_user",
+            session_id="session-1",
+            content="hello",
+            turn_id="turn-1",
+        ),
+    )
+    result = ExecutionResult(
+        mode=ExecutionMode.DIRECT_LLM,
+        response_text="final answer",
+        correlation_id="corr-1",
+        turn_id="turn-1",
+        llm_trace={
+            "provider": "openai",
+            "model": "gpt-test",
+            "input_tokens": 64,
+            "output_tokens": 18,
+            "total_tokens": 82,
+            "thinking_enabled": False,
+            "duration_ms": 920,
+        },
+    )
+
+    await service.handle(context, result)
+
+    turn = await runtime_trace_store.get_turn("turn-1")
+    llm_span = await runtime_trace_store.get_span("turn-1:llm_call:direct")
+    llm_call = await runtime_trace_store.get_llm_call("turn-1:llm_call:direct")
+    response_span = await runtime_trace_store.get_span("turn-1:response_emit")
+    root_span = await runtime_trace_store.get_span("turn-1:turn")
+
+    assert turn is not None
+    assert turn.status == "completed"
+    assert turn.response_preview == "final answer"
+    assert llm_span is not None
+    assert llm_span.node_type == "llm_call"
+    assert llm_call is not None
+    assert llm_call.provider == "openai"
+    assert llm_call.model == "gpt-test"
+    assert llm_call.input_tokens == 64
+    assert llm_call.output_tokens == 18
+    assert response_span is not None
+    assert response_span.node_type == "response_emit"
+    assert root_span is not None
+    assert root_span.status == "completed"
 
 
 @pytest.mark.asyncio
