@@ -59,3 +59,31 @@ def test_task_completed_event_defaults_to_l0_and_l1():
     assert normalized.memory_domain == MemoryDomain.RUNTIME_TELEMETRY
     assert normalized.cognition_eligible is False
     assert normalized.retention_class == RetentionClass.COMPRESSIBLE
+
+
+def test_trace_runtime_event_defaults_to_l0_only_and_reads_tags():
+    from magi.memory.event_contracts import normalize_runtime_event
+
+    event = Event(
+        type="TRACE_NODE_COMPLETED",
+        data={
+            "turn_id": "turn-1",
+            "span_id": "turn-1:intent",
+            "node_type": "intent_resolution",
+            "status": "completed",
+            "tags": {
+                "user_id": "u1",
+                "session_id": "s1",
+            },
+        },
+        source="runtime_action_emitter",
+        level=EventLevel.INFO,
+        correlation_id="trace-1",
+    )
+
+    normalized = normalize_runtime_event(event)
+
+    assert normalized.ingest_target == IngestTarget.L0_ONLY
+    assert normalized.memory_domain == MemoryDomain.RUNTIME_TELEMETRY
+    assert normalized.user_id == "u1"
+    assert normalized.session_id == "s1"

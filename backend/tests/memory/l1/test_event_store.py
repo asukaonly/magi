@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 
 import pytest
@@ -157,7 +158,26 @@ async def test_l1_timeline_roundtrip_uses_timeline_metadata(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_routes_runtime_events_to_observations(tmp_path):
+async def test_l1_store_initializes_without_runtime_observations_table(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(db_path=str(db_path))
+    await store.initialize()
+
+    conn = sqlite3.connect(str(db_path))
+    table_names = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    conn.close()
+
+    assert "fact_events" in table_names
+    assert "runtime_observations" not in table_names
+
+
+@pytest.mark.asyncio
+async def test_l1_event_store_persists_action_events_in_fact_events(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
@@ -183,11 +203,11 @@ async def test_l1_event_store_routes_runtime_events_to_observations(tmp_path):
     await store.store(memory_event)
 
     fetched_fact = await store.get_event("evt-runtime-1")
-    runtime_rows = await store.query_runtime_observations(session_id="session-1", user_id="user-1", limit=10)
 
-    assert fetched_fact is None
-    assert len(runtime_rows) == 1
-    assert runtime_rows[0]["event_id"] == "evt-runtime-1"
+    assert fetched_fact is not None
+    assert fetched_fact["event_id"] == "evt-runtime-1"
+    assert fetched_fact["event_type"] == EventTypes.ACTION_EXECUTED
+    assert fetched_fact["content"] == "bash succeeded"
 
 
 @pytest.mark.asyncio

@@ -48,6 +48,9 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
             "WORKER_AGENT_PROGRESS",
             "WORKER_AGENT_COMPLETED",
             "WORKER_AGENT_FAILED",
+        ):
+            self.assertIn(event_type, cfg.subscribed_events)
+        for event_type in (
             "CHAT_TOOL_LOOP_STEP",
             "TOOL_INTERACTION",
             "TOOL_INVOKED",
@@ -58,7 +61,7 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
             "TRACE_NODE_COMPLETED",
             "TRACE_NODE_FAILED",
         ):
-            self.assertIn(event_type, cfg.subscribed_events)
+            self.assertNotIn(event_type, cfg.subscribed_events)
         self.assertIn(EventTypes.AI_RESPONSE, cfg.subscribed_events)
 
     async def test_worker_progress_event_is_not_stored_in_l1(self):
@@ -99,7 +102,7 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(stored)
 
-    async def test_chat_tool_loop_step_event_is_stored_in_l1(self):
+    async def test_chat_tool_loop_step_event_is_not_stored_in_l1(self):
         integration = MemoryIntegrationModule(
             unified_memory=_FakeUnifiedMemory(),
             message_bus=_FakeBus(),
@@ -116,9 +119,9 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         stored = await integration._maybe_store_l1(event)
 
-        self.assertTrue(stored)
+        self.assertFalse(stored)
 
-    async def test_tool_invoked_event_is_stored_in_l1(self):
+    async def test_tool_invoked_event_is_not_stored_in_l1(self):
         integration = MemoryIntegrationModule(
             unified_memory=_FakeUnifiedMemory(),
             message_bus=_FakeBus(),
@@ -135,12 +138,11 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         stored = await integration._maybe_store_l1(event)
 
-        self.assertTrue(stored)
+        self.assertFalse(stored)
 
-    async def test_trace_node_event_uses_tags_for_identity_and_is_stored_in_l1(self):
-        memory = _FakeUnifiedMemory()
+    async def test_trace_node_event_is_not_stored_in_l1(self):
         integration = MemoryIntegrationModule(
-            unified_memory=memory,
+            unified_memory=_FakeUnifiedMemory(),
             message_bus=_FakeBus(),
             config=MemoryIntegrationConfig(),
         )
@@ -168,10 +170,7 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
 
         stored = await integration._maybe_store_l1(event)
 
-        self.assertTrue(stored)
-        normalized = memory.ingested[-1]
-        self.assertEqual(normalized.user_id, "u1")
-        self.assertEqual(normalized.session_id, "s1")
+        self.assertFalse(stored)
 
 
 if __name__ == "__main__":

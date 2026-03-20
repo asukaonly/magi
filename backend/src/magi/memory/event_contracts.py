@@ -6,7 +6,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from ..events.events import Event, EventTypes
 
@@ -355,7 +355,7 @@ def _classify_event(event: Event) -> Dict[str, Any]:
     if event_type in TRACE_RUNTIME_EVENT_TYPES:
         return {
             "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
-            "ingest_target": IngestTarget.L0_AND_L1,
+            "ingest_target": IngestTarget.L0_ONLY,
             "cognition_eligible": False,
             "tom_depth": TomDepth.NONE,
             "retention_class": RetentionClass.DISPOSABLE,

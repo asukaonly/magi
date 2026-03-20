@@ -21,25 +21,10 @@ WORKER_AGENT_EVENT_TYPES: Set[str] = {
     "WORKER_AGENT_FAILED",
 }
 
-TRACE_RUNTIME_EVENT_TYPES: Set[str] = {
-    "CHAT_TOOL_LOOP_STEP",
-    "TOOL_INTERACTION",
-    "TOOL_INVOKED",
-    "TURN_TRACE_STARTED",
-    "TURN_TRACE_COMPLETED",
-    "TURN_TRACE_FAILED",
-    "TRACE_NODE_STARTED",
-    "TRACE_NODE_COMPLETED",
-    "TRACE_NODE_FAILED",
-}
-
 MEMORY_DIAGNOSTIC_EVENT_TYPES: Set[str] = {
     EventTypes.USER_MESSAGE,
     EventTypes.AI_RESPONSE,
     EventTypes.ACTION_EXECUTED,
-    "TURN_TRACE_STARTED",
-    "TURN_TRACE_COMPLETED",
-    "TRACE_NODE_COMPLETED",
 }
 
 
@@ -66,7 +51,6 @@ class MemoryIntegrationConfig:
             EventTypes.LOOP_STARTED,
             EventTypes.LOOP_PHASE_STARTED,
             *WORKER_AGENT_EVENT_TYPES,
-            *TRACE_RUNTIME_EVENT_TYPES,
         }
     )
 

@@ -8,13 +8,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ....core.logger import get_logger
+from ....utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
-RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
-TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"
-TOOL_INVOKED_EVENT_TYPE = "TOOL_INVOKED"
 
 
 class ChatSessionService:
@@ -25,11 +23,14 @@ class ChatSessionService:
         *,
         session_state_file: Path,
         l1_db_path: Path,
+        runtime_trace_db_path: Optional[Path] = None,
         history_cache_max_sessions: int = 500,
         history_fetch_limit: int = 200,
     ) -> None:
+        runtime_paths = get_runtime_paths()
         self._session_state_file = session_state_file
         self._l1_db_path = l1_db_path
+        self._runtime_trace_db_path = runtime_trace_db_path or runtime_paths.runtime_trace_db_path
         self._history_cache_max_sessions = history_cache_max_sessions
         self._history_fetch_limit = history_fetch_limit
         self._conversation_history: dict[str, list[dict[str, Any]]] = {}
@@ -194,6 +195,7 @@ class ChatSessionService:
             logger.warning("Failed to save session state: %s", exc)
 
     def restore_conversation_from_events(self) -> None:
+        fact_rows: list[tuple[Any, ...]] = []
         try:
             if not self._l1_db_path.exists():
                 return
@@ -205,23 +207,17 @@ class ChatSessionService:
                 FROM {FACT_EVENTS_TABLE}
                 WHERE deleted_at IS NULL
                   AND event_type IN ('UserMessage', 'AIResponse')
-                UNION ALL
-                SELECT event_type, content, timestamp, user_id, session_id, turn_id
-                FROM {RUNTIME_OBSERVATIONS_TABLE}
-                WHERE deleted_at IS NULL
-                  AND event_type IN (?, ?)
                 ORDER BY timestamp ASC
                 LIMIT 5000
-                """,
-                (TOOL_INTERACTION_EVENT_TYPE, TOOL_INVOKED_EVENT_TYPE),
+                """
             )
-            rows = cur.fetchall()
+            fact_rows = cur.fetchall()
             conn.close()
         except Exception as exc:
             logger.warning("Failed to restore conversation from L1 store: %s", exc)
             return
 
-        for event_type, raw_content, _, user_id, raw_session_id, turn_id in rows:
+        for event_type, raw_content, _, user_id, raw_session_id, _ in fact_rows:
             if not user_id:
                 continue
             session_id = self.resolve_session_id(str(user_id), raw_session_id)
@@ -235,35 +231,63 @@ class ChatSessionService:
                 content = str(raw_content or "").strip()
                 if content:
                     history.append({"role": "assistant", "content": str(content)})
-            elif event_type in {TOOL_INTERACTION_EVENT_TYPE, TOOL_INVOKED_EVENT_TYPE}:
-                payload = self._parse_runtime_payload(raw_content)
-                tool_name = str(payload.get("tool_name") or payload.get("action_type") or "").strip()
-                if not tool_name:
-                    continue
-                error_text = str(payload.get("error") or "").strip()
-                status = "error" if error_text or str(payload.get("result") or "").strip() == "failed" else "success"
-                self.store_tool_interaction(
-                    key,
-                    {
-                        "timestamp": payload.get("timestamp"),
-                        "intent": payload.get("intent") or "unknown",
-                        "tool_name": tool_name,
-                        "status": status,
-                        "error_code": str(payload.get("error_code") or ""),
-                        "error_message": error_text,
-                        "result_summary": str(payload.get("result") or payload.get("data") or ""),
-                        "result_data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
-                        "turn_id": payload.get("turn_id") or turn_id,
-                    },
-                )
 
-    @staticmethod
-    def _parse_runtime_payload(raw_content: object) -> dict[str, object]:
-        text = str(raw_content or "").strip()
-        if not text:
-            return {}
+        self._restore_tool_interactions_from_trace()
+
+    def _restore_tool_interactions_from_trace(self) -> None:
         try:
-            payload = json.loads(text)
+            if not self._runtime_trace_db_path.exists():
+                return
+            conn = sqlite3.connect(str(self._runtime_trace_db_path))
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    trace_turns.user_id,
+                    trace_turns.session_id,
+                    trace_tools.turn_id,
+                    trace_tools.tool_name,
+                    trace_tools.error_code,
+                    trace_tools.error_message,
+                    trace_tools.result_preview,
+                    trace_tools.arguments_json,
+                    trace_tools.execution_time_ms,
+                    trace_tools.success
+                FROM trace_tools
+                JOIN trace_turns ON trace_turns.trace_id = trace_tools.trace_id
+                ORDER BY trace_turns.updated_at_ms ASC
+                LIMIT 5000
+                """
+            )
+            rows = cur.fetchall()
+            conn.close()
         except Exception:
-            return {"content": text}
-        return payload if isinstance(payload, dict) else {"content": text}
+            logger.warning("Failed to restore tool interactions from runtime trace store")
+            return
+
+        for user_id, raw_session_id, turn_id, tool_name, error_code, error_message, result_preview, arguments_json, execution_time_ms, success in rows:
+            if not user_id:
+                continue
+            session_id = self.resolve_session_id(str(user_id), raw_session_id)
+            key = self.history_key(str(user_id), session_id)
+            result_data = {}
+            try:
+                parsed = json.loads(str(arguments_json or ""))
+                if isinstance(parsed, dict):
+                    result_data = parsed
+            except Exception:
+                result_data = {}
+            self.store_tool_interaction(
+                key,
+                {
+                    "timestamp": execution_time_ms,
+                    "intent": "unknown",
+                    "tool_name": str(tool_name or "unknown"),
+                    "status": "success" if bool(success) else "error",
+                    "error_code": str(error_code or ""),
+                    "error_message": str(error_message or ""),
+                    "result_summary": str(result_preview or ""),
+                    "result_data": result_data,
+                    "turn_id": turn_id,
+                },
+            )

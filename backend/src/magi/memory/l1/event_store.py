@@ -18,31 +18,6 @@ from ..hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..sqlite_vec_index import SqliteVecIndex, VectorSearchHit
 
 FACT_EVENTS_TABLE = "fact_events"
-RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
-RUNTIME_OBSERVATION_EVENT_TYPES = {
-    EventTypes.ACTION_EXECUTED,
-    EventTypes.TASK_ASSIGNED,
-    EventTypes.TASK_STARTED,
-    EventTypes.TASK_COMPLETED,
-    EventTypes.TASK_FAILED,
-    EventTypes.ERROR_OCCURRED,
-    EventTypes.LOOP_STARTED,
-    EventTypes.LOOP_PHASE_STARTED,
-    "WORKER_AGENT_PROGRESS",
-    "WORKER_AGENT_COMPLETED",
-    "WORKER_AGENT_FAILED",
-    "CHAT_TOOL_LOOP_STEP",
-    "TOOL_INTERACTION",
-    "TOOL_INVOKED",
-    "TURN_TRACE_STARTED",
-    "TURN_TRACE_COMPLETED",
-    "TURN_TRACE_FAILED",
-    "TRACE_NODE_STARTED",
-    "TRACE_NODE_COMPLETED",
-    "TRACE_NODE_FAILED",
-    "LLMCallCompleted",
-    "Heartbeat",
-}
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +25,6 @@ L1_STORE_DIAGNOSTIC_EVENT_TYPES = {
     EventTypes.USER_MESSAGE,
     EventTypes.AI_RESPONSE,
     EventTypes.ACTION_EXECUTED,
-    "TURN_TRACE_STARTED",
-    "TURN_TRACE_COMPLETED",
-    "TRACE_NODE_COMPLETED",
 }
 
 
@@ -132,42 +104,6 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON fact_events(importance_score DESC);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON fact_events(retention_class);
 
-                CREATE TABLE IF NOT EXISTS runtime_observations (
-                    event_id TEXT PRIMARY KEY,
-                    correlation_id TEXT NOT NULL,
-                    timestamp REAL NOT NULL,
-                    created_at REAL NOT NULL,
-                    event_type TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    source_item_id TEXT,
-                    memory_domain INTEGER NOT NULL,
-                    ingest_target INTEGER NOT NULL,
-                    cognition_eligible INTEGER NOT NULL DEFAULT 0,
-                    tom_depth INTEGER NOT NULL DEFAULT 1,
-                    retention_class INTEGER NOT NULL DEFAULT 2,
-                    session_id TEXT,
-                    turn_id TEXT,
-                    user_id TEXT,
-                    task_id TEXT,
-                    content TEXT NOT NULL,
-                    author_type TEXT NOT NULL,
-                    content_type TEXT NOT NULL,
-                    importance_score REAL NOT NULL DEFAULT 0.5,
-                    level INTEGER NOT NULL DEFAULT 1,
-                    media_path TEXT,
-                    deleted_at REAL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_timestamp ON runtime_observations(timestamp);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_type ON runtime_observations(event_type);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_source ON runtime_observations(source);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_domain ON runtime_observations(memory_domain);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_session ON runtime_observations(session_id);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_turn ON runtime_observations(turn_id);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_user ON runtime_observations(user_id);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_importance ON runtime_observations(importance_score DESC);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_retention ON runtime_observations(retention_class);
-
                 CREATE TABLE IF NOT EXISTS l1_event_vectors (
                     vec_rowid INTEGER PRIMARY KEY,
                     event_id TEXT NOT NULL,
@@ -208,13 +144,11 @@ class L1EventStore:
     async def store(self, event: MemoryEvent) -> str:
         """Persist a normalized memory event."""
         await self.initialize()
-        table_name = self._resolve_target_table(event)
         if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
-                "L1EventStore persisting event | event_id=%s type=%s target_table=%s session_id=%s user_id=%s correlation_id=%s",
+                "L1EventStore persisting event | event_id=%s type=%s session_id=%s user_id=%s correlation_id=%s",
                 event.event_id,
                 event.event_type,
-                table_name,
                 event.session_id,
                 event.user_id,
                 event.correlation_id,
@@ -222,7 +156,7 @@ class L1EventStore:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 f"""
-                INSERT OR REPLACE INTO {table_name}(
+                INSERT OR REPLACE INTO {FACT_EVENTS_TABLE}(
                     event_id, correlation_id, timestamp, created_at,
                     event_type, source, source_item_id, memory_domain, ingest_target,
                     cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
@@ -269,10 +203,9 @@ class L1EventStore:
             await db.commit()
         if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
-                "L1EventStore persisted event | event_id=%s type=%s target_table=%s",
+                "L1EventStore persisted event | event_id=%s type=%s",
                 event.event_id,
                 event.event_type,
-                table_name,
             )
         await self._schedule_event_embedding(event)
         return event.event_id
@@ -466,16 +399,6 @@ class L1EventStore:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
-    async def count_runtime_observations(self) -> int:
-        """Count all non-deleted runtime observations."""
-        await self.initialize()
-        async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute(
-                f"SELECT COUNT(*) FROM {RUNTIME_OBSERVATIONS_TABLE} WHERE deleted_at IS NULL"
-            ) as cursor:
-                row = await cursor.fetchone()
-        return int(row[0]) if row else 0
-
     async def list_compressible_event_ids(
         self,
         *,
@@ -488,25 +411,14 @@ class L1EventStore:
             async with db.execute(
                 f"""
                 SELECT event_id
-                FROM (
-                    SELECT event_id, timestamp
-                    FROM {FACT_EVENTS_TABLE}
-                    WHERE deleted_at IS NULL
-                      AND retention_class = ?
-                      AND timestamp < ?
-                    UNION ALL
-                    SELECT event_id, timestamp
-                    FROM {RUNTIME_OBSERVATIONS_TABLE}
-                    WHERE deleted_at IS NULL
-                      AND retention_class = ?
-                      AND timestamp < ?
-                )
+                FROM {FACT_EVENTS_TABLE}
+                WHERE deleted_at IS NULL
+                  AND retention_class = ?
+                  AND timestamp < ?
                 ORDER BY timestamp ASC
                 LIMIT ?
                 """,
                 (
-                    int(RetentionClass.COMPRESSIBLE),
-                    float(older_than),
                     int(RetentionClass.COMPRESSIBLE),
                     float(older_than),
                     int(limit),
@@ -526,14 +438,6 @@ class L1EventStore:
             await self._vector_index.clear()
         return count
 
-    async def clear_runtime_observations(self) -> int:
-        """Delete all runtime observations and return the removed count."""
-        count = await self.count_runtime_observations()
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(f"DELETE FROM {RUNTIME_OBSERVATIONS_TABLE}")
-            await db.commit()
-        return count
-
     async def mark_deleted(self, event_id: str, *, deleted_at: Optional[float] = None) -> bool:
         """Soft-delete an event."""
         await self.initialize()
@@ -543,11 +447,6 @@ class L1EventStore:
                 f"UPDATE {FACT_EVENTS_TABLE} SET deleted_at = ? WHERE event_id = ?",
                 (deleted_timestamp, event_id),
             )
-            if cursor.rowcount == 0:
-                cursor = await db.execute(
-                    f"UPDATE {RUNTIME_OBSERVATIONS_TABLE} SET deleted_at = ? WHERE event_id = ?",
-                    (deleted_timestamp, event_id),
-                )
             if cursor.rowcount > 0:
                 await db.execute(
                     "DELETE FROM l1_events_fts WHERE event_id = ?",
@@ -557,46 +456,6 @@ class L1EventStore:
         if cursor.rowcount > 0 and self._vector_index is not None:
             await self._vector_index.delete_entity(entity_id=event_id)
         return cursor.rowcount > 0
-
-    async def query_runtime_observations(
-        self,
-        *,
-        session_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        event_type: Optional[str] = None,
-        start_time: Optional[float] = None,
-        end_time: Optional[float] = None,
-        limit: int = 100,
-    ) -> List[Dict[str, Any]]:
-        """Query runtime observations with SQL-level filters."""
-        await self.initialize()
-        query = f"SELECT * FROM {RUNTIME_OBSERVATIONS_TABLE} WHERE deleted_at IS NULL"
-        args: List[Any] = []
-
-        if session_id:
-            query += " AND session_id = ?"
-            args.append(session_id)
-        if user_id:
-            query += " AND user_id = ?"
-            args.append(user_id)
-        if event_type:
-            query += " AND event_type = ?"
-            args.append(event_type)
-        if start_time is not None:
-            query += " AND timestamp >= ?"
-            args.append(float(start_time))
-        if end_time is not None:
-            query += " AND timestamp <= ?"
-            args.append(float(end_time))
-
-        query += " ORDER BY timestamp DESC LIMIT ?"
-        args.append(int(limit))
-
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(query, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        return [self._row_to_dict(row) for row in rows]
 
     async def bm25_search(
         self,
@@ -671,14 +530,6 @@ class L1EventStore:
                     indexed += len(batch)
             await db.commit()
         return indexed
-
-    def _resolve_target_table(self, event: MemoryEvent) -> str:
-        event_type = str(event.event_type)
-        if event_type in RUNTIME_OBSERVATION_EVENT_TYPES:
-            return RUNTIME_OBSERVATIONS_TABLE
-        if event.memory_domain in {MemoryDomain.RUNTIME_TELEMETRY, MemoryDomain.SYSTEM_CONTROL, MemoryDomain.INTERACTION}:
-            return RUNTIME_OBSERVATIONS_TABLE
-        return FACT_EVENTS_TABLE
 
     async def _maybe_upsert_event_embedding(self, event: MemoryEvent) -> None:
         await self._maybe_upsert_event_embeddings([event])

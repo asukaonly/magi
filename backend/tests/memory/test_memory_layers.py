@@ -96,7 +96,6 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
         workbench = await self.store.l0.get_workbench("s1")
         l1_count = await self.store.l1.count_events()
-        runtime_count = await self.store.l1.count_runtime_observations()
         assertions = await _wait_for_async_condition(
             lambda: self.store.l2.list_tom_assertions(entity_id="user:u1")
         )
@@ -106,8 +105,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(workbench["session"]["user_id"], "u1")
-        self.assertEqual(l1_count, 1)
-        self.assertEqual(runtime_count, 2)
+        self.assertEqual(l1_count, 3)
         self.assertEqual(assertions[0]["trait_name"], "stress_level")
         self.assertIsNotNone(summary)
         self.assertEqual(summary["summary_type"], "temporal")
@@ -468,15 +466,14 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         removed = await self.store.cleanup_old_data(older_than_days=30)
 
         self.assertEqual(removed["deleted_events"], 1)
-        self.assertEqual(await self.store.l1.count_events(), 1)
-        self.assertEqual(await self.store.l1.count_runtime_observations(), 1)
+        self.assertEqual(await self.store.l1.count_events(), 2)
         self.assertIsNone((await self.store.l1.get_event(permanent_event_id))["deleted_at"])
-        remaining_runtime_ids = {
+        remaining_event_ids = {
             row["event_id"]
-            for row in await self.store.l1.query_runtime_observations(limit=10)
+            for row in await self.store.l1.query_events(limit=10)
         }
-        self.assertNotIn(linked_compressible_event_id, remaining_runtime_ids)
-        self.assertIn(uncovered_compressible_event_id, remaining_runtime_ids)
+        self.assertNotIn(linked_compressible_event_id, remaining_event_ids)
+        self.assertIn(uncovered_compressible_event_id, remaining_event_ids)
 
 
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
@@ -540,11 +537,9 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         stats = self.integration.get_statistics()
         workbench = await self.memory.l0.get_workbench("s1")
         l1_count = await self.memory.l1.count_events()
-        runtime_count = await self.memory.l1.count_runtime_observations()
 
         self.assertGreaterEqual(stats["events_processed"], 3)
-        self.assertEqual(l1_count, 1)
-        self.assertEqual(runtime_count, 1)
+        self.assertEqual(l1_count, 2)
         self.assertEqual(workbench["session"]["user_id"], "u1")
         self.assertGreaterEqual(stats["l2_assertions_written"], 1)
 
