@@ -167,7 +167,7 @@ def test_build_update_paths_applies_builtin_provider_defaults_before_save():
     assert updates["llm.providers"]["glm"]["provider_type"] == "glm"
     assert updates["llm.providers"]["glm"]["display_name"] == "Z.ai"
     assert updates["llm.providers"]["glm"]["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
-    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.7-flash"
+    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.6"
     assert updates["llm.selections"]["core"]["model"] == "glm-5"
     assert updates["llm.selections"]["embedding"]["model"] == "embedding-3"
     assert updates["llm.selections"]["embedding"]["embedding_dimension"] == 1024
@@ -217,7 +217,7 @@ def test_default_registry_includes_extended_builtin_providers():
     assert providers_by_id["deepseek"].default_base_url == "https://api.deepseek.com"
     assert providers_by_id["kimi"].default_base_url == "https://api.moonshot.cn/v1"
     assert providers_by_id["minimax"].default_base_url == "https://api.minimaxi.com/v1"
-    assert providers_by_id["glm"].default_classify_model == "glm-4.7-flash"
+    assert providers_by_id["glm"].default_classify_model == "glm-4.6"
     assert providers_by_id["openai"].embedding_models[0].dimensions[0] == 1536
 
 
