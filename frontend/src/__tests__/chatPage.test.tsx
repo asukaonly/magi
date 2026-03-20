@@ -114,4 +114,18 @@ describe('ChatPage', () => {
       session_id: 'session-1',
     });
   });
+
+  it('does not ask the backend for a current session after websocket subscribe', () => {
+    useConversationStore.getState().setCurrentSessionId(null);
+    sendMock.mockClear();
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        type: 'subscribed',
+      });
+    });
+
+    expect(sendMock).not.toHaveBeenCalledWith({ type: 'get_current_session' });
+  });
 });

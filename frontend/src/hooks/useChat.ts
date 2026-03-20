@@ -21,7 +21,6 @@ import {
 import {
   APP_EVENTS,
   DEFAULT_USER_ID,
-  CHAT_SESSION_KEY,
   WS_MESSAGE_TYPES,
   dispatchAppEvent,
 } from '@/constants';
@@ -232,17 +231,6 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         case WS_MESSAGE_TYPES.SUBSCRIBED:
           if (currentSessionId) {
             requestHistory(currentSessionId);
-          } else {
-            send({ type: 'get_current_session' });
-          }
-          return;
-
-        case WS_MESSAGE_TYPES.CURRENT_SESSION:
-          if (message.data?.session_id) {
-            const nextSession = String(message.data.session_id);
-            localStorage.setItem(CHAT_SESSION_KEY(userId), nextSession);
-            dispatchAppEvent.sessionSync();
-            requestHistory(nextSession);
           }
           return;
 
@@ -329,10 +317,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       lastHistoryRequestRef.current = null;
       resetTraceStore();
       resetConversation();
-
-      if (connected) {
-        send({ type: 'get_current_session' });
-      }
+      dispatchAppEvent.sessionSync();
     };
 
     window.addEventListener(APP_EVENTS.MEMORY_CLEARED, handleMemoryCleared);
@@ -354,20 +339,22 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         toast.error(t('chat.wsNotConnected'));
         return;
       }
+      if (!currentSessionId) {
+        toast.error(t('chat.sessionRequired'));
+        return;
+      }
 
       const messageContent = content.trim();
       const turnId = createClientTurnId();
       const timestamp = Date.now();
 
-      if (currentSessionId) {
-        appendPendingTurn({
-          sessionId: currentSessionId,
-          input: messageContent,
-          turnId,
-          timestamp,
-          pendingLabel: t('chat.trace.pending'),
-        });
-      }
+      appendPendingTurn({
+        sessionId: currentSessionId,
+        input: messageContent,
+        turnId,
+        timestamp,
+        pendingLabel: t('chat.trace.pending'),
+      });
 
       send({
         type: WS_MESSAGE_TYPES.SEND_MESSAGE,

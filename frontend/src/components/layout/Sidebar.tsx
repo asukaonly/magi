@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { messagesApi, type ChatSessionListItem } from '@/api';
+import { CHAT_SESSION_KEY } from '@/constants';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -107,16 +108,60 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const sessionMenuRef = useRef<HTMLDivElement>(null);
 
   const refreshSessions = useCallback(async () => {
+    const sessionStorageKey = CHAT_SESSION_KEY(USER_ID);
+    const readPersistedSessionId = () => {
+      try {
+        return window.localStorage.getItem(sessionStorageKey);
+      } catch {
+        return null;
+      }
+    };
+    const persistSessionId = (sessionId: string | null) => {
+      try {
+        if (sessionId) {
+          window.localStorage.setItem(sessionStorageKey, sessionId);
+        } else {
+          window.localStorage.removeItem(sessionStorageKey);
+        }
+      } catch {
+        // ignore persistence failures and keep the in-memory selection
+      }
+    };
+
     setLoading(true);
     try {
-      const response = await messagesApi.listSessions(USER_ID, 50);
-      hydrateSessions(response.sessions || [], response.current_session_id);
+      const loadSessions = async (allowCreate: boolean): Promise<void> => {
+        const response = await messagesApi.listSessions(USER_ID, 50);
+        const sessions = response.sessions || [];
+        if (sessions.length === 0 && allowCreate) {
+          const created = await messagesApi.createNewSession(USER_ID);
+          if (created.session_id) {
+            persistSessionId(created.session_id);
+            setCurrentSessionId(created.session_id);
+            await loadSessions(false);
+            return;
+          }
+        }
+        const sessionIds = sessions.map((session) => session.session_id);
+        const persistedSessionId = readPersistedSessionId();
+        const preferredSessionId = (
+          (currentSessionId && sessionIds.includes(currentSessionId) ? currentSessionId : null)
+          || (persistedSessionId && sessionIds.includes(persistedSessionId) ? persistedSessionId : null)
+          || sessionIds[0]
+          || null
+        );
+        hydrateSessions(sessions, preferredSessionId);
+        setCurrentSessionId(preferredSessionId);
+        persistSessionId(preferredSessionId);
+      };
+
+      await loadSessions(true);
     } catch {
       hydrateSessions([], currentSessionId);
     } finally {
       setLoading(false);
     }
-  }, [currentSessionId, hydrateSessions]);
+  }, [currentSessionId, hydrateSessions, setCurrentSessionId]);
 
   useEffect(() => {
     void refreshSessions();
@@ -184,7 +229,9 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     try {
       const result = await messagesApi.createNewSession(USER_ID);
       if (result.session_id) {
+        window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), result.session_id);
         setCurrentSessionId(result.session_id);
+        await refreshSessions();
         setActivePanel('conversation');
         setExpandedSection('conversation');
         navigate('/chat');
@@ -231,8 +278,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     }
     setActionPending(true);
     try {
-      const response = await messagesApi.deleteSession(USER_ID, deleteTargetSession.session_id);
-      setCurrentSessionId(response.current_session_id);
+      await messagesApi.deleteSession(USER_ID, deleteTargetSession.session_id);
       await refreshSessions();
       setDeleteTargetSession(null);
       setExpandedSection('conversation');
@@ -428,6 +474,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                             <button
                               type="button"
                               onClick={() => {
+                                window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), session.session_id);
                                 setCurrentSessionId(session.session_id);
                                 setActivePanel('conversation');
                                 navigate('/chat');

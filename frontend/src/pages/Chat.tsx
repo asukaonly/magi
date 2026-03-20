@@ -231,16 +231,6 @@ export const ChatPage: React.FC = () => {
         case 'subscribed':
           if (currentSessionId) {
             requestHistory(currentSessionId);
-          } else {
-            send({ type: 'get_current_session' });
-          }
-          return;
-        case 'current_session':
-          if (data.data?.session_id) {
-            const nextSession = String(data.data.session_id);
-            localStorage.setItem(`chat_session_${USER_ID}`, nextSession);
-            window.dispatchEvent(new Event(SESSION_EVENT));
-            requestHistory(nextSession);
           }
           return;
         case 'history':
@@ -311,9 +301,7 @@ export const ChatPage: React.FC = () => {
       lastHistoryRequestRef.current = null;
       resetTraceStore();
       resetConversation();
-      if (connected) {
-        send({ type: 'get_current_session' });
-      }
+      window.dispatchEvent(new Event(SESSION_EVENT));
     };
 
     window.addEventListener(MEMORY_CLEARED_EVENT, handleMemoryCleared);
@@ -329,19 +317,21 @@ export const ChatPage: React.FC = () => {
       toast.error(t('chat.wsNotConnected'));
       return;
     }
+    if (!currentSessionId) {
+      toast.error(t('chat.sessionRequired'));
+      return;
+    }
 
     const messageContent = inputValue.trim();
     const turnId = createClientTurnId();
     const now = Date.now();
-    if (currentSessionId) {
-      appendPendingTurn({
-        sessionId: currentSessionId,
-        input: messageContent,
-        turnId,
-        timestamp: now,
-        pendingLabel: t('chat.trace.pending'),
-      });
-    }
+    appendPendingTurn({
+      sessionId: currentSessionId,
+      input: messageContent,
+      turnId,
+      timestamp: now,
+      pendingLabel: t('chat.trace.pending'),
+    });
     setInputValue('');
     send({
       type: 'send_message',

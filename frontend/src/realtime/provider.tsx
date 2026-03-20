@@ -49,14 +49,6 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       const eventName = String(message.event || message.type || '').trim();
       const conversationStore = useConversationStore.getState();
 
-      if (message.type === 'current_session' && message.data && typeof message.data === 'object' && 'session_id' in message.data) {
-        const nextSessionId = String((message.data as { session_id?: string }).session_id || '').trim();
-        if (nextSessionId) {
-          conversationStore.setCurrentSessionId(nextSessionId);
-        }
-        return;
-      }
-
       if (message.type === 'history' && message.data && typeof message.data === 'object' && 'session_id' in message.data) {
         const sessionId = String((message.data as { session_id?: string }).session_id || '').trim();
         const rawMessages = Array.isArray((message.data as { messages?: unknown[] }).messages)

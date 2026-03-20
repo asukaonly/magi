@@ -24,13 +24,6 @@ export interface WSSubscribedMessage {
   sid?: string;
 }
 
-export interface WSCurrentSessionMessage {
-  type: 'current_session';
-  data: {
-    session_id: string;
-  };
-}
-
 export interface WSHistoryMessage {
   type: 'history';
   data: {
@@ -128,10 +121,6 @@ export interface WSGetHistoryMessage {
   session_id: string;
 }
 
-export interface WSGetCurrentSessionMessage {
-  type: 'get_current_session';
-}
-
 export interface WSGetPersonalityMessage {
   type: 'get_personality';
 }
@@ -139,7 +128,7 @@ export interface WSGetPersonalityMessage {
 export interface WSSendUserMessage {
   type: 'send_message';
   user_id: string;
-  session_id: string | null;
+  session_id: string;
   message: string;
   client_turn_id: string;
 }
@@ -151,13 +140,11 @@ export interface WSSendUserMessage {
 export type WSClientMessage =
   | WSSubscribeMessage
   | WSGetHistoryMessage
-  | WSGetCurrentSessionMessage
   | WSGetPersonalityMessage
   | WSSendUserMessage;
 
 export type WSServerMessage =
   | WSSubscribedMessage
-  | WSCurrentSessionMessage
   | WSHistoryMessage
   | WSPersonalityInfoMessage
   | WSMessageSentMessage

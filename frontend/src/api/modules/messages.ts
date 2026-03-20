@@ -6,7 +6,7 @@ import { api } from '../client';
 export interface UserMessageRequest {
   message: string;
   user_id?: string;
-  session_id?: string;
+  session_id: string;
   metadata?: Record<string, any>;
 }
 
@@ -43,11 +43,6 @@ export interface ConversationHistory {
   count: number;
 }
 
-export interface SessionInfo {
-  user_id: string;
-  session_id: string | null;
-}
-
 export interface ChatSessionListItem {
   session_id: string;
   title: string;
@@ -60,7 +55,6 @@ export interface ChatSessionListItem {
 
 export interface SessionListResponse {
   user_id: string;
-  current_session_id: string | null;
   sessions: ChatSessionListItem[];
   count: number;
 }
@@ -130,7 +124,7 @@ export const messagesApi = {
   },
 
   /** Get conversation history */
-  getHistory: async (userId: string = 'web_user', sessionId?: string): Promise<ConversationHistory> => {
+  getHistory: async (userId: string = 'web_user', sessionId: string): Promise<ConversationHistory> => {
     const response = await api.get<ConversationHistory>('/messages/history', {
       params: { user_id: userId, session_id: sessionId },
     });
@@ -140,19 +134,12 @@ export const messagesApi = {
   /** Clear conversation history */
   clearHistory: async (
     userId: string = 'web_user',
-    sessionId?: string
+    sessionId: string
   ): Promise<{ success: boolean; message: string; user_id: string; session_id?: string }> => {
     const response = await api.post<{ success: boolean; message: string; user_id: string }>('/messages/history/clear', null, {
       params: { user_id: userId, session_id: sessionId },
     });
     return (response.data || response) as { success: boolean; message: string; user_id: string; session_id?: string };
-  },
-
-  getCurrentSession: async (userId: string = 'web_user'): Promise<SessionInfo> => {
-    const response = await api.get<SessionInfo>('/messages/session/current', {
-      params: { user_id: userId },
-    });
-    return (response.data || response) as SessionInfo;
   },
 
   createNewSession: async (userId: string = 'web_user'): Promise<{ success: boolean; user_id: string; session_id: string | null }> => {
@@ -180,14 +167,14 @@ export const messagesApi = {
   deleteSession: async (
     userId: string = 'web_user',
     sessionId: string
-  ): Promise<{ success: boolean; user_id: string; deleted_session_id: string; current_session_id: string | null }> => {
-    const response = await api.delete<{ success: boolean; user_id: string; deleted_session_id: string; current_session_id: string | null }>(
+  ): Promise<{ success: boolean; user_id: string; deleted_session_id: string }> => {
+    const response = await api.delete<{ success: boolean; user_id: string; deleted_session_id: string }>(
       `/messages/session/${encodeURIComponent(sessionId)}`,
       {
         params: { user_id: userId },
       }
     );
-    return (response.data || response) as { success: boolean; user_id: string; deleted_session_id: string; current_session_id: string | null };
+    return (response.data || response) as { success: boolean; user_id: string; deleted_session_id: string };
   },
 
   listSessions: async (

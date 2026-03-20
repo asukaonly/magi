@@ -25,7 +25,6 @@ export const WS_CONFIG = {
 
 export const WS_MESSAGE_TYPES = {
   SUBSCRIBED: 'subscribed',
-  CURRENT_SESSION: 'current_session',
   HISTORY: 'history',
   PERSONALITY_INFO: 'personality_info',
   MESSAGE_SENT: 'message_sent',
@@ -45,7 +44,6 @@ export const WS_MESSAGE_TYPES = {
 export const WS_CLIENT_MESSAGE_TYPES = {
   SUBSCRIBE: 'subscribe',
   GET_HISTORY: 'get_history',
-  GET_CURRENT_SESSION: 'get_current_session',
   GET_PERSONALITY: 'get_personality',
   SEND_MESSAGE: 'send_message',
 } as const;

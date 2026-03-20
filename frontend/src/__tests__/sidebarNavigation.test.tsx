@@ -10,15 +10,22 @@ vi.mock('@/api', () => ({
   messagesApi: {
     listSessions: vi.fn().mockResolvedValue({
       sessions: [],
-      current_session_id: null,
+      user_id: 'web_user',
+      count: 0,
     }),
-    createNewSession: vi.fn(),
+    createNewSession: vi.fn().mockResolvedValue({
+      success: true,
+      user_id: 'web_user',
+      session_id: null,
+    }),
     renameSession: vi.fn(),
     deleteSession: vi.fn(),
   },
 }));
 
 describe('sidebar navigation', () => {
+  const storage = new Map<string, string>();
+
   const LocationProbe = () => {
     const location = useLocation();
     return <div data-testid="location">{location.pathname}</div>;
@@ -26,6 +33,19 @@ describe('sidebar navigation', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    storage.clear();
+    Object.defineProperty(window, 'localStorage', {
+      value: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          storage.set(key, value);
+        },
+        removeItem: (key: string) => {
+          storage.delete(key);
+        },
+      },
+      configurable: true,
+    });
     useChatShellStore.setState({
       currentSessionId: null,
       sidebarCollapsed: false,
@@ -67,7 +87,6 @@ describe('sidebar navigation', () => {
           message_count: 2,
         },
       ],
-      current_session_id: 'session-a',
       user_id: 'web_user',
       count: 2,
     });
@@ -110,6 +129,41 @@ describe('sidebar navigation', () => {
     expect(screen.queryByRole('button', { name: '杭州天气' })).not.toBeInTheDocument();
   });
 
+  it('keeps the currently selected session when it still exists in the refreshed list', async () => {
+    vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
+      sessions: [
+        {
+          session_id: 'session-a',
+          title: '杭州天气',
+          last_message_preview: '今天有点冷',
+          last_timestamp: 10,
+          message_count: 1,
+        },
+        {
+          session_id: 'session-b',
+          title: '西湖路线',
+          last_message_preview: '沿湖散步',
+          last_timestamp: 11,
+          message_count: 2,
+        },
+      ],
+      user_id: 'web_user',
+      count: 2,
+    });
+    useConversationStore.getState().setCurrentSessionId('session-b');
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('button', { name: '西湖路线' });
+    await waitFor(() => {
+      expect(useConversationStore.getState().currentSessionId).toBe('session-b');
+    });
+  });
+
   it('opens the session actions menu from the overflow button and right click', async () => {
     const user = userEvent.setup();
     vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
@@ -122,7 +176,6 @@ describe('sidebar navigation', () => {
           message_count: 1,
         },
       ],
-      current_session_id: 'session-a',
       user_id: 'web_user',
       count: 1,
     });
@@ -179,7 +232,6 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        current_session_id: 'session-a',
         user_id: 'web_user',
         count: 1,
       })
@@ -195,7 +247,6 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        current_session_id: 'session-a',
         user_id: 'web_user',
         count: 1,
       });
@@ -266,7 +317,6 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        current_session_id: 'session-a',
         user_id: 'web_user',
         count: 2,
       })
@@ -281,7 +331,6 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        current_session_id: 'session-b',
         user_id: 'web_user',
         count: 1,
       });
@@ -289,7 +338,6 @@ describe('sidebar navigation', () => {
       success: true,
       user_id: 'web_user',
       deleted_session_id: 'session-a',
-      current_session_id: 'session-b',
     });
 
     useConversationStore.setState({
@@ -413,7 +461,6 @@ describe('sidebar navigation', () => {
           message_count: 2,
         },
       ],
-      current_session_id: 'session-a',
       user_id: 'web_user',
       count: 2,
     });

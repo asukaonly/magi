@@ -114,7 +114,11 @@ export const useConversationStore = create<ConversationState>((set) => ({
       nextOrder.includes(state.currentSessionId as string);
     const nextCurrentSessionId = hasLocalSelection
       ? state.currentSessionId
-      : (currentSessionId ?? state.currentSessionId);
+      : (
+        (currentSessionId && nextOrder.includes(currentSessionId) ? currentSessionId : null)
+        ?? nextOrder[0]
+        ?? null
+      );
 
     return {
       sessionsById: nextSessionsById,
