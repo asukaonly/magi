@@ -189,7 +189,7 @@ async def _start_explore_task_agent(
     payload = ExploreTaskRequestPayload(
         user_id=request.context.user_id,
         session_id=request.context.session_id,
-        message=request.context.latest_user_message,
+        content=request.context.latest_user_message,
         history_snapshot=history,
         upstream_task_agent_type=TaskAgentType.CHAT.value,
         upstream_task_agent_id=request.context.user_id,

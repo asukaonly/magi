@@ -70,14 +70,14 @@ class UserMessagePayload:
 
     user_id: str
     session_id: str
-    message: str
+    content: str
     turn_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
             "user_id": self.user_id,
             "session_id": self.session_id,
-            "message": self.message,
+            "content": self.content,
         }
         if self.turn_id is not None:
             payload["turn_id"] = self.turn_id
@@ -88,7 +88,7 @@ class UserMessagePayload:
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
-            message=str(payload.get("message") or "").strip(),
+            content=str(payload.get("content") or "").strip(),
             turn_id=_optional_string(payload.get("turn_id")),
         )
 
@@ -167,7 +167,7 @@ class ExploreTaskRequestPayload:
 
     user_id: str
     session_id: str
-    message: str
+    content: str
     history_snapshot: list[dict[str, Any]] = field(default_factory=list)
     upstream_task_agent_type: str = "chat"
     upstream_task_agent_id: str = ""
@@ -177,7 +177,7 @@ class ExploreTaskRequestPayload:
         payload = {
             "user_id": self.user_id,
             "session_id": self.session_id,
-            "message": self.message,
+            "content": self.content,
             "history_snapshot": list(self.history_snapshot),
             "upstream_task_agent_type": self.upstream_task_agent_type,
             "upstream_task_agent_id": self.upstream_task_agent_id,
@@ -192,7 +192,7 @@ class ExploreTaskRequestPayload:
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
-            message=str(payload.get("message") or "").strip(),
+            content=str(payload.get("content") or "").strip(),
             history_snapshot=history_snapshot if isinstance(history_snapshot, list) else [],
             upstream_task_agent_type=str(payload.get("upstream_task_agent_type") or "chat"),
             upstream_task_agent_id=str(payload.get("upstream_task_agent_id") or fallback_user_id),
@@ -232,7 +232,7 @@ class ExploreTaskCompletedPayload:
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
-            root_user_message=str(payload.get("root_user_message") or payload.get("message") or "").strip(),
+            root_user_message=str(payload.get("root_user_message") or "").strip(),
             markdown_dossier=str(payload.get("markdown_dossier") or "").strip(),
             orchestration_id=_optional_string(payload.get("orchestration_id")),
             message_started_at=_optional_float(payload.get("message_started_at")),

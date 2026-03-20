@@ -203,7 +203,7 @@ async def test_record_intent_resolution_emits_turn_and_intent_trace_events() -> 
         agent_id="chat:web_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
-            "message": "hello",
+            "content": "hello",
             "user_id": "web_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
@@ -232,7 +232,7 @@ async def test_record_intent_resolution_emits_turn_and_intent_trace_events() -> 
         latest_payload=UserMessagePayload(
             user_id="web_user",
             session_id="session-1",
-            message="hello",
+            content="hello",
             turn_id="turn-1",
         ),
     )
@@ -315,7 +315,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
         agent_id="chat:web_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
-            "message": "I still like Asuka best.",
+            "content": "I still like Asuka best.",
             "user_id": "web_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
@@ -344,7 +344,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
         latest_payload=UserMessagePayload(
             user_id="web_user",
             session_id="session-1",
-            message="I still like Asuka best.",
+            content="I still like Asuka best.",
             turn_id="turn-1",
         ),
     )
@@ -380,7 +380,7 @@ async def test_handle_emits_direct_llm_trace_node_when_result_has_llm_trace() ->
         agent_id="chat:web_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
-            "message": "hello",
+            "content": "hello",
             "user_id": "web_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
@@ -409,7 +409,7 @@ async def test_handle_emits_direct_llm_trace_node_when_result_has_llm_trace() ->
         latest_payload=UserMessagePayload(
             user_id="web_user",
             session_id="session-1",
-            message="hello",
+            content="hello",
             turn_id="turn-1",
         ),
     )
@@ -496,7 +496,7 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
         latest_payload=UserMessagePayload(
             user_id="web_user",
             session_id="session-1",
-            message="Analyze the repository architecture",
+            content="Analyze the repository architecture",
             turn_id="turn-1",
         ),
     )
@@ -539,7 +539,7 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
         agent_id="chat:web_user",
         event_type=EventTypes.USER_MESSAGE,
         payload={
-            "message": "Hello there",
+            "content": "Hello there",
             "user_id": "web_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
@@ -568,7 +568,7 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
         latest_payload=UserMessagePayload(
             user_id="web_user",
             session_id="session-1",
-            message="Hello there",
+            content="Hello there",
             turn_id="turn-1",
         ),
     )

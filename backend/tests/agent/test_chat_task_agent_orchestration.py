@@ -64,7 +64,7 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
     user_fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"message": "Analyze repo architecture", "user_id": "u-chat", "session_id": "s-chat"},
+        payload={"content": "Analyze repo architecture", "user_id": "u-chat", "session_id": "s-chat"},
         agent_type="chat",
         agent_instance_id="u-chat",
         correlation_id="corr_1",
@@ -262,7 +262,7 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
     user_fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"message": "看下~/code/magi下的代码，分析下代码架构", "user_id": "u-chat", "session_id": "s-chat"},
+        payload={"content": "看下~/code/magi下的代码，分析下代码架构", "user_id": "u-chat", "session_id": "s-chat"},
         agent_type="chat",
         agent_instance_id="u-chat",
         correlation_id="corr_x",

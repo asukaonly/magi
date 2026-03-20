@@ -81,7 +81,7 @@ class ExploreFactClassifier:
 
     def _payload_user_message(self, payload: TaskFactPayload) -> str:
         if isinstance(payload, ExploreTaskRequestPayload):
-            return payload.message
+            return payload.content
         if isinstance(payload, GenericFactPayload):
-            return str(payload.raw.get("message") or payload.raw.get("root_user_message") or "").strip()
-        return str(getattr(payload, "message", "") or "").strip()
+            return str(payload.raw.get("content") or payload.raw.get("root_user_message") or "").strip()
+        return str(getattr(payload, "content", "") or "").strip()

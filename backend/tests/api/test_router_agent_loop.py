@@ -56,7 +56,7 @@ async def test_router_agent_loop_dispatches_batch_to_targets():
     await message_bus.publish(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"message": "hello", "user_id": "u1", "session_id": "s1"},
+            data={"content": "hello", "user_id": "u1", "session_id": "s1"},
             source="test",
             level=EventLevel.INFO,
         )

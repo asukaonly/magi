@@ -43,7 +43,7 @@ async def test_task_agent_manager_hybrid_creation_and_dispatch():
         agent_type=TaskAgentType.CHAT.value,
         agent_instance_id="u-chat",
         event_type="USER_MESSAGE",
-        payload={"message": "hello"},
+        payload={"content": "hello"},
     )
     await manager.add_fact_to_agent(TaskAgentType.CHAT, "u-chat", fact)
     await asyncio.sleep(0.2)

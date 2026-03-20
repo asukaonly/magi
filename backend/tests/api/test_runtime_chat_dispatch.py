@@ -101,7 +101,7 @@ async def test_runtime_chat_dispatch_from_message_bus():
     await message_bus.publish(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"message": "你好", "user_id": "u-chat", "session_id": "s-chat", "turn_id": "turn_1"},
+            data={"content": "你好", "user_id": "u-chat", "session_id": "s-chat", "turn_id": "turn_1"},
             source="test",
             level=EventLevel.INFO,
         )
@@ -131,7 +131,7 @@ async def test_sensor_hub_preserves_runtime_namespace_from_user_messages():
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={
-                    "message": "你好",
+                    "content": "你好",
                     "user_id": "asuka_main",
                     "runtime_namespace": "telegram",
                     "session_id": "s-chat",
@@ -148,4 +148,5 @@ async def test_sensor_hub_preserves_runtime_namespace_from_user_messages():
         await message_bus.stop()
 
     assert len(batch) == 1
+    assert batch[0].payload["content"] == "你好"
     assert batch[0].payload["runtime_namespace"] == "telegram"

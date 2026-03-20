@@ -60,7 +60,7 @@ async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> N
         latest_payload=UserMessagePayload(
             user_id="web_user",
             session_id="session-1",
-            message="hello",
+            content="hello",
             turn_id="turn-1",
         ),
     )

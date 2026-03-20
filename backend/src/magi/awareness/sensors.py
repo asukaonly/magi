@@ -73,7 +73,7 @@ class UserMessageSensor:
             import time
             return Perception(
                 type=self.perception_type.value,
-                data={"message": message},
+                data={"content": message},
                 source="user_message_sensor",
                 timestamp=time.time(),
             )
@@ -149,8 +149,8 @@ class UserMessageSensor:
         if not self._enabled:
             return
 
-        # Convert event data to perception message format
-        message_data = dict(event.data) if isinstance(event.data, dict) else {"message": event.data}
+        # Convert event data to the canonical user-message format.
+        message_data = dict(event.data) if isinstance(event.data, dict) else {"content": event.data}
         # Preserve message chain correlation id for unified event tracking
         if event.correlation_id:
             message_data["correlation_id"] = event.correlation_id

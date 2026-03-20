@@ -87,7 +87,7 @@ async def test_coordinator_routes_decompose_explore_to_orchestration_launch() ->
     fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"user_id": "u-chat", "session_id": "s-chat", "message": "分析代码架构"},
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "分析代码架构"},
     )
     context = ChatRuntimeContext(
         latest_fact=fact,
@@ -158,7 +158,7 @@ async def test_coordinator_carries_intent_llm_trace_metrics() -> None:
     fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"user_id": "u-chat", "session_id": "s-chat", "message": "你好"},
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "你好"},
     )
     context = ChatRuntimeContext(
         latest_fact=fact,
@@ -211,7 +211,7 @@ async def test_coordinator_routes_decompose_without_agent_tool_to_orchestration_
     fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"user_id": "u-chat", "session_id": "s-chat", "message": "具体是什么代码导致的"},
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "具体是什么代码导致的"},
     )
     context = ChatRuntimeContext(
         latest_fact=fact,
@@ -260,7 +260,7 @@ async def test_coordinator_routes_complex_news_to_generic_orchestration_without_
     fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"user_id": "u-chat", "session_id": "s-chat", "message": "搜一下最近7天杭州有什么重要的新闻，给我来10条"},
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "搜一下最近7天杭州有什么重要的新闻，给我来10条"},
     )
     context = ChatRuntimeContext(
         latest_fact=fact,
@@ -313,7 +313,7 @@ async def test_coordinator_passes_recent_tool_errors_to_context_decider() -> Non
     fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
-        payload={"user_id": "u-chat", "session_id": "s-chat", "message": "要配什么key"},
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "要配什么key"},
     )
     context = ChatRuntimeContext(
         latest_fact=fact,

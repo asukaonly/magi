@@ -57,8 +57,8 @@ class SensorHub:
 
     async def _on_user_message(self, event: Event) -> None:
         data = event.data if isinstance(event.data, dict) else {}
-        message = str(data.get("message", "")).strip()
-        if not message:
+        content = str(data.get("content") or "").strip()
+        if not content:
             return
 
         session_id = str(data.get("session_id") or "")
@@ -69,7 +69,7 @@ class SensorHub:
             sensor_name="user_input_sensor",
             event_type=EventTypes.USER_MESSAGE,
             payload={
-                "message": message,
+                "content": content,
                 "user_id": str(data.get("user_id", "web_user")),
                 "runtime_namespace": str(
                     data.get("runtime_namespace")
