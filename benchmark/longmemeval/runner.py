@@ -162,7 +162,7 @@ async def create_default_runtime(*, state_dir: str | Path) -> LongMemEvalRuntime
     service = EvalMemoryService(
         namespace_manager=EvalNamespaceManager(),
         writer=EvalMemoryWriter(memory),
-        reader=EvalMemoryReader(HybridRetrievalService(memory)),
+        reader=EvalMemoryReader(HybridRetrievalService(memory), l1_store=memory.l1),
     )
     return LongMemEvalRuntime(service=service, memory=memory)
 

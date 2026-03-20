@@ -81,3 +81,48 @@ async def test_reader_uses_namespace_as_memory_user_scope() -> None:
         "session_id": None,
         "query_mode": "detail",
     }
+
+
+@pytest.mark.asyncio
+async def test_reader_l1_only_mode_bypasses_hybrid_retrieval() -> None:
+    retrieval_service = MagicMock()
+    retrieval_service.query = AsyncMock(side_effect=AssertionError("hybrid retrieval should not be used"))
+
+    l1_store = MagicMock()
+    l1_store.query_events = AsyncMock(
+        return_value=[
+            {
+                "event_id": "evt-2",
+                "session_id": "session-1",
+                "turn_id": "turn-2",
+                "content": "The first issue after service was a brake squeal.",
+                "timestamp": 20.0,
+            },
+            {
+                "event_id": "evt-1",
+                "session_id": "session-1",
+                "turn_id": "turn-1",
+                "content": "I booked the first service yesterday.",
+                "timestamp": 10.0,
+            },
+        ]
+    )
+
+    reader = EvalMemoryReader(retrieval_service, l1_store=l1_store)
+
+    result = await reader.query_memory(
+        EvalMemoryQuery(
+            namespace="benchmark/longmemeval/run-1/q-1",
+            query="What was the first issue after service?",
+            mode="l1_only",
+            top_k=1,
+        )
+    )
+
+    l1_store.query_events.assert_awaited_once_with(
+        user_id="benchmark/longmemeval/run-1/q-1",
+        limit=50,
+    )
+    assert [hit.event_id for hit in result.hits] == ["evt-2"]
+    assert result.trace["intent_source"] == "eval_l1_only"
+    assert result.trace["candidate_count"] == 2

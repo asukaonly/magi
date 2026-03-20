@@ -456,6 +456,37 @@ def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
     assert "duration_ms" in log_calls[1][1]
 
 
+def test_memory_eval_query_api_supports_l1_only_fast_path(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _ExplodingHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            raise AssertionError("hybrid retrieval should not be used")
+
+    fake_memory = _FakeUnifiedMemory()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _ExplodingHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "hello",
+            "top_k": 5,
+            "mode": "l1_only",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["hits"][0]["event_id"] == "evt-1"
+    assert body["trace"]["intent_source"] == "eval_l1_only"
+
+
 def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

@@ -78,7 +78,7 @@ class EvalQueryRequest(BaseModel):
     query: str = Field(..., description="Benchmark memory query")
     query_timestamp: Optional[float] = Field(default=None, description="Optional query timestamp")
     top_k: int = Field(default=10, ge=1, le=200, description="Top-k retrieval limit")
-    mode: str = Field(default="auto", description="Retrieval mode hint")
+    mode: str = Field(default="auto", description="Retrieval mode hint, including l1_only for debug-only L1 reads")
     answer_with_llm: bool = Field(default=False, description="Whether to synthesize a final answer with the runtime LLM")
     show_prompt: bool = Field(default=False, description="Whether to include the synthesized LLM prompt in debug output")
 
@@ -525,7 +525,11 @@ async def query_eval_memory(body: EvalQueryRequest):
             detail="Hybrid retrieval service not initialized",
         )
 
-    reader = EvalMemoryReader(retrieval_service)
+    unified_memory = _resolve_unified_memory()
+    reader = EvalMemoryReader(
+        retrieval_service,
+        l1_store=getattr(unified_memory, "l1", None) if unified_memory is not None else None,
+    )
     logger.info(
         "Eval memory query started",
         namespace=body.namespace,

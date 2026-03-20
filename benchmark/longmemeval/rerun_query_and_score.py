@@ -96,7 +96,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         default="auto",
-        help="Memory retrieval mode hint (auto|detail|summary|experience|graph|strategy).",
+        help="Memory retrieval mode hint (auto|detail|summary|experience|graph|strategy|l1_only).",
     )
     return parser.parse_args(argv)
 
