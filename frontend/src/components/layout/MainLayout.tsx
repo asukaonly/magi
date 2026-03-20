@@ -10,17 +10,11 @@ const SHELL_DRAG_STRIP_LEFT = '84px';
 
 const MainLayout: React.FC = () => {
   const location = useLocation();
-  const { sidebarCollapsed, setSidebarCollapsed, setActivePanel } = useChatShellStore();
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
 
   useEffect(() => {
     setActivePanel(panelByPathname(location.pathname));
   }, [location.pathname, setActivePanel]);
-
-  useEffect(() => {
-    if (sidebarCollapsed) {
-      setSidebarCollapsed(false);
-    }
-  }, [setSidebarCollapsed, sidebarCollapsed]);
 
   return (
     <AppShellProviders>
@@ -35,7 +29,7 @@ const MainLayout: React.FC = () => {
             } as React.CSSProperties}
             data-tauri-drag-region
           />
-          <Sidebar collapsed={false} />
+          <Sidebar />
           <div className="col-start-2 min-h-0 min-w-0">
             <main className="h-full overflow-hidden">
               <div className="page-enter h-full overflow-hidden">

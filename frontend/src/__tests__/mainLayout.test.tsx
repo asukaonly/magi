@@ -28,7 +28,6 @@ describe('main layout', () => {
   beforeEach(() => {
     useChatShellStore.setState({
       currentSessionId: null,
-      sidebarCollapsed: false,
       activePanel: 'none',
     });
     useChatTraceStore.getState().reset();

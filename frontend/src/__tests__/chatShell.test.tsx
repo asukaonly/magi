@@ -24,7 +24,6 @@ describe('chat shell state', () => {
     memoryStorage.clear();
     useChatShellStore.setState({
       currentSessionId: null,
-      sidebarCollapsed: false,
       activePanel: 'none',
     });
   });
@@ -102,16 +101,13 @@ describe('chat shell state', () => {
     ).toBe(true);
   });
 
-  it('persists sidebar collapsed state', () => {
-    const store = useChatShellStore.getState();
-    store.setSidebarCollapsed(true);
+  it('does not expose deprecated sidebar collapse state anymore', () => {
+    const store = useChatShellStore.getState() as unknown as Record<string, unknown>;
 
-    expect(useChatShellStore.getState().sidebarCollapsed).toBe(true);
-    expect(window.localStorage.getItem('desktop-shell-sidebar-collapsed')).toBe('true');
-
-    store.toggleSidebarCollapsed();
-    expect(useChatShellStore.getState().sidebarCollapsed).toBe(false);
-    expect(window.localStorage.getItem('desktop-shell-sidebar-collapsed')).toBe('false');
+    expect(store).not.toHaveProperty('sidebarCollapsed');
+    expect(store).not.toHaveProperty('setSidebarCollapsed');
+    expect(store).not.toHaveProperty('toggleSidebarCollapsed');
+    expect(window.localStorage.getItem('desktop-shell-sidebar-collapsed')).toBeNull();
   });
 
   it('updates active panel and current session', () => {

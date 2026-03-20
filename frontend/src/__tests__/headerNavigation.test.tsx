@@ -15,7 +15,6 @@ describe('header navigation', () => {
   beforeEach(() => {
     useChatShellStore.setState({
       currentSessionId: null,
-      sidebarCollapsed: false,
       activePanel: 'none',
     });
   });

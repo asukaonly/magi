@@ -48,7 +48,6 @@ describe('sidebar navigation', () => {
     });
     useChatShellStore.setState({
       currentSessionId: null,
-      sidebarCollapsed: false,
       activePanel: 'none',
     });
     useConversationStore.getState().reset();
