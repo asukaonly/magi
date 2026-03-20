@@ -29,7 +29,7 @@ from ..common import ExecutionResult, FunctionCallingExecutionResult, IncomingFa
 from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .fact_classifier import WORKER_AGENT_EVENT_TYPES
-from .session_service import ChatSessionService
+from .history_service import ChatHistoryService
 
 if TYPE_CHECKING:
     from ....api.services.chat_trace_read_service import ChatTraceReadService
@@ -47,7 +47,7 @@ class ChatPostProcessService:
         self,
         *,
         agent_id: str,
-        session_service: ChatSessionService,
+        history_service: ChatHistoryService,
         get_action_emitter: Callable[[], Any],
         get_task_agent_manager: Callable[[], Any | None],
         get_sensor_hub: Callable[[], Any | None],
@@ -59,7 +59,7 @@ class ChatPostProcessService:
         runtime_trace_store: RuntimeTraceStore | None = None,
     ) -> None:
         self._agent_id = agent_id
-        self._session_service = session_service
+        self._history_service = history_service
         self._get_action_emitter = get_action_emitter
         self._get_task_agent_manager = get_task_agent_manager
         self._get_sensor_hub = get_sensor_hub
@@ -102,9 +102,9 @@ class ChatPostProcessService:
         history_stored = False
         user_message = result.root_user_message or context.latest_user_message
         if latest_fact.event_type == EventTypes.USER_MESSAGE and user_message:
-            self._session_service.append_user_message(context.history_key, user_message)
+            self._history_service.append_user_message(context.history_key, user_message)
             history_stored = True
-        self._session_service.append_assistant_message(context.history_key, response_text)
+        self._history_service.append_assistant_message(context.history_key, response_text)
         history_stored = True
 
         memory_updated = False
@@ -335,10 +335,10 @@ class ChatPostProcessService:
 
     async def record_tool_interaction(self, payload: dict[str, Any]) -> None:
         user_id = str(payload.get("user_id") or self._agent_id)
-        session_id = self._session_service.resolve_session_id(user_id, payload.get("session_id"))
-        history_key = self._session_service.history_key(user_id, session_id)
+        session_id = self._history_service.require_session_id(user_id, payload.get("session_id"))
+        history_key = self._history_service.history_key(user_id, session_id)
         turn_id = str(payload.get("turn_id") or "").strip() or None
-        self._session_service.store_tool_interaction(
+        self._history_service.store_tool_interaction(
             history_key,
             {
                 "timestamp": time.time(),
@@ -407,7 +407,7 @@ class ChatPostProcessService:
 
     async def record_tool_loop_fact(self, payload: dict[str, Any]) -> None:
         user_id = str(payload.get("user_id") or self._agent_id)
-        session_id = self._session_service.resolve_session_id(user_id, payload.get("session_id"))
+        session_id = self._history_service.require_session_id(user_id, payload.get("session_id"))
         stage = str(payload.get("stage") or "unknown")
         turn_id = str(payload.get("turn_id") or "").strip() or None
         fact = FactRecord(

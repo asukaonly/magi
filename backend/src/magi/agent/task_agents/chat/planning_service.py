@@ -14,8 +14,8 @@ from ....tools.registry import ToolRegistry
 from ....tools.schema import ToolExecutionContext
 from ...orchestration import PlannedSubtask, SubtaskPlan, TaskOrchestrationState
 from ..common import OrchestrationPlan
+from .history_service import ChatHistoryService
 from .prompt_service import ChatPromptService
-from .session_service import ChatSessionService
 
 logger = get_logger(__name__)
 
@@ -32,7 +32,7 @@ class ChatPlanningService:
         runtime_key: str,
         context_service: ContextAssemblyService,
         prompt_service: ChatPromptService,
-        session_service: ChatSessionService,
+        history_service: ChatHistoryService,
         tool_registry: ToolRegistry,
         parent_task_agent_type: str,
     ) -> None:
@@ -40,7 +40,7 @@ class ChatPlanningService:
         self._runtime_key = runtime_key
         self._context_service = context_service
         self._prompt_service = prompt_service
-        self._session_service = session_service
+        self._history_service = history_service
         self._tool_registry = tool_registry
         self._parent_task_agent_type = parent_task_agent_type
 
@@ -95,7 +95,7 @@ class ChatPlanningService:
 
     async def aggregate_orchestration(self, state: TaskOrchestrationState) -> str:
         payload = self._prompt_service.build_aggregation_payload(state)
-        history = await self._session_service.get_or_load_history(state.user_id, state.session_id)
+        history = await self._history_service.get_or_load_history(state.user_id, state.session_id)
         filtered_history = self._prompt_service.filter_history_for_aggregation(history)
         system_prompt = await self._context_service.build_system_prompt(
             user_id=state.user_id,

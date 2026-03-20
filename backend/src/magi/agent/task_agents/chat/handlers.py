@@ -29,9 +29,9 @@ from ..common import (
     OrchestrationUpdateHandler,
 )
 from ..explore.constants import EXPLORE_TASK_REQUEST
+from .history_service import ChatHistoryService
 from .planning_service import ChatPlanningService
 from .prompt_service import ChatPromptService
-from .session_service import ChatSessionService
 from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
@@ -59,7 +59,7 @@ class ChatHandlerDependencies:
     planning_service: ChatPlanningService
     function_calling_orchestrator: any
     task_orchestrator: TaskOrchestrator
-    session_service: ChatSessionService
+    history_service: ChatHistoryService
     agent_id: str
     get_task_agent_manager: callable
 
@@ -222,7 +222,7 @@ async def _start_explore_task_agent(
             correlation_id=fact.correlation_id,
             turn_id=payload.turn_id,
         )
-    deps.session_service.append_user_message(
+    deps.history_service.append_user_message(
         request.context.history_key,
         request.context.latest_user_message,
     )

@@ -21,7 +21,7 @@ from .fact_classifier import ChatFactClassifier
 from .planning_service import ChatPlanningService
 from .postprocess_service import ChatPostProcessService
 from .prompt_service import ChatPromptService
-from .session_service import ChatSessionService
+from .history_service import ChatHistoryService
 
 __all__ = [
     "ChatExecutionCoordinator",
@@ -31,7 +31,7 @@ __all__ = [
     "ChatPostProcessService",
     "ChatPromptService",
     "ChatRuntimeContext",
-    "ChatSessionService",
+    "ChatHistoryService",
     "ExecutionHandlerRegistry",
     "ExecutionMode",
     "ExecutionRequest",

@@ -1,6 +1,7 @@
-"""Session and history state management for chat task agents."""
+"""History caches and explicit session validation for chat task agents."""
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
@@ -13,7 +14,7 @@ logger = get_logger(__name__)
 FACT_EVENTS_TABLE = "fact_events"
 
 
-class ChatSessionService:
+class ChatHistoryService:
     """Owns history caches and lazy history loading for explicit sessions."""
 
     def __init__(
@@ -59,7 +60,7 @@ class ChatSessionService:
             self._conversation_history.setdefault(history_key, [])
             return self._conversation_history[history_key]
 
-    def resolve_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
+    def require_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
         _ = user_id
         normalized_session_id = str(session_id or "").strip()
         if not normalized_session_id:
@@ -125,11 +126,11 @@ class ChatSessionService:
         return results
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
-        active_session = self.resolve_session_id(user_id, session_id)
+        active_session = self.require_session_id(user_id, session_id)
         return self._conversation_history.get(self.history_key(user_id, active_session), [])
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
-        active_session = self.resolve_session_id(user_id, session_id)
+        active_session = self.require_session_id(user_id, session_id)
         key = self.history_key(user_id, active_session)
         self._conversation_history[key] = []
         self._tool_interactions[key] = []
@@ -220,7 +221,7 @@ class ChatSessionService:
         for user_id, raw_session_id, turn_id, tool_name, error_code, error_message, result_preview, arguments_json, execution_time_ms, success in rows:
             if not user_id:
                 continue
-            session_id = self.resolve_session_id(str(user_id), raw_session_id)
+            session_id = self.require_session_id(str(user_id), raw_session_id)
             key = self.history_key(str(user_id), session_id)
             result_data = {}
             try:

@@ -12,11 +12,11 @@ from magi.events.events import EventTypes
 from magi.runtime_trace.store import RuntimeTraceStore
 
 
-class _FakeSessionService:
+class _FakeHistoryService:
     def __init__(self) -> None:
         self.history: list[dict] = []
 
-    def resolve_session_id(self, user_id: str, session_id: str | None = None) -> str:
+    def require_session_id(self, user_id: str, session_id: str | None = None) -> str:
         return session_id or "generated-session"
 
     def history_key(self, user_id: str, session_id: str) -> str:
@@ -153,7 +153,7 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
-        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -201,7 +201,7 @@ async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
-        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -258,7 +258,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
-        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -330,7 +330,7 @@ async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
-        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -373,7 +373,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
     runtime = _FakeRuntime()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
-        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=runtime.get_sensor_hub,
@@ -438,7 +438,7 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
-        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -510,7 +510,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     action_emitter = _FakeActionEmitter()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
-        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -605,7 +605,7 @@ async def test_handle_records_task_reflection_for_explore_completion() -> None:
     )
     service = ChatPostProcessService(
         agent_id="chat:web_user",
-        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
@@ -679,7 +679,7 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
     unified_memory = _FakeUnifiedMemory(events=[{"event_id": "evt-1"}])
     service = ChatPostProcessService(
         agent_id="chat:web_user",
-        session_service=_FakeSessionService(),  # type: ignore[arg-type]
+        history_service=_FakeHistoryService(),  # type: ignore[arg-type]
         get_action_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,

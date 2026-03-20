@@ -13,7 +13,7 @@ from magi.agent.orchestration import (
     TaskOrchestrationState,
     WorkerResult,
 )
-from magi.agent.task_agents.chat.session_service import ChatSessionService
+from magi.agent.task_agents.chat.history_service import ChatHistoryService
 from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
 from magi.agent.task_agents.chat import planning_service as planning_service_module
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
@@ -47,8 +47,8 @@ async def test_chat_task_agent_requires_explicit_session_id_for_user_messages() 
 
 
 @pytest.mark.asyncio
-async def test_chat_session_service_uses_explicit_session_pairs_without_state_file(tmp_path: Path) -> None:
-    service = ChatSessionService(
+async def test_chat_history_service_uses_explicit_session_pairs_without_state_file(tmp_path: Path) -> None:
+    service = ChatHistoryService(
         l1_db_path=tmp_path / "l1.sqlite3",
         runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
     )
