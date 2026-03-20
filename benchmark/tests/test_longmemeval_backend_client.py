@@ -152,6 +152,29 @@ def test_backend_client_reads_l2_statistics_endpoint() -> None:
     assert result["extract_completed"] == 8
 
 
+def test_backend_client_reads_background_pending_endpoint() -> None:
+    service = BackendEvalService("http://localhost:8000")
+    calls: list[str] = []
+
+    def fake_get(path: str):
+        calls.append(path)
+        return {
+            "l2": {"extract_pending": 0, "reconcile_pending": 0, "snapshot_pending": 0},
+            "l1_embeddings": {"pending": 7, "worker_running": True},
+            "l3_embeddings": {"pending": 3, "worker_running": True},
+            "l4_embeddings": {"pending": 0, "worker_running": False},
+            "all_idle": False,
+        }
+
+    service._get_json_sync = fake_get  # type: ignore[method-assign]
+
+    result = asyncio.run(service.get_background_pending())
+
+    assert calls == ["/api/memory/background/pending"]
+    assert result["l1_embeddings"]["pending"] == 7
+    assert result["all_idle"] is False
+
+
 def test_backend_client_uses_configured_timeout_for_post_requests() -> None:
     service = BackendEvalService("http://localhost:8000", timeout_seconds=12.5)
 

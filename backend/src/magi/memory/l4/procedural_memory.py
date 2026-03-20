@@ -438,7 +438,13 @@ class L4ProceduralMemoryStore:
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight metadata for higher-level reporting."""
-        return {"db_path": self.db_path}
+        return {
+            "db_path": self.db_path,
+            "vector_enabled": self._vector_enabled,
+            "async_embeddings": self._async_embeddings,
+            "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
+            "embedding_worker_running": bool(self._embedding_worker is not None and not self._embedding_worker.done()),
+        }
 
     def _extract_skill_identity(
         self,

@@ -64,6 +64,9 @@ class BackendEvalService:
         stats.pop("db_path", None)
         return stats
 
+    async def get_background_pending(self) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_json_sync, "/api/memory/background/pending")
+
     def _post_json_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._backend_url}{path}"
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

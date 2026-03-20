@@ -237,6 +237,17 @@ def _build_l2_pending_breakdown(pipeline_stats: Dict[str, Any]) -> Dict[str, int
     }
 
 
+def _build_embedding_pending(stats: Dict[str, Any] | None) -> Dict[str, Any]:
+    payload = dict(stats or {})
+    pending = int(payload.get("embedding_queue_size", 0) or 0)
+    return {
+        "pending": max(pending, 0),
+        "worker_running": bool(payload.get("embedding_worker_running", False)),
+        "vector_enabled": bool(payload.get("vector_enabled", False)),
+        "async_embeddings": bool(payload.get("async_embeddings", False)),
+    }
+
+
 def _serialize_memory_event(event: MemoryEvent | Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(event, MemoryEvent):
         return event.to_dict()
@@ -380,6 +391,49 @@ async def get_l2_pending():
     return {
         "is_running": bool(pipeline_stats.get("is_running", False)),
         **pending,
+    }
+
+
+@memory_router.get("/background/pending")
+async def get_background_pending():
+    """Get lightweight backlog stats for background memory workers."""
+    unified_memory = _resolve_unified_memory()
+    if not unified_memory:
+        return {
+            "l2": {
+                "extract_pending": 0,
+                "reconcile_pending": 0,
+                "snapshot_pending": 0,
+            },
+            "l1_embeddings": {"pending": 0, "worker_running": False, "vector_enabled": False, "async_embeddings": False},
+            "l3_embeddings": {"pending": 0, "worker_running": False, "vector_enabled": False, "async_embeddings": False},
+            "l4_embeddings": {"pending": 0, "worker_running": False, "vector_enabled": False, "async_embeddings": False},
+            "all_idle": True,
+        }
+
+    pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
+    l2_pending = _build_l2_pending_breakdown(pipeline_stats)
+    l1_pending = _build_embedding_pending(
+        unified_memory.l1.get_statistics() if getattr(unified_memory, "l1", None) and hasattr(unified_memory.l1, "get_statistics") else None
+    )
+    l3_pending = _build_embedding_pending(
+        unified_memory.l3.get_statistics() if getattr(unified_memory, "l3", None) and hasattr(unified_memory.l3, "get_statistics") else None
+    )
+    l4_pending = _build_embedding_pending(
+        unified_memory.l4.get_statistics() if getattr(unified_memory, "l4", None) and hasattr(unified_memory.l4, "get_statistics") else None
+    )
+    all_idle = (
+        all(value == 0 for value in l2_pending.values())
+        and l1_pending["pending"] == 0
+        and l3_pending["pending"] == 0
+        and l4_pending["pending"] == 0
+    )
+    return {
+        "l2": l2_pending,
+        "l1_embeddings": l1_pending,
+        "l3_embeddings": l3_pending,
+        "l4_embeddings": l4_pending,
+        "all_idle": all_idle,
     }
 @memory_router.get("/l2/relations")
 async def list_l2_relations(limit: int = Query(default=100, ge=1, le=500)):

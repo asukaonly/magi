@@ -65,6 +65,15 @@ class _FakeL1Store:
     async def clear(self):
         return 12
 
+    def get_statistics(self):
+        return {
+            "db_path": self.db_path,
+            "vector_enabled": True,
+            "async_embeddings": True,
+            "embedding_queue_size": 7,
+            "embedding_worker_running": True,
+        }
+
 
 class _FakeL2Store:
     db_path = "/tmp/l2.db"
@@ -144,6 +153,15 @@ class _FakeL3Store:
     async def clear(self):
         return 2
 
+    def get_statistics(self):
+        return {
+            "db_path": self.db_path,
+            "vector_enabled": True,
+            "async_embeddings": True,
+            "embedding_queue_size": 3,
+            "embedding_worker_running": True,
+        }
+
 
 class _FakeL4Store:
     db_path = "/tmp/l4.db"
@@ -163,6 +181,15 @@ class _FakeL4Store:
 
     async def clear(self):
         return 1
+
+    def get_statistics(self):
+        return {
+            "db_path": self.db_path,
+            "vector_enabled": True,
+            "async_embeddings": True,
+            "embedding_queue_size": 0,
+            "embedding_worker_running": False,
+        }
 
 
 class _FakeUnifiedMemory:
@@ -659,6 +686,25 @@ def test_memory_l2_pending_api_reports_queue_backlog(monkeypatch):
     assert body["extract_pending"] == 0
     assert body["reconcile_pending"] == 0
     assert body["snapshot_pending"] == 0
+
+
+def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+    response = client.get("/api/memory/background/pending")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["l2"]["extract_pending"] == 0
+    assert body["l1_embeddings"]["pending"] == 7
+    assert body["l3_embeddings"]["pending"] == 3
+    assert body["l4_embeddings"]["pending"] == 0
+    assert body["all_idle"] is False
 
 
 def test_memory_clear_api_clears_all_layers(monkeypatch):

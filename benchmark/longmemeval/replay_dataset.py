@@ -37,6 +37,9 @@ class SupportsReplayService(Protocol):
     async def get_l2_pipeline_stats(self) -> dict[str, Any]:
         """Return current L2 pipeline counters."""
 
+    async def get_background_pending(self) -> dict[str, Any]:
+        """Return lightweight backlog stats for background memory workers."""
+
 
 class LocalReplayServiceAdapter:
     """Bridge the local eval harness with replay finalization hooks."""
@@ -68,6 +71,20 @@ class LocalReplayServiceAdapter:
             if hasattr(self._unified_memory, "get_l2_pipeline_stats")
             else {}
         )
+
+    async def get_background_pending(self) -> dict[str, Any]:
+        l2_pending = describe_l2_pending(await self.get_l2_pipeline_stats())
+        l1_stats = self._unified_memory.l1.get_statistics() if getattr(self._unified_memory, "l1", None) and hasattr(self._unified_memory.l1, "get_statistics") else {}
+        l3_stats = self._unified_memory.l3.get_statistics() if getattr(self._unified_memory, "l3", None) and hasattr(self._unified_memory.l3, "get_statistics") else {}
+        l4_stats = self._unified_memory.l4.get_statistics() if getattr(self._unified_memory, "l4", None) and hasattr(self._unified_memory.l4, "get_statistics") else {}
+        payload = {
+            "l2": l2_pending,
+            "l1_embeddings": build_embedding_pending_payload(l1_stats),
+            "l3_embeddings": build_embedding_pending_payload(l3_stats),
+            "l4_embeddings": build_embedding_pending_payload(l4_stats),
+        }
+        payload["all_idle"] = is_background_idle(payload)
+        return payload
 
 
 @dataclass(slots=True)
@@ -151,6 +168,10 @@ async def replay_longmemeval_rows(
         eval_service,
         poll_interval_seconds=poll_interval_seconds,
     )
+    post_replay["background_pending"] = await wait_for_background_idle(
+        eval_service,
+        poll_interval_seconds=poll_interval_seconds,
+    )
     post_replay_path = output_dir / "post_replay.json"
     post_replay_path.write_text(json.dumps(post_replay, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return LongMemEvalReplayArtifacts(
@@ -178,6 +199,15 @@ def print_l2_pipeline_stats(stats: dict[str, Any]) -> None:
         f"extract_pending={pending['extract_pending']} "
         f"reconcile_pending={pending['reconcile_pending']} "
         f"snapshot_pending={pending['snapshot_pending']}"
+    )
+
+
+def print_background_pending(stats: dict[str, Any]) -> None:
+    print(
+        "[Background drain] "
+        f"l1_embeddings={int(stats.get('l1_embeddings', {}).get('pending', 0))} "
+        f"l3_embeddings={int(stats.get('l3_embeddings', {}).get('pending', 0))} "
+        f"l4_embeddings={int(stats.get('l4_embeddings', {}).get('pending', 0))}"
     )
 
 
@@ -210,6 +240,24 @@ def is_l2_pipeline_idle(stats: dict[str, Any]) -> bool:
     return all(value == 0 for value in pending.values())
 
 
+def build_embedding_pending_payload(stats: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "pending": max(int(stats.get("embedding_queue_size", 0) or 0), 0),
+        "worker_running": bool(stats.get("embedding_worker_running", False)),
+        "vector_enabled": bool(stats.get("vector_enabled", False)),
+        "async_embeddings": bool(stats.get("async_embeddings", False)),
+    }
+
+
+def is_background_idle(stats: dict[str, Any]) -> bool:
+    return (
+        all(int(stats.get("l2", {}).get(key, 0)) == 0 for key in ("extract_pending", "reconcile_pending", "snapshot_pending"))
+        and int(stats.get("l1_embeddings", {}).get("pending", 0)) == 0
+        and int(stats.get("l3_embeddings", {}).get("pending", 0)) == 0
+        and int(stats.get("l4_embeddings", {}).get("pending", 0)) == 0
+    )
+
+
 async def wait_for_l2_pipeline_idle(
     eval_service: SupportsReplayService,
     *,
@@ -219,6 +267,19 @@ async def wait_for_l2_pipeline_idle(
         stats = await eval_service.get_l2_pipeline_stats()
         print_l2_pipeline_stats(stats)
         if is_l2_pipeline_idle(stats):
+            return stats
+        await asyncio.sleep(poll_interval_seconds)
+
+
+async def wait_for_background_idle(
+    eval_service: SupportsReplayService,
+    *,
+    poll_interval_seconds: float,
+) -> dict[str, Any]:
+    while True:
+        stats = await eval_service.get_background_pending()
+        print_background_pending(stats)
+        if is_background_idle(stats):
             return stats
         await asyncio.sleep(poll_interval_seconds)
 

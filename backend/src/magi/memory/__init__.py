@@ -436,8 +436,9 @@ class UnifiedMemoryStore:
         if self.l0 is not None:
             stats["l0"] = {"checkpoint_db_path": self.l0.checkpoint_db_path}
         if self.l1 is not None:
+            l1_stats = self.l1.get_statistics() if hasattr(self.l1, "get_statistics") else {"db_path": self.l1.db_path}
             stats["l1"] = {
-                "db_path": self.l1.db_path,
+                **l1_stats,
                 "event_count": await self.l1.count_events(),
             }
         if self.l2 is not None:

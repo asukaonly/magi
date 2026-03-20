@@ -16,6 +16,7 @@ class FakeReplayService:
         self.write_calls: list[tuple[str, int]] = []
         self.finalize_calls = 0
         self.l2_stats_calls = 0
+        self.background_pending_calls = 0
 
     async def write_records(self, *, namespace: str, records):
         self.write_calls.append((namespace, len(records)))
@@ -73,6 +74,32 @@ class FakeReplayService:
             "snapshot_enqueued": 1,
             "snapshot_completed": 1,
             "snapshot_failed": 0,
+        }
+
+    async def get_background_pending(self):
+        self.background_pending_calls += 1
+        if self.background_pending_calls == 1:
+            return {
+                "l2": {
+                    "extract_pending": 0,
+                    "reconcile_pending": 0,
+                    "snapshot_pending": 0,
+                },
+                "l1_embeddings": {"pending": 4, "worker_running": True},
+                "l3_embeddings": {"pending": 1, "worker_running": True},
+                "l4_embeddings": {"pending": 0, "worker_running": False},
+                "all_idle": False,
+            }
+        return {
+            "l2": {
+                "extract_pending": 0,
+                "reconcile_pending": 0,
+                "snapshot_pending": 0,
+            },
+            "l1_embeddings": {"pending": 0, "worker_running": True},
+            "l3_embeddings": {"pending": 0, "worker_running": True},
+            "l4_embeddings": {"pending": 0, "worker_running": False},
+            "all_idle": True,
         }
 
 
@@ -138,4 +165,6 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
     post_replay = json.loads(artifacts.post_replay_path.read_text(encoding="utf-8"))
     assert post_replay["summaries"]["hour"]["summary_id"] == "sum-hour-1"
     assert post_replay["l2_pipeline_stats"]["extract_completed"] == 10
+    assert post_replay["background_pending"]["all_idle"] is True
     assert service.l2_stats_calls == 2
+    assert service.background_pending_calls == 2
