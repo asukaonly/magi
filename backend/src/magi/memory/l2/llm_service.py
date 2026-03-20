@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 from typing import Any, Optional
 
+from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, LLMScenario, ProviderResponse, ScenarioLLMPool
 from .context_bundle import ContextBundle
 from .extraction_profiles import ExtractionProfile
@@ -26,7 +26,7 @@ from .prompts import (
     render_unified_extraction_prompt,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 
 
@@ -66,16 +66,14 @@ class L2LLMService:
         event_ids = event_window.get("event_ids") if isinstance(event_window.get("event_ids"), list) else []
         logger.info(
             "L2 unified extraction started",
-            extra={
-                "event_ids": event_ids,
-                "profile_id": profile.profile_id,
-                "text_count": len(event_window.get("texts", [])) if isinstance(event_window.get("texts"), list) else 0,
-                "context_count": (
-                    len(event_window.get("context_texts", []))
-                    if isinstance(event_window.get("context_texts"), list)
-                    else 0
-                ),
-            },
+            event_ids=event_ids,
+            profile_id=profile.profile_id,
+            text_count=len(event_window.get("texts", [])) if isinstance(event_window.get("texts"), list) else 0,
+            context_count=(
+                len(event_window.get("context_texts", []))
+                if isinstance(event_window.get("context_texts"), list)
+                else 0
+            ),
         )
         payload = await self._generate_json(
             system_prompt=UNIFIED_EXTRACTION_SYSTEM_PROMPT,
@@ -132,15 +130,13 @@ class L2LLMService:
         duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
         logger.info(
             "L2 unified extraction completed",
-            extra={
-                "duration_ms": duration_ms,
-                "event_ids": event_ids,
-                "profile_id": profile.profile_id,
-                "mention_count": len(normalized_mentions),
-                "resolved_context_ref_count": len(normalized_resolved_context_refs),
-                "graph_candidate_count": len(normalized_graph_candidates),
-                "assertion_candidate_count": len(normalized_assertions),
-            },
+            duration_ms=duration_ms,
+            event_ids=event_ids,
+            profile_id=profile.profile_id,
+            mention_count=len(normalized_mentions),
+            resolved_context_ref_count=len(normalized_resolved_context_refs),
+            graph_candidate_count=len(normalized_graph_candidates),
+            assertion_candidate_count=len(normalized_assertions),
         )
         return result
 
@@ -283,7 +279,7 @@ class L2LLMService:
                 "system_prompt_char_count": len(system_prompt),
             }
         )
-        logger.info("L2 LLM call started", extra=context)
+        logger.info("L2 LLM call started", **context)
 
         started_at = time.perf_counter()
 
@@ -313,11 +309,11 @@ class L2LLMService:
                 if is_rate_limited and attempt_index < len(_RATE_LIMIT_BACKOFF_SECONDS):
                     backoff_seconds = _RATE_LIMIT_BACKOFF_SECONDS[attempt_index]
                     failure_context["backoff_seconds"] = backoff_seconds
-                    logger.warning("L2 LLM rate limited", extra=failure_context)
-                    logger.info("L2 LLM retry scheduled", extra=failure_context)
+                    logger.warning("L2 LLM rate limited", **failure_context)
+                    logger.info("L2 LLM retry scheduled", **failure_context)
                     await asyncio.sleep(backoff_seconds)
                     continue
-                logger.warning("L2 LLM call failed", extra=failure_context)
+                logger.warning("L2 LLM call failed", **failure_context)
                 return {}
 
         if response is None:
@@ -327,14 +323,14 @@ class L2LLMService:
         completion_context = dict(context)
         completion_context.update(self._usage_log_fields(response))
         completion_context["duration_ms"] = round((time.perf_counter() - started_at) * 1000.0, 2)
-        logger.info("L2 LLM call completed", extra=completion_context)
+        logger.info("L2 LLM call completed", **completion_context)
 
         try:
             parsed = json.loads(raw)
         except Exception:
             invalid_context = dict(completion_context)
             invalid_context["response_char_count"] = len(raw or "")
-            logger.warning("L2 LLM returned invalid JSON", extra=invalid_context)
+            logger.warning("L2 LLM returned invalid JSON", **invalid_context)
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
@@ -362,7 +358,7 @@ class L2LLMService:
         try:
             return self._scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
         except Exception as exc:
-            logger.debug("L2 LLM adapter unavailable: %s", exc)
+            logger.debug("L2 LLM adapter unavailable", error=str(exc))
             return None
 
     def _get_llm_target(self) -> Optional[tuple[Any, LLMProviderBridge]]:

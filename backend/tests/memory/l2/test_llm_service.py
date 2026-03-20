@@ -249,7 +249,7 @@ def test_unified_extraction_logs_timing():
         "L2 LLM call completed",
         "L2 unified extraction completed",
     ]
-    extras = mock_info.call_args_list[3].kwargs["extra"]
+    extras = mock_info.call_args_list[3].kwargs
     assert extras["profile_id"] == "chat.user_message"
     assert extras["mention_count"] == 1
     assert extras["duration_ms"] >= 0.0
@@ -289,10 +289,10 @@ def test_unified_extraction_uses_provider_bridge_and_logs_usage():
         "L2 LLM call completed",
         "L2 unified extraction completed",
     ]
-    started_extra = mock_info.call_args_list[0].kwargs["extra"]
-    llm_started_extra = mock_info.call_args_list[1].kwargs["extra"]
-    llm_completed_extra = mock_info.call_args_list[2].kwargs["extra"]
-    completed_extra = mock_info.call_args_list[3].kwargs["extra"]
+    started_extra = mock_info.call_args_list[0].kwargs
+    llm_started_extra = mock_info.call_args_list[1].kwargs
+    llm_completed_extra = mock_info.call_args_list[2].kwargs
+    completed_extra = mock_info.call_args_list[3].kwargs
     assert started_extra["event_ids"] == ["evt-1"]
     assert started_extra["profile_id"] == "chat.user_message"
     assert llm_started_extra["request_kind"] == "memory:l2_unified_extraction"
@@ -305,6 +305,36 @@ def test_unified_extraction_uses_provider_bridge_and_logs_usage():
     assert llm_completed_extra["total_tokens"] == 30
     assert completed_extra["event_ids"] == ["evt-1"]
     assert completed_extra["profile_id"] == "chat.user_message"
+
+
+def test_llm_call_completed_log_renders_duration(capsys):
+    from magi.core.logger import configure_logging
+    from magi.memory.l2.extraction_profiles import ExtractionProfile
+    from magi.memory.l2.llm_service import L2LLMService
+
+    configure_logging(level="INFO", json_logs=False)
+    response = json.dumps(
+        {
+            "mentions": [],
+            "graph_candidates": [],
+            "assertion_candidates": [],
+            "diagnostics": {"entity_status": "none"},
+        }
+    )
+    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
+
+    asyncio.run(
+        service.extract_unified_candidates(
+            event_window={"event_ids": ["evt-1"], "texts": ["hello"]},
+            profile=ExtractionProfile(profile_id="chat.user_message"),
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+            context_bundle=None,
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert "L2 LLM call completed" in captured.out
+    assert "duration_ms=" in captured.out
 
 
 @pytest.mark.asyncio
