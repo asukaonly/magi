@@ -150,7 +150,7 @@ class L1Handler:
             matched = [
                 e["event_id"]
                 for e in events
-                if all(tok in e.get("raw_content", "").lower() for tok in query_tokens)
+                if all(tok in e.get("content", "").lower() for tok in query_tokens)
             ]
             return matched
         except Exception as exc:
@@ -256,11 +256,13 @@ class L2Handler:
         self,
         conditions: L2Conditions,
         time_range: Optional[TimeRange] = None,
+        *,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Query L2 for entity cards and relationships."""
         del time_range
         results: Dict[str, Any] = {"entity_cards": [], "relationships": [], "assertions": [], "trace": {}}
-        resolved_entities = await self._resolve_entities(conditions)
+        resolved_entities = await self._resolve_entities(conditions, user_id=user_id)
         predicates = conditions.predicates or self._infer_predicates(conditions.content_query)
         status_filters = conditions.status_filter or self._infer_status_filters(conditions.content_query)
         relation_direction = conditions.relation_direction or self._infer_relation_direction(conditions.content_query)
@@ -375,7 +377,12 @@ class L2Handler:
             limit=limit,
         )
 
-    async def _resolve_entities(self, conditions: L2Conditions) -> list[dict[str, str]]:
+    async def _resolve_entities(
+        self,
+        conditions: L2Conditions,
+        *,
+        user_id: Optional[str] = None,
+    ) -> list[dict[str, str]]:
         resolved: list[dict[str, str]] = []
         seen: set[str] = set()
 
@@ -404,7 +411,7 @@ class L2Handler:
                 seen.add(entity_id)
 
         if resolved or self._entity_catalog is None or not conditions.content_query:
-            return resolved or self._infer_self_entities(conditions.content_query)
+            return resolved or self._infer_self_entities(conditions.content_query, user_id=user_id)
 
         query_matches = await self._entity_catalog.resolve_query_entities(
             conditions.content_query,
@@ -417,7 +424,7 @@ class L2Handler:
                 continue
             resolved.append({"entity_id": entity_id, "entity_type": str(match["entity_type"])})
             seen.add(entity_id)
-        return resolved or self._infer_self_entities(conditions.content_query)
+        return resolved or self._infer_self_entities(conditions.content_query, user_id=user_id)
 
     def _infer_predicates(self, query: str) -> list[str] | None:
         query_lower = query.lower()
@@ -473,10 +480,12 @@ class L2Handler:
         first = resolved_entities[0]
         return str(first["entity_id"])
 
-    def _infer_self_entities(self, query: str) -> list[dict[str, str]]:
+    def _infer_self_entities(self, query: str, *, user_id: Optional[str] = None) -> list[dict[str, str]]:
         if "我" not in query and " me " not in f" {query.lower()} ":
             return []
-        return [{"entity_id": "user:self", "entity_type": "user"}]
+        if user_id:
+            return [{"entity_id": f"user:{user_id}", "entity_type": "user"}]
+        return []
 
 
 class L3Handler:
@@ -763,7 +772,7 @@ async def execute_plan(
         return await l1.execute(plan.conditions, time_range, session_id=session_id, user_id=user_id)
     elif plan.layer == "L2" and l2 is not None:
         assert isinstance(plan.conditions, L2Conditions)
-        return await l2.execute(plan.conditions, time_range)
+        return await l2.execute(plan.conditions, time_range, user_id=user_id)
     elif plan.layer == "L3" and l3 is not None:
         assert isinstance(plan.conditions, L3Conditions)
         return await l3.execute(plan.conditions, time_range)

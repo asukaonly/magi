@@ -111,7 +111,7 @@ class TestRrfFuse:
 
 def _make_event(
     event_id: str = "evt-001",
-    raw_content: str = "test content",
+    content: str = "test content",
     source: str = "test",
     memory_domain: MemoryDomain = MemoryDomain.USER_AUTHORED,
     timestamp: float | None = None,
@@ -120,7 +120,6 @@ def _make_event(
     return MemoryEvent(
         event_id=event_id,
         correlation_id="corr-001",
-        parent_event_id=None,
         timestamp=now,
         created_at=now,
         event_type="TestEvent",
@@ -132,16 +131,13 @@ def _make_event(
         tom_depth=TomDepth.NONE,
         retention_class=RetentionClass.COMPRESSIBLE,
         session_id=None,
+        turn_id=None,
         user_id=None,
         task_id=None,
-        goal_id=None,
-        raw_content=raw_content,
-        structured_payload="{}",
-        metadata="{}",
+        content=content,
+        author_type="user",
+        content_type="text",
         importance_score=0.5,
-        importance_t0_base=0.5,
-        importance_t1_score=None,
-        importance_version=1,
         level=1,
     )
 
@@ -155,8 +151,8 @@ def store(tmp_path):
 @pytest.mark.asyncio
 class TestL1HandlerTriplePath:
     async def test_bm25_path_returns_results(self, store: L1EventStore) -> None:
-        await store.store(_make_event(event_id="evt-py", raw_content="Python programming tutorial"))
-        await store.store(_make_event(event_id="evt-js", raw_content="JavaScript web development"))
+        await store.store(_make_event(event_id="evt-py", content="Python programming tutorial"))
+        await store.store(_make_event(event_id="evt-js", content="JavaScript web development"))
 
         handler = L1Handler(store)
         conds = L1Conditions(content_query="Python", limit=10)
@@ -168,7 +164,7 @@ class TestL1HandlerTriplePath:
         assert "evt-py" in event_ids
 
     async def test_empty_query_returns_empty(self, store: L1EventStore) -> None:
-        await store.store(_make_event(raw_content="some content"))
+        await store.store(_make_event(content="some content"))
         handler = L1Handler(store)
         conds = L1Conditions(content_query="")
         results = await handler.execute(conds)
@@ -176,8 +172,8 @@ class TestL1HandlerTriplePath:
 
     async def test_time_range_filter(self, store: L1EventStore) -> None:
         base = 1700000000.0
-        await store.store(_make_event(event_id="evt-old", raw_content="old event data", timestamp=base))
-        await store.store(_make_event(event_id="evt-new", raw_content="new event data", timestamp=base + 1000))
+        await store.store(_make_event(event_id="evt-old", content="old event data", timestamp=base))
+        await store.store(_make_event(event_id="evt-new", content="new event data", timestamp=base + 1000))
 
         handler = L1Handler(store)
         conds = L1Conditions(content_query="event data", limit=10)
@@ -192,7 +188,7 @@ class TestL1HandlerTriplePath:
         for i in range(10):
             await store.store(_make_event(
                 event_id=f"evt-{i:03d}",
-                raw_content=f"shared keyword content {i}",
+                content=f"shared keyword content {i}",
             ))
 
         handler = L1Handler(store)
@@ -201,15 +197,15 @@ class TestL1HandlerTriplePath:
         assert len(results) <= 3
 
     async def test_no_results_for_unmatched_query(self, store: L1EventStore) -> None:
-        await store.store(_make_event(raw_content="hello world"))
+        await store.store(_make_event(content="hello world"))
         handler = L1Handler(store)
         conds = L1Conditions(content_query="quantumphysics", limit=10)
         results = await handler.execute(conds)
         assert results == []
 
     async def test_chinese_search(self, store: L1EventStore) -> None:
-        await store.store(_make_event(event_id="evt-ml", raw_content="机器学习模型训练优化方案"))
-        await store.store(_make_event(event_id="evt-web", raw_content="前端组件开发框架设计"))
+        await store.store(_make_event(event_id="evt-ml", content="机器学习模型训练优化方案"))
+        await store.store(_make_event(event_id="evt-web", content="前端组件开发框架设计"))
 
         handler = L1Handler(store)
         conds = L1Conditions(content_query="机器学习", limit=10)
@@ -226,7 +222,7 @@ class TestL1HandlerTriplePath:
 
     async def test_degraded_when_single_path_fails(self, store: L1EventStore) -> None:
         """Handler should still return results if one path fails."""
-        await store.store(_make_event(event_id="evt-1", raw_content="test content data"))
+        await store.store(_make_event(event_id="evt-1", content="test content data"))
 
         handler = L1Handler(store)
 
@@ -247,12 +243,12 @@ class TestL1HandlerTriplePath:
     async def test_excludes_runtime_telemetry_by_default(self, store: L1EventStore) -> None:
         await store.store(_make_event(
             event_id="evt-rt",
-            raw_content="runtime telemetry data",
+            content="runtime telemetry data",
             memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
         ))
         await store.store(_make_event(
             event_id="evt-ua",
-            raw_content="user authored data",
+            content="user authored data",
             memory_domain=MemoryDomain.USER_AUTHORED,
         ))
 

@@ -16,11 +16,11 @@ def build_eval_hits_from_payload(payload: Any) -> list[EvalMemoryHit]:
             EvalMemoryHit(
                 event_id=str(event.get("event_id") or ""),
                 session_id=_normalize_optional_text(event.get("session_id")),
-                turn_id=_normalize_optional_text(metadata.get("turn_id")),
+                turn_id=_normalize_optional_text(event.get("turn_id", metadata.get("turn_id"))),
                 score=_normalize_optional_float(
                     event.get("score", event.get("importance_score"))
                 ),
-                content=str(event.get("raw_content") or ""),
+                content=str(event.get("content") or ""),
                 metadata=metadata,
             )
         )

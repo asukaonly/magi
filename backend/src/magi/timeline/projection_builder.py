@@ -65,7 +65,7 @@ class TimelineProjectionBuilder:
             "source_item_id": timeline_payload.get("source_item_id") or event.get("source_item_id"),
             "event_type": event.get("event_type"),
             "content_blocks": timeline_payload.get("content_blocks")
-            or [{"kind": "text", "value": str(event.get("raw_content") or "")}],
+            or [{"kind": "text", "value": str(event.get("content") or "")}],
             "entities": timeline_payload.get("entities") or [],
             "tags": timeline_payload.get("tags") or [],
             "retention_mode": timeline_payload.get("retention_mode") or event.get("retention_class"),
@@ -150,7 +150,7 @@ class TimelineProjectionBuilder:
 
     @staticmethod
     def _default_event_summary(event: dict[str, Any]) -> str:
-        raw = str(event.get("raw_content") or "").strip()
+        raw = str(event.get("content") or "").strip()
         if len(raw) <= 180:
             return raw
         return f"{raw[:177].rstrip()}..."

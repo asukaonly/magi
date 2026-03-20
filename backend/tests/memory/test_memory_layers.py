@@ -43,7 +43,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 "data": {
                     "user_id": "u1",
                     "session_id": "s1",
-                    "message": "I have been really stressed about work lately.",
+                    "content": "I have been really stressed about work lately.",
                 },
                 "metadata": {"user_id": "u1"},
             }
@@ -87,7 +87,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         workbench = await self.store.l0.get_workbench("s1")
         l1_count = await self.store.l1.count_events()
         runtime_count = await self.store.l1.count_runtime_observations()
-        assertions = await self.store.l2.list_tom_assertions(entity_id="user:self")
+        assertions = await self.store.l2.list_tom_assertions(entity_id="user:u1")
         summary = await self.store.generate_summary(period_type="day", period_start=now - 10, period_end=now + 60)
         procedures = await self.store.l4.query_strategies(query="browser", limit=5)
 
@@ -119,7 +119,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 "data": {
                     "user_id": "u1",
                     "session_id": "s1",
-                    "message": "I want to switch jobs this year.",
+                    "content": "I want to switch jobs this year.",
                 },
                 "metadata": {"user_id": "u1"},
             }
@@ -182,7 +182,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 "data": {
                     "user_id": "u1",
                     "session_id": "s1",
-                    "message": "I want to switch jobs this year.",
+                    "content": "I want to switch jobs this year.",
                 },
                 "metadata": {"user_id": "u1"},
             }
@@ -197,7 +197,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 "data": {
                     "user_id": "u1",
                     "session_id": "s1",
-                    "message": "The job market looks stronger for remote roles.",
+                    "content": "The job market looks stronger for remote roles.",
                 },
                 "metadata": {"user_id": "u1"},
             }
@@ -231,7 +231,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             event,
             relation_candidates=[
                 {
-                    "subject_id": "user:self",
+                    "subject_id": "user:u1",
                     "subject_type": "user",
                     "predicate": "LIKES",
                     "object_id": "character:asuka",
@@ -248,8 +248,8 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(stored_id, "timeline-1")
         self.assertIsNotNone(fetched)
-        self.assertEqual(fetched["retention_mode"], "retain_raw")
-        self.assertEqual(listed[0]["title"], "Evening note")
+        self.assertEqual(fetched["summary"], "Wrote about the day")
+        self.assertEqual(listed[0]["title"], "Wrote about the day")
         self.assertEqual(detail["graph_evidence"][0]["predicate"], "LIKES")
 
     async def test_persist_l3_candidate_writes_validated_task_reflection(self):
@@ -257,7 +257,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         await self.store.add_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "I care more about growth than salary."},
+                data={"user_id": "u1", "session_id": "s1", "content": "I care more about growth than salary."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
@@ -267,7 +267,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         await self.store.add_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
-                data={"user_id": "u1", "session_id": "s1", "response": "You should finish your portfolio homepage first."},
+                data={"user_id": "u1", "session_id": "s1", "content": "You should finish your portfolio homepage first."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
@@ -306,7 +306,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         await self.store.add_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "I care more about growth than salary."},
+                data={"user_id": "u1", "session_id": "s1", "content": "I care more about growth than salary."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
@@ -316,7 +316,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         await self.store.add_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
-                data={"user_id": "u1", "session_id": "s1", "response": "You should finish your portfolio homepage first."},
+                data={"user_id": "u1", "session_id": "s1", "content": "You should finish your portfolio homepage first."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
@@ -350,7 +350,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         first_event_id = await self.store.add_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "I have been stressed about work lately."},
+                data={"user_id": "u1", "session_id": "s1", "content": "I have been stressed about work lately."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-state-1",
@@ -360,7 +360,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         second_event_id = await self.store.add_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "I still feel anxious and under pressure."},
+                data={"user_id": "u1", "session_id": "s1", "content": "I still feel anxious and under pressure."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-state-2",
@@ -370,7 +370,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
         summary = await self.store.persist_state_change_insight(
             StateChangePacket(
-                entity_id="user:self",
+                entity_id="user:u1",
                 entity_type="user",
                 outcomes=[
                     {
@@ -417,7 +417,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         permanent_event_id = await self.store.add_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "This note should remain durable."},
+                data={"user_id": "u1", "session_id": "s1", "content": "This note should remain durable."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-gc-2",
@@ -505,7 +505,7 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         await self.bus.publish(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "I feel stressed at work."},
+                data={"user_id": "u1", "session_id": "s1", "content": "I feel stressed at work."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="corr-1",

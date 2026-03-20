@@ -42,9 +42,9 @@ def _init_event_store(db_path: Path) -> None:
 def _insert_event(db_path: Path, event_type: str, data: dict, timestamp: float) -> None:
     target_table = FACT_EVENTS_TABLE if event_type in {"UserMessage", "AIResponse"} else RUNTIME_OBSERVATIONS_TABLE
     if event_type == "UserMessage":
-        content = str(data.get("content") or data.get("message") or "")
+        content = str(data.get("content") or "")
     elif event_type == "AIResponse":
-        content = str(data.get("content") or data.get("response") or "")
+        content = str(data.get("content") or "")
     else:
         content = json.dumps(data, ensure_ascii=False)
     conn = sqlite3.connect(str(db_path))
@@ -90,31 +90,31 @@ def test_list_sessions_aggregates_and_sorts(tmp_path):
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "message": "hello from session one"},
+        {"user_id": "u1", "session_id": "s1", "content": "hello from session one"},
         1000,
     )
     _insert_event(
         service._l1_db_path,
         "AIResponse",
-        {"user_id": "u1", "session_id": "s1", "response": "response one"},
+        {"user_id": "u1", "session_id": "s1", "content": "response one"},
         1010,
     )
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s2", "message": "hello from session two"},
+        {"user_id": "u1", "session_id": "s2", "content": "hello from session two"},
         2000,
     )
     _insert_event(
         service._l1_db_path,
         "AIResponse",
-        {"user_id": "u1", "session_id": "s2", "response": "response two"},
+        {"user_id": "u1", "session_id": "s2", "content": "response two"},
         2010,
     )
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u2", "session_id": "s-other", "message": "ignore me"},
+        {"user_id": "u2", "session_id": "s-other", "content": "ignore me"},
         5000,
     )
 
@@ -138,7 +138,7 @@ def test_list_sessions_respects_limit(tmp_path):
             {
                 "user_id": "u1",
                 "session_id": f"s{index}",
-                "message": f"session {index}",
+                "content": f"session {index}",
             },
             1000 + index,
         )
@@ -153,7 +153,7 @@ def test_rename_session_persists_custom_title(tmp_path):
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "message": "原始标题"},
+        {"user_id": "u1", "session_id": "s1", "content": "原始标题"},
         1000,
     )
 
@@ -176,19 +176,19 @@ def test_delete_session_removes_events_and_rotates_current_session(tmp_path):
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "message": "保留会话"},
+        {"user_id": "u1", "session_id": "s1", "content": "保留会话"},
         1000,
     )
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s2", "message": "删除会话"},
+        {"user_id": "u1", "session_id": "s2", "content": "删除会话"},
         2000,
     )
     _insert_event(
         service._l1_db_path,
         "AIResponse",
-        {"user_id": "u1", "session_id": "s2", "response": "需要一起删掉"},
+        {"user_id": "u1", "session_id": "s2", "content": "需要一起删掉"},
         2010,
     )
 
@@ -283,7 +283,7 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "message": "start task", "turn_id": "turn_1"},
+        {"user_id": "u1", "session_id": "s1", "content": "start task", "turn_id": "turn_1"},
         1000,
     )
     _insert_event(
@@ -335,7 +335,7 @@ def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "message": "why", "turn_id": "turn_2"},
+        {"user_id": "u1", "session_id": "s1", "content": "why", "turn_id": "turn_2"},
         2000,
     )
     _insert_event(
@@ -355,7 +355,7 @@ def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
     _insert_event(
         service._l1_db_path,
         "AIResponse",
-        {"user_id": "u1", "session_id": "s1", "turn_id": "turn_2", "response": "answer"},
+        {"user_id": "u1", "session_id": "s1", "turn_id": "turn_2", "content": "answer"},
         2010,
     )
 
@@ -382,7 +382,7 @@ def test_trace_snapshot_prefers_normalized_span_tree_without_ai_response(tmp_pat
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "message": "scan auth flow", "turn_id": "turn_trace"},
+        {"user_id": "u1", "session_id": "s1", "content": "scan auth flow", "turn_id": "turn_trace"},
         3000,
     )
     _insert_event(
@@ -624,7 +624,7 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "message": "scan auth flow", "turn_id": "turn_retry"},
+        {"user_id": "u1", "session_id": "s1", "content": "scan auth flow", "turn_id": "turn_retry"},
         4000,
     )
     _insert_event(
@@ -670,7 +670,7 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
             "started_at_ms": 4000000,
             "ended_at_ms": 4000300,
             "duration_ms": 300,
-            "error": {"message": "rate limited"},
+            "error": {"content": "rate limited"},
             "tags": {
                 "user_id": "u1",
                 "session_id": "s1",
@@ -797,7 +797,7 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "message": "analyze repo", "turn_id": "turn_1"},
+        {"user_id": "u1", "session_id": "s1", "content": "analyze repo", "turn_id": "turn_1"},
         1000,
     )
     _insert_event(
@@ -823,7 +823,7 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     _insert_event(
         service._l1_db_path,
         "AIResponse",
-        {"user_id": "u1", "session_id": "s1", "turn_id": "turn_1", "response": "final answer"},
+        {"user_id": "u1", "session_id": "s1", "turn_id": "turn_1", "content": "final answer"},
         1030,
     )
 
@@ -875,7 +875,7 @@ def test_trace_summary_counts_planning_as_active_before_workers_exist(tmp_path):
     _insert_event(
         service._l1_db_path,
         "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "message": "plan this", "turn_id": "turn_plan"},
+        {"user_id": "u1", "session_id": "s1", "content": "plan this", "turn_id": "turn_plan"},
         1000,
     )
     _insert_event(

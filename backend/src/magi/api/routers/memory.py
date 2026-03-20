@@ -123,13 +123,6 @@ def _resolve_memory_integration():
         return None
 
 
-def _canonical_self_id(unified_memory: Any) -> str:
-    resolver = getattr(unified_memory, "identity_resolver", None)
-    if resolver is None:
-        return "user:self"
-    return str(getattr(resolver, "default_memory_owner_id", "user:self"))
-
-
 def _build_clear_result(count: int) -> Dict[str, Any]:
     return {
         "cleared": True,
@@ -237,8 +230,6 @@ async def get_l2_statistics():
     if not unified_memory or not unified_memory.l2:
         return {
             "is_running": False,
-            "canonical_self_id": "user:self",
-            "identity_link_count": 0,
             "relation_count": 0,
             "assertion_count": 0,
             "extract_enqueued": 0,
@@ -260,12 +251,9 @@ async def get_l2_statistics():
 
     relations = await unified_memory.l2.get_relationships(limit=10000)
     assertions = await unified_memory.l2.list_tom_assertions(limit=10000)
-    identity_links = await unified_memory.list_identity_links() if hasattr(unified_memory, "list_identity_links") else []
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     return {
         "is_running": bool(pipeline_stats.get("is_running", False)),
-        "canonical_self_id": _canonical_self_id(unified_memory),
-        "identity_link_count": len(identity_links),
         "relation_count": len(relations),
         "assertion_count": len(assertions),
         "extract_enqueued": int(pipeline_stats.get("extract_enqueued", 0)),
@@ -304,23 +292,6 @@ async def get_l2_pending():
         "is_running": bool(pipeline_stats.get("is_running", False)),
         **pending,
     }
-
-
-@memory_router.get("/identity/links")
-async def list_memory_identity_links():
-    """List runtime-to-memory identity mappings for debugging."""
-    unified_memory = _resolve_unified_memory()
-    if not unified_memory or not hasattr(unified_memory, "list_identity_links"):
-        return {
-            "canonical_self_id": "user:self",
-            "links": [],
-        }
-    return {
-        "canonical_self_id": _canonical_self_id(unified_memory),
-        "links": await unified_memory.list_identity_links(),
-    }
-
-
 @memory_router.get("/l2/relations")
 async def list_l2_relations(limit: int = Query(default=100, ge=1, le=500)):
     """List knowledge graph relations."""
@@ -588,11 +559,6 @@ async def get_memory_statistics():
         )
 
     stats: Dict[str, Any] = {}
-    identity_links = await unified_memory.list_identity_links() if hasattr(unified_memory, "list_identity_links") else []
-    stats["identity"] = {
-        "canonical_self_id": _canonical_self_id(unified_memory),
-        "identity_link_count": len(identity_links),
-    }
 
     # L0 statistics
     if unified_memory.l0:

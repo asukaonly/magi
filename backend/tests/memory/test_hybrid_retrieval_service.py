@@ -167,11 +167,11 @@ class TestServiceBasicFlow:
 class TestServiceLayerRouting:
     @pytest.mark.asyncio
     async def test_detail_mode_queries_l1(self):
-        l1 = _make_l1_store([{"event_id": "e1", "raw_content": "test", "timestamp": 1000.0}])
+        l1 = _make_l1_store([{"event_id": "e1", "content": "test", "timestamp": 1000.0}])
         mem = _make_memory(l1=l1)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         result = await svc.query(_make_request(query_mode="detail"))
-        # L1Handler uses keyword path which filters by raw_content tokens
+        # L1Handler uses keyword path which filters by content tokens
         # The mock query_events returns the event, and keyword matching should pass
         assert l1.bm25_search.called or l1.query_events.called
 
@@ -216,12 +216,12 @@ class TestServiceLayerRouting:
     @pytest.mark.asyncio
     async def test_graph_mode_returns_assertions(self):
         l2 = AsyncMock()
-        l2.get_tom_snapshot.return_value = {"entity_id": "user:self", "entity_type": "user"}
+        l2.get_tom_snapshot.return_value = {"entity_id": "user:u1", "entity_type": "user"}
         l2.get_relationships.return_value = []
         l2.list_tom_assertions.return_value = [
             {
                 "assertion_id": "assert-1",
-                "entity_id": "user:self",
+                "entity_id": "user:u1",
                 "entity_type": "user",
                 "trait_family": "preference_profile",
                 "trait_name": "dislike",
@@ -291,7 +291,7 @@ class TestServiceLayerRouting:
     async def test_graph_mode_can_query_incoming_relationships(self):
         l2 = AsyncMock()
         l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = [{"triple_id": "triple-in", "object_id": "user:self"}]
+        l2.get_relationships.return_value = [{"triple_id": "triple-in", "object_id": "user:u1"}]
         l2.list_tom_assertions.return_value = []
         mem = _make_memory(l2=l2)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
@@ -305,7 +305,7 @@ class TestServiceLayerRouting:
 
         assert len(result.l2_relationships) == 1
         _, kwargs = l2.get_relationships.call_args
-        assert kwargs["object_id"] == "user:self"
+        assert kwargs["object_id"] == "user:u1"
 
     @pytest.mark.asyncio
     async def test_graph_mode_filters_assertions_by_target_entity(self):
@@ -399,17 +399,27 @@ class TestServiceFallback:
             real_l1 = L1EventStore(db_path=db_path, vector_enabled=False)
             now = time.time()
             event = MemoryEvent(
-                event_id="e1", correlation_id="c1", parent_event_id=None,
-                timestamp=now, created_at=now, event_type="Test", source="test",
-                source_item_id=None, memory_domain=MemoryDomain.USER_AUTHORED,
-                ingest_target=IngestTarget.L1_ONLY, cognition_eligible=False,
-                tom_depth=TomDepth.NONE, retention_class=RetentionClass.COMPRESSIBLE,
-                session_id=None, user_id=None, runtime_user_id="test_user",
-                memory_owner_id="user:self", task_id=None, goal_id=None,
-                raw_content="something interesting here",
-                structured_payload="{}", metadata="{}",
-                importance_score=0.5, importance_t0_base=0.5,
-                importance_t1_score=None, importance_version=1, level=1,
+                event_id="e1",
+                correlation_id="c1",
+                timestamp=now,
+                created_at=now,
+                event_type="Test",
+                source="test",
+                source_item_id=None,
+                memory_domain=MemoryDomain.USER_AUTHORED,
+                ingest_target=IngestTarget.L1_ONLY,
+                cognition_eligible=False,
+                tom_depth=TomDepth.NONE,
+                retention_class=RetentionClass.COMPRESSIBLE,
+                session_id=None,
+                turn_id=None,
+                user_id=None,
+                task_id=None,
+                content="something interesting here",
+                author_type="user",
+                content_type="text",
+                importance_score=0.5,
+                level=1,
             )
             await real_l1.store(event)
 
@@ -441,7 +451,7 @@ class TestServiceTrace:
 
     @pytest.mark.asyncio
     async def test_trace_contains_primary_count(self):
-        l1 = _make_l1_store([{"event_id": "e1", "raw_content": "test", "timestamp": 1000.0}])
+        l1 = _make_l1_store([{"event_id": "e1", "content": "test", "timestamp": 1000.0}])
         mem = _make_memory(l1=l1)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         result = await svc.query(_make_request())

@@ -43,14 +43,14 @@ async def test_writer_maps_user_and_assistant_roles_into_ingest_events() -> None
     assert first_event.type == EventTypes.USER_MESSAGE
     assert first_event.data["user_id"] == user_record.namespace
     assert first_event.data["session_id"] == "session-1"
-    assert first_event.data["message"] == "hello"
-    assert first_event.metadata["turn_id"] == "turn-1"
+    assert first_event.data["content"] == "hello"
+    assert first_event.data["turn_id"] == "turn-1"
 
     assert second_event.type == EventTypes.AI_RESPONSE
     assert second_event.data["user_id"] == assistant_record.namespace
     assert second_event.data["session_id"] == "session-1"
-    assert second_event.data["response"] == "hi"
-    assert second_event.metadata["turn_id"] == "turn-2"
+    assert second_event.data["content"] == "hi"
+    assert second_event.data["turn_id"] == "turn-2"
 
 
 @pytest.mark.asyncio
@@ -72,5 +72,5 @@ async def test_writer_preserves_input_order_when_writing_multiple_records() -> N
 
     await writer.write_records(records)
 
-    written_turn_ids = [call.args[0].metadata["turn_id"] for call in unified_memory.ingest_event.await_args_list]
+    written_turn_ids = [call.args[0].data["turn_id"] for call in unified_memory.ingest_event.await_args_list]
     assert written_turn_ids == ["turn-1", "turn-2", "turn-3"]

@@ -52,7 +52,7 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
     chat_event = normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "message": "I want to switch jobs this year."},
+            data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-1",
@@ -290,7 +290,7 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
     chat_event = normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "message": "I want to switch jobs this year."},
+            data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-1",
@@ -301,7 +301,7 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
     ai_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
-            data={"user_id": "u1", "session_id": "s1", "message": "You should compare growth and salary tradeoffs."},
+            data={"user_id": "u1", "session_id": "s1", "content": "You should compare growth and salary tradeoffs."},
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-2",
@@ -355,7 +355,7 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, 
     chat_event = normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "message": "I want to switch jobs this year."},
+            data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-1",
@@ -366,7 +366,7 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, 
     ai_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
-            data={"user_id": "u1", "session_id": "s1", "message": "You should compare growth and salary tradeoffs."},
+            data={"user_id": "u1", "session_id": "s1", "content": "You should compare growth and salary tradeoffs."},
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-2",
@@ -411,7 +411,7 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
     chat_event = normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "message": "I want to switch jobs this year."},
+            data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-1",
@@ -422,7 +422,7 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
     ai_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
-            data={"user_id": "u1", "session_id": "s1", "message": "You should compare growth and salary tradeoffs."},
+            data={"user_id": "u1", "session_id": "s1", "content": "You should compare growth and salary tradeoffs."},
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-2",
@@ -475,7 +475,7 @@ async def test_generate_thematic_summary_groups_topic_events_and_links_sources(t
         normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "I want to switch jobs this year."},
+                data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
@@ -488,7 +488,7 @@ async def test_generate_thematic_summary_groups_topic_events_and_links_sources(t
         normalize_runtime_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
-                data={"user_id": "u1", "session_id": "s1", "message": "The job market looks stronger for remote roles."},
+                data={"user_id": "u1", "session_id": "s1", "content": "The job market looks stronger for remote roles."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
@@ -501,7 +501,7 @@ async def test_generate_thematic_summary_groups_topic_events_and_links_sources(t
         normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "I should finish my portfolio first."},
+                data={"user_id": "u1", "session_id": "s1", "content": "I should finish my portfolio first."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-3",
@@ -541,7 +541,7 @@ async def test_generate_thematic_summary_uses_llm_candidate_when_available(tmp_p
         normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "message": "I want to switch jobs this year."},
+                data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
@@ -554,7 +554,7 @@ async def test_generate_thematic_summary_uses_llm_candidate_when_available(tmp_p
         normalize_runtime_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
-                data={"user_id": "u1", "session_id": "s1", "message": "The job market looks stronger for remote roles."},
+                data={"user_id": "u1", "session_id": "s1", "content": "The job market looks stronger for remote roles."},
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-2",

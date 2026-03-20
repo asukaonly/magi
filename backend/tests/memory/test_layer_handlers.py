@@ -42,8 +42,8 @@ class TestL1Handler:
         s.bm25_search.return_value = [("e1", -1.0), ("e2", -0.5)]
         s._semantic_search_event_hits.return_value = []
         s.query_events.return_value = [
-            {"event_id": "e1", "raw_content": "hello world", "timestamp": 1000},
-            {"event_id": "e2", "raw_content": "world peace", "timestamp": 2000},
+            {"event_id": "e1", "content": "hello world", "timestamp": 1000},
+            {"event_id": "e2", "content": "world peace", "timestamp": 2000},
         ]
         return s
 
@@ -73,7 +73,7 @@ class TestL2Handler:
     async def test_entity_cards(self, store):
         handler = L2Handler(store)
         conds = L2Conditions(
-            entities=["alice"],
+            entities=["person:alice"],
             include_tom_snapshot=True,
             include_relationships=False,
         )
@@ -85,7 +85,7 @@ class TestL2Handler:
     async def test_relationships(self, store):
         handler = L2Handler(store)
         conds = L2Conditions(
-            entities=["alice"],
+            entities=["person:alice"],
             include_tom_snapshot=False,
             include_relationships=True,
         )
@@ -96,7 +96,7 @@ class TestL2Handler:
     async def test_both_snapshot_and_relationships(self, store):
         handler = L2Handler(store)
         conds = L2Conditions(
-            entities=["alice"],
+            entities=["person:alice"],
             include_tom_snapshot=True,
             include_relationships=True,
         )

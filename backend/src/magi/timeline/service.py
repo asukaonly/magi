@@ -32,7 +32,19 @@ class TimelineService:
         relation_candidates: Optional[list[dict]] = None,
         allowed_edge_whitelist: Optional[list[str]] = None,
     ) -> str:
-        await self._unified_memory.ingest_event(self._build_timeline_runtime_event(event))
+        runtime_event = self._build_timeline_runtime_event(event)
+        await self._unified_memory.ingest_event(
+            {
+                "id": event.event_id,
+                "type": runtime_event.type,
+                "timestamp": runtime_event.timestamp,
+                "source": runtime_event.source,
+                "level": runtime_event.level.value if hasattr(runtime_event.level, "value") else int(runtime_event.level),
+                "correlation_id": runtime_event.correlation_id,
+                "data": runtime_event.data,
+                "metadata": runtime_event.metadata,
+            }
+        )
         event.processing_status["stored"] = True
         if relation_candidates:
             persisted = await self._insight_pipeline.process_event(
@@ -194,10 +206,10 @@ class TimelineService:
             "occurred_at": occurred_at,
             "captured_at": float(event.get("created_at") or occurred_at),
             "title": str(timeline.get("title") or event.get("event_type") or "Memory Event"),
-            "summary": str(timeline.get("summary") or event.get("raw_content") or ""),
+            "summary": str(timeline.get("summary") or event.get("content") or ""),
             "retention_mode": str(timeline.get("retention_mode") or event.get("retention_class") or "compressible"),
             "raw_payload_ref": timeline.get("raw_payload_ref") or metadata.get("raw_payload_ref"),
-            "content_blocks": timeline.get("content_blocks") or [{"kind": "text", "value": str(event.get("raw_content") or "")}],
+            "content_blocks": timeline.get("content_blocks") or [{"kind": "text", "value": str(event.get("content") or "")}],
             "entities": timeline.get("entities") or [],
             "tags": timeline.get("tags") or [],
             "privacy_labels": timeline.get("privacy_labels") or [],

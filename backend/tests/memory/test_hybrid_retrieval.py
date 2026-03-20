@@ -20,7 +20,7 @@ async def test_detail_mode_prefers_l0_and_l1(tmp_path):
     await store.add_event(
         Event(
             type="WORKER_AGENT_PROGRESS",
-            data={"user_id": "u1", "session_id": "s1", "message": "thinking"},
+            data={"user_id": "u1", "session_id": "s1", "content": "thinking"},
             source="worker",
             level=EventLevel.INFO,
             correlation_id="corr-1",
@@ -29,7 +29,7 @@ async def test_detail_mode_prefers_l0_and_l1(tmp_path):
     await store.add_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "message": "I feel stressed about work."},
+            data={"user_id": "u1", "session_id": "s1", "content": "I feel stressed about work."},
             source="chat",
             level=EventLevel.INFO,
             correlation_id="corr-2",
@@ -70,7 +70,7 @@ async def test_summary_and_experience_modes_hit_l3_and_l4(tmp_path):
     await store.add_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "message": "I want to switch jobs this year."},
+            data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-1",

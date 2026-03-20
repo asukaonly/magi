@@ -15,18 +15,19 @@ class EvalMemoryWriter:
         self._memory = unified_memory
 
     async def write_record(self, record: EvalMemoryWriteRecord) -> dict[str, Any]:
-        event_type, payload_key = self._resolve_role_mapping(record.role)
+        event_type, author_type = self._resolve_role_mapping(record.role)
         payload = {
             "user_id": record.namespace,
             "session_id": record.session_id,
-            payload_key: record.content,
+            "turn_id": record.turn_id,
+            "content": record.content,
+            "author_type": author_type,
+            "content_type": "text",
             "runtime_namespace": "benchmark",
         }
         metadata = {
             "eval_namespace": record.namespace,
         }
-        if record.turn_id is not None:
-            metadata["turn_id"] = record.turn_id
         if record.metadata:
             metadata.update(record.metadata)
 
@@ -51,7 +52,7 @@ class EvalMemoryWriter:
     def _resolve_role_mapping(role: str) -> tuple[str, str]:
         normalized = str(role).strip().lower()
         if normalized == "user":
-            return EventTypes.USER_MESSAGE, "message"
+            return EventTypes.USER_MESSAGE, "user"
         if normalized == "assistant":
-            return EventTypes.AI_RESPONSE, "response"
+            return EventTypes.AI_RESPONSE, "assistant"
         raise ValueError(f"Unsupported eval replay role: {role}")

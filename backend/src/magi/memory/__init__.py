@@ -12,7 +12,6 @@ from typing import Any, Dict, Optional
 from ..events.events import Event, EventLevel, EventTypes
 from .embedding_service import MemoryEmbeddingService
 from .event_contracts import IngestTarget, MemoryEvent, normalize_runtime_event
-from .identity_resolver import IdentityResolver
 from .l0.working_memory import L0WorkingMemoryStore
 from .l1.event_store import L1EventStore
 from .l2.store import L2CognitionStore
@@ -70,7 +69,6 @@ class UnifiedMemoryStore:
         enable_l3_llm_summary: bool = True,
         temporal_l3_llm_timeout_seconds: float = 3.0,
         temporal_l3_llm_min_event_count: int = 2,
-        identity_resolver: IdentityResolver | None = None,
     ) -> None:
         from ..utils.runtime import get_runtime_paths
 
@@ -98,7 +96,6 @@ class UnifiedMemoryStore:
         self.l2_pipeline: Optional[L2Pipeline] = None
         self.l3: Optional[L3SummaryStore] = None
         self.l4: Optional[L4ProceduralMemoryStore] = None
-        self.identity_resolver = identity_resolver or IdentityResolver(db_path=shared_memory_db)
         self._contradiction_service = ContradictionInsightService()
         self._task_reflection_service = TaskReflectionService()
         self._state_change_service = StateChangeService()
@@ -160,7 +157,6 @@ class UnifiedMemoryStore:
             if store is None:
                 continue
             await store.initialize()
-        await self.identity_resolver.initialize()
         if self.l2_pipeline is not None:
             await self.l2_pipeline.start()
 
@@ -487,8 +483,6 @@ class UnifiedMemoryStore:
             if store is None or not hasattr(store, "shutdown"):
                 continue
             await store.shutdown()
-        await self.identity_resolver.shutdown()
-
     def get_l2_pipeline_stats(self) -> Dict[str, Any]:
         """Expose current background L2 pipeline counters."""
         if self.l2_pipeline is None:
@@ -547,7 +541,7 @@ class UnifiedMemoryStore:
         if isinstance(event, MemoryEvent):
             return event
         if isinstance(event, Event):
-            return normalize_runtime_event(event, identity_resolver=self.identity_resolver)
+            return normalize_runtime_event(event)
 
         payload = dict(event)
         raw_event = Event(
@@ -562,39 +556,7 @@ class UnifiedMemoryStore:
         return normalize_runtime_event(
             raw_event,
             event_id=payload.get("id") or payload.get("event_id"),
-            identity_resolver=self.identity_resolver,
         )
-
-    async def upsert_identity_link(
-        self,
-        *,
-        namespace: str,
-        runtime_user_id: str,
-        memory_owner_id: str,
-        link_type: str = "runtime_account",
-    ) -> None:
-        """Persist a runtime-to-memory identity link."""
-
-        await self.identity_resolver.upsert_identity_link(
-            namespace=namespace,
-            runtime_user_id=runtime_user_id,
-            memory_owner_id=memory_owner_id,
-            link_type=link_type,
-        )
-
-    async def list_identity_links(self) -> list[dict[str, str]]:
-        """Return runtime-to-memory identity links in a JSON-friendly shape."""
-
-        links = await self.identity_resolver.list_identity_links()
-        return [
-            {
-                "namespace": link.namespace,
-                "runtime_user_id": link.runtime_user_id,
-                "memory_owner_id": link.memory_owner_id,
-                "link_type": link.link_type,
-            }
-            for link in links
-        ]
 
     def _period_seconds(self, period_type: str) -> int:
         return {

@@ -6,7 +6,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 from ..events.events import Event, EventTypes
 
@@ -177,12 +177,10 @@ def normalize_runtime_event(
     *,
     event_id: Optional[str] = None,
     parent_event_id: Optional[str] = None,
-    identity_resolver: Any = None,
 ) -> MemoryEvent:
     """Normalize runtime events into the canonical memory contract."""
 
     del parent_event_id
-    del identity_resolver
 
     now = time.time()
     payload = event.data if isinstance(event.data, dict) else {"value": event.data}
