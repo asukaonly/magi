@@ -434,6 +434,85 @@ def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
     assert log_calls[3][1]["answer"] == "Sushi"
 
 
+def test_memory_eval_query_api_uses_evidence_bundles_for_answer_synthesis(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-issue",
+                        "session_id": "sess-car",
+                        "content": "The GPS issue was resolved quickly.",
+                        "score": 0.5,
+                        "turn_id": "sess-car:turn-5",
+                    }
+                ],
+                l1_evidence_bundles=[
+                    {
+                        "session_id": "sess-car",
+                        "hit_event_ids": ["evt-issue"],
+                        "hit_turn_ids": ["sess-car:turn-5"],
+                        "neighbor_expansion_applied": True,
+                        "events": [
+                            {
+                                "event_id": "evt-service",
+                                "turn_id": "sess-car:turn-1",
+                                "timestamp": 1.0,
+                                "author_type": "user",
+                                "content": "I got my new car serviced for the first time on March 15th.",
+                            },
+                            {
+                                "event_id": "evt-issue",
+                                "turn_id": "sess-car:turn-3",
+                                "timestamp": 3.0,
+                                "author_type": "user",
+                                "content": "After the first service, the GPS system stopped working correctly.",
+                            },
+                        ],
+                    }
+                ],
+                trace={"intent_source": "rule"},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            _ = (max_tokens, temperature, kwargs)
+            prompt = messages[-1]["content"]
+            assert "Session Evidence Bundles" in prompt
+            assert "After the first service, the GPS system stopped working correctly." in prompt
+            return "GPS system not functioning correctly"
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "What was the first issue I had with my new car after its first service?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "GPS system not functioning correctly"
+    assert "Session Evidence Bundles" in body["answer_trace"]["prompt"]
+
+
 def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

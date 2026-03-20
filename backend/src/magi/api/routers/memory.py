@@ -158,6 +158,7 @@ async def _synthesize_eval_answer(
     *,
     question: str,
     hits: list[dict[str, Any]],
+    evidence_bundles: list[dict[str, Any]] | None = None,
     show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     llm_pool = _resolve_scenario_llm_pool()
@@ -178,10 +179,28 @@ async def _synthesize_eval_answer(
         evidence_blocks.append(f"[{index}] session={session_id} turn={turn_id}\n{content}")
 
     evidence_text = "\n\n".join(evidence_blocks) if evidence_blocks else "(no evidence retrieved)"
+    bundle_blocks: list[str] = []
+    for bundle_index, bundle in enumerate(evidence_bundles or [], start=1):
+        session_id = str(bundle.get("session_id") or "").strip() or "unknown-session"
+        events = list(bundle.get("events") or [])
+        lines: list[str] = [f"[bundle {bundle_index}] session={session_id}"]
+        for event in events:
+            turn_id = str(event.get("turn_id") or "").strip() or "unknown-turn"
+            timestamp = event.get("timestamp")
+            author_type = str(event.get("author_type") or "unknown").strip() or "unknown"
+            content = str(event.get("content") or "").strip()
+            if not content:
+                continue
+            lines.append(
+                f"- t={timestamp} role={author_type} turn={turn_id}: {content}"
+            )
+        bundle_blocks.append("\n".join(lines))
+    bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
     logger.info(
         "Eval query answer synthesis started",
         question=question,
         evidence_hit_count=len(hits),
+        evidence_bundle_count=len(evidence_bundles or []),
         evidence_preview=evidence_text[:800],
     )
     prompt = (
@@ -189,6 +208,7 @@ async def _synthesize_eval_answer(
         "Return a concise final answer to the question.\n"
         "If the evidence is insufficient, answer exactly: unknown\n\n"
         f"Question:\n{question}\n\n"
+        f"Session Evidence Bundles:\n{bundle_text}\n\n"
         f"Retrieved Evidence:\n{evidence_text}\n"
     )
     answer = await adapter.chat(
@@ -207,6 +227,7 @@ async def _synthesize_eval_answer(
         "answer_source": "llm",
         "llm_scenario": LLMScenario.CORE.value,
         "evidence_hit_count": len(hits),
+        "evidence_bundle_count": len(evidence_bundles or []),
     }
     if show_prompt:
         answer_trace["prompt"] = prompt
@@ -617,6 +638,7 @@ async def query_eval_memory(body: EvalQueryRequest):
         answer, answer_trace = await _synthesize_eval_answer(
             question=body.query,
             hits=[asdict(hit) for hit in result.hits],
+            evidence_bundles=list(result.evidence_bundles),
             show_prompt=body.show_prompt,
         )
         result.answer = answer
