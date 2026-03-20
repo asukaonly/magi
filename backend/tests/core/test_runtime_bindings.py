@@ -42,3 +42,22 @@ def test_require_unified_memory_binding_raises_when_unbound() -> None:
 
     with pytest.raises(RuntimeError, match="unified_memory"):
         require_unified_memory()
+
+
+def test_require_hybrid_retrieval_service_binding_raises_when_unbound() -> None:
+    from magi.core.runtime_bindings import require_hybrid_retrieval_service
+
+    with pytest.raises(RuntimeError, match="hybrid_retrieval_service"):
+        require_hybrid_retrieval_service()
+
+
+def test_require_hybrid_retrieval_service_binding_returns_bound_object() -> None:
+    from magi.core.runtime_bindings import require_hybrid_retrieval_service
+
+    container = get_container()
+    token = object()
+    container.hybrid_retrieval_service.override(providers.Object(token))
+    try:
+        assert require_hybrid_retrieval_service() is token
+    finally:
+        container.hybrid_retrieval_service.reset_override()

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from ..events.sqlite_backend import SQLiteMessageBackend
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
+    from ..memory.hybrid_retrieval import HybridRetrievalService
     from ..plugins import ActionRegistry, PluginManager, SensorRegistry
     from ..personality.self_memory import SelfMemory
     from ..personality.other_memory import OtherMemory
@@ -88,6 +89,7 @@ class MemoryBootstrapState:
 
     unified_memory: UnifiedMemoryStore | None = None
     memory_integration: MemoryIntegrationModule | None = None
+    hybrid_retrieval_service: HybridRetrievalService | None = None
 
 
 @dataclass

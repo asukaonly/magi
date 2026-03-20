@@ -36,6 +36,11 @@ def require_unified_memory():
     return _require_binding("unified_memory")
 
 
+def require_hybrid_retrieval_service():
+    """Return the active hybrid retrieval service binding."""
+    return _require_binding("hybrid_retrieval_service")
+
+
 def require_scenario_llm_pool():
     """Return the active scenario LLM pool binding."""
     return _require_binding("scenario_llm_pool")

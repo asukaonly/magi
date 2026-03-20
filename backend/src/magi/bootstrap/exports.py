@@ -35,6 +35,10 @@ class RuntimeExportsModule(LifecycleModule):
         agent_runtime = require_initialized(self._context.agent_runtime.agent_runtime, "agent runtime")
         memory_integration = require_initialized(self._context.memory.memory_integration, "memory integration")
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        hybrid_retrieval_service = require_initialized(
+            self._context.memory.hybrid_retrieval_service,
+            "hybrid retrieval service",
+        )
         other_memory = require_initialized(self._context.personality.other_memory, "other memory")
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
         sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
@@ -46,6 +50,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.agent_runtime.override(providers.Object(agent_runtime))
         container.memory_integration.override(providers.Object(memory_integration))
         container.unified_memory.override(providers.Object(unified_memory))
+        container.hybrid_retrieval_service.override(providers.Object(hybrid_retrieval_service))
         container.other_memory.override(providers.Object(other_memory))
         container.plugin_manager.override(providers.Object(plugin_manager))
         container.sensor_registry.override(providers.Object(sensor_registry))
@@ -81,6 +86,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.agent_runtime.reset_override()
         container.memory_integration.reset_override()
         container.unified_memory.reset_override()
+        container.hybrid_retrieval_service.reset_override()
         container.scheduler_service.reset_override()
         container.timeline_scheduler_contrib.reset_override()
         container.scenario_llm_pool.reset_override()

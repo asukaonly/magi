@@ -25,6 +25,7 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
     context.agent_runtime.agent_runtime = object()
     context.memory.memory_integration = object()
     context.memory.unified_memory = object()
+    context.memory.hybrid_retrieval_service = object()
     context.personality.other_memory = object()
     context.plugins.plugin_manager = object()
     context.plugins.sensor_registry = object()
@@ -33,6 +34,7 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
 
     container = get_container()
     container.runtime_trace_store.reset_override()
+    container.hybrid_retrieval_service.reset_override()
 
     module = RuntimeExportsModule(context)
     await module.init()
@@ -40,5 +42,8 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
     try:
         assert container.runtime_trace_store() is context.runtime_trace.store
         assert container.runtime_trace_store.overridden
+        assert container.hybrid_retrieval_service() is context.memory.hybrid_retrieval_service
+        assert container.hybrid_retrieval_service.overridden
     finally:
         container.runtime_trace_store.reset_override()
+        container.hybrid_retrieval_service.reset_override()

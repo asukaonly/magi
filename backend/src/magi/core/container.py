@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from ..llm.scenario_pool import ScenarioLLMPool
     from ..memory.integration import MemoryIntegrationModule
     from ..memory import UnifiedMemoryStore
+    from ..memory.hybrid_retrieval import HybridRetrievalService
     from ..scheduler.service import SchedulerService
     from ..awareness.sensors import UserMessageSensor
     from ..api.services import ChatReadService
@@ -61,6 +62,7 @@ class Container(containers.DeclarativeContainer):
     agent_runtime: providers.Singleton[AgentRuntime] = providers.Singleton(object)
     memory_integration: providers.Singleton[MemoryIntegrationModule] = providers.Singleton(object)
     unified_memory: providers.Singleton[UnifiedMemoryStore] = providers.Singleton(object)
+    hybrid_retrieval_service: providers.Singleton[HybridRetrievalService] = providers.Singleton(object)
     scheduler_service: providers.Singleton[SchedulerService] = providers.Singleton(object)
     timeline_scheduler_contrib: providers.Singleton[TimelineSchedulerContrib] = providers.Singleton(object)
     scenario_llm_pool: providers.Singleton[ScenarioLLMPool] = providers.Singleton(object)

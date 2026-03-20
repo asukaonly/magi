@@ -8,8 +8,11 @@ from ..core.logger import get_logger
 from ..llm.usage_events import LLMUsageEventPublisher
 from ..llm import get_llm_usage_store
 from ..config.models import EmbeddingBackend
+from ..config.models import LLMScenario
+from ..llm.provider_bridge import LLMProviderBridge
 from . import UnifiedMemoryStore
 from .embedding_service import MemoryEmbeddingService
+from .hybrid_retrieval import HybridRetrievalService
 from .integration import MemoryIntegrationConfig, MemoryIntegrationModule
 
 logger = get_logger(__name__)
@@ -71,6 +74,14 @@ class MemoryStoreModule(LifecycleModule):
         await self._context.memory.unified_memory.initialize()
         logger.info("UnifiedMemoryStore initialized (L0-L4)")
 
+        self._context.memory.hybrid_retrieval_service = HybridRetrievalService(
+            self._context.memory.unified_memory,
+            llm_provider_bridge=LLMProviderBridge(
+                scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
+            ),
+        )
+        logger.info("HybridRetrievalService initialized")
+
         memory_integration_config = MemoryIntegrationConfig(
             enable_l0=config.agent.memory.enable_l0,
             enable_l1=config.agent.memory.enable_l1,
@@ -103,3 +114,4 @@ class MemoryStoreModule(LifecycleModule):
             self._context.llm.llm_usage_event_publisher = None
 
         self._context.memory.unified_memory = None
+        self._context.memory.hybrid_retrieval_service = None
