@@ -112,6 +112,11 @@ class RuntimePaths:
         return self.memories_dir / "l1_events.db"
 
     @property
+    def runtime_trace_db_path(self) -> Path:
+        """Runtime trace database path."""
+        return self.data_dir / "runtime_trace.db"
+
+    @property
     def llm_usage_db_path(self) -> Path:
         """LLM usage statistics database path."""
         return self.data_dir / "llm_usage.db"
