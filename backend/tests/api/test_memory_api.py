@@ -337,6 +337,59 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
     assert body["trace"]["intent_source"] == "rule"
 
 
+def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-1",
+                        "session_id": "sess-2",
+                        "content": "Actually sushi is my favorite.",
+                        "score": 0.99,
+                        "turn_id": "sess-2:turn-1",
+                    }
+                ],
+                trace={"intent_source": "rule"},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            _ = (max_tokens, temperature, kwargs)
+            assert "What food do I prefer?" in messages[-1]["content"]
+            assert "Actually sushi is my favorite." in messages[-1]["content"]
+            return "Sushi"
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "What food do I prefer?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "Sushi"
+    assert body["answer_trace"]["answer_source"] == "llm"
+
+
 def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

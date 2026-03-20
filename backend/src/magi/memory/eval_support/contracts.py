@@ -28,6 +28,7 @@ class EvalMemoryQuery:
     query_timestamp: float | None = None
     top_k: int = 10
     mode: str = "auto"
+    answer_with_llm: bool = False
 
 
 @dataclass(slots=True)
@@ -48,6 +49,8 @@ class EvalMemoryQueryResult:
 
     hits: list[EvalMemoryHit] = field(default_factory=list)
     trace: dict[str, Any] = field(default_factory=dict)
+    answer: str | None = None
+    answer_trace: dict[str, Any] = field(default_factory=dict)
     retrieved_session_ids: list[str] = field(init=False)
     retrieved_turn_ids: list[str] = field(init=False)
     retrieved_event_ids: list[str] = field(init=False)

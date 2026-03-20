@@ -41,6 +41,8 @@ class BackendEvalService:
         return EvalMemoryQueryResult(
             hits=hits,
             trace=dict(response.get("trace") or {}),
+            answer=_normalize_optional_text(response.get("answer")),
+            answer_trace=dict(response.get("answer_trace") or {}),
         )
 
     async def finalize_replay(self) -> dict[str, Any]:

@@ -50,6 +50,7 @@ def test_rerun_query_and_score_executes_query_then_official_eval(monkeypatch, tm
         dataset_path=tmp_path / "oracle.json",
         output_root=output_root,
         run_id=run_id,
+        answer_with_llm=True,
         query_runner=fake_query,
         official_eval_runner=fake_eval,
         longmemeval_root=tmp_path / "LongMemEval",
@@ -57,6 +58,7 @@ def test_rerun_query_and_score_executes_query_then_official_eval(monkeypatch, tm
 
     assert [name for name, _ in calls] == ["query", "eval"]
     assert calls[0][1]["backend_url"] == DEFAULT_BACKEND_URL
+    assert calls[0][1]["answer_with_llm"] is True
     assert calls[1][1]["run_id"] == run_id
     assert summary["run_id"] == run_id
     assert summary["run_dir"] == str(run_dir)

@@ -74,6 +74,8 @@ def test_backend_client_restores_query_results_from_eval_endpoint() -> None:
                     "metadata": {"source_dataset": "longmemeval"},
                 }
             ],
+            "answer": "Sushi",
+            "answer_trace": {"answer_source": "llm"},
             "trace": {"intent_source": "rule"},
             "retrieved_session_ids": ["sess-2"],
             "retrieved_turn_ids": ["sess-2:turn-1"],
@@ -93,6 +95,8 @@ def test_backend_client_restores_query_results_from_eval_endpoint() -> None:
 
     assert result.retrieved_session_ids == ["sess-2"]
     assert result.retrieved_turn_ids == ["sess-2:turn-1"]
+    assert result.answer == "Sushi"
+    assert result.answer_trace["answer_source"] == "llm"
     assert result.trace["intent_source"] == "rule"
 
 

@@ -98,6 +98,12 @@ Expected output files under `benchmark/outputs/longmemeval/<run-id>/`:
 - `summary.json`
 - per-question console progress lines for query execution
 
+If you want the backend LLM to synthesize final answers from retrieved evidence, add:
+
+```bash
+  --answer-with-llm
+```
+
 ## 7. Inspect the Results
 
 Quick summary:
@@ -151,6 +157,12 @@ This command:
 - reruns `query_dataset.py`
 - reruns official QA evaluation when `OPENAI_API_KEY` is set
 - skips official evaluation with a clear status when `OPENAI_API_KEY` is missing
+
+To enable retrieval + answer-model mode on reruns, add:
+
+```bash
+  --answer-with-llm
+```
 
 ## 9. Optional: Run a Small Smoke Sample First
 

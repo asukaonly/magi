@@ -6,7 +6,7 @@ import argparse
 import asyncio
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Protocol, Sequence
 
@@ -63,6 +63,7 @@ async def query_longmemeval_rows(
     output_root: str | Path,
     benchmark_name: str = "longmemeval",
     progress_reporter: Callable[[QueryProgress], None] | None = None,
+    answer_with_llm: bool = False,
 ) -> LongMemEvalQueryArtifacts:
     output_dir = build_run_output_dir(
         root_dir=output_root,
@@ -81,7 +82,9 @@ async def query_longmemeval_rows(
             question_id=question_id,
         )
         adapted = adapt_longmemeval_entry(row, namespace=namespace)
-        query_result = await eval_service.query_memory(adapted.query)
+        query_result = await eval_service.query_memory(
+            replace(adapted.query, answer_with_llm=answer_with_llm)
+        )
         hit_count = len(query_result.hits)
         total_hit_count += hit_count
         if progress_reporter is not None:
@@ -95,7 +98,7 @@ async def query_longmemeval_rows(
                     total_hit_count=total_hit_count,
                 )
             )
-        hypothesis = synthesize_hypothesis_from_hits(hits=query_result.hits)
+        hypothesis = query_result.answer or synthesize_hypothesis_from_hits(hits=query_result.hits)
         traced_predictions.append(
             {
                 "question_id": adapted.question_id,
@@ -108,6 +111,7 @@ async def query_longmemeval_rows(
                 "retrieved_turn_ids": query_result.retrieved_turn_ids,
                 "retrieved_event_ids": query_result.retrieved_event_ids,
                 "trace": query_result.trace,
+                "answer_trace": query_result.answer_trace,
                 "metadata": adapted.metadata,
             }
         )
@@ -148,6 +152,7 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalQueryArtifacts:
             run_id=args.run_id,
             output_root=args.output_root,
             progress_reporter=print_query_progress,
+            answer_with_llm=args.answer_with_llm,
         )
 
     output_dir = build_run_output_dir(
@@ -163,6 +168,7 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalQueryArtifacts:
             run_id=args.run_id,
             output_root=args.output_root,
             progress_reporter=print_query_progress,
+            answer_with_llm=args.answer_with_llm,
         )
     finally:
         await runtime.shutdown()
@@ -175,6 +181,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--run-id", default="smoke", help="Logical run identifier.")
     parser.add_argument("--limit", type=int, default=None, help="Optional sample limit for quick runs.")
     parser.add_argument("--backend-url", default=None, help="Optional Magi backend base URL for full-memory eval.")
+    parser.add_argument(
+        "--answer-with-llm",
+        action="store_true",
+        help="Use the backend LLM to synthesize a final answer from retrieved hits.",
+    )
     return parser.parse_args(argv)
 
 

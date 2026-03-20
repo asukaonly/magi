@@ -9,10 +9,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
 from ..services import get_chat_read_service
+from ...config.models import LLMScenario
 from ...core.logger import get_logger
 from ...core.runtime_bindings import (
     require_hybrid_retrieval_service,
     require_memory_integration,
+    require_scenario_llm_pool,
     require_unified_memory,
 )
 from ...memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
@@ -76,6 +78,7 @@ class EvalQueryRequest(BaseModel):
     query_timestamp: Optional[float] = Field(default=None, description="Optional query timestamp")
     top_k: int = Field(default=10, ge=1, le=200, description="Top-k retrieval limit")
     mode: str = Field(default="auto", description="Retrieval mode hint")
+    answer_with_llm: bool = Field(default=False, description="Whether to synthesize a final answer with the runtime LLM")
 
 
 class EvalFinalizeReplayRequest(BaseModel):
@@ -135,10 +138,60 @@ def _resolve_hybrid_retrieval_service():
         return None
 
 
+def _resolve_scenario_llm_pool():
+    try:
+        return require_scenario_llm_pool()
+    except RuntimeError:
+        return None
+
+
 def _build_clear_result(count: int) -> Dict[str, Any]:
     return {
         "cleared": True,
         "count": int(count),
+    }
+
+
+async def _synthesize_eval_answer(
+    *,
+    question: str,
+    hits: list[dict[str, Any]],
+) -> tuple[str, dict[str, Any]]:
+    llm_pool = _resolve_scenario_llm_pool()
+    if llm_pool is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Scenario LLM pool is not initialized",
+        )
+
+    adapter = llm_pool.get(LLMScenario.CORE)
+    evidence_blocks: list[str] = []
+    for index, hit in enumerate(hits, start=1):
+        content = str(hit.get("content") or "").strip()
+        if not content:
+            continue
+        session_id = str(hit.get("session_id") or "").strip() or "unknown-session"
+        turn_id = str(hit.get("turn_id") or "").strip() or "unknown-turn"
+        evidence_blocks.append(f"[{index}] session={session_id} turn={turn_id}\n{content}")
+
+    evidence_text = "\n\n".join(evidence_blocks) if evidence_blocks else "(no evidence retrieved)"
+    prompt = (
+        "You are answering a benchmark question using retrieved memory evidence only.\n"
+        "Return a concise final answer to the question.\n"
+        "If the evidence is insufficient, answer exactly: unknown\n\n"
+        f"Question:\n{question}\n\n"
+        f"Retrieved Evidence:\n{evidence_text}\n"
+    )
+    answer = await adapter.chat(
+        [{"role": "user", "content": prompt}],
+        max_tokens=128,
+        temperature=0.0,
+    )
+    normalized_answer = str(answer or "").strip() or "unknown"
+    return normalized_answer, {
+        "answer_source": "llm",
+        "llm_scenario": LLMScenario.CORE.value,
+        "evidence_hit_count": len(hits),
     }
 
 
@@ -462,8 +515,16 @@ async def query_eval_memory(body: EvalQueryRequest):
             query_timestamp=body.query_timestamp,
             top_k=body.top_k,
             mode=body.mode,
+            answer_with_llm=body.answer_with_llm,
         )
     )
+    if body.answer_with_llm:
+        answer, answer_trace = await _synthesize_eval_answer(
+            question=body.query,
+            hits=[asdict(hit) for hit in result.hits],
+        )
+        result.answer = answer
+        result.answer_trace = answer_trace
     return asdict(result)
 
 

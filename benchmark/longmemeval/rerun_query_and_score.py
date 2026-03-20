@@ -24,6 +24,7 @@ def run_query_and_score_pipeline(
     dataset_path: str | Path,
     output_root: str | Path,
     run_id: str,
+    answer_with_llm: bool = False,
     query_runner: Callable[..., Any] | None = None,
     official_eval_runner: Callable[..., Any] | None = None,
     longmemeval_root: str | Path | None = None,
@@ -45,6 +46,7 @@ def run_query_and_score_pipeline(
         output_root=output,
         run_id=run_id,
         backend_url=DEFAULT_BACKEND_URL,
+        answer_with_llm=answer_with_llm,
     )
 
     official_artifacts = None
@@ -84,6 +86,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset", required=True, help="Path to the LongMemEval dataset JSON file.")
     parser.add_argument("--output-root", required=True, help="Directory where benchmark outputs are stored.")
     parser.add_argument("--run-id", required=True, help="Existing run identifier used during replay.")
+    parser.add_argument(
+        "--answer-with-llm",
+        action="store_true",
+        help="Use the backend LLM to synthesize final answers from retrieved hits.",
+    )
     return parser.parse_args(argv)
 
 
@@ -93,24 +100,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         dataset_path=args.dataset,
         output_root=args.output_root,
         run_id=args.run_id,
+        answer_with_llm=args.answer_with_llm,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 
 
-def _invoke_query(*, dataset_path: Path, output_root: Path, run_id: str, backend_url: str) -> None:
-    query_main(
-        [
-            "--dataset",
-            str(dataset_path),
-            "--output-root",
-            str(output_root),
-            "--run-id",
-            run_id,
-            "--backend-url",
-            backend_url,
-        ]
-    )
+def _invoke_query(
+    *,
+    dataset_path: Path,
+    output_root: Path,
+    run_id: str,
+    backend_url: str,
+    answer_with_llm: bool,
+) -> None:
+    args = [
+        "--dataset",
+        str(dataset_path),
+        "--output-root",
+        str(output_root),
+        "--run-id",
+        run_id,
+        "--backend-url",
+        backend_url,
+    ]
+    if answer_with_llm:
+        args.append("--answer-with-llm")
+    query_main(args)
 
 
 if __name__ == "__main__":

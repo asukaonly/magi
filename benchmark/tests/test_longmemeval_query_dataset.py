@@ -18,8 +18,10 @@ class FakeQueryService:
 
     def __post_init__(self) -> None:
         self.query_namespaces: list[str] = []
+        self.queries: list[object] = []
 
     async def query_memory(self, query):
+        self.queries.append(query)
         self.query_namespaces.append(query.namespace)
         return self.results_by_namespace[query.namespace]
 
@@ -120,3 +122,43 @@ def test_query_script_marks_unknown_when_memory_returns_no_hits(tmp_path) -> Non
     assert read_jsonl(artifacts.predictions_path) == [
         {"question_id": "q-2_abs", "hypothesis": "unknown"}
     ]
+
+
+def test_query_script_prefers_llm_answer_when_present(tmp_path) -> None:
+    namespace = "benchmark/longmemeval/run-1/q-3"
+    service = FakeQueryService(
+        results_by_namespace={
+            namespace: EvalMemoryQueryResult(
+                hits=[
+                    EvalMemoryHit(
+                        event_id="evt-1",
+                        session_id="sess-2",
+                        turn_id="sess-2:turn-1",
+                        score=0.99,
+                        content="Actually sushi is my favorite.",
+                    )
+                ],
+                trace={"intent_source": "rule"},
+                answer="Sushi",
+                answer_trace={"answer_source": "llm"},
+            )
+        }
+    )
+
+    artifacts = asyncio.run(
+        query_longmemeval_rows(
+            rows=[_build_sample_row(question_id="q-3")],
+            eval_service=service,
+            run_id="run-1",
+            output_root=tmp_path,
+            answer_with_llm=True,
+        )
+    )
+
+    assert read_jsonl(artifacts.predictions_path) == [
+        {"question_id": "q-3", "hypothesis": "Sushi"}
+    ]
+    assert service.queries[0].answer_with_llm is True
+    traced = read_jsonl(artifacts.predictions_with_trace_path)[0]
+    assert traced["hypothesis"] == "Sushi"
+    assert traced["answer_trace"]["answer_source"] == "llm"
