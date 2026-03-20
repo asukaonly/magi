@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -26,6 +27,105 @@ RUNTIME_TRACE_EVENT_TYPES = (
     "TOOL_INTERACTION",
     "TOOL_INVOKED",
 )
+
+
+@dataclass(slots=True)
+class ChatSessionSummary:
+    """Typed session summary returned by the chat read model."""
+
+    session_id: str
+    title: str
+    last_message_preview: str
+    last_user_message_preview: str
+    title_overridden: bool
+    last_timestamp: int
+    message_count: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "title": self.title,
+            "last_message_preview": self.last_message_preview,
+            "last_user_message_preview": self.last_user_message_preview,
+            "title_overridden": self.title_overridden,
+            "last_timestamp": self.last_timestamp,
+            "message_count": self.message_count,
+        }
+
+
+@dataclass(slots=True)
+class ChatSessionRenameResult:
+    """Typed rename result for session title updates."""
+
+    session_id: str
+    title: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "session_id": self.session_id,
+            "title": self.title,
+        }
+
+
+@dataclass(slots=True)
+class ChatDisplayMessage:
+    """Typed read model for chat history and display timeline messages."""
+
+    role: str
+    content: str
+    timestamp: int
+    kind: str
+    turn_id: str | None = None
+    trace_summary: dict[str, Any] | None = None
+    trace_available: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "role": self.role,
+            "content": self.content,
+            "timestamp": self.timestamp,
+            "turn_id": self.turn_id,
+            "kind": self.kind,
+            "trace_summary": self.trace_summary,
+            "trace_available": self.trace_available,
+        }
+
+    def to_prompt_message(self) -> dict[str, str]:
+        return {
+            "role": self.role,
+            "content": self.content,
+        }
+
+
+@dataclass(slots=True)
+class _SessionAccumulator:
+    """Mutable accumulator used while folding session rows."""
+
+    session_id: str
+    title_candidate: str = ""
+    last_message_preview: str = ""
+    last_user_message_preview: str = ""
+    last_timestamp: int = 0
+    last_user_timestamp: int = 0
+    message_count: int = 0
+
+    def to_summary(self, *, title_override: str | None = None) -> ChatSessionSummary:
+        resolved_title = (
+            str(title_override or "").strip()
+            or self.title_candidate
+            or self.last_user_message_preview
+            or self.last_message_preview
+            or "New Chat"
+        )
+        return ChatSessionSummary(
+            session_id=self.session_id,
+            title=resolved_title,
+            last_message_preview=self.last_message_preview,
+            last_user_message_preview=self.last_user_message_preview,
+            title_overridden=bool(str(title_override or "").strip()),
+            last_timestamp=self.last_timestamp,
+            message_count=self.message_count,
+        )
 
 
 class ChatReadService:
@@ -75,10 +175,10 @@ class ChatReadService:
         store = get_orchestration_store()
         return store.get_worker_result_sync(worker_id)
 
-    def list_sessions(self, user_id: str, limit: int = 30) -> list[dict[str, Any]]:
+    def list_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
         """List recent chat sessions for a user."""
         safe_limit = max(1, min(limit, 200))
-        sessions: dict[str, dict[str, Any]] = {}
+        sessions: dict[str, _SessionAccumulator] = {}
         metadata_by_user = self._load_session_metadata().get(user_id, {})
 
         if self._l1_db_path.exists():
@@ -105,77 +205,47 @@ class ChatReadService:
                     continue
                 if not text:
                     continue
-                session = sessions.setdefault(
-                    session_id,
-                    {
-                        "session_id": session_id,
-                        "title_candidate": "",
-                        "last_message_preview": "",
-                        "last_user_message_preview": "",
-                        "last_timestamp": 0,
-                        "last_user_timestamp": 0,
-                        "message_count": 0,
-                    },
-                )
-                session["message_count"] += 1
-                if timestamp >= int(session["last_timestamp"]):
-                    session["last_timestamp"] = timestamp
-                    session["last_message_preview"] = text[:120]
+                session = sessions.setdefault(session_id, _SessionAccumulator(session_id=session_id))
+                session.message_count += 1
+                if timestamp >= session.last_timestamp:
+                    session.last_timestamp = timestamp
+                    session.last_message_preview = text[:120]
                 if event_type in USER_EVENT_TYPES:
-                    if timestamp >= int(session["last_user_timestamp"]):
-                        session["last_user_timestamp"] = timestamp
-                        session["last_user_message_preview"] = text[:120]
-                    session["title_candidate"] = text[:80]
+                    if timestamp >= session.last_user_timestamp:
+                        session.last_user_timestamp = timestamp
+                        session.last_user_message_preview = text[:120]
+                    session.title_candidate = text[:80]
 
         ordered = sorted(
             sessions.values(),
-            key=lambda item: int(item.get("last_timestamp", 0)),
+            key=lambda item: item.last_timestamp,
             reverse=True,
         )[:safe_limit]
 
         result = [
-            {
-                "session_id": str(item["session_id"]),
-                "title": str(
-                    metadata_by_user.get(str(item["session_id"]), {}).get("title")
-                    or item.get("title_candidate")
-                    or item.get("last_user_message_preview")
-                    or item.get("last_message_preview")
-                    or "New Chat"
-                ),
-                "last_message_preview": str(item.get("last_message_preview") or ""),
-                "last_user_message_preview": str(item.get("last_user_message_preview") or ""),
-                "title_overridden": bool(
-                    metadata_by_user.get(str(item["session_id"]), {}).get("title")
-                ),
-                "last_timestamp": int(item.get("last_timestamp") or 0),
-                "message_count": int(item.get("message_count") or 0),
-            }
+            item.to_summary(
+                title_override=metadata_by_user.get(item.session_id, {}).get("title"),
+            )
             for item in ordered
         ]
 
         current_session_id = self._load_session_mapping().get(user_id)
-        if current_session_id and all(item["session_id"] != current_session_id for item in result):
+        if current_session_id and all(item.session_id != current_session_id for item in result):
             result.insert(
                 0,
-                {
-                    "session_id": current_session_id,
-                    "title": str(
-                        metadata_by_user.get(current_session_id, {}).get("title")
-                        or "New Chat"
-                    ),
-                    "last_message_preview": "",
-                    "last_user_message_preview": "",
-                    "title_overridden": bool(
-                        metadata_by_user.get(current_session_id, {}).get("title")
-                    ),
-                    "last_timestamp": 0,
-                    "message_count": 0,
-                },
+                ChatSessionSummary(
+                    session_id=current_session_id,
+                    title=str(metadata_by_user.get(current_session_id, {}).get("title") or "New Chat"),
+                    last_message_preview="",
+                    last_user_message_preview="",
+                    title_overridden=bool(metadata_by_user.get(current_session_id, {}).get("title")),
+                    last_timestamp=0,
+                    message_count=0,
+                ),
             )
         return result[:safe_limit]
 
-    def rename_session(self, user_id: str, session_id: str, title: str) -> dict[str, Any]:
+    def rename_session(self, user_id: str, session_id: str, title: str) -> ChatSessionRenameResult:
         normalized_user_id = str(user_id).strip()
         normalized_session_id = str(session_id).strip()
         normalized_title = str(title).strip()
@@ -192,10 +262,7 @@ class ChatReadService:
         user_metadata[normalized_session_id] = session_metadata
         metadata[normalized_user_id] = user_metadata
         self._save_session_state(mapping=mapping, metadata=metadata)
-        return {
-            "session_id": normalized_session_id,
-            "title": normalized_title,
-        }
+        return ChatSessionRenameResult(session_id=normalized_session_id, title=normalized_title)
 
     def delete_session(self, user_id: str, session_id: str) -> str:
         normalized_user_id = str(user_id).strip()
@@ -242,14 +309,14 @@ class ChatReadService:
             self._save_session_state(mapping=mapping, metadata=metadata)
             remaining = self.list_sessions(normalized_user_id, limit=1)
             if remaining:
-                mapping[normalized_user_id] = str(remaining[0]["session_id"])
+                mapping[normalized_user_id] = remaining[0].session_id
             else:
                 mapping[normalized_user_id] = str(uuid.uuid4())
 
         self._save_session_state(mapping=mapping, metadata=metadata)
         return mapping.get(normalized_user_id) or self.get_current_session_id(normalized_user_id)
 
-    def get_conversation_history(self, user_id: str, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    def get_conversation_history(self, user_id: str, session_id: str, limit: int = 200) -> list[ChatDisplayMessage]:
         if not self._l1_db_path.exists():
             return []
         safe_limit = max(1, min(limit, 1000))
@@ -265,7 +332,7 @@ class ChatReadService:
             logger.exception(f"Failed to query chat history: {exc}")
             return []
 
-        messages: list[dict[str, Any]] = []
+        messages: list[ChatDisplayMessage] = []
         for event_type, content, ts, _, turn_id in rows:
             if event_type in USER_EVENT_TYPES:
                 role = "user"
@@ -276,17 +343,17 @@ class ChatReadService:
             if not content:
                 continue
             messages.append(
-                {
-                    "role": role,
-                    "content": str(content),
-                    "timestamp": int(float(ts or 0)),
-                    "turn_id": str(turn_id or "").strip() or None,
-                    "kind": role,
-                }
+                ChatDisplayMessage(
+                    role=role,
+                    content=str(content),
+                    timestamp=int(float(ts or 0)),
+                    turn_id=str(turn_id or "").strip() or None,
+                    kind=role,
+                )
             )
         return messages
 
-    def get_display_history(self, user_id: str, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    def get_display_history(self, user_id: str, session_id: str, limit: int = 200) -> list[ChatDisplayMessage]:
         if not self._l1_db_path.exists():
             return []
         safe_limit = max(1, min(limit, 1000))
@@ -313,7 +380,7 @@ class ChatReadService:
         trace_service = get_chat_trace_read_service()
         by_turn: dict[str, dict[str, Any]] = {}
         ordered_turns: list[str] = []
-        legacy_messages: list[dict[str, Any]] = []
+        legacy_messages: list[ChatDisplayMessage] = []
 
         for event_type, raw_content, ts, _, turn_id in rows:
             turn_id = str(turn_id or "").strip()
@@ -324,19 +391,19 @@ class ChatReadService:
                     continue
                 if not turn_id:
                     legacy_messages.append(
-                        {"role": "user", "kind": "user", "content": message, "timestamp": timestamp}
+                        ChatDisplayMessage(role="user", kind="user", content=message, timestamp=timestamp)
                     )
                     continue
                 turn = by_turn.setdefault(turn_id, {"user": None, "assistant": None, "has_trace": False, "last_trace_timestamp": timestamp})
                 if turn_id not in ordered_turns:
                     ordered_turns.append(turn_id)
-                turn["user"] = {
-                    "role": "user",
-                    "kind": "user",
-                    "content": message,
-                    "timestamp": timestamp,
-                    "turn_id": turn_id,
-                }
+                turn["user"] = ChatDisplayMessage(
+                    role="user",
+                    kind="user",
+                    content=message,
+                    timestamp=timestamp,
+                    turn_id=turn_id,
+                )
                 continue
             if event_type in AI_RESPONSE_EVENT_TYPES:
                 response = str(raw_content or "").strip()
@@ -344,20 +411,20 @@ class ChatReadService:
                     continue
                 if not turn_id:
                     legacy_messages.append(
-                        {"role": "assistant", "kind": "assistant", "content": response, "timestamp": timestamp}
+                        ChatDisplayMessage(role="assistant", kind="assistant", content=response, timestamp=timestamp)
                     )
                     continue
                 turn = by_turn.setdefault(turn_id, {"user": None, "assistant": None, "has_trace": False, "last_trace_timestamp": timestamp})
                 summary = trace_service.get_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
-                turn["assistant"] = {
-                    "role": "assistant",
-                    "kind": "assistant",
-                    "content": response,
-                    "timestamp": timestamp,
-                    "turn_id": turn_id,
-                    "trace_summary": summary,
-                    "trace_available": bool(summary and summary.get("trace_available")),
-                }
+                turn["assistant"] = ChatDisplayMessage(
+                    role="assistant",
+                    kind="assistant",
+                    content=response,
+                    timestamp=timestamp,
+                    turn_id=turn_id,
+                    trace_summary=summary,
+                    trace_available=bool(summary and summary.get("trace_available")),
+                )
                 continue
             if turn_id:
                 turn = by_turn.setdefault(turn_id, {"user": None, "assistant": None, "has_trace": False, "last_trace_timestamp": timestamp})
@@ -366,31 +433,31 @@ class ChatReadService:
                 if turn_id not in ordered_turns and turn.get("user") is not None:
                     ordered_turns.append(turn_id)
 
-        messages: list[dict[str, Any]] = []
+        messages: list[ChatDisplayMessage] = []
         for turn_id in ordered_turns:
             turn = by_turn.get(turn_id, {})
             user_message = turn.get("user")
-            if isinstance(user_message, dict):
+            if isinstance(user_message, ChatDisplayMessage):
                 messages.append(user_message)
             assistant_message = turn.get("assistant")
-            if isinstance(assistant_message, dict):
+            if isinstance(assistant_message, ChatDisplayMessage):
                 messages.append(assistant_message)
                 continue
             if turn.get("has_trace"):
                 summary = trace_service.get_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
                 messages.append(
-                    {
-                        "role": "assistant",
-                        "kind": "status",
-                        "content": str((summary or {}).get("headline") or "Thinking"),
-                        "timestamp": int(turn.get("last_trace_timestamp") or 0),
-                        "turn_id": turn_id,
-                        "trace_summary": summary,
-                        "trace_available": bool(summary and summary.get("trace_available")),
-                    }
+                    ChatDisplayMessage(
+                        role="assistant",
+                        kind="status",
+                        content=str((summary or {}).get("headline") or "Thinking"),
+                        timestamp=int(turn.get("last_trace_timestamp") or 0),
+                        turn_id=turn_id,
+                        trace_summary=summary,
+                        trace_available=bool(summary and summary.get("trace_available")),
+                    )
                 )
         messages.extend(legacy_messages)
-        messages.sort(key=lambda item: int(item.get("timestamp", 0)))
+        messages.sort(key=lambda item: item.timestamp)
         return messages[-safe_limit:]
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:

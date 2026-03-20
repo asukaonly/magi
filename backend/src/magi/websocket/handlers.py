@@ -216,18 +216,7 @@ async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
         resolved_session = session_id or read_service.get_current_session_id(user_id)
         history = read_service.get_display_history(user_id, resolved_session)
 
-        messages = [
-            {
-                "role": msg["role"],
-                "content": msg["content"],
-                "timestamp": int(msg.get("timestamp", time.time())),
-                "turn_id": msg.get("turn_id"),
-                "kind": msg.get("kind"),
-                "trace_summary": msg.get("trace_summary"),
-                "trace_available": bool(msg.get("trace_available")),
-            }
-            for msg in history
-        ]
+        messages = [msg.to_dict() for msg in history]
 
         return {
             "type": "history",

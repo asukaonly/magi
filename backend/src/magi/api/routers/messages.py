@@ -114,17 +114,7 @@ async def get_conversation_history(
         history = read_service.get_display_history(user_id, resolved_session_id)
 
         # Convert to format expected by frontend
-        messages = []
-        for msg in history:
-            messages.append({
-                "role": msg["role"],
-                "content": msg["content"],
-                "timestamp": int(msg.get("timestamp", time.time())),
-                "turn_id": msg.get("turn_id"),
-                "kind": msg.get("kind"),
-                "trace_summary": msg.get("trace_summary"),
-                "trace_available": bool(msg.get("trace_available")),
-            })
+        messages = [msg.to_dict() for msg in history]
 
         return {
             "user_id": user_id,
@@ -247,7 +237,7 @@ async def rename_session(session_id: str, request: RenameSessionRequest):
         return {
             "success": True,
             "user_id": request.user_id,
-            "session": session,
+            "session": session.to_dict(),
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -286,7 +276,7 @@ async def list_sessions(
         return {
             "user_id": user_id,
             "current_session_id": current_session_id,
-            "sessions": sessions,
+            "sessions": [session.to_dict() for session in sessions],
             "count": len(sessions),
         }
     except RuntimeError:

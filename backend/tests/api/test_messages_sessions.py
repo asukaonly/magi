@@ -8,7 +8,12 @@ if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
 from magi.api.routers import messages
-from magi.api.services.chat_read_service import ChatReadService
+from magi.api.services.chat_read_service import (
+    ChatDisplayMessage,
+    ChatReadService,
+    ChatSessionRenameResult,
+    ChatSessionSummary,
+)
 from magi.api.services.chat_trace_read_service import ChatTraceReadService
 
 FACT_EVENTS_TABLE = "fact_events"
@@ -79,8 +84,8 @@ def test_list_sessions_returns_current_session_when_no_history(tmp_path):
     sessions = service.list_sessions("u1", limit=10)
 
     assert len(sessions) == 1
-    assert sessions[0]["session_id"] == "s-current"
-    assert sessions[0]["message_count"] == 0
+    assert sessions[0].session_id == "s-current"
+    assert sessions[0].message_count == 0
 
 
 def test_list_sessions_aggregates_and_sorts(tmp_path):
@@ -120,11 +125,11 @@ def test_list_sessions_aggregates_and_sorts(tmp_path):
 
     sessions = service.list_sessions("u1", limit=10)
 
-    assert [item["session_id"] for item in sessions] == ["s2", "s1"]
-    assert sessions[0]["message_count"] == 2
-    assert sessions[1]["message_count"] == 2
-    assert sessions[0]["last_timestamp"] == 2010
-    assert sessions[0]["title"] == "hello from session two"
+    assert [item.session_id for item in sessions] == ["s2", "s1"]
+    assert sessions[0].message_count == 2
+    assert sessions[1].message_count == 2
+    assert sessions[0].last_timestamp == 2010
+    assert sessions[0].title == "hello from session two"
 
 
 def test_list_sessions_respects_limit(tmp_path):
@@ -161,12 +166,12 @@ def test_rename_session_persists_custom_title(tmp_path):
 
     renamed = service.list_sessions("u1", limit=10)
 
-    assert renamed[0]["session_id"] == "s1"
-    assert renamed[0]["title"] == "新的会话名"
+    assert renamed[0].session_id == "s1"
+    assert renamed[0].title == "新的会话名"
 
     reloaded = _build_service(tmp_path)
     reloaded_sessions = reloaded.list_sessions("u1", limit=10)
-    assert reloaded_sessions[0]["title"] == "新的会话名"
+    assert reloaded_sessions[0].title == "新的会话名"
 
 
 def test_delete_session_removes_events_and_rotates_current_session(tmp_path):
@@ -195,7 +200,7 @@ def test_delete_session_removes_events_and_rotates_current_session(tmp_path):
     next_session_id = service.delete_session("u1", "s2")
 
     remaining = service.list_sessions("u1", limit=10)
-    assert [item["session_id"] for item in remaining] == ["s1"]
+    assert [item.session_id for item in remaining] == ["s1"]
     assert next_session_id == "s1"
     assert service.get_current_session_id("u1") == "s1"
 
@@ -209,13 +214,15 @@ def test_list_sessions_router_response(monkeypatch):
             assert user_id == "u1"
             assert limit == 5
             return [
-                {
-                    "session_id": "s1",
-                    "title": "Test",
-                    "last_message_preview": "Hi",
-                    "last_timestamp": 123,
-                    "message_count": 2,
-                }
+                ChatSessionSummary(
+                    session_id="s1",
+                    title="Test",
+                    last_message_preview="Hi",
+                    last_user_message_preview="Hi",
+                    title_overridden=False,
+                    last_timestamp=123,
+                    message_count=2,
+                )
             ]
 
         def get_current_session_id(self, user_id: str):
@@ -236,10 +243,7 @@ def test_rename_session_router_response(monkeypatch):
             assert user_id == "u1"
             assert session_id == "s1"
             assert title == "Renamed"
-            return {
-                "session_id": "s1",
-                "title": "Renamed",
-            }
+            return ChatSessionRenameResult(session_id="s1", title="Renamed")
 
     monkeypatch.setattr(messages, "get_chat_read_service", lambda: _FakeReadService())
 
@@ -315,10 +319,10 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
 
     messages = service.get_display_history("u1", "s1", limit=20)
 
-    assert [item["kind"] for item in messages] == ["user", "status"]
-    assert messages[1]["turn_id"] == "turn_1"
-    assert messages[1]["trace_available"] is True
-    assert messages[1]["trace_summary"]["headline"] == "Running tool chain"
+    assert [item.kind for item in messages] == ["user", "status"]
+    assert messages[1].turn_id == "turn_1"
+    assert messages[1].trace_available is True
+    assert messages[1].trace_summary["headline"] == "Running tool chain"
 
 
 def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
@@ -361,9 +365,9 @@ def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
 
     messages = service.get_display_history("u1", "s1", limit=20)
 
-    assert [item["kind"] for item in messages] == ["user", "assistant"]
-    assert messages[1]["trace_available"] is True
-    assert messages[1]["trace_summary"]["mode"] == "function_calling"
+    assert [item.kind for item in messages] == ["user", "assistant"]
+    assert messages[1].trace_available is True
+    assert messages[1].trace_summary["mode"] == "function_calling"
 
     snapshot = trace_service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_2")
 

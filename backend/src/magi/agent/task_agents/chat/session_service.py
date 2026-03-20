@@ -51,7 +51,7 @@ class ChatSessionService:
                 session_id=session_id,
                 limit=self._history_fetch_limit,
             )
-            self._conversation_history[history_key] = list(history)
+            self._conversation_history[history_key] = [item.to_prompt_message() for item in history]
             self._update_lru_cache(history_key)
             return self._conversation_history[history_key]
         except Exception as exc:
