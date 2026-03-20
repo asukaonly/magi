@@ -333,22 +333,34 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
 
   const primaryButtonClass = (active: boolean) => cn(
-    'flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+    'flex w-full items-center gap-3 rounded-[20px] border px-3.5 py-3 text-left transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35',
     active
-      ? 'border-primary/16 bg-primary/10 text-foreground'
-      : 'border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+      ? 'border-primary/15 bg-primary/[0.08] text-foreground shadow-[0_10px_24px_rgba(109,92,77,0.08)]'
+      : 'border-transparent text-muted-foreground hover:border-border/35 hover:bg-background/70 hover:text-foreground'
   );
 
   const iconWrapClass = (active: boolean) => cn(
-    'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border',
+    'flex h-9 w-9 shrink-0 items-center justify-center rounded-[14px] border transition-colors duration-200',
     active
-      ? 'border-primary/14 bg-primary/12 text-primary'
-      : 'border-border/30 bg-background/60'
+      ? 'border-primary/16 bg-background/88 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]'
+      : 'border-border/28 bg-background/78 text-muted-foreground'
   );
+
+  const nestedRailClass = 'mt-3 ml-4 flex flex-col gap-2 border-l border-border/55 pl-3';
+
+  const secondaryButtonClass = (active: boolean) => cn(
+    'flex w-full items-center gap-2 rounded-r-2xl border-l-2 border-transparent px-3 py-2.5 text-left text-sm transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
+    active
+      ? 'border-primary/60 bg-primary/[0.08] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.32)]'
+      : 'text-muted-foreground hover:border-border/60 hover:bg-background/72 hover:text-foreground'
+  );
+
+  const toolButtonClass =
+    'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/18 bg-background/78 text-muted-foreground shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all duration-200 ease-out hover:border-border/38 hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
 
   return (
     <aside
-      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/30 pt-7"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-border/18 bg-card/45 pt-7"
     >
       {sessionMenu && sessionMenuSession ? (
         <div
@@ -380,7 +392,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         </div>
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-2.5">
           <section className="shrink-0">
             <button
               type="button"
@@ -410,9 +422,15 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             </button>
 
             {conversationExpanded ? (
-              <div className="mt-2 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="flex min-w-0 flex-1 items-center rounded-xl border border-border/18 bg-background/70 px-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              <div
+                className={nestedRailClass}
+                data-testid="sidebar-conversation-rail"
+              >
+                <div
+                  className="flex items-center gap-1.5"
+                  data-testid="sidebar-conversation-tools"
+                >
+                  <div className="flex min-w-0 flex-1 items-center rounded-xl border border-border/18 bg-background/84 px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
                     <input
                       ref={conversationSearchInputRef}
                       type="search"
@@ -420,7 +438,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       onChange={(event) => setConversationSearch(event.target.value)}
                       placeholder={t('shell.searchSessionsPlaceholder')}
                       aria-label={t('shell.searchSessions')}
-                      className="h-9 w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                      className="h-9 w-full bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/85"
                     />
                   </div>
                   <button
@@ -429,7 +447,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       conversationSearchInputRef.current?.focus();
                       conversationSearchInputRef.current?.select();
                     }}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/18 bg-background/65 text-muted-foreground transition-colors hover:border-border/35 hover:bg-muted/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    className={toolButtonClass}
                     aria-label={t('shell.searchSessionsAction')}
                     title={t('shell.searchSessionsAction')}
                   >
@@ -440,7 +458,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                     onClick={() => {
                       void handleCreateSession();
                     }}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/18 bg-background/65 text-muted-foreground transition-colors hover:border-border/35 hover:bg-muted/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    className={toolButtonClass}
                     aria-label={t('shell.newChat')}
                     title={t('shell.newChat')}
                   >
@@ -450,15 +468,15 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
 
                 <div className="max-h-[22rem] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
                   {sessionRows.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-border/40 p-3 text-xs text-muted-foreground">
+                    <div className="rounded-2xl border border-dashed border-border/40 bg-background/45 p-3 text-xs leading-5 text-muted-foreground">
                       {loading ? t('shell.loadingSessions') : t('shell.emptySessions')}
                     </div>
                   ) : filteredSessionRows.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-border/40 p-3 text-xs text-muted-foreground">
+                    <div className="rounded-2xl border border-dashed border-border/40 bg-background/45 p-3 text-xs leading-5 text-muted-foreground">
                       {t('shell.searchSessionsEmpty')}
                     </div>
                   ) : (
-                    <div className="space-y-1 pl-3">
+                    <div className="space-y-1">
                       {filteredSessionRows.map((session) => {
                         const active = currentSessionId === session.session_id;
                         const unreadCount = unreadBySession[session.session_id] || 0;
@@ -467,8 +485,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                           <div
                             key={session.session_id}
                             className={cn(
-                              'group flex items-center gap-1 rounded-xl transition-colors',
-                              active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/45 hover:text-foreground'
+                              'group/session flex items-center gap-1 rounded-r-2xl border-l-2 border-transparent transition-all duration-200 ease-out',
+                              active
+                                ? 'border-primary/60 bg-primary/[0.08] text-foreground'
+                                : 'text-muted-foreground hover:border-border/60 hover:bg-background/72 hover:text-foreground'
                             )}
                           >
                             <button
@@ -485,16 +505,16 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                               }}
                               aria-label={displayLabel}
                               aria-current={active ? 'page' : undefined}
-                              className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
                               title={displayLabel}
                             >
                               <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
                               {unreadCount > 0 ? (
-                                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary/85 px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
                                   {Math.min(unreadCount, 99)}
                                 </span>
                               ) : null}
-                              <span className="shrink-0 text-[11px] text-muted-foreground/90">
+                              <span className="shrink-0 text-[11px] text-muted-foreground/80">
                                 {formatSessionTime(session.last_timestamp, i18n.language)}
                               </span>
                             </button>
@@ -505,10 +525,10 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                                 openSessionMenu(session.session_id, rect.right - 176, rect.bottom + 6);
                               }}
                               className={cn(
-                                'mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35',
+                                'mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground opacity-0 transition-all duration-200 ease-out focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 group-hover/session:opacity-100',
                                 active
                                   ? 'hover:bg-primary/10 hover:text-primary'
-                                  : 'hover:bg-muted/55 hover:text-foreground'
+                                  : 'hover:bg-background hover:text-foreground'
                               )}
                               aria-label={t('shell.sessionActions')}
                               title={t('shell.sessionActions')}
@@ -571,8 +591,12 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             </button>
 
             {memoryExpanded ? (
-              <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-                <div className="space-y-1 pl-3">
+              <div
+                className={cn(nestedRailClass, 'min-h-0 flex-1')}
+                data-testid="sidebar-memory-rail"
+              >
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+                  <div className="space-y-1">
                   {MEMORY_DESTINATIONS.map((item) => {
                     const destinationActive =
                       location.pathname === item.path ||
@@ -588,24 +612,21 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                         }}
                         aria-label={t(`memory.nav.${item.key}`)}
                         aria-current={destinationActive ? 'page' : undefined}
-                        className={cn(
-                          'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35',
-                          destinationActive
-                            ? 'bg-primary/10 text-primary'
-                            : 'text-muted-foreground hover:bg-muted/45 hover:text-foreground'
-                        )}
+                        className={secondaryButtonClass(destinationActive)}
                       >
                         {t(`memory.nav.${item.key}`)}
                       </button>
                     );
                   })}
+                  </div>
                 </div>
               </div>
             ) : null}
           </section>
         </div>
 
-        <div className="shrink-0 pt-3">
+        <div className="shrink-0 pt-4">
+          <div className="mb-3 h-px bg-border/45" />
           <button
             type="button"
             onClick={() => {

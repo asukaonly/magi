@@ -509,4 +509,32 @@ describe('sidebar navigation', () => {
 
     expect(sidebar).toHaveClass('pt-7');
   });
+
+  it('renders a nested conversation rail with compact tools in the polished sidebar hierarchy', async () => {
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    const conversationRail = await screen.findByTestId('sidebar-conversation-rail');
+    const conversationTools = screen.getByTestId('sidebar-conversation-tools');
+
+    expect(conversationRail).toHaveClass('border-l');
+    expect(conversationTools).toHaveClass('gap-1.5');
+  });
+
+  it('renders a memory rail with an independently highlighted active row', async () => {
+    render(
+      <MemoryRouter initialEntries={['/memory/knowledge']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    const memoryRail = await screen.findByTestId('sidebar-memory-rail');
+    const activeMemoryRow = screen.getByRole('button', { name: 'memory.nav.knowledge' });
+
+    expect(memoryRail).toHaveClass('border-l');
+    expect(activeMemoryRow).toHaveClass('border-l-2');
+  });
 });
