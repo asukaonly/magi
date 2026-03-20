@@ -14,6 +14,7 @@ from ...core.runtime_bindings import require_memory_integration, require_unified
 from ...memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 from ...memory.eval_support.reader import EvalMemoryReader
 from ...memory.eval_support.writer import EvalMemoryWriter
+from ...memory.event_contracts import MemoryEvent
 from ...memory.hybrid_retrieval import HybridRetrievalService, build_query
 from ...memory.l2.models import ManualL2EventRequest
 
@@ -152,6 +153,12 @@ def _build_l2_pending_breakdown(pipeline_stats: Dict[str, Any]) -> Dict[str, int
             0,
         ),
     }
+
+
+def _serialize_memory_event(event: MemoryEvent | Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(event, MemoryEvent):
+        return event.to_dict()
+    return dict(event)
 
 
 # =============================================================================
@@ -675,7 +682,7 @@ async def get_l1_events(
         limit=limit,
     )
     total = await unified_memory.l1.count_events()
-    return {"events": events, "stats": {"total": total}}
+    return {"events": [_serialize_memory_event(event) for event in events], "stats": {"total": total}}
 
 
 @memory_router.post("/search")

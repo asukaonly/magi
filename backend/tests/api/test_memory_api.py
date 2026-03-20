@@ -6,6 +6,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers.memory import memory_router
+from magi.memory.event_contracts import (
+    IngestTarget,
+    MemoryDomain,
+    MemoryEvent,
+    RetentionClass,
+    TomDepth,
+)
 
 
 class _FakeL0Store:
@@ -28,18 +35,30 @@ class _FakeL1Store:
     async def query_events(self, *, session_id=None, user_id=None, event_type=None, limit=50):
         _ = (session_id, user_id, event_type, limit)
         return [
-            {
-                "event_id": "evt-1",
-                "event_type": "UserMessage",
-                "content": "hello",
-                "timestamp": 1.0,
-                "source": "chat",
-                "memory_domain": "interaction",
-                "retention_class": "compressible",
-                "importance_score": 0.8,
-                "cognition_eligible": True,
-                "user_id": "web_user",
-            }
+            MemoryEvent(
+                event_id="evt-1",
+                correlation_id="corr-1",
+                timestamp=1.0,
+                created_at=2.0,
+                event_type="UserMessage",
+                source="chat",
+                source_item_id=None,
+                memory_domain=MemoryDomain.INTERACTION,
+                ingest_target=IngestTarget.L1_ONLY,
+                cognition_eligible=True,
+                tom_depth=TomDepth.NONE,
+                retention_class=RetentionClass.COMPRESSIBLE,
+                session_id="session-1",
+                turn_id="turn-1",
+                user_id="web_user",
+                task_id=None,
+                content="hello",
+                author_type="user",
+                content_type="text",
+                importance_score=0.8,
+                level=20,
+                media_path=None,
+            )
         ]
 
     async def clear(self):
@@ -504,6 +523,8 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     body = response.json()
     assert body["events"][0]["user_id"] == "web_user"
     assert body["events"][0]["content"] == "hello"
+    assert body["events"][0]["memory_domain"] == "interaction"
+    assert body["events"][0]["retention_class"] == "compressible"
 
 
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
