@@ -116,16 +116,24 @@ Magi uses a lifecycle-based memory model instead of the older feature-stacked fr
 
 This separates short-lived runtime state from durable user memory while keeping retrieval and future behavior adaptation connected to the same event pipeline.
 
+Execution observability is now a separate concern from durable memory:
+
+- `L1` keeps canonical memory facts that may participate in recall, cognition, reflection, or procedural learning
+- runtime trace spans, tool calls, LLM call metrics, and turn-level execution summaries live in the dedicated runtime trace store
+
 ## Persistence Boundaries
 
 - `~/.magi/data/message_queue.db`
   Message-bus queue persistence only
 
 - `~/.magi/data/memories/l1_events.db`
-  Canonical L1 event storage
+  Canonical L1 fact storage for durable memory events
 
 - `~/.magi/data/memories/memory.db`
   Shared L0/L2/L3/L4 storage
+
+- `~/.magi/data/runtime_trace.db`
+  Runtime execution trace storage for turn summaries, spans, LLM metrics, tool calls, and intent-resolution details
 
 - `~/.magi/data/scenario_prompts.db`
   Scenario prompt policy and prompt metadata

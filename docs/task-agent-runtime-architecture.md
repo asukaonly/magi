@@ -328,6 +328,22 @@ Two rules matter here:
 - high-frequency runtime telemetry should not automatically participate in long-term cognition
 - `L1` is the durable source of truth for long-term memory, while `L0` remains execution-scoped
 
+## Runtime Trace Flow
+
+Execution observability is owned by the dedicated runtime trace store rather than the memory event store.
+
+The current runtime trace path is:
+
+1. chat postprocess, function-calling orchestration, and worker execution write canonical trace rows directly
+2. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, and intent-resolution records
+3. `ChatTraceReadService` reconstructs the UI trace tree from those canonical rows
+4. websocket and message APIs expose trace summaries and snapshots without routing trace nodes through `L1`
+
+Two rules matter here:
+
+- runtime trace data is execution observability, not durable memory
+- `L1` stores recall-worthy facts, while `runtime_trace.db` stores execution structure and metrics
+
 ## Timeline Pull-Sync Flow
 
 Pull-capable timeline sensors participate in the runtime like this:
