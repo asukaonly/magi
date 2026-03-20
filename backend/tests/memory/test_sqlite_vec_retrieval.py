@@ -34,7 +34,13 @@ async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):
             normalize_runtime_event(
                 Event(
                     type=EventTypes.USER_MESSAGE,
-                    data={"user_id": "u1", "session_id": "s1", "message": "I feel stress at work"},
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "I feel stress at work",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-1",
@@ -46,7 +52,13 @@ async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):
             normalize_runtime_event(
                 Event(
                     type=EventTypes.USER_MESSAGE,
-                    data={"user_id": "u1", "session_id": "s1", "message": "I feel calm today"},
+                    data={
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "I feel calm today",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-2",

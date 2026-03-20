@@ -444,49 +444,43 @@ class L4ProceduralMemoryStore:
         self,
         event: MemoryEvent,
     ) -> Optional[tuple[str, str, str, bool, float, Optional[str], Optional[str]]]:
-        payload = event.structured_payload if isinstance(event.structured_payload, dict) else None
-        if payload is None:
-            try:
-                payload = json.loads(event.structured_payload)
-            except Exception:
-                payload = {}
-
         if event.event_type == "ActionExecuted":
-            skill_name = str(payload.get("action_type") or "").strip()
+            skill_name = str(event.source_item_id or event.content or "").strip()
             if not skill_name:
                 return None
+            optimized_prompt = event.content if str(event.content or "").strip() and str(event.content).strip() != skill_name else None
             return (
                 skill_name,
                 "tool",
                 "external_tool",
-                bool(payload.get("success", True)),
-                float(payload.get("execution_time", 0.0) or 0.0),
-                payload.get("error"),
-                payload.get("optimized_prompt"),
+                int(event.level) < 3,
+                0.0,
+                None,
+                optimized_prompt,
             )
 
         if event.event_type == "TaskCompleted":
-            skill_name = str(payload.get("task_id") or "task").strip()
+            skill_name = str(event.task_id or "task").strip()
             return (
                 skill_name,
                 "workflow",
                 "composite",
-                bool(payload.get("success", True)),
-                float(payload.get("duration", 0.0) or 0.0),
-                payload.get("error"),
-                payload.get("optimized_prompt"),
+                True,
+                0.0,
+                None,
+                str(event.content or "").strip() or None,
             )
 
         if event.event_type == "TaskFailed":
-            skill_name = str(payload.get("task_id") or "task").strip()
+            skill_name = str(event.task_id or "task").strip()
             return (
                 skill_name,
                 "workflow",
                 "composite",
                 False,
-                float(payload.get("duration", 0.0) or 0.0),
-                payload.get("error"),
-                payload.get("optimized_prompt"),
+                0.0,
+                None,
+                str(event.content or "").strip() or None,
             )
 
         return None

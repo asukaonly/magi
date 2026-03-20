@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntEnum
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import Any, Dict, Optional
 
 from ..events.events import Event, EventTypes
-
-if TYPE_CHECKING:
-    from .identity_resolver import IdentityResolver
 
 
 class _LabeledIntEnum(IntEnum):
@@ -128,7 +124,6 @@ class MemoryEvent:
 
     event_id: str
     correlation_id: str
-    parent_event_id: Optional[str]
     timestamp: float
     created_at: float
     event_type: str
@@ -140,35 +135,20 @@ class MemoryEvent:
     tom_depth: TomDepth
     retention_class: RetentionClass
     session_id: Optional[str]
+    turn_id: Optional[str]
     user_id: Optional[str]
-    runtime_user_id: Optional[str]
-    memory_owner_id: Optional[str]
     task_id: Optional[str]
-    goal_id: Optional[str]
-    raw_content: str
-    structured_payload: str
-    metadata: str
+    content: str
+    author_type: str
+    content_type: str
     importance_score: float
-    importance_t0_base: float
-    importance_t1_score: Optional[float]
-    importance_version: int
     level: int
     media_path: Optional[str] = None
-    entity_focus_hint: Optional[str] = None
-    speaker_role: Optional[str] = None
-    grounding_type: Optional[str] = None
-    derived_from_event_ids: list[str] = field(default_factory=list)
-    semantic_owner_hint: Optional[str] = None
-    originality_type: Optional[str] = None
-    extraction_profile_id: Optional[str] = None
-    structured_entity_hints: list[dict[str, Any]] = field(default_factory=list)
-    structured_graph_hints: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "event_id": self.event_id,
             "correlation_id": self.correlation_id,
-            "parent_event_id": self.parent_event_id,
             "timestamp": self.timestamp,
             "created_at": self.created_at,
             "event_type": self.event_type,
@@ -180,29 +160,15 @@ class MemoryEvent:
             "tom_depth": self.tom_depth.label,
             "retention_class": self.retention_class.label,
             "session_id": self.session_id,
+            "turn_id": self.turn_id,
             "user_id": self.user_id,
-            "runtime_user_id": self.runtime_user_id,
-            "memory_owner_id": self.memory_owner_id,
             "task_id": self.task_id,
-            "goal_id": self.goal_id,
-            "raw_content": self.raw_content,
-            "structured_payload": self.structured_payload,
-            "metadata": self.metadata,
+            "content": self.content,
+            "author_type": self.author_type,
+            "content_type": self.content_type,
             "importance_score": self.importance_score,
-            "importance_t0_base": self.importance_t0_base,
-            "importance_t1_score": self.importance_t1_score,
-            "importance_version": self.importance_version,
             "level": self.level,
             "media_path": self.media_path,
-            "entity_focus_hint": self.entity_focus_hint,
-            "speaker_role": self.speaker_role,
-            "grounding_type": self.grounding_type,
-            "derived_from_event_ids": list(self.derived_from_event_ids),
-            "semantic_owner_hint": self.semantic_owner_hint,
-            "originality_type": self.originality_type,
-            "extraction_profile_id": self.extraction_profile_id,
-            "structured_entity_hints": list(self.structured_entity_hints),
-            "structured_graph_hints": list(self.structured_graph_hints),
         }
 
 
@@ -211,9 +177,12 @@ def normalize_runtime_event(
     *,
     event_id: Optional[str] = None,
     parent_event_id: Optional[str] = None,
-    identity_resolver: "IdentityResolver | None" = None,
+    identity_resolver: Any = None,
 ) -> MemoryEvent:
-    """Normalize runtime events into the new memory contract."""
+    """Normalize runtime events into the canonical memory contract."""
+
+    del parent_event_id
+    del identity_resolver
 
     now = time.time()
     payload = event.data if isinstance(event.data, dict) else {"value": event.data}
@@ -224,44 +193,13 @@ def normalize_runtime_event(
     task_id = _first_non_empty(payload.get("task_id"), metadata.get("task_id"))
     payload_tags = payload.get("tags") if isinstance(payload.get("tags"), dict) else {}
     session_id = _first_non_empty(payload.get("session_id"), payload_tags.get("session_id"), metadata.get("session_id"))
+    turn_id = _first_non_empty(payload.get("turn_id"), metadata.get("turn_id"))
     user_id = _first_non_empty(payload.get("user_id"), payload_tags.get("user_id"), metadata.get("user_id"))
-    runtime_user_id = user_id
-    runtime_namespace = _first_non_empty(payload.get("runtime_namespace"), metadata.get("runtime_namespace"), event.source)
-    memory_owner_id = _resolve_memory_owner_id(
-        runtime_user_id=runtime_user_id,
-        runtime_namespace=runtime_namespace,
-        identity_resolver=identity_resolver,
-    )
-    goal_id = _first_non_empty(payload.get("goal_id"), metadata.get("goal_id"))
-    source_item_id = _first_non_empty(payload.get("source_item_id"), metadata.get("source_item_id"))
-    entity_focus_hint = _first_non_empty(payload.get("entity_focus_hint"), metadata.get("entity_focus_hint"))
-    extraction_profile_id = _first_non_empty(payload.get("extraction_profile_id"), metadata.get("extraction_profile_id"))
-    structured_entity_hints = _normalize_object_list(
-        payload.get("structured_entity_hints", metadata.get("structured_entity_hints"))
-    )
-    structured_graph_hints = _normalize_object_list(
-        payload.get("structured_graph_hints", metadata.get("structured_graph_hints"))
-    )
-    evidence_metadata = _build_evidence_metadata(event, payload=payload, metadata=metadata)
-    persisted_metadata = {
-        **metadata,
-        "speaker_role": evidence_metadata["speaker_role"],
-        "grounding_type": evidence_metadata["grounding_type"],
-        "derived_from_event_ids": evidence_metadata["derived_from_event_ids"],
-        "semantic_owner_hint": evidence_metadata["semantic_owner_hint"],
-        "originality_type": evidence_metadata["originality_type"],
-        "runtime_user_id": runtime_user_id,
-        "runtime_namespace": runtime_namespace,
-        "memory_owner_id": memory_owner_id,
-        "extraction_profile_id": extraction_profile_id,
-        "structured_entity_hints": structured_entity_hints,
-        "structured_graph_hints": structured_graph_hints,
-    }
+    source_item_id = _resolve_source_item_id(event, payload=payload, metadata=metadata)
 
     return MemoryEvent(
         event_id=str(event_id or f"evt_{uuid.uuid4().hex}"),
         correlation_id=str(event.correlation_id or ""),
-        parent_event_id=parent_event_id,
         timestamp=float(event.timestamp),
         created_at=now,
         event_type=str(event.type),
@@ -273,29 +211,15 @@ def normalize_runtime_event(
         tom_depth=rule["tom_depth"],
         retention_class=rule["retention_class"],
         session_id=session_id,
+        turn_id=turn_id,
         user_id=user_id,
-        runtime_user_id=runtime_user_id,
-        memory_owner_id=memory_owner_id,
         task_id=task_id,
-        goal_id=goal_id,
-        raw_content=_build_raw_content(event),
-        structured_payload=json.dumps(payload, ensure_ascii=False),
-        metadata=json.dumps(persisted_metadata, ensure_ascii=False),
+        content=_extract_content(event, payload=payload, metadata=metadata),
+        author_type=_resolve_author_type(event, payload=payload, metadata=metadata),
+        content_type=_resolve_content_type(event, payload=payload, metadata=metadata),
         importance_score=float(rule["importance"]),
-        importance_t0_base=float(rule["importance"]),
-        importance_t1_score=None,
-        importance_version=1,
         level=int(level_value),
-        media_path=metadata.get("media_path"),
-        entity_focus_hint=entity_focus_hint,
-        speaker_role=evidence_metadata["speaker_role"],
-        grounding_type=evidence_metadata["grounding_type"],
-        derived_from_event_ids=evidence_metadata["derived_from_event_ids"],
-        semantic_owner_hint=evidence_metadata["semantic_owner_hint"],
-        originality_type=evidence_metadata["originality_type"],
-        extraction_profile_id=extraction_profile_id,
-        structured_entity_hints=structured_entity_hints,
-        structured_graph_hints=structured_graph_hints,
+        media_path=_first_non_empty(payload.get("media_path"), metadata.get("media_path")),
     )
 
 
@@ -309,116 +233,80 @@ def _first_non_empty(*values: Any) -> Optional[str]:
     return None
 
 
-def _resolve_memory_owner_id(
-    *,
-    runtime_user_id: Optional[str],
-    runtime_namespace: Optional[str],
-    identity_resolver: "IdentityResolver | None",
-) -> str:
-    if identity_resolver is None:
-        return "user:self"
-    return identity_resolver.resolve_memory_owner_id(
-        runtime_user_id=runtime_user_id,
-        source=runtime_namespace,
-    )
+def _extract_content(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> str:
+    event_type = str(event.type)
+    content = _first_non_empty(payload.get("content"))
+    if content is not None:
+        return content
+    if event_type == "TIMELINE_EVENT":
+        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+        content_blocks = payload.get("content_blocks") if isinstance(payload.get("content_blocks"), list) else []
+        block_text = " ".join(
+            str(item.get("value")).strip()
+            for item in content_blocks
+            if isinstance(item, dict) and str(item.get("value") or "").strip()
+        )
+        return (
+            _first_non_empty(
+                payload.get("summary"),
+                timeline.get("summary"),
+                block_text,
+                payload.get("title"),
+                timeline.get("title"),
+            )
+            or ""
+        )
+    if event_type == EventTypes.ACTION_EXECUTED:
+        return _first_non_empty(payload.get("optimized_prompt"), payload.get("action_type")) or ""
+    if event_type in TRACE_RUNTIME_EVENT_TYPES:
+        return _first_non_empty(payload.get("message"), payload.get("status"), payload.get("node_type")) or ""
+    return _first_non_empty(payload.get("summary"), payload.get("title"), payload.get("value")) or ""
 
 
-def _build_raw_content(event: Event) -> str:
-    parts = [str(event.type)]
-    payload = event.data if isinstance(event.data, dict) else {"value": event.data}
-    for value in payload.values():
-        if isinstance(value, str) and value.strip():
-            parts.append(value.strip())
-    metadata = event.metadata if isinstance(event.metadata, dict) else {}
-    for value in metadata.values():
-        if isinstance(value, str) and value.strip():
-            parts.append(value.strip())
-    return " ".join(parts).strip()
+def _resolve_source_item_id(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> Optional[str]:
+    if str(event.type) == EventTypes.ACTION_EXECUTED:
+        return _first_non_empty(payload.get("action_type"), payload.get("source_item_id"), metadata.get("source_item_id"))
+    return _first_non_empty(payload.get("source_item_id"), metadata.get("source_item_id"))
 
 
-def _normalize_string_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [text for item in value if (text := str(item).strip())]
-    if isinstance(value, tuple):
-        return [text for item in value if (text := str(item).strip())]
-    if value is None:
-        return []
-    text = str(value).strip()
-    return [text] if text else []
-
-
-def _normalize_object_list(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    normalized: list[dict[str, Any]] = []
-    for item in value:
-        if isinstance(item, dict):
-            normalized.append(dict(item))
-    return normalized
-
-
-def _build_evidence_metadata(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+def _resolve_author_type(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> str:
+    author_type = _first_non_empty(payload.get("author_type"), metadata.get("author_type"))
+    if author_type is not None:
+        return author_type
     event_type = str(event.type)
     source = str(event.source or "").strip().lower()
     rule = _classify_event(event)
+    if event_type == EventTypes.USER_MESSAGE:
+        return "user"
+    if event_type == EventTypes.AI_RESPONSE:
+        return "assistant"
+    if event_type == "TIMELINE_EVENT":
+        timeline = metadata.get("timeline") if isinstance(metadata.get("timeline"), dict) else {}
+        source_type = str(timeline.get("source_type") or source)
+        return "user" if source_type == "manual_journal" else "external"
+    if event_type == EventTypes.ACTION_EXECUTED:
+        return "tool"
+    if rule["memory_domain"] == MemoryDomain.RUNTIME_TELEMETRY or source == "system":
+        return "system"
+    if source in {"sensor", "location"}:
+        return "sensor"
+    return "external"
 
-    speaker_role = _first_non_empty(payload.get("speaker_role"), metadata.get("speaker_role"))
-    if speaker_role is None:
-        if event_type == EventTypes.USER_MESSAGE:
-            speaker_role = "user"
-        elif event_type == EventTypes.AI_RESPONSE:
-            speaker_role = "assistant"
-        elif event_type == "TIMELINE_EVENT":
-            speaker_role = "timeline"
-        elif rule["memory_domain"] == MemoryDomain.RUNTIME_TELEMETRY or source == "system":
-            speaker_role = "system"
-        elif source in {"sensor", "location"}:
-            speaker_role = "sensor"
-        elif source in {"calendar", "timeline", "external_feed"}:
-            speaker_role = "external"
 
-    derived_from_event_ids = _normalize_string_list(
-        payload.get("derived_from_event_ids", metadata.get("derived_from_event_ids"))
-    )
-
-    grounding_type = _first_non_empty(payload.get("grounding_type"), metadata.get("grounding_type"))
-    if grounding_type is None:
-        if event_type == EventTypes.USER_MESSAGE:
-            grounding_type = "self_reported"
-        elif derived_from_event_ids:
-            grounding_type = "quoted_from_history"
-        elif metadata.get("tool_name") or metadata.get("tool_call_id") or metadata.get("tool_result_ref"):
-            grounding_type = "tool_grounded"
-        elif event_type == EventTypes.AI_RESPONSE:
-            grounding_type = "freeform_generated"
-        else:
-            grounding_type = "observed"
-
-    semantic_owner_hint = _first_non_empty(payload.get("semantic_owner_hint"), metadata.get("semantic_owner_hint"))
-    if semantic_owner_hint is None:
-        if speaker_role == "user":
-            semantic_owner_hint = "user"
-        elif grounding_type == "tool_grounded":
-            semantic_owner_hint = "world"
-        elif speaker_role in {"timeline", "sensor", "external", "system"}:
-            semantic_owner_hint = "world"
-        elif speaker_role == "assistant":
-            semantic_owner_hint = "assistant"
-
-    originality_type = _first_non_empty(payload.get("originality_type"), metadata.get("originality_type"))
-    if originality_type is None:
-        if derived_from_event_ids:
-            originality_type = "quoted" if grounding_type == "quoted_from_history" else "derived"
-        else:
-            originality_type = "primary"
-
-    return {
-        "speaker_role": speaker_role,
-        "grounding_type": grounding_type,
-        "derived_from_event_ids": derived_from_event_ids,
-        "semantic_owner_hint": semantic_owner_hint,
-        "originality_type": originality_type,
-    }
+def _resolve_content_type(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> str:
+    content_type = _first_non_empty(payload.get("content_type"), metadata.get("content_type"))
+    if content_type is not None:
+        return content_type
+    event_type = str(event.type)
+    if event_type in {EventTypes.USER_MESSAGE, EventTypes.AI_RESPONSE}:
+        return "text"
+    if event_type == EventTypes.ACTION_EXECUTED:
+        return "tool_result"
+    if event_type == "TIMELINE_EVENT":
+        return "observation"
+    if event_type in TRACE_RUNTIME_EVENT_TYPES:
+        return "observation"
+    return "text"
 
 
 def _classify_event(event: Event) -> Dict[str, Any]:

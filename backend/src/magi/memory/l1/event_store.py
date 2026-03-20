@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import asyncio
 import time
@@ -100,7 +99,6 @@ class L1EventStore:
                 CREATE TABLE IF NOT EXISTS fact_events (
                     event_id TEXT PRIMARY KEY,
                     correlation_id TEXT NOT NULL,
-                    parent_event_id TEXT,
                     timestamp REAL NOT NULL,
                     created_at REAL NOT NULL,
                     event_type TEXT NOT NULL,
@@ -112,18 +110,13 @@ class L1EventStore:
                     tom_depth INTEGER NOT NULL DEFAULT 1,
                     retention_class INTEGER NOT NULL DEFAULT 2,
                     session_id TEXT,
+                    turn_id TEXT,
                     user_id TEXT,
-                    runtime_user_id TEXT,
-                    memory_owner_id TEXT,
                     task_id TEXT,
-                    goal_id TEXT,
-                    raw_content TEXT NOT NULL,
-                    structured_payload TEXT,
-                    metadata TEXT,
+                    content TEXT NOT NULL,
+                    author_type TEXT NOT NULL,
+                    content_type TEXT NOT NULL,
                     importance_score REAL NOT NULL DEFAULT 0.5,
-                    importance_t0_base REAL,
-                    importance_t1_score REAL,
-                    importance_version INTEGER NOT NULL DEFAULT 1,
                     level INTEGER NOT NULL DEFAULT 1,
                     media_path TEXT,
                     deleted_at REAL
@@ -134,17 +127,14 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_fact_events_source ON fact_events(source);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_domain ON fact_events(memory_domain);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_session ON fact_events(session_id);
+                CREATE INDEX IF NOT EXISTS idx_fact_events_turn ON fact_events(turn_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_user ON fact_events(user_id);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_runtime_user ON fact_events(runtime_user_id);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_memory_owner ON fact_events(memory_owner_id);
-                CREATE INDEX IF NOT EXISTS idx_fact_events_goal ON fact_events(goal_id);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_importance ON fact_events(importance_score DESC);
                 CREATE INDEX IF NOT EXISTS idx_fact_events_retention ON fact_events(retention_class);
 
                 CREATE TABLE IF NOT EXISTS runtime_observations (
                     event_id TEXT PRIMARY KEY,
                     correlation_id TEXT NOT NULL,
-                    parent_event_id TEXT,
                     timestamp REAL NOT NULL,
                     created_at REAL NOT NULL,
                     event_type TEXT NOT NULL,
@@ -156,18 +146,13 @@ class L1EventStore:
                     tom_depth INTEGER NOT NULL DEFAULT 1,
                     retention_class INTEGER NOT NULL DEFAULT 2,
                     session_id TEXT,
+                    turn_id TEXT,
                     user_id TEXT,
-                    runtime_user_id TEXT,
-                    memory_owner_id TEXT,
                     task_id TEXT,
-                    goal_id TEXT,
-                    raw_content TEXT NOT NULL,
-                    structured_payload TEXT,
-                    metadata TEXT,
+                    content TEXT NOT NULL,
+                    author_type TEXT NOT NULL,
+                    content_type TEXT NOT NULL,
                     importance_score REAL NOT NULL DEFAULT 0.5,
-                    importance_t0_base REAL,
-                    importance_t1_score REAL,
-                    importance_version INTEGER NOT NULL DEFAULT 1,
                     level INTEGER NOT NULL DEFAULT 1,
                     media_path TEXT,
                     deleted_at REAL
@@ -178,10 +163,8 @@ class L1EventStore:
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_source ON runtime_observations(source);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_domain ON runtime_observations(memory_domain);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_session ON runtime_observations(session_id);
+                CREATE INDEX IF NOT EXISTS idx_runtime_observations_turn ON runtime_observations(turn_id);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_user ON runtime_observations(user_id);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_runtime_user ON runtime_observations(runtime_user_id);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_memory_owner ON runtime_observations(memory_owner_id);
-                CREATE INDEX IF NOT EXISTS idx_runtime_observations_goal ON runtime_observations(goal_id);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_importance ON runtime_observations(importance_score DESC);
                 CREATE INDEX IF NOT EXISTS idx_runtime_observations_retention ON runtime_observations(retention_class);
 
@@ -201,13 +184,11 @@ class L1EventStore:
 
                 CREATE VIRTUAL TABLE IF NOT EXISTS l1_events_fts USING fts5(
                     event_id UNINDEXED,
-                    raw_content,
+                    content,
                     tokenize='unicode61'
                 );
                 """
             )
-            await self._ensure_identity_columns(db, FACT_EVENTS_TABLE)
-            await self._ensure_identity_columns(db, RUNTIME_OBSERVATIONS_TABLE)
             if self._vector_enabled:
                 await self._vector_index.initialize()
             await db.commit()
@@ -242,18 +223,16 @@ class L1EventStore:
             await db.execute(
                 f"""
                 INSERT OR REPLACE INTO {table_name}(
-                    event_id, correlation_id, parent_event_id, timestamp, created_at,
+                    event_id, correlation_id, timestamp, created_at,
                     event_type, source, source_item_id, memory_domain, ingest_target,
-                    cognition_eligible, tom_depth, retention_class, session_id, user_id, runtime_user_id, memory_owner_id,
-                    task_id, goal_id, raw_content, structured_payload, metadata,
-                    importance_score, importance_t0_base, importance_t1_score, importance_version,
+                    cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
+                    task_id, content, author_type, content_type, importance_score,
                     level, media_path, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
                     event.correlation_id,
-                    event.parent_event_id,
                     float(event.timestamp),
                     float(event.created_at),
                     event.event_type,
@@ -265,31 +244,26 @@ class L1EventStore:
                     int(event.tom_depth),
                     int(event.retention_class),
                     event.session_id,
+                    event.turn_id,
                     event.user_id,
-                    event.runtime_user_id,
-                    event.memory_owner_id,
                     event.task_id,
-                    event.goal_id,
-                    event.raw_content,
-                    event.structured_payload,
-                    event.metadata,
+                    event.content,
+                    event.author_type,
+                    event.content_type,
                     float(event.importance_score),
-                    float(event.importance_t0_base),
-                    event.importance_t1_score,
-                    int(event.importance_version),
                     int(event.level),
                     event.media_path,
                     None,
                 ),
             )
             # Sync FTS5 index
-            tokenized = tokenize_for_fts(event.raw_content)
+            tokenized = tokenize_for_fts(self.get_search_text(event))
             await db.execute(
                 "DELETE FROM l1_events_fts WHERE event_id = ?",
                 (event.event_id,),
             )
             await db.execute(
-                "INSERT INTO l1_events_fts(event_id, raw_content) VALUES (?, ?)",
+                "INSERT INTO l1_events_fts(event_id, content) VALUES (?, ?)",
                 (event.event_id, tokenized),
             )
             await db.commit()
@@ -341,7 +315,7 @@ class L1EventStore:
             for event in events
             if event["memory_domain"] != MemoryDomain.RUNTIME_TELEMETRY.label
             and (not allowed_domains or event["memory_domain"] in allowed_domains)
-            and all(token in event["raw_content"].lower() for token in query_tokens)
+            and all(token in event["content"].lower() for token in query_tokens)
         ]
         return filtered[:limit]
 
@@ -351,11 +325,11 @@ class L1EventStore:
         runtime_event = Event(
             type="TIMELINE_EVENT",
             data={
-                "title": event.title,
+                "content": str(event.summary or event.title or ""),
+                "author_type": "user" if event.source_type == "manual_journal" else "external",
+                "content_type": "observation",
                 "summary": event.summary,
-                "content_blocks": timeline_payload["content_blocks"],
-                "entities": event.entities,
-                "tags": event.tags,
+                "source_item_id": event.source_item_id,
             },
             timestamp=event.occurred_at,
             source=event.source_type,
@@ -363,8 +337,6 @@ class L1EventStore:
             correlation_id=event.event_id,
             metadata={
                 "timeline": timeline_payload,
-                "processing_status": event.processing_status,
-                "raw_payload_ref": event.raw_payload_ref,
             },
         )
         memory_event = normalize_runtime_event(runtime_event, event_id=event.event_id)
@@ -452,24 +424,36 @@ class L1EventStore:
         return [self._row_to_dict(row) for row in rows]
 
     async def get_timeline_event(self, event_id: str) -> Optional[Dict[str, Any]]:
-        """Return the original timeline payload for a timeline event."""
-        payload = await self.get_event(event_id)
-        if payload is None:
+        """Return a minimal timeline-shaped view from canonical L1 columns."""
+        event = await self.get_event(event_id)
+        if event is None or event.get("event_type") != "TIMELINE_EVENT":
             return None
-        timeline = payload.get("metadata", {}).get("timeline")
-        return timeline if isinstance(timeline, dict) else None
+        return {
+            "event_id": event["event_id"],
+            "source_type": event["source"],
+            "source_item_id": event["source_item_id"],
+            "occurred_at": event["timestamp"],
+            "title": event["content"],
+            "summary": event["content"],
+        }
 
     async def list_timeline_events(self, *, limit: int = 100, source_type: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List timeline events with optional source filtering."""
+        """List timeline-shaped views with optional source filtering."""
         events = await self.query_events(event_type="TIMELINE_EVENT", limit=limit)
         items: List[Dict[str, Any]] = []
         for event in events:
-            timeline = event.get("metadata", {}).get("timeline")
-            if not isinstance(timeline, dict):
+            if source_type and event["source"] != source_type:
                 continue
-            if source_type and timeline.get("source_type") != source_type:
-                continue
-            items.append(timeline)
+            items.append(
+                {
+                    "event_id": event["event_id"],
+                    "source_type": event["source"],
+                    "source_item_id": event["source_item_id"],
+                    "occurred_at": event["timestamp"],
+                    "title": event["content"],
+                    "summary": event["content"],
+                }
+            )
         return items
 
     async def count_events(self) -> int:
@@ -660,7 +644,7 @@ class L1EventStore:
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
                 f"""
-                SELECT event_id, raw_content FROM {FACT_EVENTS_TABLE}
+                SELECT event_id, content, author_type, content_type FROM {FACT_EVENTS_TABLE}
                 WHERE deleted_at IS NULL
                 AND event_id NOT IN (SELECT event_id FROM l1_events_fts)
                 """
@@ -668,18 +652,20 @@ class L1EventStore:
                 batch: list[tuple[str, str]] = []
                 async for row in cursor:
                     event_id = str(row[0])
-                    raw = str(row[1])
-                    batch.append((event_id, tokenize_for_fts(raw)))
+                    content = str(row[1] or "")
+                    author_type = str(row[2] or "")
+                    content_type = str(row[3] or "")
+                    batch.append((event_id, tokenize_for_fts(self._compose_search_text(content, author_type, content_type))))
                     if len(batch) >= batch_size:
                         await db.executemany(
-                            "INSERT INTO l1_events_fts(event_id, raw_content) VALUES (?, ?)",
+                            "INSERT INTO l1_events_fts(event_id, content) VALUES (?, ?)",
                             batch,
                         )
                         indexed += len(batch)
                         batch.clear()
                 if batch:
                     await db.executemany(
-                        "INSERT INTO l1_events_fts(event_id, raw_content) VALUES (?, ?)",
+                        "INSERT INTO l1_events_fts(event_id, content) VALUES (?, ?)",
                         batch,
                     )
                     indexed += len(batch)
@@ -707,12 +693,13 @@ class L1EventStore:
         ]
         if not eligible_events:
             return
+        texts = [self.get_embedding_text(event) for event in eligible_events]
         if hasattr(self._embedding_service, "embed_texts"):
-            embeddings = await self._embedding_service.embed_texts([event.raw_content for event in eligible_events])
+            embeddings = await self._embedding_service.embed_texts(texts)
         else:
             embeddings = [
-                await self._embedding_service.embed_text(event.raw_content)
-                for event in eligible_events
+                await self._embedding_service.embed_text(text)
+                for text in texts
             ]
         if not embeddings:
             return
@@ -838,11 +825,24 @@ class L1EventStore:
                 break
         return ranked
 
+    def get_search_text(self, event: MemoryEvent) -> str:
+        return self._compose_search_text(event.content, event.author_type, event.content_type)
+
+    def get_embedding_text(self, event: MemoryEvent) -> str:
+        return str(event.content or "").strip()
+
+    @staticmethod
+    def _compose_search_text(content: str, author_type: str, content_type: str) -> str:
+        text = str(content or "").strip()
+        labels = " ".join(part for part in (str(author_type or "").strip(), str(content_type or "").strip()) if part)
+        if text and labels:
+            return f"{text} {labels}"
+        return text or labels
+
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         return {
             "event_id": str(row["event_id"]),
             "correlation_id": str(row["correlation_id"]),
-            "parent_event_id": row["parent_event_id"],
             "timestamp": float(row["timestamp"]),
             "created_at": float(row["created_at"]),
             "event_type": str(row["event_type"]),
@@ -854,62 +854,22 @@ class L1EventStore:
             "tom_depth": TomDepth.from_value(row["tom_depth"]).label,
             "retention_class": RetentionClass.from_value(row["retention_class"]).label,
             "session_id": row["session_id"],
+            "turn_id": row["turn_id"],
             "user_id": row["user_id"],
-            "runtime_user_id": row["runtime_user_id"] if "runtime_user_id" in row.keys() else row["user_id"],
-            "memory_owner_id": row["memory_owner_id"] if "memory_owner_id" in row.keys() else None,
             "task_id": row["task_id"],
-            "goal_id": row["goal_id"],
-            "raw_content": str(row["raw_content"]),
-            "structured_payload": json.loads(row["structured_payload"] or "{}"),
-            "metadata": json.loads(row["metadata"] or "{}"),
+            "content": str(row["content"]),
+            "author_type": str(row["author_type"]),
+            "content_type": str(row["content_type"]),
             "importance_score": float(row["importance_score"]),
-            "importance_t0_base": float(row["importance_t0_base"] or 0.0),
-            "importance_t1_score": float(row["importance_t1_score"]) if row["importance_t1_score"] is not None else None,
-            "importance_version": int(row["importance_version"]),
             "level": int(row["level"]),
             "media_path": row["media_path"],
             "deleted_at": float(row["deleted_at"]) if row["deleted_at"] is not None else None,
         }
 
     def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent:
-        structured_payload = json.loads(row["structured_payload"] or "{}")
-        metadata = json.loads(row["metadata"] or "{}")
-        entity_focus_hint = None
-        if isinstance(structured_payload, dict):
-            entity_focus_hint = structured_payload.get("entity_focus_hint")
-        if not entity_focus_hint and isinstance(metadata, dict):
-            entity_focus_hint = metadata.get("entity_focus_hint")
-        derived_from_event_ids: list[str] = []
-        extraction_profile_id = None
-        structured_entity_hints: list[dict[str, Any]] = []
-        structured_graph_hints: list[dict[str, Any]] = []
-        if isinstance(metadata, dict):
-            raw_derived = metadata.get("derived_from_event_ids")
-            if isinstance(raw_derived, list):
-                derived_from_event_ids = [text for item in raw_derived if (text := str(item).strip())]
-            if metadata.get("extraction_profile_id"):
-                extraction_profile_id = str(metadata["extraction_profile_id"]).strip() or None
-            raw_entity_hints = metadata.get("structured_entity_hints")
-            if isinstance(raw_entity_hints, list):
-                structured_entity_hints = [dict(item) for item in raw_entity_hints if isinstance(item, dict)]
-            raw_graph_hints = metadata.get("structured_graph_hints")
-            if isinstance(raw_graph_hints, list):
-                structured_graph_hints = [dict(item) for item in raw_graph_hints if isinstance(item, dict)]
-        runtime_user_id = row["user_id"]
-        if isinstance(metadata, dict) and metadata.get("runtime_user_id"):
-            runtime_user_id = str(metadata["runtime_user_id"]).strip() or runtime_user_id
-        if "runtime_user_id" in row.keys() and row["runtime_user_id"] is not None:
-            runtime_user_id = str(row["runtime_user_id"]).strip() or runtime_user_id
-        memory_owner_id = None
-        if isinstance(metadata, dict) and metadata.get("memory_owner_id"):
-            memory_owner_id = str(metadata["memory_owner_id"]).strip() or None
-        if "memory_owner_id" in row.keys() and row["memory_owner_id"] is not None:
-            memory_owner_id = str(row["memory_owner_id"]).strip() or memory_owner_id
-
         return MemoryEvent(
             event_id=str(row["event_id"]),
             correlation_id=str(row["correlation_id"]),
-            parent_event_id=row["parent_event_id"],
             timestamp=float(row["timestamp"]),
             created_at=float(row["created_at"]),
             event_type=str(row["event_type"]),
@@ -921,39 +881,16 @@ class L1EventStore:
             tom_depth=TomDepth.from_value(row["tom_depth"]),
             retention_class=RetentionClass.from_value(row["retention_class"]),
             session_id=row["session_id"],
+            turn_id=row["turn_id"],
             user_id=row["user_id"],
-            runtime_user_id=runtime_user_id,
-            memory_owner_id=memory_owner_id,
             task_id=row["task_id"],
-            goal_id=row["goal_id"],
-            raw_content=str(row["raw_content"]),
-            structured_payload=json.dumps(structured_payload, ensure_ascii=False),
-            metadata=json.dumps(metadata, ensure_ascii=False),
+            content=str(row["content"]),
+            author_type=str(row["author_type"]),
+            content_type=str(row["content_type"]),
             importance_score=float(row["importance_score"]),
-            importance_t0_base=float(row["importance_t0_base"] or 0.0),
-            importance_t1_score=float(row["importance_t1_score"]) if row["importance_t1_score"] is not None else None,
-            importance_version=int(row["importance_version"]),
             level=int(row["level"]),
             media_path=row["media_path"],
-            entity_focus_hint=str(entity_focus_hint).strip() if entity_focus_hint else None,
-            speaker_role=str(metadata.get("speaker_role")).strip() if isinstance(metadata, dict) and metadata.get("speaker_role") else None,
-            grounding_type=str(metadata.get("grounding_type")).strip() if isinstance(metadata, dict) and metadata.get("grounding_type") else None,
-            derived_from_event_ids=derived_from_event_ids,
-            semantic_owner_hint=str(metadata.get("semantic_owner_hint")).strip() if isinstance(metadata, dict) and metadata.get("semantic_owner_hint") else None,
-            originality_type=str(metadata.get("originality_type")).strip() if isinstance(metadata, dict) and metadata.get("originality_type") else None,
-            extraction_profile_id=extraction_profile_id,
-            structured_entity_hints=structured_entity_hints,
-            structured_graph_hints=structured_graph_hints,
         )
-
-    async def _ensure_identity_columns(self, db: aiosqlite.Connection, table_name: str) -> None:
-        async with db.execute(f"PRAGMA table_info({table_name})") as cursor:
-            rows = await cursor.fetchall()
-        existing_columns = {str(row[1]) for row in rows}
-        if "runtime_user_id" not in existing_columns:
-            await db.execute(f"ALTER TABLE {table_name} ADD COLUMN runtime_user_id TEXT")
-        if "memory_owner_id" not in existing_columns:
-            await db.execute(f"ALTER TABLE {table_name} ADD COLUMN memory_owner_id TEXT")
 
 
 __all__ = ["L1EventStore"]

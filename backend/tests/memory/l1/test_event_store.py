@@ -48,7 +48,14 @@ async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
 
     event = Event(
         type=EventTypes.USER_MESSAGE,
-        data={"user_id": "user-1", "session_id": "session-1", "message": "Remember this"},
+        data={
+            "user_id": "user-1",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "content": "Remember this",
+            "author_type": "user",
+            "content_type": "text",
+        },
         source="chat",
         level=EventLevel.INFO,
         correlation_id="corr-1",
@@ -62,13 +69,19 @@ async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
     assert stored_event_id == "evt-1"
     assert fetched is not None
     assert fetched["event_id"] == "evt-1"
-    assert fetched["raw_content"].endswith("Remember this")
+    assert fetched["content"] == "Remember this"
+    assert fetched["author_type"] == "user"
+    assert fetched["content_type"] == "text"
+    assert fetched["turn_id"] == "turn-1"
+    assert "raw_content" not in fetched
+    assert "structured_payload" not in fetched
+    assert "metadata" not in fetched
     assert len(queried) == 1
     assert queried[0]["event_id"] == "evt-1"
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_persists_runtime_and_memory_owner_ids(tmp_path):
+async def test_l1_event_store_restores_final_memory_event_shape(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
@@ -77,7 +90,14 @@ async def test_l1_event_store_persists_runtime_and_memory_owner_ids(tmp_path):
 
     event = Event(
         type=EventTypes.USER_MESSAGE,
-        data={"user_id": "web_user", "session_id": "session-1", "message": "Remember me"},
+        data={
+            "user_id": "web_user",
+            "session_id": "session-1",
+            "turn_id": "turn-identity-1",
+            "content": "Remember me",
+            "author_type": "user",
+            "content_type": "text",
+        },
         source="chat",
         level=EventLevel.INFO,
         correlation_id="corr-identity-1",
@@ -89,11 +109,16 @@ async def test_l1_event_store_persists_runtime_and_memory_owner_ids(tmp_path):
     restored = await store.get_memory_event("evt-identity-1")
 
     assert fetched is not None
-    assert fetched["runtime_user_id"] == "web_user"
-    assert fetched["memory_owner_id"] == "user:self"
+    assert fetched["user_id"] == "web_user"
+    assert fetched["turn_id"] == "turn-identity-1"
     assert restored is not None
-    assert restored.runtime_user_id == "web_user"
-    assert restored.memory_owner_id == "user:self"
+    assert restored.user_id == "web_user"
+    assert restored.content == "Remember me"
+    assert restored.author_type == "user"
+    assert restored.content_type == "text"
+    assert restored.turn_id == "turn-identity-1"
+    assert not hasattr(restored, "runtime_user_id")
+    assert not hasattr(restored, "memory_owner_id")
 
 
 @pytest.mark.asyncio
@@ -126,7 +151,7 @@ async def test_l1_timeline_roundtrip_uses_timeline_metadata(tmp_path):
 
     assert fetched is not None
     assert fetched["event_id"] == "timeline-1"
-    assert fetched["title"] == "Journal"
+    assert fetched["summary"] == "A reflective note"
     assert len(listed) == 1
     assert listed[0]["summary"] == "A reflective note"
 
@@ -141,7 +166,15 @@ async def test_l1_event_store_routes_runtime_events_to_observations(tmp_path):
 
     event = Event(
         type=EventTypes.ACTION_EXECUTED,
-        data={"user_id": "user-1", "session_id": "session-1", "action_type": "bash", "success": True},
+        data={
+            "user_id": "user-1",
+            "session_id": "session-1",
+            "content": "bash succeeded",
+            "author_type": "tool",
+            "content_type": "tool_result",
+            "action_type": "bash",
+            "success": True,
+        },
         source="runtime",
         level=EventLevel.INFO,
         correlation_id="corr-2",
@@ -171,18 +204,16 @@ async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
     conn.execute(
         """
         INSERT INTO fact_events (
-            event_id, correlation_id, parent_event_id, timestamp, created_at,
+            event_id, correlation_id, timestamp, created_at,
             event_type, source, source_item_id, memory_domain, ingest_target,
-            cognition_eligible, tom_depth, retention_class, session_id, user_id,
-            task_id, goal_id, raw_content, structured_payload, metadata,
-            importance_score, importance_t0_base, importance_t1_score, importance_version,
+            cognition_eligible, tom_depth, retention_class, session_id, turn_id, user_id,
+            task_id, content, author_type, content_type, importance_score,
             level, media_path, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "evt-decoded",
             "corr-1",
-            None,
             1.0,
             1.0,
             "UserMessage",
@@ -194,16 +225,13 @@ async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
             int(TomDepth.DEFENSIVE_PSYCHOLOGY),
             int(RetentionClass.PERMANENT),
             "session-1",
+            "turn-1",
             "user-1",
             None,
-            None,
             "hello",
-            "{}",
-            "{}",
+            "user",
+            "text",
             0.8,
-            0.8,
-            None,
-            1,
             1,
             None,
             None,
@@ -240,7 +268,13 @@ async def test_l1_async_embeddings_flush_full_batches_via_batch_api(tmp_path):
                 normalize_runtime_event(
                     Event(
                         type=EventTypes.USER_MESSAGE,
-                        data={"user_id": "u1", "session_id": "s1", "message": f"career note {idx}"},
+                        data={
+                            "user_id": "u1",
+                            "session_id": "s1",
+                            "content": f"career note {idx}",
+                            "author_type": "user",
+                            "content_type": "text",
+                        },
                         source="chat",
                         level=EventLevel.INFO,
                         correlation_id=f"corr-batch-{idx}",
@@ -279,7 +313,13 @@ async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
                 normalize_runtime_event(
                     Event(
                         type=EventTypes.USER_MESSAGE,
-                        data={"user_id": "u1", "session_id": "s1", "message": f"stress note {idx}"},
+                        data={
+                            "user_id": "u1",
+                            "session_id": "s1",
+                            "content": f"stress note {idx}",
+                            "author_type": "user",
+                            "content_type": "text",
+                        },
                         source="chat",
                         level=EventLevel.INFO,
                         correlation_id=f"corr-timeout-{idx}",
@@ -296,6 +336,6 @@ async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
     assert time.monotonic() - started_at >= 0.04
     assert embedding_service.single_calls == []
     assert embedding_service.batch_calls == [[
-        "UserMessage u1 s1 stress note 0",
-        "UserMessage u1 s1 stress note 1",
+        "stress note 0",
+        "stress note 1",
     ]]
