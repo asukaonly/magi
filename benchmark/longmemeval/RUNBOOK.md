@@ -155,6 +155,12 @@ When `--answer-with-llm` is enabled, the backend logs also print:
 - `Eval query answer synthesis started`
 - `Eval query answer synthesis completed`
 
+If you want the CLI to fail faster instead of waiting quietly for a slow backend response, add:
+
+```bash
+  --request-timeout 30
+```
+
 ## 8. Run Official LongMemEval QA Scoring
 
 ```bash

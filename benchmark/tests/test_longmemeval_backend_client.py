@@ -149,3 +149,42 @@ def test_backend_client_reads_l2_statistics_endpoint() -> None:
 
     assert calls == ["/api/memory/l2/statistics"]
     assert result["extract_completed"] == 8
+
+
+def test_backend_client_uses_configured_timeout_for_post_requests() -> None:
+    service = BackendEvalService("http://localhost:8000", timeout_seconds=12.5)
+
+    captured: list[float] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"hits":[],"trace":{}}'
+
+    def fake_urlopen(req, timeout=None):
+        _ = req
+        captured.append(timeout)
+        return _FakeResponse()
+
+    import urllib.request as urllib_request
+
+    original = urllib_request.urlopen
+    urllib_request.urlopen = fake_urlopen  # type: ignore[assignment]
+    try:
+        asyncio.run(
+            service.query_memory(
+                EvalMemoryQuery(
+                    namespace="benchmark/longmemeval/run-1/q-1",
+                    query="What food do I prefer?",
+                )
+            )
+        )
+    finally:
+        urllib_request.urlopen = original  # type: ignore[assignment]
+
+    assert captured == [12.5]

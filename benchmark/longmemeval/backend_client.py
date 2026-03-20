@@ -14,8 +14,9 @@ from magi.memory.eval_support.contracts import EvalMemoryHit, EvalMemoryQuery, E
 class BackendEvalService:
     """Thin async wrapper over benchmark-facing memory eval API endpoints."""
 
-    def __init__(self, backend_url: str) -> None:
+    def __init__(self, backend_url: str, *, timeout_seconds: float = 120.0) -> None:
         self._backend_url = str(backend_url).rstrip("/")
+        self._timeout_seconds = float(timeout_seconds)
 
     async def write_records(self, *, namespace: str, records: list[Any]) -> dict[str, Any]:
         payload = {
@@ -72,7 +73,7 @@ class BackendEvalService:
             method="POST",
         )
         try:
-            with request.urlopen(req) as response:
+            with request.urlopen(req, timeout=self._timeout_seconds) as response:
                 return json.loads(response.read().decode("utf-8"))
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
@@ -82,7 +83,7 @@ class BackendEvalService:
         url = f"{self._backend_url}{path}"
         req = request.Request(url, headers={"Accept": "application/json"}, method="GET")
         try:
-            with request.urlopen(req) as response:
+            with request.urlopen(req, timeout=self._timeout_seconds) as response:
                 return json.loads(response.read().decode("utf-8"))
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import io
+from contextlib import redirect_stdout
 
 from magi.memory.eval_support.contracts import EvalMemoryHit, EvalMemoryQueryResult
 
-from benchmark.longmemeval.query_one import build_single_query_payload, select_question_row
+from benchmark.longmemeval.query_one import build_single_query_payload, main, select_question_row
 
 
 def _build_sample_row(question_id: str = "q-1") -> dict[str, object]:
@@ -77,3 +79,41 @@ def test_build_single_query_payload_returns_debug_shape() -> None:
     assert payload["hypothesis"] == "Sushi"
     assert payload["retrieved_session_ids"] == ["sess-2"]
     assert payload["answer_trace"]["answer_source"] == "llm"
+
+
+def test_query_one_main_prints_progress_before_result(monkeypatch, tmp_path) -> None:
+    dataset_path = tmp_path / "dataset.json"
+    dataset_path.write_text("[]", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "benchmark.longmemeval.query_one.load_longmemeval_rows",
+        lambda path: [_build_sample_row()],
+    )
+    monkeypatch.setattr(
+        "benchmark.longmemeval.query_one.build_single_query_payload",
+        lambda **kwargs: {
+            "question_id": "q-1",
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "hypothesis": "Sushi",
+        },
+    )
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        exit_code = main(
+            [
+                "--dataset",
+                str(dataset_path),
+                "--run-id",
+                "run-1",
+                "--question-id",
+                "q-1",
+                "--answer-with-llm",
+            ]
+        )
+
+    output = stdout.getvalue()
+    assert exit_code == 0
+    assert "Querying LongMemEval question_id=q-1" in output
+    assert "answer_with_llm=True" in output
+    assert '"hypothesis": "Sushi"' in output

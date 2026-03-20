@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import sys
+import inspect
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Protocol, Sequence
@@ -85,6 +86,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--question-id", required=True, help="LongMemEval question id to debug.")
     parser.add_argument("--backend-url", default="http://127.0.0.1:8000", help="Magi backend base URL.")
     parser.add_argument(
+        "--request-timeout",
+        type=float,
+        default=120.0,
+        help="HTTP timeout in seconds for the backend query request.",
+    )
+    parser.add_argument(
         "--answer-with-llm",
         action="store_true",
         help="Use the backend LLM to synthesize a final answer from retrieved hits.",
@@ -96,14 +103,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     rows = load_longmemeval_rows(args.dataset)
     row = select_question_row(rows, args.question_id)
-    payload = asyncio.run(
-        build_single_query_payload(
-            row=row,
-            eval_service=BackendEvalService(args.backend_url),
-            run_id=args.run_id,
-            answer_with_llm=args.answer_with_llm,
-        )
+    question_id = str(row.get("question_id") or "")
+    namespace = build_eval_namespace(
+        benchmark_name="longmemeval",
+        run_id=args.run_id,
+        question_id=question_id,
     )
+    print(
+        f"Querying LongMemEval question_id={question_id} "
+        f"namespace={namespace} "
+        f"answer_with_llm={args.answer_with_llm}",
+        flush=True,
+    )
+    build_result = build_single_query_payload(
+        row=row,
+        eval_service=BackendEvalService(args.backend_url, timeout_seconds=args.request_timeout),
+        run_id=args.run_id,
+        answer_with_llm=args.answer_with_llm,
+    )
+    payload = asyncio.run(build_result) if inspect.iscoroutine(build_result) else build_result
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
