@@ -76,11 +76,11 @@ def test_extraction_job_payload_can_be_created_from_event_id():
 def test_reconcile_job_accepts_multiple_entities():
     from magi.memory.l2.models import L2EntityReconcileJob
 
-    job = L2EntityReconcileJob(entity_ids=["user:self", "place:shanghai"])
+    job = L2EntityReconcileJob(entity_ids=["user:u1", "place:shanghai"])
 
     assert job.job_type == "reconcile"
-    assert job.entity_ids == ["place:shanghai", "user:self"]
-    assert job.batch_key == "entities:place:shanghai|user:self"
+    assert job.entity_ids == ["place:shanghai", "user:u1"]
+    assert job.batch_key == "entities:place:shanghai|user:u1"
 
 
 @pytest.mark.parametrize(
@@ -110,7 +110,7 @@ def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
         recommended_action="downgrade_confidence",
     )
     outcome = ReconciledTraitOutcome(
-        entity_id="user:self",
+        entity_id="user:u1",
         entity_type="user",
         trait_name="preference.food",
         winning_value="sushi",
@@ -131,7 +131,7 @@ def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
         "recommended_action": "downgrade_confidence",
     }
     assert outcome.to_dict() == {
-        "entity_id": "user:self",
+        "entity_id": "user:u1",
         "entity_type": "user",
         "trait_name": "preference.food",
         "winning_value": "sushi",
@@ -144,193 +144,34 @@ def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
     }
 
 
-def test_normalized_memory_event_captures_entity_focus_hint_from_payload():
-    event = Event(
-        type=EventTypes.USER_MESSAGE,
-        data={"user_id": "u1", "message": "hello", "entity_focus_hint": "place:shanghai"},
-        source="chat",
-        level=EventLevel.INFO,
-        correlation_id="corr-l2",
-    )
-
-    normalized = normalize_runtime_event(event)
-
-    assert normalized.entity_focus_hint == "place:shanghai"
-
-
-def test_normalized_memory_event_captures_extraction_profile_metadata():
+def test_normalized_memory_event_uses_canonical_text_fields():
     event = Event(
         type=EventTypes.USER_MESSAGE,
         data={
-            "user_id": "u1",
-            "message": "hello",
-            "structured_entity_hints": [
-                {
-                    "mention_text": "GitHub",
-                    "entity_type": "software",
-                    "canonical_name_hint": "GitHub",
-                }
-            ],
-            "structured_graph_hints": [
-                {
-                    "subject_ref": "user:self",
-                    "predicate": "VISITED",
-                    "object_ref": "product:github",
-                    "object_type": "product",
-                }
-            ],
+            "user_id": "web_user",
+            "session_id": "s1",
+            "turn_id": "turn-1",
+            "content": "hello",
+            "author_type": "user",
+            "content_type": "text",
         },
-        source="timeline",
-        level=EventLevel.INFO,
-        correlation_id="corr-l2-profile",
-        metadata={"extraction_profile_id": "timeline.chrome_history"},
-    )
-
-    normalized = normalize_runtime_event(event)
-    metadata = json.loads(normalized.metadata)
-
-    assert normalized.extraction_profile_id == "timeline.chrome_history"
-    assert normalized.structured_entity_hints == [
-        {
-            "mention_text": "GitHub",
-            "entity_type": "software",
-            "canonical_name_hint": "GitHub",
-        }
-    ]
-    assert normalized.structured_graph_hints == [
-        {
-            "subject_ref": "user:self",
-            "predicate": "VISITED",
-            "object_ref": "product:github",
-            "object_type": "product",
-        }
-    ]
-    assert metadata["extraction_profile_id"] == "timeline.chrome_history"
-
-
-def test_normalized_memory_event_tracks_runtime_and_memory_owner_ids():
-    event = Event(
-        type=EventTypes.USER_MESSAGE,
-        data={"user_id": "web_user", "message": "hello"},
         source="chat",
         level=EventLevel.INFO,
-        correlation_id="corr-memory-identity",
+        correlation_id="corr-canonical-text",
     )
 
     normalized = normalize_runtime_event(event)
-    metadata = json.loads(normalized.metadata)
 
-    assert normalized.runtime_user_id == "web_user"
-    assert normalized.memory_owner_id == "user:self"
     assert normalized.user_id == "web_user"
-    assert metadata["runtime_user_id"] == "web_user"
-    assert metadata["memory_owner_id"] == "user:self"
+    assert normalized.session_id == "s1"
+    assert normalized.turn_id == "turn-1"
+    assert normalized.content == "hello"
+    assert normalized.author_type == "user"
+    assert normalized.content_type == "text"
 
 
 @pytest.mark.asyncio
-async def test_unified_memory_store_resolves_runtime_identity_links_for_memory_owner():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        store = UnifiedMemoryStore(
-            l1_db_path=str(Path(temp_dir) / "l1_events.db"),
-            memory_db_path=str(Path(temp_dir) / "memory.db"),
-            enable_l0=False,
-            enable_l2=False,
-            enable_l3=False,
-            enable_l4=False,
-        )
-        await store.initialize()
-        try:
-            await store.upsert_identity_link(
-                namespace="telegram",
-                runtime_user_id="asuka_main",
-                memory_owner_id="user:self",
-            )
-
-            result = await store.ingest_event(
-                Event(
-                    type=EventTypes.USER_MESSAGE,
-                    data={
-                        "user_id": "asuka_main",
-                        "runtime_namespace": "telegram",
-                        "session_id": "s-telegram",
-                        "message": "hello from telegram",
-                    },
-                    source="chat",
-                    level=EventLevel.INFO,
-                )
-            )
-            restored = await store.l1.get_memory_event(result["event_id"]) if store.l1 is not None else None
-
-            assert restored is not None
-            assert restored.runtime_user_id == "asuka_main"
-            assert restored.memory_owner_id == "user:self"
-            assert json.loads(restored.metadata)["runtime_namespace"] == "telegram"
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_l1_round_trip_preserves_extraction_profile_metadata():
-    from magi.memory.l1.event_store import L1EventStore
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        store = L1EventStore(db_path=str(Path(temp_dir) / "l1_events.db"), vector_enabled=False)
-        await store.initialize()
-        try:
-            normalized = normalize_runtime_event(
-                Event(
-                    type=EventTypes.USER_MESSAGE,
-                    data={
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "message": "hello",
-                        "structured_entity_hints": [
-                            {
-                                "mention_text": "GitHub",
-                                "entity_type": "software",
-                            }
-                        ],
-                        "structured_graph_hints": [
-                            {
-                                "subject_ref": "user:self",
-                                "predicate": "VISITED",
-                                "object_ref": "product:github",
-                                "object_type": "product",
-                            }
-                        ],
-                    },
-                    source="timeline",
-                    level=EventLevel.INFO,
-                    correlation_id="corr-l2-profile-roundtrip",
-                    metadata={"extraction_profile_id": "timeline.chrome_history"},
-                )
-            )
-
-            await store.store(normalized)
-            restored = await store.get_memory_event(normalized.event_id)
-
-            assert restored is not None
-            assert restored.extraction_profile_id == "timeline.chrome_history"
-            assert restored.structured_entity_hints == [
-                {
-                    "mention_text": "GitHub",
-                    "entity_type": "software",
-                }
-            ]
-            assert restored.structured_graph_hints == [
-                {
-                    "subject_ref": "user:self",
-                    "predicate": "VISITED",
-                    "object_ref": "product:github",
-                    "object_type": "product",
-                }
-            ]
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_l1_round_trip_preserves_runtime_and_memory_owner_ids():
+async def test_l1_round_trip_preserves_canonical_text_fields():
     from magi.memory.l1.event_store import L1EventStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -343,11 +184,14 @@ async def test_l1_round_trip_preserves_runtime_and_memory_owner_ids():
                     data={
                         "user_id": "web_user",
                         "session_id": "s1",
-                        "message": "hello",
+                        "turn_id": "turn-1",
+                        "content": "hello",
+                        "author_type": "user",
+                        "content_type": "text",
                     },
                     source="chat",
                     level=EventLevel.INFO,
-                    correlation_id="corr-memory-identity-roundtrip",
+                    correlation_id="corr-canonical-roundtrip",
                 )
             )
 
@@ -355,9 +199,11 @@ async def test_l1_round_trip_preserves_runtime_and_memory_owner_ids():
             restored = await store.get_memory_event(normalized.event_id)
 
             assert restored is not None
-            assert restored.runtime_user_id == "web_user"
-            assert restored.memory_owner_id == "user:self"
             assert restored.user_id == "web_user"
+            assert restored.turn_id == "turn-1"
+            assert restored.content == "hello"
+            assert restored.author_type == "user"
+            assert restored.content_type == "text"
         finally:
             await store.shutdown()
 
@@ -383,7 +229,7 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "I have been stressed about work.",
+                        "content": "I have been stressed about work.",
                     },
                 }
             )
@@ -460,7 +306,7 @@ async def test_shutdown_drains_l2_pipeline_workers_cleanly():
                 "data": {
                     "user_id": "u1",
                     "session_id": "s1",
-                    "message": "I feel calm now.",
+                    "content": "I feel calm now.",
                 },
             }
         )
@@ -515,7 +361,7 @@ def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
         existing_records=[{"record_id": "triple-1", "predicate": "LIKES", "object_id": "food:sushi"}],
     )
     reconcile_prompt = render_entity_reconcile_prompt(
-        entity={"entity_id": "user:self", "entity_type": "user"},
+        entity={"entity_id": "user:u1", "entity_type": "user"},
         graph_facts=[{"predicate": "LIKES", "object_id": "food:sushi"}],
         assertions=[{"trait_name": "stress_level", "trait_value": "high"}],
         recent_events=[{"event_id": "evt-1", "raw_content": "I am stressed."}],
@@ -523,7 +369,7 @@ def test_contradiction_and_reconcile_prompt_rendering_is_deterministic():
 
     assert '"event_id": "evt-1"' in contradiction_prompt
     assert '"predicate": "LIKES"' in contradiction_prompt
-    assert '"entity_id": "user:self"' in reconcile_prompt
+    assert '"entity_id": "user:u1"' in reconcile_prompt
     assert '"trait_name": "stress_level"' in reconcile_prompt
 
 
@@ -574,7 +420,7 @@ async def test_single_event_tom_candidates_are_capped_to_low_confidence():
         {
             "assertion_candidates": [
                 {
-                    "entity_ref": "user:self",
+                    "entity_ref": "user:u1",
                     "entity_type": "user",
                     "trait_family": "stress",
                     "trait_name": "stress_level",
@@ -594,7 +440,7 @@ async def test_single_event_tom_candidates_are_capped_to_low_confidence():
 
     assertions = await service.extract_tom_assertions(
         event_window={"event_ids": ["evt-1"], "texts": ["I am stressed about work."]},
-        focal_entities=[{"entity_id": "user:self", "entity_type": "user"}],
+        focal_entities=[{"entity_id": "user:u1", "entity_type": "user"}],
     )
 
     assert assertions[0]["confidence"] == 0.3
@@ -611,7 +457,7 @@ async def test_invalid_json_from_contradiction_and_reconcile_llm_fails_closed():
         existing_records=[{"record_id": "triple-1"}],
     )
     outcomes = await service.reconcile_entity_state(
-        entity={"entity_id": "user:self", "entity_type": "user"},
+        entity={"entity_id": "user:u1", "entity_type": "user"},
         graph_facts=[],
         assertions=[],
         recent_events=[],
@@ -674,7 +520,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "我好喜欢魔都",
+                        "content": "我好喜欢魔都",
                     },
                 }
             )
@@ -685,7 +531,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
                 await asyncio.sleep(0.01)
 
             mentions = await store.l2_entity_catalog.list_mentions(limit=10)
-            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
 
             assert mentions[0]["mention_text"] == "魔都"
             assert mentions[0]["resolved_entity_id"] == "place:shanghai"
@@ -742,7 +588,7 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "I call Shanghai Modu sometimes.",
+                        "content": "I call Shanghai Modu sometimes.",
                     },
                 }
             )
@@ -761,7 +607,7 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "I like Shanghai.",
+                        "content": "I like Shanghai.",
                     },
                 }
             )
@@ -791,7 +637,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
             {
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:self",
+                        "entity_ref": "user:u1",
                         "entity_type": "user",
                         "trait_family": "stress",
                         "trait_name": "stress_level",
@@ -829,7 +675,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "I am stressed about work today.",
+                        "content": "I am stressed about work today.",
                     },
                 }
             )
@@ -840,7 +686,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
                     break
                 await asyncio.sleep(0.01)
 
-            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
             assert len(assertions) == 1
             assert assertions[0]["trait_name"] == "stress_level"
@@ -876,7 +722,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
                     normalize_runtime_event(
                         Event(
                             type=EventTypes.USER_MESSAGE,
-                            data={"user_id": "u1", "session_id": "s1", "message": f"Historical stress evidence {event_id}"},
+                            data={"user_id": "u1", "session_id": "s1", "content": f"Historical stress evidence {event_id}"},
                             source="chat",
                             level=EventLevel.INFO,
                             correlation_id=event_id,
@@ -888,7 +734,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
             await store.l2.upsert_assertion_candidate(
                 {
                     "assertion_id": "assert-existing",
-                    "entity_id": "user:self",
+                    "entity_id": "user:u1",
                     "entity_type": "user",
                     "trait_name": "stress_level",
                     "trait_value": "high",
@@ -902,7 +748,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
                     "last_validated_at": 1710185000.0,
                 }
             )
-            existing_assertions = await store.l2.list_tom_assertions(entity_id="user:self")
+            existing_assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
             existing_assertion_id = existing_assertions[0]["assertion_id"]
             adapter._responses = [
                 json.dumps({"mentions": []}),
@@ -933,7 +779,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "I feel calm and relaxed now.",
+                        "content": "I feel calm and relaxed now.",
                     },
                 }
             )
@@ -944,7 +790,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
                     break
                 await asyncio.sleep(0.01)
 
-            assertions = await store.l2.list_tom_assertions(entity_id="user:self")
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
             summaries = await store.l3.list_summaries(limit=10) if store.l3 is not None else []
 
             assert assertions[0]["assertion_id"] == existing_assertion_id
@@ -956,8 +802,6 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
 
 
 @pytest.mark.asyncio
-
-
 @pytest.mark.asyncio
 async def test_chat_response_action_runtime_event_is_skipped_before_llm_extraction():
     adapter = _FakeAdapter(json.dumps({"mentions": [], "graph_candidates": [], "assertion_candidates": []}))
@@ -979,7 +823,7 @@ async def test_chat_response_action_runtime_event_is_skipped_before_llm_extracti
                         "agent_id": "chat:web_user",
                         "event_type": "UserMessage",
                         "action_type": "ChatResponseAction",
-                        "response": "懂你，这种天气确实烦。",
+                        "content": "懂你，这种天气确实烦。",
                         "user_id": "web_user",
                         "session_id": "s1",
                         "turn_id": "turn-1",
@@ -1005,6 +849,8 @@ async def test_chat_response_action_runtime_event_is_skipped_before_llm_extracti
         finally:
             await store.shutdown()
 
+
+@pytest.mark.asyncio
 async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
     adapter = _FakeAdapter("{}")
 
@@ -1028,7 +874,9 @@ async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "response": "You might enjoy Hangzhou weather this week.",
+                        "content": "You might enjoy Hangzhou weather this week.",
+                        "author_type": "assistant",
+                        "content_type": "text",
                     },
                 }
             )
@@ -1040,8 +888,8 @@ async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
                 await asyncio.sleep(0.01)
 
             stats = store.get_l2_pipeline_stats()
-            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
             assert stats["extract_completed"] >= 1
             assert stats["extract_skipped"] >= 1
@@ -1076,11 +924,9 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "response": "According to the weather tool, Hangzhou is 17C right now.",
-                    },
-                    "metadata": {
-                        "tool_name": "weather_api",
-                        "tool_call_id": "call-weather-1",
+                        "content": "According to the weather tool, Hangzhou is 17C right now.",
+                        "author_type": "assistant",
+                        "content_type": "tool_result",
                     },
                 }
             )
@@ -1091,8 +937,8 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
                     break
                 await asyncio.sleep(0.01)
 
-            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
             stats = store.get_l2_pipeline_stats()
 
             assert stats["extract_completed"] >= 1
@@ -1113,7 +959,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                 {
                     "assertion_candidates": [
                         {
-                            "entity_ref": "user:self",
+                            "entity_ref": "user:u1",
                             "entity_type": "user",
                             "trait_family": "stress",
                             "trait_name": "stress_level",
@@ -1152,7 +998,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "I am stressed about work today.",
+                        "content": "I am stressed about work today.",
                     },
                 }
             )
@@ -1163,7 +1009,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                     break
                 await asyncio.sleep(0.01)
 
-            before_assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
+            before_assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
             before_call_count = len(adapter.calls)
 
             await store.ingest_event(
@@ -1176,10 +1022,9 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "response": "You mentioned earlier that you feel stressed about work today.",
-                    },
-                    "metadata": {
-                        "derived_from_event_ids": ["evt-user-stress-1"],
+                        "content": "You mentioned earlier that you feel stressed about work today.",
+                        "author_type": "assistant",
+                        "content_type": "text",
                     },
                 }
             )
@@ -1190,7 +1035,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                     break
                 await asyncio.sleep(0.01)
 
-            after_assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
+            after_assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
             stats = store.get_l2_pipeline_stats()
 
             assert len(before_assertions) == 1
@@ -1228,7 +1073,7 @@ async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "I like sushi.",
+                        "content": "I like sushi.",
                     },
                 }
             )
@@ -1242,7 +1087,7 @@ async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "response": "You might want sushi for dinner.",
+                        "content": "You might want sushi for dinner.",
                     },
                 }
             )
@@ -1287,7 +1132,7 @@ async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.
                         "data": {
                             "user_id": "u1",
                             "session_id": "s1",
-                            "response": "You might enjoy sushi tonight.",
+                            "content": "You might enjoy sushi tonight.",
                         },
                     }
                 )
@@ -1326,7 +1171,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:self",
+                        "subject_ref": "user:u1",
                         "subject_type": "user",
                         "predicate": "VISITED",
                         "object_ref": "GitHub",
@@ -1337,7 +1182,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                         "confidence": 0.9,
                     },
                     {
-                        "subject_ref": "user:self",
+                        "subject_ref": "user:u1",
                         "subject_type": "user",
                         "predicate": "LIKES",
                         "object_ref": "GitHub",
@@ -1350,7 +1195,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                 ],
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:self",
+                        "entity_ref": "user:u1",
                         "entity_type": "user",
                         "trait_family": "mood",
                         "trait_name": "mood",
@@ -1385,15 +1230,12 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                         "id": "evt-log-unified-1",
                         "type": EventTypes.USER_MESSAGE,
                         "timestamp": time.time(),
-                        "source": "timeline",
+                        "source": "calendar",
                         "level": EventLevel.INFO.value,
                         "data": {
                             "user_id": "u1",
                             "session_id": "s1",
-                            "message": "Visited GitHub today",
-                        },
-                        "metadata": {
-                            "extraction_profile_id": "timeline.chrome_history",
+                            "content": "Visited GitHub today",
                         },
                     }
                 )
@@ -1409,7 +1251,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
             assert any("L2 unified extraction stage started" in message for message in messages)
             assert any("L2 unified candidate validation completed" in message for message in messages)
             assert any("L2 persistence completed" in message for message in messages)
-            assert any("timeline.chrome_history" in message for message in messages)
+            assert any("timeline.calendar" in message for message in messages)
             assert any("rejected_graph_candidate_count" in message for message in messages)
             assert any("rejected_assertion_candidate_count" in message for message in messages)
         finally:
@@ -1434,7 +1276,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:self",
+                        "subject_ref": "user:u1",
                         "subject_type": "user",
                         "predicate": "DISLIKES",
                         "object_ref": "food:west-lake-vinegar-fish",
@@ -1472,7 +1314,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "但我讨厌吃西湖醋鱼",
+                        "content": "但我讨厌吃西湖醋鱼",
                     },
                 }
             )
@@ -1484,7 +1326,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                 await asyncio.sleep(0.01)
 
             mentions = await store.l2_entity_catalog.list_mentions() if store.l2_entity_catalog is not None else []
-            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
 
             assert mentions[0]["entity_type"] == "food"
             assert relationships[0]["predicate"] == "DISLIKES"
@@ -1511,7 +1353,7 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:self",
+                        "subject_ref": "user:u1",
                         "subject_type": "user",
                         "predicate": "DISLIKES",
                         "object_ref": "food:xi-hu-cu-yu",
@@ -1524,7 +1366,7 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                 ],
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:self",
+                        "entity_ref": "user:u1",
                         "entity_type": "user",
                         "trait_family": "taste_profile",
                         "trait_name": "taste_preference",
@@ -1563,7 +1405,7 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "但我讨厌吃西湖醋鱼",
+                        "content": "但我讨厌吃西湖醋鱼",
                     },
                 }
             )
@@ -1574,7 +1416,7 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                     break
                 await asyncio.sleep(0.01)
 
-            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
             assert assertions == []
         finally:
@@ -1599,7 +1441,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:self",
+                        "subject_ref": "user:u1",
                         "subject_type": "user",
                         "predicate": "DISLIKES",
                         "object_ref": "food:xi-hu-cu-yu",
@@ -1612,7 +1454,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                 ],
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:self",
+                        "entity_ref": "user:u1",
                         "entity_type": "user",
                         "trait_family": "taste_profile",
                         "trait_name": "taste_profile",
@@ -1651,7 +1493,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "但我讨厌吃西湖醋鱼",
+                        "content": "但我讨厌吃西湖醋鱼",
                     },
                 }
             )
@@ -1662,8 +1504,8 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                     break
                 await asyncio.sleep(0.01)
 
-            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
             assert [item["predicate"] for item in relationships] == ["DISLIKES"]
             assert [item["trait_name"] for item in assertions] == ["taste_profile"]
@@ -1672,163 +1514,48 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
 
 
 @pytest.mark.asyncio
-async def test_unified_extraction_binds_weather_context_refs_into_graph_and_assertion():
-    adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "mentions": [],
-                "resolved_context_refs": [
-                    {
-                        "surface": "这种天气",
-                        "reference_type": "context_entity",
-                        "resolved_ref": "weather_state:hangzhou-rainy-11c",
-                        "resolved_kind": "weather_state",
-                        "confidence": 0.94,
-                        "evidence_text": "我真的很烦这种天气耶",
-                    }
-                ],
-                "graph_candidates": [
-                    {
-                        "subject_ref": "user:self",
-                        "subject_type": "user",
-                        "predicate": "DISLIKES",
-                        "object_ref": "这种天气",
-                        "object_type": "weather_state",
-                        "fact_kind": "stable_preference",
-                        "polarity": "negative",
-                        "evidence_text": "我真的很烦这种天气耶",
-                        "confidence": 0.83,
-                    }
-                ],
-                "assertion_candidates": [
-                    {
-                        "entity_ref": "user:self",
-                        "entity_type": "user",
-                        "trait_family": "mood",
-                        "trait_name": "annoyance",
-                        "trait_value": "high",
-                        "target_ref": "这种天气",
-                        "inference_depth": "defensive_psychology",
-                        "volatility_index": 0.85,
-                        "confidence": 0.7,
-                        "validation_state": "tentative",
-                        "evidence_texts": ["我真的很烦这种天气耶"],
-                        "supporting_event_ids": ["evt-weather-context-1"],
-                    }
-                ],
-                "diagnostics": {"entity_status": "none"},
-            },
-            ensure_ascii=False,
-        )
-    )
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            await store.ingest_event(
-                {
-                    "id": "evt-weather-context-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "message": "我真的很烦这种天气耶",
-                    },
-                    "metadata": {
-                        "live_context_entities": [
-                            {
-                                "context_id": "weather_state:hangzhou-rainy-11c",
-                                "kind": "weather_state",
-                                "summary": "杭州，阵雨，11度",
-                                "source_event_ids": ["evt-weather-tool-1"],
-                                "created_at": time.time(),
-                                "expires_at": time.time() + 3600,
-                            }
-                        ]
-                    },
-                }
-            )
-
-            for _ in range(50):
-                stats = store.get_l2_pipeline_stats()
-                if (
-                    stats["extract_completed"] >= 1
-                    and stats["relations_written"] >= 1
-                    and stats["assertions_written"] >= 1
-                ):
-                    break
-                await asyncio.sleep(0.01)
-
-            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
-
-            assert relationships[0]["object_id"] == "weather_state:hangzhou-rainy-11c"
-            assert relationships[0]["object_type"] == "weather_state"
-            assert assertions[0]["trait_name"] == "annoyance"
-            assert assertions[0]["target_entity_id"] == "weather_state:hangzhou-rainy-11c"
-            assert assertions[0]["target_entity_type"] == "weather_state"
-            assert assertions[0]["target_scope"] == "entity_bound"
-            assert assertions[0]["temporal_scope"] == "momentary"
-            assert assertions[0]["decay_policy"] == "fast_decay"
-            assert assertions[0]["context_ref_id"] == "weather_state:hangzhou-rainy-11c"
-            assert assertions[0]["expires_at"] is not None
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_unified_extraction_respects_chrome_history_profile_restrictions():
+async def test_unified_extraction_respects_calendar_profile_restrictions():
     adapter = _FakeAdapter(
         json.dumps(
             {
                 "mentions": [
                     {
-                        "mention_text": "GitHub",
-                        "normalized_surface": "github",
-                        "entity_type": "product",
-                        "canonical_name_hint": "GitHub",
+                        "mention_text": "Shanghai",
+                        "normalized_surface": "shanghai",
+                        "entity_type": "place",
+                        "canonical_name_hint": "Shanghai",
                         "alias_signals": [],
-                        "evidence_text": "Visited GitHub today",
+                        "evidence_text": "Visited Shanghai today",
                         "confidence": 0.95,
                     }
                 ],
                 "graph_candidates": [
                     {
-                        "subject_ref": "user:self",
+                        "subject_ref": "user:u1",
                         "subject_type": "user",
                         "predicate": "VISITED",
-                        "object_ref": "GitHub",
-                        "object_type": "product",
+                        "object_ref": "Shanghai",
+                        "object_type": "place",
                         "fact_kind": "explicit_fact",
                         "polarity": "positive",
-                        "evidence_text": "Visited GitHub today",
+                        "evidence_text": "Visited Shanghai today",
                         "confidence": 0.9,
                     },
                     {
-                        "subject_ref": "user:self",
+                        "subject_ref": "user:u1",
                         "subject_type": "user",
                         "predicate": "LIKES",
-                        "object_ref": "GitHub",
-                        "object_type": "product",
+                        "object_ref": "Shanghai",
+                        "object_type": "place",
                         "fact_kind": "stable_preference",
                         "polarity": "positive",
-                        "evidence_text": "Visited GitHub today",
+                        "evidence_text": "Visited Shanghai today",
                         "confidence": 0.9,
                     },
                 ],
                 "assertion_candidates": [
                     {
-                        "entity_ref": "user:self",
+                        "entity_ref": "user:u1",
                         "entity_type": "user",
                         "trait_family": "mood",
                         "trait_name": "mood",
@@ -1837,8 +1564,8 @@ async def test_unified_extraction_respects_chrome_history_profile_restrictions()
                         "volatility_index": 0.7,
                         "confidence": 0.8,
                         "validation_state": "tentative",
-                        "evidence_texts": ["Visited GitHub today"],
-                        "supporting_event_ids": ["evt-chrome-1"],
+                        "evidence_texts": ["Visited Shanghai today"],
+                        "supporting_event_ids": ["evt-calendar-1"],
                     }
                 ],
                 "diagnostics": {"entity_status": "found"},
@@ -1859,18 +1586,15 @@ async def test_unified_extraction_respects_chrome_history_profile_restrictions()
         try:
             await store.ingest_event(
                 {
-                    "id": "evt-chrome-1",
+                    "id": "evt-calendar-1",
                     "type": EventTypes.USER_MESSAGE,
                     "timestamp": time.time(),
-                    "source": "timeline",
+                    "source": "calendar",
                     "level": EventLevel.INFO.value,
                     "data": {
                         "user_id": "u1",
                         "session_id": "s1",
-                        "message": "Visited GitHub today",
-                    },
-                    "metadata": {
-                        "extraction_profile_id": "timeline.chrome_history",
+                        "content": "Visited Shanghai today",
                     },
                 }
             )
@@ -1881,181 +1605,11 @@ async def test_unified_extraction_respects_chrome_history_profile_restrictions()
                     break
                 await asyncio.sleep(0.01)
 
-            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:self") if store.l2 is not None else []
+            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
             assert [item["predicate"] for item in relationships] == ["VISITED"]
             assert assertions == []
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_structured_entity_hints_bypass_llm_mention_extraction():
-    adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "mentions": [],
-                "graph_candidates": [
-                    {
-                        "subject_ref": "user:self",
-                        "subject_type": "user",
-                        "predicate": "VISITED",
-                        "object_ref": "GitHub",
-                        "object_type": "product",
-                        "fact_kind": "explicit_fact",
-                        "polarity": "positive",
-                        "evidence_text": "Visited GitHub today",
-                        "confidence": 0.9,
-                    }
-                ],
-                "assertion_candidates": [],
-                "diagnostics": {"entity_status": "none"},
-            },
-            ensure_ascii=False,
-        )
-    )
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            await store.ingest_event(
-                {
-                    "id": "evt-structured-hint-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "timeline",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "message": "Visited GitHub today",
-                        "structured_entity_hints": [
-                            {
-                                "mention_text": "GitHub",
-                                "normalized_surface": "github",
-                                "entity_type": "product",
-                                "canonical_name_hint": "GitHub",
-                                "confidence": 0.95,
-                            }
-                        ],
-                    },
-                    "metadata": {
-                        "extraction_profile_id": "timeline.chrome_history",
-                    },
-                }
-            )
-
-            for _ in range(50):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
-            mentions = await store.l2_entity_catalog.list_mentions() if store.l2_entity_catalog is not None else []
-
-            assert [item["predicate"] for item in relationships] == ["VISITED"]
-            assert mentions[0]["mention_text"] == "GitHub"
-            assert len(adapter.calls) == 1
-            prompt = str(adapter.calls[0]["prompt"])
-            assert '"allowed_entity_types": [' in prompt
-            assert '"product"' in prompt
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_structured_graph_hints_are_validated_before_persistence():
-    adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "mentions": [],
-                "graph_candidates": [],
-                "assertion_candidates": [],
-                "diagnostics": {"entity_status": "none"},
-            },
-            ensure_ascii=False,
-        )
-    )
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            await store.ingest_event(
-                {
-                    "id": "evt-structured-graph-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "timeline",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "message": "Visited GitHub today",
-                        "structured_entity_hints": [
-                            {
-                                "mention_text": "GitHub",
-                                "normalized_surface": "github",
-                                "entity_type": "product",
-                                "canonical_name_hint": "GitHub",
-                                "confidence": 0.95,
-                            }
-                        ],
-                        "structured_graph_hints": [
-                            {
-                                "subject_ref": "user:self",
-                                "subject_type": "user",
-                                "predicate": "VISITED",
-                                "object_ref": "GitHub",
-                                "object_type": "product",
-                                "fact_kind": "explicit_fact",
-                                "polarity": "positive",
-                                "evidence_text": "Visited GitHub today",
-                                "confidence": 0.9,
-                            },
-                            {
-                                "subject_ref": "user:self",
-                                "subject_type": "user",
-                                "predicate": "LIKES",
-                                "object_ref": "GitHub",
-                                "object_type": "product",
-                                "fact_kind": "stable_preference",
-                                "polarity": "positive",
-                                "evidence_text": "Visited GitHub today",
-                                "confidence": 0.9,
-                            },
-                        ],
-                    },
-                    "metadata": {
-                        "extraction_profile_id": "timeline.chrome_history",
-                    },
-                }
-            )
-
-            for _ in range(50):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            relationships = await store.l2.get_relationships(subject_id="user:self") if store.l2 is not None else []
-
-            assert [item["predicate"] for item in relationships] == ["VISITED"]
         finally:
             await store.shutdown()
 
@@ -2083,7 +1637,7 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
                     memory_event = normalize_runtime_event(
                         Event(
                             type=EventTypes.USER_MESSAGE,
-                            data={"user_id": "u1", "session_id": "s1", "message": f"Stress signal {index}"},
+                            data={"user_id": "u1", "session_id": "s1", "content": f"Stress signal {index}"},
                             source="chat",
                             level=EventLevel.INFO,
                             correlation_id=f"evt-reconcile-{index}",
@@ -2096,7 +1650,7 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
 
                 await store.l2.upsert_assertion_candidate(
                     {
-                        "entity_id": "user:self",
+                        "entity_id": "user:u1",
                         "entity_type": "user",
                         "trait_name": "stress_level",
                         "trait_value": "high",
@@ -2115,15 +1669,15 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
                     }
                 )
 
-                await store.l2_pipeline.enqueue_entities(["user:self"])
+                await store.l2_pipeline.enqueue_entities(["user:u1"])
                 for _ in range(50):
                     stats = store.get_l2_pipeline_stats()
                     if stats["reconcile_completed"] >= 1 and stats["snapshot_completed"] >= 1:
                         break
                     await asyncio.sleep(0.01)
 
-            assertions = await store.l2.list_tom_assertions(entity_id="user:self")
-            snapshot = await store.l2.get_tom_snapshot(entity_id="user:self", entity_type="user")
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+            snapshot = await store.l2.get_tom_snapshot(entity_id="user:u1", entity_type="user")
             summaries = await store.l3.list_summaries(limit=10) if store.l3 is not None else []
 
             assert assertions[0]["validation_state"] == "stable"

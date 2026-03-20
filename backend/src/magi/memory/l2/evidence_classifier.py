@@ -26,11 +26,11 @@ class EvidenceClassification:
 def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
     """Classify a normalized event into an evidence class."""
 
-    speaker_role = _normalized(event.speaker_role)
-    grounding_type = _normalized(event.grounding_type)
-    semantic_owner = _normalized(event.semantic_owner_hint)
-    originality_type = _normalized(event.originality_type)
-    source_event_ids = [text for item in event.derived_from_event_ids if (text := str(item).strip())]
+    speaker_role = _normalized(event.author_type)
+    grounding_type = _grounding_type(event, speaker_role)
+    semantic_owner = _semantic_owner(speaker_role)
+    originality_type = "primary"
+    source_event_ids: list[str] = []
     normalized_source = _normalized(event.source)
 
     if _is_assistant_runtime_derivation(event):
@@ -55,7 +55,7 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
             source_event_ids=source_event_ids,
         )
 
-    if speaker_role in {"timeline", "sensor", "external"} or normalized_source in _EXTERNAL_SOURCES:
+    if speaker_role in {"external", "sensor"} or normalized_source in _EXTERNAL_SOURCES:
         return EvidenceClassification(
             evidence_class="external_observation",
             reason_code="external_source",
@@ -66,25 +66,10 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
             source_event_ids=source_event_ids,
         )
 
-    if speaker_role == "assistant" and (
-        grounding_type == "tool_grounded" or _metadata_has_tool_signals(event)
-    ):
+    if speaker_role == "assistant" and grounding_type == "tool_grounded":
         return EvidenceClassification(
             evidence_class="assistant_tool_grounded",
-            reason_code="assistant_tool_metadata",
-            speaker_role=speaker_role,
-            grounding_type=grounding_type,
-            semantic_owner=semantic_owner,
-            originality_type=originality_type,
-            source_event_ids=source_event_ids,
-        )
-
-    if speaker_role == "assistant" and (
-        source_event_ids or grounding_type == "quoted_from_history"
-    ):
-        return EvidenceClassification(
-            evidence_class="assistant_quote",
-            reason_code="assistant_derived_history",
+            reason_code="assistant_content_type",
             speaker_role=speaker_role,
             grounding_type=grounding_type,
             semantic_owner=semantic_owner,
@@ -96,17 +81,6 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
         return EvidenceClassification(
             evidence_class="assistant_freeform",
             reason_code="assistant_default",
-            speaker_role=speaker_role,
-            grounding_type=grounding_type,
-            semantic_owner=semantic_owner,
-            originality_type=originality_type,
-            source_event_ids=source_event_ids,
-        )
-
-    if speaker_role == "user" and semantic_owner in {"third_party", "world"}:
-        return EvidenceClassification(
-            evidence_class="user_report_about_others",
-            reason_code="user_semantic_owner",
             speaker_role=speaker_role,
             grounding_type=grounding_type,
             semantic_owner=semantic_owner,
@@ -136,9 +110,26 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
     )
 
 
-def _metadata_has_tool_signals(event: MemoryEvent) -> bool:
-    metadata = _parse_json_dict(event.metadata)
-    return any(metadata.get(key) for key in ("tool_name", "tool_call_id", "tool_result_ref"))
+def _grounding_type(event: MemoryEvent, speaker_role: str | None) -> str | None:
+    if speaker_role == "user":
+        return "self_reported"
+    if speaker_role == "assistant":
+        return "tool_grounded" if _normalized(event.content_type) == "tool_result" else "freeform_generated"
+    if event.memory_domain == MemoryDomain.RUNTIME_TELEMETRY or speaker_role == "system":
+        return "observed"
+    if speaker_role in {"external", "sensor", "tool"}:
+        return "observed"
+    return "observed"
+
+
+def _semantic_owner(speaker_role: str | None) -> str | None:
+    if speaker_role == "user":
+        return "user"
+    if speaker_role == "assistant":
+        return "assistant"
+    if speaker_role in {"external", "sensor", "system", "tool"}:
+        return "world"
+    return None
 
 
 def _is_assistant_runtime_derivation(event: MemoryEvent) -> bool:
@@ -146,23 +137,7 @@ def _is_assistant_runtime_derivation(event: MemoryEvent) -> bool:
         return False
     if _normalized(event.source) != "runtime_action_emitter":
         return False
-    payload = _parse_json_dict(event.structured_payload)
-    action_type = _normalized(payload.get("action_type"))
-    if action_type == "chatresponseaction":
-        return True
-    response = payload.get("response")
-    agent_id = _normalized(payload.get("agent_id"))
-    return bool(isinstance(response, str) and response.strip() and agent_id and agent_id.startswith("chat:"))
-
-
-def _parse_json_dict(raw: str) -> dict[str, object]:
-    import json
-
-    try:
-        value = json.loads(raw or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return value if isinstance(value, dict) else {}
+    return _normalized(event.source_item_id) == "chatresponseaction"
 
 
 def _normalized(value: str | None) -> str | None:

@@ -12,7 +12,7 @@ async def _build_user_message(text: str, *, correlation_id: str, timestamp: floa
     return normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "message": text},
+            data={"user_id": "u1", "session_id": "s1", "content": text},
             source="chat",
             level=EventLevel.INFO,
             correlation_id=correlation_id,
@@ -42,7 +42,7 @@ async def _build_contradiction(text: str, *, correlation_id: str, timestamp: flo
     return normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "message": text},
+            data={"user_id": "u1", "session_id": "s1", "content": text},
             source="chat",
             level=EventLevel.INFO,
             correlation_id=correlation_id,
@@ -67,7 +67,7 @@ async def test_tom_assertion_starts_tentative_with_low_confidence(tmp_path):
     )
     result = await store.apply_memory_event(event)
 
-    assertions = await store.list_tom_assertions(entity_id="user:self")
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
 
     assert result["assertion_count"] == 1
     assert assertions[0]["trait_name"] == "stress_level"
@@ -103,8 +103,8 @@ async def test_repeated_evidence_promotes_snapshot_to_stable(tmp_path):
     for event in events:
         await store.apply_memory_event(event)
 
-    assertions = await store.list_tom_assertions(entity_id="user:self")
-    snapshot = await store.get_tom_snapshot(entity_id="user:self", entity_type="user")
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
+    snapshot = await store.get_tom_snapshot(entity_id="user:u1", entity_type="user")
 
     assert assertions[0]["validation_state"] == "stable"
     assert assertions[0]["confidence_score"] >= 0.8
@@ -136,7 +136,7 @@ async def test_contradiction_downgrades_existing_assertion(tmp_path):
         )
     )
 
-    assertions = await store.list_tom_assertions(entity_id="user:self")
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
 
     assert assertions[0]["validation_state"] == "contradicted"
     assert assertions[0]["confidence_score"] < 0.8
@@ -157,7 +157,7 @@ async def test_group_content_avoids_deep_psychology(tmp_path):
         )
     )
 
-    assertions = await store.list_tom_assertions(entity_id="user:self")
+    assertions = await store.list_tom_assertions(entity_id="user:u1")
 
     assert assertions == []
 
@@ -170,7 +170,7 @@ async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
     await store.initialize()
 
     await store.upsert_knowledge_edge(
-        subject_id="user:self",
+        subject_id="user:u1",
         subject_type="user",
         predicate="LIKES",
         object_id="food:sushi",
@@ -181,7 +181,7 @@ async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
         source_type="chat",
     )
     await store.upsert_knowledge_edge(
-        subject_id="user:self",
+        subject_id="user:u1",
         subject_type="user",
         predicate="DISLIKES",
         object_id="food:sushi",
@@ -192,12 +192,12 @@ async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
         source_type="chat",
     )
 
-    active_edges = await store.get_relationships(subject_id="user:self", limit=10)
+    active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
 
     assert len(active_edges) == 1
     assert active_edges[0]["predicate"] == "DISLIKES"
 
-    deprecated_like_edges = await store.get_relationships(subject_id="user:self", limit=10, status="deprecated")
+    deprecated_like_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="deprecated")
     assert len(deprecated_like_edges) == 1
     assert deprecated_like_edges[0]["predicate"] == "LIKES"
     assert deprecated_like_edges[0]["deprecated_by"] == active_edges[0]["triple_id"]
@@ -211,7 +211,7 @@ async def test_upsert_knowledge_edge_normalizes_alias_object_type(tmp_path):
     await store.initialize()
 
     await store.upsert_knowledge_edge(
-        subject_id="user:self",
+        subject_id="user:u1",
         subject_type="user",
         predicate="DISLIKES",
         object_id="dish:west-lake-vinegar-fish",
@@ -222,7 +222,7 @@ async def test_upsert_knowledge_edge_normalizes_alias_object_type(tmp_path):
         source_type="chat",
     )
 
-    active_edges = await store.get_relationships(subject_id="user:self", limit=10)
+    active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
 
     assert active_edges[0]["object_type"] == "food"
     assert active_edges[0]["object_id"] == "food:west-lake-vinegar-fish"
@@ -267,7 +267,7 @@ async def test_refresh_snapshot_ignores_expired_temporary_assertions(tmp_path):
 
     await store.upsert_assertion_candidate(
         {
-            "entity_id": "user:self",
+            "entity_id": "user:u1",
             "entity_type": "user",
             "trait_family": "mood",
             "trait_name": "annoyance",
@@ -292,7 +292,7 @@ async def test_refresh_snapshot_ignores_expired_temporary_assertions(tmp_path):
     )
     await store.upsert_assertion_candidate(
         {
-            "entity_id": "user:self",
+            "entity_id": "user:u1",
             "entity_type": "user",
             "trait_family": "stress",
             "trait_name": "stress_level",
@@ -316,8 +316,8 @@ async def test_refresh_snapshot_ignores_expired_temporary_assertions(tmp_path):
         }
     )
 
-    snapshot = await store.refresh_entity_snapshot(entity_id="user:self", entity_type="user")
-    assertions = await store.list_tom_assertions(entity_id="user:self", entity_type="user")
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assertions = await store.list_tom_assertions(entity_id="user:u1", entity_type="user")
 
     assert snapshot is not None
     assert snapshot["current_mood"] is None
@@ -350,7 +350,7 @@ async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
     await store.initialize()
 
     await store.upsert_knowledge_edge(
-        subject_id="user:self",
+        subject_id="user:u1",
         subject_type="user",
         predicate="ENDORSES",
         object_id="topic:remote-work",
@@ -361,7 +361,7 @@ async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
         source_type="chat",
     )
     reject_id = await store.upsert_knowledge_edge(
-        subject_id="user:self",
+        subject_id="user:u1",
         subject_type="user",
         predicate="REJECTS",
         object_id="topic:remote-work",
@@ -372,8 +372,8 @@ async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
         source_type="chat",
     )
 
-    active_edges = await store.get_relationships(subject_id="user:self", limit=10)
-    conflicted_edges = await store.get_relationships(subject_id="user:self", limit=10, status="conflicted")
+    active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
+    conflicted_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="conflicted")
 
     assert len(active_edges) == 1
     assert active_edges[0]["triple_id"] == reject_id
@@ -403,7 +403,7 @@ async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
     await store.initialize()
 
     await store.upsert_knowledge_edge(
-        subject_id="user:self",
+        subject_id="user:u1",
         subject_type="user",
         predicate="PRIMARY_BASED_IN",
         object_id="place:shanghai",
@@ -414,7 +414,7 @@ async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
         source_type="timeline",
     )
     live_id = await store.upsert_knowledge_edge(
-        subject_id="user:self",
+        subject_id="user:u1",
         subject_type="user",
         predicate="CURRENT_LIVES_IN",
         object_id="place:tokyo",
@@ -425,8 +425,8 @@ async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
         source_type="chat",
     )
 
-    active_edges = await store.get_relationships(subject_id="user:self", limit=10)
-    deprecated_edges = await store.get_relationships(subject_id="user:self", limit=10, status="deprecated")
+    active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
+    deprecated_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="deprecated")
 
     assert len(active_edges) == 1
     assert active_edges[0]["triple_id"] == live_id
@@ -502,7 +502,7 @@ async def test_upserted_graph_conflict_rule_changes_runtime_conflict_behavior(tm
     )
 
     await store.upsert_knowledge_edge(
-        subject_id="user:self",
+        subject_id="user:u1",
         subject_type="user",
         predicate="ENDORSES",
         object_id="topic:hybrid-work",
@@ -513,7 +513,7 @@ async def test_upserted_graph_conflict_rule_changes_runtime_conflict_behavior(tm
         source_type="chat",
     )
     await store.upsert_knowledge_edge(
-        subject_id="user:self",
+        subject_id="user:u1",
         subject_type="user",
         predicate="REJECTS",
         object_id="topic:hybrid-work",
@@ -524,7 +524,7 @@ async def test_upserted_graph_conflict_rule_changes_runtime_conflict_behavior(tm
         source_type="chat",
     )
 
-    conflicted_edges = await store.get_relationships(subject_id="user:self", limit=10, status="conflicted")
+    conflicted_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="conflicted")
 
     assert len(conflicted_edges) == 1
     assert conflicted_edges[0]["predicate"] == "ENDORSES"

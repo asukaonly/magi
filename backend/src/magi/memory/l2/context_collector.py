@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Iterable
 
 from ..event_contracts import MemoryEvent
@@ -20,12 +19,12 @@ def collect_context_bundle(
     """Collect a minimal deterministic context bundle for one event."""
 
     pronoun_bindings: list[dict[str, Any]] = []
-    text = str(event.raw_content or "")
+    text = str(event.content or "")
     if "我" in text:
         pronoun_bindings.append(
             {
                 "surface": "我",
-                "resolved_ref": event.memory_owner_id or "user:self",
+                "resolved_ref": str(event.user_id or "user:self"),
                 "resolved_kind": "self_actor",
             }
         )
@@ -92,18 +91,7 @@ def resolve_direct_context_refs(*, event: MemoryEvent, bundle: ContextBundle) ->
 
 
 def _reference_evidence_text(event: MemoryEvent) -> str:
-    payload_text = str(event.structured_payload or "").strip()
-    if payload_text:
-        try:
-            payload = json.loads(payload_text)
-        except json.JSONDecodeError:
-            payload = None
-        if isinstance(payload, dict):
-            for key in ("message", "summary", "response", "text"):
-                value = payload.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
-    return str(event.raw_content or "")
+    return str(event.content or "")
 
 
 __all__ = [

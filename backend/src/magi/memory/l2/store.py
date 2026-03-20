@@ -824,7 +824,7 @@ class L2CognitionStore:
         return snapshot
 
     def _extract_graph_candidates(self, event: MemoryEvent) -> List[Dict[str, Any]]:
-        content = event.raw_content.lower()
+        content = event.content.lower()
         if " like " not in f" {content} ":
             return []
         subject_id, subject_type = self._entity_identity(event)
@@ -852,7 +852,7 @@ class L2CognitionStore:
         if not event.cognition_eligible or event.tom_depth != TomDepth.DEFENSIVE_PSYCHOLOGY:
             return []
 
-        text = event.raw_content.lower()
+        text = event.content.lower()
         if any(keyword in text for keyword in _STRESS_KEYWORDS):
             return [
                 {
@@ -1529,8 +1529,6 @@ class L2CognitionStore:
         self._exclusive_group_index = build_exclusive_group_index(self._graph_conflict_rules)
 
     def _entity_identity(self, event: MemoryEvent) -> tuple[Optional[str], Optional[str]]:
-        if getattr(event, "memory_owner_id", None):
-            return (str(event.memory_owner_id), "user")
         if event.user_id:
             return (f"user:{event.user_id}", "user")
         return (None, None)

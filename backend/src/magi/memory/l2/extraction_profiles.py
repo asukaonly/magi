@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -61,23 +60,13 @@ def resolve_extraction_profile(
     """Resolve the extraction profile for a normalized event."""
 
     registry = profile_registry or DEFAULT_EXTRACTION_PROFILES
-    metadata = _parse_metadata(event.metadata)
-    requested_profile_id = _coalesce_text(
-        metadata.get("extraction_profile_id"),
-        event.source_profile_id if hasattr(event, "source_profile_id") else None,
-    )
     default_profile_id = _default_profile_id_for_event(event)
-    profile_id = requested_profile_id or default_profile_id
-    base_profile = registry.get(profile_id, registry[default_profile_id])
-    overrides = metadata.get("profile_overrides")
-    if isinstance(overrides, dict):
-        return _apply_overrides(base_profile, overrides)
-    return base_profile
+    return registry.get(default_profile_id, registry["chat.user_message"])
 
 
 def _default_profile_id_for_event(event: MemoryEvent) -> str:
     source = (event.source or "").strip().lower()
-    if source == "timeline":
+    if source in {"timeline", "calendar"}:
         return "timeline.calendar"
     return "chat.user_message"
 
@@ -166,14 +155,6 @@ def _coalesce_text(*values: Any) -> str | None:
         if text:
             return text
     return None
-
-
-def _parse_metadata(raw: str) -> dict[str, Any]:
-    try:
-        value = json.loads(raw or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return value if isinstance(value, dict) else {}
 
 
 __all__ = [

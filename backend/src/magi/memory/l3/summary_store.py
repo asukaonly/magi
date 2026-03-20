@@ -199,7 +199,7 @@ class L3SummaryStore:
         if not evidence_pack.source_event_ids:
             return None
 
-        fallback_summary = " ".join(event["raw_content"] for event in events[:6]).strip()
+        fallback_summary = " ".join(event["content"] for event in events[:6]).strip()
         generation = await self._temporal_llm_service.generate_temporal_candidate(
             evidence_pack,
             fallback_summary=fallback_summary,
@@ -264,7 +264,7 @@ class L3SummaryStore:
             for event in candidates
             if event["memory_domain"] != "runtime_telemetry"
             and event["retention_class"] != "disposable"
-            and normalized_topic in str(event.get("raw_content") or "").lower()
+            and normalized_topic in str(event.get("content") or "").lower()
         ]
         if len(topic_events) < max(1, int(min_source_count)):
             return None
@@ -274,7 +274,7 @@ class L3SummaryStore:
             events=topic_events,
         )
         source_event_ids = list(evidence_pack.source_event_ids)
-        snippets = [str(event.get("raw_content") or "").strip() for event in topic_events[:4] if str(event.get("raw_content") or "").strip()]
+        snippets = [str(event.get("content") or "").strip() for event in topic_events[:4] if str(event.get("content") or "").strip()]
         fallback_summary = f"Topic '{topic}' recurred across {len(source_event_ids)} events. " + " ".join(snippets)
         fallback_summary = fallback_summary.strip()
         generation = await self._topic_llm_service.generate_topic_candidate(

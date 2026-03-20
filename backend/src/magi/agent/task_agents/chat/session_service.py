@@ -201,12 +201,12 @@ class ChatSessionService:
             cur = conn.cursor()
             cur.execute(
                 f"""
-                SELECT event_type, structured_payload, timestamp
+                SELECT event_type, content, timestamp, user_id, session_id, turn_id
                 FROM {FACT_EVENTS_TABLE}
                 WHERE deleted_at IS NULL
                   AND event_type IN ('UserMessage', 'AIResponse')
                 UNION ALL
-                SELECT event_type, structured_payload, timestamp
+                SELECT event_type, content, timestamp, user_id, session_id, turn_id
                 FROM {RUNTIME_OBSERVATIONS_TABLE}
                 WHERE deleted_at IS NULL
                   AND event_type IN (?, ?)
@@ -221,26 +221,22 @@ class ChatSessionService:
             logger.warning("Failed to restore conversation from L1 store: %s", exc)
             return
 
-        for event_type, raw_data, _ in rows:
-            try:
-                payload = json.loads(raw_data or "{}")
-            except Exception:
-                continue
-            user_id = payload.get("user_id")
+        for event_type, raw_content, _, user_id, raw_session_id, turn_id in rows:
             if not user_id:
                 continue
-            session_id = self.resolve_session_id(user_id, payload.get("session_id"))
+            session_id = self.resolve_session_id(str(user_id), raw_session_id)
             key = self.history_key(user_id, session_id)
             history = self._conversation_history.setdefault(key, [])
             if event_type == "UserMessage":
-                content = payload.get("message", "")
+                content = str(raw_content or "").strip()
                 if content:
                     history.append({"role": "user", "content": str(content)})
             elif event_type == "AIResponse":
-                content = payload.get("response", "")
+                content = str(raw_content or "").strip()
                 if content:
                     history.append({"role": "assistant", "content": str(content)})
             elif event_type in {TOOL_INTERACTION_EVENT_TYPE, TOOL_INVOKED_EVENT_TYPE}:
+                payload = self._parse_runtime_payload(raw_content)
                 tool_name = str(payload.get("tool_name") or payload.get("action_type") or "").strip()
                 if not tool_name:
                     continue
@@ -257,6 +253,17 @@ class ChatSessionService:
                         "error_message": error_text,
                         "result_summary": str(payload.get("result") or payload.get("data") or ""),
                         "result_data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
-                        "turn_id": payload.get("turn_id"),
+                        "turn_id": payload.get("turn_id") or turn_id,
                     },
                 )
+
+    @staticmethod
+    def _parse_runtime_payload(raw_content: object) -> dict[str, object]:
+        text = str(raw_content or "").strip()
+        if not text:
+            return {}
+        try:
+            payload = json.loads(text)
+        except Exception:
+            return {"content": text}
+        return payload if isinstance(payload, dict) else {"content": text}

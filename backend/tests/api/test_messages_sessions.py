@@ -24,10 +24,11 @@ def _init_event_store(db_path: Path) -> None:
             CREATE TABLE IF NOT EXISTS {table} (
                 event_id TEXT PRIMARY KEY,
                 event_type TEXT NOT NULL,
-                structured_payload TEXT NOT NULL,
+                content TEXT NOT NULL,
                 timestamp REAL NOT NULL,
                 user_id TEXT,
                 session_id TEXT,
+                turn_id TEXT,
                 deleted_at REAL
             )
             """
@@ -40,17 +41,24 @@ def _init_event_store(db_path: Path) -> None:
 
 def _insert_event(db_path: Path, event_type: str, data: dict, timestamp: float) -> None:
     target_table = FACT_EVENTS_TABLE if event_type in {"UserMessage", "AIResponse"} else RUNTIME_OBSERVATIONS_TABLE
+    if event_type == "UserMessage":
+        content = str(data.get("content") or data.get("message") or "")
+    elif event_type == "AIResponse":
+        content = str(data.get("content") or data.get("response") or "")
+    else:
+        content = json.dumps(data, ensure_ascii=False)
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
     cur.execute(
-        f"INSERT INTO {target_table} (event_id, event_type, structured_payload, timestamp, user_id, session_id, deleted_at) VALUES (?, ?, ?, ?, ?, ?, NULL)",
+        f"INSERT INTO {target_table} (event_id, event_type, content, timestamp, user_id, session_id, turn_id, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
         (
             f"{event_type}-{int(timestamp * 1000)}",
             event_type,
-            json.dumps(data),
+            content,
             timestamp,
             data.get("user_id"),
             data.get("session_id"),
+            data.get("turn_id"),
         ),
     )
     conn.commit()

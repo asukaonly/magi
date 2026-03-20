@@ -90,7 +90,7 @@ class TopicSummaryLLMService:
             ThematicEvidenceItem(
                 event_id=str(event.get("event_id") or ""),
                 event_type=str(event.get("event_type") or ""),
-                content=str(event.get("raw_content") or ""),
+                content=str(event.get("content") or ""),
                 timestamp=float(event["timestamp"]) if event.get("timestamp") is not None else None,
                 importance_score=float(event["importance_score"]) if event.get("importance_score") is not None else None,
             )

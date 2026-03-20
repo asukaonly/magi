@@ -385,15 +385,15 @@ class L2Pipeline:
             event_id=stored_event.event_id,
             profile_id=extraction_profile.profile_id,
             context_count=len(context_texts),
-            structured_entity_hint_count=len(stored_event.structured_entity_hints),
-            structured_graph_hint_count=len(stored_event.structured_graph_hints),
+            structured_entity_hint_count=0,
+            structured_graph_hint_count=0,
             direct_context_ref_count=len(direct_context_refs),
             live_context_candidate_count=len(context_bundle.live_context_entities),
         )
         unified_result = await self._llm_service.extract_unified_candidates(
             event_window={
                 "event_ids": [stored_event.event_id],
-                "texts": [stored_event.raw_content],
+                "texts": [stored_event.content],
                 "context_texts": context_texts,
             },
             profile=extraction_profile,
@@ -409,17 +409,7 @@ class L2Pipeline:
             context_bundle=context_bundle,
         )
 
-        raw_mentions = (
-            list(stored_event.structured_entity_hints)
-            if stored_event.structured_entity_hints
-            else list(unified_result.get("mentions", []))
-        )
-        if stored_event.structured_entity_hints:
-            logger.debug(
-                "L2 structured entity hints applied",
-                event_id=stored_event.event_id,
-                hint_count=len(stored_event.structured_entity_hints),
-            )
+        raw_mentions = list(unified_result.get("mentions", []))
         resolved_mentions: list[dict[str, Any]] = []
         if policy.allow_entity_extraction:
             resolved_mentions = await self._resolve_mentions(stored_event, raw_mentions)
@@ -438,17 +428,9 @@ class L2Pipeline:
             resolved_mentions=resolved_mentions,
             resolved_context_refs=resolved_context_refs,
             raw_candidates=(
-                list(stored_event.structured_graph_hints)
-                if stored_event.structured_graph_hints
-                else list(unified_result.get("graph_candidates", []))
+                list(unified_result.get("graph_candidates", []))
             ),
         )
-        if stored_event.structured_graph_hints:
-            logger.debug(
-                "L2 structured graph hints applied",
-                event_id=stored_event.event_id,
-                hint_count=len(stored_event.structured_graph_hints),
-            )
         if policy.allow_graph_write and policy.graph_scope == "full" and not graph_candidates:
             graph_candidates = self._build_graph_candidates(stored_event, resolved_mentions)
             if not graph_candidates:
@@ -550,14 +532,14 @@ class L2Pipeline:
         query_args: dict[str, Any] = {"cognition_eligible": True, "limit": 4}
         if event.session_id:
             query_args["session_id"] = event.session_id
-        elif event.runtime_user_id or event.user_id:
-            query_args["user_id"] = event.runtime_user_id or event.user_id
+        elif event.user_id:
+            query_args["user_id"] = event.user_id
         else:
             return []
 
         rows = await self._l1_store.query_events(**query_args)
         context_rows = [row for row in rows if row["event_id"] != event.event_id]
-        context_texts = [str(row["raw_content"]) for row in reversed(context_rows) if str(row["raw_content"]).strip()]
+        context_texts = [str(row["content"]) for row in reversed(context_rows) if str(row["content"]).strip()]
         return context_texts[:3]
 
     async def _resolve_mentions(
@@ -578,7 +560,7 @@ class L2Pipeline:
                 continue
             normalized_surface = str(mention.get("normalized_surface") or mention_text).strip()
             entity_type = self._normalize_entity_type(mention.get("entity_type"))
-            evidence_text = self._non_empty_text(mention.get("evidence_text")) or event.raw_content
+            evidence_text = self._non_empty_text(mention.get("evidence_text")) or event.content
             mention_confidence = float(mention.get("confidence", 0.0) or 0.0)
 
             resolved_entity_id, resolved_confidence = await self._resolve_entity_id(
@@ -635,7 +617,7 @@ class L2Pipeline:
                     mention={
                         "mention_text": mention_text,
                         "entity_type": entity_type,
-                        "context_text": event.raw_content,
+                        "context_text": event.content,
                     },
                     candidate_entities=candidate_entities,
                 )
@@ -680,7 +662,7 @@ class L2Pipeline:
         if subject_id is None:
             return []
 
-        text = event.raw_content.casefold()
+        text = event.content.casefold()
         predicate: Optional[str] = None
         if any(marker in text for marker in _NEGATIVE_PREFERENCE_MARKERS):
             predicate = "DISLIKES"
@@ -1022,11 +1004,7 @@ class L2Pipeline:
         return "stable", "evidence_only", None
 
     def _parse_live_context_entities(self, event: MemoryEvent) -> list[ContextEntity]:
-        metadata = self._parse_json_object(event.metadata)
-        payload = self._parse_json_object(event.structured_payload)
-        raw_entities = metadata.get("live_context_entities")
-        if not isinstance(raw_entities, list):
-            raw_entities = payload.get("live_context_entities")
+        raw_entities: list[dict[str, Any]] = []
         entities: list[ContextEntity] = []
         for item in raw_entities if isinstance(raw_entities, list) else []:
             if not isinstance(item, dict):
@@ -1050,10 +1028,6 @@ class L2Pipeline:
         return entities
 
     def _load_source_event_ids(self, event: MemoryEvent) -> list[str]:
-        metadata = self._parse_json_object(event.metadata)
-        values = metadata.get("source_event_ids")
-        if isinstance(values, list):
-            return [str(value) for value in values if str(value).strip()]
         return []
 
     def _parse_json_object(self, raw: Any) -> dict[str, Any]:
@@ -1087,9 +1061,6 @@ class L2Pipeline:
         return sorted(touched)
 
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None:
-        memory_owner_id = self._non_empty_text(getattr(event, "memory_owner_id", None))
-        if memory_owner_id:
-            return memory_owner_id
         if event.user_id:
             return f"user:{event.user_id}"
         return None
@@ -1169,7 +1140,7 @@ class L2Pipeline:
             new_event={
                 "event_id": event.event_id,
                 "event_type": event.event_type,
-                "raw_content": event.raw_content,
+                "content": event.content,
                 "source": event.source,
                 "timestamp": event.timestamp,
             },

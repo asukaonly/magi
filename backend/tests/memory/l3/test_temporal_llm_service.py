@@ -37,7 +37,7 @@ async def test_build_temporal_evidence_pack_filters_runtime_and_preserves_import
             {
                 "event_id": "evt-1",
                 "event_type": "UserMessage",
-                "raw_content": "I care more about growth than salary.",
+                "content": "I care more about growth than salary.",
                 "memory_domain": "user_authored",
                 "importance_score": 0.8,
                 "timestamp": 100.0,
@@ -45,7 +45,7 @@ async def test_build_temporal_evidence_pack_filters_runtime_and_preserves_import
             {
                 "event_id": "evt-2",
                 "event_type": "TimelineEvent",
-                "raw_content": "Read several remote-work job posts.",
+                "content": "Read several remote-work job posts.",
                 "memory_domain": "external_activity",
                 "importance_score": 0.6,
                 "timestamp": 120.0,
@@ -53,7 +53,7 @@ async def test_build_temporal_evidence_pack_filters_runtime_and_preserves_import
             {
                 "event_id": "evt-3",
                 "event_type": "TaskCompleted",
-                "raw_content": "worker finished",
+                "content": "worker finished",
                 "memory_domain": "runtime_telemetry",
                 "importance_score": 0.2,
                 "timestamp": 130.0,
@@ -322,7 +322,7 @@ async def test_build_temporal_evidence_pack_extracts_recurring_constraints() -> 
             {
                 "event_id": "evt-1",
                 "event_type": "UserMessage",
-                "raw_content": "I prefer remote work because time flexibility matters.",
+                "content": "I prefer remote work because time flexibility matters.",
                 "memory_domain": "user_authored",
                 "importance_score": 0.8,
                 "timestamp": 100.0,
@@ -330,7 +330,7 @@ async def test_build_temporal_evidence_pack_extracts_recurring_constraints() -> 
             {
                 "event_id": "evt-2",
                 "event_type": "AIResponse",
-                "raw_content": "We should optimize for remote roles first.",
+                "content": "We should optimize for remote roles first.",
                 "memory_domain": "interaction",
                 "importance_score": 0.6,
                 "timestamp": 120.0,

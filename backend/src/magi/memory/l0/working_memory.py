@@ -163,20 +163,6 @@ class L0WorkingMemoryStore:
             metadata={"last_event_type": event.event_type},
         )
         session["last_active_at"] = max(float(session["last_active_at"]), float(event.timestamp))
-        if event.goal_id:
-            existing = next(
-                (goal for goal in self._goal_stack[event.session_id] if goal["goal_id"] == event.goal_id),
-                None,
-            )
-            if existing is None:
-                await self.push_goal(
-                    session_id=event.session_id,
-                    goal_id=event.goal_id,
-                    goal_type="task",
-                    description=event.raw_content or event.event_type,
-                    status="in_progress",
-                    metadata={"event_type": event.event_type},
-                )
 
     async def push_goal(
         self,

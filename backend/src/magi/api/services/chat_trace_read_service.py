@@ -890,7 +890,7 @@ class ChatTraceReadService:
             return []
         type_placeholders = ", ".join("?" for _ in event_types)
         query = f"""
-            SELECT event_type, structured_payload, timestamp
+            SELECT event_type, content, timestamp, turn_id
             FROM {table}
             WHERE deleted_at IS NULL
               AND event_type IN ({type_placeholders})
@@ -899,7 +899,7 @@ class ChatTraceReadService:
         """
         params: list[Any] = [*event_types, user_id, session_id]
         if turn_id is not None:
-            query += " AND json_extract(structured_payload, '$.turn_id') = ?"
+            query += " AND turn_id = ?"
             params.append(turn_id)
         query += " ORDER BY timestamp ASC"
         try:
@@ -913,11 +913,12 @@ class ChatTraceReadService:
             return []
 
         items: list[dict[str, Any]] = []
-        for event_type, raw_data, timestamp in rows:
-            try:
-                payload = json.loads(raw_data or "{}")
-            except Exception:
-                payload = {}
+        for event_type, raw_content, timestamp, raw_turn_id in rows:
+            payload = self._build_event_payload(
+                event_type=str(event_type),
+                raw_content=raw_content,
+                turn_id=raw_turn_id,
+            )
             items.append(
                 {
                     "type": str(event_type),
@@ -926,6 +927,32 @@ class ChatTraceReadService:
                 }
             )
         return items
+
+    def _build_event_payload(
+        self,
+        *,
+        event_type: str,
+        raw_content: object,
+        turn_id: object,
+    ) -> dict[str, Any]:
+        text = str(raw_content or "").strip()
+        normalized_turn_id = str(turn_id or "").strip() or None
+        if event_type in FACT_DISPLAY_EVENT_TYPES:
+            payload: dict[str, Any] = {"content": text}
+            if normalized_turn_id:
+                payload["turn_id"] = normalized_turn_id
+            return payload
+        if not text:
+            return {"turn_id": normalized_turn_id} if normalized_turn_id else {}
+        try:
+            payload = json.loads(text)
+        except Exception:
+            payload = {"content": text}
+        if not isinstance(payload, dict):
+            payload = {"content": text}
+        if normalized_turn_id and not payload.get("turn_id"):
+            payload["turn_id"] = normalized_turn_id
+        return payload
 
     def _load_orchestration_state(self, orchestration_id: Optional[str]) -> Optional[dict[str, Any]]:
         normalized = str(orchestration_id or "").strip()

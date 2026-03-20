@@ -13,7 +13,6 @@ from ..events.events import Event, EventLevel, EventTypes
 from .embedding_service import MemoryEmbeddingService
 from .event_contracts import IngestTarget, MemoryEvent, normalize_runtime_event
 from .identity_resolver import IdentityResolver
-from .identity_migration import migrate_legacy_self_identity
 from .l0.working_memory import L0WorkingMemoryStore
 from .l1.event_store import L1EventStore
 from .l2.store import L2CognitionStore
@@ -162,10 +161,6 @@ class UnifiedMemoryStore:
                 continue
             await store.initialize()
         await self.identity_resolver.initialize()
-        await migrate_legacy_self_identity(
-            l1_db_path=self.l1.db_path if self.l1 is not None else None,
-            memory_db_path=self.l2.db_path if self.l2 is not None else None,
-        )
         if self.l2_pipeline is not None:
             await self.l2_pipeline.start()
 
@@ -231,12 +226,12 @@ class UnifiedMemoryStore:
         payload = {
             "user_id": request.user_id,
             "session_id": request.session_id or f"manual-{request.user_id}",
-            "message": request.text,
-            "entity_focus_hint": request.entity_focus_hint,
+            "content": request.text,
+            "author_type": "user",
+            "content_type": "text",
         }
         metadata = {
             "manual_l2_lab": True,
-            "entity_focus_hint": request.entity_focus_hint,
         }
         return await self.ingest_event(
             Event(

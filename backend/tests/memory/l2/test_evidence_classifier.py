@@ -9,7 +9,13 @@ from magi.memory.event_contracts import normalize_runtime_event
 def _build_user_message(*, message: str = "I like sushi.", metadata: dict | None = None):
     return Event(
         type=EventTypes.USER_MESSAGE,
-        data={"user_id": "u1", "session_id": "s1", "message": message},
+        data={
+            "user_id": "u1",
+            "session_id": "s1",
+            "content": message,
+            "author_type": "user",
+            "content_type": "text",
+        },
         source="chat",
         level=EventLevel.INFO,
         correlation_id="evt-user-1",
@@ -21,7 +27,13 @@ def _build_user_message(*, message: str = "I like sushi.", metadata: dict | None
 def _build_ai_response(*, text: str = "You like sushi.", metadata: dict | None = None):
     return Event(
         type=EventTypes.AI_RESPONSE,
-        data={"user_id": "u1", "session_id": "s1", "response": text},
+        data={
+            "user_id": "u1",
+            "session_id": "s1",
+            "content": text,
+            "author_type": "assistant",
+            "content_type": "text",
+        },
         source="assistant",
         level=EventLevel.INFO,
         correlation_id="evt-ai-1",
@@ -33,7 +45,7 @@ def _build_ai_response(*, text: str = "You like sushi.", metadata: dict | None =
 def _build_timeline_event(*, summary: str = "Calendar shows a meeting tomorrow."):
     return Event(
         type="TIMELINE_EVENT",
-        data={"title": "Calendar", "summary": summary},
+        data={"content": summary, "content_type": "observation"},
         source="calendar",
         level=EventLevel.INFO,
         correlation_id="evt-timeline-1",
@@ -57,36 +69,29 @@ def _build_runtime_event():
 def test_normalized_event_defaults_user_evidence_metadata():
     memory_event = normalize_runtime_event(_build_user_message())
 
-    assert memory_event.speaker_role == "user"
-    assert memory_event.grounding_type == "self_reported"
-    assert memory_event.derived_from_event_ids == []
-    assert memory_event.semantic_owner_hint == "user"
-    assert memory_event.originality_type == "primary"
+    assert memory_event.author_type == "user"
+    assert memory_event.content_type == "text"
 
 
 def test_normalized_event_defaults_assistant_evidence_metadata():
     memory_event = normalize_runtime_event(_build_ai_response())
 
-    assert memory_event.speaker_role == "assistant"
-    assert memory_event.grounding_type == "freeform_generated"
-    assert memory_event.derived_from_event_ids == []
-    assert memory_event.originality_type == "primary"
+    assert memory_event.author_type == "assistant"
+    assert memory_event.content_type == "text"
 
 
 def test_normalized_event_defaults_external_observation_metadata():
     memory_event = normalize_runtime_event(_build_timeline_event())
 
-    assert memory_event.speaker_role == "timeline"
-    assert memory_event.grounding_type == "observed"
-    assert memory_event.semantic_owner_hint == "world"
+    assert memory_event.author_type == "external"
+    assert memory_event.content_type == "observation"
 
 
 def test_normalized_event_defaults_runtime_metadata():
     memory_event = normalize_runtime_event(_build_runtime_event())
 
-    assert memory_event.speaker_role == "system"
-    assert memory_event.grounding_type == "observed"
-    assert memory_event.semantic_owner_hint == "world"
+    assert memory_event.author_type == "system"
+    assert memory_event.content_type == "text"
 
 
 def test_classifier_maps_user_self_report():
@@ -98,44 +103,31 @@ def test_classifier_maps_user_self_report():
     assert classification.reason_code == "user_default"
 
 
-def test_classifier_maps_user_report_about_others():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
-
-    event = normalize_runtime_event(
-        _build_user_message(metadata={"semantic_owner_hint": "third_party"})
-    )
-
-    classification = classify_event_evidence(event)
-
-    assert classification.evidence_class == "user_report_about_others"
-    assert classification.reason_code == "user_semantic_owner"
-
-
 def test_classifier_maps_assistant_tool_grounded():
     from magi.memory.l2.evidence_classifier import classify_event_evidence
 
     event = normalize_runtime_event(
-        _build_ai_response(metadata={"tool_name": "weather_api", "tool_call_id": "call-1"})
+        Event(
+            type=EventTypes.AI_RESPONSE,
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "Weather says rain tomorrow.",
+                "author_type": "assistant",
+                "content_type": "tool_result",
+            },
+            source="assistant",
+            level=EventLevel.INFO,
+            correlation_id="evt-ai-tool-1",
+            metadata={"user_id": "u1"},
+            timestamp=1710000001.0,
+        )
     )
 
     classification = classify_event_evidence(event)
 
     assert classification.evidence_class == "assistant_tool_grounded"
-    assert classification.reason_code == "assistant_tool_metadata"
-
-
-def test_classifier_maps_assistant_quote():
-    from magi.memory.l2.evidence_classifier import classify_event_evidence
-
-    event = normalize_runtime_event(
-        _build_ai_response(metadata={"derived_from_event_ids": ["evt-user-1"]})
-    )
-
-    classification = classify_event_evidence(event)
-
-    assert classification.evidence_class == "assistant_quote"
-    assert classification.source_event_ids == ["evt-user-1"]
-    assert classification.reason_code == "assistant_derived_history"
+    assert classification.reason_code == "assistant_content_type"
 
 
 def test_classifier_maps_assistant_freeform():
@@ -169,10 +161,10 @@ def _build_chat_response_action_event():
     return Event(
         type="ActionExecuted",
         data={
-            "agent_id": "chat:web_user",
-            "event_type": "UserMessage",
+            "content": "懂你，这种天气确实烦。",
+            "author_type": "tool",
+            "content_type": "tool_result",
             "action_type": "ChatResponseAction",
-            "response": "懂你，这种天气确实烦。",
             "user_id": "web_user",
             "session_id": "s1",
             "turn_id": "turn-1",

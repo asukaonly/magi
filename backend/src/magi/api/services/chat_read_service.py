@@ -94,22 +94,17 @@ class ChatReadService:
                 logger.exception(f"Failed to query session list: {exc}")
                 rows = []
 
-            for event_type, raw_data, raw_ts in rows:
-                try:
-                    payload = json.loads(raw_data or "{}")
-                except Exception:
-                    continue
-                session_id = str(payload.get("session_id") or "").strip()
+            for event_type, content, raw_ts, raw_session_id, turn_id in rows:
+                del turn_id
+                session_id = str(raw_session_id or "").strip()
                 if not session_id:
                     continue
                 timestamp = int(float(raw_ts or 0))
-                if event_type in USER_EVENT_TYPES:
-                    content = str(payload.get("message") or "").strip()
-                elif event_type in AI_RESPONSE_EVENT_TYPES:
-                    content = str(payload.get("response") or "").strip()
-                else:
+                text = str(content or "").strip()
+                if event_type not in (*USER_EVENT_TYPES, *AI_RESPONSE_EVENT_TYPES):
                     continue
-
+                if not text:
+                    continue
                 session = sessions.setdefault(
                     session_id,
                     {
@@ -125,12 +120,12 @@ class ChatReadService:
                 session["message_count"] += 1
                 if timestamp >= int(session["last_timestamp"]):
                     session["last_timestamp"] = timestamp
-                    session["last_message_preview"] = content[:120]
-                if event_type in USER_EVENT_TYPES and content:
+                    session["last_message_preview"] = text[:120]
+                if event_type in USER_EVENT_TYPES:
                     if timestamp >= int(session["last_user_timestamp"]):
                         session["last_user_timestamp"] = timestamp
-                        session["last_user_message_preview"] = content[:120]
-                    session["title_candidate"] = content[:80]
+                        session["last_user_message_preview"] = text[:120]
+                    session["title_candidate"] = text[:80]
 
         ordered = sorted(
             sessions.values(),
@@ -271,16 +266,10 @@ class ChatReadService:
             return []
 
         messages: list[dict[str, Any]] = []
-        for event_type, raw_data, ts in rows:
-            try:
-                payload = json.loads(raw_data or "{}")
-            except Exception:
-                continue
+        for event_type, content, ts, _, turn_id in rows:
             if event_type in USER_EVENT_TYPES:
-                content = payload.get("message")
                 role = "user"
             elif event_type in AI_RESPONSE_EVENT_TYPES:
-                content = payload.get("response")
                 role = "assistant"
             else:
                 continue
@@ -291,7 +280,7 @@ class ChatReadService:
                     "role": role,
                     "content": str(content),
                     "timestamp": int(float(ts or 0)),
-                    "turn_id": str(payload.get("turn_id") or "").strip() or None,
+                    "turn_id": str(turn_id or "").strip() or None,
                     "kind": role,
                 }
             )
@@ -326,15 +315,11 @@ class ChatReadService:
         ordered_turns: list[str] = []
         legacy_messages: list[dict[str, Any]] = []
 
-        for event_type, raw_data, ts in rows:
-            try:
-                payload = json.loads(raw_data or "{}")
-            except Exception:
-                payload = {}
-            turn_id = str(payload.get("turn_id") or "").strip()
+        for event_type, raw_content, ts, _, turn_id in rows:
+            turn_id = str(turn_id or "").strip()
             timestamp = int(float(ts or 0))
             if event_type in USER_EVENT_TYPES:
-                message = str(payload.get("message") or "").strip()
+                message = str(raw_content or "").strip()
                 if not message:
                     continue
                 if not turn_id:
@@ -354,7 +339,7 @@ class ChatReadService:
                 }
                 continue
             if event_type in AI_RESPONSE_EVENT_TYPES:
-                response = str(payload.get("response") or "").strip()
+                response = str(raw_content or "").strip()
                 if not response:
                     continue
                 if not turn_id:
@@ -446,7 +431,7 @@ class ChatReadService:
         session_id: str | None,
         limit: int | None,
         ascending: bool,
-    ) -> list[tuple[str, str, float]]:
+    ) -> list[tuple[str, str, float, str | None, str | None]]:
         return self._query_rows(
             table=FACT_EVENTS_TABLE,
             event_types=event_types,
@@ -464,7 +449,7 @@ class ChatReadService:
         session_id: str | None,
         limit: int | None,
         ascending: bool,
-    ) -> list[tuple[str, str, float]]:
+    ) -> list[tuple[str, str, float, str | None, str | None]]:
         return self._query_rows(
             table=RUNTIME_OBSERVATIONS_TABLE,
             event_types=event_types,
@@ -483,12 +468,12 @@ class ChatReadService:
         session_id: str | None,
         limit: int | None,
         ascending: bool,
-    ) -> list[tuple[str, str, float]]:
+    ) -> list[tuple[str, str, float, str | None, str | None]]:
         if not event_types:
             return []
         order_direction = "ASC" if ascending else "DESC"
         query = f"""
-            SELECT event_type, structured_payload, timestamp
+            SELECT event_type, content, timestamp, session_id, turn_id
             FROM {table}
             WHERE deleted_at IS NULL
               AND event_type IN ({", ".join("?" for _ in event_types)})

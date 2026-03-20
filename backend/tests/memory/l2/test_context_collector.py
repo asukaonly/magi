@@ -8,7 +8,13 @@ def _build_user_message(text: str):
     return normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "web_user", "session_id": "s1", "message": text},
+            data={
+                "user_id": "web_user",
+                "session_id": "s1",
+                "content": text,
+                "author_type": "user",
+                "content_type": "text",
+            },
             source="chat",
             level=EventLevel.INFO,
             correlation_id="corr-context",
@@ -21,7 +27,7 @@ def test_context_bundle_and_refs_serialize_deterministically():
     from magi.memory.l2.context_bundle import ContextBundle, ContextEntity, ResolvedContextRef
 
     bundle = ContextBundle(
-        recent_messages=[{"event_id": "evt-1", "raw_content": "杭州天气怎么样"}],
+        recent_messages=[{"event_id": "evt-1", "content": "杭州天气怎么样"}],
         recent_entities=[{"entity_id": "food:west-lake-vinegar-fish", "surface": "西湖醋鱼", "entity_type": "food"}],
         live_context_entities=[
             ContextEntity(
@@ -47,7 +53,7 @@ def test_context_bundle_and_refs_serialize_deterministically():
     )
 
     assert bundle.to_dict() == {
-        "recent_messages": [{"event_id": "evt-1", "raw_content": "杭州天气怎么样"}],
+        "recent_messages": [{"event_id": "evt-1", "content": "杭州天气怎么样"}],
         "recent_entities": [{"entity_id": "food:west-lake-vinegar-fish", "surface": "西湖醋鱼", "entity_type": "food"}],
         "live_context_entities": [
             {
@@ -81,11 +87,11 @@ def test_collect_context_bundle_binds_self_pronoun():
     bundle = collect_context_bundle(event=event)
     refs = resolve_direct_context_refs(event=event, bundle=bundle)
 
-    assert bundle.pronoun_bindings == [{"surface": "我", "resolved_ref": "user:self", "resolved_kind": "self_actor"}]
+    assert bundle.pronoun_bindings == [{"surface": "我", "resolved_ref": "web_user", "resolved_kind": "self_actor"}]
     assert refs[0].to_dict() == {
         "surface": "我",
         "reference_type": "self_actor",
-        "resolved_ref": "user:self",
+        "resolved_ref": "web_user",
         "resolved_kind": "self_actor",
         "confidence": 1.0,
         "evidence_text": "我真的很烦这种天气耶",

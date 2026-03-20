@@ -20,14 +20,14 @@ def test_build_topic_evidence_pack_preserves_topic_and_ids() -> None:
             {
                 "event_id": "evt-1",
                 "event_type": "UserMessage",
-                "raw_content": "I want to switch jobs this year.",
+                "content": "I want to switch jobs this year.",
                 "importance_score": 0.8,
                 "timestamp": 100.0,
             },
             {
                 "event_id": "evt-2",
                 "event_type": "AIResponse",
-                "raw_content": "The job market looks stronger for remote roles.",
+                "content": "The job market looks stronger for remote roles.",
                 "importance_score": 0.6,
                 "timestamp": 120.0,
             },
