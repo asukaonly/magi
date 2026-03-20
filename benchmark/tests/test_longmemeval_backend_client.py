@@ -75,6 +75,20 @@ def test_backend_client_restores_query_results_from_eval_endpoint() -> None:
                     "metadata": {"source_dataset": "longmemeval"},
                 }
             ],
+            "evidence_bundles": [
+                {
+                    "session_id": "sess-2",
+                    "hit_event_ids": ["evt-1"],
+                    "events": [
+                        {
+                            "event_id": "evt-1",
+                            "turn_id": "sess-2:turn-1",
+                            "content": "Actually sushi is my favorite.",
+                        }
+                    ],
+                    "neighbor_expansion_applied": False,
+                }
+            ],
             "answer": "Sushi",
             "answer_trace": {"answer_source": "llm"},
             "trace": {"intent_source": "rule"},
@@ -99,6 +113,7 @@ def test_backend_client_restores_query_results_from_eval_endpoint() -> None:
     assert result.answer == "Sushi"
     assert result.answer_trace["answer_source"] == "llm"
     assert result.trace["intent_source"] == "rule"
+    assert result.evidence_bundles[0]["session_id"] == "sess-2"
 
 
 def test_backend_client_posts_finalize_replay_request() -> None:
