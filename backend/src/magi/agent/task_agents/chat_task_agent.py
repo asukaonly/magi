@@ -90,7 +90,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
 
         runtime_paths = get_runtime_paths()
         self._session_service = ChatSessionService(
-            session_state_file=runtime_paths.data_dir / "chat_sessions.json",
             l1_db_path=runtime_paths.l1_memory_db_path,
             history_cache_max_sessions=history_cache_max_sessions,
             history_fetch_limit=history_fetch_limit,
@@ -179,7 +178,6 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         # Keep these aliases so existing read paths and tests see the same underlying stores.
         self._conversation_history = self._session_service._conversation_history
         self._tool_interactions = self._session_service._tool_interactions
-        self._current_session_by_user = self._session_service._current_session_by_user
 
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact
@@ -247,16 +245,10 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
     async def parse_result(self, context: ChatRuntimeContext, raw_result: ExecutionResult) -> None:
         await self._postprocess_service.handle(context, raw_result)
 
-    def get_current_session_id(self, user_id: str) -> str:
-        return self._session_service.get_current_session_id(user_id)
-
-    def create_new_session(self, user_id: str) -> str:
-        return self._session_service.create_new_session(user_id)
-
-    def get_conversation_history(self, user_id: str, session_id: Optional[str] = None) -> list[dict]:
+    def get_conversation_history(self, user_id: str, session_id: str) -> list[dict]:
         return self._session_service.get_conversation_history(user_id, session_id)
 
-    def clear_conversation_history(self, user_id: str, session_id: Optional[str] = None) -> None:
+    def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         self._session_service.clear_conversation_history(user_id, session_id)
 
     def get_llm_max_tokens(self) -> int:

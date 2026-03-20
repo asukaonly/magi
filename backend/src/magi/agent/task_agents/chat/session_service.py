@@ -1,9 +1,7 @@
 """Session and history state management for chat task agents."""
 from __future__ import annotations
 
-import json
 import sqlite3
-import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,28 +14,24 @@ FACT_EVENTS_TABLE = "fact_events"
 
 
 class ChatSessionService:
-    """Owns session mapping, history cache, and lazy history loading."""
+    """Owns history caches and lazy history loading for explicit sessions."""
 
     def __init__(
         self,
         *,
-        session_state_file: Path,
         l1_db_path: Path,
         runtime_trace_db_path: Optional[Path] = None,
         history_cache_max_sessions: int = 500,
         history_fetch_limit: int = 200,
     ) -> None:
         runtime_paths = get_runtime_paths()
-        self._session_state_file = session_state_file
         self._l1_db_path = l1_db_path
         self._runtime_trace_db_path = runtime_trace_db_path or runtime_paths.runtime_trace_db_path
         self._history_cache_max_sessions = history_cache_max_sessions
         self._history_fetch_limit = history_fetch_limit
         self._conversation_history: dict[str, list[dict[str, Any]]] = {}
         self._tool_interactions: dict[str, list[dict[str, Any]]] = {}
-        self._current_session_by_user: dict[str, str] = {}
         self._history_cache_order: list[str] = []
-        self._load_session_state()
 
     async def get_or_load_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
         history_key = self.history_key(user_id, session_id)
@@ -66,17 +60,11 @@ class ChatSessionService:
             return self._conversation_history[history_key]
 
     def resolve_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
-        if session_id:
-            self._current_session_by_user[user_id] = session_id
-            self._save_session_state()
-            return session_id
-        existing = self._current_session_by_user.get(user_id)
-        if existing:
-            return existing
-        new_id = str(uuid.uuid4())
-        self._current_session_by_user[user_id] = new_id
-        self._save_session_state()
-        return new_id
+        _ = user_id
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("Session ID is required")
+        return normalized_session_id
 
     def history_key(self, user_id: str, session_id: str) -> str:
         return f"{user_id}::{session_id}"
@@ -136,24 +124,11 @@ class ChatSessionService:
                 break
         return results
 
-    def get_current_session_id(self, user_id: str) -> str:
-        return self.resolve_session_id(user_id)
-
-    def create_new_session(self, user_id: str) -> str:
-        new_id = str(uuid.uuid4())
-        self._current_session_by_user[user_id] = new_id
-        key = self.history_key(user_id, new_id)
-        self._conversation_history.setdefault(key, [])
-        self._tool_interactions.setdefault(key, [])
-        self._save_session_state()
-        self._update_lru_cache(key)
-        return new_id
-
-    def get_conversation_history(self, user_id: str, session_id: Optional[str] = None) -> list[dict[str, Any]]:
+    def get_conversation_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
         active_session = self.resolve_session_id(user_id, session_id)
         return self._conversation_history.get(self.history_key(user_id, active_session), [])
 
-    def clear_conversation_history(self, user_id: str, session_id: Optional[str] = None) -> None:
+    def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         active_session = self.resolve_session_id(user_id, session_id)
         key = self.history_key(user_id, active_session)
         self._conversation_history[key] = []
@@ -168,31 +143,6 @@ class ChatSessionService:
             self._conversation_history.pop(oldest_key, None)
             self._tool_interactions.pop(oldest_key, None)
             logger.debug("Evicted history cache | key=%s", oldest_key)
-
-    def _load_session_state(self) -> None:
-        try:
-            if self._session_state_file.exists():
-                data = json.loads(self._session_state_file.read_text(encoding="utf-8"))
-                mapping = data.get("current_session_by_user", {}) if isinstance(data, dict) else {}
-                if isinstance(mapping, dict):
-                    self._current_session_by_user = {
-                        str(key): str(value)
-                        for key, value in mapping.items()
-                        if key and value
-                    }
-        except Exception as exc:
-            logger.warning("Failed to load session state: %s", exc)
-
-    def _save_session_state(self) -> None:
-        try:
-            payload = {"current_session_by_user": self._current_session_by_user}
-            self._session_state_file.parent.mkdir(parents=True, exist_ok=True)
-            self._session_state_file.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception as exc:
-            logger.warning("Failed to save session state: %s", exc)
 
     def restore_conversation_from_events(self) -> None:
         fact_rows: list[tuple[Any, ...]] = []
@@ -220,7 +170,9 @@ class ChatSessionService:
         for event_type, raw_content, _, user_id, raw_session_id, _ in fact_rows:
             if not user_id:
                 continue
-            session_id = self.resolve_session_id(str(user_id), raw_session_id)
+            session_id = str(raw_session_id or "").strip()
+            if not session_id:
+                continue
             key = self.history_key(user_id, session_id)
             history = self._conversation_history.setdefault(key, [])
             if event_type == "UserMessage":

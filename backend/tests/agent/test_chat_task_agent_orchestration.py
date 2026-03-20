@@ -13,6 +13,7 @@ from magi.agent.orchestration import (
     TaskOrchestrationState,
     WorkerResult,
 )
+from magi.agent.task_agents.chat.session_service import ChatSessionService
 from magi.agent.task_agents.chat import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
 from magi.agent.task_agents.chat import planning_service as planning_service_module
 from magi.agent.task_agents.chat_task_agent import ChatTaskAgent
@@ -25,6 +26,45 @@ from magi.events.events import EventTypes
 class _FakeLLMAdapter:
     model_name = "fake-model"
     supports_embeddings = False
+
+
+@pytest.mark.asyncio
+async def test_chat_task_agent_requires_explicit_session_id_for_user_messages() -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    user_fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"content": "hello", "user_id": "u-chat"},
+        agent_type="chat",
+        agent_instance_id="u-chat",
+        correlation_id="corr_1",
+    )
+
+    merged = await agent.merge_facts([user_fact])
+
+    with pytest.raises(ValueError, match="Session ID is required"):
+        await agent.build_context(merged)
+
+
+@pytest.mark.asyncio
+async def test_chat_session_service_uses_explicit_session_pairs_without_state_file(tmp_path: Path) -> None:
+    service = ChatSessionService(
+        l1_db_path=tmp_path / "l1.sqlite3",
+        runtime_trace_db_path=tmp_path / "runtime_trace.sqlite3",
+    )
+
+    history = await service.get_or_load_history("u-chat", "s-chat")
+    assert history == []
+
+    key = service.history_key("u-chat", "s-chat")
+    service.append_user_message(key, "hello")
+    service.append_assistant_message(key, "world")
+
+    assert service.get_conversation_history("u-chat", "s-chat") == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "world"},
+    ]
+    assert not (tmp_path / "chat_sessions.json").exists()
 
 
 @pytest.mark.asyncio
