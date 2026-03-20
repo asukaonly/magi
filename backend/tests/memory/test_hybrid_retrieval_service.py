@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from magi.memory.hybrid_retrieval.models import (
+    IntentDecision,
+    L1Conditions,
+    LayerQueryPlan,
     RetrievalConfig,
     RetrievalPayload,
     RetrievalQuery,
@@ -456,6 +459,68 @@ class TestServiceTrace:
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         result = await svc.query(_make_request())
         assert "primary_count" in result.trace
+
+
+class TestServiceEvidencePackaging:
+    @pytest.mark.asyncio
+    async def test_builds_grouped_l1_evidence_bundles_with_neighbors(self):
+        session_events = [
+            {
+                "event_id": "e1",
+                "session_id": "s-car",
+                "turn_id": "s-car:turn-1",
+                "timestamp": 1000.0,
+                "content": "I scheduled the first service for my new car.",
+                "author_type": "user",
+            },
+            {
+                "event_id": "e2",
+                "session_id": "s-car",
+                "turn_id": "s-car:turn-2",
+                "timestamp": 1010.0,
+                "content": "The service went smoothly at the dealership.",
+                "author_type": "assistant",
+            },
+            {
+                "event_id": "e3",
+                "session_id": "s-car",
+                "turn_id": "s-car:turn-3",
+                "timestamp": 1020.0,
+                "content": "After the first service, the GPS system stopped working correctly.",
+                "author_type": "user",
+                "retrieval_trace": {"base_rrf_score": 0.9},
+            },
+            {
+                "event_id": "e4",
+                "session_id": "s-car",
+                "turn_id": "s-car:turn-4",
+                "timestamp": 1030.0,
+                "content": "The dealership replaced the GPS unit and fixed the problem.",
+                "author_type": "assistant",
+            },
+        ]
+        l1 = _make_l1_store(session_events)
+        l1.query_events = AsyncMock(return_value=list(reversed(session_events)))
+        mem = _make_memory(l1=l1)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="gps issue", limit=5))],
+                source="rule_fallback",
+                reasoning="test",
+            )
+        )
+
+        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=AsyncMock(return_value=[session_events[2]])):
+            result = await svc.query(_make_request(query="What was the first issue after the first service?"))
+
+        assert len(result.l1_evidence_bundles) == 1
+        bundle = result.l1_evidence_bundles[0]
+        assert bundle["session_id"] == "s-car"
+        assert bundle["hit_event_ids"] == ["e3"]
+        assert [event["event_id"] for event in bundle["events"]] == ["e2", "e3", "e4"]
+        assert bundle["neighbor_expansion_applied"] is True
+        assert result.trace["l1_evidence_bundle_count"] == 1
 
 
 class TestServiceErrorHandling:
