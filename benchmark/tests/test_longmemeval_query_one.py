@@ -84,6 +84,27 @@ def test_build_single_query_payload_returns_debug_shape() -> None:
     assert "Question: What food do I prefer?" in payload["answer_trace"]["prompt"]
 
 
+def test_build_single_query_payload_propagates_explicit_mode() -> None:
+    service = _FakeQueryService(
+        EvalMemoryQueryResult(
+            hits=[],
+            trace={"intent_source": "rule"},
+        )
+    )
+
+    payload = asyncio.run(
+        build_single_query_payload(
+            row=_build_sample_row(),
+            eval_service=service,
+            run_id="run-1",
+            mode="detail",
+        )
+    )
+
+    assert service.queries[0].mode == "detail"
+    assert payload["question_id"] == "q-1"
+
+
 def test_query_one_main_prints_progress_before_result(monkeypatch, tmp_path) -> None:
     dataset_path = tmp_path / "dataset.json"
     dataset_path.write_text("[]", encoding="utf-8")
@@ -121,3 +142,40 @@ def test_query_one_main_prints_progress_before_result(monkeypatch, tmp_path) -> 
     assert "Querying LongMemEval question_id=q-1" in output
     assert "answer_with_llm=True" in output
     assert '"hypothesis": "Sushi"' in output
+
+
+def test_query_one_main_prints_selected_mode(monkeypatch, tmp_path) -> None:
+    dataset_path = tmp_path / "dataset.json"
+    dataset_path.write_text("[]", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "benchmark.longmemeval.query_one.load_longmemeval_rows",
+        lambda path: [_build_sample_row()],
+    )
+    monkeypatch.setattr(
+        "benchmark.longmemeval.query_one.build_single_query_payload",
+        lambda **kwargs: {
+            "question_id": "q-1",
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "hypothesis": "Sushi",
+        },
+    )
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        exit_code = main(
+            [
+                "--dataset",
+                str(dataset_path),
+                "--run-id",
+                "run-1",
+                "--question-id",
+                "q-1",
+                "--mode",
+                "detail",
+            ]
+        )
+
+    output = stdout.getvalue()
+    assert exit_code == 0
+    assert "mode=detail" in output

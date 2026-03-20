@@ -44,6 +44,7 @@ async def build_single_query_payload(
     row: dict[str, Any],
     eval_service: SupportsQueryService,
     run_id: str,
+    mode: str = "auto",
     answer_with_llm: bool = False,
     show_prompt: bool = False,
     benchmark_name: str = "longmemeval",
@@ -57,7 +58,7 @@ async def build_single_query_payload(
     )
     adapted = adapt_longmemeval_entry(row, namespace=namespace)
     query_result = await eval_service.query_memory(
-        replace(adapted.query, answer_with_llm=answer_with_llm, show_prompt=show_prompt)
+        replace(adapted.query, mode=mode, answer_with_llm=answer_with_llm, show_prompt=show_prompt)
     )
     hypothesis = query_result.answer or synthesize_hypothesis_from_hits(hits=query_result.hits)
     return {
@@ -86,6 +87,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--run-id", required=True, help="Existing run identifier used during replay.")
     parser.add_argument("--question-id", required=True, help="LongMemEval question id to debug.")
     parser.add_argument("--backend-url", default="http://127.0.0.1:8000", help="Magi backend base URL.")
+    parser.add_argument(
+        "--mode",
+        default="auto",
+        help="Memory retrieval mode hint (auto|detail|summary|experience|graph|strategy).",
+    )
     parser.add_argument(
         "--request-timeout",
         type=float,
@@ -118,6 +124,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(
         f"Querying LongMemEval question_id={question_id} "
         f"namespace={namespace} "
+        f"mode={args.mode} "
         f"answer_with_llm={args.answer_with_llm} "
         f"show_prompt={args.show_prompt}",
         flush=True,
@@ -126,6 +133,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         row=row,
         eval_service=BackendEvalService(args.backend_url, timeout_seconds=args.request_timeout),
         run_id=args.run_id,
+        mode=args.mode,
         answer_with_llm=args.answer_with_llm,
         show_prompt=args.show_prompt,
     )

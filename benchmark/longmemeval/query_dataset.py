@@ -64,6 +64,7 @@ async def query_longmemeval_rows(
     benchmark_name: str = "longmemeval",
     progress_reporter: Callable[[QueryProgress], None] | None = None,
     answer_with_llm: bool = False,
+    mode: str = "auto",
 ) -> LongMemEvalQueryArtifacts:
     output_dir = build_run_output_dir(
         root_dir=output_root,
@@ -83,7 +84,7 @@ async def query_longmemeval_rows(
         )
         adapted = adapt_longmemeval_entry(row, namespace=namespace)
         query_result = await eval_service.query_memory(
-            replace(adapted.query, answer_with_llm=answer_with_llm)
+            replace(adapted.query, mode=mode, answer_with_llm=answer_with_llm)
         )
         hit_count = len(query_result.hits)
         total_hit_count += hit_count
@@ -153,6 +154,7 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalQueryArtifacts:
             output_root=args.output_root,
             progress_reporter=print_query_progress,
             answer_with_llm=args.answer_with_llm,
+            mode=args.mode,
         )
 
     output_dir = build_run_output_dir(
@@ -169,6 +171,7 @@ async def _run_cli(args: argparse.Namespace) -> LongMemEvalQueryArtifacts:
             output_root=args.output_root,
             progress_reporter=print_query_progress,
             answer_with_llm=args.answer_with_llm,
+            mode=args.mode,
         )
     finally:
         await runtime.shutdown()
@@ -185,6 +188,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--answer-with-llm",
         action="store_true",
         help="Use the backend LLM to synthesize a final answer from retrieved hits.",
+    )
+    parser.add_argument(
+        "--mode",
+        default="auto",
+        help="Memory retrieval mode hint (auto|detail|summary|experience|graph|strategy).",
     )
     return parser.parse_args(argv)
 

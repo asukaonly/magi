@@ -25,6 +25,7 @@ def run_query_and_score_pipeline(
     output_root: str | Path,
     run_id: str,
     answer_with_llm: bool = False,
+    mode: str = "auto",
     query_runner: Callable[..., Any] | None = None,
     official_eval_runner: Callable[..., Any] | None = None,
     longmemeval_root: str | Path | None = None,
@@ -47,6 +48,7 @@ def run_query_and_score_pipeline(
         run_id=run_id,
         backend_url=DEFAULT_BACKEND_URL,
         answer_with_llm=answer_with_llm,
+        mode=mode,
     )
 
     official_artifacts = None
@@ -91,6 +93,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Use the backend LLM to synthesize final answers from retrieved hits.",
     )
+    parser.add_argument(
+        "--mode",
+        default="auto",
+        help="Memory retrieval mode hint (auto|detail|summary|experience|graph|strategy).",
+    )
     return parser.parse_args(argv)
 
 
@@ -101,6 +108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_root=args.output_root,
         run_id=args.run_id,
         answer_with_llm=args.answer_with_llm,
+        mode=args.mode,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
@@ -113,6 +121,7 @@ def _invoke_query(
     run_id: str,
     backend_url: str,
     answer_with_llm: bool,
+    mode: str,
 ) -> None:
     args = [
         "--dataset",
@@ -126,6 +135,8 @@ def _invoke_query(
     ]
     if answer_with_llm:
         args.append("--answer-with-llm")
+    if mode:
+        args.extend(["--mode", mode])
     query_main(args)
 
 

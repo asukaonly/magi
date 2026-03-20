@@ -397,11 +397,63 @@ def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
     assert "What food do I prefer?" in body["answer_trace"]["prompt"]
     assert "Actually sushi is my favorite." in body["answer_trace"]["prompt"]
     assert [message for message, _ in log_calls] == [
+        "Eval memory query started",
+        "Eval memory query completed",
         "Eval query answer synthesis started",
         "Eval query answer synthesis completed",
     ]
-    assert log_calls[0][1]["evidence_hit_count"] == 1
-    assert log_calls[1][1]["answer"] == "Sushi"
+    assert log_calls[1][1]["hit_count"] == 1
+    assert log_calls[2][1]["evidence_hit_count"] == 1
+    assert log_calls[3][1]["answer"] == "Sushi"
+
+
+def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    log_calls: list[tuple[str, dict]] = []
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            assert request.query_mode == "detail"
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-1",
+                        "session_id": "sess-2",
+                        "content": "Actually sushi is my favorite.",
+                        "score": 0.99,
+                        "turn_id": "sess-2:turn-1",
+                    }
+                ],
+                trace={"intent_source": "rule"},
+            )
+
+    def fake_log(message, **kwargs):
+        log_calls.append((message, kwargs))
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "What food do I prefer?",
+            "top_k": 10,
+            "mode": "detail",
+        },
+    )
+
+    assert response.status_code == 200
+    assert [message for message, _ in log_calls] == [
+        "Eval memory query started",
+        "Eval memory query completed",
+    ]
+    assert log_calls[0][1]["mode"] == "detail"
+    assert log_calls[1][1]["mode"] == "detail"
+    assert log_calls[1][1]["hit_count"] == 1
+    assert "duration_ms" in log_calls[1][1]
 
 
 def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):

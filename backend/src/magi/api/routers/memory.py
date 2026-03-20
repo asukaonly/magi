@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import time
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -525,6 +526,15 @@ async def query_eval_memory(body: EvalQueryRequest):
         )
 
     reader = EvalMemoryReader(retrieval_service)
+    logger.info(
+        "Eval memory query started",
+        namespace=body.namespace,
+        mode=body.mode,
+        top_k=body.top_k,
+        answer_with_llm=body.answer_with_llm,
+        query=body.query,
+    )
+    started_at = time.perf_counter()
     result = await reader.query_memory(
         EvalMemoryQuery(
             namespace=body.namespace,
@@ -535,6 +545,15 @@ async def query_eval_memory(body: EvalQueryRequest):
             answer_with_llm=body.answer_with_llm,
             show_prompt=body.show_prompt,
         )
+    )
+    logger.info(
+        "Eval memory query completed",
+        namespace=body.namespace,
+        mode=body.mode,
+        top_k=body.top_k,
+        answer_with_llm=body.answer_with_llm,
+        hit_count=len(result.hits),
+        duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
     )
     if body.answer_with_llm:
         answer, answer_trace = await _synthesize_eval_answer(

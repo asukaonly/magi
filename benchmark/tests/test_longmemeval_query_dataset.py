@@ -162,3 +162,27 @@ def test_query_script_prefers_llm_answer_when_present(tmp_path) -> None:
     traced = read_jsonl(artifacts.predictions_with_trace_path)[0]
     assert traced["hypothesis"] == "Sushi"
     assert traced["answer_trace"]["answer_source"] == "llm"
+
+
+def test_query_script_propagates_explicit_mode(tmp_path) -> None:
+    namespace = "benchmark/longmemeval/run-1/q-4"
+    service = FakeQueryService(
+        results_by_namespace={
+            namespace: EvalMemoryQueryResult(
+                hits=[],
+                trace={"intent_source": "rule"},
+            )
+        }
+    )
+
+    asyncio.run(
+        query_longmemeval_rows(
+            rows=[_build_sample_row(question_id="q-4")],
+            eval_service=service,
+            run_id="run-1",
+            output_root=tmp_path,
+            mode="detail",
+        )
+    )
+
+    assert service.queries[0].mode == "detail"

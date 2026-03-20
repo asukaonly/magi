@@ -66,6 +66,27 @@ def test_rerun_query_and_score_executes_query_then_official_eval(monkeypatch, tm
     assert summary["official_eval"]["overall_accuracy"] == 0.8
 
 
+def test_rerun_query_and_score_passes_explicit_mode(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_query(**kwargs):
+        calls.append(("query", kwargs))
+
+    summary = run_query_and_score_pipeline(
+        dataset_path=tmp_path / "oracle.json",
+        output_root=tmp_path / "outputs",
+        run_id="2026-03-19 20:03:28",
+        mode="detail",
+        query_runner=fake_query,
+        official_eval_runner=lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+        longmemeval_root=tmp_path / "LongMemEval",
+    )
+
+    assert calls == [("query", {"dataset_path": tmp_path / "oracle.json", "output_root": tmp_path / "outputs", "run_id": "2026-03-19 20:03:28", "backend_url": DEFAULT_BACKEND_URL, "answer_with_llm": False, "mode": "detail"})]
+    assert summary["official_eval"]["status"] == "skipped"
+
+
 def test_rerun_query_and_score_skips_official_eval_when_openai_key_missing(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     calls: list[str] = []
