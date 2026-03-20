@@ -21,6 +21,7 @@ from ...llm.base import LLMAdapter
 from ...llm.provider_bridge import LLMProviderBridge
 from ...config.models import LLMScenario
 from ...config.constants import DEFAULT_MAX_TOKENS
+from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
 from .function_calling_postprocessor import FunctionCallingPostprocessor
 from ...utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
 
@@ -131,6 +132,7 @@ class FunctionCallingOrchestrator:
         skill_runner=None,
         tool_result_callback=None,
         loop_event_callback=None,
+        runtime_trace_store: RuntimeTraceStore | None = None,
     ):
         """
         initialize the executor
@@ -148,6 +150,7 @@ class FunctionCallingOrchestrator:
         self.skill_runner = skill_runner
         self.tool_result_callback = tool_result_callback
         self.loop_event_callback = loop_event_callback
+        self.runtime_trace_store = runtime_trace_store
 
     def _resolve_llm(self) -> LLMAdapter:
         if self._llm_pool is not None:
@@ -207,6 +210,11 @@ class FunctionCallingOrchestrator:
         consecutive_failed_tool_iterations = 0
         while iteration < max_iterations:
             iteration += 1
+            iteration_started_at_ms = await self._start_iteration_trace(
+                turn_id=turn_id,
+                iteration=iteration,
+                execution_agent_id=execution_agent_id,
+            )
             await self._emit_loop_event(
                 {
                     "stage": "iteration_started",
@@ -234,6 +242,14 @@ class FunctionCallingOrchestrator:
                     execution_agent_id=execution_agent_id,
                 )
             except Exception as exc:
+                await self._complete_iteration_trace(
+                    turn_id=turn_id,
+                    iteration=iteration,
+                    execution_agent_id=execution_agent_id,
+                    started_at_ms=iteration_started_at_ms,
+                    status="failed",
+                    error_text=self._classify_exception_failure(exc),
+                )
                 return ExecutionOutcome(
                     status="failed",
                     content="",
@@ -264,6 +280,13 @@ class FunctionCallingOrchestrator:
                         "intent": intent,
                         "execution_agent_id": execution_agent_id,
                     }
+                )
+                await self._persist_llm_trace(
+                    turn_id=turn_id,
+                    iteration=iteration,
+                    stage="llm_requested_tools",
+                    execution_agent_id=execution_agent_id,
+                    llm_trace=response.get("llm_trace"),
                 )
 
                 # Execute all tool calls
@@ -313,6 +336,13 @@ class FunctionCallingOrchestrator:
                         user_message=user_message,
                         intent=intent,
                         iteration=iteration,
+                        tool_call=tool_call,
+                        result=result,
+                    )
+                    await self._persist_tool_trace(
+                        turn_id=turn_id,
+                        iteration=iteration,
+                        execution_agent_id=execution_agent_id,
                         tool_call=tool_call,
                         result=result,
                     )
@@ -374,18 +404,50 @@ class FunctionCallingOrchestrator:
                         }
                     )
                     if replan_allowed:
+                        await self._complete_iteration_trace(
+                            turn_id=turn_id,
+                            iteration=iteration,
+                            execution_agent_id=execution_agent_id,
+                            started_at_ms=iteration_started_at_ms,
+                            status="completed",
+                            result_preview="All requested tools failed",
+                        )
                         continue
                     all_tools_failed = True
+                    await self._complete_iteration_trace(
+                        turn_id=turn_id,
+                        iteration=iteration,
+                        execution_agent_id=execution_agent_id,
+                        started_at_ms=iteration_started_at_ms,
+                        status="failed",
+                        error_text="All requested tools failed",
+                    )
                     break
 
                 # Continue loop for potential more tool calls
                 consecutive_failed_tool_iterations = 0
+                await self._complete_iteration_trace(
+                    turn_id=turn_id,
+                    iteration=iteration,
+                    execution_agent_id=execution_agent_id,
+                    started_at_ms=iteration_started_at_ms,
+                    status="completed",
+                    result_preview=f"Executed {len(tool_results)} tool call(s)",
+                )
 
             elif response.get("content"):
                 # LLM provided final response
                 final_content = str(response["content"])
                 if not final_content.strip():
                     break
+                await self._persist_llm_trace(
+                    turn_id=turn_id,
+                    iteration=iteration,
+                    stage="final_response",
+                    execution_agent_id=execution_agent_id,
+                    llm_trace=response.get("llm_trace"),
+                    response_preview=final_content,
+                )
                 logger.info(f"[FunctionCalling] Final response received after {iteration} iteration(s)")
                 await self._emit_loop_event(
                     {
@@ -400,6 +462,14 @@ class FunctionCallingOrchestrator:
                         "execution_agent_id": execution_agent_id,
                     }
                 )
+                await self._complete_iteration_trace(
+                    turn_id=turn_id,
+                    iteration=iteration,
+                    execution_agent_id=execution_agent_id,
+                    started_at_ms=iteration_started_at_ms,
+                    status="completed",
+                    result_preview=final_content[:240],
+                )
                 return ExecutionOutcome(
                     status="completed",
                     content=final_content,
@@ -410,6 +480,14 @@ class FunctionCallingOrchestrator:
             else:
                 # Unexpected response format
                 logger.warning(f"[FunctionCalling] Unexpected response: {response}")
+                await self._complete_iteration_trace(
+                    turn_id=turn_id,
+                    iteration=iteration,
+                    execution_agent_id=execution_agent_id,
+                    started_at_ms=iteration_started_at_ms,
+                    status="failed",
+                    error_text="Unexpected function-calling response",
+                )
                 break
 
         # Fallback: call LLM without tools for final response
@@ -440,6 +518,14 @@ class FunctionCallingOrchestrator:
                 execution_agent_id=execution_agent_id,
             )
         except Exception as exc:
+            await self._complete_iteration_trace(
+                turn_id=turn_id,
+                iteration=iteration,
+                execution_agent_id=execution_agent_id,
+                started_at_ms=iteration_started_at_ms if "iteration_started_at_ms" in locals() else None,
+                status="failed",
+                error_text=self._classify_exception_failure(exc),
+            )
             return ExecutionOutcome(
                 status="failed",
                 content="",
@@ -493,6 +579,13 @@ class FunctionCallingOrchestrator:
                         ),
                     },
                 )
+                await self._persist_tool_trace(
+                    turn_id=turn_id,
+                    iteration=iteration,
+                    execution_agent_id=execution_agent_id,
+                    tool_call=tool_call,
+                    result=result,
+                )
             try:
                 final_response = await self._call_llm_without_tools(
                     system_prompt=final_system_prompt,
@@ -506,6 +599,14 @@ class FunctionCallingOrchestrator:
                     execution_agent_id=execution_agent_id,
                 )
             except Exception as exc:
+                await self._complete_iteration_trace(
+                    turn_id=turn_id,
+                    iteration=iteration,
+                    execution_agent_id=execution_agent_id,
+                    started_at_ms=iteration_started_at_ms if "iteration_started_at_ms" in locals() else None,
+                    status="failed",
+                    error_text=self._classify_exception_failure(exc),
+                )
                 return ExecutionOutcome(
                     status="failed",
                     content="",
@@ -564,8 +665,24 @@ class FunctionCallingOrchestrator:
                 "execution_agent_id": execution_agent_id,
             }
         )
+        await self._persist_llm_trace(
+            turn_id=turn_id,
+            iteration=iteration,
+            stage="fallback_final_response",
+            execution_agent_id=execution_agent_id,
+            llm_trace=final_response.get("llm_trace"),
+            response_preview=str(final_response.get("content", "")),
+        )
         final_content = str(final_response.get("content", ""))
         if final_content.strip():
+            await self._complete_iteration_trace(
+                turn_id=turn_id,
+                iteration=iteration,
+                execution_agent_id=execution_agent_id,
+                started_at_ms=iteration_started_at_ms if "iteration_started_at_ms" in locals() else None,
+                status="completed",
+                result_preview=final_content[:240],
+            )
             return ExecutionOutcome(
                 status="completed",
                 content=final_content,
@@ -573,6 +690,14 @@ class FunctionCallingOrchestrator:
                 iterations=iteration,
             )
 
+        await self._complete_iteration_trace(
+            turn_id=turn_id,
+            iteration=iteration,
+            execution_agent_id=execution_agent_id,
+            started_at_ms=iteration_started_at_ms if "iteration_started_at_ms" in locals() else None,
+            status="failed",
+            error_text=self._classify_final_failure(tool_failures, all_tools_failed),
+        )
         return ExecutionOutcome(
             status="failed",
             content="",
@@ -630,6 +755,197 @@ class FunctionCallingOrchestrator:
                 await callback_result
         except Exception as e:
             logger.warning(f"[FunctionCalling] Loop event callback failed: {e}")
+
+    async def _start_iteration_trace(
+        self,
+        *,
+        turn_id: str | None,
+        iteration: int,
+        execution_agent_id: str,
+    ) -> int | None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self.runtime_trace_store is None or not normalized_turn_id:
+            return None
+        started_at_ms = int(time.time() * 1000)
+        await self.runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=self._build_iteration_span_id(normalized_turn_id, iteration),
+                trace_id=self._build_trace_id(normalized_turn_id),
+                turn_id=normalized_turn_id,
+                parent_span_id=self._build_root_span_id(normalized_turn_id),
+                node_type="iteration",
+                name=f"Iteration {iteration}",
+                status="running",
+                iteration=iteration,
+                execution_agent_id=execution_agent_id,
+                started_at_ms=started_at_ms,
+                created_at_ms=started_at_ms,
+                updated_at_ms=started_at_ms,
+            )
+        )
+        return started_at_ms
+
+    async def _complete_iteration_trace(
+        self,
+        *,
+        turn_id: str | None,
+        iteration: int,
+        execution_agent_id: str,
+        started_at_ms: int | None,
+        status: str,
+        result_preview: str | None = None,
+        error_text: str | None = None,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self.runtime_trace_store is None or not normalized_turn_id or started_at_ms is None:
+            return
+        ended_at_ms = int(time.time() * 1000)
+        await self.runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=self._build_iteration_span_id(normalized_turn_id, iteration),
+                trace_id=self._build_trace_id(normalized_turn_id),
+                turn_id=normalized_turn_id,
+                parent_span_id=self._build_root_span_id(normalized_turn_id),
+                node_type="iteration",
+                name=f"Iteration {iteration}",
+                status=status,
+                iteration=iteration,
+                execution_agent_id=execution_agent_id,
+                result_preview=result_preview,
+                error_text=error_text,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=max(0, ended_at_ms - started_at_ms),
+                created_at_ms=started_at_ms,
+                updated_at_ms=ended_at_ms,
+            )
+        )
+
+    async def _persist_llm_trace(
+        self,
+        *,
+        turn_id: str | None,
+        iteration: int,
+        stage: str,
+        execution_agent_id: str,
+        llm_trace: Any,
+        response_preview: str | None = None,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self.runtime_trace_store is None or not normalized_turn_id or not isinstance(llm_trace, dict):
+            return
+        duration_ms = max(0, int(llm_trace.get("duration_ms") or 0))
+        ended_at_ms = int(time.time() * 1000)
+        started_at_ms = max(0, ended_at_ms - duration_ms)
+        span_id = self._build_llm_span_id(normalized_turn_id, stage, iteration)
+        await self.runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=span_id,
+                trace_id=self._build_trace_id(normalized_turn_id),
+                turn_id=normalized_turn_id,
+                parent_span_id=self._build_iteration_span_id(normalized_turn_id, iteration),
+                node_type="llm_call",
+                name="Function-calling LLM call",
+                status="completed",
+                iteration=iteration,
+                execution_agent_id=execution_agent_id,
+                result_preview=(response_preview or "")[:240] or None,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=duration_ms,
+                created_at_ms=started_at_ms,
+                updated_at_ms=ended_at_ms,
+            )
+        )
+        await self.runtime_trace_store.upsert_llm_call(
+            TraceLlmCallRecord(
+                span_id=span_id,
+                trace_id=self._build_trace_id(normalized_turn_id),
+                turn_id=normalized_turn_id,
+                provider=str(llm_trace.get("provider") or "unknown"),
+                model=str(llm_trace.get("model") or "unknown"),
+                input_tokens=int(llm_trace.get("input_tokens") or 0),
+                output_tokens=int(llm_trace.get("output_tokens") or 0),
+                reasoning_tokens=int(llm_trace.get("reasoning_tokens") or 0),
+                cache_read_tokens=int(llm_trace.get("cache_read_tokens") or 0),
+                cache_write_tokens=int(llm_trace.get("cache_write_tokens") or 0),
+                thinking_enabled=bool(llm_trace.get("thinking_enabled")),
+                response_preview=(response_preview or "")[:240] or None,
+            )
+        )
+
+    async def _persist_tool_trace(
+        self,
+        *,
+        turn_id: str | None,
+        iteration: int,
+        execution_agent_id: str,
+        tool_call: ToolCall,
+        result: ToolCallResult,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self.runtime_trace_store is None or not normalized_turn_id:
+            return
+        ended_at_ms = int(time.time() * 1000)
+        duration_ms = max(0, int(round(float(result.execution_time or 0.0) * 1000)))
+        started_at_ms = max(0, ended_at_ms - duration_ms)
+        span_id = self._build_tool_span_id(normalized_turn_id, iteration, tool_call.id)
+        result_preview = str(result.data or result.error or "")[:240] or None
+        await self.runtime_trace_store.upsert_span(
+            TraceSpanRecord(
+                span_id=span_id,
+                trace_id=self._build_trace_id(normalized_turn_id),
+                turn_id=normalized_turn_id,
+                parent_span_id=self._build_iteration_span_id(normalized_turn_id, iteration),
+                node_type="tool_call",
+                name=f"{tool_call.name} tool call",
+                status="completed" if result.success else "failed",
+                iteration=iteration,
+                execution_agent_id=execution_agent_id,
+                result_preview=result_preview,
+                error_text=result.error,
+                started_at_ms=started_at_ms,
+                ended_at_ms=ended_at_ms,
+                duration_ms=duration_ms,
+                created_at_ms=started_at_ms,
+                updated_at_ms=ended_at_ms,
+            )
+        )
+        await self.runtime_trace_store.upsert_tool_call(
+            TraceToolRecord(
+                span_id=span_id,
+                trace_id=self._build_trace_id(normalized_turn_id),
+                turn_id=normalized_turn_id,
+                tool_name=tool_call.name,
+                tool_call_id=tool_call.id,
+                arguments_json=json.dumps(tool_call.arguments),
+                success=result.success,
+                execution_time_ms=duration_ms,
+                error_code=result.error_code,
+                error_message=result.error,
+                result_preview=result_preview,
+            )
+        )
+
+    @staticmethod
+    def _build_trace_id(turn_id: str) -> str:
+        return f"trace:{turn_id}"
+
+    @staticmethod
+    def _build_root_span_id(turn_id: str) -> str:
+        return f"{turn_id}:turn"
+
+    @staticmethod
+    def _build_iteration_span_id(turn_id: str, iteration: int) -> str:
+        return f"{turn_id}:iteration:{iteration}"
+
+    @staticmethod
+    def _build_llm_span_id(turn_id: str, stage: str, iteration: int) -> str:
+        return f"{turn_id}:llm_call:{stage}:{iteration}"
+
+    @staticmethod
+    def _build_tool_span_id(turn_id: str, iteration: int, tool_call_id: str) -> str:
+        return f"{turn_id}:tool_call:{iteration}:{tool_call_id}"
 
     def _build_tools_parameter(self, selected_tools: List[str]) -> List[Dict]:
         """
@@ -778,6 +1094,7 @@ class FunctionCallingOrchestrator:
                 disable_thinking=disable_thinking,
                 duration_ms=duration_ms,
                 model_name=model_name,
+                provider_name=llm.provider_name,
             )
             if provider_response.assistant_message:
                 result["assistant_message"] = provider_response.assistant_message
@@ -880,6 +1197,7 @@ class FunctionCallingOrchestrator:
                 disable_thinking=disable_thinking,
                 duration_ms=duration_ms,
                 model_name=model_name,
+                provider_name=llm.provider_name,
             )
             if provider_response.assistant_message:
                 result["assistant_message"] = provider_response.assistant_message
@@ -921,9 +1239,10 @@ class FunctionCallingOrchestrator:
         disable_thinking: bool,
         duration_ms: int,
         model_name: str,
+        provider_name: str,
     ) -> Dict[str, Any]:
         trace_metrics = dict((metadata or {}).get("trace_metrics") or {})
-        trace_metrics.setdefault("provider", getattr(self._resolve_llm(), "provider_name", "unknown"))
+        trace_metrics.setdefault("provider", provider_name)
         trace_metrics.setdefault("model", model_name)
         trace_metrics.setdefault("input_tokens", 0)
         trace_metrics.setdefault("output_tokens", 0)

@@ -145,6 +145,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             skill_runner=skill_runner,
             tool_result_callback=self._postprocess_service.record_tool_interaction,
             loop_event_callback=self._postprocess_service.record_tool_loop_fact,
+            runtime_trace_store=runtime_trace_store,
         )
         handler_deps = ChatHandlerDependencies(
             context_service=self._context_service,

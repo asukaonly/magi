@@ -324,7 +324,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
 
 
 @pytest.mark.asyncio
-async def test_record_tool_loop_fact_persists_llm_trace_row_when_metrics_present(
+async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
     action_emitter = _FakeActionEmitter()
@@ -363,11 +363,8 @@ async def test_record_tool_loop_fact_persists_llm_trace_row_when_metrics_present
     llm_span = await runtime_trace_store.get_span("turn-1:llm_call:llm_requested_tools:2")
     llm_call = await runtime_trace_store.get_llm_call("turn-1:llm_call:llm_requested_tools:2")
 
-    assert llm_span is not None
-    assert llm_span.iteration == 2
-    assert llm_call is not None
-    assert llm_call.model == "gpt-test"
-    assert llm_call.input_tokens == 120
+    assert llm_span is None
+    assert llm_call is None
 
 
 @pytest.mark.asyncio

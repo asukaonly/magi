@@ -459,19 +459,6 @@ class ChatPostProcessService:
                 correlation_id=fact.correlation_id,
                 success=bool(payload.get("success", True)),
             )
-            await self._emit_loop_llm_trace(
-                action_emitter=action_emitter,
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-                stage=stage,
-                iteration=payload.get("iteration"),
-                execution_agent_id=payload.get("execution_agent_id"),
-                llm_trace=payload.get("llm_trace"),
-                response_preview=payload.get("response_preview"),
-                tool_count=payload.get("tool_count"),
-                tool_names=payload.get("tool_names"),
-            )
 
     async def _record_memory_updates(self, *, user_id: str, user_message: str) -> bool:
         updated = False
