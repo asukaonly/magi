@@ -141,14 +141,10 @@ export const ChatPage: React.FC = () => {
     (payload: any) => {
       const sessionId = String(payload?.session_id || currentSessionId || '').trim();
       const turnId = String(payload?.turn_id || '').trim();
-      const traceEventType = String(payload?.event_type || '').trim();
-      const traceStatus = String(payload?.status || '').trim();
       const summary = normalizeTraceSummary(payload?.trace_summary);
       const isTerminalTraceEvent =
-        traceEventType === 'TURN_TRACE_COMPLETED' ||
-        traceEventType === 'TURN_TRACE_FAILED' ||
-        traceStatus === 'completed' ||
-        traceStatus === 'failed';
+        summary?.status === 'completed' ||
+        summary?.status === 'failed';
       if (sessionId && turnId && isTerminalTraceEvent) {
         requestHistory(sessionId);
       }
@@ -193,7 +189,7 @@ export const ChatPage: React.FC = () => {
           timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
           turnId: turnId || undefined,
           traceSummary: summary,
-          traceAvailable: Boolean(payload?.trace_available),
+          traceAvailable: Boolean(payload?.trace_available || summary?.traceAvailable),
         });
       }
       if (summary) {

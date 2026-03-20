@@ -94,8 +94,17 @@ describe('ChatPage', () => {
         data: {
           session_id: 'session-1',
           turn_id: 'turn-2',
-          event_type: 'TURN_TRACE_COMPLETED',
-          status: 'completed',
+          trace_summary: {
+            turn_id: 'turn-2',
+            mode: 'function_calling',
+            status: 'completed',
+            headline: '工具链已完成',
+            active_steps: 0,
+            completed_steps: 2,
+            failed_steps: 0,
+            duration_seconds: 1.2,
+            trace_available: true,
+          },
         },
       });
     });

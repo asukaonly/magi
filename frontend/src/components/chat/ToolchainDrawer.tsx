@@ -107,7 +107,13 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     [selectedNode],
   );
   const selectedInput = React.useMemo(
-    () => asRecord(selectedMetadata.input),
+    () => {
+      const input = asRecord(selectedMetadata.input);
+      if (Object.keys(input).length > 0) {
+        return input;
+      }
+      return asRecord(selectedMetadata.arguments);
+    },
     [selectedMetadata],
   );
   const selectedOutput = React.useMemo(
@@ -115,7 +121,25 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
     [selectedMetadata],
   );
   const selectedMetrics = React.useMemo(
-    () => asRecord(selectedMetadata.metrics),
+    () => {
+      const metrics = asRecord(selectedMetadata.metrics);
+      const canonicalMetrics = {
+        provider: selectedMetadata.provider,
+        model: selectedMetadata.model,
+        input_tokens: selectedMetadata.input_tokens,
+        output_tokens: selectedMetadata.output_tokens,
+        reasoning_tokens: selectedMetadata.reasoning_tokens,
+        cache_read_tokens: selectedMetadata.cache_read_tokens,
+        cache_write_tokens: selectedMetadata.cache_write_tokens,
+        thinking_enabled: selectedMetadata.thinking_enabled,
+      };
+      return Object.fromEntries(
+        Object.entries({
+          ...metrics,
+          ...canonicalMetrics,
+        }).filter(([, value]) => value !== undefined && value !== null && value !== '')
+      );
+    },
     [selectedMetadata],
   );
   const selectedTags = React.useMemo(
@@ -237,11 +261,11 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <DetailBlock
                           label={t('chat.trace.model')}
-                          value={String(selectedMetrics.model || '--')}
+                          value={String(selectedMetrics.model || selectedMetadata.model || '--')}
                         />
                         <DetailBlock
                           label={t('chat.trace.provider')}
-                          value={String(selectedMetrics.provider || '--')}
+                          value={String(selectedMetrics.provider || selectedMetadata.provider || '--')}
                         />
                         <DetailBlock
                           label={t('chat.trace.attempt')}

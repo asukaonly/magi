@@ -198,7 +198,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           timestamp: Number(data?.timestamp || Date.now() / 1000) * 1000,
           turnId: turnId || undefined,
           traceSummary: summary,
-          traceAvailable: Boolean(data?.trace_available),
+          traceAvailable: Boolean(data?.trace_available || summary?.traceAvailable),
         });
       }
 

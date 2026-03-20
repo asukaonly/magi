@@ -37,13 +37,6 @@ export interface NormalizedTraceSummary {
   durationSeconds: number;
   traceAvailable: boolean;
   orchestrationId?: string | null;
-  // Legacy compatibility with existing store format
-  active_steps?: number;
-  completed_steps?: number;
-  failed_steps?: number;
-  duration_seconds?: number;
-  trace_available?: boolean;
-  orchestration_id?: string | null;
 }
 
 export interface NormalizedTraceNode {

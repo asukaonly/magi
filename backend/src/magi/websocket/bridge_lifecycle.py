@@ -11,6 +11,7 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
 from ..core.runtime_bindings import require_message_bus
 from ..events.events import Event, EventTypes
+from ..api.services import get_chat_trace_read_service
 from .connection_manager import manager
 
 logger = get_logger(__name__, category="API")
@@ -24,12 +25,6 @@ TRACE_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES + (
     "CHAT_TOOL_LOOP_STEP",
     "TOOL_INTERACTION",
     "TOOL_INVOKED",
-    "TURN_TRACE_STARTED",
-    "TURN_TRACE_COMPLETED",
-    "TURN_TRACE_FAILED",
-    "TRACE_NODE_STARTED",
-    "TRACE_NODE_COMPLETED",
-    "TRACE_NODE_FAILED",
 )
 DEFAULT_WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS = 0.5
 
@@ -139,6 +134,18 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                 room_clients=room_clients,
                 pid=os.getpid(),
             )
+            if turn_id and "trace_summary" not in data:
+                summary = self._load_trace_summary(
+                    user_id=user_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                )
+                if summary is not None:
+                    data = {
+                        **data,
+                        "trace_summary": summary,
+                        "trace_available": bool(summary.get("trace_available")),
+                    }
             await manager.broadcast("agent_response", data, room=room_name)
 
         async def _on_trace_event(event: Event) -> None:
@@ -151,24 +158,21 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             if not user_id:
                 return
 
+            summary = self._load_trace_summary(
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+            if summary is None:
+                return
+
             trace_payload = {
                 "user_id": user_id,
                 "session_id": session_id,
                 "turn_id": turn_id,
-                "event_type": event.type,
+                "trace_summary": summary,
+                "trace_available": bool(summary.get("trace_available")),
             }
-            if "orchestration_id" in data:
-                trace_payload["orchestration_id"] = data["orchestration_id"]
-            if "iteration" in data:
-                trace_payload["iteration"] = data["iteration"]
-            if "span_id" in data:
-                trace_payload["span_id"] = data["span_id"]
-            if "parent_span_id" in data:
-                trace_payload["parent_span_id"] = data["parent_span_id"]
-            if "node_type" in data:
-                trace_payload["node_type"] = data["node_type"]
-            if "status" in data:
-                trace_payload["status"] = data["status"]
 
             await manager.broadcast(
                 "execution_trace_update",
@@ -219,6 +223,28 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             pid=os.getpid(),
         )
         return True
+
+    @staticmethod
+    def _load_trace_summary(*, user_id: str, session_id: str, turn_id: str) -> dict | None:
+        if not user_id or not session_id or not turn_id:
+            return None
+        try:
+            trace_service = get_chat_trace_read_service()
+            summary = trace_service.get_trace_summary(
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+        except Exception as exc:
+            logger.debug(
+                "Failed to load trace summary for websocket bridge",
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                error=str(exc),
+            )
+            return None
+        return summary if isinstance(summary, dict) else None
 
     async def _retry_subscriptions(self) -> None:
         attempts = 0

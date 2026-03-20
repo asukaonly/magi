@@ -79,14 +79,15 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       if (eventName === 'agent_response' && message.data && typeof message.data === 'object') {
         const payload = message.data as Record<string, unknown>;
         const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
+        const summary = normalizeTraceSummary(payload.trace_summary);
         if (sessionId) {
           conversationStore.receiveAgentResponse({
             sessionId,
             content: String(payload.content || ''),
             timestamp: Number(payload.timestamp || Date.now() / 1000) * 1000,
             turnId: String(payload.turn_id || '').trim() || undefined,
-            traceSummary: normalizeTraceSummary(payload.trace_summary),
-            traceAvailable: Boolean(payload.trace_available),
+            traceSummary: summary,
+            traceAvailable: Boolean(payload.trace_available || summary?.traceAvailable),
           });
         }
         return;

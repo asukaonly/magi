@@ -104,12 +104,14 @@ export interface ExecutionTraceUpdateData {
   session_id?: string;
   turn_id: string;
   trace_summary?: TraceSummaryData;
+  trace_available?: boolean;
 }
 
 export interface AgentResponseData {
   turn_id?: string;
-  response?: string;
+  content: string;
   trace_summary?: TraceSummaryData;
+  trace_available?: boolean;
 }
 
 // ============================================================================

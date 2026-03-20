@@ -54,6 +54,12 @@ const SNAPSHOT: NormalizedExecutionTraceSnapshot = {
         resultPreview: 'success',
         error: null,
         metadata: {
+          provider: 'glm',
+          model: 'glm-5',
+          input_tokens: 2125,
+          output_tokens: 22,
+          reasoning_tokens: 0,
+          thinking_enabled: false,
           execution_time: 0.47,
           location: '杭州',
           payload: Array.from({ length: 40 }, (_, index) => `line-${index}`),
@@ -94,6 +100,9 @@ describe('toolchain drawer', () => {
 
     const timestampValues = screen.getAllByText(/\d{2}:\d{2}:\d{2}\.\d{3}/);
     expect(timestampValues.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('glm-5')).toBeInTheDocument();
+    expect(screen.getByText('glm')).toBeInTheDocument();
+    expect(screen.getByText('2125')).toBeInTheDocument();
     expect(screen.queryByText('Execution Timeline')).not.toBeInTheDocument();
     expect(screen.queryByText('1 steps')).not.toBeInTheDocument();
   });

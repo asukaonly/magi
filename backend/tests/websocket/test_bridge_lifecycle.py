@@ -64,6 +64,9 @@ async def test_websocket_bridge_subscribes_after_runtime_message_bus_ready(monke
             assert "WORKER_AGENT_FAILED" in subscribed_event_types
             assert "CHAT_TOOL_LOOP_STEP" in subscribed_event_types
             assert "TOOL_INTERACTION" in subscribed_event_types
+            assert "TOOL_INVOKED" in subscribed_event_types
+            assert "TURN_TRACE_COMPLETED" not in subscribed_event_types
+            assert "TRACE_NODE_COMPLETED" not in subscribed_event_types
 
         assert set(fake_bus.unsubscribed) == {sub_id for sub_id, _ in fake_bus.subscriptions}
     finally:
