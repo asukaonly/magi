@@ -58,6 +58,20 @@ def test_build_single_query_payload_returns_debug_shape() -> None:
                     content="Actually sushi is my favorite.",
                 )
             ],
+            evidence_bundles=[
+                {
+                    "session_id": "sess-2",
+                    "hit_event_ids": ["evt-1"],
+                    "events": [
+                        {
+                            "event_id": "evt-1",
+                            "turn_id": "sess-2:turn-1",
+                            "content": "Actually sushi is my favorite.",
+                        }
+                    ],
+                    "neighbor_expansion_applied": False,
+                }
+            ],
             trace={"intent_source": "rule"},
             answer="Sushi",
             answer_trace={"answer_source": "llm", "prompt": "Question: What food do I prefer?"},
@@ -80,6 +94,7 @@ def test_build_single_query_payload_returns_debug_shape() -> None:
     assert payload["expected_answer"] == "Sushi"
     assert payload["hypothesis"] == "Sushi"
     assert payload["retrieved_session_ids"] == ["sess-2"]
+    assert payload["evidence_bundles"][0]["session_id"] == "sess-2"
     assert payload["answer_trace"]["answer_source"] == "llm"
     assert "Question: What food do I prefer?" in payload["answer_trace"]["prompt"]
 

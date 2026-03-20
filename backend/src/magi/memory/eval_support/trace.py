@@ -33,6 +33,7 @@ def build_eval_query_result(payload: Any) -> EvalMemoryQueryResult:
     trace.setdefault("l1_hit_count", len(getattr(payload, "l1_events", []) or []))
     return EvalMemoryQueryResult(
         hits=build_eval_hits_from_payload(payload),
+        evidence_bundles=[dict(bundle) for bundle in (getattr(payload, "l1_evidence_bundles", []) or [])],
         trace=trace,
     )
 

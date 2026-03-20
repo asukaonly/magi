@@ -32,6 +32,20 @@ async def test_reader_returns_normalized_hits_without_chat_rendering() -> None:
                     "importance_score": 0.7,
                 },
             ],
+            l1_evidence_bundles=[
+                {
+                    "session_id": "session-1",
+                    "hit_event_ids": ["evt-1"],
+                    "events": [
+                        {
+                            "event_id": "evt-1",
+                            "turn_id": "turn-1",
+                            "content": "hello there",
+                        }
+                    ],
+                    "neighbor_expansion_applied": False,
+                }
+            ],
             trace={"intent_source": "rule_fallback"},
         )
     )
@@ -49,6 +63,7 @@ async def test_reader_returns_normalized_hits_without_chat_rendering() -> None:
     assert result.retrieved_turn_ids == ["turn-1", "turn-2"]
     assert result.retrieved_event_ids == ["evt-1", "evt-2"]
     assert result.trace["intent_source"] == "rule_fallback"
+    assert result.evidence_bundles[0]["session_id"] == "session-1"
     assert isinstance(result.hits[0], EvalMemoryHit)
 
 
