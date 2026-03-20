@@ -17,41 +17,252 @@ from magi.api.services.chat_read_service import (
 from magi.api.services.chat_trace_read_service import ChatTraceReadService
 
 FACT_EVENTS_TABLE = "fact_events"
-RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
 
 
 def _init_event_store(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
-    for table in (FACT_EVENTS_TABLE, RUNTIME_OBSERVATIONS_TABLE):
-        cur.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS {table} (
-                event_id TEXT PRIMARY KEY,
-                event_type TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                user_id TEXT,
-                session_id TEXT,
-                turn_id TEXT,
-                deleted_at REAL
-            )
-            """
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {FACT_EVENTS_TABLE} (
+            event_id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            user_id TEXT,
+            session_id TEXT,
+            turn_id TEXT,
+            deleted_at REAL
         )
-        cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_id)")
-        cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table}(session_id)")
+        """
+    )
+    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{FACT_EVENTS_TABLE}_user ON {FACT_EVENTS_TABLE}(user_id)")
+    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{FACT_EVENTS_TABLE}_session ON {FACT_EVENTS_TABLE}(session_id)")
+    conn.commit()
+    conn.close()
+
+
+def _init_runtime_trace_store(db_path: Path) -> None:
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS trace_turns (
+            trace_id TEXT PRIMARY KEY,
+            turn_id TEXT NOT NULL UNIQUE,
+            session_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            orchestration_id TEXT,
+            started_at_ms INTEGER NOT NULL,
+            ended_at_ms INTEGER,
+            duration_ms INTEGER,
+            user_message_preview TEXT,
+            response_preview TEXT,
+            error_summary TEXT,
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS trace_spans (
+            span_id TEXT PRIMARY KEY,
+            trace_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            parent_span_id TEXT,
+            node_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            attempt_index INTEGER NOT NULL DEFAULT 1,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            iteration INTEGER,
+            execution_agent_id TEXT,
+            result_preview TEXT,
+            error_text TEXT,
+            started_at_ms INTEGER NOT NULL,
+            ended_at_ms INTEGER,
+            duration_ms INTEGER,
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS trace_intent_resolutions (
+            span_id TEXT PRIMARY KEY,
+            trace_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            intent TEXT NOT NULL,
+            execution_mode TEXT NOT NULL,
+            route_reason TEXT,
+            selected_tools_json TEXT NOT NULL,
+            selected_worker_type TEXT
+        );
+        CREATE TABLE IF NOT EXISTS trace_llm_calls (
+            span_id TEXT PRIMARY KEY,
+            trace_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+            thinking_enabled INTEGER NOT NULL DEFAULT 0,
+            request_preview TEXT,
+            response_preview TEXT
+        );
+        CREATE TABLE IF NOT EXISTS trace_tools (
+            span_id TEXT PRIMARY KEY,
+            trace_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            tool_call_id TEXT,
+            arguments_json TEXT NOT NULL,
+            success INTEGER NOT NULL,
+            execution_time_ms INTEGER,
+            error_code TEXT,
+            error_message TEXT,
+            result_preview TEXT
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_trace_turn(db_path: Path, **values) -> None:
+    payload = {
+        "trace_id": values.get("trace_id"),
+        "turn_id": values.get("turn_id"),
+        "session_id": values.get("session_id"),
+        "user_id": values.get("user_id"),
+        "status": values.get("status", "running"),
+        "mode": values.get("mode", "function_calling"),
+        "orchestration_id": values.get("orchestration_id"),
+        "started_at_ms": values.get("started_at_ms", 0),
+        "ended_at_ms": values.get("ended_at_ms"),
+        "duration_ms": values.get("duration_ms"),
+        "user_message_preview": values.get("user_message_preview"),
+        "response_preview": values.get("response_preview"),
+        "error_summary": values.get("error_summary"),
+        "created_at_ms": values.get("created_at_ms", values.get("started_at_ms", 0)),
+        "updated_at_ms": values.get("updated_at_ms", values.get("ended_at_ms", values.get("started_at_ms", 0))),
+    }
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO trace_turns (
+            trace_id, turn_id, session_id, user_id, status, mode, orchestration_id,
+            started_at_ms, ended_at_ms, duration_ms, user_message_preview, response_preview,
+            error_summary, created_at_ms, updated_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        tuple(payload.values()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_trace_span(db_path: Path, **values) -> None:
+    payload = {
+        "span_id": values.get("span_id"),
+        "trace_id": values.get("trace_id"),
+        "turn_id": values.get("turn_id"),
+        "parent_span_id": values.get("parent_span_id"),
+        "node_type": values.get("node_type"),
+        "name": values.get("name"),
+        "status": values.get("status", "completed"),
+        "attempt_index": values.get("attempt_index", 1),
+        "retry_count": values.get("retry_count", 0),
+        "iteration": values.get("iteration"),
+        "execution_agent_id": values.get("execution_agent_id"),
+        "result_preview": values.get("result_preview"),
+        "error_text": values.get("error_text"),
+        "started_at_ms": values.get("started_at_ms", 0),
+        "ended_at_ms": values.get("ended_at_ms"),
+        "duration_ms": values.get("duration_ms"),
+        "created_at_ms": values.get("created_at_ms", values.get("started_at_ms", 0)),
+        "updated_at_ms": values.get("updated_at_ms", values.get("ended_at_ms", values.get("started_at_ms", 0))),
+    }
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO trace_spans (
+            span_id, trace_id, turn_id, parent_span_id, node_type, name, status,
+            attempt_index, retry_count, iteration, execution_agent_id, result_preview,
+            error_text, started_at_ms, ended_at_ms, duration_ms, created_at_ms, updated_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        tuple(payload.values()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_trace_llm_call(db_path: Path, **values) -> None:
+    payload = {
+        "span_id": values.get("span_id"),
+        "trace_id": values.get("trace_id"),
+        "turn_id": values.get("turn_id"),
+        "provider": values.get("provider", "openai"),
+        "model": values.get("model", "fake-model"),
+        "input_tokens": values.get("input_tokens", 0),
+        "output_tokens": values.get("output_tokens", 0),
+        "reasoning_tokens": values.get("reasoning_tokens", 0),
+        "cache_read_tokens": values.get("cache_read_tokens", 0),
+        "cache_write_tokens": values.get("cache_write_tokens", 0),
+        "thinking_enabled": int(values.get("thinking_enabled", False)),
+        "request_preview": values.get("request_preview"),
+        "response_preview": values.get("response_preview"),
+    }
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO trace_llm_calls (
+            span_id, trace_id, turn_id, provider, model, input_tokens, output_tokens,
+            reasoning_tokens, cache_read_tokens, cache_write_tokens, thinking_enabled,
+            request_preview, response_preview
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        tuple(payload.values()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_trace_tool(db_path: Path, **values) -> None:
+    payload = {
+        "span_id": values.get("span_id"),
+        "trace_id": values.get("trace_id"),
+        "turn_id": values.get("turn_id"),
+        "tool_name": values.get("tool_name"),
+        "tool_call_id": values.get("tool_call_id"),
+        "arguments_json": json.dumps(values.get("arguments", {}), ensure_ascii=False),
+        "success": int(values.get("success", True)),
+        "execution_time_ms": values.get("execution_time_ms", 0),
+        "error_code": values.get("error_code"),
+        "error_message": values.get("error_message"),
+        "result_preview": values.get("result_preview"),
+    }
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO trace_tools (
+            span_id, trace_id, turn_id, tool_name, tool_call_id, arguments_json, success,
+            execution_time_ms, error_code, error_message, result_preview
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        tuple(payload.values()),
+    )
     conn.commit()
     conn.close()
 
 
 def _insert_event(db_path: Path, event_type: str, data: dict, timestamp: float) -> None:
-    target_table = FACT_EVENTS_TABLE if event_type in {"UserMessage", "AIResponse"} else RUNTIME_OBSERVATIONS_TABLE
-    if event_type == "UserMessage":
-        content = str(data.get("content") or "")
-    elif event_type == "AIResponse":
-        content = str(data.get("content") or "")
-    else:
-        content = json.dumps(data, ensure_ascii=False)
+    target_table = FACT_EVENTS_TABLE
+    content = str(data.get("content") or "")
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
     cur.execute(
@@ -276,13 +487,14 @@ def test_delete_session_router_response(monkeypatch):
 def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tmp_path, monkeypatch):
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()
-    trace_service._l1_db_path = service._l1_db_path
+    trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
         "magi.api.services.chat_read_service.get_chat_trace_read_service",
         lambda: trace_service,
     )
     _init_event_store(service._l1_db_path)
+    _init_runtime_trace_store(trace_service._runtime_trace_db_path)
 
     _insert_event(
         service._l1_db_path,
@@ -290,31 +502,43 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
         {"user_id": "u1", "session_id": "s1", "content": "start task", "turn_id": "turn_1"},
         1000,
     )
-    _insert_event(
-        service._l1_db_path,
-        "WORKER_AGENT_PROGRESS",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "turn_id": "turn_1",
-            "worker_id": "worker_abc1234567",
-            "worker_subagent_type": "Explore",
-            "stage": "started",
-            "description": "scan codebase",
-        },
-        1010,
+    _insert_trace_turn(
+        trace_service._runtime_trace_db_path,
+        trace_id="trace:turn_1",
+        turn_id="turn_1",
+        session_id="s1",
+        user_id="u1",
+        status="running",
+        mode="orchestration",
+        started_at_ms=1000000,
+        updated_at_ms=1010000,
+        user_message_preview="start task",
     )
-    _insert_event(
-        service._l1_db_path,
-        "WORKER_AGENT_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "turn_id": "turn_1",
-            "worker_id": "worker_abc1234567",
-            "worker_subagent_type": "Explore",
-        },
-        1020,
+    _insert_trace_span(
+        trace_service._runtime_trace_db_path,
+        span_id="turn_1:worker_dispatch:subtask-1",
+        trace_id="trace:turn_1",
+        turn_id="turn_1",
+        parent_span_id="turn_1:turn",
+        node_type="worker_dispatch",
+        name="Worker dispatch",
+        status="completed",
+        started_at_ms=1000000,
+        ended_at_ms=1000000,
+        duration_ms=0,
+    )
+    _insert_trace_span(
+        trace_service._runtime_trace_db_path,
+        span_id="turn_1:worker:subtask-1:1",
+        trace_id="trace:turn_1",
+        turn_id="turn_1",
+        parent_span_id="turn_1:worker_dispatch:subtask-1",
+        node_type="worker",
+        name="Explore worker",
+        status="running",
+        started_at_ms=1000000,
+        updated_at_ms=1010000,
+        result_preview="scan codebase",
     )
 
     messages = service.get_display_history("u1", "s1", limit=20)
@@ -325,16 +549,17 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
     assert messages[1].trace_summary["headline"] == "Running tool chain"
 
 
-def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
+def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()
-    trace_service._l1_db_path = service._l1_db_path
+    trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
         "magi.api.services.chat_read_service.get_chat_trace_read_service",
         lambda: trace_service,
     )
     _init_event_store(service._l1_db_path)
+    _init_runtime_trace_store(trace_service._runtime_trace_db_path)
 
     _insert_event(
         service._l1_db_path,
@@ -344,23 +569,63 @@ def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
     )
     _insert_event(
         service._l1_db_path,
-        "TOOL_INVOKED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "turn_id": "turn_2",
-            "tool_name": "grep",
-            "tool_params": {"path": "/tmp/demo.py", "pattern": "qweather"},
-            "result": "success",
-            "execution_time_ms": 3.2,
-        },
-        2005,
-    )
-    _insert_event(
-        service._l1_db_path,
         "AIResponse",
         {"user_id": "u1", "session_id": "s1", "turn_id": "turn_2", "content": "answer"},
         2010,
+    )
+    _insert_trace_turn(
+        trace_service._runtime_trace_db_path,
+        trace_id="trace:turn_2",
+        turn_id="turn_2",
+        session_id="s1",
+        user_id="u1",
+        status="completed",
+        mode="function_calling",
+        started_at_ms=2000000,
+        ended_at_ms=2010000,
+        duration_ms=10000,
+        user_message_preview="why",
+        response_preview="answer",
+    )
+    _insert_trace_span(
+        trace_service._runtime_trace_db_path,
+        span_id="turn_2:iteration:1",
+        trace_id="trace:turn_2",
+        turn_id="turn_2",
+        parent_span_id="turn_2:turn",
+        node_type="iteration",
+        name="Iteration 1",
+        status="completed",
+        iteration=1,
+        started_at_ms=2000000,
+        ended_at_ms=2008000,
+        duration_ms=8000,
+    )
+    _insert_trace_span(
+        trace_service._runtime_trace_db_path,
+        span_id="turn_2:tool_call:1:call-1",
+        trace_id="trace:turn_2",
+        turn_id="turn_2",
+        parent_span_id="turn_2:iteration:1",
+        node_type="tool_call",
+        name="grep",
+        status="completed",
+        iteration=1,
+        started_at_ms=2005000,
+        ended_at_ms=2005200,
+        duration_ms=200,
+        result_preview="success",
+    )
+    _insert_trace_tool(
+        trace_service._runtime_trace_db_path,
+        span_id="turn_2:tool_call:1:call-1",
+        trace_id="trace:turn_2",
+        turn_id="turn_2",
+        tool_name="grep",
+        tool_call_id="call-1",
+        arguments={"path": "/tmp/demo.py", "pattern": "qweather"},
+        execution_time_ms=3,
+        result_preview="success",
     )
 
     messages = service.get_display_history("u1", "s1", limit=20)
@@ -377,229 +642,124 @@ def test_trace_summary_reads_tool_invoked_events(tmp_path, monkeypatch):
     assert snapshot["root"]["children"][0]["children"][0]["metadata"]["arguments"]["pattern"] == "qweather"
 
 
-def test_trace_snapshot_prefers_normalized_span_tree_without_ai_response(tmp_path):
+def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
     service = ChatTraceReadService()
-    service._l1_db_path = tmp_path / "events.sqlite3"
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     service._orchestrations_path = tmp_path / "task_orchestrations.json"
-    _init_event_store(service._l1_db_path)
-
-    _insert_event(
-        service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "content": "scan auth flow", "turn_id": "turn_trace"},
-        3000,
+    _init_runtime_trace_store(service._runtime_trace_db_path)
+    _insert_trace_turn(
+        service._runtime_trace_db_path,
+        trace_id="trace:turn_trace",
+        turn_id="turn_trace",
+        session_id="s1",
+        user_id="u1",
+        status="completed",
+        mode="orchestration",
+        orchestration_id="orch_trace",
+        started_at_ms=3000000,
+        ended_at_ms=3001200,
+        duration_ms=1200,
+        response_preview="done",
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_STARTED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:turn",
-            "parent_span_id": None,
-            "node_type": "turn",
-            "name": "Chat turn",
-            "status": "running",
-            "started_at_ms": 3000000,
-            "tags": {"user_id": "u1", "session_id": "s1"},
-        },
-        3000,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_trace:intent",
+        trace_id="trace:turn_trace",
+        turn_id="turn_trace",
+        parent_span_id="turn_trace:turn",
+        node_type="intent_resolution",
+        name="Intent resolution",
+        status="completed",
+        started_at_ms=3000000,
+        ended_at_ms=3000100,
+        duration_ms=100,
+        result_preview="code_research",
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:intent",
-            "parent_span_id": "turn_trace:turn",
-            "node_type": "intent_resolution",
-            "name": "Intent resolution",
-            "status": "completed",
-            "started_at_ms": 3000000,
-            "ended_at_ms": 3000100,
-            "duration_ms": 100,
-            "output": {"intent": "code_research"},
-            "tags": {"user_id": "u1", "session_id": "s1"},
-        },
-        3000.1,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_trace:worker_dispatch:worker_1",
+        trace_id="trace:turn_trace",
+        turn_id="turn_trace",
+        parent_span_id="turn_trace:turn",
+        node_type="worker_dispatch",
+        name="Worker dispatch",
+        status="completed",
+        started_at_ms=3000200,
+        ended_at_ms=3000200,
+        duration_ms=0,
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:worker_dispatch:worker_1",
-            "parent_span_id": "turn_trace:turn",
-            "node_type": "worker_dispatch",
-            "name": "Worker dispatch",
-            "status": "completed",
-            "started_at_ms": 3000200,
-            "ended_at_ms": 3000200,
-            "duration_ms": 0,
-            "output": {"worker_id": "worker_1"},
-            "tags": {
-                "user_id": "u1",
-                "session_id": "s1",
-                "orchestration_id": "orch_trace",
-            },
-        },
-        3000.2,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_trace:worker:worker_1",
+        trace_id="trace:turn_trace",
+        turn_id="turn_trace",
+        parent_span_id="turn_trace:worker_dispatch:worker_1",
+        node_type="worker",
+        name="Explore worker",
+        status="completed",
+        started_at_ms=3000200,
+        ended_at_ms=3000900,
+        duration_ms=700,
+        result_preview="worker finished",
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_STARTED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:worker:worker_1",
-            "parent_span_id": "turn_trace:worker_dispatch:worker_1",
-            "node_type": "worker",
-            "name": "Explore worker",
-            "status": "running",
-            "started_at_ms": 3000200,
-            "input": {"description": "scan auth flow"},
-            "tags": {
-                "user_id": "u1",
-                "session_id": "s1",
-                "orchestration_id": "orch_trace",
-            },
-        },
-        3000.2,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_trace:worker_llm:worker_1:final_response:1",
+        trace_id="trace:turn_trace",
+        turn_id="turn_trace",
+        parent_span_id="turn_trace:worker:worker_1",
+        node_type="llm_call",
+        name="Explore worker LLM call",
+        status="completed",
+        started_at_ms=3000300,
+        ended_at_ms=3000810,
+        duration_ms=510,
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:worker_llm:worker_1:final_response:1",
-            "parent_span_id": "turn_trace:worker:worker_1",
-            "node_type": "llm_call",
-            "name": "Explore worker LLM call",
-            "status": "completed",
-            "started_at_ms": 3000300,
-            "ended_at_ms": 3000810,
-            "duration_ms": 510,
-            "metrics": {"model": "fake-model", "input_tokens": 30, "output_tokens": 12},
-            "tags": {"user_id": "u1", "session_id": "s1"},
-        },
-        3000.81,
+    _insert_trace_llm_call(
+        service._runtime_trace_db_path,
+        span_id="turn_trace:worker_llm:worker_1:final_response:1",
+        trace_id="trace:turn_trace",
+        turn_id="turn_trace",
+        model="fake-model",
+        input_tokens=30,
+        output_tokens=12,
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:worker_tool:worker_1:grep:3000820",
-            "parent_span_id": "turn_trace:worker:worker_1",
-            "node_type": "tool_call",
-            "name": "grep tool call",
-            "status": "completed",
-            "started_at_ms": 3000820,
-            "ended_at_ms": 3000850,
-            "duration_ms": 30,
-            "output": {"result_preview": "match count: 3"},
-            "tags": {"user_id": "u1", "session_id": "s1"},
-        },
-        3000.85,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_trace:worker_tool:worker_1:grep",
+        trace_id="trace:turn_trace",
+        turn_id="turn_trace",
+        parent_span_id="turn_trace:worker:worker_1",
+        node_type="tool_call",
+        name="grep tool call",
+        status="completed",
+        started_at_ms=3000820,
+        ended_at_ms=3000850,
+        duration_ms=30,
+        result_preview="match count: 3",
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:worker:worker_1",
-            "parent_span_id": "turn_trace:worker_dispatch:worker_1",
-            "node_type": "worker",
-            "name": "Explore worker",
-            "status": "completed",
-            "started_at_ms": 3000200,
-            "ended_at_ms": 3000900,
-            "duration_ms": 700,
-            "output": {"result_preview": "worker finished"},
-            "tags": {
-                "user_id": "u1",
-                "session_id": "s1",
-                "orchestration_id": "orch_trace",
-            },
-        },
-        3000.9,
+    _insert_trace_tool(
+        service._runtime_trace_db_path,
+        span_id="turn_trace:worker_tool:worker_1:grep",
+        trace_id="trace:turn_trace",
+        turn_id="turn_trace",
+        tool_name="grep",
+        tool_call_id="grep-call",
+        result_preview="match count: 3",
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:response_emit",
-            "parent_span_id": "turn_trace:turn",
-            "node_type": "response_emit",
-            "name": "Response emitted",
-            "status": "completed",
-            "started_at_ms": 3001000,
-            "ended_at_ms": 3001100,
-            "duration_ms": 100,
-            "output": {"response_preview": "done"},
-            "tags": {"user_id": "u1", "session_id": "s1"},
-        },
-        3001.1,
-    )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:turn",
-            "parent_span_id": None,
-            "node_type": "turn",
-            "name": "Chat turn",
-            "status": "completed",
-            "started_at_ms": 3000000,
-            "ended_at_ms": 3001200,
-            "duration_ms": 1200,
-            "output": {"response_preview": "done"},
-            "tags": {"user_id": "u1", "session_id": "s1"},
-        },
-        3001.2,
-    )
-    _insert_event(
-        service._l1_db_path,
-        "TURN_TRACE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_trace",
-            "turn_id": "turn_trace",
-            "span_id": "turn_trace:turn",
-            "status": "completed",
-            "started_at_ms": 3000000,
-            "ended_at_ms": 3001200,
-            "duration_ms": 1200,
-        },
-        3001.2,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_trace:response_emit",
+        trace_id="trace:turn_trace",
+        turn_id="turn_trace",
+        parent_span_id="turn_trace:turn",
+        node_type="response_emit",
+        name="Response emitted",
+        status="completed",
+        started_at_ms=3001000,
+        ended_at_ms=3001100,
+        duration_ms=100,
+        result_preview="done",
     )
 
     snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_trace")
@@ -621,115 +781,65 @@ def test_trace_snapshot_prefers_normalized_span_tree_without_ai_response(tmp_pat
 
 def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_path):
     service = ChatTraceReadService()
-    service._l1_db_path = tmp_path / "events.sqlite3"
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     service._orchestrations_path = tmp_path / "task_orchestrations.json"
-    _init_event_store(service._l1_db_path)
-
-    _insert_event(
-        service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "content": "scan auth flow", "turn_id": "turn_retry"},
-        4000,
+    _init_runtime_trace_store(service._runtime_trace_db_path)
+    _insert_trace_turn(
+        service._runtime_trace_db_path,
+        trace_id="trace:turn_retry",
+        turn_id="turn_retry",
+        session_id="s1",
+        user_id="u1",
+        status="completed",
+        mode="orchestration",
+        orchestration_id="orch_retry",
+        started_at_ms=4000000,
+        ended_at_ms=4001000,
+        duration_ms=1000,
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_retry",
-            "turn_id": "turn_retry",
-            "span_id": "turn_retry:worker_dispatch:subtask_1",
-            "parent_span_id": "turn_retry:turn",
-            "node_type": "worker_dispatch",
-            "name": "Worker dispatch",
-            "status": "completed",
-            "started_at_ms": 4000000,
-            "ended_at_ms": 4000000,
-            "duration_ms": 0,
-            "tags": {
-                "user_id": "u1",
-                "session_id": "s1",
-                "subtask_id": "subtask_1",
-                "orchestration_id": "orch_retry",
-            },
-        },
-        4000,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_retry:worker_dispatch:subtask_1",
+        trace_id="trace:turn_retry",
+        turn_id="turn_retry",
+        parent_span_id="turn_retry:turn",
+        node_type="worker_dispatch",
+        name="Worker dispatch",
+        status="completed",
+        started_at_ms=4000000,
+        ended_at_ms=4000000,
+        duration_ms=0,
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_FAILED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_retry",
-            "turn_id": "turn_retry",
-            "span_id": "turn_retry:worker_attempt:subtask_1:1",
-            "parent_span_id": "turn_retry:worker_dispatch:subtask_1",
-            "node_type": "worker_attempt",
-            "name": "Attempt 1",
-            "status": "failed",
-            "attempt_index": 1,
-            "retry_count": 0,
-            "started_at_ms": 4000000,
-            "ended_at_ms": 4000300,
-            "duration_ms": 300,
-            "error": {"content": "rate limited"},
-            "tags": {
-                "user_id": "u1",
-                "session_id": "s1",
-                "subtask_id": "subtask_1",
-                "orchestration_id": "orch_retry",
-            },
-        },
-        4000.3,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_retry:worker_attempt:subtask_1:1",
+        trace_id="trace:turn_retry",
+        turn_id="turn_retry",
+        parent_span_id="turn_retry:worker_dispatch:subtask_1",
+        node_type="worker_attempt",
+        name="Attempt 1",
+        status="failed",
+        attempt_index=1,
+        retry_count=0,
+        started_at_ms=4000000,
+        ended_at_ms=4000300,
+        duration_ms=300,
+        error_text="rate limited",
     )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_retry",
-            "turn_id": "turn_retry",
-            "span_id": "turn_retry:worker_attempt:subtask_1:2",
-            "parent_span_id": "turn_retry:worker_dispatch:subtask_1",
-            "node_type": "worker_attempt",
-            "name": "Attempt 2",
-            "status": "completed",
-            "attempt_index": 2,
-            "retry_count": 1,
-            "started_at_ms": 4000400,
-            "ended_at_ms": 4000900,
-            "duration_ms": 500,
-            "tags": {
-                "user_id": "u1",
-                "session_id": "s1",
-                "subtask_id": "subtask_1",
-                "orchestration_id": "orch_retry",
-            },
-        },
-        4000.9,
-    )
-    _insert_event(
-        service._l1_db_path,
-        "TRACE_NODE_COMPLETED",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "trace_id": "trace:turn_retry",
-            "turn_id": "turn_retry",
-            "span_id": "turn_retry:turn",
-            "parent_span_id": None,
-            "node_type": "turn",
-            "name": "Chat turn",
-            "status": "completed",
-            "started_at_ms": 4000000,
-            "ended_at_ms": 4001000,
-            "duration_ms": 1000,
-            "tags": {"user_id": "u1", "session_id": "s1"},
-        },
-        4001,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_retry:worker_attempt:subtask_1:2",
+        trace_id="trace:turn_retry",
+        turn_id="turn_retry",
+        parent_span_id="turn_retry:worker_dispatch:subtask_1",
+        node_type="worker_attempt",
+        name="Attempt 2",
+        status="completed",
+        attempt_index=2,
+        retry_count=1,
+        started_at_ms=4000400,
+        ended_at_ms=4000900,
+        duration_ms=500,
     )
 
     snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_retry")
@@ -747,88 +857,72 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
 
 def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     service = ChatTraceReadService()
-    service._l1_db_path = tmp_path / "events.sqlite3"
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     service._orchestrations_path = tmp_path / "task_orchestrations.json"
-    _init_event_store(service._l1_db_path)
-
-    service._orchestrations_path.write_text(
-        json.dumps(
-            {
-                "orchestrations": {
-                    "orch_1": {
-                        "orchestration_id": "orch_1",
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "root_user_message": "analyze repo",
-                        "planner": "task_agent",
-                        "turn_id": "turn_1",
-                        "status": "running",
-                        "allow_parallel": True,
-                        "subtasks": [
-                            {
-                                "subtask_id": "sub_1",
-                                "description": "scan backend",
-                                "subagent_type": "Explore",
-                                "prompt": "scan backend",
-                                "parallel_group": "group_a",
-                                "status": "running",
-                                "worker_id": "worker_1",
-                                "created_at": 1000,
-                                "updated_at": 1015,
-                            },
-                            {
-                                "subtask_id": "sub_2",
-                                "description": "scan frontend",
-                                "subagent_type": "Explore",
-                                "prompt": "scan frontend",
-                                "parallel_group": "group_a",
-                                "status": "completed",
-                                "worker_id": "worker_2",
-                                "worker_result": {"summary": "frontend summary"},
-                                "created_at": 1001,
-                                "updated_at": 1020,
-                            },
-                        ],
-                    }
-                }
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    _init_runtime_trace_store(service._runtime_trace_db_path)
+    _insert_trace_turn(
+        service._runtime_trace_db_path,
+        trace_id="trace:turn_1",
+        turn_id="turn_1",
+        session_id="s1",
+        user_id="u1",
+        status="completed",
+        mode="orchestration",
+        orchestration_id="orch_1",
+        started_at_ms=1000000,
+        ended_at_ms=1030000,
+        duration_ms=30000,
+        response_preview="final answer",
     )
-
-    _insert_event(
-        service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "content": "analyze repo", "turn_id": "turn_1"},
-        1000,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_1:worker_dispatch:sub_1",
+        trace_id="trace:turn_1",
+        turn_id="turn_1",
+        parent_span_id="turn_1:turn",
+        node_type="worker_dispatch",
+        name="Worker dispatch",
+        status="completed",
+        started_at_ms=1000000,
+        ended_at_ms=1000000,
+        duration_ms=0,
     )
-    _insert_event(
-        service._l1_db_path,
-        "WORKER_AGENT_PROGRESS",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "turn_id": "turn_1",
-            "orchestration_id": "orch_1",
-            "subtask_id": "sub_1",
-            "worker_id": "worker_1",
-            "worker_description": "scan backend",
-            "worker_subagent_type": "Explore",
-            "stage": "tool_result",
-            "tool_name": "grep",
-            "success": True,
-            "result_preview": "match count: 3",
-            "timestamp": 1015,
-        },
-        1015,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_1:worker:sub_1:1",
+        trace_id="trace:turn_1",
+        turn_id="turn_1",
+        parent_span_id="turn_1:worker_dispatch:sub_1",
+        node_type="worker",
+        name="scan backend",
+        status="completed",
+        started_at_ms=1001000,
+        ended_at_ms=1015000,
+        duration_ms=14000,
+        result_preview="backend summary",
     )
-    _insert_event(
-        service._l1_db_path,
-        "AIResponse",
-        {"user_id": "u1", "session_id": "s1", "turn_id": "turn_1", "content": "final answer"},
-        1030,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_1:worker_tool:sub_1:1:call-1",
+        trace_id="trace:turn_1",
+        turn_id="turn_1",
+        parent_span_id="turn_1:worker:sub_1:1",
+        node_type="tool_call",
+        name="grep tool call",
+        status="completed",
+        started_at_ms=1014000,
+        ended_at_ms=1015000,
+        duration_ms=1000,
+        result_preview="match count: 3",
+    )
+    _insert_trace_tool(
+        service._runtime_trace_db_path,
+        span_id="turn_1:worker_tool:sub_1:1:call-1",
+        trace_id="trace:turn_1",
+        turn_id="turn_1",
+        tool_name="grep",
+        tool_call_id="call-1",
+        result_preview="match count: 3",
     )
 
     snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_1")
@@ -837,67 +931,49 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     assert snapshot["summary"]["trace_available"] is True
     assert snapshot["summary"]["mode"] == "orchestration"
     assert snapshot["summary"]["status"] == "completed"
-    planning = snapshot["root"]["children"][0]
-    assert planning["kind"] == "planning"
-    assert planning["status"] == "completed"
-    group = planning["children"][0]
-    assert group["kind"] == "parallel_group"
-    assert group["status"] == "completed"
-    worker = group["children"][0]
+    dispatch = snapshot["root"]["children"][0]
+    assert dispatch["kind"] == "dispatch"
+    assert dispatch["status"] == "completed"
+    worker = dispatch["children"][0]
     assert worker["kind"] == "worker"
-    assert worker["children"][0]["label"] == "grep"
+    assert worker["children"][0]["label"] == "grep tool call"
 
 
-def test_trace_summary_counts_planning_as_active_before_workers_exist(tmp_path):
+def test_trace_summary_counts_active_intent_before_response(tmp_path):
     service = ChatTraceReadService()
-    service._l1_db_path = tmp_path / "events.sqlite3"
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     service._orchestrations_path = tmp_path / "task_orchestrations.json"
-    _init_event_store(service._l1_db_path)
-
-    service._orchestrations_path.write_text(
-        json.dumps(
-            {
-                "orchestrations": {
-                    "orch_plan": {
-                        "orchestration_id": "orch_plan",
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "turn_id": "turn_plan",
-                        "status": "running",
-                        "planner": "task_agent",
-                        "allow_parallel": True,
-                        "subtasks": [],
-                    }
-                }
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    _init_runtime_trace_store(service._runtime_trace_db_path)
+    _insert_trace_turn(
+        service._runtime_trace_db_path,
+        trace_id="trace:turn_plan",
+        turn_id="turn_plan",
+        session_id="s1",
+        user_id="u1",
+        status="running",
+        mode="function_calling",
+        started_at_ms=1000000,
+        updated_at_ms=1005000,
+        user_message_preview="plan this",
     )
-
-    _insert_event(
-        service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "content": "plan this", "turn_id": "turn_plan"},
-        1000,
-    )
-    _insert_event(
-        service._l1_db_path,
-        "WORKER_AGENT_PROGRESS",
-        {
-            "user_id": "u1",
-            "session_id": "s1",
-            "turn_id": "turn_plan",
-            "orchestration_id": "orch_plan",
-            "stage": "planning",
-        },
-        1005,
+    _insert_trace_span(
+        service._runtime_trace_db_path,
+        span_id="turn_plan:intent",
+        trace_id="trace:turn_plan",
+        turn_id="turn_plan",
+        parent_span_id="turn_plan:turn",
+        node_type="intent_resolution",
+        name="Intent resolution",
+        status="completed",
+        started_at_ms=1000000,
+        ended_at_ms=1000100,
+        duration_ms=100,
+        result_preview="planning",
     )
 
     summary = service.get_trace_summary(user_id="u1", session_id="s1", turn_id="turn_plan")
 
     assert summary is not None
-    assert summary["headline"] == "Orchestrating tasks"
-    assert summary["active_steps"] == 1
-    assert summary["completed_steps"] == 0
+    assert summary["headline"] == "Running tool chain"
+    assert summary["active_steps"] == 0
+    assert summary["completed_steps"] == 1

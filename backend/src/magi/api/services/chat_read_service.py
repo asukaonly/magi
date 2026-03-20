@@ -18,15 +18,6 @@ from .chat_trace_read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, 
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
-RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
-RUNTIME_TRACE_EVENT_TYPES = (
-    "WORKER_AGENT_PROGRESS",
-    "WORKER_AGENT_COMPLETED",
-    "WORKER_AGENT_FAILED",
-    "CHAT_TOOL_LOOP_STEP",
-    "TOOL_INTERACTION",
-    "TOOL_INVOKED",
-)
 
 
 @dataclass(slots=True)
@@ -134,6 +125,7 @@ class ChatReadService:
     def __init__(self) -> None:
         runtime_paths = get_runtime_paths()
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
+        self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
         self._session_state_file: Path = runtime_paths.data_dir / "chat_sessions.json"
         self._conn: Optional[sqlite3.Connection] = None
 
@@ -282,17 +274,10 @@ class ChatReadService:
                     """,
                     (normalized_user_id, normalized_session_id),
                 )
-                cur.execute(
-                    f"""
-                    DELETE FROM {RUNTIME_OBSERVATIONS_TABLE}
-                    WHERE user_id = ?
-                      AND session_id = ?
-                    """,
-                    (normalized_user_id, normalized_session_id),
-                )
                 conn.commit()
             except Exception as exc:
                 logger.exception(f"Failed to delete session: {exc}")
+        self._delete_runtime_trace_rows(user_id=normalized_user_id, session_id=normalized_session_id)
 
         mapping = self._load_session_mapping()
         metadata = self._load_session_metadata()
@@ -365,24 +350,17 @@ class ChatReadService:
                 limit=None,
                 ascending=True,
             )
-            runtime_rows = self._query_runtime_rows(
-                event_types=RUNTIME_TRACE_EVENT_TYPES,
-                user_id=user_id,
-                session_id=session_id,
-                limit=None,
-                ascending=True,
-            )
-            rows = sorted([*fact_rows, *runtime_rows], key=lambda item: float(item[2] or 0))
         except Exception as exc:
             logger.exception(f"Failed to query display history: {exc}")
             return []
 
         trace_service = get_chat_trace_read_service()
+        trace_activity = trace_service.get_turn_activity_map(user_id=user_id, session_id=session_id)
         by_turn: dict[str, dict[str, Any]] = {}
         ordered_turns: list[str] = []
         legacy_messages: list[ChatDisplayMessage] = []
 
-        for event_type, raw_content, ts, _, turn_id in rows:
+        for event_type, raw_content, ts, _, turn_id in fact_rows:
             turn_id = str(turn_id or "").strip()
             timestamp = int(float(ts or 0))
             if event_type in USER_EVENT_TYPES:
@@ -422,16 +400,10 @@ class ChatReadService:
                     content=response,
                     timestamp=timestamp,
                     turn_id=turn_id,
-                    trace_summary=summary,
-                    trace_available=bool(summary and summary.get("trace_available")),
+                    trace_summary=summary or trace_activity.get(turn_id),
+                    trace_available=bool((summary or trace_activity.get(turn_id) or {}).get("trace_available")),
                 )
                 continue
-            if turn_id:
-                turn = by_turn.setdefault(turn_id, {"user": None, "assistant": None, "has_trace": False, "last_trace_timestamp": timestamp})
-                turn["has_trace"] = True
-                turn["last_trace_timestamp"] = max(int(turn.get("last_trace_timestamp") or 0), timestamp)
-                if turn_id not in ordered_turns and turn.get("user") is not None:
-                    ordered_turns.append(turn_id)
 
         messages: list[ChatDisplayMessage] = []
         for turn_id in ordered_turns:
@@ -443,14 +415,18 @@ class ChatReadService:
             if isinstance(assistant_message, ChatDisplayMessage):
                 messages.append(assistant_message)
                 continue
-            if turn.get("has_trace"):
-                summary = trace_service.get_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
+            summary = trace_activity.get(turn_id) or trace_service.get_trace_summary(
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+            if summary is not None:
                 messages.append(
                     ChatDisplayMessage(
                         role="assistant",
                         kind="status",
                         content=str((summary or {}).get("headline") or "Thinking"),
-                        timestamp=int(turn.get("last_trace_timestamp") or 0),
+                        timestamp=int(getattr(user_message, "timestamp", 0) or 0),
                         turn_id=turn_id,
                         trace_summary=summary,
                         trace_available=bool(summary and summary.get("trace_available")),
@@ -476,19 +452,10 @@ class ChatReadService:
                 """,
                 [*(USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES), user_id, session_id],
             )
-            cur.execute(
-                f"""
-                DELETE FROM {RUNTIME_OBSERVATIONS_TABLE}
-                WHERE deleted_at IS NULL
-                  AND event_type IN ({", ".join("?" for _ in RUNTIME_TRACE_EVENT_TYPES)})
-                  AND user_id = ?
-                  AND session_id = ?
-                """,
-                [*RUNTIME_TRACE_EVENT_TYPES, user_id, session_id],
-            )
             conn.commit()
         except Exception as exc:
             logger.exception(f"Failed to clear chat history: {exc}")
+        self._delete_runtime_trace_rows(user_id=user_id, session_id=session_id)
 
     def _query_fact_rows(
         self,
@@ -501,24 +468,6 @@ class ChatReadService:
     ) -> list[tuple[str, str, float, str | None, str | None]]:
         return self._query_rows(
             table=FACT_EVENTS_TABLE,
-            event_types=event_types,
-            user_id=user_id,
-            session_id=session_id,
-            limit=limit,
-            ascending=ascending,
-        )
-
-    def _query_runtime_rows(
-        self,
-        *,
-        event_types: tuple[str, ...],
-        user_id: str,
-        session_id: str | None,
-        limit: int | None,
-        ascending: bool,
-    ) -> list[tuple[str, str, float, str | None, str | None]]:
-        return self._query_rows(
-            table=RUNTIME_OBSERVATIONS_TABLE,
             event_types=event_types,
             user_id=user_id,
             session_id=session_id,
@@ -560,6 +509,33 @@ class ChatReadService:
         cur.execute(query, params)
         rows = cur.fetchall()
         return rows
+
+    def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None:
+        if not self._runtime_trace_db_path.exists():
+            return
+        try:
+            conn = sqlite3.connect(str(self._runtime_trace_db_path))
+            cur = conn.cursor()
+            cur.execute(
+                "DELETE FROM trace_turns WHERE user_id = ? AND session_id = ?",
+                (user_id, session_id),
+            )
+            cur.execute(
+                "DELETE FROM trace_spans WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)",
+            )
+            cur.execute(
+                "DELETE FROM trace_llm_calls WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)",
+            )
+            cur.execute(
+                "DELETE FROM trace_tools WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)",
+            )
+            cur.execute(
+                "DELETE FROM trace_intent_resolutions WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)",
+            )
+            conn.commit()
+            conn.close()
+        except Exception as exc:
+            logger.exception(f"Failed to delete runtime trace rows: {exc}")
 
     def clear_all_sessions(self) -> int:
         """Clear all current session mappings and return removed count."""

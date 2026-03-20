@@ -13,14 +13,8 @@ from ...utils.runtime import get_runtime_paths
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
-RUNTIME_OBSERVATIONS_TABLE = "runtime_observations"
 USER_EVENT_TYPES = ("UserMessage",)
 AI_RESPONSE_EVENT_TYPES = ("AIResponse",)
-WORKER_EVENT_TYPES = ("WORKER_AGENT_PROGRESS", "WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED")
-LEGACY_TRACE_EVENT_TYPES = ("CHAT_TOOL_LOOP_STEP", "TOOL_INTERACTION", "TOOL_INVOKED")
-TURN_TRACE_EVENT_TYPES = ("TURN_TRACE_STARTED", "TURN_TRACE_COMPLETED", "TURN_TRACE_FAILED")
-TRACE_NODE_EVENT_TYPES = ("TRACE_NODE_STARTED", "TRACE_NODE_COMPLETED", "TRACE_NODE_FAILED")
-TRACE_EVENT_TYPES = WORKER_EVENT_TYPES + LEGACY_TRACE_EVENT_TYPES + TURN_TRACE_EVENT_TYPES + TRACE_NODE_EVENT_TYPES
 FACT_DISPLAY_EVENT_TYPES = USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES
 
 
@@ -119,7 +113,7 @@ class ChatTraceReadService:
 
     def __init__(self) -> None:
         runtime_paths = get_runtime_paths()
-        self._l1_db_path: Path = runtime_paths.l1_memory_db_path
+        self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
         self._orchestrations_path: Path = runtime_paths.data_dir / "task_orchestrations.json"
 
     def get_trace_snapshot(
@@ -132,14 +126,19 @@ class ChatTraceReadService:
         normalized_turn_id = str(turn_id or "").strip()
         if not normalized_turn_id:
             return None
-        events = self._load_turn_events(user_id=user_id, session_id=session_id, turn_id=normalized_turn_id)
-        if not events:
+        turn = self._load_trace_turn(user_id=user_id, session_id=session_id, turn_id=normalized_turn_id)
+        if turn is None:
             return None
-        snapshot = self._build_snapshot(
+        spans = self._load_trace_spans(trace_id=str(turn.get("trace_id") or ""))
+        llm_calls = self._load_detail_rows(table="trace_llm_calls", trace_id=str(turn.get("trace_id") or ""))
+        tool_calls = self._load_detail_rows(table="trace_tools", trace_id=str(turn.get("trace_id") or ""))
+        snapshot = self._build_snapshot_from_trace_rows(
             user_id=user_id,
             session_id=session_id,
-            turn_id=normalized_turn_id,
-            events=events,
+            turn=turn,
+            spans=spans,
+            llm_calls=llm_calls,
+            tool_calls=tool_calls,
         )
         return snapshot.to_dict() if snapshot is not None else None
 
@@ -162,22 +161,290 @@ class ChatTraceReadService:
         user_id: str,
         session_id: str,
     ) -> dict[str, dict[str, Any]]:
-        events = self._load_session_events(user_id=user_id, session_id=session_id)
-        turn_ids = sorted(
-            {
-                str(item["payload"].get("turn_id") or "").strip()
-                for item in events
-                if isinstance(item.get("payload"), dict)
-            }
-        )
         activity: dict[str, dict[str, Any]] = {}
-        for turn_id in turn_ids:
-            if not turn_id:
-                continue
+        for turn in self._load_session_turns(user_id=user_id, session_id=session_id):
+            turn_id = str(turn.get("turn_id") or "").strip()
             summary = self.get_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
             if summary is not None:
                 activity[turn_id] = summary
         return activity
+
+    def _build_snapshot_from_trace_rows(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn: dict[str, Any],
+        spans: list[dict[str, Any]],
+        llm_calls: list[dict[str, Any]],
+        tool_calls: list[dict[str, Any]],
+    ) -> Optional[ExecutionTraceSnapshot]:
+        turn_id = str(turn.get("turn_id") or "").strip()
+        if not turn_id:
+            return None
+        root = self._build_runtime_trace_root(
+            turn=turn,
+            spans=spans,
+            llm_calls=llm_calls,
+            tool_calls=tool_calls,
+        )
+        started_at = self._ms_to_seconds(turn.get("started_at_ms"))
+        ended_at = self._ms_to_seconds(turn.get("ended_at_ms"))
+        status = self._normalize_status(str(turn.get("status") or "running"))
+        mode = str(turn.get("mode") or self._resolve_normalized_mode(root=root, orchestration_id=None, orchestration_state=None))
+        root.status = status
+        root.started_at = root.started_at if root.started_at is not None else started_at
+        root.ended_at = ended_at if status in {"completed", "failed"} else None
+        active_steps, completed_steps, failed_steps = self._count_steps(root)
+        summary = ExecutionTraceSummary(
+            turn_id=turn_id,
+            mode=mode,
+            status=status,
+            headline=self._build_headline(
+                mode=mode,
+                status=status,
+                active_steps=active_steps,
+                completed_steps=completed_steps,
+                orchestration_state=None,
+            ),
+            active_steps=active_steps,
+            completed_steps=completed_steps,
+            failed_steps=failed_steps,
+            duration_seconds=round(
+                max(0.0, (ended_at or started_at or 0.0) - (started_at or 0.0)),
+                3,
+            ),
+            trace_available=bool(root.children),
+            orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
+        )
+        return ExecutionTraceSnapshot(
+            turn_id=turn_id,
+            user_id=user_id,
+            session_id=session_id,
+            status=status,
+            mode=mode,
+            orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
+            started_at=started_at,
+            ended_at=root.ended_at,
+            summary=summary,
+            root=root,
+        )
+
+    def _build_runtime_trace_root(
+        self,
+        *,
+        turn: dict[str, Any],
+        spans: list[dict[str, Any]],
+        llm_calls: list[dict[str, Any]],
+        tool_calls: list[dict[str, Any]],
+    ) -> ExecutionTraceNode:
+        turn_id = str(turn.get("turn_id") or "")
+        llm_by_span = {str(item.get("span_id") or ""): item for item in llm_calls}
+        tool_by_span = {str(item.get("span_id") or ""): item for item in tool_calls}
+        node_by_span_id: dict[str, ExecutionTraceNode] = {}
+        children_by_parent: dict[str | None, list[str]] = {}
+        for span in spans:
+            span_id = str(span.get("span_id") or "").strip()
+            if not span_id:
+                continue
+            node_by_span_id[span_id] = self._build_trace_row_node(
+                span=span,
+                llm_call=llm_by_span.get(span_id),
+                tool_call=tool_by_span.get(span_id),
+            )
+            parent_span_id = str(span.get("parent_span_id") or "").strip() or None
+            children_by_parent.setdefault(parent_span_id, []).append(span_id)
+
+        for parent_span_id, child_ids in children_by_parent.items():
+            if parent_span_id is None:
+                continue
+            parent = node_by_span_id.get(parent_span_id)
+            if parent is None:
+                continue
+            ordered_children = sorted(
+                (node_by_span_id[child_id] for child_id in child_ids if child_id in node_by_span_id),
+                key=lambda item: (float(item.started_at or 0.0), item.id),
+            )
+            parent.children.extend(ordered_children)
+
+        turn_span_id = f"{turn_id}:turn"
+        turn_node = node_by_span_id.get(turn_span_id)
+        top_level_span_ids = set(children_by_parent.get(None, []))
+        if turn_node is None:
+            top_level_span_ids.update(children_by_parent.get(turn_span_id, []))
+        top_level_nodes = [
+            node_by_span_id[span_id]
+            for span_id in top_level_span_ids
+            if span_id in node_by_span_id and span_id != turn_span_id
+        ]
+        top_level_nodes.sort(key=lambda item: (float(item.started_at or 0.0), item.id))
+
+        root = ExecutionTraceNode(
+            id=f"{turn_id}:root",
+            kind="root",
+            label="Tool chain",
+            status=str(turn.get("status") or "running"),
+            started_at=self._ms_to_seconds(turn.get("started_at_ms")),
+            ended_at=self._ms_to_seconds(turn.get("ended_at_ms")),
+            result_preview=str(turn.get("response_preview") or ""),
+            error=str(turn.get("error_summary") or "").strip() or None,
+            metadata={
+                "turn_id": turn_id,
+                "trace_id": str(turn.get("trace_id") or f"trace:{turn_id}"),
+                "normalized_trace": True,
+            },
+        )
+        if turn_node is not None:
+            root.children.extend(turn_node.children)
+        root.children.extend(top_level_nodes)
+        return root
+
+    def _build_trace_row_node(
+        self,
+        *,
+        span: dict[str, Any],
+        llm_call: dict[str, Any] | None,
+        tool_call: dict[str, Any] | None,
+    ) -> ExecutionTraceNode:
+        node_type = str(span.get("node_type") or "step")
+        metadata = {
+            "trace_id": span.get("trace_id"),
+            "span_id": span.get("span_id"),
+            "parent_span_id": span.get("parent_span_id"),
+            "node_type": node_type,
+            "attempt_index": self._safe_int(span.get("attempt_index"), default=1),
+            "retry_count": self._safe_int(span.get("retry_count"), default=0),
+            "iteration": self._safe_int(span.get("iteration"), default=0),
+            "duration_ms": self._safe_int(span.get("duration_ms"), default=0),
+            "execution_agent_id": span.get("execution_agent_id"),
+        }
+        if llm_call is not None:
+            metadata.update(
+                {
+                    "provider": llm_call.get("provider"),
+                    "model": llm_call.get("model"),
+                    "input_tokens": self._safe_int(llm_call.get("input_tokens"), default=0),
+                    "output_tokens": self._safe_int(llm_call.get("output_tokens"), default=0),
+                    "reasoning_tokens": self._safe_int(llm_call.get("reasoning_tokens"), default=0),
+                    "cache_read_tokens": self._safe_int(llm_call.get("cache_read_tokens"), default=0),
+                    "cache_write_tokens": self._safe_int(llm_call.get("cache_write_tokens"), default=0),
+                    "thinking_enabled": bool(llm_call.get("thinking_enabled")),
+                }
+            )
+        if tool_call is not None:
+            metadata.update(
+                {
+                    "tool_call_id": tool_call.get("tool_call_id"),
+                    "tool_name": tool_call.get("tool_name"),
+                    "arguments": self._parse_json_object(tool_call.get("arguments_json")),
+                    "execution_time": tool_call.get("execution_time_ms"),
+                }
+            )
+
+        return ExecutionTraceNode(
+            id=str(span.get("span_id") or ""),
+            kind=self._map_trace_kind(node_type),
+            label=str(span.get("name") or self._default_trace_label(node_type)),
+            status=self._normalize_status(str(span.get("status") or "running")),
+            started_at=self._ms_to_seconds(span.get("started_at_ms")),
+            ended_at=self._ms_to_seconds(span.get("ended_at_ms")),
+            result_preview=self._resolve_result_preview(
+                span=span,
+                llm_call=llm_call,
+                tool_call=tool_call,
+            ),
+            error=str(span.get("error_text") or (tool_call or {}).get("error_message") or "").strip() or None,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _resolve_result_preview(
+        *,
+        span: dict[str, Any],
+        llm_call: dict[str, Any] | None,
+        tool_call: dict[str, Any] | None,
+    ) -> str:
+        preview = str(span.get("result_preview") or "").strip()
+        if preview:
+            return preview
+        if tool_call is not None:
+            preview = str(tool_call.get("result_preview") or "").strip()
+            if preview:
+                return preview
+        if llm_call is not None:
+            preview = str(llm_call.get("response_preview") or "").strip()
+            if preview:
+                return preview
+        return ""
+
+    def _load_trace_turn(self, *, user_id: str, session_id: str, turn_id: str) -> Optional[dict[str, Any]]:
+        rows = self._query_trace_rows(
+            """
+            SELECT *
+            FROM trace_turns
+            WHERE user_id = ? AND session_id = ? AND turn_id = ?
+            LIMIT 1
+            """,
+            (user_id, session_id, turn_id),
+        )
+        return rows[0] if rows else None
+
+    def _load_session_turns(self, *, user_id: str, session_id: str) -> list[dict[str, Any]]:
+        return self._query_trace_rows(
+            """
+            SELECT *
+            FROM trace_turns
+            WHERE user_id = ? AND session_id = ?
+            ORDER BY updated_at_ms ASC
+            """,
+            (user_id, session_id),
+        )
+
+    def _load_trace_spans(self, *, trace_id: str) -> list[dict[str, Any]]:
+        if not trace_id:
+            return []
+        return self._query_trace_rows(
+            """
+            SELECT *
+            FROM trace_spans
+            WHERE trace_id = ?
+            ORDER BY started_at_ms ASC, span_id ASC
+            """,
+            (trace_id,),
+        )
+
+    def _load_detail_rows(self, *, table: str, trace_id: str) -> list[dict[str, Any]]:
+        if not trace_id:
+            return []
+        return self._query_trace_rows(
+            f"""
+            SELECT *
+            FROM {table}
+            WHERE trace_id = ?
+            """,
+            (trace_id,),
+        )
+
+    def _query_trace_rows(self, query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        if not self._runtime_trace_db_path.exists():
+            return []
+        conn = sqlite3.connect(str(self._runtime_trace_db_path))
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(query, params)
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+
+    @staticmethod
+    def _parse_json_object(raw_value: Any) -> dict[str, Any]:
+        if not raw_value:
+            return {}
+        try:
+            parsed = json.loads(str(raw_value))
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     def _build_snapshot(
         self,
