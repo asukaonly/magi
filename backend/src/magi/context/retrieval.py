@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..memory.hybrid_retrieval import HybridRetrievalService, build_query
+from ..memory.hybrid_retrieval import build_query
 
 
 class ContextRetrievalService:
     """Own retrieval payload construction for prompt/context assembly."""
 
-    def __init__(self, unified_memory: Any = None) -> None:
+    def __init__(self, unified_memory: Any = None, retrieval_service: Any = None) -> None:
         self._unified_memory = unified_memory
+        self._retrieval_service = retrieval_service
 
     async def build_retrieved_memory_payload(
         self,
@@ -35,8 +36,10 @@ class ContextRetrievalService:
                 "preference_memory": {},
             }
 
-        retrieval = HybridRetrievalService(self._unified_memory)
-        payload = await retrieval.query(
+        if self._retrieval_service is None:
+            raise RuntimeError("hybrid retrieval service is not initialized")
+
+        payload = await self._retrieval_service.query(
             build_query(
                 query=query,
                 user_id=user_id,

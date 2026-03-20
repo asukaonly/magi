@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import AsyncMock
 
 from magi.agent.task_agents.chat import (
     ChatRuntimeContext,
@@ -68,6 +69,22 @@ class _RecordingLLMPool:
         return self._adapter
 
 
+class _FakeHybridRetrievalService:
+    def __init__(self) -> None:
+        self.query = AsyncMock(
+            return_value=type(
+                "Payload",
+                (),
+                {
+                    "l0_workbench": [],
+                    "l2_entity_cards": [],
+                    "l3_reflections": [],
+                    "l4_procedures": [],
+                },
+            )()
+        )
+
+
 class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
     async def test_assemble_llm_params_contains_modular_prompt(self):
         agent = ChatTaskAgent(
@@ -75,6 +92,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             llm_adapter=_FakeLLMAdapter(),
             memory=_FakeSelfMemory(),
             other_memory=_FakeOtherMemory(),
+            hybrid_retrieval_service=_FakeHybridRetrievalService(),
         )
 
         context = ChatRuntimeContext(
@@ -120,6 +138,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             llm_pool=pool,
             memory=_FakeSelfMemory(),
             other_memory=_FakeOtherMemory(),
+            hybrid_retrieval_service=_FakeHybridRetrievalService(),
         )
 
         context = ChatRuntimeContext(

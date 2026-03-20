@@ -39,6 +39,10 @@ class AgentRuntimeModule(LifecycleModule):
         memory = require_initialized(self._context.personality.self_memory, "self memory")
         other_memory = require_initialized(self._context.personality.other_memory, "other memory")
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        hybrid_retrieval_service = require_initialized(
+            self._context.memory.hybrid_retrieval_service,
+            "hybrid retrieval service",
+        )
         memory_integration = require_initialized(self._context.memory.memory_integration, "memory integration")
         scenario_prompts_store = require_initialized(self._context.context.scenario_prompts_store, "scenario prompts store")
         runtime_trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
@@ -54,6 +58,7 @@ class AgentRuntimeModule(LifecycleModule):
                 memory=memory,
                 other_memory=other_memory,
                 unified_memory=unified_memory,
+                hybrid_retrieval_service=hybrid_retrieval_service,
                 memory_integration=memory_integration,
                 scenario_prompts_store=scenario_prompts_store,
                 skill_runner=self._context.skills.skill_runner,

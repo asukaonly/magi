@@ -7,6 +7,7 @@ from typing import Any, Callable
 from ...config import AppConfig
 from ...agent.runtime.types import TaskAgentType
 from ...memory import UnifiedMemoryStore
+from ...memory.hybrid_retrieval import HybridRetrievalService
 from ...memory.integration import MemoryIntegrationModule
 from ...runtime_trace import RuntimeTraceStore
 from ...timeline.handler import build_timeline_handler
@@ -20,6 +21,7 @@ def create_chat_agent_factory(
     memory: Any,
     other_memory: Any,
     unified_memory: UnifiedMemoryStore,
+    hybrid_retrieval_service: HybridRetrievalService,
     memory_integration: MemoryIntegrationModule,
     scenario_prompts_store: Any,
     skill_runner: Any,
@@ -36,6 +38,7 @@ def create_chat_agent_factory(
             memory=memory,
             other_memory=other_memory,
             unified_memory=unified_memory,
+            hybrid_retrieval_service=hybrid_retrieval_service,
             memory_integration=memory_integration,
             history_cache_max_sessions=config.agent.runtime.chat_history_cache_max_sessions,
             history_fetch_limit=config.agent.runtime.chat_history_fetch_limit,

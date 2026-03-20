@@ -19,12 +19,12 @@ from ..execution.function_calling import FunctionCallingOrchestrator
 from .chat import (
     ChatExecutionCoordinator,
     ChatFactClassifier,
+    ChatHistoryService,
     IntentDecision,
     ChatPlanningService,
     ChatPostProcessService,
     ChatPromptService,
     ChatRuntimeContext,
-    ChatSessionService,
     ExecutionHandlerRegistry,
     ExecutionRequest,
     ExecutionResult,
@@ -53,6 +53,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         memory=None,
         other_memory=None,
         unified_memory=None,
+        hybrid_retrieval_service=None,
         memory_integration=None,
         history_cache_max_sessions: int = 500,
         history_fetch_limit: int = 200,
@@ -77,7 +78,10 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             scenario_prompts_store=scenario_prompts_store,
         )
         self.prompt_context_renderer = PromptContextRenderer()
-        self._context_retrieval_service = ContextRetrievalService(unified_memory=unified_memory)
+        self._context_retrieval_service = ContextRetrievalService(
+            unified_memory=unified_memory,
+            retrieval_service=hybrid_retrieval_service,
+        )
         self._context_service = ContextAssemblyService(
             agent_id=self.agent_id,
             agent_type=str(self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type),
@@ -89,7 +93,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         )
 
         runtime_paths = get_runtime_paths()
-        self._session_service = ChatSessionService(
+        self._history_service = ChatHistoryService(
             l1_db_path=runtime_paths.l1_memory_db_path,
             history_cache_max_sessions=history_cache_max_sessions,
             history_fetch_limit=history_fetch_limit,
@@ -104,7 +108,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             runtime_key=self.runtime_key,
             context_service=self._context_service,
             prompt_service=self._prompt_service,
-            session_service=self._session_service,
+            history_service=self._history_service,
             tool_registry=tool_registry,
             parent_task_agent_type=TaskAgentType.CHAT.value,
         )
@@ -114,7 +118,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             tool_registry=tool_registry,
             plan_subtasks=self._planning_service.generate_subtask_plan,
             aggregate_orchestration=self._planning_service.aggregate_orchestration,
-            register_user_message=self._session_service.append_user_message,
+            register_user_message=self._history_service.append_user_message,
             parent_task_agent_type=TaskAgentType.CHAT.value,
         )
         # Initialize trace read service for enriching AI_RESPONSE events
@@ -126,7 +130,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
 
         self._postprocess_service = ChatPostProcessService(
             agent_id=self.agent_id,
-            session_service=self._session_service,
+            history_service=self._history_service,
             get_action_emitter=lambda: self._action_emitter,
             get_task_agent_manager=lambda: self._task_agent_manager,
             get_sensor_hub=lambda: self._sensor_hub,
@@ -152,7 +156,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             planning_service=self._planning_service,
             function_calling_orchestrator=self.function_calling_orchestrator,
             task_orchestrator=self._task_orchestrator,
-            session_service=self._session_service,
+            history_service=self._history_service,
             agent_id=self.agent_id,
             get_task_agent_manager=lambda: self._task_agent_manager,
         )
@@ -176,8 +180,8 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         self._last_batch_facts: list[FactRecord] = []
 
         # Keep these aliases so existing read paths and tests see the same underlying stores.
-        self._conversation_history = self._session_service._conversation_history
-        self._tool_interactions = self._session_service._tool_interactions
+        self._conversation_history = self._history_service._conversation_history
+        self._tool_interactions = self._history_service._tool_interactions
 
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact
@@ -195,10 +199,10 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             latest_fact=latest_fact,
             batch_facts=batch_facts,
         )
-        session_id = self._session_service.resolve_session_id(classified.user_id, classified.session_id)
-        history = await self._session_service.get_or_load_history(classified.user_id, session_id)
-        recent_tool_errors = self._session_service.get_recent_tool_errors(
-            self._session_service.history_key(classified.user_id, session_id)
+        session_id = self._history_service.require_session_id(classified.user_id, classified.session_id)
+        history = await self._history_service.get_or_load_history(classified.user_id, session_id)
+        recent_tool_errors = self._history_service.get_recent_tool_errors(
+            self._history_service.history_key(classified.user_id, session_id)
         )
         active_orchestrations = await self._orchestration_store.list_orchestrations(
             user_id=classified.user_id,
@@ -214,7 +218,7 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
             runtime_key=str(base_context.runtime_key if isinstance(base_context, TaskAgentRuntimeContext) else self.runtime_key),
             user_id=classified.user_id,
             session_id=session_id,
-            history_key=self._session_service.history_key(classified.user_id, session_id),
+            history_key=self._history_service.history_key(classified.user_id, session_id),
             history=history,
             conversation_history=history,
             active_orchestrations=[item.to_dict() for item in active_orchestrations],
@@ -246,10 +250,10 @@ class ChatTaskAgent(TaskAgent[ChatRuntimeContext, IntentDecision, ToolSelection,
         await self._postprocess_service.handle(context, raw_result)
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict]:
-        return self._session_service.get_conversation_history(user_id, session_id)
+        return self._history_service.get_conversation_history(user_id, session_id)
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
-        self._session_service.clear_conversation_history(user_id, session_id)
+        self._history_service.clear_conversation_history(user_id, session_id)
 
     def get_llm_max_tokens(self) -> int:
         try:
