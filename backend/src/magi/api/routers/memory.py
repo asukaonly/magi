@@ -277,7 +277,7 @@ async def _synthesize_eval_answer(
     )
     answer = await adapter.chat(
         llm_messages,
-        max_tokens=128,
+        max_tokens=256,
         temperature=0.0,
         disable_thinking=True,
     )
