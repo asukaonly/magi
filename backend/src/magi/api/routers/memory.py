@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime, timedelta
 import re
 import time
 from typing import Any, Dict, List, Literal, Optional
@@ -269,6 +269,49 @@ _MONTH_NAMES = {
     "december": 12,
 }
 
+_NUMBER_WORDS = {
+    "a": 1,
+    "an": 1,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+
+
+def _parse_relative_number(token: str) -> int | None:
+    normalized = str(token or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized.isdigit():
+        return int(normalized)
+    return _NUMBER_WORDS.get(normalized)
+
+
+def _score_anchor_overlap(anchor_tokens: set[str], text: str) -> float:
+    if not anchor_tokens:
+        return 0.0
+    normalized_tokens = set(extract_query_tokens(text))
+    score = float(len(anchor_tokens & normalized_tokens))
+    surface_tokens = set(re.findall(r"[a-z0-9]+", str(text or "").lower()))
+    remaining = anchor_tokens - normalized_tokens
+    for anchor_token in remaining:
+        if any(
+            surface.startswith(anchor_token)
+            or anchor_token.startswith(surface)
+            for surface in surface_tokens
+        ):
+            score += 0.5
+    return score
+
 
 def _extract_explicit_calendar_date_candidates(text: str) -> list[tuple[date, tuple[int, int]]]:
     content = str(text or "").strip()
@@ -302,27 +345,71 @@ def _extract_explicit_calendar_date(text: str) -> date | None:
     return candidates[0][0] if candidates else None
 
 
-def _extract_anchor_calendar_date(text: str, anchor_tokens: set[str]) -> date | None:
+def _extract_relative_week_date_candidates(
+    text: str,
+    *,
+    reference_date: date | None,
+) -> list[tuple[date, tuple[int, int]]]:
+    if reference_date is None:
+        return []
+    content = str(text or "")
+    candidates: list[tuple[date, tuple[int, int]]] = []
+    for match in re.finditer(r"\blast week\b", content, flags=re.IGNORECASE):
+        candidates.append((reference_date - timedelta(days=7), match.span()))
+    for match in re.finditer(
+        r"\b(?P<count>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+weeks?\s+ago\b",
+        content,
+        flags=re.IGNORECASE,
+    ):
+        count = _parse_relative_number(match.group("count"))
+        if count is None:
+            continue
+        candidates.append((reference_date - timedelta(days=7 * count), match.span()))
+    for match in re.finditer(
+        r"\bfor\s+(?:about\s+)?(?P<count>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+weeks?\s+now\b",
+        content,
+        flags=re.IGNORECASE,
+    ):
+        count = _parse_relative_number(match.group("count"))
+        if count is None:
+            continue
+        candidates.append((reference_date - timedelta(days=7 * count), match.span()))
+    return candidates
+
+
+def _extract_anchor_calendar_date(
+    text: str,
+    anchor_tokens: set[str],
+    *,
+    anchor_query: str | None = None,
+    reference_date: date | None = None,
+) -> date | None:
     candidates = _extract_explicit_calendar_date_candidates(text)
+    candidates.extend(_extract_relative_week_date_candidates(text, reference_date=reference_date))
     if not candidates:
         return None
     if len(candidates) == 1 or not anchor_tokens:
         return candidates[0][0]
 
     content = str(text or "")
+    lead_tokens = extract_query_tokens(anchor_query or "")[:2]
     best_date: date | None = None
     best_score = -1.0
     for candidate_date, (start, end) in candidates:
+        local_context_start = max(0, start - 32)
+        local_context_end = min(len(content), end + 8)
+        local_context = content[local_context_start:local_context_end]
         context_start = max(0, start - 80)
         context_end = min(len(content), end + 24)
         context = content[context_start:context_end]
-        context_tokens = set(extract_query_tokens(context))
-        overlap = len(anchor_tokens & context_tokens)
-        score = float(overlap)
+        score = (2.0 * _score_anchor_overlap(anchor_tokens, local_context)) + (
+            0.5 * _score_anchor_overlap(anchor_tokens, context)
+        )
+        if lead_tokens:
+            score += 2.5 * _score_anchor_overlap(set(lead_tokens), local_context)
         if start > 0:
             prior_sentence = content[max(0, start - 120):start]
-            prior_tokens = set(extract_query_tokens(prior_sentence))
-            score += 0.25 * len(anchor_tokens & prior_tokens)
+            score += 0.25 * _score_anchor_overlap(anchor_tokens, prior_sentence)
         if score > best_score:
             best_score = score
             best_date = candidate_date
@@ -333,6 +420,7 @@ def _resolve_temporal_distance_answer(
     *,
     question: str,
     timeline_summary: list[dict[str, Any]] | None,
+    query_timestamp: float | None = None,
 ) -> str | None:
     lowered = str(question or "").lower()
     unit: str | None = None
@@ -340,12 +428,15 @@ def _resolve_temporal_distance_answer(
         unit = "day"
     elif re.search(r"\bhow many weeks?\b", lowered):
         unit = "week"
+    elif "how long had i been" in lowered:
+        unit = "duration_auto"
 
     if unit is None:
         return None
     anchor_queries = extract_temporal_distance_queries(question)
     if len(anchor_queries) < 2 or not timeline_summary:
         return None
+    reference_date = datetime.fromtimestamp(query_timestamp).date() if query_timestamp is not None else None
 
     chosen_dates: list[date] = []
     used_turn_ids: set[str] = set()
@@ -360,11 +451,15 @@ def _resolve_temporal_distance_answer(
             if turn_id in used_turn_ids:
                 continue
             summary = str(item.get("summary") or "").strip()
-            parsed_date = _extract_anchor_calendar_date(summary, anchor_tokens)
+            parsed_date = _extract_anchor_calendar_date(
+                summary,
+                anchor_tokens,
+                anchor_query=anchor_query,
+                reference_date=reference_date,
+            )
             if parsed_date is None:
                 continue
-            summary_tokens = set(extract_query_tokens(summary))
-            overlap = len(anchor_tokens & summary_tokens)
+            overlap = _score_anchor_overlap(anchor_tokens, summary)
             if overlap <= 0:
                 continue
             score = overlap / max(len(anchor_tokens), 1)
@@ -374,7 +469,12 @@ def _resolve_temporal_distance_answer(
         if best_item is None:
             return None
         used_turn_ids.add(str(best_item.get("turn_id") or ""))
-        chosen_date = _extract_anchor_calendar_date(str(best_item.get("summary") or ""), anchor_tokens)
+        chosen_date = _extract_anchor_calendar_date(
+            str(best_item.get("summary") or ""),
+            anchor_tokens,
+            anchor_query=anchor_query,
+            reference_date=reference_date,
+        )
         if chosen_date is None:
             return None
         chosen_dates.append(chosen_date)
@@ -389,6 +489,11 @@ def _resolve_temporal_distance_answer(
             return None
         delta_weeks = delta_days // 7
         return f"{delta_weeks} week" if delta_weeks == 1 else f"{delta_weeks} weeks"
+    if unit == "duration_auto":
+        if delta_days % 7 != 0:
+            return None
+        delta_weeks = delta_days // 7
+        return f"{delta_weeks} week" if delta_weeks == 1 else f"{delta_weeks} weeks"
     return None
 
 
@@ -398,11 +503,13 @@ async def _synthesize_eval_answer(
     hits: list[dict[str, Any]],
     evidence_bundles: list[dict[str, Any]] | None = None,
     timeline_summary: list[dict[str, Any]] | None = None,
+    query_timestamp: float | None = None,
     show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     deterministic_temporal_distance = _resolve_temporal_distance_answer(
         question=question,
         timeline_summary=timeline_summary,
+        query_timestamp=query_timestamp,
     )
     if deterministic_temporal_distance is not None:
         answer_trace = {
@@ -956,6 +1063,7 @@ async def query_eval_memory(body: EvalQueryRequest):
             hits=[asdict(hit) for hit in result.hits],
             evidence_bundles=list(result.evidence_bundles),
             timeline_summary=list(result.timeline_summary),
+            query_timestamp=body.query_timestamp,
             show_prompt=body.show_prompt,
         )
         result.answer = answer

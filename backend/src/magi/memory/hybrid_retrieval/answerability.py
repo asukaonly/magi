@@ -237,9 +237,12 @@ def _build_temporal_anchor_query(anchor_text: str) -> str:
     event_type = next((hint for hint in _EVENT_TYPE_HINTS if re.search(rf"\b{re.escape(hint)}\b", raw_anchor, re.IGNORECASE)), "")
     if quoted_matches:
         base = " ".join(_extract_surface_tokens(quoted_matches[0]))
+        suffixes: list[str] = []
+        if re.search(r"\b(member|join|joined)\b", raw_anchor, re.IGNORECASE):
+            suffixes.append("join")
         if event_type and event_type not in base.split():
-            return f"{base} {event_type}".strip()
-        return base
+            suffixes.append(event_type)
+        return " ".join([base, *suffixes]).strip()
 
     tokens = [token for token in _extract_surface_tokens(raw_anchor) if token not in _TEMPORAL_ANCHOR_NOISE]
     deduped_tokens = list(dict.fromkeys(tokens))

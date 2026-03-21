@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -962,6 +963,166 @@ def test_memory_eval_query_api_selects_matching_date_from_multi_date_summary(mon
     assert response.status_code == 200
     body = response.json()
     assert body["answer"] == "1 week"
+    assert body["answer_trace"]["answer_source"] == "deterministic_temporal_distance"
+
+
+def test_memory_eval_query_api_computes_relative_week_delta_without_llm(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-meetup",
+                        "session_id": "sess-meetup",
+                        "content": "I attended a meetup organized by Book Lovers Unite last week where we discussed the book.",
+                        "score": 0.9,
+                        "turn_id": "sess-meetup:turn-1",
+                    },
+                    {
+                        "event_id": "evt-joined",
+                        "session_id": "sess-joined",
+                        "content": 'I recently joined a Facebook group called "Book Lovers Unite" three weeks ago and have been loving the discussions.',
+                        "score": 0.8,
+                        "turn_id": "sess-joined:turn-1",
+                    },
+                ],
+                l1_evidence_bundles=[],
+                l1_timeline_summary=[
+                    {
+                        "timestamp": 1.0,
+                        "session_id": "sess-meetup",
+                        "turn_id": "sess-meetup:turn-1",
+                        "author_type": "user",
+                        "summary": "I attended a meetup organized by Book Lovers Unite last week where we discussed the book.",
+                        "supporting_event_ids": ["evt-meetup"],
+                        "reason_codes": ["phrase_match", "temporal_anchor"],
+                    },
+                    {
+                        "timestamp": 2.0,
+                        "session_id": "sess-joined",
+                        "turn_id": "sess-joined:turn-1",
+                        "author_type": "user",
+                        "summary": 'I recently joined a Facebook group called "Book Lovers Unite" three weeks ago and have been loving the discussions.',
+                        "supporting_event_ids": ["evt-joined"],
+                        "reason_codes": ["phrase_match", "temporal_anchor"],
+                    },
+                ],
+                trace={"intent_source": "rule", "l1_timeline_summary_count": 2},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            raise AssertionError("LLM should not be called when relative week delta is computed deterministically")
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "How long had I been a member of 'Book Lovers Unite' when I attended the meetup?",
+            "query_timestamp": datetime(2023, 5, 24, 21, 38).timestamp(),
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "2 weeks"
+    assert body["answer_trace"]["answer_source"] == "deterministic_temporal_distance"
+
+
+def test_memory_eval_query_api_computes_relative_ongoing_week_delta_without_llm(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-lessons",
+                        "session_id": "sess-lessons",
+                        "content": "I've been taking weekly guitar lessons with a new instructor, Alex, for six weeks now and it's really helped me understand music theory better.",
+                        "score": 0.9,
+                        "turn_id": "sess-lessons:turn-1",
+                    },
+                    {
+                        "event_id": "evt-amp",
+                        "session_id": "sess-amp",
+                        "content": "I recently bought a new guitar amp two weeks ago, which has made a huge difference in the sound quality.",
+                        "score": 0.8,
+                        "turn_id": "sess-amp:turn-1",
+                    },
+                ],
+                l1_evidence_bundles=[],
+                l1_timeline_summary=[
+                    {
+                        "timestamp": 1.0,
+                        "session_id": "sess-lessons",
+                        "turn_id": "sess-lessons:turn-1",
+                        "author_type": "user",
+                        "summary": "I've been taking weekly guitar lessons with a new instructor, Alex, for six weeks now and it's really helped me understand music theory better.",
+                        "supporting_event_ids": ["evt-lessons"],
+                        "reason_codes": ["phrase_match", "temporal_anchor"],
+                    },
+                    {
+                        "timestamp": 2.0,
+                        "session_id": "sess-amp",
+                        "turn_id": "sess-amp:turn-1",
+                        "author_type": "user",
+                        "summary": "I recently bought a new guitar amp two weeks ago, which has made a huge difference in the sound quality.",
+                        "supporting_event_ids": ["evt-amp"],
+                        "reason_codes": ["phrase_match", "temporal_anchor"],
+                    },
+                ],
+                trace={"intent_source": "rule", "l1_timeline_summary_count": 2},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            raise AssertionError("LLM should not be called when ongoing relative week delta is computed deterministically")
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "How long had I been taking guitar lessons when I bought the new guitar amp?",
+            "query_timestamp": datetime(2023, 5, 27, 2, 34).timestamp(),
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "4 weeks"
     assert body["answer_trace"]["answer_source"] == "deterministic_temporal_distance"
 
 
