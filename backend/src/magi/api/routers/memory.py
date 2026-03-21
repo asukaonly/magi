@@ -221,6 +221,8 @@ async def _synthesize_eval_answer(
         "You are answering a benchmark question using retrieved memory evidence only.\n"
         "Return a concise final answer to the question.\n"
         "If the evidence is insufficient, answer exactly: unknown\n\n"
+        "Use relative time expressions in the evidence when comparing event order.\n"
+        "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
         f"Question:\n{question}\n\n"
         f"Timeline Summary:\n{timeline_text}\n\n"
         f"Session Evidence Bundles:\n{bundle_text}\n\n"

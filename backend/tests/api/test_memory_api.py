@@ -614,6 +614,120 @@ def test_memory_eval_query_api_uses_timeline_summary_for_answer_synthesis(monkey
     assert "Timeline Summary" in body["answer_trace"]["prompt"]
 
 
+def test_memory_eval_query_api_guides_llm_to_compare_relative_time_expressions(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-webinar",
+                        "session_id": "sess-webinar",
+                        "content": 'I participated in the "Data Analysis using Python" webinar two months ago.',
+                        "score": 0.8,
+                        "turn_id": "sess-webinar:turn-3",
+                    },
+                    {
+                        "event_id": "evt-workshop",
+                        "session_id": "sess-workshop",
+                        "content": 'I attended the "Effective Time Management" workshop last Saturday.',
+                        "score": 0.8,
+                        "turn_id": "sess-workshop:turn-11",
+                    },
+                ],
+                l1_evidence_bundles=[
+                    {
+                        "session_id": "sess-webinar",
+                        "hit_event_ids": ["evt-webinar"],
+                        "hit_turn_ids": ["sess-webinar:turn-3"],
+                        "neighbor_expansion_applied": True,
+                        "events": [
+                            {
+                                "event_id": "evt-webinar",
+                                "turn_id": "sess-webinar:turn-3",
+                                "timestamp": 15.0,
+                                "author_type": "user",
+                                "content": 'I participated in the "Data Analysis using Python" webinar two months ago.',
+                            }
+                        ],
+                    },
+                    {
+                        "session_id": "sess-workshop",
+                        "hit_event_ids": ["evt-workshop"],
+                        "hit_turn_ids": ["sess-workshop:turn-11"],
+                        "neighbor_expansion_applied": True,
+                        "events": [
+                            {
+                                "event_id": "evt-workshop",
+                                "turn_id": "sess-workshop:turn-11",
+                                "timestamp": 11.0,
+                                "author_type": "user",
+                                "content": 'I attended the "Effective Time Management" workshop last Saturday.',
+                            }
+                        ],
+                    },
+                ],
+                l1_timeline_summary=[
+                    {
+                        "timestamp": 11.0,
+                        "session_id": "sess-workshop",
+                        "turn_id": "sess-workshop:turn-11",
+                        "author_type": "user",
+                        "summary": 'I attended the "Effective Time Management" workshop last Saturday.',
+                        "supporting_event_ids": ["evt-workshop"],
+                        "reason_codes": ["quoted_span_match", "temporal_anchor"],
+                    },
+                    {
+                        "timestamp": 15.0,
+                        "session_id": "sess-webinar",
+                        "turn_id": "sess-webinar:turn-3",
+                        "author_type": "user",
+                        "summary": 'I participated in the "Data Analysis using Python" webinar two months ago.',
+                        "supporting_event_ids": ["evt-webinar"],
+                        "reason_codes": ["quoted_span_match", "temporal_anchor"],
+                    },
+                ],
+                trace={"intent_source": "rule_fallback", "l1_timeline_summary_count": 2},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            _ = (max_tokens, temperature, kwargs)
+            prompt = messages[-1]["content"]
+            assert "Use relative time expressions in the evidence when comparing event order." in prompt
+            assert "Do not rely only on replay timestamps if the content itself gives a clearer time relation." in prompt
+            return '"Data Analysis using Python" webinar'
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == '"Data Analysis using Python" webinar'
+    assert "Use relative time expressions in the evidence when comparing event order." in body["answer_trace"]["prompt"]
+
+
 def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
