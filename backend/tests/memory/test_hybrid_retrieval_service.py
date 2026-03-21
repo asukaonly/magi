@@ -882,6 +882,84 @@ class TestServiceFallback:
         assert {event["event_id"] for event in result.l1_events} == {"evt-bike", "evt-car"}
         assert result.trace["comparison_backstop_triggered"] is True
 
+    @pytest.mark.asyncio
+    async def test_temporal_distance_backstop_runs_anchor_queries_when_primary_is_empty(self):
+        mem = _make_memory()
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        llm_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="communication workshop before meeting", limit=10),
+            is_fallback=False,
+        )
+        rule_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(
+                content_query="How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?",
+                limit=10,
+            ),
+            is_fallback=False,
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[llm_plan],
+                source="llm",
+                reasoning="llm compressed the question into one generic temporal query",
+            )
+        )
+        svc._intent_decider._rule_engine.evaluate = MagicMock(
+            return_value=IntentDecision(
+                plans=[rule_plan],
+                source="rule_fallback",
+                reasoning="rule retries the original query",
+            )
+        )
+
+        workshop_event = {
+            "event_id": "evt-workshop",
+            "session_id": "answer_e936197f_1",
+            "turn_id": "answer_e936197f_1:turn-1",
+            "timestamp": 1.0,
+            "content": (
+                'I recently attended a workshop on "Effective Communication in the Workplace" '
+                "on January 10th."
+            ),
+            "author_type": "user",
+        }
+        meeting_event = {
+            "event_id": "evt-meeting",
+            "session_id": "answer_e936197f_2",
+            "turn_id": "answer_e936197f_2:turn-1",
+            "timestamp": 1.0,
+            "content": "I'm preparing for an upcoming team meeting on January 17th.",
+            "author_type": "user",
+        }
+
+        async def _execute_plan_side_effect(plan, **kwargs):
+            query = plan.conditions.content_query
+            if query == llm_plan.conditions.content_query:
+                return []
+            if query == rule_plan.conditions.content_query:
+                return []
+            if query == "effective communication in the workplace workshop":
+                return [workshop_event]
+            if query == "team meeting preparing":
+                return [meeting_event]
+            raise AssertionError(f"Unexpected query plan: {query}")
+
+        with patch(
+            "magi.memory.hybrid_retrieval.service.execute_plan",
+            new=AsyncMock(side_effect=_execute_plan_side_effect),
+        ):
+            result = await svc.query(
+                _make_request(
+                    query="How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?"
+                )
+            )
+
+        assert {event["event_id"] for event in result.l1_events} == {"evt-workshop", "evt-meeting"}
+        assert result.trace["temporal_distance_backstop_triggered"] is True
+        assert result.trace["temporal_distance_backstop_count"] == 2
+
 
 class TestServiceTrace:
     @pytest.mark.asyncio
