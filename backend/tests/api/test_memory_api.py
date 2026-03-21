@@ -933,6 +933,162 @@ def test_memory_eval_query_api_requests_short_answer_span_for_temporal_questions
     assert body["answer"] == "GPS system not functioning correctly"
 
 
+def test_memory_eval_query_api_canonicalizes_component_issue_answers(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-gps",
+                        "session_id": "sess-car",
+                        "content": (
+                            "I recently had an issue with my car's GPS system on 3/22, "
+                            "and I had to take it back to the dealership to get it fixed."
+                        ),
+                        "score": 0.9,
+                        "turn_id": "sess-car:turn-3",
+                    }
+                ],
+                l1_evidence_bundles=[],
+                l1_timeline_summary=[
+                    {
+                        "timestamp": 1.0,
+                        "session_id": "sess-service",
+                        "turn_id": "sess-service:turn-1",
+                        "author_type": "user",
+                        "summary": "I got my car serviced for the first time on March 15th.",
+                        "supporting_event_ids": ["evt-service"],
+                        "reason_codes": ["temporal_anchor"],
+                    },
+                    {
+                        "timestamp": 3.0,
+                        "session_id": "sess-car",
+                        "turn_id": "sess-car:turn-3",
+                        "author_type": "user",
+                        "summary": (
+                            "I recently had an issue with my car's GPS system on 3/22, "
+                            "and I had to take it back to the dealership to get it fixed."
+                        ),
+                        "supporting_event_ids": ["evt-gps"],
+                        "reason_codes": ["event_statement", "temporal_anchor"],
+                    },
+                ],
+                trace={"intent_source": "rule", "l1_timeline_summary_count": 2},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            _ = (messages, max_tokens, temperature, kwargs)
+            return "GPS system"
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "What was the first issue I had with my new car after its first service?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "GPS system not functioning correctly"
+
+
+def test_memory_eval_query_api_canonicalizes_component_issue_label_answers(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-gps",
+                        "session_id": "sess-car",
+                        "content": (
+                            "I recently had an issue with my car's GPS system on 3/22, "
+                            "and I had to take it back to the dealership to get it fixed."
+                        ),
+                        "score": 0.9,
+                        "turn_id": "sess-car:turn-3",
+                    }
+                ],
+                l1_evidence_bundles=[],
+                l1_timeline_summary=[
+                    {
+                        "timestamp": 1.0,
+                        "session_id": "sess-service",
+                        "turn_id": "sess-service:turn-1",
+                        "author_type": "user",
+                        "summary": "I got my car serviced for the first time on March 15th.",
+                        "supporting_event_ids": ["evt-service"],
+                        "reason_codes": ["temporal_anchor"],
+                    },
+                    {
+                        "timestamp": 3.0,
+                        "session_id": "sess-car",
+                        "turn_id": "sess-car:turn-3",
+                        "author_type": "user",
+                        "summary": (
+                            "I recently had an issue with my car's GPS system on 3/22, "
+                            "and I had to take it back to the dealership to get it fixed."
+                        ),
+                        "supporting_event_ids": ["evt-gps"],
+                        "reason_codes": ["event_statement", "temporal_anchor"],
+                    },
+                ],
+                trace={"intent_source": "rule", "l1_timeline_summary_count": 2},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            _ = (messages, max_tokens, temperature, kwargs)
+            return "GPS system issue"
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "What was the first issue I had with my new car after its first service?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "GPS system not functioning correctly"
+
+
 def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
