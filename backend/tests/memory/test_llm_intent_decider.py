@@ -111,6 +111,65 @@ class TestLLMParsing:
         assert result is not None
         assert isinstance(result.plans[0].conditions, L3Conditions)
 
+    @pytest.mark.asyncio
+    async def test_rewrites_overly_broad_quoted_l1_query_back_to_original_query(self, decider: LLMIntentDecider, mock_bridge):
+        query = "How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?"
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [
+                {
+                    "layer": "L1",
+                    "is_fallback": False,
+                    "content_query": "communication skills workshop and meeting preparation",
+                }
+            ],
+            "reasoning": "temporal distance query",
+        })
+
+        result = await decider.evaluate(IntentDeciderInput(query=query))
+
+        assert result is not None
+        assert isinstance(result.plans[0].conditions, L1Conditions)
+        assert result.plans[0].conditions.content_query == query
+
+    @pytest.mark.asyncio
+    async def test_rewrites_overly_broad_unquoted_comparison_query_back_to_original_query(self, decider: LLMIntentDecider, mock_bridge):
+        query = "Which vehicle did I take care of first in February, the bike or the car?"
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [
+                {
+                    "layer": "L1",
+                    "is_fallback": False,
+                    "content_query": "vehicle maintenance in february",
+                }
+            ],
+            "reasoning": "comparison query",
+        })
+
+        result = await decider.evaluate(IntentDeciderInput(query=query))
+
+        assert result is not None
+        assert isinstance(result.plans[0].conditions, L1Conditions)
+        assert result.plans[0].conditions.content_query == query
+
+    @pytest.mark.asyncio
+    async def test_preserves_specific_anchor_queries_when_llm_already_returns_them(self, decider: LLMIntentDecider, mock_bridge):
+        query = "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [
+                {"layer": "L1", "is_fallback": False, "content_query": "Effective Time Management workshop"},
+                {"layer": "L1", "is_fallback": False, "content_query": "Data Analysis using Python webinar"},
+            ],
+            "reasoning": "comparison query",
+        })
+
+        result = await decider.evaluate(IntentDeciderInput(query=query))
+
+        assert result is not None
+        assert [plan.conditions.content_query for plan in result.plans] == [
+            "Effective Time Management workshop",
+            "Data Analysis using Python webinar",
+        ]
+
 
 # -----------------------------------------------------------------------
 # Failure modes → returns None

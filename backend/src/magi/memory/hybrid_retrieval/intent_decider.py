@@ -16,6 +16,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+from .answerability import (
+    extract_comparison_spans,
+    extract_query_tokens,
+    extract_quoted_spans,
+    extract_temporal_distance_queries,
+)
 from .models import (
     IntentDeciderInput,
     IntentDecision,
@@ -552,7 +558,10 @@ class LLMIntentDecider:
                 json_mode=True,
                 timeout_seconds=self._timeout,
             )
-            return self._parse_response(raw)
+            decision = self._parse_response(raw)
+            if decision is None:
+                return None
+            return self._validate_decision(inp.query, decision)
         except Exception:
             logger.warning("LLM intent decider failed", exc_info=True)
             return None
@@ -609,6 +618,56 @@ class LLMIntentDecider:
 
         reasoning = data.get("reasoning", "")
         return IntentDecision(plans=plans, reasoning=reasoning, source="llm")
+
+    def _validate_decision(self, original_query: str, decision: IntentDecision) -> IntentDecision:
+        """Lightly narrow over-broad L1 content queries without changing routing."""
+        for plan in decision.plans:
+            if plan.layer != "L1" or not isinstance(plan.conditions, L1Conditions):
+                continue
+            plan.conditions.content_query = self._validate_l1_content_query(
+                original_query=original_query,
+                content_query=plan.conditions.content_query,
+            )
+        return decision
+
+    @staticmethod
+    def _validate_l1_content_query(*, original_query: str, content_query: str) -> str:
+        """Rewrite clearly over-broad L1 queries back to the original user query."""
+        normalized_query = str(original_query or "").strip()
+        normalized_content_query = str(content_query or "").strip()
+        if not normalized_query:
+            return normalized_content_query
+        if not normalized_content_query:
+            return normalized_query
+
+        content_tokens = set(extract_query_tokens(normalized_content_query))
+        normalized_content = " ".join(extract_query_tokens(normalized_content_query))
+
+        quoted_spans = extract_quoted_spans(normalized_query)
+        if quoted_spans and not any(span and span in normalized_content for span in quoted_spans):
+            return normalized_query
+
+        comparison_spans = extract_comparison_spans(normalized_query)
+        if comparison_spans:
+            has_comparison_coverage = any(
+                set(extract_query_tokens(span)).issubset(content_tokens)
+                for span in comparison_spans
+                if span
+            )
+            if not has_comparison_coverage:
+                return normalized_query
+
+        temporal_distance_queries = extract_temporal_distance_queries(normalized_query)
+        if temporal_distance_queries:
+            has_anchor_overlap = any(
+                set(extract_query_tokens(anchor_query)) & content_tokens
+                for anchor_query in temporal_distance_queries
+                if anchor_query
+            )
+            if not has_anchor_overlap:
+                return normalized_query
+
+        return normalized_content_query
 
 
 # ---------------------------------------------------------------------------
