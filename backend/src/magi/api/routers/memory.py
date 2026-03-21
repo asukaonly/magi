@@ -25,7 +25,11 @@ from ...memory.eval_support.reader import EvalMemoryReader
 from ...memory.eval_support.writer import EvalMemoryWriter
 from ...memory.event_contracts import MemoryEvent
 from ...memory.hybrid_retrieval import build_query
-from ...memory.answering import resolve_temporal_distance_answer
+from ...memory.answering import (
+    build_answer_prompt_payload,
+    resolve_temporal_distance_answer,
+    should_request_short_issue_answer,
+)
 from ...memory.l2.models import ManualL2EventRequest
 
 logger = get_logger(__name__)
@@ -157,29 +161,6 @@ def _build_clear_result(count: int) -> Dict[str, Any]:
     }
 
 
-def _should_prioritize_timeline(question: str, timeline_summary: list[dict[str, Any]] | None) -> bool:
-    if not timeline_summary:
-        return False
-    lowered = str(question or "").lower()
-    temporal_markers = (
-        " first",
-        " before",
-        " after",
-        " earlier",
-        " later",
-        " last ",
-        " most recent",
-        " happened first",
-        " occurred first",
-    )
-    return any(marker in lowered for marker in temporal_markers)
-
-
-def _should_request_short_issue_answer(question: str) -> bool:
-    lowered = str(question or "").lower()
-    return any(marker in lowered for marker in (" issue", " problem", " wrong with"))
-
-
 def _extract_issue_component(text: str) -> str | None:
     content = str(text or "").strip()
     if not content:
@@ -201,7 +182,7 @@ def _canonicalize_issue_component_answer(
     timeline_summary: list[dict[str, Any]] | None,
     hits: list[dict[str, Any]],
 ) -> str:
-    if not _should_request_short_issue_answer(question):
+    if not should_request_short_issue_answer(question):
         return answer
     lowered_answer = answer.lower().strip()
     if not lowered_answer or lowered_answer == "unknown":
@@ -285,55 +266,12 @@ async def _synthesize_eval_answer(
         )
 
     adapter = llm_pool.get(LLMScenario.CORE)
-    evidence_blocks: list[str] = []
-    for index, hit in enumerate(hits, start=1):
-        content = str(hit.get("content") or "").strip()
-        if not content:
-            continue
-        session_id = str(hit.get("session_id") or "").strip() or "unknown-session"
-        turn_id = str(hit.get("turn_id") or "").strip() or "unknown-turn"
-        evidence_blocks.append(f"[{index}] session={session_id} turn={turn_id}\n{content}")
-
-    evidence_text = "\n\n".join(evidence_blocks) if evidence_blocks else "(no evidence retrieved)"
-    timeline_blocks: list[str] = []
-    prioritize_timeline = _should_prioritize_timeline(question, timeline_summary)
-    for index, item in enumerate(timeline_summary or [], start=1):
-        timestamp = item.get("timestamp")
-        session_id = str(item.get("session_id") or "").strip() or "unknown-session"
-        turn_id = str(item.get("turn_id") or "").strip() or "unknown-turn"
-        author_type = str(item.get("author_type") or "unknown").strip() or "unknown"
-        summary = str(item.get("summary") or "").strip()
-        if not summary:
-            continue
-        if prioritize_timeline:
-            timeline_blocks.append(
-                f"[{index}] session={session_id} role={author_type} turn={turn_id}\n{summary}"
-            )
-        else:
-            timeline_blocks.append(
-                f"[{index}] t={timestamp} session={session_id} role={author_type} turn={turn_id}\n{summary}"
-            )
-    timeline_text = "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
-    bundle_blocks: list[str] = []
-    if prioritize_timeline:
-        bundle_text = "(omitted for temporal comparison; use the timeline summary first and consult raw evidence only if needed)"
-    else:
-        for bundle_index, bundle in enumerate(evidence_bundles or [], start=1):
-            session_id = str(bundle.get("session_id") or "").strip() or "unknown-session"
-            events = list(bundle.get("events") or [])
-            lines: list[str] = [f"[bundle {bundle_index}] session={session_id}"]
-            for event in events:
-                turn_id = str(event.get("turn_id") or "").strip() or "unknown-turn"
-                timestamp = event.get("timestamp")
-                author_type = str(event.get("author_type") or "unknown").strip() or "unknown"
-                content = str(event.get("content") or "").strip()
-                if not content:
-                    continue
-                lines.append(
-                    f"- t={timestamp} role={author_type} turn={turn_id}: {content}"
-                )
-            bundle_blocks.append("\n".join(lines))
-        bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
+    prompt_payload = build_answer_prompt_payload(
+        question=question,
+        hits=hits,
+        evidence_bundles=evidence_bundles,
+        timeline_summary=timeline_summary,
+    )
     system_prompt = (
         "You are answering a benchmark question using retrieved memory evidence only.\n"
         "Return a concise final answer to the question.\n"
@@ -341,27 +279,15 @@ async def _synthesize_eval_answer(
         "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
         "If the evidence is insufficient, answer exactly: unknown"
     )
-    timeline_instruction = ""
-    if prioritize_timeline:
-        timeline_instruction = (
-            "Answer from the Timeline Summary first for temporal or comparison questions.\n"
-            "Use Session Evidence Bundles or Retrieved Evidence only if the timeline summary is ambiguous.\n\n"
-        )
-    short_answer_instruction = ""
-    if _should_request_short_issue_answer(question):
-        short_answer_instruction = (
-            "For issue or event questions, answer with the short issue name or event phrase only.\n"
-            "Do not include dates, justification, or extra explanation.\n\n"
-        )
     user_prompt = (
         "Use relative time expressions in the evidence when comparing event order.\n"
         "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
-        f"{timeline_instruction}"
-        f"{short_answer_instruction}"
+        f"{prompt_payload.timeline_instruction}"
+        f"{prompt_payload.short_answer_instruction}"
         f"Question:\n{question}\n\n"
-        f"Timeline Summary:\n{timeline_text}\n\n"
-        f"Session Evidence Bundles:\n{bundle_text}\n\n"
-        f"Retrieved Evidence:\n{evidence_text}\n"
+        f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
+        f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
+        f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n"
     )
     llm_messages = [
         {"role": "system", "content": system_prompt},
@@ -372,7 +298,7 @@ async def _synthesize_eval_answer(
         question=question,
         evidence_hit_count=len(hits),
         evidence_bundle_count=len(evidence_bundles or []),
-        evidence_preview=evidence_text[:800],
+        evidence_preview=prompt_payload.evidence_text[:800],
         llm_messages=(
             "==== SYSTEM MESSAGE ====\n"
             f"{system_prompt}\n"
