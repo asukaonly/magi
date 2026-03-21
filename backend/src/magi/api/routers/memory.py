@@ -247,6 +247,8 @@ def _normalize_eval_answer(raw_answer: str) -> str:
     first_block = re.split(r"\n\s*\n", answer, maxsplit=1)[0].strip()
     first_line = first_block.splitlines()[0].strip() if first_block else ""
     normalized = first_line or first_block or answer
+    if '"' not in normalized and "'" not in normalized and len(normalized.split()) <= 3:
+        normalized = re.sub(r"^(?:the|a|an)\s+", "", normalized, flags=re.IGNORECASE).strip()
     return normalized.strip() or "unknown"
 
 

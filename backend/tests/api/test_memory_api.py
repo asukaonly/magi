@@ -933,6 +933,85 @@ def test_memory_eval_query_api_requests_short_answer_span_for_temporal_questions
     assert body["answer"] == "GPS system not functioning correctly"
 
 
+def test_memory_eval_query_api_strips_articles_from_short_choice_answers(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-bike",
+                        "session_id": "sess-bike",
+                        "content": "I got my bike repaired back in mid-February.",
+                        "score": 0.9,
+                        "turn_id": "sess-bike:turn-11",
+                    },
+                    {
+                        "event_id": "evt-car",
+                        "session_id": "sess-car",
+                        "content": "I washed my current Corolla on Monday, February 27th.",
+                        "score": 0.8,
+                        "turn_id": "sess-car:turn-1",
+                    },
+                ],
+                l1_evidence_bundles=[],
+                l1_timeline_summary=[
+                    {
+                        "timestamp": 11.0,
+                        "session_id": "sess-bike",
+                        "turn_id": "sess-bike:turn-11",
+                        "author_type": "user",
+                        "summary": "I got my bike repaired back in mid-February.",
+                        "supporting_event_ids": ["evt-bike"],
+                        "reason_codes": ["event_statement", "temporal_anchor"],
+                    },
+                    {
+                        "timestamp": 13.0,
+                        "session_id": "sess-car",
+                        "turn_id": "sess-car:turn-1",
+                        "author_type": "user",
+                        "summary": "I washed my current Corolla on Monday, February 27th.",
+                        "supporting_event_ids": ["evt-car"],
+                        "reason_codes": ["event_statement", "temporal_anchor"],
+                    },
+                ],
+                trace={"intent_source": "rule", "l1_timeline_summary_count": 2},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            _ = (messages, max_tokens, temperature, kwargs)
+            return "the bike"
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "Which vehicle did I take care of first in February, the bike or the car?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "bike"
+
+
 def test_memory_eval_query_api_canonicalizes_component_issue_answers(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
