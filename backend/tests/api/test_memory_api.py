@@ -916,6 +916,9 @@ def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
     assert "==== USER MESSAGE ====" in logged_messages
     assert "retrieved memory evidence only" in logged_messages
     assert "What food do I prefer?" in logged_messages
+    completed_log = next(kwargs for message, kwargs in log_calls if message == "Eval query answer synthesis completed")
+    assert completed_log["raw_answer"] == "Sushi"
+    assert completed_log["answer"] == "Sushi"
 
 
 def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):

@@ -280,11 +280,13 @@ async def _synthesize_eval_answer(
         max_tokens=128,
         temperature=0.0,
     )
-    normalized_answer = str(answer or "").strip() or "unknown"
+    raw_answer = str(answer or "")
+    normalized_answer = raw_answer.strip() or "unknown"
     logger.info(
         "Eval query answer synthesis completed",
         question=question,
         evidence_hit_count=len(hits),
+        raw_answer=raw_answer,
         answer=normalized_answer,
     )
     answer_trace = {
