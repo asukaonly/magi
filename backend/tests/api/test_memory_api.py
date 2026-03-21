@@ -807,6 +807,164 @@ def test_memory_eval_query_api_computes_explicit_day_delta_without_llm(monkeypat
     assert body["answer_trace"]["answer_source"] == "deterministic_temporal_distance"
 
 
+def test_memory_eval_query_api_computes_explicit_week_delta_without_llm(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-accepted",
+                        "session_id": "sess-program",
+                        "content": "I was accepted into the exchange program on March 20th.",
+                        "score": 0.9,
+                        "turn_id": "sess-program:turn-1",
+                    },
+                    {
+                        "event_id": "evt-orientation",
+                        "session_id": "sess-orientation",
+                        "content": "I started attending the pre-departure orientation sessions on 3/27.",
+                        "score": 0.8,
+                        "turn_id": "sess-orientation:turn-1",
+                    },
+                ],
+                l1_evidence_bundles=[],
+                l1_timeline_summary=[
+                    {
+                        "timestamp": 1.0,
+                        "session_id": "sess-program",
+                        "turn_id": "sess-program:turn-1",
+                        "author_type": "user",
+                        "summary": "I was accepted into the exchange program on March 20th.",
+                        "supporting_event_ids": ["evt-accepted"],
+                        "reason_codes": ["phrase_match", "temporal_anchor"],
+                    },
+                    {
+                        "timestamp": 2.0,
+                        "session_id": "sess-orientation",
+                        "turn_id": "sess-orientation:turn-1",
+                        "author_type": "user",
+                        "summary": "I started attending the pre-departure orientation sessions on 3/27.",
+                        "supporting_event_ids": ["evt-orientation"],
+                        "reason_codes": ["phrase_match", "temporal_anchor"],
+                    },
+                ],
+                trace={"intent_source": "rule", "l1_timeline_summary_count": 2},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            raise AssertionError("LLM should not be called when explicit week delta is computed deterministically")
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "How many weeks have I been accepted into the exchange program when I started attending the pre-departure orientation sessions?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "1 week"
+    assert body["answer_trace"]["answer_source"] == "deterministic_temporal_distance"
+
+
+def test_memory_eval_query_api_selects_matching_date_from_multi_date_summary(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-accepted",
+                        "session_id": "sess-program",
+                        "content": "I submitted my application to the exchange program on February 10th and got accepted on March 20th.",
+                        "score": 0.9,
+                        "turn_id": "sess-program:turn-1",
+                    },
+                    {
+                        "event_id": "evt-orientation",
+                        "session_id": "sess-orientation",
+                        "content": "I started attending the pre-departure orientation sessions on 3/27.",
+                        "score": 0.8,
+                        "turn_id": "sess-orientation:turn-1",
+                    },
+                ],
+                l1_evidence_bundles=[],
+                l1_timeline_summary=[
+                    {
+                        "timestamp": 1.0,
+                        "session_id": "sess-program",
+                        "turn_id": "sess-program:turn-1",
+                        "author_type": "user",
+                        "summary": "I submitted my application to the exchange program on February 10th and got accepted on March 20th.",
+                        "supporting_event_ids": ["evt-accepted"],
+                        "reason_codes": ["phrase_match", "temporal_anchor"],
+                    },
+                    {
+                        "timestamp": 2.0,
+                        "session_id": "sess-orientation",
+                        "turn_id": "sess-orientation:turn-1",
+                        "author_type": "user",
+                        "summary": "I started attending the pre-departure orientation sessions on 3/27.",
+                        "supporting_event_ids": ["evt-orientation"],
+                        "reason_codes": ["phrase_match", "temporal_anchor"],
+                    },
+                ],
+                trace={"intent_source": "rule", "l1_timeline_summary_count": 2},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            raise AssertionError("LLM should not be called when the matching anchor date can be selected deterministically")
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "How many weeks have I been accepted into the exchange program when I started attending the pre-departure orientation sessions?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "1 week"
+    assert body["answer_trace"]["answer_source"] == "deterministic_temporal_distance"
+
+
 def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

@@ -270,26 +270,63 @@ _MONTH_NAMES = {
 }
 
 
-def _extract_explicit_calendar_date(text: str) -> date | None:
+def _extract_explicit_calendar_date_candidates(text: str) -> list[tuple[date, tuple[int, int]]]:
     content = str(text or "").strip()
     if not content:
-        return None
+        return []
 
-    month_name_match = re.search(
+    candidates: list[tuple[date, tuple[int, int]]] = []
+
+    for month_name_match in re.finditer(
         r"\b(?P<month>january|february|march|april|may|june|july|august|september|october|november|december)\s+"
         r"(?P<day>\d{1,2})(?:st|nd|rd|th)?\b",
         content,
         flags=re.IGNORECASE,
-    )
-    if month_name_match:
+    ):
         month = _MONTH_NAMES[str(month_name_match.group("month") or "").lower()]
         day = int(month_name_match.group("day"))
-        return date(2000, month, day)
+        candidates.append((date(2000, month, day), month_name_match.span()))
 
-    numeric_match = re.search(r"\b(?P<month>\d{1,2})[/-](?P<day>\d{1,2})\b", content)
-    if numeric_match:
-        return date(2000, int(numeric_match.group("month")), int(numeric_match.group("day")))
-    return None
+    for numeric_match in re.finditer(r"\b(?P<month>\d{1,2})[/-](?P<day>\d{1,2})\b", content):
+        candidates.append(
+            (
+                date(2000, int(numeric_match.group("month")), int(numeric_match.group("day"))),
+                numeric_match.span(),
+            )
+        )
+    return candidates
+
+
+def _extract_explicit_calendar_date(text: str) -> date | None:
+    candidates = _extract_explicit_calendar_date_candidates(text)
+    return candidates[0][0] if candidates else None
+
+
+def _extract_anchor_calendar_date(text: str, anchor_tokens: set[str]) -> date | None:
+    candidates = _extract_explicit_calendar_date_candidates(text)
+    if not candidates:
+        return None
+    if len(candidates) == 1 or not anchor_tokens:
+        return candidates[0][0]
+
+    content = str(text or "")
+    best_date: date | None = None
+    best_score = -1.0
+    for candidate_date, (start, end) in candidates:
+        context_start = max(0, start - 80)
+        context_end = min(len(content), end + 24)
+        context = content[context_start:context_end]
+        context_tokens = set(extract_query_tokens(context))
+        overlap = len(anchor_tokens & context_tokens)
+        score = float(overlap)
+        if start > 0:
+            prior_sentence = content[max(0, start - 120):start]
+            prior_tokens = set(extract_query_tokens(prior_sentence))
+            score += 0.25 * len(anchor_tokens & prior_tokens)
+        if score > best_score:
+            best_score = score
+            best_date = candidate_date
+    return best_date
 
 
 def _resolve_temporal_distance_answer(
@@ -298,7 +335,13 @@ def _resolve_temporal_distance_answer(
     timeline_summary: list[dict[str, Any]] | None,
 ) -> str | None:
     lowered = str(question or "").lower()
-    if "how many days before" not in lowered and "how many days after" not in lowered:
+    unit: str | None = None
+    if re.search(r"\bhow many days?\b", lowered):
+        unit = "day"
+    elif re.search(r"\bhow many weeks?\b", lowered):
+        unit = "week"
+
+    if unit is None:
         return None
     anchor_queries = extract_temporal_distance_queries(question)
     if len(anchor_queries) < 2 or not timeline_summary:
@@ -317,7 +360,7 @@ def _resolve_temporal_distance_answer(
             if turn_id in used_turn_ids:
                 continue
             summary = str(item.get("summary") or "").strip()
-            parsed_date = _extract_explicit_calendar_date(summary)
+            parsed_date = _extract_anchor_calendar_date(summary, anchor_tokens)
             if parsed_date is None:
                 continue
             summary_tokens = set(extract_query_tokens(summary))
@@ -331,7 +374,7 @@ def _resolve_temporal_distance_answer(
         if best_item is None:
             return None
         used_turn_ids.add(str(best_item.get("turn_id") or ""))
-        chosen_date = _extract_explicit_calendar_date(str(best_item.get("summary") or ""))
+        chosen_date = _extract_anchor_calendar_date(str(best_item.get("summary") or ""), anchor_tokens)
         if chosen_date is None:
             return None
         chosen_dates.append(chosen_date)
@@ -339,7 +382,14 @@ def _resolve_temporal_distance_answer(
     if len(chosen_dates) != 2:
         return None
     delta_days = abs((chosen_dates[1] - chosen_dates[0]).days)
-    return f"{delta_days} days"
+    if unit == "day":
+        return f"{delta_days} day" if delta_days == 1 else f"{delta_days} days"
+    if unit == "week":
+        if delta_days % 7 != 0:
+            return None
+        delta_weeks = delta_days // 7
+        return f"{delta_weeks} week" if delta_weeks == 1 else f"{delta_weeks} weeks"
+    return None
 
 
 async def _synthesize_eval_answer(

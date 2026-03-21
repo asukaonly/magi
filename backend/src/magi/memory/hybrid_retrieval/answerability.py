@@ -90,6 +90,14 @@ _TEMPORAL_DISTANCE_PATTERNS = (
         r"how long\s+had\s+i\s+been\s+(?P<anchor_a>.+?)\s+when\s+(?P<anchor_b>.+?)\??$",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"how many\s+(?:day|week|month|year)s?\s+have\s+i\s+been\s+(?P<anchor_a>.+?)\s+when\s+(?P<anchor_b>.+?)\??$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"how many\s+(?:day|week|month|year)s?\s+had\s+i\s+been\s+(?P<anchor_a>.+?)\s+when\s+(?P<anchor_b>.+?)\??$",
+        re.IGNORECASE,
+    ),
 )
 
 _TEMPORAL_ANCHOR_NOISE = {
