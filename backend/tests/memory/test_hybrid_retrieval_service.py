@@ -442,6 +442,65 @@ class TestServiceFallback:
             assert len(result.l1_events) >= 1, f"Expected L1 results, trace={result.trace}"
             assert result.trace.get("fallback_triggered") is not True
 
+    @pytest.mark.asyncio
+    async def test_rule_backstop_runs_when_llm_primary_returns_no_results(self):
+        mem = _make_memory()
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        llm_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="attended event first", limit=10),
+            is_fallback=False,
+        )
+        rule_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="Effective Time Management Data Analysis using Python", limit=10),
+            is_fallback=False,
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[llm_plan],
+                source="llm",
+                reasoning="llm optimized away the concrete event names",
+            )
+        )
+        svc._intent_decider._rule_engine.evaluate = MagicMock(
+            return_value=IntentDecision(
+                plans=[rule_plan],
+                source="rule_fallback",
+                reasoning="rule keeps original query",
+            )
+        )
+
+        recovered_event = {
+            "event_id": "evt-webinar",
+            "session_id": "answer_1c6b85ea_2",
+            "turn_id": "answer_1c6b85ea_2:turn-3",
+            "timestamp": 15.0,
+            "content": 'I participated in a webinar on "Data Analysis using Python" two months ago.',
+            "author_type": "user",
+        }
+
+        async def _execute_plan_side_effect(plan, **kwargs):
+            if plan.conditions.content_query == llm_plan.conditions.content_query:
+                return []
+            if plan.conditions.content_query == rule_plan.conditions.content_query:
+                return [recovered_event]
+            raise AssertionError(f"Unexpected query plan: {plan.conditions.content_query}")
+
+        with patch(
+            "magi.memory.hybrid_retrieval.service.execute_plan",
+            new=AsyncMock(side_effect=_execute_plan_side_effect),
+        ):
+            result = await svc.query(
+                _make_request(
+                    query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
+                )
+            )
+
+        assert [event["event_id"] for event in result.l1_events] == ["evt-webinar"]
+        assert result.trace["primary_count"] == 1
+        assert result.trace["rule_backstop_triggered"] is True
+
 
 class TestServiceTrace:
     @pytest.mark.asyncio

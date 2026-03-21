@@ -113,6 +113,35 @@ class HybridRetrievalService:
 
         # 4. Fallback if primary results are insufficient
         primary_count = self._count_results(payload)
+        if primary_count == 0 and decision.source == "llm":
+            rule_decision = self._intent_decider._rule_engine.evaluate(intent_input)
+            rule_primary_plans = [
+                plan
+                for plan in rule_decision.plans
+                if not plan.is_fallback and self._plan_signature(plan) not in {self._plan_signature(existing) for existing in primary_plans}
+            ]
+            if rule_primary_plans:
+                rule_primary_results = await asyncio.gather(
+                    *[
+                        execute_plan(
+                            plan,
+                            l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                            session_id=request.session_id,
+                            user_id=request.user_id,
+                        )
+                        for plan in rule_primary_plans
+                    ],
+                    return_exceptions=True,
+                )
+                for plan, result in zip(rule_primary_plans, rule_primary_results):
+                    if isinstance(result, Exception):
+                        logger.warning("Rule backstop plan %s failed: %s", plan.layer, result)
+                        continue
+                    self._merge_result(payload, plan.layer, result)
+                primary_count = self._count_results(payload)
+                payload.trace["rule_backstop_triggered"] = True
+                payload.trace["rule_backstop_count"] = primary_count
+
         payload.trace["primary_count"] = primary_count
 
         if primary_count < self._config.fallback_trigger_threshold:
@@ -143,6 +172,12 @@ class HybridRetrievalService:
         payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)
 
         return payload
+
+    @staticmethod
+    def _plan_signature(plan: Any) -> tuple[str, str, bool]:
+        """Build a stable identity for a layer query plan."""
+        content_query = getattr(getattr(plan, "conditions", None), "content_query", "") or ""
+        return (str(getattr(plan, "layer", "")), str(content_query), bool(getattr(plan, "is_fallback", False)))
 
     def _refresh_handlers(self) -> None:
         """Refresh layer handlers in case stores are initialized after service construction."""
