@@ -154,6 +154,24 @@ def _build_clear_result(count: int) -> Dict[str, Any]:
     }
 
 
+def _should_prioritize_timeline(question: str, timeline_summary: list[dict[str, Any]] | None) -> bool:
+    if not timeline_summary:
+        return False
+    lowered = str(question or "").lower()
+    temporal_markers = (
+        " first",
+        " before",
+        " after",
+        " earlier",
+        " later",
+        " last ",
+        " most recent",
+        " happened first",
+        " occurred first",
+    )
+    return any(marker in lowered for marker in temporal_markers)
+
+
 async def _synthesize_eval_answer(
     *,
     question: str,
@@ -193,23 +211,27 @@ async def _synthesize_eval_answer(
             f"[{index}] t={timestamp} session={session_id} role={author_type} turn={turn_id}\n{summary}"
         )
     timeline_text = "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
+    prioritize_timeline = _should_prioritize_timeline(question, timeline_summary)
     bundle_blocks: list[str] = []
-    for bundle_index, bundle in enumerate(evidence_bundles or [], start=1):
-        session_id = str(bundle.get("session_id") or "").strip() or "unknown-session"
-        events = list(bundle.get("events") or [])
-        lines: list[str] = [f"[bundle {bundle_index}] session={session_id}"]
-        for event in events:
-            turn_id = str(event.get("turn_id") or "").strip() or "unknown-turn"
-            timestamp = event.get("timestamp")
-            author_type = str(event.get("author_type") or "unknown").strip() or "unknown"
-            content = str(event.get("content") or "").strip()
-            if not content:
-                continue
-            lines.append(
-                f"- t={timestamp} role={author_type} turn={turn_id}: {content}"
-            )
-        bundle_blocks.append("\n".join(lines))
-    bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
+    if prioritize_timeline:
+        bundle_text = "(omitted for temporal comparison; use the timeline summary first and consult raw evidence only if needed)"
+    else:
+        for bundle_index, bundle in enumerate(evidence_bundles or [], start=1):
+            session_id = str(bundle.get("session_id") or "").strip() or "unknown-session"
+            events = list(bundle.get("events") or [])
+            lines: list[str] = [f"[bundle {bundle_index}] session={session_id}"]
+            for event in events:
+                turn_id = str(event.get("turn_id") or "").strip() or "unknown-turn"
+                timestamp = event.get("timestamp")
+                author_type = str(event.get("author_type") or "unknown").strip() or "unknown"
+                content = str(event.get("content") or "").strip()
+                if not content:
+                    continue
+                lines.append(
+                    f"- t={timestamp} role={author_type} turn={turn_id}: {content}"
+                )
+            bundle_blocks.append("\n".join(lines))
+        bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
     logger.info(
         "Eval query answer synthesis started",
         question=question,
@@ -217,12 +239,19 @@ async def _synthesize_eval_answer(
         evidence_bundle_count=len(evidence_bundles or []),
         evidence_preview=evidence_text[:800],
     )
+    timeline_instruction = ""
+    if prioritize_timeline:
+        timeline_instruction = (
+            "Answer from the Timeline Summary first for temporal or comparison questions.\n"
+            "Use Session Evidence Bundles or Retrieved Evidence only if the timeline summary is ambiguous.\n\n"
+        )
     prompt = (
         "You are answering a benchmark question using retrieved memory evidence only.\n"
         "Return a concise final answer to the question.\n"
         "If the evidence is insufficient, answer exactly: unknown\n\n"
         "Use relative time expressions in the evidence when comparing event order.\n"
         "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
+        f"{timeline_instruction}"
         f"Question:\n{question}\n\n"
         f"Timeline Summary:\n{timeline_text}\n\n"
         f"Session Evidence Bundles:\n{bundle_text}\n\n"
