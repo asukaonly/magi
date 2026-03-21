@@ -160,6 +160,17 @@ class L1Handler:
                 source_filters=conditions.source_filters,
                 limit=limit,
             )
+            quoted_phrases = extract_quoted_spans(conditions.content_query)
+            if quoted_phrases:
+                matched_scored: list[tuple[int, str]] = []
+                for event in events:
+                    normalized_content = " ".join(extract_query_tokens(event.get("content", "")))
+                    quote_hits = sum(1 for phrase in quoted_phrases if phrase and phrase in normalized_content)
+                    if quote_hits > 0:
+                        matched_scored.append((quote_hits, str(event.get("event_id") or "")))
+                matched_scored.sort(key=lambda item: item[0], reverse=True)
+                return [event_id for _, event_id in matched_scored if event_id]
+
             query_tokens = [t for t in conditions.content_query.lower().split() if t]
             matched = [
                 e["event_id"]

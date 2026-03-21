@@ -237,6 +237,60 @@ class TestL1Handler:
 
         assert results[0]["retrieval_trace"]["quoted_phrase_hits"] == ["effective time management"]
 
+    @pytest.mark.asyncio
+    async def test_keyword_path_recovers_multiple_quoted_candidates_for_comparison_queries(self, store, monkeypatch):
+        handler = L1Handler(store)
+        conds = L1Conditions(
+            content_query=(
+                "Which event did I attend first, the 'Effective Time Management' workshop "
+                "or the 'Data Analysis using Python' webinar?"
+            ),
+            limit=3,
+        )
+        store.query_events.return_value = [
+            {
+                "event_id": "user-workshop",
+                "content": "I attended the 'Effective Time Management' workshop at the community center.",
+                "timestamp": 2000.0,
+                "author_type": "user",
+            },
+            {
+                "event_id": "user-webinar",
+                "content": "I participated in the 'Data Analysis using Python' webinar two months ago.",
+                "timestamp": 1000.0,
+                "author_type": "user",
+            },
+            {
+                "event_id": "user-unrelated",
+                "content": (
+                    "I think I'll try out both Tableau and Power BI's free trials to get a feel for "
+                    "their interfaces and customization options."
+                ),
+                "timestamp": 3000.0,
+                "author_type": "user",
+            },
+        ]
+
+        async def _bm25_path(_query, _limit):
+            return []
+
+        async def _vector_path(_query, _limit):
+            return []
+
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+            by_id = {event["event_id"]: event for event in store.query_events.return_value}
+            return [by_id[event_id] for event_id in event_ids if event_id in by_id]
+
+        monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
+        monkeypatch.setattr(handler, "_vector_path", _vector_path)
+        monkeypatch.setattr(handler, "_fetch_and_filter", _fetch_and_filter)
+
+        results = await handler.execute(conds)
+
+        ranked_ids = [item["event_id"] for item in results]
+        assert set(ranked_ids) == {"user-workshop", "user-webinar"}
+        assert "user-unrelated" not in ranked_ids
+
 
 # -----------------------------------------------------------------------
 # L2Handler
