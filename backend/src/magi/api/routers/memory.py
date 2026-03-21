@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import re
 import time
 from typing import Any, Dict, List, Literal, Optional
 
@@ -172,6 +173,21 @@ def _should_prioritize_timeline(question: str, timeline_summary: list[dict[str, 
     return any(marker in lowered for marker in temporal_markers)
 
 
+def _should_request_short_issue_answer(question: str) -> bool:
+    lowered = str(question or "").lower()
+    return any(marker in lowered for marker in (" issue", " problem", " wrong with"))
+
+
+def _normalize_eval_answer(raw_answer: str) -> str:
+    answer = str(raw_answer or "").strip()
+    if not answer:
+        return "unknown"
+    first_block = re.split(r"\n\s*\n", answer, maxsplit=1)[0].strip()
+    first_line = first_block.splitlines()[0].strip() if first_block else ""
+    normalized = first_line or first_block or answer
+    return normalized.strip() or "unknown"
+
+
 async def _synthesize_eval_answer(
     *,
     question: str,
@@ -240,6 +256,8 @@ async def _synthesize_eval_answer(
     system_prompt = (
         "You are answering a benchmark question using retrieved memory evidence only.\n"
         "Return a concise final answer to the question.\n"
+        "Return only the final answer span with no explanation.\n"
+        "Prefer a short phrase copied or closely paraphrased from the evidence.\n"
         "If the evidence is insufficient, answer exactly: unknown"
     )
     timeline_instruction = ""
@@ -248,10 +266,17 @@ async def _synthesize_eval_answer(
             "Answer from the Timeline Summary first for temporal or comparison questions.\n"
             "Use Session Evidence Bundles or Retrieved Evidence only if the timeline summary is ambiguous.\n\n"
         )
+    short_answer_instruction = ""
+    if _should_request_short_issue_answer(question):
+        short_answer_instruction = (
+            "For issue or event questions, answer with the short issue name or event phrase only.\n"
+            "Do not include dates, justification, or extra explanation.\n\n"
+        )
     user_prompt = (
         "Use relative time expressions in the evidence when comparing event order.\n"
         "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
         f"{timeline_instruction}"
+        f"{short_answer_instruction}"
         f"Question:\n{question}\n\n"
         f"Timeline Summary:\n{timeline_text}\n\n"
         f"Session Evidence Bundles:\n{bundle_text}\n\n"
@@ -282,7 +307,7 @@ async def _synthesize_eval_answer(
         disable_thinking=True,
     )
     raw_answer = str(answer or "")
-    normalized_answer = raw_answer.strip() or "unknown"
+    normalized_answer = _normalize_eval_answer(raw_answer)
     logger.info(
         "Eval query answer synthesis completed",
         question=question,
