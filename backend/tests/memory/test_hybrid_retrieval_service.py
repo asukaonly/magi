@@ -501,6 +501,83 @@ class TestServiceFallback:
         assert result.trace["primary_count"] == 1
         assert result.trace["rule_backstop_triggered"] is True
 
+    @pytest.mark.asyncio
+    async def test_rule_backstop_runs_when_llm_primary_misses_a_quoted_candidate(self):
+        mem = _make_memory()
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        llm_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="compare learning events", limit=10),
+            is_fallback=False,
+        )
+        rule_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="Effective Time Management Data Analysis using Python", limit=10),
+            is_fallback=False,
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[llm_plan],
+                source="llm",
+                reasoning="llm picked broader semantic wording",
+            )
+        )
+        svc._intent_decider._rule_engine.evaluate = MagicMock(
+            return_value=IntentDecision(
+                plans=[rule_plan],
+                source="rule_fallback",
+                reasoning="rule preserves quoted event names",
+            )
+        )
+
+        llm_events = [
+            {
+                "event_id": "evt-webinar",
+                "session_id": "answer_1c6b85ea_2",
+                "turn_id": "answer_1c6b85ea_2:turn-3",
+                "timestamp": 15.0,
+                "content": 'I participated in a webinar on "Data Analysis using Python" two months ago.',
+                "author_type": "user",
+            },
+            {
+                "event_id": "evt-generic",
+                "session_id": "answer_1c6b85ea_1",
+                "turn_id": "answer_1c6b85ea_1:turn-3",
+                "timestamp": 3.0,
+                "content": "I'll definitely check out these recommendations.",
+                "author_type": "user",
+            },
+        ]
+        rule_event = {
+            "event_id": "evt-workshop",
+            "session_id": "answer_1c6b85ea_1",
+            "turn_id": "answer_1c6b85ea_1:turn-11",
+            "timestamp": 11.0,
+            "content": 'I attended the "Effective Time Management" workshop last Saturday.',
+            "author_type": "user",
+        }
+
+        async def _execute_plan_side_effect(plan, **kwargs):
+            if plan.conditions.content_query == llm_plan.conditions.content_query:
+                return llm_events
+            if plan.conditions.content_query == rule_plan.conditions.content_query:
+                return [rule_event]
+            raise AssertionError(f"Unexpected query plan: {plan.conditions.content_query}")
+
+        with patch(
+            "magi.memory.hybrid_retrieval.service.execute_plan",
+            new=AsyncMock(side_effect=_execute_plan_side_effect),
+        ):
+            result = await svc.query(
+                _make_request(
+                    query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
+                )
+            )
+
+        assert {event["event_id"] for event in result.l1_events} == {"evt-webinar", "evt-generic", "evt-workshop"}
+        assert result.trace["rule_backstop_triggered"] is True
+        assert result.trace["rule_backstop_reason"] == "missing_quoted_coverage"
+
 
 class TestServiceTrace:
     @pytest.mark.asyncio

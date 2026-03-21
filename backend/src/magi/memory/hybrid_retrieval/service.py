@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
+from .answerability import extract_query_tokens, extract_quoted_spans
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
 from .models import (
@@ -114,7 +115,12 @@ class HybridRetrievalService:
 
         # 4. Fallback if primary results are insufficient
         primary_count = self._count_results(payload)
-        if primary_count == 0 and decision.source == "llm":
+        backstop_reason = self._rule_backstop_reason(
+            query=request.query,
+            payload=payload,
+            decision_source=decision.source,
+        )
+        if backstop_reason is not None:
             rule_decision = self._intent_decider._rule_engine.evaluate(intent_input)
             rule_primary_plans = [
                 plan
@@ -141,6 +147,7 @@ class HybridRetrievalService:
                     self._merge_result(payload, plan.layer, result)
                 primary_count = self._count_results(payload)
                 payload.trace["rule_backstop_triggered"] = True
+                payload.trace["rule_backstop_reason"] = backstop_reason
                 payload.trace["rule_backstop_count"] = primary_count
 
         payload.trace["primary_count"] = primary_count
@@ -243,6 +250,33 @@ class HybridRetrievalService:
             + len(payload.l3_reflections)
             + len(payload.l4_procedures)
         )
+
+    @staticmethod
+    def _rule_backstop_reason(
+        *,
+        query: str,
+        payload: RetrievalPayload,
+        decision_source: str,
+    ) -> str | None:
+        if decision_source != "llm":
+            return None
+        if HybridRetrievalService._count_results(payload) == 0:
+            return "empty_primary"
+
+        quoted_spans = extract_quoted_spans(query)
+        if not quoted_spans:
+            return None
+
+        normalized_events = [
+            " ".join(extract_query_tokens(str(event.get("content") or "")))
+            for event in payload.l1_events
+        ]
+        if not normalized_events:
+            return "missing_quoted_coverage"
+
+        if any(not any(span in content for content in normalized_events) for span in quoted_spans):
+            return "missing_quoted_coverage"
+        return None
 
     async def _build_l1_evidence_bundles(self, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Group L1 hits into session-local evidence bundles with lightweight neighbors."""
