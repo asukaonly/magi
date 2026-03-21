@@ -581,6 +581,48 @@ class TestServiceEvidencePackaging:
         assert bundle["neighbor_expansion_applied"] is True
         assert result.trace["l1_evidence_bundle_count"] == 1
 
+    @pytest.mark.asyncio
+    async def test_builds_timeline_summary_from_l1_evidence_bundles(self):
+        session_events = [
+            {
+                "event_id": "e1",
+                "session_id": "s-webinar",
+                "turn_id": "s-webinar:turn-3",
+                "timestamp": 15.0,
+                "content": "I participated in the 'Data Analysis using Python' webinar two months ago.",
+                "author_type": "user",
+            },
+            {
+                "event_id": "e2",
+                "session_id": "s-workshop",
+                "turn_id": "s-workshop:turn-11",
+                "timestamp": 21.0,
+                "content": "I attended the 'Effective Time Management' workshop last Saturday.",
+                "author_type": "user",
+            },
+        ]
+        l1 = _make_l1_store(session_events)
+        l1.query_events = AsyncMock(side_effect=[session_events[:1], session_events[1:]])
+        mem = _make_memory(l1=l1)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="event order", limit=5))],
+                source="rule_fallback",
+                reasoning="test",
+            )
+        )
+
+        with patch("magi.memory.hybrid_retrieval.service.execute_plan", new=AsyncMock(return_value=session_events)):
+            result = await svc.query(
+                _make_request(
+                    query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
+                )
+            )
+
+        assert [item["supporting_event_ids"] for item in result.l1_timeline_summary] == [["e1"], ["e2"]]
+        assert result.trace["l1_timeline_summary_count"] == 2
+
 
 class TestServiceErrorHandling:
     @pytest.mark.asyncio

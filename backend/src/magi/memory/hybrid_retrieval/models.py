@@ -32,6 +32,7 @@ class RetrievalPayload:
     l0_workbench: List[Dict[str, Any]] = field(default_factory=list)
     l1_events: List[Dict[str, Any]] = field(default_factory=list)
     l1_evidence_bundles: List[Dict[str, Any]] = field(default_factory=list)
+    l1_timeline_summary: List[Dict[str, Any]] = field(default_factory=list)
     l2_entity_cards: List[Dict[str, Any]] = field(default_factory=list)
     l2_relationships: List[Dict[str, Any]] = field(default_factory=list)
     l2_assertions: List[Dict[str, Any]] = field(default_factory=list)

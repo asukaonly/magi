@@ -16,6 +16,7 @@ from .models import (
     RetrievalQuery,
 )
 from .result_fusion import ResultFusion
+from .timeline_condense import build_timeline_summary
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,11 @@ class HybridRetrievalService:
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
         payload.l1_evidence_bundles = await self._build_l1_evidence_bundles(payload.l1_events)
         payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)
+        payload.l1_timeline_summary = build_timeline_summary(
+            question=request.query,
+            evidence_bundles=payload.l1_evidence_bundles,
+        )
+        payload.trace["l1_timeline_summary_count"] = len(payload.l1_timeline_summary)
 
         return payload
 
@@ -230,6 +236,7 @@ class HybridRetrievalService:
         return (
             len(payload.l1_events)
             + len(payload.l1_evidence_bundles)
+            + len(payload.l1_timeline_summary)
             + len(payload.l2_entity_cards)
             + len(payload.l2_relationships)
             + len(payload.l2_assertions)
