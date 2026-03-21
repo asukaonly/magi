@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -497,21 +498,49 @@ class L1EventStore:
             return []
         async with aiosqlite.connect(self.db_path) as db:
             try:
-                async with db.execute(
-                    """
-                    SELECT event_id, bm25(l1_events_fts) AS score
-                    FROM l1_events_fts
-                    WHERE l1_events_fts MATCH ?
-                    ORDER BY score
-                    LIMIT ?
-                    """,
-                    (escaped, limit),
-                ) as cursor:
-                    rows = await cursor.fetchall()
+                rows = await self._run_bm25_query(db, escaped, limit=limit)
+                if not rows:
+                    for fallback_query in self._build_relaxed_fts_queries(query):
+                        rows = await self._run_bm25_query(db, fallback_query, limit=limit)
+                        if rows:
+                            break
                 return [(str(row[0]), float(row[1])) for row in rows]
             except Exception as exc:
                 logger.warning("FTS5 BM25 search failed: %s", exc)
                 return []
+
+    async def _run_bm25_query(
+        self,
+        db: aiosqlite.Connection,
+        match_query: str,
+        *,
+        limit: int,
+    ) -> list[tuple[Any, Any]]:
+        """Execute a single FTS5 BM25 query."""
+        async with db.execute(
+            """
+            SELECT event_id, bm25(l1_events_fts) AS score
+            FROM l1_events_fts
+            WHERE l1_events_fts MATCH ?
+            ORDER BY score
+            LIMIT ?
+            """,
+            (match_query, limit),
+        ) as cursor:
+            return await cursor.fetchall()
+
+    def _build_relaxed_fts_queries(self, query: str) -> list[str]:
+        """Build fallback FTS queries for punctuation-heavy comparison prompts."""
+        relaxed_queries: list[str] = []
+        phrase_queries: list[str] = []
+        for match in re.finditer(r"""["']([^"']{3,})["']""", str(query or "")):
+            escaped_phrase = escape_fts_query(tokenize_for_fts(match.group(1)))
+            if escaped_phrase:
+                phrase_queries.append(f'"{escaped_phrase}"')
+        if phrase_queries:
+            deduped = list(dict.fromkeys(phrase_queries))
+            relaxed_queries.append(" OR ".join(deduped))
+        return relaxed_queries
 
     async def backfill_fts(self, *, batch_size: int = 500) -> int:
         """Backfill the FTS5 index from existing fact_events rows.

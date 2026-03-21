@@ -29,6 +29,6 @@ def escape_fts_query(query: str) -> str:
     We strip them to avoid syntax errors.
     """
     # Remove FTS5 special chars that could cause syntax errors
-    cleaned = re.sub(r"[\'’*^?()\"{}[\]|+\-!~@#$%&\\]", " ", query)
+    cleaned = re.sub(r"[\'’*^?()\"{}[\]|+\-!~@#$%&,.;:，。；：、】【、\\/]", " ", query)
     # Collapse multiple spaces
     return re.sub(r"\s+", " ", cleaned).strip()

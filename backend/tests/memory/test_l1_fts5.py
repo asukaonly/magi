@@ -250,6 +250,29 @@ class TestBm25Search:
         assert len(results) > 0
         assert results[0][0] == "evt-py"
 
+    async def test_bm25_search_ignores_comparison_query_punctuation(self, store: L1EventStore) -> None:
+        await store.store(
+            _make_event(
+                event_id="evt-workshop",
+                content="I attended the Effective Time Management workshop at the local community center.",
+            )
+        )
+        await store.store(
+            _make_event(
+                event_id="evt-webinar",
+                content="I participated in the Data Analysis using Python webinar two months ago.",
+            )
+        )
+
+        results = await store.bm25_search(
+            "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
+            limit=10,
+        )
+
+        event_ids = [event_id for event_id, _ in results]
+        assert "evt-workshop" in event_ids
+        assert "evt-webinar" in event_ids
+
     async def test_bm25_search_empty_query(self, store: L1EventStore) -> None:
         await store.store(_make_event(content="some content"))
         results = await store.bm25_search("", limit=10)
