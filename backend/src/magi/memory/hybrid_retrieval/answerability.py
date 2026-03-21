@@ -132,6 +132,23 @@ def extract_quoted_spans(text: str) -> list[str]:
     return quoted
 
 
+def extract_comparison_spans(text: str) -> list[str]:
+    """Extract lightweight unquoted comparison candidates from a query."""
+    spans: list[str] = []
+    query = str(text or "")
+    pattern = re.compile(
+        r"(?:^|[,:;]|\bbetween\b)\s*(?:the\s+)?([a-z][a-z0-9]*(?:\s+[a-z0-9]+){0,3})\s+or\s+"
+        r"(?:the\s+)?([a-z][a-z0-9]*(?:\s+[a-z0-9]+){0,3})(?=$|[?.!,])",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(query):
+        for group in (1, 2):
+            normalized = " ".join(extract_query_tokens(match.group(group)))
+            if normalized and normalized not in spans:
+                spans.append(normalized)
+    return spans
+
+
 def score_eventness(content: str, *, author_type: str) -> float:
     """Score how much a content block looks like a concrete event statement."""
     if author_type != "user":

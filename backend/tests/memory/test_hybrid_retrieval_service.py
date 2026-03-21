@@ -578,6 +578,310 @@ class TestServiceFallback:
         assert result.trace["rule_backstop_triggered"] is True
         assert result.trace["rule_backstop_reason"] == "missing_quoted_coverage"
 
+    @pytest.mark.asyncio
+    async def test_rule_backstop_runs_when_llm_primary_misses_an_unquoted_comparison_candidate(self):
+        mem = _make_memory()
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        llm_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="compare February vehicle care", limit=10),
+            is_fallback=False,
+        )
+        rule_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="bike car February", limit=10),
+            is_fallback=False,
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[llm_plan],
+                source="llm",
+                reasoning="llm broadened the comparison into a generic maintenance query",
+            )
+        )
+        svc._intent_decider._rule_engine.evaluate = MagicMock(
+            return_value=IntentDecision(
+                plans=[rule_plan],
+                source="rule_fallback",
+                reasoning="rule preserves both compared vehicles",
+            )
+        )
+
+        llm_events = [
+            {
+                "event_id": "evt-bike",
+                "session_id": "answer_b535969f_2",
+                "turn_id": "answer_b535969f_2:turn-11",
+                "timestamp": 11.0,
+                "content": "I got my bike repaired back in mid-February.",
+                "author_type": "user",
+            }
+        ]
+        rule_event = {
+            "event_id": "evt-car",
+            "session_id": "answer_b535969f_1",
+            "turn_id": "answer_b535969f_1:turn-1",
+            "timestamp": 1.0,
+            "content": "I washed my current Corolla on Monday, February 27th.",
+            "author_type": "user",
+        }
+
+        async def _execute_plan_side_effect(plan, **kwargs):
+            if plan.conditions.content_query == llm_plan.conditions.content_query:
+                return llm_events
+            if plan.conditions.content_query == rule_plan.conditions.content_query:
+                return [rule_event]
+            raise AssertionError(f"Unexpected query plan: {plan.conditions.content_query}")
+
+        with patch(
+            "magi.memory.hybrid_retrieval.service.execute_plan",
+            new=AsyncMock(side_effect=_execute_plan_side_effect),
+        ):
+            result = await svc.query(
+                _make_request(
+                    query="Which vehicle did I take care of first in February, the bike or the car?"
+                )
+            )
+
+        assert {event["event_id"] for event in result.l1_events} == {"evt-bike", "evt-car"}
+        assert result.trace["rule_backstop_triggered"] is True
+        assert result.trace["rule_backstop_reason"] == "missing_comparison_coverage"
+
+    @pytest.mark.asyncio
+    async def test_rule_backstop_runs_when_unquoted_comparison_spans_only_appear_in_one_noisy_event(self):
+        mem = _make_memory()
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        llm_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="vehicle care order in February", limit=10),
+            is_fallback=False,
+        )
+        rule_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="bike car February maintenance", limit=10),
+            is_fallback=False,
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[llm_plan],
+                source="llm",
+                reasoning="llm found one semantically related event that mentions both vehicles",
+            )
+        )
+        svc._intent_decider._rule_engine.evaluate = MagicMock(
+            return_value=IntentDecision(
+                plans=[rule_plan],
+                source="rule_fallback",
+                reasoning="rule broadens search to recover separate vehicle events",
+            )
+        )
+
+        llm_events = [
+            {
+                "event_id": "evt-mixed",
+                "session_id": "answer_b535969f_1",
+                "turn_id": "answer_b535969f_1:turn-9",
+                "timestamp": 21.0,
+                "content": (
+                    "I recently had to take my bike in for repairs, and it made me realize how much "
+                    "I rely on my car for daily errands."
+                ),
+                "author_type": "user",
+            }
+        ]
+        rule_events = [
+            {
+                "event_id": "evt-bike",
+                "session_id": "answer_b535969f_2",
+                "turn_id": "answer_b535969f_2:turn-11",
+                "timestamp": 11.0,
+                "content": "I got my bike repaired back in mid-February.",
+                "author_type": "user",
+            },
+            {
+                "event_id": "evt-car",
+                "session_id": "answer_b535969f_1",
+                "turn_id": "answer_b535969f_1:turn-1",
+                "timestamp": 1.0,
+                "content": "I washed my current Corolla on Monday, February 27th.",
+                "author_type": "user",
+            },
+        ]
+
+        async def _execute_plan_side_effect(plan, **kwargs):
+            if plan.conditions.content_query == llm_plan.conditions.content_query:
+                return llm_events
+            if plan.conditions.content_query == rule_plan.conditions.content_query:
+                return rule_events
+            raise AssertionError(f"Unexpected query plan: {plan.conditions.content_query}")
+
+        with patch(
+            "magi.memory.hybrid_retrieval.service.execute_plan",
+            new=AsyncMock(side_effect=_execute_plan_side_effect),
+        ):
+            result = await svc.query(
+                _make_request(
+                    query="Which vehicle did I take care of first in February, the bike or the car?"
+                )
+            )
+
+        assert {event["event_id"] for event in result.l1_events} == {"evt-mixed", "evt-bike", "evt-car"}
+        assert result.trace["rule_backstop_triggered"] is True
+        assert result.trace["rule_backstop_reason"] == "missing_comparison_coverage"
+
+    @pytest.mark.asyncio
+    async def test_comparison_backstop_runs_candidate_queries_when_rule_backstop_still_misses_coverage(self):
+        mem = _make_memory()
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        llm_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="vehicle care order in February", limit=10),
+            is_fallback=False,
+        )
+        rule_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="Which vehicle did I take care of first in February, the bike or the car?", limit=10),
+            is_fallback=False,
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[llm_plan],
+                source="llm",
+                reasoning="llm found one related comparison event",
+            )
+        )
+        svc._intent_decider._rule_engine.evaluate = MagicMock(
+            return_value=IntentDecision(
+                plans=[rule_plan],
+                source="rule_fallback",
+                reasoning="rule retries the original query",
+            )
+        )
+
+        mixed_event = {
+            "event_id": "evt-mixed",
+            "session_id": "answer_b535969f_1",
+            "turn_id": "answer_b535969f_1:turn-9",
+            "timestamp": 21.0,
+            "content": "I recently had to take my bike in for repairs, and it made me realize how much I rely on my car.",
+            "author_type": "user",
+        }
+        car_event = {
+            "event_id": "evt-car",
+            "session_id": "answer_b535969f_1",
+            "turn_id": "answer_b535969f_1:turn-1",
+            "timestamp": 1.0,
+            "content": "I washed my current Corolla on Monday, February 27th.",
+            "author_type": "user",
+        }
+
+        async def _execute_plan_side_effect(plan, **kwargs):
+            query = plan.conditions.content_query
+            if query == llm_plan.conditions.content_query:
+                return [mixed_event]
+            if query == rule_plan.conditions.content_query:
+                return [mixed_event]
+            if query == "bike february":
+                return []
+            if query == "car february":
+                return [car_event]
+            raise AssertionError(f"Unexpected query plan: {query}")
+
+        with patch(
+            "magi.memory.hybrid_retrieval.service.execute_plan",
+            new=AsyncMock(side_effect=_execute_plan_side_effect),
+        ):
+            result = await svc.query(
+                _make_request(
+                    query="Which vehicle did I take care of first in February, the bike or the car?"
+                )
+        )
+
+        assert {event["event_id"] for event in result.l1_events} == {"evt-mixed", "evt-car"}
+        assert result.trace["comparison_backstop_triggered"] is True
+        assert result.trace["comparison_backstop_count"] == 3
+
+    def test_rule_backstop_requires_temporal_anchor_for_unquoted_comparison_coverage(self):
+        payload = RetrievalPayload(
+            l1_events=[
+                {
+                    "event_id": "evt-mixed",
+                    "content": "I recently had to take my bike in for repairs, and it made me realize how much I rely on my car.",
+                    "author_type": "user",
+                },
+                {
+                    "event_id": "evt-bike-followup",
+                    "content": "I'm glad to hear that your bike is running smoothly again!",
+                    "author_type": "assistant",
+                },
+            ]
+        )
+
+        reason = HybridRetrievalService._rule_backstop_reason(
+            query="Which vehicle did I take care of first in February, the bike or the car?",
+            payload=payload,
+            decision_source="llm",
+        )
+
+        assert reason == "missing_comparison_coverage"
+
+    @pytest.mark.asyncio
+    async def test_comparison_backstop_runs_for_rule_fallback_when_primary_is_empty(self):
+        mem = _make_memory()
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        rule_plan = LayerQueryPlan(
+            layer="L1",
+            conditions=L1Conditions(content_query="Which vehicle did I take care of first in February, the bike or the car?", limit=10),
+            is_fallback=False,
+        )
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                plans=[rule_plan],
+                source="rule_fallback",
+                reasoning="rule routed directly to L1",
+            )
+        )
+
+        bike_event = {
+            "event_id": "evt-bike",
+            "session_id": "answer_b535969f_2",
+            "turn_id": "answer_b535969f_2:turn-11",
+            "timestamp": 11.0,
+            "content": "I got my bike repaired back in mid-February.",
+            "author_type": "user",
+        }
+        car_event = {
+            "event_id": "evt-car",
+            "session_id": "answer_b535969f_1",
+            "turn_id": "answer_b535969f_1:turn-1",
+            "timestamp": 1.0,
+            "content": "I washed my current Corolla on Monday, February 27th.",
+            "author_type": "user",
+        }
+
+        async def _execute_plan_side_effect(plan, **kwargs):
+            query = plan.conditions.content_query
+            if query == rule_plan.conditions.content_query:
+                return []
+            if query == "bike february":
+                return [bike_event]
+            if query == "car february":
+                return [car_event]
+            raise AssertionError(f"Unexpected query plan: {query}")
+
+        with patch(
+            "magi.memory.hybrid_retrieval.service.execute_plan",
+            new=AsyncMock(side_effect=_execute_plan_side_effect),
+        ):
+            result = await svc.query(
+                _make_request(
+                    query="Which vehicle did I take care of first in February, the bike or the car?"
+                )
+            )
+
+        assert {event["event_id"] for event in result.l1_events} == {"evt-bike", "evt-car"}
+        assert result.trace["comparison_backstop_triggered"] is True
+
 
 class TestServiceTrace:
     @pytest.mark.asyncio

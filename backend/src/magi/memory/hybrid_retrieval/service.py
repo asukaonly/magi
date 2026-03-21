@@ -7,11 +7,13 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from .answerability import extract_query_tokens, extract_quoted_spans
+from .answerability import extract_comparison_spans, extract_query_tokens, extract_quoted_spans, score_temporal_anchor
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler, execute_plan
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
 from .models import (
     IntentDeciderInput,
+    L1Conditions,
+    LayerQueryPlan,
     RetrievalConfig,
     RetrievalPayload,
     RetrievalQuery,
@@ -150,6 +152,46 @@ class HybridRetrievalService:
                 payload.trace["rule_backstop_reason"] = backstop_reason
                 payload.trace["rule_backstop_count"] = primary_count
 
+        comparison_backstop_queries = self._comparison_backstop_queries(
+            query=request.query,
+            payload=payload,
+            decision_source=decision.source,
+        )
+        if comparison_backstop_queries:
+            comparison_plans = [
+                LayerQueryPlan(
+                    layer="L1",
+                    conditions=L1Conditions(
+                        content_query=content_query,
+                        source_filters=request.source_filters or None,
+                        domain_filters=request.domain_filters or None,
+                        limit=10,
+                    ),
+                    is_fallback=False,
+                )
+                for content_query in comparison_backstop_queries
+            ]
+            comparison_results = await asyncio.gather(
+                *[
+                    execute_plan(
+                        plan,
+                        l1=self._l1, l2=self._l2, l3=self._l3, l4=self._l4,
+                        session_id=request.session_id,
+                        user_id=request.user_id,
+                    )
+                    for plan in comparison_plans
+                ],
+                return_exceptions=True,
+            )
+            for plan, result in zip(comparison_plans, comparison_results):
+                if isinstance(result, Exception):
+                    logger.warning("Comparison backstop plan %s failed: %s", plan.layer, result)
+                    continue
+                self._merge_result(payload, plan.layer, result)
+            primary_count = self._count_results(payload)
+            payload.trace["comparison_backstop_triggered"] = True
+            payload.trace["comparison_backstop_count"] = primary_count
+
         payload.trace["primary_count"] = primary_count
 
         if primary_count < self._config.fallback_trigger_threshold:
@@ -266,20 +308,80 @@ class HybridRetrievalService:
         if HybridRetrievalService._count_results(payload) == 0:
             return "empty_primary"
 
-        quoted_spans = extract_quoted_spans(query)
-        if not quoted_spans:
+        coverage_spans = extract_quoted_spans(query)
+        missing_reason = "missing_quoted_coverage"
+        if not coverage_spans:
+            coverage_spans = extract_comparison_spans(query)
+            missing_reason = "missing_comparison_coverage"
+        if not coverage_spans:
             return None
 
         normalized_events = [
-            " ".join(extract_query_tokens(str(event.get("content") or "")))
+            {
+                "event_id": str(event.get("event_id") or ""),
+                "content": " ".join(extract_query_tokens(str(event.get("content") or ""))),
+                "raw_content": str(event.get("content") or ""),
+            }
             for event in payload.l1_events
         ]
         if not normalized_events:
-            return "missing_quoted_coverage"
+            return missing_reason
 
-        if any(not any(span in content for content in normalized_events) for span in quoted_spans):
-            return "missing_quoted_coverage"
+        span_matches = {
+            span: {
+                event["event_id"] or f"idx:{index}"
+                for index, event in enumerate(normalized_events)
+                if span in event["content"]
+            }
+            for span in coverage_spans
+        }
+        if any(not matched_event_ids for matched_event_ids in span_matches.values()):
+            return missing_reason
+        if missing_reason == "missing_comparison_coverage":
+            anchored_span_matches = {
+                span: {
+                    event["event_id"] or f"idx:{index}"
+                    for index, event in enumerate(normalized_events)
+                    if span in event["content"] and score_temporal_anchor(event["raw_content"]) > 0.0
+                }
+                for span in coverage_spans
+            }
+            if any(not matched_event_ids for matched_event_ids in anchored_span_matches.values()):
+                return missing_reason
+            distinct_match_count = len({event_id for matched_event_ids in anchored_span_matches.values() for event_id in matched_event_ids})
+            if distinct_match_count < len(coverage_spans):
+                return missing_reason
         return None
+
+    @staticmethod
+    def _comparison_backstop_queries(
+        *,
+        query: str,
+        payload: RetrievalPayload,
+        decision_source: str,
+    ) -> list[str]:
+        comparison_spans = extract_comparison_spans(query)
+        if not comparison_spans:
+            return []
+        if HybridRetrievalService._count_results(payload) > 0 and HybridRetrievalService._rule_backstop_reason(
+            query=query,
+            payload=payload,
+            decision_source=decision_source,
+        ) != "missing_comparison_coverage":
+            return []
+
+        temporal_tokens = [
+            token
+            for token in extract_query_tokens(query)
+            if token in {"january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"}
+        ]
+        temporal_suffix = " ".join(dict.fromkeys(temporal_tokens))
+        queries: list[str] = []
+        for span in comparison_spans:
+            candidate_query = " ".join(part for part in (span, temporal_suffix) if part).strip()
+            if candidate_query and candidate_query not in queries:
+                queries.append(candidate_query)
+        return queries
 
     async def _build_l1_evidence_bundles(
         self,
