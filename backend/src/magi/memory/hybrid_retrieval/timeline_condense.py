@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from .answerability import (
+    extract_temporal_distance_queries,
     extract_query_phrases,
     extract_query_tokens,
     extract_quoted_spans,
@@ -28,6 +29,7 @@ def build_timeline_summary(
     query_tokens = extract_query_tokens(question)
     query_phrases = extract_query_phrases(query_tokens)
     quoted_spans = extract_quoted_spans(question)
+    temporal_anchor_queries = extract_temporal_distance_queries(question)
 
     selected: list[dict[str, Any]] = []
     seen_event_ids: set[str] = set()
@@ -51,6 +53,34 @@ def build_timeline_summary(
                     best_score = score
                     best_match = event
         if best_match is not None:
+            selected.append(best_match)
+            seen_event_ids.add(str(best_match.get("event_id") or ""))
+            represented_sessions.add(str(best_match.get("session_id") or "").strip())
+
+    # Preserve one best event per temporal-distance anchor so "when X happened"
+    # questions keep both sides of the time comparison instead of duplicate hits.
+    for anchor_query in temporal_anchor_queries:
+        anchor_tokens = extract_query_tokens(anchor_query)
+        anchor_phrases = extract_query_phrases(anchor_tokens)
+        if not anchor_tokens:
+            continue
+        best_match = None
+        best_score = float("-inf")
+        for bundle in evidence_bundles:
+            for event in bundle.get("events") or []:
+                event_id = str(event.get("event_id") or "")
+                if not event_id or event_id in seen_event_ids:
+                    continue
+                score = _score_event(
+                    event,
+                    query_tokens=anchor_tokens,
+                    query_phrases=anchor_phrases,
+                    quoted_spans=[],
+                )
+                if score > best_score:
+                    best_score = score
+                    best_match = event
+        if best_match is not None and best_score > 0:
             selected.append(best_match)
             seen_event_ids.add(str(best_match.get("event_id") or ""))
             represented_sessions.add(str(best_match.get("session_id") or "").strip())
