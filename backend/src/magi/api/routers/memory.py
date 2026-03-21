@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import date
 import re
 import time
 from typing import Any, Dict, List, Literal, Optional
@@ -24,6 +25,7 @@ from ...memory.eval_support.reader import EvalMemoryReader
 from ...memory.eval_support.writer import EvalMemoryWriter
 from ...memory.event_contracts import MemoryEvent
 from ...memory.hybrid_retrieval import build_query
+from ...memory.hybrid_retrieval.answerability import extract_query_tokens, extract_temporal_distance_queries
 from ...memory.l2.models import ManualL2EventRequest
 
 logger = get_logger(__name__)
@@ -252,6 +254,94 @@ def _normalize_eval_answer(raw_answer: str) -> str:
     return normalized.strip() or "unknown"
 
 
+_MONTH_NAMES = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+
+
+def _extract_explicit_calendar_date(text: str) -> date | None:
+    content = str(text or "").strip()
+    if not content:
+        return None
+
+    month_name_match = re.search(
+        r"\b(?P<month>january|february|march|april|may|june|july|august|september|october|november|december)\s+"
+        r"(?P<day>\d{1,2})(?:st|nd|rd|th)?\b",
+        content,
+        flags=re.IGNORECASE,
+    )
+    if month_name_match:
+        month = _MONTH_NAMES[str(month_name_match.group("month") or "").lower()]
+        day = int(month_name_match.group("day"))
+        return date(2000, month, day)
+
+    numeric_match = re.search(r"\b(?P<month>\d{1,2})[/-](?P<day>\d{1,2})\b", content)
+    if numeric_match:
+        return date(2000, int(numeric_match.group("month")), int(numeric_match.group("day")))
+    return None
+
+
+def _resolve_temporal_distance_answer(
+    *,
+    question: str,
+    timeline_summary: list[dict[str, Any]] | None,
+) -> str | None:
+    lowered = str(question or "").lower()
+    if "how many days before" not in lowered and "how many days after" not in lowered:
+        return None
+    anchor_queries = extract_temporal_distance_queries(question)
+    if len(anchor_queries) < 2 or not timeline_summary:
+        return None
+
+    chosen_dates: list[date] = []
+    used_turn_ids: set[str] = set()
+    for anchor_query in anchor_queries[:2]:
+        anchor_tokens = set(extract_query_tokens(anchor_query))
+        if not anchor_tokens:
+            return None
+        best_item: dict[str, Any] | None = None
+        best_score = 0.0
+        for item in timeline_summary:
+            turn_id = str(item.get("turn_id") or "")
+            if turn_id in used_turn_ids:
+                continue
+            summary = str(item.get("summary") or "").strip()
+            parsed_date = _extract_explicit_calendar_date(summary)
+            if parsed_date is None:
+                continue
+            summary_tokens = set(extract_query_tokens(summary))
+            overlap = len(anchor_tokens & summary_tokens)
+            if overlap <= 0:
+                continue
+            score = overlap / max(len(anchor_tokens), 1)
+            if score > best_score:
+                best_score = score
+                best_item = item
+        if best_item is None:
+            return None
+        used_turn_ids.add(str(best_item.get("turn_id") or ""))
+        chosen_date = _extract_explicit_calendar_date(str(best_item.get("summary") or ""))
+        if chosen_date is None:
+            return None
+        chosen_dates.append(chosen_date)
+
+    if len(chosen_dates) != 2:
+        return None
+    delta_days = abs((chosen_dates[1] - chosen_dates[0]).days)
+    return f"{delta_days} days"
+
+
 async def _synthesize_eval_answer(
     *,
     question: str,
@@ -260,6 +350,19 @@ async def _synthesize_eval_answer(
     timeline_summary: list[dict[str, Any]] | None = None,
     show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
+    deterministic_temporal_distance = _resolve_temporal_distance_answer(
+        question=question,
+        timeline_summary=timeline_summary,
+    )
+    if deterministic_temporal_distance is not None:
+        answer_trace = {
+            "answer_source": "deterministic_temporal_distance",
+            "evidence_hit_count": len(hits),
+            "evidence_bundle_count": len(evidence_bundles or []),
+            "evidence_timeline_count": len(timeline_summary or []),
+        }
+        return deterministic_temporal_distance, answer_trace
+
     llm_pool = _resolve_scenario_llm_pool()
     if llm_pool is None:
         raise HTTPException(
