@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .answerability import (
@@ -123,9 +124,14 @@ def _summarize_event(
     quoted_spans: list[str],
 ) -> dict[str, Any]:
     content = " ".join(str(event.get("content") or "").split())
-    truncated = content[:220].rstrip()
-    if len(content) > 220:
-        truncated = f"{truncated}..."
+    author_type = str(event.get("author_type") or "").strip().lower()
+    truncated = _select_summary_text(
+        content,
+        author_type=author_type,
+        query_phrases=query_phrases,
+        quoted_spans=quoted_spans,
+        max_chars=220,
+    )
 
     reason_codes: list[str] = []
     normalized = " ".join(extract_query_tokens(content))
@@ -133,7 +139,7 @@ def _summarize_event(
         reason_codes.append("quoted_span_match")
     if any(phrase and phrase in content.lower() for phrase in query_phrases):
         reason_codes.append("phrase_match")
-    if score_eventness(content, author_type=str(event.get("author_type") or "").strip().lower()) > 0:
+    if score_eventness(content, author_type=author_type) > 0:
         reason_codes.append("event_statement")
     if score_temporal_anchor(content) > 0:
         reason_codes.append("temporal_anchor")
@@ -147,3 +153,78 @@ def _summarize_event(
         "supporting_event_ids": [str(event.get("event_id") or "")],
         "reason_codes": reason_codes,
     }
+
+
+def _select_summary_text(
+    content: str,
+    *,
+    author_type: str,
+    query_phrases: list[str],
+    quoted_spans: list[str],
+    max_chars: int,
+) -> str:
+    segments = [segment.strip() for segment in re.split(r"(?<=[.!?。！？])\s+", content) if segment.strip()]
+    best_segment = content
+    best_score = float("-inf")
+
+    for segment in segments or [content]:
+        lowered = segment.lower()
+        normalized = " ".join(extract_query_tokens(segment))
+        score = (
+            min(sum(1 for phrase in query_phrases if phrase and phrase in lowered), 4) * 0.15
+            + min(sum(1 for phrase in quoted_spans if phrase and phrase in normalized), 2) * 0.45
+            + score_eventness(segment, author_type=author_type)
+            + score_temporal_anchor(segment)
+        )
+        if score > best_score:
+            best_score = score
+            best_segment = segment
+
+    if len(best_segment) <= max_chars:
+        return best_segment
+
+    return _truncate_around_salient_anchor(best_segment, quoted_spans=quoted_spans, max_chars=max_chars)
+
+
+def _truncate_around_salient_anchor(content: str, *, quoted_spans: list[str], max_chars: int) -> str:
+    anchor_index = _find_salient_anchor_index(content, quoted_spans=quoted_spans)
+    if anchor_index is None:
+        truncated = content[:max_chars].rstrip()
+        return f"{truncated}..." if len(content) > max_chars else truncated
+
+    half_window = max(max_chars // 2, 40)
+    start = max(anchor_index - half_window, 0)
+    end = min(start + max_chars, len(content))
+    start = max(end - max_chars, 0)
+    snippet = content[start:end].strip()
+    if start > 0:
+        snippet = f"...{snippet.lstrip()}"
+    if end < len(content):
+        snippet = f"{snippet.rstrip()}..."
+    return snippet
+
+
+def _find_salient_anchor_index(content: str, *, quoted_spans: list[str]) -> int | None:
+    normalized = " ".join(extract_query_tokens(content))
+    for phrase in quoted_spans:
+        if not phrase:
+            continue
+        collapsed = phrase.replace(" ", r"\s+")
+        match = re.search(collapsed, content, flags=re.IGNORECASE)
+        if match:
+            return match.start()
+        if phrase in normalized:
+            raw_tokens = extract_query_tokens(content)
+            prefix = " ".join(raw_tokens)
+            raw_index = prefix.find(phrase)
+            if raw_index >= 0:
+                return min(raw_index, len(content) - 1)
+
+    temporal_match = re.search(
+        r"\b(last|yesterday|today|tomorrow|ago|week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        content,
+        flags=re.IGNORECASE,
+    )
+    if temporal_match:
+        return temporal_match.start()
+    return None
