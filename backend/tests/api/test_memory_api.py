@@ -822,9 +822,13 @@ def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypat
     class _FakeLLMAdapter:
         async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
             _ = (max_tokens, temperature, kwargs)
+            assert messages[0]["role"] == "system"
+            assert "retrieved memory evidence only" in messages[0]["content"]
             prompt = messages[-1]["content"]
             assert "Answer from the Timeline Summary first for temporal or comparison questions." in prompt
             assert noisy_assistant_text not in prompt
+            assert "t=11.0" not in prompt
+            assert "t=15.0" not in prompt
             return '"Data Analysis using Python" webinar'
 
     class _FakeLLMPool:
@@ -851,6 +855,67 @@ def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypat
     assert response.status_code == 200
     body = response.json()
     assert body["answer"] == '"Data Analysis using Python" webinar'
+
+
+def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    log_calls: list[tuple[str, dict]] = []
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-1",
+                        "session_id": "sess-2",
+                        "content": "Actually sushi is my favorite.",
+                        "score": 0.99,
+                        "turn_id": "sess-2:turn-1",
+                    }
+                ],
+                trace={"intent_source": "rule"},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            _ = (max_tokens, temperature, kwargs)
+            assert messages[0]["role"] == "system"
+            assert messages[1]["role"] == "user"
+            return "Sushi"
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    def fake_log(message, **kwargs):
+        log_calls.append((message, kwargs))
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "What food do I prefer?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+        },
+    )
+
+    assert response.status_code == 200
+    synthesis_log = next(kwargs for message, kwargs in log_calls if message == "Eval query answer synthesis started")
+    logged_messages = synthesis_log["llm_messages"]
+    assert "==== SYSTEM MESSAGE ====" in logged_messages
+    assert "==== USER MESSAGE ====" in logged_messages
+    assert "retrieved memory evidence only" in logged_messages
+    assert "What food do I prefer?" in logged_messages
 
 
 def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):

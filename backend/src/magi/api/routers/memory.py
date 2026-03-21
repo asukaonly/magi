@@ -199,6 +199,7 @@ async def _synthesize_eval_answer(
 
     evidence_text = "\n\n".join(evidence_blocks) if evidence_blocks else "(no evidence retrieved)"
     timeline_blocks: list[str] = []
+    prioritize_timeline = _should_prioritize_timeline(question, timeline_summary)
     for index, item in enumerate(timeline_summary or [], start=1):
         timestamp = item.get("timestamp")
         session_id = str(item.get("session_id") or "").strip() or "unknown-session"
@@ -207,11 +208,15 @@ async def _synthesize_eval_answer(
         summary = str(item.get("summary") or "").strip()
         if not summary:
             continue
-        timeline_blocks.append(
-            f"[{index}] t={timestamp} session={session_id} role={author_type} turn={turn_id}\n{summary}"
-        )
+        if prioritize_timeline:
+            timeline_blocks.append(
+                f"[{index}] session={session_id} role={author_type} turn={turn_id}\n{summary}"
+            )
+        else:
+            timeline_blocks.append(
+                f"[{index}] t={timestamp} session={session_id} role={author_type} turn={turn_id}\n{summary}"
+            )
     timeline_text = "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
-    prioritize_timeline = _should_prioritize_timeline(question, timeline_summary)
     bundle_blocks: list[str] = []
     if prioritize_timeline:
         bundle_text = "(omitted for temporal comparison; use the timeline summary first and consult raw evidence only if needed)"
@@ -232,12 +237,10 @@ async def _synthesize_eval_answer(
                 )
             bundle_blocks.append("\n".join(lines))
         bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
-    logger.info(
-        "Eval query answer synthesis started",
-        question=question,
-        evidence_hit_count=len(hits),
-        evidence_bundle_count=len(evidence_bundles or []),
-        evidence_preview=evidence_text[:800],
+    system_prompt = (
+        "You are answering a benchmark question using retrieved memory evidence only.\n"
+        "Return a concise final answer to the question.\n"
+        "If the evidence is insufficient, answer exactly: unknown"
     )
     timeline_instruction = ""
     if prioritize_timeline:
@@ -245,10 +248,7 @@ async def _synthesize_eval_answer(
             "Answer from the Timeline Summary first for temporal or comparison questions.\n"
             "Use Session Evidence Bundles or Retrieved Evidence only if the timeline summary is ambiguous.\n\n"
         )
-    prompt = (
-        "You are answering a benchmark question using retrieved memory evidence only.\n"
-        "Return a concise final answer to the question.\n"
-        "If the evidence is insufficient, answer exactly: unknown\n\n"
+    user_prompt = (
         "Use relative time expressions in the evidence when comparing event order.\n"
         "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n\n"
         f"{timeline_instruction}"
@@ -257,8 +257,26 @@ async def _synthesize_eval_answer(
         f"Session Evidence Bundles:\n{bundle_text}\n\n"
         f"Retrieved Evidence:\n{evidence_text}\n"
     )
+    llm_messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    logger.info(
+        "Eval query answer synthesis started",
+        question=question,
+        evidence_hit_count=len(hits),
+        evidence_bundle_count=len(evidence_bundles or []),
+        evidence_preview=evidence_text[:800],
+        llm_messages=(
+            "==== SYSTEM MESSAGE ====\n"
+            f"{system_prompt}\n"
+            "==== USER MESSAGE ====\n"
+            f"{user_prompt}\n"
+            "==== END ANSWER LLM INPUT ===="
+        ),
+    )
     answer = await adapter.chat(
-        [{"role": "user", "content": prompt}],
+        llm_messages,
         max_tokens=128,
         temperature=0.0,
     )
@@ -277,7 +295,7 @@ async def _synthesize_eval_answer(
         "evidence_timeline_count": len(timeline_summary or []),
     }
     if show_prompt:
-        answer_trace["prompt"] = prompt
+        answer_trace["prompt"] = user_prompt
     return normalized_answer, answer_trace
 
 
