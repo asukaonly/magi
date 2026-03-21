@@ -513,6 +513,107 @@ def test_memory_eval_query_api_uses_evidence_bundles_for_answer_synthesis(monkey
     assert "Session Evidence Bundles" in body["answer_trace"]["prompt"]
 
 
+def test_memory_eval_query_api_uses_timeline_summary_for_answer_synthesis(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeHybridRetrievalService:
+        async def query(self, request):
+            _ = request
+            return SimpleNamespace(
+                l1_events=[
+                    {
+                        "event_id": "evt-issue",
+                        "session_id": "sess-car",
+                        "content": "After the first service, the GPS system stopped working correctly.",
+                        "score": 0.9,
+                        "turn_id": "sess-car:turn-3",
+                    }
+                ],
+                l1_evidence_bundles=[
+                    {
+                        "session_id": "sess-car",
+                        "hit_event_ids": ["evt-issue"],
+                        "hit_turn_ids": ["sess-car:turn-3"],
+                        "neighbor_expansion_applied": True,
+                        "events": [
+                            {
+                                "event_id": "evt-service",
+                                "turn_id": "sess-service:turn-1",
+                                "timestamp": 1.0,
+                                "author_type": "user",
+                                "content": "I got my new car serviced for the first time on March 15th.",
+                            },
+                            {
+                                "event_id": "evt-issue",
+                                "turn_id": "sess-car:turn-3",
+                                "timestamp": 3.0,
+                                "author_type": "user",
+                                "content": "After the first service, the GPS system stopped working correctly.",
+                            },
+                        ],
+                    }
+                ],
+                l1_timeline_summary=[
+                    {
+                        "timestamp": 1.0,
+                        "session_id": "sess-service",
+                        "turn_id": "sess-service:turn-1",
+                        "author_type": "user",
+                        "summary": "First service completed for the new car.",
+                        "supporting_event_ids": ["evt-service"],
+                        "reason_codes": ["temporal_anchor"],
+                    },
+                    {
+                        "timestamp": 3.0,
+                        "session_id": "sess-car",
+                        "turn_id": "sess-car:turn-3",
+                        "author_type": "user",
+                        "summary": "GPS system stopped working correctly after the first service.",
+                        "supporting_event_ids": ["evt-issue"],
+                        "reason_codes": ["event_statement", "quoted_phrase_hit"],
+                    },
+                ],
+                trace={"intent_source": "rule", "l1_timeline_summary_count": 2},
+            )
+
+    class _FakeLLMAdapter:
+        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
+            _ = (max_tokens, temperature, kwargs)
+            prompt = messages[-1]["content"]
+            assert "Timeline Summary" in prompt
+            assert "First service completed for the new car." in prompt
+            assert "GPS system stopped working correctly after the first service." in prompt
+            return "GPS system not functioning correctly"
+
+    class _FakeLLMPool:
+        def get(self, scenario):
+            _ = scenario
+            return _FakeLLMAdapter()
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/eval/query",
+        json={
+            "namespace": "benchmark/longmemeval/run-1/q-1",
+            "query": "What was the first issue I had with my new car after its first service?",
+            "top_k": 10,
+            "mode": "auto",
+            "answer_with_llm": True,
+            "show_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "GPS system not functioning correctly"
+    assert body["answer_trace"]["evidence_timeline_count"] == 2
+    assert "Timeline Summary" in body["answer_trace"]["prompt"]
+
+
 def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

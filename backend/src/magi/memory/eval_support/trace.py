@@ -34,6 +34,7 @@ def build_eval_query_result(payload: Any) -> EvalMemoryQueryResult:
     return EvalMemoryQueryResult(
         hits=build_eval_hits_from_payload(payload),
         evidence_bundles=[dict(bundle) for bundle in (getattr(payload, "l1_evidence_bundles", []) or [])],
+        timeline_summary=[dict(item) for item in (getattr(payload, "l1_timeline_summary", []) or [])],
         trace=trace,
     )
 

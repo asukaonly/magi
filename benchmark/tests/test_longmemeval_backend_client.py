@@ -89,6 +89,17 @@ def test_backend_client_restores_query_results_from_eval_endpoint() -> None:
                     "neighbor_expansion_applied": False,
                 }
             ],
+            "timeline_summary": [
+                {
+                    "timestamp": 1.0,
+                    "session_id": "sess-2",
+                    "turn_id": "sess-2:turn-1",
+                    "author_type": "user",
+                    "summary": "Actually sushi is my favorite.",
+                    "supporting_event_ids": ["evt-1"],
+                    "reason_codes": ["event_statement"],
+                }
+            ],
             "answer": "Sushi",
             "answer_trace": {"answer_source": "llm"},
             "trace": {"intent_source": "rule"},
@@ -114,6 +125,7 @@ def test_backend_client_restores_query_results_from_eval_endpoint() -> None:
     assert result.answer_trace["answer_source"] == "llm"
     assert result.trace["intent_source"] == "rule"
     assert result.evidence_bundles[0]["session_id"] == "sess-2"
+    assert result.timeline_summary[0]["summary"] == "Actually sushi is my favorite."
 
 
 def test_backend_client_posts_finalize_replay_request() -> None:

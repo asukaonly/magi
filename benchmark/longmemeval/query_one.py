@@ -73,6 +73,7 @@ async def build_single_query_payload(
         "answer": query_result.answer,
         "hits": [asdict(hit) for hit in query_result.hits],
         "evidence_bundles": query_result.evidence_bundles,
+        "timeline_summary": query_result.timeline_summary,
         "retrieved_session_ids": query_result.retrieved_session_ids,
         "retrieved_turn_ids": query_result.retrieved_turn_ids,
         "retrieved_event_ids": query_result.retrieved_event_ids,

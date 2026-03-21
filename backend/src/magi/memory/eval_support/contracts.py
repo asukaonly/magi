@@ -50,6 +50,7 @@ class EvalMemoryQueryResult:
 
     hits: list[EvalMemoryHit] = field(default_factory=list)
     evidence_bundles: list[dict[str, Any]] = field(default_factory=list)
+    timeline_summary: list[dict[str, Any]] = field(default_factory=list)
     trace: dict[str, Any] = field(default_factory=dict)
     answer: str | None = None
     answer_trace: dict[str, Any] = field(default_factory=dict)

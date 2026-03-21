@@ -43,6 +43,7 @@ class BackendEvalService:
         return EvalMemoryQueryResult(
             hits=hits,
             evidence_bundles=[dict(item) for item in response.get("evidence_bundles") or []],
+            timeline_summary=[dict(item) for item in response.get("timeline_summary") or []],
             trace=dict(response.get("trace") or {}),
             answer=_normalize_optional_text(response.get("answer")),
             answer_trace=dict(response.get("answer_trace") or {}),

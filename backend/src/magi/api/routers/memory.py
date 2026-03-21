@@ -159,6 +159,7 @@ async def _synthesize_eval_answer(
     question: str,
     hits: list[dict[str, Any]],
     evidence_bundles: list[dict[str, Any]] | None = None,
+    timeline_summary: list[dict[str, Any]] | None = None,
     show_prompt: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     llm_pool = _resolve_scenario_llm_pool()
@@ -179,6 +180,19 @@ async def _synthesize_eval_answer(
         evidence_blocks.append(f"[{index}] session={session_id} turn={turn_id}\n{content}")
 
     evidence_text = "\n\n".join(evidence_blocks) if evidence_blocks else "(no evidence retrieved)"
+    timeline_blocks: list[str] = []
+    for index, item in enumerate(timeline_summary or [], start=1):
+        timestamp = item.get("timestamp")
+        session_id = str(item.get("session_id") or "").strip() or "unknown-session"
+        turn_id = str(item.get("turn_id") or "").strip() or "unknown-turn"
+        author_type = str(item.get("author_type") or "unknown").strip() or "unknown"
+        summary = str(item.get("summary") or "").strip()
+        if not summary:
+            continue
+        timeline_blocks.append(
+            f"[{index}] t={timestamp} session={session_id} role={author_type} turn={turn_id}\n{summary}"
+        )
+    timeline_text = "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
     bundle_blocks: list[str] = []
     for bundle_index, bundle in enumerate(evidence_bundles or [], start=1):
         session_id = str(bundle.get("session_id") or "").strip() or "unknown-session"
@@ -208,6 +222,7 @@ async def _synthesize_eval_answer(
         "Return a concise final answer to the question.\n"
         "If the evidence is insufficient, answer exactly: unknown\n\n"
         f"Question:\n{question}\n\n"
+        f"Timeline Summary:\n{timeline_text}\n\n"
         f"Session Evidence Bundles:\n{bundle_text}\n\n"
         f"Retrieved Evidence:\n{evidence_text}\n"
     )
@@ -228,6 +243,7 @@ async def _synthesize_eval_answer(
         "llm_scenario": LLMScenario.CORE.value,
         "evidence_hit_count": len(hits),
         "evidence_bundle_count": len(evidence_bundles or []),
+        "evidence_timeline_count": len(timeline_summary or []),
     }
     if show_prompt:
         answer_trace["prompt"] = prompt
@@ -639,6 +655,7 @@ async def query_eval_memory(body: EvalQueryRequest):
             question=body.query,
             hits=[asdict(hit) for hit in result.hits],
             evidence_bundles=list(result.evidence_bundles),
+            timeline_summary=list(result.timeline_summary),
             show_prompt=body.show_prompt,
         )
         result.answer = answer
