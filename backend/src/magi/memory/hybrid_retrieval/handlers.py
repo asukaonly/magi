@@ -11,6 +11,14 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .answerability import (
+    extract_query_phrases,
+    extract_query_tokens,
+    extract_quoted_spans,
+    score_eventness,
+    score_generic_guidance_penalty,
+    score_temporal_anchor,
+)
 from .models import (
     L1Conditions,
     L2Conditions,
@@ -22,52 +30,6 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
-
-_RERANK_STOP_WORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "but",
-    "by",
-    "did",
-    "do",
-    "does",
-    "for",
-    "had",
-    "has",
-    "have",
-    "i",
-    "in",
-    "is",
-    "it",
-    "my",
-    "of",
-    "on",
-    "or",
-    "that",
-    "the",
-    "their",
-    "there",
-    "they",
-    "this",
-    "to",
-    "was",
-    "we",
-    "were",
-    "what",
-    "when",
-    "where",
-    "which",
-    "who",
-    "why",
-    "with",
-    "you",
-    "your",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -307,8 +269,9 @@ class L1Handler:
         if not results:
             return []
 
-        query_tokens = self._extract_query_tokens(query)
-        query_phrases = self._extract_query_phrases(query_tokens)
+        query_tokens = extract_query_tokens(query)
+        query_phrases = extract_query_phrases(query_tokens)
+        quoted_phrases = extract_quoted_spans(query)
 
         scored: List[tuple[float, Dict[str, Any]]] = []
         for event in results:
@@ -316,6 +279,7 @@ class L1Handler:
                 event=event,
                 query_tokens=query_tokens,
                 query_phrases=query_phrases,
+                quoted_phrases=quoted_phrases,
                 base_rrf_score=float(fused_scores.get(str(event.get("event_id") or ""), 0.0)),
             )
             enriched = dict(event)
@@ -338,14 +302,16 @@ class L1Handler:
         event: Dict[str, Any],
         query_tokens: List[str],
         query_phrases: List[str],
+        quoted_phrases: List[str],
         base_rrf_score: float,
     ) -> tuple[float, Dict[str, Any]]:
         """Score a single hydrated event for answerability-oriented ranking."""
         content = str(event.get("content") or "")
         lowered = content.lower()
-        content_tokens = set(self._extract_query_tokens(content))
+        content_tokens = set(extract_query_tokens(content))
         matched_tokens = [token for token in query_tokens if token in content_tokens]
         phrase_hits = [phrase for phrase in query_phrases if phrase and phrase in lowered]
+        quoted_phrase_hits = [phrase for phrase in quoted_phrases if phrase and phrase in lowered]
 
         author_type = str(event.get("author_type") or "").strip().lower()
         role_bias = 0.0
@@ -356,56 +322,47 @@ class L1Handler:
 
         token_overlap = (len(matched_tokens) / len(query_tokens)) if query_tokens else 0.0
         phrase_score = min(len(phrase_hits), 3) * 0.25
+        quoted_phrase_weight = 0.45 if author_type == "user" else 0.15
+        quoted_phrase_score = min(len(quoted_phrase_hits), 2) * quoted_phrase_weight
         fact_density = 0.0
         if re.search(r"\b\d{1,2}[/-]\d{1,2}\b", content) or re.search(r"\b\d{1,2}:\d{2}\b", content):
             fact_density += 0.15
         if re.search(r"\bgps\b", lowered):
             fact_density += 0.1
+        eventness_score = score_eventness(content, author_type=author_type)
+        temporal_anchor_score = score_temporal_anchor(content)
 
         verbosity_penalty = 0.0
         if author_type == "assistant" and len(content) > 240:
             verbosity_penalty = min((len(content) - 240) / 600.0, 0.25)
+        guidance_penalty = score_generic_guidance_penalty(content, author_type=author_type)
 
         final_score = (
             base_rrf_score
             + role_bias
             + token_overlap
             + phrase_score
+            + quoted_phrase_score
             + fact_density
+            + eventness_score
+            + temporal_anchor_score
             - verbosity_penalty
+            - guidance_penalty
         )
         trace = {
             "base_rrf_score": round(base_rrf_score, 6),
             "role_bias": role_bias,
             "token_overlap": round(token_overlap, 6),
             "phrase_hits": phrase_hits,
+            "quoted_phrase_hits": quoted_phrase_hits,
             "fact_density": fact_density,
+            "eventness_score": eventness_score,
+            "temporal_anchor_score": temporal_anchor_score,
             "verbosity_penalty": round(verbosity_penalty, 6),
+            "generic_guidance_penalty": round(guidance_penalty, 6),
             "matched_tokens": matched_tokens,
         }
         return final_score, trace
-
-    @staticmethod
-    def _extract_query_tokens(text: str) -> List[str]:
-        """Extract normalized ranking tokens from a query or event body."""
-        lowered = str(text or "").lower()
-        raw_tokens = re.findall(r"[a-z0-9]+", lowered)
-        return [
-            token
-            for token in raw_tokens
-            if len(token) >= 2 and token not in _RERANK_STOP_WORDS
-        ]
-
-    @staticmethod
-    def _extract_query_phrases(tokens: Sequence[str]) -> List[str]:
-        """Extract short contiguous phrases for stronger exact-match boosts."""
-        phrases: List[str] = []
-        for window in (3, 2):
-            for index in range(0, max(len(tokens) - window + 1, 0)):
-                phrase = " ".join(tokens[index : index + window]).strip()
-                if phrase:
-                    phrases.append(phrase)
-        return phrases
 
 
 class L2Handler:

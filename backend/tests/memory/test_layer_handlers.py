@@ -138,6 +138,105 @@ class TestL1Handler:
         assert results[0]["retrieval_trace"]["base_rrf_score"] > 0
         assert "role_bias" in results[0]["retrieval_trace"]
 
+    @pytest.mark.asyncio
+    async def test_prefers_titled_user_events_over_generic_assistant_comparison_guidance(self, store, monkeypatch):
+        handler = L1Handler(store)
+        conds = L1Conditions(
+            content_query=(
+                "Which event did I attend first, the 'Effective Time Management' workshop "
+                "or the 'Data Analysis using Python' webinar?"
+            ),
+            limit=3,
+        )
+
+        async def _bm25_path(_query, _limit):
+            return ["assistant-generic", "user-workshop", "user-webinar"]
+
+        async def _vector_path(_query, _limit):
+            return []
+
+        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
+            return ["assistant-generic", "user-workshop", "user-webinar"]
+
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+            by_id = {
+                "assistant-generic": {
+                    "event_id": "assistant-generic",
+                    "content": (
+                        "To figure out which event came first, compare the 'Effective Time Management' "
+                        "workshop and the 'Data Analysis using Python' webinar by checking your notes, "
+                        "calendar, and any reminders about when you attended each event."
+                    ),
+                    "timestamp": 3000.0,
+                    "author_type": "assistant",
+                },
+                "user-workshop": {
+                    "event_id": "user-workshop",
+                    "content": (
+                        "I attended the 'Effective Time Management' workshop at the community center "
+                        "last Saturday."
+                    ),
+                    "timestamp": 2000.0,
+                    "author_type": "user",
+                },
+                "user-webinar": {
+                    "event_id": "user-webinar",
+                    "content": (
+                        "I participated in the 'Data Analysis using Python' webinar two months ago."
+                    ),
+                    "timestamp": 1000.0,
+                    "author_type": "user",
+                },
+            }
+            return [by_id[event_id] for event_id in event_ids if event_id in by_id]
+
+        monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
+        monkeypatch.setattr(handler, "_vector_path", _vector_path)
+        monkeypatch.setattr(handler, "_keyword_path", _keyword_path)
+        monkeypatch.setattr(handler, "_fetch_and_filter", _fetch_and_filter)
+
+        results = await handler.execute(conds)
+
+        ranked_ids = [item["event_id"] for item in results]
+        assert ranked_ids[-1] == "assistant-generic"
+        assert set(ranked_ids[:2]) == {"user-workshop", "user-webinar"}
+
+    @pytest.mark.asyncio
+    async def test_records_quoted_title_hits_in_retrieval_trace(self, store, monkeypatch):
+        handler = L1Handler(store)
+        conds = L1Conditions(
+            content_query="Did I attend the 'Effective Time Management' workshop?",
+            limit=1,
+        )
+
+        async def _bm25_path(_query, _limit):
+            return ["user-workshop"]
+
+        async def _vector_path(_query, _limit):
+            return []
+
+        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None):
+            return ["user-workshop"]
+
+        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id):
+            return [
+                {
+                    "event_id": "user-workshop",
+                    "content": "I attended the 'Effective Time Management' workshop last Saturday.",
+                    "timestamp": 1000.0,
+                    "author_type": "user",
+                }
+            ]
+
+        monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
+        monkeypatch.setattr(handler, "_vector_path", _vector_path)
+        monkeypatch.setattr(handler, "_keyword_path", _keyword_path)
+        monkeypatch.setattr(handler, "_fetch_and_filter", _fetch_and_filter)
+
+        results = await handler.execute(conds)
+
+        assert results[0]["retrieval_trace"]["quoted_phrase_hits"] == ["effective time management"]
+
 
 # -----------------------------------------------------------------------
 # L2Handler
