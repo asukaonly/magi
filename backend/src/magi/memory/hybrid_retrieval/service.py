@@ -176,7 +176,10 @@ class HybridRetrievalService:
 
         # 5. Result fusion (dedup + token budget)
         payload = self._result_fusion.apply(payload, max_tokens=self._config.default_max_tokens)
-        payload.l1_evidence_bundles = await self._build_l1_evidence_bundles(payload.l1_events)
+        payload.l1_evidence_bundles = await self._build_l1_evidence_bundles(
+            payload.l1_events,
+            query=request.query,
+        )
         payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)
         payload.l1_timeline_summary = build_timeline_summary(
             question=request.query,
@@ -278,7 +281,12 @@ class HybridRetrievalService:
             return "missing_quoted_coverage"
         return None
 
-    async def _build_l1_evidence_bundles(self, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _build_l1_evidence_bundles(
+        self,
+        hits: List[Dict[str, Any]],
+        *,
+        query: str = "",
+    ) -> List[Dict[str, Any]]:
         """Group L1 hits into session-local evidence bundles with lightweight neighbors."""
         if not hits or getattr(self._memory, "l1", None) is None:
             return []
@@ -290,12 +298,14 @@ class HybridRetrievalService:
                 continue
             grouped_hits.setdefault(session_id, []).append(hit)
 
+        neighbor_window = self._bundle_neighbor_window(query)
         bundles: List[Dict[str, Any]] = []
         for session_id, session_hits in grouped_hits.items():
             session_events = await self._load_session_events(session_id, limit=max(len(session_hits) * 6, 12))
             bundle_events, neighbor_expansion_applied = self._select_bundle_events(
                 session_events=session_events,
                 session_hits=session_hits,
+                neighbor_window=neighbor_window,
             )
             bundles.append(
                 {
@@ -330,6 +340,7 @@ class HybridRetrievalService:
         *,
         session_events: List[Dict[str, Any]],
         session_hits: List[Dict[str, Any]],
+        neighbor_window: int = 1,
     ) -> tuple[List[Dict[str, Any]], bool]:
         """Select hit-centered session events, expanding to adjacent turns when possible."""
         if not session_events:
@@ -352,7 +363,7 @@ class HybridRetrievalService:
             turn_number = self._parse_turn_number(str(event.get("turn_id") or ""))
             if turn_number is None or not hit_turn_numbers:
                 continue
-            if any(abs(turn_number - hit_turn_number) <= 1 for hit_turn_number in hit_turn_numbers):
+            if any(abs(turn_number - hit_turn_number) <= max(neighbor_window, 0) for hit_turn_number in hit_turn_numbers):
                 selected.append(event)
 
         unique_events: List[Dict[str, Any]] = []
@@ -367,6 +378,23 @@ class HybridRetrievalService:
         unique_events.sort(key=lambda event: float(event.get("timestamp") or 0.0))
         neighbor_expansion_applied = len(unique_events) > len(session_hits)
         return unique_events or list(session_hits), neighbor_expansion_applied
+
+    @staticmethod
+    def _bundle_neighbor_window(query: str) -> int:
+        """Use a slightly wider local window for temporal comparisons that need anchors."""
+        lowered = str(query or "").lower()
+        temporal_markers = (
+            " first",
+            " before",
+            " after",
+            " earlier",
+            " later",
+            " last ",
+            " most recent",
+            " happened first",
+            " occurred first",
+        )
+        return 2 if any(marker in lowered for marker in temporal_markers) else 1
 
     @staticmethod
     def _parse_turn_number(turn_id: str) -> int | None:

@@ -60,6 +60,10 @@ _TEMPORAL_PATTERNS = (
     re.compile(r"\b\d{1,2}[/-]\d{1,2}\b"),
     re.compile(r"\b\d{1,2}:\d{2}\b"),
     re.compile(
+        r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
         r"\b(last|yesterday|today|tomorrow|ago|week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
         re.IGNORECASE,
     ),
@@ -74,14 +78,36 @@ _GUIDANCE_PATTERNS = (
 )
 
 
+def _normalize_query_token(token: str) -> str:
+    """Apply lightweight normalization so simple inflections still match."""
+    normalized = str(token or "").strip().lower()
+    if len(normalized) <= 3:
+        return normalized
+    if normalized.endswith("ied") and len(normalized) > 4:
+        return f"{normalized[:-3]}y"
+    if normalized.endswith("ed") and len(normalized) > 4:
+        if normalized[:-1].endswith("e"):
+            return normalized[:-1]
+        return normalized[:-2]
+    if normalized.endswith("ing") and len(normalized) > 5:
+        stem = normalized[:-3]
+        if stem.endswith(("v", "c", "g")):
+            return f"{stem}e"
+        return stem
+    if normalized.endswith("s") and len(normalized) > 4 and not normalized.endswith("ss"):
+        return normalized[:-1]
+    return normalized
+
+
 def extract_query_tokens(text: str) -> list[str]:
     """Extract normalized ranking tokens from a query or event body."""
     lowered = str(text or "").lower()
     raw_tokens = re.findall(r"[a-z0-9]+", lowered)
     return [
-        token
+        normalized
         for token in raw_tokens
-        if len(token) >= 2 and token not in _RERANK_STOP_WORDS
+        for normalized in [_normalize_query_token(token)]
+        if len(normalized) >= 2 and normalized not in _RERANK_STOP_WORDS
     ]
 
 
