@@ -197,3 +197,38 @@ class TestLLMCallParams:
         assert call_kwargs.kwargs["json_mode"] is True
         assert call_kwargs.kwargs["timeout_seconds"] == 3.0
         assert "test query" in call_kwargs.kwargs["messages"][0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_preserves_quoted_titles(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [{"layer": "L1", "is_fallback": False, "content_query": "x"}],
+            "reasoning": "ok",
+        })
+
+        await decider.evaluate(
+            IntentDeciderInput(
+                query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
+            )
+        )
+
+        system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
+        assert "Keep quoted titles verbatim" in system_prompt
+        assert "Do not replace a quoted title with a broad topic" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_guides_comparison_and_temporal_distance_queries(self, decider: LLMIntentDecider, mock_bridge):
+        mock_bridge.chat.return_value = json.dumps({
+            "layers": [{"layer": "L1", "is_fallback": False, "content_query": "x"}],
+            "reasoning": "ok",
+        })
+
+        await decider.evaluate(
+            IntentDeciderInput(
+                query="How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?"
+            )
+        )
+
+        system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
+        assert "For comparison questions, keep both candidate events explicit" in system_prompt
+        assert "For temporal-distance questions, produce anchor-specific content_query text" in system_prompt
+        assert "Do not collapse both anchors into one generic topic query" in system_prompt
