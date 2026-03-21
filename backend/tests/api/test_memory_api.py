@@ -880,9 +880,10 @@ def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
 
     class _FakeLLMAdapter:
         async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
-            _ = (max_tokens, temperature, kwargs)
+            _ = (max_tokens, temperature)
             assert messages[0]["role"] == "system"
             assert messages[1]["role"] == "user"
+            assert kwargs["disable_thinking"] is True
             return "Sushi"
 
     class _FakeLLMPool:

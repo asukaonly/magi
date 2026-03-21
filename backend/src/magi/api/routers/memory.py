@@ -279,6 +279,7 @@ async def _synthesize_eval_answer(
         llm_messages,
         max_tokens=128,
         temperature=0.0,
+        disable_thinking=True,
     )
     raw_answer = str(answer or "")
     normalized_answer = raw_answer.strip() or "unknown"
