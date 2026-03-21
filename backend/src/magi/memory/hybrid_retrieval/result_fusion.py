@@ -127,8 +127,67 @@ class ResultFusion:
         remaining -= estimate_tokens(payload.l3_reflections, char_per_token)
 
         # L1: eats the rest
-        payload.l1_events = truncate_to_budget(
-            payload.l1_events, remaining, char_per_token,
+        payload.l1_events = ResultFusion._truncate_l1_with_session_coverage(
+            payload.l1_events,
+            remaining,
+            char_per_token,
         )
 
         return payload
+
+    @staticmethod
+    def _truncate_l1_with_session_coverage(
+        items: List[Dict[str, Any]],
+        budget_tokens: float,
+        char_per_token: float,
+    ) -> List[Dict[str, Any]]:
+        """Truncate L1 while preserving high-value anchors across sessions when possible."""
+        if budget_tokens <= 0 or not items:
+            return []
+
+        ranked_items = ResultFusion._rank_l1_items(items)
+        best_by_session: dict[str, Dict[str, Any]] = {}
+        for item in ranked_items:
+            session_id = str(item.get("session_id") or "").strip()
+            if not session_id:
+                continue
+            best_by_session.setdefault(session_id, item)
+
+        selected: list[Dict[str, Any]] = []
+        used = 0.0
+        selected_ids: set[str] = set()
+
+        for item in ResultFusion._rank_l1_items(list(best_by_session.values())):
+            item_id = str(item.get("event_id") or "")
+            item_tokens = estimate_tokens([item], char_per_token)
+            if used + item_tokens > budget_tokens:
+                continue
+            selected.append(item)
+            used += item_tokens
+            if item_id:
+                selected_ids.add(item_id)
+
+        for item in ranked_items:
+            item_id = str(item.get("event_id") or "")
+            if item_id and item_id in selected_ids:
+                continue
+            item_tokens = estimate_tokens([item], char_per_token)
+            if used + item_tokens > budget_tokens:
+                continue
+            selected.append(item)
+            used += item_tokens
+            if item_id:
+                selected_ids.add(item_id)
+
+        return selected
+
+    @staticmethod
+    def _rank_l1_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Rank L1 items by answerability-oriented metadata before truncation."""
+        def _sort_key(item: Dict[str, Any]) -> tuple[float, float, int]:
+            retrieval_score = float(item.get("retrieval_score") or 0.0)
+            timestamp = float(item.get("timestamp") or 0.0)
+            author_bonus = 1 if str(item.get("author_type") or "").strip().lower() == "user" else 0
+            return (retrieval_score, timestamp, author_bonus)
+
+        return sorted(items, key=_sort_key, reverse=True)

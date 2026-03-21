@@ -157,6 +157,60 @@ class TestTokenBudget:
         result = fusion.apply(payload, max_tokens=50)
         assert len(result.l1_events) < 100
 
+    def test_budget_preserves_top_l1_event_per_session_when_possible(self):
+        fusion = ResultFusion(RetrievalConfig(default_max_tokens=100000))
+        session_one_first = {
+            "event_id": "s1-a",
+            "session_id": "session-1",
+            "content": "first session event about workshop",
+            "retrieval_score": 0.9,
+        }
+        session_one_second = {
+            "event_id": "s1-b",
+            "session_id": "session-1",
+            "content": "second session event about workshop",
+            "retrieval_score": 0.8,
+        }
+        session_two_first = {
+            "event_id": "s2-a",
+            "session_id": "session-2",
+            "content": "other session event about webinar",
+            "retrieval_score": 0.85,
+        }
+        payload = RetrievalPayload(
+            l1_events=[session_one_first, session_one_second, session_two_first],
+        )
+
+        budget = estimate_tokens([session_one_first, session_two_first])
+        result = fusion.apply(payload, max_tokens=budget)
+
+        assert [item["event_id"] for item in result.l1_events] == ["s1-a", "s2-a"]
+
+    def test_budget_prefers_best_scored_user_anchor_within_session(self):
+        fusion = ResultFusion(RetrievalConfig(default_max_tokens=100000))
+        assistant_guidance = {
+            "event_id": "assistant-generic",
+            "session_id": "session-1",
+            "content": "Here are some tips and suggestions for comparing workshop notes and webinar reminders.",
+            "author_type": "assistant",
+            "retrieval_score": 0.4,
+        }
+        user_anchor = {
+            "event_id": "user-anchor",
+            "session_id": "session-1",
+            "content": "I attended the Effective Time Management workshop last Saturday.",
+            "author_type": "user",
+            "retrieval_score": 0.9,
+        }
+        payload = RetrievalPayload(
+            l1_events=[assistant_guidance, user_anchor],
+        )
+
+        budget = estimate_tokens([user_anchor])
+        result = fusion.apply(payload, max_tokens=budget)
+
+        assert [item["event_id"] for item in result.l1_events] == ["user-anchor"]
+
 
 # -----------------------------------------------------------------------
 # Full integration
