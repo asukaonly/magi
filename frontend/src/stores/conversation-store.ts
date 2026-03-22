@@ -3,6 +3,7 @@ import type { ChatSessionListItem } from '@/api';
 import {
   applyAgentResponse,
   createPendingTurn,
+  mergeHistoryMessages,
   type ChatTimelineMessage,
   type NormalizedExecutionTraceSummary,
   upsertTraceSummary as applyTraceSummaryUpdate,
@@ -132,13 +133,14 @@ export const useConversationStore = create<ConversationState>((set) => ({
   }),
   receiveHistory: (sessionId, messages) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+    const mergedMessages = mergeHistoryMessages(state.messagesBySession[sessionId] || [], messages);
     return {
       currentSessionId: sessionId,
       sessionsById: ensured.sessionsById,
       orderedSessionIds: ensured.orderedSessionIds,
       messagesBySession: {
         ...state.messagesBySession,
-        [sessionId]: messages,
+        [sessionId]: mergedMessages,
       },
       unreadBySession: {
         ...state.unreadBySession,

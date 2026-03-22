@@ -133,6 +133,38 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
     };
   });
 
+export const mergeHistoryMessages = (
+  existingMessages: ChatTimelineMessage[],
+  incomingMessages: ChatTimelineMessage[],
+): ChatTimelineMessage[] => {
+  if (existingMessages.length === 0 || incomingMessages.length === 0) {
+    return incomingMessages;
+  }
+
+  const localAssistantByTurn = new Map<string, ChatTimelineMessage>();
+  for (const message of existingMessages) {
+    if (message.kind !== 'assistant') continue;
+    const turnId = String(message.turnId || '').trim();
+    if (!turnId) continue;
+    localAssistantByTurn.set(turnId, message);
+  }
+
+  return incomingMessages.map((message) => {
+    if (message.kind !== 'status') return message;
+    const turnId = String(message.turnId || '').trim();
+    if (!turnId) return message;
+
+    const localAssistant = localAssistantByTurn.get(turnId);
+    if (!localAssistant) return message;
+
+    return {
+      ...localAssistant,
+      traceSummary: message.traceSummary ?? localAssistant.traceSummary ?? null,
+      traceAvailable: Boolean(message.traceAvailable || localAssistant.traceAvailable),
+    };
+  });
+};
+
 export const createPendingTurn = (input: string, turnId: string, timestamp: number, pendingLabel: string): ChatTimelineMessage[] => [
   {
     id: `${turnId}-user`,

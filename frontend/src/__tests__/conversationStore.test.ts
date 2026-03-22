@@ -91,4 +91,76 @@ describe('conversation store', () => {
 
     expect(useConversationStore.getState().currentSessionId).toBe('session-a');
   });
+
+  it('preserves a local assistant reply when refreshed history still only has a status placeholder', () => {
+    const store = useConversationStore.getState();
+
+    store.receiveHistory('session-a', [
+      {
+        id: 'turn-1-user',
+        role: 'user',
+        kind: 'user',
+        content: 'question',
+        timestamp: 1000,
+        turnId: 'turn-1',
+      },
+      {
+        id: 'turn-1-status',
+        role: 'assistant',
+        kind: 'status',
+        content: 'Tool chain completed',
+        timestamp: 1001,
+        turnId: 'turn-1',
+        traceAvailable: true,
+      },
+    ]);
+
+    store.receiveAgentResponse({
+      sessionId: 'session-a',
+      content: 'final answer',
+      timestamp: 1002,
+      turnId: 'turn-1',
+    });
+
+    store.receiveHistory('session-a', [
+      {
+        id: 'turn-1-user-refresh',
+        role: 'user',
+        kind: 'user',
+        content: 'question',
+        timestamp: 1000,
+        turnId: 'turn-1',
+      },
+      {
+        id: 'turn-1-status-refresh',
+        role: 'assistant',
+        kind: 'status',
+        content: 'Tool chain completed',
+        timestamp: 1001,
+        turnId: 'turn-1',
+        traceAvailable: true,
+      },
+    ]);
+
+    expect(useConversationStore.getState().messagesBySession['session-a']).toEqual([
+      {
+        id: 'turn-1-user-refresh',
+        role: 'user',
+        kind: 'user',
+        content: 'question',
+        timestamp: 1000,
+        turnId: 'turn-1',
+      },
+      {
+        id: 'turn-1-assistant',
+        role: 'assistant',
+        kind: 'assistant',
+        content: 'final answer',
+        timestamp: 1002,
+        turnId: 'turn-1',
+        traceSummary: null,
+        traceAvailable: true,
+      },
+    ]);
+  });
 });
