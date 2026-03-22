@@ -423,6 +423,13 @@ async def test_l2_pipeline_starts_with_five_extract_workers():
             await pipeline.shutdown()
 
 
+def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
+    store = UnifiedMemoryStore(enable_l0=False, enable_l3=False, enable_l4=False, l2_batch_flush_interval_seconds=90)
+
+    assert store.l2_pipeline is not None
+    assert store.l2_pipeline._batch_flush_interval_seconds == 90
+
+
 def test_entity_mention_prompt_rendering_is_deterministic():
     from magi.memory.l2.llm_service import L2LLMService
 

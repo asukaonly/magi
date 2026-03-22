@@ -79,12 +79,14 @@ class L2Pipeline:
         entity_catalog: Optional[L2EntityCatalog] = None,
         llm_service: Optional[L2LLMService] = None,
         state_change_callback: Callable[[str, str, list[dict[str, Any]]], Awaitable[None]] | None = None,
+        batch_flush_interval_seconds: int = 60,
     ) -> None:
         self._cognition_store = cognition_store
         self._l1_store = l1_store
         self._entity_catalog = entity_catalog
         self._llm_service = llm_service
         self._state_change_callback = state_change_callback
+        self._batch_flush_interval_seconds = max(30, int(batch_flush_interval_seconds))
         self._extract_queue: asyncio.Queue[MemoryEvent | None] = asyncio.Queue()
         self._reconcile_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
         self._snapshot_queue: asyncio.Queue[list[str] | None] = asyncio.Queue()
