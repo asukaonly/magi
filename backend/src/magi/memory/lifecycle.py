@@ -21,12 +21,13 @@ logger = get_logger(__name__)
 class MemoryStoreModule(LifecycleModule):
     """Initialize persistence, memory stores, usage metrics, and memory integration (L6)."""
 
-    def __init__(self, context: RuntimeBootstrapContext):
+    def __init__(self, context: RuntimeBootstrapContext, *, start_memory_integration: bool = True):
         super().__init__(
             name="runtime_memory",
             dependencies=("runtime_llm", "runtime_message_bus", "runtime_configuration", "runtime_core_dependencies"),
         )
         self._context = context
+        self.start_memory_integration = start_memory_integration
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
@@ -82,21 +83,24 @@ class MemoryStoreModule(LifecycleModule):
         )
         logger.info("HybridRetrievalService initialized")
 
-        memory_integration_config = MemoryIntegrationConfig(
-            enable_l0=config.agent.memory.enable_l0,
-            enable_l1=config.agent.memory.enable_l1,
-            enable_l2=config.agent.memory.enable_l2,
-            enable_l3=config.agent.memory.enable_l3,
-            enable_l4=config.agent.memory.enable_l4,
-            summary_interval_minutes=config.agent.memory.summary_interval_minutes,
-        )
-        self._context.memory.memory_integration = MemoryIntegrationModule(
-            unified_memory=self._context.memory.unified_memory,
-            message_bus=message_bus,
-            config=memory_integration_config,
-        )
-        await self._context.memory.memory_integration.start()
-        logger.info("MemoryIntegrationModule started")
+        if self.start_memory_integration:
+            memory_integration_config = MemoryIntegrationConfig(
+                enable_l0=config.agent.memory.enable_l0,
+                enable_l1=config.agent.memory.enable_l1,
+                enable_l2=config.agent.memory.enable_l2,
+                enable_l3=config.agent.memory.enable_l3,
+                enable_l4=config.agent.memory.enable_l4,
+                summary_interval_minutes=config.agent.memory.summary_interval_minutes,
+            )
+            self._context.memory.memory_integration = MemoryIntegrationModule(
+                unified_memory=self._context.memory.unified_memory,
+                message_bus=message_bus,
+                config=memory_integration_config,
+            )
+            await self._context.memory.memory_integration.start()
+            logger.info("MemoryIntegrationModule started")
+        else:
+            logger.info("MemoryIntegrationModule skipped for API role")
 
     async def shutdown(self) -> None:
         if self._context.memory.memory_integration is not None:

@@ -2,6 +2,7 @@
 """
 Magi backend server launcher.
 """
+import argparse
 import sys
 import os
 
@@ -10,6 +11,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 import uvicorn
 from magi.config import get_config
+from magi.backend_runtime_worker import main as run_runtime_worker
+from magi.process_roles import PROCESS_ROLE_ENV_VAR, ProcessRole, resolve_process_role
 
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
@@ -38,7 +41,25 @@ def _print_banner(host: str, port: int, reload_enabled: bool) -> None:
     print("=" * 60)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Magi backend launcher")
+    parser.add_argument(
+        "--role",
+        dest="process_role",
+        help="Backend process role: combined, api, or runtime_worker",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = _parse_args()
+    role = resolve_process_role(args.process_role, env=os.environ)
+    os.environ[PROCESS_ROLE_ENV_VAR] = role.value
+
+    if role is ProcessRole.RUNTIME_WORKER:
+        run_runtime_worker()
+        return
+
     host, port, reload_enabled, log_level = _resolve_server_config()
     _print_banner(host=host, port=port, reload_enabled=reload_enabled)
 

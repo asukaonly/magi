@@ -8,6 +8,7 @@ from ..config import AppConfig, get_config
 from ..core.container import get_container
 from ..core.logger import get_logger
 from ..llm.factory import is_llm_selection_pending
+from ..process_roles import ProcessRole
 from .context import RuntimeBootstrapContext
 from .lifecycle import ModuleLifecycleOrchestrator
 from .builder import build_runtime_modules
@@ -68,20 +69,20 @@ def refresh_runtime_llm_config(config: AppConfig | None = None) -> None:
 
 def _is_runtime_initialized() -> bool:
     """Check whether agent runtime has been initialized."""
-    return _resolve_from_container("agent_runtime") is not None
+    return _resolve_from_container("runtime_orchestrator") is not None
 
 
-async def initialize_agent_runtime() -> None:
+async def initialize_agent_runtime(*, role: ProcessRole = ProcessRole.COMBINED) -> None:
     """Initialize agent runtime on application startup."""
     if _is_runtime_initialized():
         logger.warning("Agent runtime already initialized")
         return
 
     context = RuntimeBootstrapContext()
-    orchestrator = ModuleLifecycleOrchestrator(build_runtime_modules(context))
+    orchestrator = ModuleLifecycleOrchestrator(build_runtime_modules(context, role=role))
 
     try:
-        logger.info("Initializing Agent Runtime...")
+        logger.info("Initializing Agent Runtime...", role=role.value)
         await orchestrator.startup()
     except RuntimeInitializationDeferred as exc:
         _initialize_skills_bindings_for_configuration_mode(context.core.config or get_config())
@@ -104,7 +105,7 @@ async def initialize_agent_runtime() -> None:
     container = get_container()
     container.runtime_orchestrator.override(providers.Object(orchestrator))
     container.runtime_bootstrap_context.override(providers.Object(context))
-    logger.info("Agent runtime initialized successfully")
+    logger.info("Agent runtime initialized successfully", role=role.value)
 
 
 async def shutdown_agent_runtime() -> None:

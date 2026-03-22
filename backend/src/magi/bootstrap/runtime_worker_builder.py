@@ -1,0 +1,54 @@
+"""Bootstrap builder for runtime-worker modules."""
+
+from __future__ import annotations
+
+from .context import RuntimeBootstrapContext
+from .exports import RuntimeExportsModule
+from .lifecycle import LifecycleModule
+from .maintenance import OtherDependenciesModule
+
+from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
+from ..awareness.lifecycle import SensorsAndActionsModule, ActionScheduleRegistrationModule
+from ..config.lifecycle import ConfigurationModule
+from ..context.lifecycle import ContextModule
+from ..core.lifecycle import CoreDependenciesModule
+from ..events.lifecycle import MessageBusModule
+from ..llm.lifecycle import LLMRuntimeModule
+from ..memory.lifecycle import MemoryStoreModule
+from ..personality.lifecycle import PersonalityModule
+from ..plugins.lifecycle import PluginSystemModule
+from ..scheduler.lifecycle import SchedulerModule
+from ..skills.lifecycle import SkillsModule
+from ..timeline.lifecycle import TimelineModule, TimelineScheduleRegistrationModule
+from ..tools.lifecycle import ToolsModule
+
+from .api_builder import _build_runtime_trace_module
+
+
+def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[LifecycleModule]:
+    """Build lifecycle modules required by the background runtime worker."""
+    return [
+        CoreDependenciesModule(context),
+        ConfigurationModule(context),
+        MessageBusModule(context),
+        PluginSystemModule(context),
+        LLMRuntimeModule(context),
+        MemoryStoreModule(context, start_memory_integration=True),
+        _build_runtime_trace_module(context),
+        ToolsModule(context),
+        SkillsModule(context),
+        PersonalityModule(context),
+        SensorsAndActionsModule(context),
+        ContextModule(context),
+        AgentRuntimeModule(context),
+        TimelineModule(context),
+        SchedulerModule(context),
+        AgentScheduleRegistrationModule(context),
+        ActionScheduleRegistrationModule(context),
+        TimelineScheduleRegistrationModule(context),
+        RuntimeExportsModule(context),
+        OtherDependenciesModule(context),
+    ]
+
+
+__all__ = ["build_runtime_worker_modules"]

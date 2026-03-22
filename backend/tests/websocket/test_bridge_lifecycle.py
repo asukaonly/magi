@@ -33,7 +33,7 @@ class _DummyTraceService:
 async def test_websocket_bridge_subscribes_after_runtime_message_bus_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_bus = _FakeMessageBus()
 
-    async def _noop_runtime_lifecycle() -> None:
+    async def _noop_runtime_lifecycle(*args, **kwargs) -> None:
         return None
 
     monkeypatch.setattr("magi.backend_app.initialize_agent_runtime", _noop_runtime_lifecycle)

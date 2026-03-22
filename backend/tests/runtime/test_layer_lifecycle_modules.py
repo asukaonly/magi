@@ -56,14 +56,15 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
 
     modules = build_runtime_modules(RuntimeBootstrapContext())
 
-    # Check that modules 0-10 match expected order
-    assert [module.name for module in modules[:11]] == [
+    # Check that modules 0-11 match expected order
+    assert [module.name for module in modules[:12]] == [
         "runtime_core_dependencies",
         "runtime_configuration",
         "runtime_message_bus",
         "runtime_plugin_system",
         "runtime_llm",
         "runtime_memory",
+        "runtime_trace",
         "runtime_tools",
         "runtime_skills",
         "runtime_personality",
@@ -86,6 +87,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_plugin_system",
         "runtime_llm",
         "runtime_memory",
+        "runtime_trace",
         "runtime_tools",
         "runtime_skills",
         "runtime_personality",
@@ -140,11 +142,15 @@ def test_awareness_lifecycle_owns_action_runtime_primitives() -> None:
 
 def test_bootstrap_builder_uses_sensors_and_actions_module_name() -> None:
     builder_source = (Path(__file__).resolve().parents[2] / "src/magi/bootstrap/builder.py").read_text(encoding="utf-8")
+    runtime_worker_builder_source = (
+        Path(__file__).resolve().parents[2] / "src/magi/bootstrap/runtime_worker_builder.py"
+    ).read_text(encoding="utf-8")
     awareness_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/lifecycle.py").read_text(encoding="utf-8")
 
     assert "SensorHubModule" not in builder_source
+    assert "SensorHubModule" not in runtime_worker_builder_source
     assert "class SensorHubModule" not in awareness_source
-    assert "SensorsAndActionsModule" in builder_source
+    assert "SensorsAndActionsModule" in runtime_worker_builder_source
     assert "class SensorsAndActionsModule" in awareness_source
     assert "core.runtime.action_scheduler_contrib" not in awareness_source
 
