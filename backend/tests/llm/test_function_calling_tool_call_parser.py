@@ -514,6 +514,76 @@ def test_postprocessor_marks_memory_query_results_as_source_of_truth() -> None:
     assert "implicit memory" in payload["usage_guidance"]
 
 
+def test_build_tool_message_payload_compacts_memory_query_results() -> None:
+    postprocessor = FunctionCallingPostprocessor(max_items=2, max_text_chars=80)
+    long_content = (
+        "I met Rachel, an old colleague from my previous company, at the TechConnect "
+        "conference on February 10th and 11th, and we talked about reconnecting soon."
+    )
+    result = type(
+        "Result",
+        (),
+        {
+            "success": True,
+            "data": {
+                "results": {
+                    "l0_workbench": [],
+                    "l1_events": [
+                        {
+                            "event_id": "evt-1",
+                            "correlation_id": "turn-1",
+                            "timestamp": 3.0,
+                            "created_at": 1773999236.11,
+                            "event_type": "UserMessage",
+                            "memory_domain": "user_authored",
+                            "tom_depth": "defensive_psychology",
+                            "retention_class": "permanent",
+                            "session_id": "sess-1",
+                            "turn_id": "sess-1:turn-3",
+                            "author_type": "user",
+                            "content": long_content,
+                            "score": 0.9,
+                        }
+                    ],
+                    "l1_timeline_summary": [
+                        {
+                            "timestamp": 3.0,
+                            "session_id": "sess-1",
+                            "turn_id": "sess-1:turn-3",
+                            "author_type": "user",
+                            "summary": long_content,
+                            "supporting_event_ids": ["evt-1"],
+                        }
+                    ],
+                    "trace": {
+                        "intent_source": "llm",
+                        "primary_count": 1,
+                        "l1_hit_count": 1,
+                    },
+                },
+                "meta": {"intent_source": "llm", "l1_hit_count": 1},
+                "agent_id": "chat_agent",
+            },
+            "error": None,
+        },
+    )()
+
+    payload = postprocessor.build_tool_message_payload("memory_query", result)
+
+    compact_event = payload["data"]["results"]["l1_events"][0]
+    assert compact_event["session_id"] == "sess-1"
+    assert compact_event["turn_id"] == "sess-1:turn-3"
+    assert compact_event["content_preview"].startswith("I met Rachel")
+    assert compact_event["content_truncated"] is True
+    assert "event_id" not in compact_event
+    assert "created_at" not in compact_event
+    assert "tom_depth" not in compact_event
+    compact_summary = payload["data"]["results"]["l1_timeline_summary"][0]
+    assert compact_summary["summary_preview"].startswith("I met Rachel")
+    assert "supporting_event_ids" not in compact_summary
+    assert payload["data"]["meta"] == {"intent_source": "llm", "l1_hit_count": 1}
+
+
 @pytest.mark.asyncio
 async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
     registry = _RecordingToolRegistry()
