@@ -6,6 +6,7 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
 from .migration import backfill_chat_store_from_legacy
+from .projector import ChatProjector
 from .store import ChatStore
 
 logger = get_logger(__name__)
@@ -37,3 +38,22 @@ class ChatStoreModule(LifecycleModule):
         if self._context.chat.store is not None:
             await self._context.chat.store.shutdown()
             self._context.chat.store = None
+
+
+class ChatProjectorModule(LifecycleModule):
+    """Initialize the chat-to-memory projector."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_chat_projector",
+            dependencies=("runtime_chat_store", "runtime_memory"),
+        )
+        self._context = context
+
+    async def init(self) -> None:
+        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        self._context.chat.projector = ChatProjector(unified_memory=unified_memory)
+        logger.info("Chat projector started")
+
+    async def shutdown(self) -> None:
+        self._context.chat.projector = None

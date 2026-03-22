@@ -46,7 +46,7 @@ def test_bootstrap_builds_expected_front_of_layer_order() -> None:
         "runtime_configuration",
         "runtime_command_queue",
         "runtime_message_bus",
-        "runtime_plugin_system",
+        "runtime_chat_store",
     ]
 
 
@@ -57,15 +57,17 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
 
     modules = build_runtime_modules(RuntimeBootstrapContext())
 
-    # Check that modules 0-12 match expected order
-    assert [module.name for module in modules[:13]] == [
+    # Check that modules 0-15 match expected order
+    assert [module.name for module in modules[:15]] == [
         "runtime_core_dependencies",
         "runtime_configuration",
         "runtime_command_queue",
         "runtime_message_bus",
+        "runtime_chat_store",
         "runtime_plugin_system",
         "runtime_llm",
         "runtime_memory",
+        "runtime_chat_projector",
         "runtime_trace",
         "runtime_tools",
         "runtime_skills",
@@ -87,9 +89,11 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_configuration",
         "runtime_command_queue",
         "runtime_message_bus",
+        "runtime_chat_store",
         "runtime_plugin_system",
         "runtime_llm",
         "runtime_memory",
+        "runtime_chat_projector",
         "runtime_trace",
         "runtime_tools",
         "runtime_skills",

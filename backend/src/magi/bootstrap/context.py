@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..chat import ChatStore
+    from ..chat import ChatProjector, ChatStore
     from ..config import AppConfig
     from ..utils.runtime import RuntimePaths
     from ..core.database_initializer import DatabaseInitializer
@@ -90,6 +90,7 @@ class ChatBootstrapState:
     """Dedicated chat-domain persistence slice."""
 
     store: ChatStore | None = None
+    projector: ChatProjector | None = None
 
 
 @dataclass

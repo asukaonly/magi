@@ -13,7 +13,7 @@ from ....agent.runtime.types import TaskAgentType
 from ....agent.trace import (
     now_wall_ms,
 )
-from ....chat import ChatMessageRecord, ChatStore, ChatTurnRecord
+from ....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord
 from ....events.events import EventTypes
 from ....personality.behavior_evolution import SatisfactionLevel
 from ....personality.emotional_state import EngagementLevel, InteractionOutcome
@@ -60,6 +60,7 @@ class ChatPostProcessService:
         trace_read_service: "ChatTraceReadService | None" = None,
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatStore | None = None,
+        chat_projector: ChatProjector | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._history_service = history_service
@@ -74,6 +75,7 @@ class ChatPostProcessService:
         self._trace_read_service = trace_read_service
         self._runtime_trace_store = runtime_trace_store
         self._chat_store = chat_store
+        self._chat_projector = chat_projector
         self._started_turn_traces: set[str] = set()
 
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
@@ -174,6 +176,10 @@ class ChatPostProcessService:
             response_text=response_text,
             started_at_ms=started_at_ms,
             completed_at_ms=now_ms,
+        )
+        await self._project_final_chat_message(
+            context=context,
+            turn_id=turn_id,
         )
 
         await self._emit_agent_response_notification(
@@ -685,6 +691,30 @@ class ChatPostProcessService:
                 message_id=interim_message.message_id,
                 replaced_by_message_id=final_message.message_id,
             )
+
+    async def _project_final_chat_message(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        turn_id: str | None,
+    ) -> None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._chat_store is None or self._chat_projector is None or not normalized_turn_id:
+            return
+        final_message = await self._chat_store.get_latest_message_for_turn(
+            normalized_turn_id,
+            message_kind="assistant_final",
+        )
+        if final_message is None or not str(final_message.content_text or "").strip():
+            return
+        await self._chat_projector.project_assistant_message(
+            message_id=final_message.message_id,
+            user_id=context.user_id,
+            session_id=context.session_id,
+            turn_id=normalized_turn_id,
+            content=str(final_message.content_text or ""),
+            created_at_ms=final_message.created_at_ms,
+        )
 
     async def _emit_response_trace(
         self,

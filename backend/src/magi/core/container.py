@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ..agent.runtime import AgentRuntime
     from ..bootstrap.context import RuntimeBootstrapContext
     from ..bootstrap.lifecycle import ModuleLifecycleOrchestrator
-    from ..chat import ChatStore
+    from ..chat import ChatProjector, ChatStore
     from ..events.backend import MessageBusBackend
     from ..events.runtime_queue import SQLiteRuntimeCommandQueue
     from ..llm.scenario_pool import ScenarioLLMPool
@@ -63,6 +63,7 @@ class Container(containers.DeclarativeContainer):
     message_bus: providers.Singleton[MessageBusBackend] = providers.Singleton(object)
     runtime_command_queue: providers.Singleton[SQLiteRuntimeCommandQueue] = providers.Singleton(object)
     chat_store: providers.Singleton[ChatStore] = providers.Singleton(object)
+    chat_projector: providers.Singleton[ChatProjector] = providers.Singleton(object)
     agent_runtime: providers.Singleton[AgentRuntime] = providers.Singleton(object)
     memory_integration: providers.Singleton[MemoryIntegrationModule] = providers.Singleton(object)
     unified_memory: providers.Singleton[UnifiedMemoryStore] = providers.Singleton(object)

@@ -31,6 +31,11 @@ def require_chat_store():
     return _require_binding("chat_store")
 
 
+def require_chat_projector():
+    """Return the active chat projector binding."""
+    return _require_binding("chat_projector")
+
+
 def require_agent_runtime():
     """Return the active agent runtime binding."""
     return _require_binding("agent_runtime")

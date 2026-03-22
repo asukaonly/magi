@@ -22,6 +22,7 @@ class RuntimeExportsModule(LifecycleModule):
                 "runtime_agent_core",
                 "runtime_command_queue",
                 "runtime_chat_store",
+                "runtime_chat_projector",
                 "runtime_memory",
                 "runtime_message_bus",
                 "runtime_plugin_system",
@@ -39,6 +40,7 @@ class RuntimeExportsModule(LifecycleModule):
             "runtime command queue",
         )
         chat_store = require_initialized(self._context.chat.store, "chat store")
+        chat_projector = require_initialized(self._context.chat.projector, "chat projector")
         agent_runtime = require_initialized(self._context.agent_runtime.agent_runtime, "agent runtime")
         memory_integration = require_initialized(self._context.memory.memory_integration, "memory integration")
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
@@ -56,6 +58,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.message_bus.override(providers.Object(message_bus))
         container.runtime_command_queue.override(providers.Object(runtime_command_queue))
         container.chat_store.override(providers.Object(chat_store))
+        container.chat_projector.override(providers.Object(chat_projector))
         container.agent_runtime.override(providers.Object(agent_runtime))
         container.memory_integration.override(providers.Object(memory_integration))
         container.unified_memory.override(providers.Object(unified_memory))
@@ -94,6 +97,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.message_bus.reset_override()
         container.runtime_command_queue.reset_override()
         container.chat_store.reset_override()
+        container.chat_projector.reset_override()
         container.agent_runtime.reset_override()
         container.memory_integration.reset_override()
         container.unified_memory.reset_override()

@@ -73,6 +73,14 @@ class _FakeChatStore:
         )
 
 
+class _FakeChatProjector:
+    def __init__(self) -> None:
+        self.user_messages: list[dict[str, object]] = []
+
+    async def project_user_message(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.user_messages.append(dict(kwargs))
+
+
 @pytest.mark.asyncio
 async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
     monkeypatch: pytest.MonkeyPatch,
@@ -93,8 +101,10 @@ async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
 async def test_dispatch_user_message_persists_chat_turn_before_enqueue(monkeypatch: pytest.MonkeyPatch) -> None:
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
+    chat_projector = _FakeChatProjector()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
     monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "require_chat_projector", lambda: chat_projector)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -109,6 +119,7 @@ async def test_dispatch_user_message_persists_chat_turn_before_enqueue(monkeypat
     assert len(chat_store.created_turns) == 1
     assert chat_store.created_turns[0]["turn_id"] == outcome.turn_id
     assert chat_store.created_turns[0]["message_text"] == "hello"
+    assert chat_projector.user_messages[0]["message_id"] == f"msg-{outcome.turn_id}"
     assert len(queue.commands) == 1
 
 

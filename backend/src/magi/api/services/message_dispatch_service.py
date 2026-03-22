@@ -7,8 +7,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from ...core.runtime_bindings import require_chat_store, require_runtime_command_queue
+from ...core.logger import get_logger
+from ...core.runtime_bindings import require_chat_projector, require_chat_store, require_runtime_command_queue
 from ...events.contracts import UserMessageCommand
+
+logger = get_logger(__name__)
 
 
 CHAT_STORE_NOT_INITIALIZED = "CHAT_STORE_NOT_INITIALIZED"
@@ -72,7 +75,7 @@ async def dispatch_user_message(
     created_at_ms = int(created_at * 1000)
     turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
     try:
-        await chat_store.create_user_turn(
+        created_turn = await chat_store.create_user_turn(
             session_id=resolved_session_id,
             user_id=user_id,
             turn_id=turn_id,
@@ -88,6 +91,22 @@ async def dispatch_user_message(
             error_code=CHAT_STORE_PERSIST_FAILED,
             error_message="Chat turn persistence failed",
         )
+    try:
+        chat_projector = require_chat_projector()
+    except RuntimeError:
+        chat_projector = None
+    if chat_projector is not None:
+        try:
+            await chat_projector.project_user_message(
+                message_id=created_turn.message_id,
+                user_id=user_id,
+                session_id=resolved_session_id,
+                turn_id=turn_id,
+                content=message,
+                created_at_ms=created_at_ms,
+            )
+        except Exception as exc:
+            logger.warning("Failed to project chat user message into L1: %s", exc)
     try:
         await runtime_command_queue.enqueue_user_message(
             UserMessageCommand(

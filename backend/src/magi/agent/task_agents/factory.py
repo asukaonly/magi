@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from ...config import AppConfig
 from ...agent.runtime.types import TaskAgentType
-from ...chat import ChatStore
+from ...chat import ChatProjector, ChatStore
 from ...memory import UnifiedMemoryStore
 from ...memory.hybrid_retrieval import HybridRetrievalService
 from ...memory.integration import MemoryIntegrationModule
@@ -28,6 +28,7 @@ def create_chat_agent_factory(
     skill_runner: Any,
     runtime_trace_store: RuntimeTraceStore | None,
     chat_store: ChatStore | None,
+    chat_projector: ChatProjector | None,
     config: AppConfig,
 ) -> Callable[[str], ChatTaskAgent]:
     """Return a factory callable that creates ChatTaskAgent instances."""
@@ -48,6 +49,7 @@ def create_chat_agent_factory(
             skill_runner=skill_runner,
             runtime_trace_store=runtime_trace_store,
             chat_store=chat_store,
+            chat_projector=chat_projector,
         )
 
     return _create

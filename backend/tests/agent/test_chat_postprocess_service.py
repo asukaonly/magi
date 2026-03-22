@@ -153,6 +153,14 @@ class _FakeUnifiedMemory:
         return {"summary_id": "summary-1", "summary_category": "task_reflection"}
 
 
+class _FakeChatProjector:
+    def __init__(self) -> None:
+        self.assistant_messages: list[dict[str, object]] = []
+
+    async def project_assistant_message(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.assistant_messages.append(dict(kwargs))
+
+
 @pytest.fixture
 async def runtime_trace_store(tmp_path):
     store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
@@ -745,6 +753,7 @@ async def test_handle_commits_final_chat_message_before_notification(
     chat_store: ChatStore,
 ) -> None:
     action_emitter = _FakeActionEmitter()
+    chat_projector = _FakeChatProjector()
     service = ChatPostProcessService(
         agent_id="chat:web_user",
         history_service=_FakeHistoryService(),  # type: ignore[arg-type]
@@ -753,6 +762,7 @@ async def test_handle_commits_final_chat_message_before_notification(
         get_sensor_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
+        chat_projector=chat_projector,
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
@@ -832,6 +842,7 @@ async def test_handle_commits_final_chat_message_before_notification(
     assert "assistant_final" in seen_kinds_at_notify
     assert [message.message_kind for message in messages] == ["user_text", "assistant_final"]
     assert messages[-1].content_text == "final answer"
+    assert chat_projector.assistant_messages[0]["message_id"] == messages[-1].message_id
 
 
 @pytest.mark.asyncio
