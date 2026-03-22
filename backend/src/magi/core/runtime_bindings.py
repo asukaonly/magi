@@ -21,6 +21,11 @@ def require_message_bus():
     return _require_binding("message_bus")
 
 
+def require_runtime_command_queue():
+    """Return the active runtime command queue binding."""
+    return _require_binding("runtime_command_queue")
+
+
 def require_agent_runtime():
     """Return the active agent runtime binding."""
     return _require_binding("agent_runtime")
@@ -94,3 +99,8 @@ def require_skill_loader():
 def require_skill_runner():
     """Return the shared skill runner binding."""
     return _require_binding("skill_runner")
+
+
+def require_runtime_trace_store():
+    """Return the active runtime trace store binding."""
+    return _require_binding("runtime_trace_store")

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from .sqlite_backend import SQLiteMessageBackend
+from .contracts import RuntimeCommandType
+from .events import Event, EventLevel, EventTypes
+from .memory_backend import MemoryMessageBackend
+from .runtime_queue import SQLiteRuntimeCommandQueue
 
 logger = get_logger(__name__)
 
@@ -22,15 +27,9 @@ class MessageBusModule(LifecycleModule):
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
-        runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-        self._context.message_bus.message_bus = SQLiteMessageBackend(
-            db_path=str(runtime_paths.message_queue_db_path),
+        self._context.message_bus.message_bus = MemoryMessageBackend(
             max_queue_size=config.agent.message_bus.max_queue_size,
             num_workers=config.agent.message_bus.num_workers,
-            broadcast_max_concurrency=config.agent.message_bus.broadcast_max_concurrency,
-            handler_timeout_seconds=config.agent.message_bus.handler_timeout_seconds,
-            max_retries=config.agent.message_bus.max_retries,
-            retry_delay_seconds=config.agent.message_bus.retry_delay_seconds,
         )
         await self._context.message_bus.message_bus.start()
         logger.info("MessageBus started")
@@ -39,3 +38,102 @@ class MessageBusModule(LifecycleModule):
         if self._context.message_bus.message_bus is not None:
             await self._context.message_bus.message_bus.stop()
             self._context.message_bus.message_bus = None
+
+
+class RuntimeCommandQueueModule(LifecycleModule):
+    """Start the persisted runtime command queue."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_command_queue",
+            dependencies=("runtime_configuration", "runtime_core_dependencies"),
+        )
+        self._context = context
+
+    async def init(self) -> None:
+        runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+        queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths.message_queue_db_path))
+        await queue.start()
+        self._context.runtime_commands.runtime_command_queue = queue
+        logger.info("Runtime command queue started")
+
+    async def shutdown(self) -> None:
+        queue = self._context.runtime_commands.runtime_command_queue
+        if queue is not None:
+            await queue.stop()
+            self._context.runtime_commands.runtime_command_queue = None
+
+
+class RuntimeCommandProcessorModule(LifecycleModule):
+    """Consume persisted runtime commands and inject local integration events."""
+
+    def __init__(self, context: RuntimeBootstrapContext, *, poll_interval_seconds: float = 0.1):
+        super().__init__(
+            name="runtime_command_processor",
+            dependencies=("runtime_command_queue", "runtime_agent_core", "runtime_message_bus"),
+        )
+        self._context = context
+        self._poll_interval_seconds = poll_interval_seconds
+        self._task: asyncio.Task | None = None
+        self._running = False
+
+    async def init(self) -> None:
+        self._running = True
+        self._task = asyncio.create_task(self._run_loop())
+
+    async def shutdown(self) -> None:
+        self._running = False
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+    async def _run_loop(self) -> None:
+        queue = require_initialized(
+            self._context.runtime_commands.runtime_command_queue,
+            "runtime command queue",
+        )
+        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+
+        while self._running:
+            try:
+                command = await queue.claim_next(
+                    consumer_name="runtime_worker",
+                    command_types=(RuntimeCommandType.USER_MESSAGE,),
+                )
+                if command is None:
+                    await asyncio.sleep(self._poll_interval_seconds)
+                    continue
+
+                user_message = command.as_user_message()
+                published = await message_bus.publish(
+                    Event(
+                        type=EventTypes.USER_MESSAGE,
+                        data={
+                            "content": user_message.message,
+                            "author_type": "user",
+                            "content_type": "text",
+                            "user_id": user_message.user_id,
+                            "runtime_namespace": user_message.runtime_namespace,
+                            "session_id": user_message.session_id,
+                            "turn_id": user_message.turn_id,
+                            "timestamp": float(user_message.created_at),
+                            "metadata": dict(user_message.metadata),
+                        },
+                        source=user_message.source,
+                        level=EventLevel.INFO,
+                        correlation_id=user_message.correlation_id,
+                    )
+                )
+                if published:
+                    await queue.ack(command.command_id)
+                else:
+                    await queue.requeue(command.command_id, error_text="LOCAL_MESSAGE_BUS_PUBLISH_FAILED")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Runtime command processing failed", error=str(exc))
+                await asyncio.sleep(self._poll_interval_seconds)

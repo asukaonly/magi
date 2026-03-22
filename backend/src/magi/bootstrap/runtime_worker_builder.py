@@ -12,7 +12,7 @@ from ..awareness.lifecycle import SensorsAndActionsModule, ActionScheduleRegistr
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
 from ..core.lifecycle import CoreDependenciesModule
-from ..events.lifecycle import MessageBusModule
+from ..events.lifecycle import MessageBusModule, RuntimeCommandProcessorModule, RuntimeCommandQueueModule
 from ..llm.lifecycle import LLMRuntimeModule
 from ..memory.lifecycle import MemoryStoreModule
 from ..personality.lifecycle import PersonalityModule
@@ -30,6 +30,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
     return [
         CoreDependenciesModule(context),
         ConfigurationModule(context),
+        RuntimeCommandQueueModule(context),
         MessageBusModule(context),
         PluginSystemModule(context),
         LLMRuntimeModule(context),
@@ -41,6 +42,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         SensorsAndActionsModule(context),
         ContextModule(context),
         AgentRuntimeModule(context),
+        RuntimeCommandProcessorModule(context),
         TimelineModule(context),
         SchedulerModule(context),
         AgentScheduleRegistrationModule(context),

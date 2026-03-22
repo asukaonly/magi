@@ -13,7 +13,8 @@ if TYPE_CHECKING:
     from ..agent.runtime import AgentRuntime
     from ..bootstrap.context import RuntimeBootstrapContext
     from ..bootstrap.lifecycle import ModuleLifecycleOrchestrator
-    from ..events.sqlite_backend import SQLiteMessageBackend
+    from ..events.backend import MessageBusBackend
+    from ..events.runtime_queue import SQLiteRuntimeCommandQueue
     from ..llm.scenario_pool import ScenarioLLMPool
     from ..memory.integration import MemoryIntegrationModule
     from ..memory import UnifiedMemoryStore
@@ -58,7 +59,8 @@ class Container(containers.DeclarativeContainer):
 
     # Core runtime services — placeholders overridden at bootstrap time.
     # Type annotations (TYPE_CHECKING only) indicate the runtime type.
-    message_bus: providers.Singleton[SQLiteMessageBackend] = providers.Singleton(object)
+    message_bus: providers.Singleton[MessageBusBackend] = providers.Singleton(object)
+    runtime_command_queue: providers.Singleton[SQLiteRuntimeCommandQueue] = providers.Singleton(object)
     agent_runtime: providers.Singleton[AgentRuntime] = providers.Singleton(object)
     memory_integration: providers.Singleton[MemoryIntegrationModule] = providers.Singleton(object)
     unified_memory: providers.Singleton[UnifiedMemoryStore] = providers.Singleton(object)

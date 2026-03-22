@@ -1,36 +1,26 @@
-"""Lifecycle module for websocket bridge subscriptions."""
+"""Lifecycle module for websocket bridge polling runtime notifications."""
 
 from __future__ import annotations
 
 import asyncio
-import os
+import json
 
 from fastapi import FastAPI
 
+from ..api.services import get_chat_trace_read_service
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
-from ..core.runtime_bindings import require_message_bus
-from ..events.events import Event, EventTypes
-from ..api.services import get_chat_trace_read_service
+from ..core.runtime_bindings import require_runtime_trace_store
+from ..runtime_trace import RuntimeNotificationRecord
 from .connection_manager import manager
 
 logger = get_logger(__name__, category="API")
 
-WORKER_AGENT_EVENT_TYPES = (
-    "WORKER_AGENT_PROGRESS",
-    "WORKER_AGENT_COMPLETED",
-    "WORKER_AGENT_FAILED",
-)
-TRACE_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES + (
-    "CHAT_TOOL_LOOP_STEP",
-    "TOOL_INTERACTION",
-    "TOOL_INVOKED",
-)
 DEFAULT_WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS = 0.5
 
 
 class WebSocketBridgeLifecycleModule(LifecycleModule):
-    """Bridge message bus events to connected WebSocket clients."""
+    """Poll runtime notifications and forward them to websocket clients."""
 
     def __init__(self, app: FastAPI, retry_interval_seconds: float = DEFAULT_WEBSOCKET_BRIDGE_RETRY_INTERVAL_SECONDS):
         super().__init__(
@@ -42,187 +32,107 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
 
     async def init(self) -> None:
         state = self._app.state
-        state.ai_response_subscription_id = None
-        state.worker_agent_subscription_ids = []
-        state.websocket_bridge_message_bus = None
-        state.websocket_bridge_retry_task = None
+        state.websocket_bridge_poll_task = None
+        state.websocket_bridge_last_notification_id = 0
 
     async def post_init(self) -> None:
-        subscribed = await self._ensure_subscriptions()
-        if subscribed:
-            return
-
-        logger.info(
-            "Message bus unavailable at startup; scheduling websocket bridge retry",
-            pid=os.getpid(),
-        )
-        self._app.state.websocket_bridge_retry_task = asyncio.create_task(self._retry_subscriptions())
+        store = require_runtime_trace_store()
+        self._app.state.websocket_bridge_last_notification_id = await store.get_latest_notification_id()
+        self._app.state.websocket_bridge_poll_task = asyncio.create_task(self._poll_notifications())
 
     async def shutdown(self) -> None:
-        state = self._app.state
+        poll_task = getattr(self._app.state, "websocket_bridge_poll_task", None)
+        if poll_task is None:
+            return
+        poll_task.cancel()
+        try:
+            await poll_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._app.state.websocket_bridge_poll_task = None
 
-        retry_task = getattr(state, "websocket_bridge_retry_task", None)
-        if retry_task:
-            retry_task.cancel()
+    async def _poll_notifications(self) -> None:
+        while True:
             try:
-                await retry_task
+                store = require_runtime_trace_store()
+                last_id = int(getattr(self._app.state, "websocket_bridge_last_notification_id", 0) or 0)
+                notifications = await store.list_notifications(after_id=last_id, limit=50)
+                if not notifications:
+                    await asyncio.sleep(self._retry_interval_seconds)
+                    continue
+
+                for notification in notifications:
+                    await self._handle_notification(notification)
+                    self._app.state.websocket_bridge_last_notification_id = notification.notification_id
             except asyncio.CancelledError:
-                pass
-            finally:
-                state.websocket_bridge_retry_task = None
-
-        try:
-            message_bus = require_message_bus()
-        except RuntimeError:
-            message_bus = None
-        bridge_bus = getattr(state, "websocket_bridge_message_bus", None) or message_bus
-        sub_id = getattr(state, "ai_response_subscription_id", None)
-        if bridge_bus and sub_id:
-            try:
-                await bridge_bus.unsubscribe(sub_id)
+                raise
             except Exception as exc:
-                logger.warning(f"Failed to unsubscribe AI_RESPONSE bridge: {exc}")
+                logger.warning("Websocket bridge polling failed", error=str(exc))
+                await asyncio.sleep(self._retry_interval_seconds)
 
-        worker_sub_ids = getattr(state, "worker_agent_subscription_ids", None) or []
-        if bridge_bus and worker_sub_ids:
-            for worker_sub_id in worker_sub_ids:
-                try:
-                    await bridge_bus.unsubscribe(worker_sub_id)
-                except Exception as exc:
-                    logger.warning(f"Failed to unsubscribe worker bridge {worker_sub_id}: {exc}")
+    async def _handle_notification(self, notification: RuntimeNotificationRecord) -> None:
+        payload = self._load_payload(notification.payload_json)
+        if notification.channel == "agent_response":
+            await self._broadcast_agent_response(notification=notification, payload=payload)
+            return
+        if notification.channel == "trace_update":
+            await self._broadcast_trace_update(notification=notification)
 
-        state.ai_response_subscription_id = None
-        state.worker_agent_subscription_ids = []
-        state.websocket_bridge_message_bus = None
+    async def _broadcast_agent_response(
+        self,
+        *,
+        notification: RuntimeNotificationRecord,
+        payload: dict[str, object],
+    ) -> None:
+        user_id = str(notification.user_id or payload.get("user_id") or "").strip()
+        session_id = str(notification.session_id or payload.get("session_id") or "").strip()
+        turn_id = str(notification.turn_id or payload.get("turn_id") or "").strip()
+        if not user_id:
+            return
 
-    async def _ensure_subscriptions(self) -> bool:
-        """Subscribe to message bus events for WebSocket broadcast."""
-        state = self._app.state
-        try:
-            message_bus = require_message_bus()
-        except RuntimeError:
-            return False
-
-        existing_sub_id = getattr(state, "ai_response_subscription_id", None)
-        existing_bus = getattr(state, "websocket_bridge_message_bus", None)
-        if existing_sub_id and existing_bus is message_bus:
-            return True
-
-        async def _on_ai_response(event: Event) -> None:
-            data = event.data if isinstance(event.data, dict) else {}
-            user_id = str(data.get("user_id", "")).strip()
-            session_id = str(data.get("session_id", "")).strip()
-            turn_id = str(data.get("turn_id", "")).strip()
-
-            if not user_id:
-                logger.warning(
-                    "AI_RESPONSE missing user_id; skip websocket broadcast",
-                    turn_id=turn_id or None,
-                    session_id=session_id or None,
-                    pid=os.getpid(),
-                )
-                return
-
-            room_name = f"user_{user_id}"
-            room_clients = manager.get_clients_in_room(room_name)
-            logger.info(
-                "AI_RESPONSE received by websocket bridge",
-                user_id=user_id,
-                session_id=session_id or None,
-                turn_id=turn_id or None,
-                room=room_name,
-                room_clients=room_clients,
-                pid=os.getpid(),
-            )
-            if turn_id and "trace_summary" not in data:
-                summary = self._load_trace_summary(
-                    user_id=user_id,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                )
+        response_payload = dict(payload)
+        response_payload.setdefault("user_id", user_id)
+        response_payload.setdefault("session_id", session_id)
+        if turn_id:
+            response_payload.setdefault("turn_id", turn_id)
+            if "trace_summary" not in response_payload:
+                summary = self._load_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
                 if summary is not None:
-                    data = {
-                        **data,
-                        "trace_summary": summary,
-                        "trace_available": bool(summary.get("trace_available")),
-                    }
-            await manager.broadcast("agent_response", data, room=room_name)
+                    response_payload["trace_summary"] = summary
+                    response_payload["trace_available"] = bool(summary.get("trace_available"))
+        await manager.broadcast("agent_response", response_payload, room=f"user_{user_id}")
 
-        async def _on_trace_event(event: Event) -> None:
-            data = event.data if isinstance(event.data, dict) else {}
-            tags = data.get("tags") if isinstance(data.get("tags"), dict) else {}
-            user_id = str(data.get("user_id") or tags.get("user_id") or "").strip()
-            session_id = str(data.get("session_id") or tags.get("session_id") or "").strip()
-            turn_id = str(data.get("turn_id", "")).strip()
+    async def _broadcast_trace_update(self, *, notification: RuntimeNotificationRecord) -> None:
+        user_id = str(notification.user_id or "").strip()
+        session_id = str(notification.session_id or "").strip()
+        turn_id = str(notification.turn_id or "").strip()
+        if not user_id or not session_id or not turn_id:
+            return
 
-            if not user_id:
-                return
+        summary = self._load_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
+        if summary is None:
+            return
 
-            summary = self._load_trace_summary(
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-            )
-            if summary is None:
-                return
-
-            trace_payload = {
+        await manager.broadcast(
+            "execution_trace_update",
+            {
                 "user_id": user_id,
                 "session_id": session_id,
                 "turn_id": turn_id,
                 "trace_summary": summary,
                 "trace_available": bool(summary.get("trace_available")),
-            }
-
-            await manager.broadcast(
-                "execution_trace_update",
-                trace_payload,
-                room=f"user_{user_id}",
-            )
-
-        stale_sub_id = getattr(state, "ai_response_subscription_id", None)
-        stale_trace_sub_ids = getattr(state, "worker_agent_subscription_ids", None) or []
-        stale_bus = getattr(state, "websocket_bridge_message_bus", None)
-        if stale_bus is not None and stale_bus is not message_bus:
-            if stale_sub_id:
-                try:
-                    await stale_bus.unsubscribe(stale_sub_id)
-                except Exception as exc:
-                    logger.warning(f"Failed to unsubscribe stale AI_RESPONSE bridge: {exc}")
-            for stale_trace_sub_id in stale_trace_sub_ids:
-                try:
-                    await stale_bus.unsubscribe(stale_trace_sub_id)
-                except Exception as exc:
-                    logger.warning(f"Failed to unsubscribe stale trace bridge {stale_trace_sub_id}: {exc}")
-
-        sub_id = await message_bus.subscribe(
-            EventTypes.AI_RESPONSE,
-            _on_ai_response,
-            propagation_mode="broadcast",
-        )
-        state.ai_response_subscription_id = sub_id
-        state.websocket_bridge_message_bus = message_bus
-        logger.info(
-            "Subscribed AI_RESPONSE for websocket bridge",
-            subscription_id=sub_id,
-            pid=os.getpid(),
+            },
+            room=f"user_{user_id}",
         )
 
-        trace_sub_ids = []
-        for trace_event_type in TRACE_EVENT_TYPES:
-            worker_sub_id = await message_bus.subscribe(
-                trace_event_type,
-                _on_trace_event,
-                propagation_mode="broadcast",
-            )
-            trace_sub_ids.append(worker_sub_id)
-        state.worker_agent_subscription_ids = trace_sub_ids
-        logger.info(
-            "Subscribed trace events for websocket bridge",
-            count=len(trace_sub_ids),
-            pid=os.getpid(),
-        )
-        return True
+    @staticmethod
+    def _load_payload(payload_json: str) -> dict[str, object]:
+        try:
+            payload = json.loads(payload_json or "{}")
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     @staticmethod
     def _load_trace_summary(*, user_id: str, session_id: str, turn_id: str) -> dict | None:
@@ -245,33 +155,3 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
             )
             return None
         return summary if isinstance(summary, dict) else None
-
-    async def _retry_subscriptions(self) -> None:
-        attempts = 0
-        while True:
-            try:
-                if await self._ensure_subscriptions():
-                    logger.info(
-                        "Deferred websocket bridge subscription established",
-                        attempts=attempts,
-                        pid=os.getpid(),
-                    )
-                    return
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger.warning(
-                    "Deferred websocket bridge subscription attempt failed",
-                    attempts=attempts + 1,
-                    error=str(exc),
-                    pid=os.getpid(),
-                )
-
-            attempts += 1
-            if attempts % 20 == 0:
-                logger.info(
-                    "Waiting for message bus before websocket bridge subscription",
-                    attempts=attempts,
-                    pid=os.getpid(),
-                )
-            await asyncio.sleep(self._retry_interval_seconds)

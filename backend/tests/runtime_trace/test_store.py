@@ -39,5 +39,39 @@ async def test_runtime_trace_store_creates_turn_and_span_tables(tmp_path: Path) 
         assert "trace_llm_calls" in tables
         assert "trace_tools" in tables
         assert "trace_intent_resolutions" in tables
+        assert "runtime_notifications" in tables
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_trace_store_persists_notifications(tmp_path: Path) -> None:
+    from magi.runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
+
+    db_path = tmp_path / "runtime_trace.db"
+    store = RuntimeTraceStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        notification_id = await store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="agent_response",
+                user_id="user-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                payload_json='{"content":"hello"}',
+                created_at_ms=123,
+            )
+        )
+
+        notifications = await store.list_notifications(after_id=0)
+        assert len(notifications) == 1
+        assert notifications[0].notification_id == notification_id
+        assert notifications[0].channel == "agent_response"
+        assert notifications[0].turn_id == "turn-1"
+
+        latest_id = await store.get_latest_notification_id()
+        assert latest_id == notification_id
     finally:
         await store.shutdown()

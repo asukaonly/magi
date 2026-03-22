@@ -12,7 +12,8 @@ if TYPE_CHECKING:
     from ..core.maintenance import MaintenanceDaemon
     from ..llm import ScenarioLLMPool
     from ..llm.usage_events import LLMUsageEventPublisher
-    from ..events.sqlite_backend import SQLiteMessageBackend
+    from ..events.backend import MessageBusBackend
+    from ..events.runtime_queue import SQLiteRuntimeCommandQueue
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
     from ..memory.hybrid_retrieval import HybridRetrievalService
@@ -71,7 +72,14 @@ class LLMBootstrapState:
 class MessageBusBootstrapState:
     """L3 Message Bus state slice."""
 
-    message_bus: SQLiteMessageBackend | None = None
+    message_bus: MessageBusBackend | None = None
+
+
+@dataclass
+class RuntimeCommandBootstrapState:
+    """Persisted runtime command queue state slice."""
+
+    runtime_command_queue: SQLiteRuntimeCommandQueue | None = None
 
 
 @dataclass
@@ -164,6 +172,7 @@ class RuntimeBootstrapContext:
     """
 
     core: CoreBootstrapState = field(default_factory=CoreBootstrapState)
+    runtime_commands: RuntimeCommandBootstrapState = field(default_factory=RuntimeCommandBootstrapState)
     message_bus: MessageBusBootstrapState = field(default_factory=MessageBusBootstrapState)
     plugins: PluginBootstrapState = field(default_factory=PluginBootstrapState)
     llm: LLMBootstrapState = field(default_factory=LLMBootstrapState)

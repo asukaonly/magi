@@ -7,17 +7,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from ...core.runtime_bindings import require_message_bus
-from ...events.events import (
-    Event,
-    EventLevel,
-    EventTypes,
-    REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY,
-)
+from ...core.runtime_bindings import require_runtime_command_queue
+from ...events.contracts import UserMessageCommand
 
 
-MESSAGE_BUS_NOT_INITIALIZED = "MESSAGE_BUS_NOT_INITIALIZED"
-MESSAGE_BUS_PUBLISH_FAILED = "MESSAGE_BUS_PUBLISH_FAILED"
+RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED = "RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED"
+RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED = "RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED"
 SESSION_ID_REQUIRED = "SESSION_ID_REQUIRED"
 
 
@@ -42,16 +37,16 @@ async def dispatch_user_message(
     metadata: dict[str, Any] | None = None,
     runtime_namespace: str | None = None,
 ) -> MessageDispatchOutcome:
-    """Resolve session metadata and enqueue a USER_MESSAGE event."""
+    """Resolve session metadata and enqueue a user-message runtime command."""
 
     try:
-        message_bus = require_message_bus()
+        runtime_command_queue = require_runtime_command_queue()
     except RuntimeError:
         return MessageDispatchOutcome(
             success=False,
             user_id=user_id,
-            error_code=MESSAGE_BUS_NOT_INITIALIZED,
-            error_message="Message bus not initialized. Please complete onboarding or check the saved configuration.",
+            error_code=RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED,
+            error_message="Runtime command queue is not initialized. Please complete onboarding or check the saved configuration.",
         )
 
     resolved_session_id = str(session_id or "").strip()
@@ -63,40 +58,31 @@ async def dispatch_user_message(
             error_message="Session ID is required.",
         )
     turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
-    payload = {
-        "content": message,
-        "author_type": "user",
-        "content_type": "text",
-        "user_id": user_id,
-        "runtime_namespace": str(runtime_namespace or "").strip() or None,
-        "session_id": resolved_session_id,
-        "turn_id": turn_id,
-        "timestamp": time.time(),
-    }
-    if metadata:
-        payload["metadata"] = dict(metadata)
-
-    published = await message_bus.publish(
-        Event(
-            type=EventTypes.USER_MESSAGE,
-            data=payload,
-            source=source,
-            level=EventLevel.INFO,
-            metadata={REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True},
+    try:
+        await runtime_command_queue.enqueue_user_message(
+            UserMessageCommand(
+                source=source,
+                user_id=user_id,
+                session_id=resolved_session_id,
+                turn_id=turn_id,
+                message=message,
+                runtime_namespace=str(runtime_namespace or "").strip() or "web",
+                metadata=dict(metadata or {}),
+                created_at=time.time(),
+            )
         )
-    )
-    if not published:
+    except Exception:
         return MessageDispatchOutcome(
             success=False,
             user_id=user_id,
             session_id=resolved_session_id,
             turn_id=turn_id,
-            error_code=MESSAGE_BUS_PUBLISH_FAILED,
-            error_message="Message bus publish failed",
+            error_code=RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED,
+            error_message="Runtime command enqueue failed",
         )
 
-    stats = await message_bus.get_stats()
-    queue_size = stats.get("queue_size") if isinstance(stats, dict) else None
+    stats = await runtime_command_queue.get_stats()
+    queue_size = stats.get("pending_count") if isinstance(stats, dict) else None
     return MessageDispatchOutcome(
         success=True,
         user_id=user_id,

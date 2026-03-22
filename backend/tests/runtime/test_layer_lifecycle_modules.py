@@ -41,9 +41,10 @@ def test_bootstrap_builds_expected_front_of_layer_order() -> None:
 
     modules = build_runtime_modules(RuntimeBootstrapContext())
 
-    assert [module.name for module in modules[:4]] == [
+    assert [module.name for module in modules[:5]] == [
         "runtime_core_dependencies",
         "runtime_configuration",
+        "runtime_command_queue",
         "runtime_message_bus",
         "runtime_plugin_system",
     ]
@@ -56,10 +57,11 @@ def test_bootstrap_builds_expected_middle_layer_order() -> None:
 
     modules = build_runtime_modules(RuntimeBootstrapContext())
 
-    # Check that modules 0-11 match expected order
-    assert [module.name for module in modules[:12]] == [
+    # Check that modules 0-12 match expected order
+    assert [module.name for module in modules[:13]] == [
         "runtime_core_dependencies",
         "runtime_configuration",
+        "runtime_command_queue",
         "runtime_message_bus",
         "runtime_plugin_system",
         "runtime_llm",
@@ -83,6 +85,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
     assert [module.name for module in modules] == [
         "runtime_core_dependencies",
         "runtime_configuration",
+        "runtime_command_queue",
         "runtime_message_bus",
         "runtime_plugin_system",
         "runtime_llm",
@@ -94,6 +97,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_sensor_hub",
         "runtime_context",
         "runtime_agent_core",
+        "runtime_command_processor",
         "runtime_timeline",
         "runtime_scheduler",
         "runtime_agent_scheduler",

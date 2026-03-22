@@ -10,6 +10,7 @@ from typing import Any, TypeVar
 import aiosqlite
 
 from .contracts import (
+    RuntimeNotificationRecord,
     TraceIntentResolutionRecord,
     TraceLlmCallRecord,
     TraceSpanRecord,
@@ -130,6 +131,18 @@ class RuntimeTraceStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_trace_tools_trace
                     ON trace_tools(trace_id);
+
+                CREATE TABLE IF NOT EXISTS runtime_notifications (
+                    notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT,
+                    payload_json TEXT NOT NULL,
+                    created_at_ms INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_runtime_notifications_created
+                    ON runtime_notifications(notification_id ASC);
                 """
             )
             await db.commit()
@@ -421,6 +434,70 @@ class RuntimeTraceStore:
         if record is not None:
             record.success = bool(record.success)
         return record
+
+    async def append_notification(self, record: RuntimeNotificationRecord) -> int:
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                INSERT INTO runtime_notifications (
+                    channel,
+                    user_id,
+                    session_id,
+                    turn_id,
+                    payload_json,
+                    created_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.channel,
+                    record.user_id,
+                    record.session_id,
+                    record.turn_id,
+                    record.payload_json,
+                    record.created_at_ms or self._now_ms(),
+                ),
+            )
+            await db.commit()
+            return int(cursor.lastrowid)
+
+    async def list_notifications(self, *, after_id: int, limit: int = 50) -> list[RuntimeNotificationRecord]:
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM runtime_notifications
+                WHERE notification_id > ?
+                ORDER BY notification_id ASC
+                LIMIT ?
+                """,
+                (int(after_id), int(limit)),
+            )
+            rows = await cursor.fetchall()
+        return [
+            RuntimeNotificationRecord(
+                notification_id=int(row["notification_id"]),
+                channel=str(row["channel"]),
+                user_id=str(row["user_id"]),
+                session_id=str(row["session_id"]),
+                turn_id=str(row["turn_id"]) if row["turn_id"] is not None else None,
+                payload_json=str(row["payload_json"]),
+                created_at_ms=int(row["created_at_ms"] or 0),
+            )
+            for row in rows
+        ]
+
+    async def get_latest_notification_id(self) -> int:
+        await self.initialize()
+        row = await self._fetchone(
+            "SELECT MAX(notification_id) AS notification_id FROM runtime_notifications",
+            (),
+        )
+        if row is None:
+            return 0
+        return int(row["notification_id"] or 0)
 
     async def _upsert_detail(self, sql: str, params: tuple[Any, ...]) -> None:
         async with aiosqlite.connect(self.db_path) as db:

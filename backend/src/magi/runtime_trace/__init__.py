@@ -1,6 +1,7 @@
 """Runtime trace persistence package."""
 
 from .contracts import (
+    RuntimeNotificationRecord,
     TraceIntentResolutionRecord,
     TraceLlmCallRecord,
     TraceSpanRecord,
@@ -11,6 +12,7 @@ from .store import RuntimeTraceStore
 
 __all__ = [
     "RuntimeTraceStore",
+    "RuntimeNotificationRecord",
     "TraceTurnRecord",
     "TraceSpanRecord",
     "TraceIntentResolutionRecord",

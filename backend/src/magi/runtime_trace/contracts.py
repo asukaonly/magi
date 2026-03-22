@@ -88,3 +88,14 @@ class TraceToolRecord:
     error_code: str | None = None
     error_message: str | None = None
     result_preview: str | None = None
+
+
+@dataclass(slots=True)
+class RuntimeNotificationRecord:
+    notification_id: int
+    channel: str
+    user_id: str
+    session_id: str
+    turn_id: str | None = None
+    payload_json: str = "{}"
+    created_at_ms: int = 0
