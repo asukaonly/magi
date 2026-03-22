@@ -272,8 +272,10 @@ describe('ChatPage', () => {
         event: 'agent_response',
         data: {
           session_id: 'session-1',
-          content: '收到啦',
+          content: '👌',
           timestamp: Date.now() / 1000,
+          message_id: 'msg-reaction-only',
+          message_kind: 'assistant_reaction',
           turn_id: 'turn-3',
           ux_plan: {
             assistant_surface_mode: 'reaction_only',
@@ -284,7 +286,7 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByText('收到啦')).not.toBeInTheDocument();
+      expect(screen.queryByText('msg-reaction-only')).not.toBeInTheDocument();
     });
   });
 

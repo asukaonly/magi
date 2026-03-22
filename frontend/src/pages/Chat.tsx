@@ -187,8 +187,7 @@ export const ChatPage: React.FC = () => {
       const summary = normalizeTraceSummary(payload?.trace_summary);
       const uxPlan = normalizeTurnUxPlan(payload?.ux_plan);
       const assistantSurfaceMode = uxPlan?.assistantSurfaceMode || '';
-      const shouldSuppressAssistantBubble =
-        assistantSurfaceMode === 'reaction_only' || assistantSurfaceMode === 'none';
+      const shouldSuppressAssistantBubble = assistantSurfaceMode === 'none';
       if (sessionId) {
         if (shouldSuppressAssistantBubble) {
           if (turnId && uxPlan) {

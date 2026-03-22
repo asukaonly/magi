@@ -92,7 +92,7 @@ describe('conversation store', () => {
     expect(useConversationStore.getState().currentSessionId).toBe('session-a');
   });
 
-  it('preserves a local assistant reply when refreshed history still only has a status placeholder', () => {
+  it('trusts persisted history when refresh returns a status placeholder', () => {
     const store = useConversationStore.getState();
 
     store.receiveHistory('session-a', [
@@ -152,13 +152,12 @@ describe('conversation store', () => {
         turnId: 'turn-1',
       }),
       expect.objectContaining({
-        id: 'turn-1-assistant',
+        id: 'turn-1-status-refresh',
         role: 'assistant',
-        kind: 'assistant',
-        content: 'final answer',
-        timestamp: 1002,
+        kind: 'status',
+        content: 'Tool chain completed',
+        timestamp: 1001,
         turnId: 'turn-1',
-        traceSummary: null,
         traceAvailable: true,
       }),
     ]);

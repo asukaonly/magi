@@ -168,6 +168,21 @@ describe('chat trace state helpers', () => {
     expect(next[0].reaction).toBe('👌');
   });
 
+  it('applies persisted assistant reaction payloads without creating an assistant bubble', () => {
+    const initial = createPendingTurn('嗯', 'turn_2', 1000, 'Thinking');
+    const next = applyAgentResponse(initial, {
+      content: '👌',
+      timestamp: 2000,
+      messageId: 'msg-reaction-1',
+      messageKind: 'assistant_reaction',
+      turnId: 'turn_2',
+    });
+
+    expect(next).toHaveLength(1);
+    expect(next[0].kind).toBe('user');
+    expect(next[0].reaction).toBe('👌');
+  });
+
   it('adds a status card when thinking indicator asks for visible feedback', () => {
     const initial = createPendingTurn('查一下最近状态', 'turn_3', 1000, 'Thinking');
     const next = applyTurnUxPlan(
