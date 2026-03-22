@@ -138,6 +138,46 @@ describe('ChatPage', () => {
     ).toBe(false);
   });
 
+  it('renders a more prominent trace entry when ux plan requests prominent trace display', async () => {
+    const view = render(<ChatPage />);
+    const scoped = within(view.container);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          content: '需要你看下执行细节',
+          timestamp: Date.now() / 1000,
+          turn_id: 'turn-prominent',
+          ux_plan: {
+            assistant_surface_mode: 'final_only',
+            trace_display_mode: 'prominent',
+            allow_trace_collapse: true,
+          },
+          trace_available: true,
+          trace_summary: {
+            turn_id: 'turn-prominent',
+            mode: 'orchestration',
+            status: 'completed',
+            headline: '任务链路已生成',
+            active_steps: 0,
+            completed_steps: 3,
+            failed_steps: 0,
+            duration_seconds: 2.1,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(scoped.getByText('需要你看下执行细节')).toBeInTheDocument();
+    });
+
+    expect(view.container.querySelector('[data-trace-variant="prominent"]')).toBeInTheDocument();
+  });
+
   it('renders an interim assistant message when turn ux plan requests interim-then-final', async () => {
     render(<ChatPage />);
 

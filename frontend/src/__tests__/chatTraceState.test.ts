@@ -104,6 +104,45 @@ describe('chat trace state helpers', () => {
     expect(shouldShowTraceEntry(hiddenMessage)).toBe(false);
   });
 
+  it('keeps trace entry helper enabled for prominent trace display', () => {
+    const prominentMessage = applyAgentResponse(
+      applyTurnUxPlan(
+        createPendingTurn('Analyze this repo', 'turn-prominent', 1000, 'Thinking'),
+        'turn-prominent',
+        {
+          assistantSurfaceMode: 'final_only',
+          traceDisplayMode: 'prominent',
+          allowTraceCollapse: true,
+        }
+      ),
+      {
+        content: '整理好了',
+        timestamp: 2000,
+        turnId: 'turn-prominent',
+        uxPlan: {
+          assistantSurfaceMode: 'final_only',
+          traceDisplayMode: 'prominent',
+          allowTraceCollapse: true,
+        },
+        traceSummary: normalizeTraceSummary({
+          turn_id: 'turn-prominent',
+          mode: 'function_calling',
+          status: 'completed',
+          headline: '工具链已完成',
+          active_steps: 0,
+          completed_steps: 2,
+          failed_steps: 0,
+          duration_seconds: 1.2,
+          trace_available: true,
+        }),
+        traceAvailable: true,
+      }
+    ).find((message) => message.kind === 'assistant')!;
+
+    expect(prominentMessage.traceDisplayMode).toBe('prominent');
+    expect(shouldShowTraceEntry(prominentMessage)).toBe(true);
+  });
+
   it('adds an interim assistant message for interim-then-final turns', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking');
     const next = applyTurnUxPlan(initial, 'turn_1', {

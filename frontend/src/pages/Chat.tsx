@@ -2,7 +2,7 @@
  * Chat page - desktop-focused conversation workspace
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Loader2, UserRound } from 'lucide-react';
+import { ArrowUp, Loader2, Sparkles, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
@@ -437,16 +437,22 @@ export const ChatPage: React.FC = () => {
 
     if (!turnId || !canOpenTrace) return null;
 
+    const isProminent = traceDisplayMode === 'prominent';
+
     return (
       <button
         type="button"
+        data-trace-variant={isProminent ? 'prominent' : 'default'}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
           openTraceDrawer(turnId);
         }}
-        className="text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary"
+        className={isProminent
+          ? 'inline-flex items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary shadow-sm transition-colors hover:bg-primary/15'
+          : 'text-[11px] font-medium text-muted-foreground transition-colors hover:text-primary'}
       >
+        {isProminent && <Sparkles className="h-3 w-3" />}
         {t('chat.trace.view')}
       </button>
     );
