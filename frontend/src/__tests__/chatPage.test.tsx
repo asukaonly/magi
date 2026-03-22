@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { ChatPage } from '@/pages/Chat';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useChatTraceStore } from '@/stores';
-import { shouldShowTraceEntry } from '@/pages/chat-state';
+import { normalizeHistoryMessages, shouldShowTraceEntry } from '@/pages/chat-state';
 
 const sendMock = vi.fn();
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
@@ -281,6 +281,44 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(screen.queryByText('收到啦')).not.toBeInTheDocument();
     });
+  });
+
+  it('rehydrates a persisted reaction-only turn without creating an assistant bubble', async () => {
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'msg-user-reaction',
+          message_kind: 'user_text',
+          role: 'user',
+          content: '嗯',
+          timestamp: 1000,
+          turn_id: 'turn-reaction-history',
+          kind: 'user',
+        },
+        {
+          message_id: 'msg-reaction-only',
+          message_kind: 'assistant_reaction',
+          role: 'assistant',
+          content: '👌',
+          timestamp: 1001,
+          turn_id: 'turn-reaction-history',
+          kind: 'assistant',
+        },
+      ])
+    );
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('嗯')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('👌')).toBeInTheDocument();
+    expect(screen.queryByText('msg-reaction-only')).not.toBeInTheDocument();
+    expect(
+      useConversationStore.getState().messagesBySession['session-1']?.filter((message) => message.turnId === 'turn-reaction-history')
+    ).toHaveLength(1);
   });
 
   it('renders a thinking status card when ux plan requests visible thinking feedback', async () => {

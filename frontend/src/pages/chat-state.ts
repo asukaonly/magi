@@ -174,11 +174,14 @@ export const normalizeTurnUxPlan = (raw: unknown): NormalizedTurnUxPlan | null =
   };
 };
 
-export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTimelineMessage[] =>
-  messages.map((message, index) => {
+export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTimelineMessage[] => {
+  const normalizedMessages: ChatTimelineMessage[] = [];
+
+  messages.forEach((message, index) => {
+    const rawMessageKind = String(message.message_kind || '').trim();
     const kind = (message.kind || message.role) as ChatMessageKind;
     const traceSummary = normalizeTraceSummary(message.trace_summary as ExecutionTraceSummary | undefined);
-    return {
+    const normalizedMessage: ChatTimelineMessage = {
       id: String(message.message_id || `${message.turn_id || 'history'}-${index}-${kind}`),
       role: message.role === 'user' ? 'user' : 'assistant',
       kind,
@@ -192,7 +195,28 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
     };
+
+    if (rawMessageKind === 'assistant_reaction') {
+      const turnId = String(normalizedMessage.turnId || '').trim();
+      const targetIndex = [...normalizedMessages]
+        .map((item, itemIndex) => ({ item, itemIndex }))
+        .reverse()
+        .find(({ item }) => item.role === 'user' && String(item.turnId || '').trim() === turnId)
+        ?.itemIndex;
+      if (targetIndex !== undefined) {
+        normalizedMessages[targetIndex] = {
+          ...normalizedMessages[targetIndex],
+          reaction: normalizedMessage.content,
+        };
+        return;
+      }
+    }
+
+    normalizedMessages.push(normalizedMessage);
   });
+
+  return normalizedMessages;
+};
 
 export const mergeHistoryMessages = (
   existingMessages: ChatTimelineMessage[],

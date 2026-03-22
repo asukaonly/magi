@@ -262,6 +262,39 @@ describe('chat trace state helpers', () => {
     expect(normalized[0].traceAvailable).toBe(true);
   });
 
+  it('hydrates reaction-only history rows onto the persisted user message', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-user',
+        message_kind: 'user_text',
+        role: 'user',
+        content: '嗯',
+        timestamp: 1000,
+        turn_id: 'turn_reaction',
+        kind: 'user',
+      },
+      {
+        message_id: 'msg-reaction',
+        message_kind: 'assistant_reaction',
+        role: 'assistant',
+        content: '👌',
+        timestamp: 1001,
+        turn_id: 'turn_reaction',
+        kind: 'assistant',
+      },
+    ]);
+
+    expect(normalized).toHaveLength(1);
+    expect(normalized[0]).toMatchObject({
+      id: 'msg-user',
+      messageId: 'msg-user',
+      turnId: 'turn_reaction',
+      kind: 'user',
+      content: '嗯',
+      reaction: '👌',
+    });
+  });
+
   it('flattens the planning node out of the trace tree for drawer display', () => {
     const root = flattenPlanningNodeForDisplay({
       id: 'turn_1:root',
