@@ -1,8 +1,9 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPage } from '@/pages/Chat';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useChatTraceStore } from '@/stores';
+import { shouldShowTraceEntry } from '@/pages/chat-state';
 
 const sendMock = vi.fn();
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
@@ -43,6 +44,15 @@ vi.mock('@/components/chat/ToolchainDrawer', () => ({
 }));
 
 describe('ChatPage', () => {
+  afterEach(() => {
+    realtimeListener = null;
+    sendMock.mockReset();
+    useConversationStore.getState().reset();
+    useChatTraceStore.getState().reset();
+    cleanup();
+    document.body.innerHTML = '';
+  });
+
   beforeEach(() => {
     sendMock.mockReset();
     realtimeListener = null;
@@ -83,6 +93,49 @@ describe('ChatPage', () => {
       expect(screen.getByText('整理好了')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'chat.trace.view' })).toBeInTheDocument();
+  });
+
+  it('hides the trace entry when ux plan disables trace display', async () => {
+    const view = render(<ChatPage />);
+    const scoped = within(view.container);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          content: '整理好了',
+          timestamp: Date.now() / 1000,
+          turn_id: 'turn-hidden',
+          ux_plan: {
+            assistant_surface_mode: 'final_only',
+            trace_display_mode: 'none',
+          },
+          trace_available: true,
+          trace_summary: {
+            turn_id: 'turn-hidden',
+            mode: 'function_calling',
+            status: 'completed',
+            headline: '工具链已完成',
+            active_steps: 0,
+            completed_steps: 2,
+            failed_steps: 0,
+            duration_seconds: 1.2,
+            trace_available: true,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(scoped.getAllByText('整理好了').length).toBeGreaterThan(0);
+    });
+    const hiddenMessage = useConversationStore.getState().messagesBySession['session-1']
+      ?.find((message) => message.turnId === 'turn-hidden');
+    expect(hiddenMessage?.traceDisplayMode).toBe('none');
+    expect(
+      shouldShowTraceEntry(hiddenMessage ?? { turnId: '', traceDisplayMode: null, traceAvailable: false, traceSummary: null })
+    ).toBe(false);
   });
 
   it('renders an interim assistant message when turn ux plan requests interim-then-final', async () => {

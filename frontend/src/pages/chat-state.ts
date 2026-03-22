@@ -10,6 +10,8 @@ export interface ChatTimelineMessage {
   timestamp: number;
   turnId?: string;
   reaction?: string | null;
+  traceDisplayMode?: string | null;
+  allowTraceCollapse?: boolean;
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
 }
@@ -69,6 +71,17 @@ type ApplyTurnUxPlanOptions = {
 const REACTION_EMOJI_BY_STYLE: Record<string, string> = {
   acknowledge: '👌',
 };
+
+const applyUxMetadata = (
+  message: ChatTimelineMessage,
+  plan: NormalizedTurnUxPlan,
+): ChatTimelineMessage => ({
+  ...message,
+  traceDisplayMode: plan.traceDisplayMode ?? message.traceDisplayMode ?? null,
+  allowTraceCollapse: typeof plan.allowTraceCollapse === 'boolean'
+    ? plan.allowTraceCollapse
+    : Boolean(message.allowTraceCollapse),
+});
 
 export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSummary | null => {
   if (!raw || typeof raw !== 'object') return null;
@@ -170,6 +183,8 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       content: message.content,
       timestamp: Number(message.timestamp || Date.now()),
       turnId: message.turn_id || undefined,
+      traceDisplayMode: null,
+      allowTraceCollapse: false,
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
     };
@@ -201,6 +216,8 @@ export const mergeHistoryMessages = (
 
     return {
       ...localAssistant,
+      traceDisplayMode: message.traceDisplayMode ?? localAssistant.traceDisplayMode ?? null,
+      allowTraceCollapse: Boolean(message.allowTraceCollapse || localAssistant.allowTraceCollapse),
       traceSummary: message.traceSummary ?? localAssistant.traceSummary ?? null,
       traceAvailable: Boolean(message.traceAvailable || localAssistant.traceAvailable),
     };
@@ -215,6 +232,8 @@ export const createPendingTurn = (input: string, turnId: string, timestamp: numb
     content: input,
     timestamp,
     turnId,
+    traceDisplayMode: null,
+    allowTraceCollapse: false,
   },
 ];
 
@@ -233,7 +252,7 @@ export const applyTurnUxPlan = (
       .filter((message) => !(message.turnId === resolvedTurnId && message.role === 'assistant'))
       .map((message) => (
         message.turnId === resolvedTurnId && message.role === 'user'
-          ? { ...message, reaction }
+          ? applyUxMetadata({ ...message, reaction }, plan)
           : message
       ));
     return nextMessages;
@@ -258,18 +277,18 @@ export const applyTurnUxPlan = (
       if (message.turnId !== resolvedTurnId) return message;
       if (message.kind === 'assistant' || message.kind === 'status') {
         replaced = true;
-        return {
+        return applyUxMetadata({
           ...message,
           ...interimMessage,
           traceSummary: message.traceSummary ?? null,
           traceAvailable: Boolean(message.traceAvailable),
-        };
+        }, plan);
       }
       return message;
     });
 
     if (replaced) return nextMessages;
-    return [...messages, interimMessage];
+    return [...messages, applyUxMetadata(interimMessage, plan)];
   }
 
   if (plan.thinkingIndicator && plan.thinkingIndicator !== 'hidden') {
@@ -283,7 +302,7 @@ export const applyTurnUxPlan = (
     }
     return [
       ...messages,
-      {
+      applyUxMetadata({
         id: `${resolvedTurnId}-status`,
         role: 'assistant',
         kind: 'status',
@@ -291,11 +310,13 @@ export const applyTurnUxPlan = (
         timestamp: Date.now(),
         turnId: resolvedTurnId,
         traceAvailable: false,
-      },
+      }, plan),
     ];
   }
 
-  return messages;
+  return messages.map((message) => (
+    message.turnId === resolvedTurnId ? applyUxMetadata(message, plan) : message
+  ));
 };
 
 export const upsertTraceSummary = (
@@ -305,6 +326,7 @@ export const upsertTraceSummary = (
 ): ChatTimelineMessage[] => {
   if (!turnId) return messages;
   const nextSummary = summary || undefined;
+  const traceDisplayMode = messages.find((message) => message.turnId === turnId)?.traceDisplayMode || null;
   let updated = false;
   const nextMessages = messages.map((message) => {
     if (message.turnId !== turnId) return message;
@@ -329,6 +351,7 @@ export const upsertTraceSummary = (
   });
 
   if (updated) return nextMessages;
+  if (traceDisplayMode === 'none') return messages;
 
   return [
     ...messages,
@@ -339,10 +362,29 @@ export const upsertTraceSummary = (
       content: nextSummary?.headline || 'Thinking...',
       timestamp: Date.now(),
       turnId,
+      traceDisplayMode,
+      allowTraceCollapse: Boolean(
+        messages.find((message) => message.turnId === turnId)?.allowTraceCollapse
+      ),
       traceSummary: nextSummary || null,
       traceAvailable: Boolean(nextSummary?.traceAvailable),
     },
   ];
+};
+
+export const shouldShowTraceEntry = (
+  message: Pick<ChatTimelineMessage, 'turnId' | 'traceDisplayMode' | 'traceAvailable' | 'traceSummary'>,
+  summary?: { trace_available?: boolean } | null,
+): boolean => {
+  const turnId = String(message.turnId || '').trim();
+  if (!turnId) return false;
+  const traceDisplayMode = String(message.traceDisplayMode || '').trim() || 'collapsible';
+  if (traceDisplayMode === 'none') return false;
+  return Boolean(
+    message.traceAvailable ||
+    message.traceSummary?.traceAvailable ||
+    summary?.trace_available
+  );
 };
 
 export const applyAgentResponse = (
@@ -353,12 +395,14 @@ export const applyAgentResponse = (
     turnId?: string;
     traceSummary?: NormalizedExecutionTraceSummary | null;
     traceAvailable?: boolean;
+    uxPlan?: NormalizedTurnUxPlan | null;
   },
 ): ChatTimelineMessage[] => {
   const turnId = String(payload.turnId || '').trim();
   const timestamp = Number(payload.timestamp || Date.now());
   const traceSummary = payload.traceSummary || null;
   const traceAvailable = Boolean(payload.traceAvailable || traceSummary?.traceAvailable);
+  const uxPlan = payload.uxPlan || null;
   const buildAssistantMessage = (resolvedTurnId?: string): ChatTimelineMessage => ({
     id: `${resolvedTurnId || turnId || 'assistant'}-assistant-${timestamp}`,
     role: 'assistant',
@@ -366,6 +410,8 @@ export const applyAgentResponse = (
     content: payload.content,
     timestamp,
     turnId: resolvedTurnId || turnId || undefined,
+    traceDisplayMode: uxPlan?.traceDisplayMode ?? null,
+    allowTraceCollapse: Boolean(uxPlan?.allowTraceCollapse),
     traceSummary,
     traceAvailable,
   });

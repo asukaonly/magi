@@ -6,6 +6,7 @@ import {
   flattenPlanningNodeForDisplay,
   normalizeHistoryMessages,
   normalizeTraceSummary,
+  shouldShowTraceEntry,
   upsertTraceSummary,
 } from '@/pages/chat-state';
 
@@ -38,6 +39,69 @@ describe('chat trace state helpers', () => {
     expect(next[1].kind).toBe('status');
     expect(next[1].content).toBe('正在执行工具链');
     expect(next[1].traceAvailable).toBe(true);
+  });
+
+  it('does not add a trace status card when ux plan hides trace display', () => {
+    const initial = applyTurnUxPlan(
+      createPendingTurn('Analyze this repo', 'turn_hidden', 1000, 'Thinking'),
+      'turn_hidden',
+      {
+        assistantSurfaceMode: 'final_only',
+        traceDisplayMode: 'none',
+      }
+    );
+    const summary = normalizeTraceSummary({
+      turn_id: 'turn_hidden',
+      mode: 'function_calling',
+      status: 'running',
+      headline: '正在执行工具链',
+      active_steps: 1,
+      completed_steps: 0,
+      failed_steps: 0,
+      duration_seconds: 0.4,
+      trace_available: true,
+    });
+
+    const next = upsertTraceSummary(initial, 'turn_hidden', summary);
+
+    expect(next).toHaveLength(1);
+    expect(next[0].kind).toBe('user');
+  });
+
+  it('hides trace entry helper output when trace display mode is none', () => {
+    const hiddenMessage = applyAgentResponse(
+      applyTurnUxPlan(
+        createPendingTurn('Analyze this repo', 'turn-hidden', 1000, 'Thinking'),
+        'turn-hidden',
+        {
+          assistantSurfaceMode: 'final_only',
+          traceDisplayMode: 'none',
+        }
+      ),
+      {
+        content: '整理好了',
+        timestamp: 2000,
+        turnId: 'turn-hidden',
+        uxPlan: {
+          assistantSurfaceMode: 'final_only',
+          traceDisplayMode: 'none',
+        },
+        traceSummary: normalizeTraceSummary({
+          turn_id: 'turn-hidden',
+          mode: 'function_calling',
+          status: 'completed',
+          headline: '工具链已完成',
+          active_steps: 0,
+          completed_steps: 2,
+          failed_steps: 0,
+          duration_seconds: 1.2,
+          trace_available: true,
+        }),
+        traceAvailable: true,
+      }
+    )[0];
+
+    expect(shouldShowTraceEntry(hiddenMessage)).toBe(false);
   });
 
   it('adds an interim assistant message for interim-then-final turns', () => {

@@ -143,15 +143,15 @@ describe('conversation store', () => {
     ]);
 
     expect(useConversationStore.getState().messagesBySession['session-a']).toEqual([
-      {
+      expect.objectContaining({
         id: 'turn-1-user-refresh',
         role: 'user',
         kind: 'user',
         content: 'question',
         timestamp: 1000,
         turnId: 'turn-1',
-      },
-      {
+      }),
+      expect.objectContaining({
         id: 'turn-1-assistant',
         role: 'assistant',
         kind: 'assistant',
@@ -160,7 +160,7 @@ describe('conversation store', () => {
         turnId: 'turn-1',
         traceSummary: null,
         traceAvailable: true,
-      },
+      }),
     ]);
   });
 });

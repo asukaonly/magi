@@ -20,6 +20,7 @@ import {
   normalizeTurnUxPlan,
   normalizeTraceSnapshot,
   normalizeTraceSummary,
+  shouldShowTraceEntry,
   type ChatTimelineMessage,
 } from './chat-state';
 
@@ -206,6 +207,7 @@ export const ChatPage: React.FC = () => {
             turnId: turnId || undefined,
             traceSummary: summary,
             traceAvailable: Boolean(payload?.trace_available || summary?.traceAvailable),
+            uxPlan,
           });
         }
       }
@@ -430,14 +432,8 @@ export const ChatPage: React.FC = () => {
   const renderTraceEntry = (message: ChatTimelineMessage) => {
     const turnId = message.turnId;
     const traceSummary = turnId ? summaries[turnId] : undefined;
-    const canOpenTrace = Boolean(
-      turnId &&
-      (
-        message.traceAvailable ||
-        message.traceSummary?.traceAvailable ||
-        traceSummary?.trace_available
-      )
-    );
+    const traceDisplayMode = String(message.traceDisplayMode || '').trim() || 'collapsible';
+    const canOpenTrace = shouldShowTraceEntry(message, traceSummary);
 
     if (!turnId || !canOpenTrace) return null;
 
