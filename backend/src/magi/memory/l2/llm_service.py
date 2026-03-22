@@ -64,16 +64,23 @@ class L2LLMService:
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
         event_ids = event_window.get("event_ids") if isinstance(event_window.get("event_ids"), list) else []
+        batch_event_count = len(event_window.get("events", [])) if isinstance(event_window.get("events"), list) else 0
+        summary = event_window.get("summary") if isinstance(event_window.get("summary"), dict) else {}
+        session_id = self._non_empty_text(summary.get("session_id"))
+        user_id = self._non_empty_text(summary.get("user_id"))
         logger.info(
             "L2 unified extraction started",
             event_ids=event_ids,
             profile_id=profile.profile_id,
+            batch_event_count=batch_event_count or len(event_ids),
             text_count=len(event_window.get("texts", [])) if isinstance(event_window.get("texts"), list) else 0,
             context_count=(
                 len(event_window.get("context_texts", []))
                 if isinstance(event_window.get("context_texts"), list)
                 else 0
             ),
+            session_id=session_id,
+            user_id=user_id,
         )
         payload = await self._generate_json(
             system_prompt=UNIFIED_EXTRACTION_SYSTEM_PROMPT,
@@ -85,7 +92,14 @@ class L2LLMService:
             ),
             request_kind="memory:l2_unified_extraction",
             turn_id=event_ids[0] if event_ids else None,
-            log_context={"event_ids": event_ids, "profile_id": profile.profile_id},
+            session_id=session_id,
+            log_context={
+                "event_ids": event_ids,
+                "profile_id": profile.profile_id,
+                "batch_event_count": batch_event_count or len(event_ids),
+                "session_id": session_id,
+                "user_id": user_id,
+            },
         )
         mentions = payload.get("mentions")
         resolved_context_refs = payload.get("resolved_context_refs")
@@ -133,10 +147,13 @@ class L2LLMService:
             duration_ms=duration_ms,
             event_ids=event_ids,
             profile_id=profile.profile_id,
+            batch_event_count=batch_event_count or len(event_ids),
             mention_count=len(normalized_mentions),
             resolved_context_ref_count=len(normalized_resolved_context_refs),
             graph_candidate_count=len(normalized_graph_candidates),
             assertion_candidate_count=len(normalized_assertions),
+            session_id=session_id,
+            user_id=user_id,
         )
         return result
 
@@ -392,6 +409,12 @@ class L2LLMService:
             "should_merge": False,
             "canonical_name_suggestion": None,
         }
+
+    def _non_empty_text(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 __all__ = ["L2LLMService"]

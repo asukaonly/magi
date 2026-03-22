@@ -117,6 +117,8 @@ def render_unified_extraction_prompt(
             "Specific dishes, drinks, snacks, and ingredients must use `food`.",
             "Use diagnostics.entity_status = `none` when no entity mention is extracted.",
             "Resolve context references only from the supplied context bundle candidates or return unresolved.",
+            "Use batch-level context across the supplied event window, but only cite supporting_event_ids that are present in the event window.",
+            "When multiple events support the same candidate, include every relevant supporting_event_ids entry that directly supports it.",
             "Return JSON with mentions, resolved_context_refs, graph_candidates, assertion_candidates, and diagnostics.",
         ],
         "output_schema": {
