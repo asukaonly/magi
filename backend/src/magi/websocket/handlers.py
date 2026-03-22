@@ -188,7 +188,7 @@ async def handle_get_history(ctx: WebSocketContext, data: dict) -> dict:
             return {"type": "error", "message": "Session ID is required"}
 
         read_service = get_chat_read_service()
-        history = read_service.get_display_history(user_id, resolved_session)
+        history = await read_service.aget_display_history(user_id, resolved_session)
 
         messages = [msg.to_dict() for msg in history]
 

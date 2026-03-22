@@ -9,8 +9,14 @@ from magi.backend_app import create_backend_app
 
 
 class _DummyTraceService:
-    def get_trace_snapshot(self, user_id: str, session_id: str, turn_id: str) -> dict:
-        return {"summary": {"trace_available": False}, "orchestration_id": None}
+    def get_trace_summary(self, *, user_id: str, session_id: str, turn_id: str) -> dict:
+        raise AssertionError("sync trace reader should not be used")
+
+    async def aget_trace_summary(self, *, user_id: str, session_id: str, turn_id: str) -> dict:
+        assert user_id == "web_user"
+        assert session_id == "session-1"
+        assert turn_id == "turn-1"
+        return {"trace_available": True, "headline": "done"}
 
 
 class _FakeRuntimeTraceStore:
@@ -58,7 +64,7 @@ async def test_websocket_bridge_polls_runtime_notifications(monkeypatch: pytest.
 
     monkeypatch.setattr("magi.backend_app.initialize_agent_runtime", _noop_runtime_lifecycle)
     monkeypatch.setattr("magi.backend_app.shutdown_agent_runtime", _noop_runtime_lifecycle)
-    monkeypatch.setattr("magi.api.services.get_chat_trace_read_service", lambda: _DummyTraceService())
+    monkeypatch.setattr("magi.websocket.bridge_lifecycle.get_chat_trace_read_service", lambda: _DummyTraceService())
     monkeypatch.setattr(
         "magi.websocket.bridge_lifecycle.require_runtime_trace_store",
         lambda: _FakeRuntimeTraceStore(),
@@ -79,4 +85,6 @@ async def test_websocket_bridge_polls_runtime_notifications(monkeypatch: pytest.
     assert broadcasts
     assert broadcasts[0][0] == "agent_response"
     assert broadcasts[0][1]["content"] == "hello"
+    assert broadcasts[0][1]["trace_summary"]["headline"] == "done"
+    assert broadcasts[0][1]["trace_available"] is True
     assert broadcasts[0][2] == "user_web_user"

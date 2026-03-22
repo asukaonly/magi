@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from magi.api.services.chat_read_service import ChatDisplayMessage
 from magi.api.services.message_dispatch_service import MessageDispatchOutcome
-from magi.websocket.handlers import WebSocketContext, handle_send_message
+from magi.websocket.handlers import WebSocketContext, handle_get_history, handle_send_message
 
 
 class _DummyWebSocket:
@@ -52,3 +53,35 @@ async def test_handle_send_message_passes_runtime_namespace_to_dispatch(monkeypa
 
     assert response["type"] == "message_sent"
     assert captured["runtime_namespace"] == "telegram"
+
+
+@pytest.mark.asyncio
+async def test_handle_get_history_uses_async_read_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _AsyncOnlyReadService:
+        def get_display_history(self, user_id: str, session_id: str):  # type: ignore[no-untyped-def]
+            raise AssertionError("sync history reader should not be used")
+
+        async def aget_display_history(self, user_id: str, session_id: str):
+            assert user_id == "u1"
+            assert session_id == "s1"
+            return [
+                ChatDisplayMessage(
+                    role="assistant",
+                    content="hello",
+                    timestamp=1,
+                    kind="assistant",
+                )
+            ]
+
+    monkeypatch.setattr("magi.api.services.get_chat_read_service", lambda: _AsyncOnlyReadService())
+
+    ctx = WebSocketContext(
+        sid="sid-1",
+        websocket=_DummyWebSocket(),  # type: ignore[arg-type]
+        manager=_DummyManager(),  # type: ignore[arg-type]
+    )
+
+    response = await handle_get_history(ctx, {"user_id": "u1", "session_id": "s1"})
+
+    assert response["type"] == "history"
+    assert response["data"]["messages"][0]["content"] == "hello"

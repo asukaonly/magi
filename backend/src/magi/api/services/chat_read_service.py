@@ -1,6 +1,7 @@
 """Read-side service for chat sessions and conversation history."""
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -114,6 +115,52 @@ class ChatReadService:
             except Exception:
                 pass
             self._conn = None
+
+    async def acreate_new_session(self, user_id: str) -> str:
+        """Create a session without blocking the event loop."""
+        return await self._run_threaded("create_new_session", user_id)
+
+    async def aget_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
+        """Load a worker result without blocking the event loop."""
+        return await self._run_threaded("get_worker_result", worker_id)
+
+    async def alist_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
+        """List sessions without blocking the event loop."""
+        return await self._run_threaded("list_sessions", user_id, limit)
+
+    async def arename_session(self, user_id: str, session_id: str, title: str) -> ChatSessionRenameResult:
+        """Rename a session without blocking the event loop."""
+        return await self._run_threaded("rename_session", user_id, session_id, title)
+
+    async def adelete_session(self, user_id: str, session_id: str) -> None:
+        """Delete a session without blocking the event loop."""
+        await self._run_threaded("delete_session", user_id, session_id)
+
+    async def aget_conversation_history(
+        self,
+        user_id: str,
+        session_id: str,
+        limit: int = 200,
+    ) -> list[ChatDisplayMessage]:
+        """Load conversation history without blocking the event loop."""
+        return await self._run_threaded("get_conversation_history", user_id, session_id, limit)
+
+    async def aget_display_history(
+        self,
+        user_id: str,
+        session_id: str,
+        limit: int = 200,
+    ) -> list[ChatDisplayMessage]:
+        """Load display history without blocking the event loop."""
+        return await self._run_threaded("get_display_history", user_id, session_id, limit)
+
+    async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
+        """Clear a session history without blocking the event loop."""
+        await self._run_threaded("clear_conversation_history", user_id, session_id)
+
+    async def aclear_all_sessions(self) -> int:
+        """Clear all sessions without blocking the event loop."""
+        return await self._run_threaded("clear_all_sessions")
 
     def create_new_session(self, user_id: str) -> str:
         normalized_user_id = str(user_id).strip()
@@ -511,6 +558,18 @@ class ChatReadService:
 
     def _ensure_chat_sessions_table(self, conn: sqlite3.Connection) -> None:
         conn.executescript(CHAT_SESSIONS_SCHEMA_SQL)
+
+    async def _run_threaded(self, method_name: str, *args: Any) -> Any:
+        return await asyncio.to_thread(self._run_isolated, method_name, *args)
+
+    @staticmethod
+    def _run_isolated(method_name: str, *args: Any) -> Any:
+        service = ChatReadService()
+        try:
+            method = getattr(service, method_name)
+            return method(*args)
+        finally:
+            service.close()
 
 _chat_read_service: Optional[ChatReadService] = None
 

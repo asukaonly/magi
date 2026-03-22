@@ -504,7 +504,7 @@ def test_delete_session_removes_session_row_and_related_data(tmp_path):
 
 def test_list_sessions_router_response(monkeypatch):
     class _FakeReadService:
-        def list_sessions(self, user_id: str, limit: int = 30):
+        async def alist_sessions(self, user_id: str, limit: int = 30):
             assert user_id == "u1"
             assert limit == 5
             return [
@@ -528,7 +528,7 @@ def test_list_sessions_router_response(monkeypatch):
 
 def test_rename_session_router_response(monkeypatch):
     class _FakeReadService:
-        def rename_session(self, user_id: str, session_id: str, title: str):
+        async def arename_session(self, user_id: str, session_id: str, title: str):
             assert user_id == "u1"
             assert session_id == "s1"
             assert title == "Renamed"
@@ -549,7 +549,7 @@ def test_rename_session_router_response(monkeypatch):
 
 def test_delete_session_router_response(monkeypatch):
     class _FakeReadService:
-        def delete_session(self, user_id: str, session_id: str):
+        async def adelete_session(self, user_id: str, session_id: str):
             assert user_id == "u1"
             assert session_id == "s1"
             return None

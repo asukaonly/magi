@@ -1,6 +1,7 @@
 """Read-side aggregation service for per-turn execution traces."""
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 from dataclasses import dataclass, field
@@ -154,6 +155,49 @@ class ChatTraceReadService:
             return None
         summary = snapshot.get("summary")
         return summary if isinstance(summary, dict) else None
+
+    async def aget_trace_snapshot(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+    ) -> Optional[dict[str, Any]]:
+        """Build a trace snapshot without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.get_trace_snapshot,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+
+    async def aget_trace_summary(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+    ) -> Optional[dict[str, Any]]:
+        """Build a trace summary without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.get_trace_summary,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+
+    async def aget_turn_activity_map(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+    ) -> dict[str, dict[str, Any]]:
+        """Build turn activity without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.get_turn_activity_map,
+            user_id=user_id,
+            session_id=session_id,
+        )
 
     def get_turn_activity_map(
         self,

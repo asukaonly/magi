@@ -97,7 +97,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         if turn_id:
             response_payload.setdefault("turn_id", turn_id)
             if "trace_summary" not in response_payload:
-                summary = self._load_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
+                summary = await self._load_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
                 if summary is not None:
                     response_payload["trace_summary"] = summary
                     response_payload["trace_available"] = bool(summary.get("trace_available"))
@@ -110,7 +110,7 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         if not user_id or not session_id or not turn_id:
             return
 
-        summary = self._load_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
+        summary = await self._load_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
         if summary is None:
             return
 
@@ -135,12 +135,12 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         return payload if isinstance(payload, dict) else {}
 
     @staticmethod
-    def _load_trace_summary(*, user_id: str, session_id: str, turn_id: str) -> dict | None:
+    async def _load_trace_summary(*, user_id: str, session_id: str, turn_id: str) -> dict | None:
         if not user_id or not session_id or not turn_id:
             return None
         try:
             trace_service = get_chat_trace_read_service()
-            summary = trace_service.get_trace_summary(
+            summary = await trace_service.aget_trace_summary(
                 user_id=user_id,
                 session_id=session_id,
                 turn_id=turn_id,

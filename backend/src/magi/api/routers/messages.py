@@ -118,7 +118,7 @@ async def get_conversation_history(
     try:
         read_service = get_chat_read_service()
         resolved_session_id = _require_session_id(session_id)
-        history = read_service.get_display_history(user_id, resolved_session_id)
+        history = await read_service.aget_display_history(user_id, resolved_session_id)
 
         # Convert to format expected by frontend
         messages = [msg.to_dict() for msg in history]
@@ -143,7 +143,7 @@ async def get_conversation_history(
 async def get_worker_result(worker_id: str, user_id: str = "web_user"):
     """Get the full structured result for one worker."""
     read_service = get_chat_read_service()
-    result = read_service.get_worker_result(worker_id)
+    result = await read_service.aget_worker_result(worker_id)
     return {
         "success": result is not None,
         "worker_id": worker_id,
@@ -164,7 +164,7 @@ async def get_execution_trace(
     read_service = get_chat_read_service()
     resolved_session_id = _require_session_id(session_id)
     trace_service = get_chat_trace_read_service()
-    snapshot = trace_service.get_trace_snapshot(
+    snapshot = await trace_service.aget_trace_snapshot(
         user_id=user_id,
         session_id=resolved_session_id,
         turn_id=turn_id,
@@ -195,7 +195,7 @@ async def clear_conversation_history(
     try:
         read_service = get_chat_read_service()
         resolved_session_id = _require_session_id(session_id)
-        read_service.clear_conversation_history(user_id, resolved_session_id)
+        await read_service.aclear_conversation_history(user_id, resolved_session_id)
 
         return {
             "success": True,
@@ -218,7 +218,7 @@ async def create_new_session(user_id: str = "web_user"):
     """Create a new chat session row for the given user."""
     try:
         read_service = get_chat_read_service()
-        session_id = read_service.create_new_session(user_id)
+        session_id = await read_service.acreate_new_session(user_id)
         return {"success": True, "user_id": user_id, "session_id": session_id}
     except RuntimeError:
         return {"success": False, "user_id": user_id, "session_id": None}
@@ -229,7 +229,7 @@ async def rename_session(session_id: str, request: RenameSessionRequest):
     """Rename a session and persist the title override."""
     try:
         read_service = get_chat_read_service()
-        session = read_service.rename_session(request.user_id, session_id, request.title)
+        session = await read_service.arename_session(request.user_id, session_id, request.title)
         return {
             "success": True,
             "user_id": request.user_id,
@@ -246,7 +246,7 @@ async def delete_session(session_id: str, user_id: str = "web_user"):
     """Delete one session and its related chat data."""
     try:
         read_service = get_chat_read_service()
-        read_service.delete_session(user_id, session_id)
+        await read_service.adelete_session(user_id, session_id)
         return {
             "success": True,
             "user_id": user_id,
@@ -266,7 +266,7 @@ async def list_sessions(
     """List recent chat sessions for the given user."""
     try:
         read_service = get_chat_read_service()
-        sessions = read_service.list_sessions(user_id=user_id, limit=limit)
+        sessions = await read_service.alist_sessions(user_id=user_id, limit=limit)
         return {
             "user_id": user_id,
             "sessions": [session.to_dict() for session in sessions],
