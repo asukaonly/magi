@@ -445,6 +445,10 @@
           "label": "Enable LLM knowledge extraction",
           "description": "Use the model to derive entities, relations, and ToM assertions from raw events."
         },
+        "l2_batch_flush_interval_seconds": {
+          "label": "L2 batch flush interval (seconds)",
+          "description": "How long L2 may wait before flushing a staged microbatch. Minimum 30 seconds."
+        },
         "enable_l3_llm_summary": {
           "label": "Enable LLM reflection summary",
           "description": "Use the model to build reflective summaries from retained memory streams."

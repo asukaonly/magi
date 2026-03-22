@@ -445,6 +445,10 @@
           "label": "启用 LLM 知识抽取",
           "description": "使用模型从原始事件中抽取实体、关系和 ToM 断言。"
         },
+        "l2_batch_flush_interval_seconds": {
+          "label": "L2 批次刷新间隔（秒）",
+          "description": "L2 在冲刷暂存微批之前允许等待的时间，最小 30 秒。"
+        },
         "enable_l3_llm_summary": {
           "label": "启用 LLM 反思摘要",
           "description": "使用模型把保留的记忆流压缩成更高层次的反思摘要。"

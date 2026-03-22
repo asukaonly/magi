@@ -526,6 +526,10 @@ describe('settings page draft saving', () => {
     // L1 is enabled by default and expanded by default, toggle runtime_replay_include_l0_only
     await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.runtime_replay_include_l0_only.label' }));
 
+    await user.click(screen.getByText('settings.memory.fields.enable_l2.label'));
+    const l2BatchIntervalInput = await screen.findByLabelText('settings.memory.fields.l2_batch_flush_interval_seconds.label');
+    fireEvent.change(l2BatchIntervalInput, { target: { value: '90' } });
+
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
     await waitFor(() =>
@@ -533,6 +537,7 @@ describe('settings page draft saving', () => {
         expect.objectContaining({
           memory: expect.objectContaining({
             l0_checkpoint_interval_seconds: 45,
+            l2_batch_flush_interval_seconds: 90,
             runtime_replay_include_l0_only: true,
           }),
         })
