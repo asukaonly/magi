@@ -18,7 +18,13 @@ from ...agent.trace import build_trace_timing, now_wall_ms
 from ...core.logger import get_logger
 from ...events.events import Event, EventLevel
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
-from ...runtime_trace import RuntimeTraceStore, TraceLlmCallRecord, TraceSpanRecord, TraceToolRecord
+from ...runtime_trace import (
+    RuntimeNotificationRecord,
+    RuntimeTraceStore,
+    TraceLlmCallRecord,
+    TraceSpanRecord,
+    TraceToolRecord,
+)
 from ...tools.registry import ToolRegistry, tool_registry
 from ...tools.schema import (
     ParameterType,
@@ -1192,6 +1198,27 @@ class WorkerAgentManager(Tool):
             )
         except Exception as exc:
             logger.debug(f"Failed to publish worker bus event | event_type={event_type} error={exc}")
+        await self._publish_trace_update_notification(payload)
+
+    async def _publish_trace_update_notification(self, payload: Dict[str, Any]) -> None:
+        if self._runtime_trace_store is None:
+            return
+        user_id = str(payload.get("user_id") or "").strip()
+        session_id = str(payload.get("session_id") or "").strip()
+        turn_id = str(payload.get("turn_id") or "").strip() or None
+        if not user_id or not session_id or not turn_id:
+            return
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="trace_update",
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                payload_json="{}",
+                created_at_ms=now_wall_ms(),
+            )
+        )
 
     async def _get_worker_status(self, worker_id: str) -> ToolResult:
         async with self._lock:

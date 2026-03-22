@@ -19,6 +19,7 @@ from ....personality.emotional_state import EngagementLevel, InteractionOutcome
 from ....personality.growth_memory import InteractionType
 from ....memory.l3.models import TaskOutcomePacket
 from ....runtime_trace import (
+    RuntimeNotificationRecord,
     RuntimeTraceStore,
     TraceIntentResolutionRecord,
     TraceLlmCallRecord,
@@ -162,6 +163,16 @@ class ChatPostProcessService:
                     trace_available = bool(snapshot.get("summary", {}).get("trace_available"))
             except Exception as exc:
                 logger.debug("Failed to fetch trace snapshot for AI_RESPONSE event: %s", exc)
+
+        await self._emit_agent_response_notification(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            turn_id=turn_id,
+            response_text=response_text,
+            orchestration_id=result.orchestration_id,
+            trace_summary=trace_summary,
+            trace_available=trace_available,
+        )
 
         await action_emitter.emit_chat_response_event(
             user_id=context.user_id,
@@ -404,6 +415,11 @@ class ChatPostProcessService:
             correlation_id=str(payload.get("tool_call_id") or str(uuid.uuid4())),
             success=success,
         )
+        await self._emit_trace_update_notification(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
 
     async def record_tool_loop_fact(self, payload: dict[str, Any]) -> None:
         user_id = str(payload.get("user_id") or self._agent_id)
@@ -459,6 +475,11 @@ class ChatPostProcessService:
                 correlation_id=fact.correlation_id,
                 success=bool(payload.get("success", True)),
             )
+        await self._emit_trace_update_notification(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
 
     async def _record_memory_updates(self, *, user_id: str, user_message: str) -> bool:
         updated = False
@@ -629,6 +650,64 @@ class ChatPostProcessService:
             )
         )
         self._started_turn_traces.add(turn_id)
+
+    async def _emit_agent_response_notification(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+        response_text: str,
+        orchestration_id: str | None,
+        trace_summary: dict[str, Any] | None,
+        trace_available: bool,
+    ) -> None:
+        if self._runtime_trace_store is None:
+            return
+        payload = {
+            "content": response_text,
+            "author_type": "assistant",
+            "content_type": "text",
+            "timestamp": time.time(),
+            "user_id": user_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "orchestration_id": orchestration_id,
+            "trace_summary": trace_summary,
+            "trace_available": trace_available,
+        }
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="agent_response",
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                payload_json=json.dumps(payload, ensure_ascii=False),
+                created_at_ms=now_wall_ms(),
+            )
+        )
+
+    async def _emit_trace_update_notification(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None,
+    ) -> None:
+        if self._runtime_trace_store is None or not turn_id:
+            return
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="trace_update",
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                payload_json="{}",
+                created_at_ms=now_wall_ms(),
+            )
+        )
 
     @staticmethod
     def _build_trace_id(turn_id: str) -> str:
