@@ -15,6 +15,8 @@ use tauri_plugin_shell::{
 
 const BACKEND_HOST: &str = "127.0.0.1";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(25);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_ERROR_LINES: usize = 20;
 
 #[derive(Default)]
@@ -58,6 +60,30 @@ impl BackendProcess {
                     let _ = process.kill();
                 }
                 child.take();
+            }
+        }
+    }
+
+    fn wait_for_exit(&mut self, timeout: Duration) -> bool {
+        match self {
+            Self::Sidecar(_) => false,
+            Self::Dev(child) => {
+                let start = Instant::now();
+                while start.elapsed() < timeout {
+                    if let Some(process) = child.as_mut() {
+                        match process.try_wait() {
+                            Ok(Some(_)) => {
+                                child.take();
+                                return true;
+                            }
+                            Ok(None) => thread::sleep(SHUTDOWN_POLL_INTERVAL),
+                            Err(_) => break,
+                        }
+                    } else {
+                        return true;
+                    }
+                }
+                false
             }
         }
     }
@@ -126,6 +152,57 @@ fn wait_for_health(host: &str, port: u16, timeout: Duration) -> bool {
         thread::sleep(Duration::from_millis(200));
     }
     false
+}
+
+fn wait_for_port_close(host: &str, port: u16, timeout: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if TcpStream::connect((host, port)).is_err() {
+            return true;
+        }
+        thread::sleep(SHUTDOWN_POLL_INTERVAL);
+    }
+    false
+}
+
+fn request_runtime_shutdown(host: &str, port: u16, session_token: &str) -> bool {
+    let Ok(mut stream) = TcpStream::connect((host, port)) else {
+        return false;
+    };
+
+    let body = "{}";
+    let mut request = format!(
+        "POST /api/runtime/shutdown HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        host,
+        port,
+        body.len()
+    );
+    if !session_token.trim().is_empty() {
+        request.push_str(&format!("X-Magi-Session-Token: {}\r\n", session_token));
+    }
+    request.push_str("\r\n");
+    request.push_str(body);
+
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+
+    let mut response = String::new();
+    if stream.read_to_string(&mut response).is_err() {
+        return false;
+    }
+
+    response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200")
+}
+
+fn extract_backend_endpoint(base_url: &str) -> Option<(String, u16)> {
+    let without_scheme = base_url
+        .strip_prefix("http://")
+        .or_else(|| base_url.strip_prefix("https://"))?;
+    let authority = without_scheme.split('/').next()?;
+    let (host, port_text) = authority.rsplit_once(':')?;
+    let port = port_text.parse::<u16>().ok()?;
+    Some((host.to_string(), port))
 }
 
 fn generate_session_token() -> String {
@@ -280,8 +357,26 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
         .runtime
         .lock()
         .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
+    let base_url = runtime.base_url.clone();
+    let session_token = runtime.session_token.clone().unwrap_or_default();
     if let Some(mut process) = runtime.process.take() {
-        process.kill();
+        if let Some(base_url) = base_url.as_deref() {
+            if let Some((host, port)) = extract_backend_endpoint(base_url) {
+                if request_runtime_shutdown(&host, port, &session_token) {
+                    let exited = process.wait_for_exit(SHUTDOWN_TIMEOUT)
+                        || wait_for_port_close(&host, port, SHUTDOWN_TIMEOUT);
+                    if !exited {
+                        process.kill();
+                    }
+                } else {
+                    process.kill();
+                }
+            } else {
+                process.kill();
+            }
+        } else {
+            process.kill();
+        }
     }
     runtime.base_url = None;
     runtime.ws_base_url = None;

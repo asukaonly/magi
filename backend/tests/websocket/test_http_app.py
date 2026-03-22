@@ -112,3 +112,27 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
         "pending_commands": 4,
         "process_role": "combined",
     }
+
+
+def test_transport_app_registers_runtime_shutdown_endpoint(monkeypatch) -> None:
+    from magi.websocket.http_app import create_transport_app
+
+    scheduled: list[bool] = []
+
+    monkeypatch.setattr(
+        "magi.websocket.http_middleware.get_required_desktop_session_token",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.websocket.http_app._schedule_process_shutdown",
+        lambda delay_seconds=0.1: scheduled.append(True),
+    )
+
+    app = create_transport_app()
+    client = TestClient(app)
+
+    response = client.post("/api/runtime/shutdown")
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert scheduled == [True]

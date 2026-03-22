@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
+import signal
 from typing import Any
 
 from fastapi import FastAPI
@@ -24,6 +27,16 @@ from .http_middleware import (
 from .router import register_websocket
 
 logger = get_logger(__name__, category="API")
+
+
+def _schedule_process_shutdown(*, delay_seconds: float = 0.1) -> None:
+    """Schedule a graceful process shutdown after the current response is sent."""
+
+    async def _shutdown_later() -> None:
+        await asyncio.sleep(delay_seconds)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    asyncio.create_task(_shutdown_later())
 
 
 def _build_custom_openapi(app: FastAPI):
@@ -125,6 +138,15 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
                 "runtime_status": runtime_status["runtime_status"],
                 "process_role": runtime_status["process_role"],
             },
+        }
+
+    @app.post("/api/runtime/shutdown", tags=["Health"])
+    async def runtime_shutdown():
+        _schedule_process_shutdown()
+        return {
+            "success": True,
+            "message": "Runtime shutdown scheduled",
+            "data": {"scheduled": True},
         }
 
     @app.get("/api/docs", include_in_schema=False)
