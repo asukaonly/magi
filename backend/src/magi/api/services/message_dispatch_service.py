@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from ...core.runtime_bindings import require_agent_runtime, require_message_bus
+from ...core.runtime_bindings import require_message_bus
 from ...events.events import (
     Event,
     EventLevel,
@@ -16,7 +16,6 @@ from ...events.events import (
 )
 
 
-RUNTIME_NOT_INITIALIZED = "RUNTIME_NOT_INITIALIZED"
 MESSAGE_BUS_NOT_INITIALIZED = "MESSAGE_BUS_NOT_INITIALIZED"
 MESSAGE_BUS_PUBLISH_FAILED = "MESSAGE_BUS_PUBLISH_FAILED"
 SESSION_ID_REQUIRED = "SESSION_ID_REQUIRED"
@@ -44,16 +43,6 @@ async def dispatch_user_message(
     runtime_namespace: str | None = None,
 ) -> MessageDispatchOutcome:
     """Resolve session metadata and enqueue a USER_MESSAGE event."""
-
-    try:
-        require_agent_runtime()
-    except RuntimeError:
-        return MessageDispatchOutcome(
-            success=False,
-            user_id=user_id,
-            error_code=RUNTIME_NOT_INITIALIZED,
-            error_message="AgentRuntime not initialized. Please complete onboarding or check the saved configuration.",
-        )
 
     try:
         message_bus = require_message_bus()

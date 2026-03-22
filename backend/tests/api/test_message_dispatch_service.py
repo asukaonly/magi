@@ -20,10 +20,10 @@ class _FakeBus:
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_returns_runtime_error_when_runtime_missing(
+async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(service, "require_agent_runtime", lambda: (_ for _ in ()).throw(RuntimeError("missing")))
+    monkeypatch.setattr(service, "require_message_bus", lambda: (_ for _ in ()).throw(RuntimeError("missing")))
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -32,13 +32,29 @@ async def test_dispatch_user_message_returns_runtime_error_when_runtime_missing(
     )
 
     assert outcome.success is False
-    assert outcome.error_code == service.RUNTIME_NOT_INITIALIZED
+    assert outcome.error_code == service.MESSAGE_BUS_NOT_INITIALIZED
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_only_requires_message_bus(monkeypatch: pytest.MonkeyPatch) -> None:
+    bus = _FakeBus()
+    monkeypatch.setattr(service, "require_message_bus", lambda: bus)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="hello",
+        session_id="session-for-u1",
+    )
+
+    assert outcome.success is True
+    assert outcome.session_id == "session-for-u1"
+    assert len(bus.events) == 1
 
 
 @pytest.mark.asyncio
 async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = _FakeBus()
-    monkeypatch.setattr(service, "require_agent_runtime", lambda: object())
     monkeypatch.setattr(service, "require_message_bus", lambda: bus)
 
     outcome = await service.dispatch_user_message(
@@ -68,7 +84,6 @@ async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: p
 @pytest.mark.asyncio
 async def test_dispatch_user_message_returns_publish_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = _FakeBus(publish_result=False)
-    monkeypatch.setattr(service, "require_agent_runtime", lambda: object())
     monkeypatch.setattr(service, "require_message_bus", lambda: bus)
 
     outcome = await service.dispatch_user_message(
@@ -87,7 +102,6 @@ async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bus = _FakeBus()
-    monkeypatch.setattr(service, "require_agent_runtime", lambda: object())
     monkeypatch.setattr(service, "require_message_bus", lambda: bus)
 
     outcome = await service.dispatch_user_message(
@@ -111,7 +125,6 @@ async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime
 @pytest.mark.asyncio
 async def test_dispatch_user_message_rejects_missing_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = _FakeBus()
-    monkeypatch.setattr(service, "require_agent_runtime", lambda: object())
     monkeypatch.setattr(service, "require_message_bus", lambda: bus)
 
     outcome = await service.dispatch_user_message(
