@@ -61,7 +61,7 @@ def compact_memory_tool_data(
     compact_meta = _compact_trace_meta(data.get("meta") or results.get("trace"))
 
     compact_payload: Dict[str, Any] = {
-        "results": compact_results,
+        "memory_context": _render_memory_context(compact_results),
         "meta": compact_meta,
     }
     if "agent_id" in data:
@@ -282,3 +282,68 @@ def _compact_trace_meta(trace: Any) -> dict[str, Any]:
         "temporal_distance_backstop_triggered",
     )
     return {key: trace.get(key) for key in allowed_keys if key in trace}
+
+
+def _render_memory_context(compact_results: Dict[str, Any]) -> str:
+    sections: list[str] = []
+
+    timeline_items = list(compact_results.get("l1_timeline_summary") or [])
+    if timeline_items:
+        lines = ["Timeline Summary:"]
+        for item in timeline_items:
+            lines.append(
+                "- "
+                f"session={item.get('session_id')} turn={item.get('turn_id')} "
+                f"role={item.get('author_type')} t={item.get('timestamp')}: "
+                f"{item.get('summary_preview')}"
+            )
+        sections.append("\n".join(lines))
+
+    event_items = list(compact_results.get("l1_events") or [])
+    if event_items:
+        lines = ["Key Events:"]
+        for item in event_items:
+            lines.append(
+                "- "
+                f"session={item.get('session_id')} turn={item.get('turn_id')} "
+                f"role={item.get('author_type')} score={item.get('score')}: "
+                f"{item.get('content_preview')}"
+            )
+        sections.append("\n".join(lines))
+
+    entity_cards = list(compact_results.get("l2_entity_cards") or [])
+    if entity_cards:
+        lines = ["Entity Cards:"]
+        for item in entity_cards:
+            lines.append(
+                "- "
+                f"{item.get('name')} ({item.get('entity_type')}): "
+                f"{item.get('summary_preview')}"
+            )
+        sections.append("\n".join(lines))
+
+    reflections = list(compact_results.get("l3_reflections") or [])
+    if reflections:
+        lines = ["Reflections:"]
+        for item in reflections:
+            lines.append(
+                "- "
+                f"{item.get('summary_type')}/{item.get('summary_category')}: "
+                f"{item.get('summary_preview')}"
+            )
+        sections.append("\n".join(lines))
+
+    procedures = list(compact_results.get("l4_procedures") or [])
+    if procedures:
+        lines = ["Procedures:"]
+        for item in procedures:
+            lines.append(
+                "- "
+                f"{item.get('skill_name')} ({item.get('skill_category')}): "
+                f"{item.get('description_preview')}"
+            )
+        sections.append("\n".join(lines))
+
+    if not sections:
+        return "(no memory context)"
+    return "\n\n".join(sections)

@@ -570,17 +570,15 @@ def test_build_tool_message_payload_compacts_memory_query_results() -> None:
 
     payload = postprocessor.build_tool_message_payload("memory_query", result)
 
-    compact_event = payload["data"]["results"]["l1_events"][0]
-    assert compact_event["session_id"] == "sess-1"
-    assert compact_event["turn_id"] == "sess-1:turn-3"
-    assert compact_event["content_preview"].startswith("I met Rachel")
-    assert compact_event["content_truncated"] is True
-    assert "event_id" not in compact_event
-    assert "created_at" not in compact_event
-    assert "tom_depth" not in compact_event
-    compact_summary = payload["data"]["results"]["l1_timeline_summary"][0]
-    assert compact_summary["summary_preview"].startswith("I met Rachel")
-    assert "supporting_event_ids" not in compact_summary
+    assert "results" not in payload["data"]
+    memory_context = payload["data"]["memory_context"]
+    assert "Timeline Summary:" in memory_context
+    assert "Key Events:" in memory_context
+    assert "I met Rachel" in memory_context
+    assert "sess-1:turn-3" in memory_context
+    assert "event_id" not in memory_context
+    assert "created_at" not in memory_context
+    assert "tom_depth" not in memory_context
     assert payload["data"]["meta"] == {"intent_source": "llm", "l1_hit_count": 1}
 
 
