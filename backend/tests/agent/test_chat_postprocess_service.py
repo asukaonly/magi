@@ -6,6 +6,10 @@ import pytest
 from magi.awareness.contracts import ActionEmissionRecord
 from magi.chat import ChatStore
 from magi.agent.task_agents.chat.contracts import ChatRuntimeContext
+from magi.agent.task_agents.chat.postprocess_components import (
+    ChatOutcomeWriter,
+    ChatRuntimeNotifier,
+)
 from magi.agent.task_agents.chat.postprocess_service import ChatPostProcessService
 from magi.agent.task_agents.common import ExecutionMode, ExecutionResult, IncomingFactKind, UserMessagePayload
 from magi.agent.runtime.contracts import FactRecord
@@ -159,6 +163,95 @@ class _FakeChatProjector:
 
     async def project_assistant_message(self, **kwargs):  # type: ignore[no-untyped-def]
         self.assistant_messages.append(dict(kwargs))
+
+
+@pytest.mark.asyncio
+async def test_outcome_writer_persists_interim_then_final_messages(chat_store: ChatStore) -> None:
+    projector = _FakeChatProjector()
+    writer = ChatOutcomeWriter(
+        chat_store=chat_store,
+        chat_projector=projector,
+        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
+    )
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="web_user",
+        turn_id="turn-1",
+        message_text="hello",
+        created_at_ms=1710000000000,
+    )
+
+    await writer.persist_turn_ux_plan(
+        turn_id="turn-1",
+        execution_mode="direct_llm",
+        ux_plan={
+            "assistant_surface_mode": "interim_then_final",
+            "interim_text": "let me check",
+        },
+        updated_at_ms=1710000000100,
+    )
+    await writer.persist_final_chat_outcome(
+        turn_id="turn-1",
+        orchestration_id=None,
+        execution_mode="direct_llm",
+        ux_plan={
+            "assistant_surface_mode": "interim_then_final",
+            "interim_text": "let me check",
+        },
+        response_text="final answer",
+        started_at_ms=1710000000000,
+        completed_at_ms=1710000000200,
+    )
+
+    notification_message = await writer.get_notification_chat_message(
+        turn_id="turn-1",
+        ux_plan={"assistant_surface_mode": "interim_then_final"},
+    )
+    await writer.project_final_chat_message(
+        user_id="web_user",
+        session_id="session-1",
+        final_message=notification_message,
+    )
+
+    messages = await chat_store.list_messages(session_id="session-1")
+    assert [message.message_kind for message in messages] == [
+        "user_text",
+        "assistant_interim",
+        "assistant_final",
+    ]
+    assert messages[-1].replaces_message_id == messages[-2].message_id
+    assert projector.assistant_messages[0]["message_id"] == messages[-1].message_id
+
+
+@pytest.mark.asyncio
+async def test_runtime_notifier_appends_response_and_trace_notifications(
+    runtime_trace_store: RuntimeTraceStore,
+) -> None:
+    notifier = ChatRuntimeNotifier(runtime_trace_store=runtime_trace_store)
+
+    await notifier.emit_agent_response(
+        user_id="web_user",
+        session_id="session-1",
+        turn_id="turn-1",
+        response_text="done",
+        orchestration_id="orch-1",
+        trace_summary={"headline": "done"},
+        trace_available=True,
+        ux_plan={"assistant_surface_mode": "final_only"},
+        message_id="msg-1",
+        message_kind="assistant_final",
+    )
+    await notifier.emit_trace_update(
+        user_id="web_user",
+        session_id="session-1",
+        turn_id="turn-1",
+    )
+
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    assert [notification.channel for notification in notifications] == [
+        "agent_response",
+        "trace_update",
+    ]
 
 
 @pytest.fixture

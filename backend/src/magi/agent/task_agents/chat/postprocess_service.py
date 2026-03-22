@@ -13,7 +13,7 @@ from ....agent.runtime.types import TaskAgentType
 from ....agent.trace import (
     now_wall_ms,
 )
-from ....chat import ChatMessageRecord, ChatProjector, ChatStore, ChatTurnRecord
+from ....chat import ChatMessageRecord, ChatProjector, ChatStore
 from ....events.events import EventTypes
 from ....personality.behavior_evolution import SatisfactionLevel
 from ....personality.emotional_state import EngagementLevel, InteractionOutcome
@@ -32,6 +32,7 @@ from ..explore.constants import EXPLORE_TASK_COMPLETED
 from .contracts import ChatParseOutcome, ChatRuntimeContext
 from .fact_classifier import WORKER_AGENT_EVENT_TYPES
 from .history_service import ChatHistoryService
+from .postprocess_components import ChatOutcomeWriter, ChatRuntimeNotifier
 
 if TYPE_CHECKING:
     from ....api.services.chat_trace_read_service import ChatTraceReadService
@@ -40,11 +41,6 @@ logger = get_logger(__name__)
 
 TOOL_INTERACTION_EVENT_TYPE = "TOOL_INTERACTION"
 CHAT_TOOL_LOOP_STEP_EVENT_TYPE = "CHAT_TOOL_LOOP_STEP"
-REACTION_EMOJI_BY_STYLE = {
-    "acknowledge": "👌",
-}
-
-
 class ChatPostProcessService:
     """Applies side effects for chat execution results."""
 
@@ -77,8 +73,12 @@ class ChatPostProcessService:
         self._max_fact_memory = max_fact_memory
         self._trace_read_service = trace_read_service
         self._runtime_trace_store = runtime_trace_store
-        self._chat_store = chat_store
-        self._chat_projector = chat_projector
+        self._chat_outcome_writer = ChatOutcomeWriter(
+            chat_store=chat_store,
+            chat_projector=chat_projector,
+            trace_id_factory=self._build_trace_id,
+        )
+        self._runtime_notifier = ChatRuntimeNotifier(runtime_trace_store=runtime_trace_store)
         self._started_turn_traces: set[str] = set()
 
     async def handle(self, context: ChatRuntimeContext, result: ExecutionResult) -> ChatParseOutcome:
@@ -173,12 +173,13 @@ class ChatPostProcessService:
                 logger.debug("Failed to fetch trace snapshot for AI_RESPONSE event: %s", exc)
 
         await self._persist_final_chat_outcome(
-            context=context,
-            result=result,
             turn_id=turn_id,
             response_text=response_text,
             started_at_ms=started_at_ms,
             completed_at_ms=now_ms,
+            orchestration_id=result.orchestration_id,
+            execution_mode=self._normalize_mode(result.mode),
+            ux_plan=result.ux_plan if isinstance(result.ux_plan, dict) else {},
         )
         notification_message = await self._get_notification_chat_message(
             turn_id=turn_id,
@@ -295,7 +296,6 @@ class ChatPostProcessService:
         )
         ux_plan = self._serialize_ux_plan(decision)
         await self._persist_turn_ux_plan(
-            context=context,
             turn_id=turn_id,
             execution_mode=self._normalize_mode(getattr(decision, "execution_mode", None)),
             ux_plan=ux_plan,
@@ -579,163 +579,38 @@ class ChatPostProcessService:
     async def _persist_turn_ux_plan(
         self,
         *,
-        context: ChatRuntimeContext,
         turn_id: str,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         updated_at_ms: int,
     ) -> None:
-        if self._chat_store is None or not ux_plan:
-            return
-        existing_turn = await self._chat_store.get_turn(turn_id)
-        if existing_turn is None:
-            return
-        response_mode = str(ux_plan.get("assistant_surface_mode") or existing_turn.response_mode or "final_only")
-        await self._chat_store.upsert_turn(
-            ChatTurnRecord(
-                turn_id=existing_turn.turn_id,
-                session_id=existing_turn.session_id,
-                user_id=existing_turn.user_id,
-                trace_id=existing_turn.trace_id or self._build_trace_id(turn_id),
-                orchestration_id=existing_turn.orchestration_id,
-                status="running",
-                response_mode=response_mode,
-                execution_mode=execution_mode or existing_turn.execution_mode,
-                ux_plan_json=json.dumps(ux_plan, ensure_ascii=False),
-                created_at_ms=existing_turn.created_at_ms,
-                updated_at_ms=updated_at_ms,
-                completed_at_ms=None,
-                error_text=existing_turn.error_text,
-            )
-        )
-        if response_mode == "interim_then_final":
-            interim_text = str(ux_plan.get("interim_text") or "").strip()
-            if not interim_text:
-                return
-            existing_interim = await self._chat_store.get_latest_message_for_turn(
-                turn_id,
-                message_kind="assistant_interim",
-            )
-            if existing_interim is not None:
-                return
-            await self._chat_store.append_message(
-                ChatMessageRecord(
-                    message_id=f"msg_{uuid.uuid4().hex[:16]}",
-                    session_id=existing_turn.session_id,
-                    turn_id=turn_id,
-                    user_id=existing_turn.user_id,
-                    role="assistant",
-                    message_kind="assistant_interim",
-                    content_text=interim_text,
-                    payload_json="{}",
-                    is_final=False,
-                    is_visible=True,
-                    created_at_ms=updated_at_ms,
-                    sequence_no=await self._chat_store.next_sequence_no(session_id=existing_turn.session_id),
-                    replaces_message_id=None,
-                    replaced_by_message_id=None,
-                )
-            )
-            return
-        if response_mode != "reaction_only":
-            return
-        reaction_text = self._resolve_reaction_text(ux_plan)
-        if not reaction_text:
-            return
-        existing_reaction = await self._chat_store.get_latest_message_for_turn(
-            turn_id,
-            message_kind="assistant_reaction",
-        )
-        if existing_reaction is not None:
-            return
-        await self._chat_store.append_message(
-            ChatMessageRecord(
-                message_id=f"msg_{uuid.uuid4().hex[:16]}",
-                session_id=existing_turn.session_id,
-                turn_id=turn_id,
-                user_id=existing_turn.user_id,
-                role="assistant",
-                message_kind="assistant_reaction",
-                content_text=reaction_text,
-                payload_json="{}",
-                is_final=True,
-                is_visible=True,
-                created_at_ms=updated_at_ms,
-                sequence_no=await self._chat_store.next_sequence_no(session_id=existing_turn.session_id),
-                replaces_message_id=None,
-                replaced_by_message_id=None,
-            )
+        await self._chat_outcome_writer.persist_turn_ux_plan(
+            turn_id=turn_id,
+            execution_mode=execution_mode,
+            ux_plan=ux_plan,
+            updated_at_ms=updated_at_ms,
         )
 
     async def _persist_final_chat_outcome(
         self,
         *,
-        context: ChatRuntimeContext,
-        result: ExecutionResult,
         turn_id: str | None,
         response_text: str,
         started_at_ms: int,
         completed_at_ms: int,
+        orchestration_id: str | None,
+        execution_mode: str | None,
+        ux_plan: dict[str, Any] | None,
     ) -> None:
-        normalized_turn_id = str(turn_id or "").strip()
-        if self._chat_store is None or not normalized_turn_id:
-            return
-        existing_turn = await self._chat_store.get_turn(normalized_turn_id)
-        if existing_turn is None:
-            return
-        ux_plan = result.ux_plan if isinstance(result.ux_plan, dict) else {}
-        response_mode = str(ux_plan.get("assistant_surface_mode") or existing_turn.response_mode or "final_only")
-        await self._chat_store.upsert_turn(
-            ChatTurnRecord(
-                turn_id=existing_turn.turn_id,
-                session_id=existing_turn.session_id,
-                user_id=existing_turn.user_id,
-                trace_id=existing_turn.trace_id or self._build_trace_id(normalized_turn_id),
-                orchestration_id=result.orchestration_id or existing_turn.orchestration_id,
-                status="completed",
-                response_mode=response_mode,
-                execution_mode=self._normalize_mode(result.mode) or existing_turn.execution_mode,
-                ux_plan_json=json.dumps(ux_plan, ensure_ascii=False) if ux_plan else existing_turn.ux_plan_json,
-                created_at_ms=existing_turn.created_at_ms or started_at_ms,
-                updated_at_ms=completed_at_ms,
-                completed_at_ms=completed_at_ms,
-                error_text=existing_turn.error_text,
-            )
+        await self._chat_outcome_writer.persist_final_chat_outcome(
+            turn_id=turn_id,
+            orchestration_id=orchestration_id,
+            execution_mode=execution_mode,
+            ux_plan=ux_plan,
+            response_text=response_text,
+            started_at_ms=started_at_ms,
+            completed_at_ms=completed_at_ms,
         )
-        if response_mode == "reaction_only":
-            return
-        existing_final = await self._chat_store.get_latest_message_for_turn(
-            normalized_turn_id,
-            message_kind="assistant_final",
-        )
-        if existing_final is not None:
-            return
-        interim_message = await self._chat_store.get_latest_message_for_turn(
-            normalized_turn_id,
-            message_kind="assistant_interim",
-        )
-        final_message = ChatMessageRecord(
-            message_id=f"msg_{uuid.uuid4().hex[:16]}",
-            session_id=existing_turn.session_id,
-            turn_id=normalized_turn_id,
-            user_id=existing_turn.user_id,
-            role="assistant",
-            message_kind="assistant_final",
-            content_text=response_text,
-            payload_json="{}",
-            is_final=True,
-            is_visible=True,
-            created_at_ms=completed_at_ms,
-            sequence_no=await self._chat_store.next_sequence_no(session_id=existing_turn.session_id),
-            replaces_message_id=interim_message.message_id if interim_message is not None else None,
-            replaced_by_message_id=None,
-        )
-        await self._chat_store.append_message(final_message)
-        if interim_message is not None:
-            await self._chat_store.mark_message_replaced(
-                message_id=interim_message.message_id,
-                replaced_by_message_id=final_message.message_id,
-            )
 
     async def _get_chat_message(
         self,
@@ -743,11 +618,8 @@ class ChatPostProcessService:
         turn_id: str | None,
         message_kind: str,
     ) -> ChatMessageRecord | None:
-        normalized_turn_id = str(turn_id or "").strip()
-        if self._chat_store is None or not normalized_turn_id:
-            return None
-        return await self._chat_store.get_latest_message_for_turn(
-            normalized_turn_id,
+        return await self._chat_outcome_writer.get_chat_message(
+            turn_id=turn_id,
             message_kind=message_kind,
         )
 
@@ -763,13 +635,10 @@ class ChatPostProcessService:
         turn_id: str | None,
         ux_plan: dict[str, Any] | None,
     ) -> ChatMessageRecord | None:
-        response_mode = str((ux_plan or {}).get("assistant_surface_mode") or "").strip()
-        if response_mode == "reaction_only":
-            return await self._get_chat_message(
-                turn_id=turn_id,
-                message_kind="assistant_reaction",
-            )
-        return await self._get_final_chat_message(turn_id)
+        return await self._chat_outcome_writer.get_notification_chat_message(
+            turn_id=turn_id,
+            ux_plan=ux_plan,
+        )
 
     async def _get_turn_ux_chat_message(
         self,
@@ -777,23 +646,14 @@ class ChatPostProcessService:
         turn_id: str | None,
         ux_plan: dict[str, Any] | None,
     ) -> ChatMessageRecord | None:
-        response_mode = str((ux_plan or {}).get("assistant_surface_mode") or "").strip()
-        if response_mode == "reaction_only":
-            return await self._get_chat_message(
-                turn_id=turn_id,
-                message_kind="assistant_reaction",
-            )
-        if response_mode == "interim_then_final":
-            return await self._get_chat_message(
-                turn_id=turn_id,
-                message_kind="assistant_interim",
-            )
-        return None
+        return await self._chat_outcome_writer.get_turn_ux_chat_message(
+            turn_id=turn_id,
+            ux_plan=ux_plan,
+        )
 
     @staticmethod
     def _resolve_reaction_text(ux_plan: dict[str, Any] | None) -> str:
-        style = str((ux_plan or {}).get("reaction_style") or "").strip()
-        return REACTION_EMOJI_BY_STYLE.get(style, "")
+        return ChatOutcomeWriter.resolve_reaction_text(ux_plan)
 
     async def _project_final_chat_message(
         self,
@@ -801,15 +661,10 @@ class ChatPostProcessService:
         context: ChatRuntimeContext,
         final_message: ChatMessageRecord | None,
     ) -> None:
-        if self._chat_projector is None or final_message is None or not str(final_message.content_text or "").strip():
-            return
-        await self._chat_projector.project_assistant_message(
-            message_id=final_message.message_id,
+        await self._chat_outcome_writer.project_final_chat_message(
             user_id=context.user_id,
             session_id=context.session_id,
-            turn_id=str(final_message.turn_id or ""),
-            content=str(final_message.content_text or ""),
-            created_at_ms=final_message.created_at_ms,
+            final_message=final_message,
         )
 
     async def _emit_response_trace(
@@ -948,33 +803,17 @@ class ChatPostProcessService:
         message_id: str | None,
         message_kind: str | None,
     ) -> None:
-        if self._runtime_trace_store is None:
-            return
-        payload = {
-            "message_id": message_id,
-            "message_kind": message_kind,
-            "content": response_text,
-            "author_type": "assistant",
-            "content_type": "text",
-            "timestamp": time.time(),
-            "user_id": user_id,
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "orchestration_id": orchestration_id,
-            "trace_summary": trace_summary,
-            "trace_available": trace_available,
-            "ux_plan": ux_plan,
-        }
-        await self._runtime_trace_store.append_notification(
-            RuntimeNotificationRecord(
-                notification_id=0,
-                channel="agent_response",
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-                payload_json=json.dumps(payload, ensure_ascii=False),
-                created_at_ms=now_wall_ms(),
-            )
+        await self._runtime_notifier.emit_agent_response(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            response_text=response_text,
+            orchestration_id=orchestration_id,
+            trace_summary=trace_summary,
+            trace_available=trace_available,
+            ux_plan=ux_plan,
+            message_id=message_id,
+            message_kind=message_kind,
         )
 
     async def _emit_turn_ux_plan_notification(
@@ -988,27 +827,14 @@ class ChatPostProcessService:
         message_kind: str | None,
         timestamp_ms: int | None,
     ) -> None:
-        if self._runtime_trace_store is None or not turn_id or not ux_plan:
-            return
-        payload = {
-            "user_id": user_id,
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "message_id": message_id,
-            "message_kind": message_kind,
-            "ux_plan": ux_plan,
-            "timestamp": (timestamp_ms / 1000.0) if timestamp_ms is not None else time.time(),
-        }
-        await self._runtime_trace_store.append_notification(
-            RuntimeNotificationRecord(
-                notification_id=0,
-                channel="turn_ux_plan",
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-                payload_json=json.dumps(payload, ensure_ascii=False),
-                created_at_ms=now_wall_ms(),
-            )
+        await self._runtime_notifier.emit_turn_ux_plan(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            ux_plan=ux_plan,
+            message_id=message_id,
+            message_kind=message_kind,
+            timestamp_ms=timestamp_ms,
         )
 
     async def _emit_trace_update_notification(
@@ -1018,18 +844,10 @@ class ChatPostProcessService:
         session_id: str,
         turn_id: str | None,
     ) -> None:
-        if self._runtime_trace_store is None or not turn_id:
-            return
-        await self._runtime_trace_store.append_notification(
-            RuntimeNotificationRecord(
-                notification_id=0,
-                channel="trace_update",
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-                payload_json="{}",
-                created_at_ms=now_wall_ms(),
-            )
+        await self._runtime_notifier.emit_trace_update(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
         )
 
     @staticmethod
