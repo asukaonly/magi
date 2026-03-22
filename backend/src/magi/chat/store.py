@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import uuid
 
 import aiosqlite
 
@@ -108,57 +109,135 @@ class ChatStore:
         """Insert or update one session row."""
         await self.initialize()
         async with aiosqlite.connect(self.db_path) as db:
+            await self._upsert_session_with_connection(db, record)
+            await db.commit()
+
+    async def create_user_turn(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        turn_id: str,
+        message_text: str,
+        created_at_ms: int,
+    ) -> ChatMessageRecord:
+        """Create a user turn and its first transcript message transactionally."""
+        await self.initialize()
+        session_preview = str(message_text or "").strip()[:120]
+        message = ChatMessageRecord(
+            message_id=f"msg_{uuid.uuid4().hex[:16]}",
+            session_id=session_id,
+            turn_id=turn_id,
+            user_id=user_id,
+            role="user",
+            message_kind="user_text",
+            content_text=message_text,
+            payload_json="{}",
+            is_final=True,
+            is_visible=True,
+            created_at_ms=created_at_ms,
+            sequence_no=1,
+            replaces_message_id=None,
+            replaced_by_message_id=None,
+        )
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            existing_session = await self._fetch_session_row(db, session_id=session_id)
+            next_message_count = int(existing_session["message_count"] or 0) + 1 if existing_session is not None else 1
+            await self._upsert_session_with_connection(
+                db,
+                ChatSessionRecord(
+                    session_id=session_id,
+                    user_id=user_id,
+                    title=str(existing_session["title"]) if existing_session is not None else "New Chat",
+                    title_overridden=bool(int(existing_session["title_overridden"] or 0)) if existing_session is not None else False,
+                    summary=str(existing_session["summary"] or "") if existing_session is not None else "",
+                    created_at_ms=int(existing_session["created_at_ms"]) if existing_session is not None else created_at_ms,
+                    updated_at_ms=created_at_ms,
+                    last_message_at_ms=created_at_ms,
+                    last_user_message_at_ms=created_at_ms,
+                    last_message_preview=session_preview,
+                    last_user_message_preview=session_preview,
+                    message_count=next_message_count,
+                    archived_at_ms=int(existing_session["archived_at_ms"]) if existing_session is not None and existing_session["archived_at_ms"] is not None else None,
+                    deleted_at_ms=int(existing_session["deleted_at_ms"]) if existing_session is not None and existing_session["deleted_at_ms"] is not None else None,
+                ),
+            )
             await db.execute(
                 """
-                INSERT INTO chat_sessions (
+                INSERT INTO chat_turns (
+                    turn_id,
                     session_id,
                     user_id,
-                    title,
-                    title_overridden,
-                    summary,
+                    trace_id,
+                    orchestration_id,
+                    status,
+                    response_mode,
+                    execution_mode,
+                    ux_plan_json,
                     created_at_ms,
                     updated_at_ms,
-                    last_message_at_ms,
-                    last_user_message_at_ms,
-                    last_message_preview,
-                    last_user_message_preview,
-                    message_count,
-                    archived_at_ms,
-                    deleted_at_ms
+                    completed_at_ms,
+                    error_text
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET
-                    user_id = excluded.user_id,
-                    title = excluded.title,
-                    title_overridden = excluded.title_overridden,
-                    summary = excluded.summary,
-                    updated_at_ms = excluded.updated_at_ms,
-                    last_message_at_ms = excluded.last_message_at_ms,
-                    last_user_message_at_ms = excluded.last_user_message_at_ms,
-                    last_message_preview = excluded.last_message_preview,
-                    last_user_message_preview = excluded.last_user_message_preview,
-                    message_count = excluded.message_count,
-                    archived_at_ms = excluded.archived_at_ms,
-                    deleted_at_ms = excluded.deleted_at_ms
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(turn_id) DO NOTHING
                 """,
                 (
-                    record.session_id,
-                    record.user_id,
-                    record.title,
-                    1 if record.title_overridden else 0,
-                    record.summary,
-                    record.created_at_ms,
-                    record.updated_at_ms,
-                    record.last_message_at_ms,
-                    record.last_user_message_at_ms,
-                    record.last_message_preview,
-                    record.last_user_message_preview,
-                    record.message_count,
-                    record.archived_at_ms,
-                    record.deleted_at_ms,
+                    turn_id,
+                    session_id,
+                    user_id,
+                    None,
+                    None,
+                    "queued",
+                    "final_only",
+                    None,
+                    "{}",
+                    created_at_ms,
+                    created_at_ms,
+                    None,
+                    None,
+                ),
+            )
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO chat_messages (
+                    message_id,
+                    session_id,
+                    turn_id,
+                    user_id,
+                    role,
+                    message_kind,
+                    content_text,
+                    payload_json,
+                    is_final,
+                    is_visible,
+                    created_at_ms,
+                    sequence_no,
+                    replaces_message_id,
+                    replaced_by_message_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    message.message_id,
+                    message.session_id,
+                    message.turn_id,
+                    message.user_id,
+                    message.role,
+                    message.message_kind,
+                    message.content_text,
+                    message.payload_json,
+                    1,
+                    1,
+                    message.created_at_ms,
+                    message.sequence_no,
+                    None,
+                    None,
                 ),
             )
             await db.commit()
+        return message
 
     async def upsert_turn(self, record: ChatTurnRecord) -> None:
         """Insert or update one chat turn row."""
@@ -341,6 +420,72 @@ class ChatStore:
             db.row_factory = aiosqlite.Row
             cur = await db.execute(sql, params)
             return await cur.fetchone()
+
+    async def _fetch_session_row(self, db: aiosqlite.Connection, *, session_id: str) -> aiosqlite.Row | None:
+        cur = await db.execute(
+            """
+            SELECT session_id, user_id, title, title_overridden, summary, created_at_ms,
+                   updated_at_ms, last_message_at_ms, last_user_message_at_ms,
+                   last_message_preview, last_user_message_preview, message_count,
+                   archived_at_ms, deleted_at_ms
+            FROM chat_sessions
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+        return await cur.fetchone()
+
+    async def _upsert_session_with_connection(self, db: aiosqlite.Connection, record: ChatSessionRecord) -> None:
+        await db.execute(
+            """
+            INSERT INTO chat_sessions (
+                session_id,
+                user_id,
+                title,
+                title_overridden,
+                summary,
+                created_at_ms,
+                updated_at_ms,
+                last_message_at_ms,
+                last_user_message_at_ms,
+                last_message_preview,
+                last_user_message_preview,
+                message_count,
+                archived_at_ms,
+                deleted_at_ms
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                user_id = excluded.user_id,
+                title = excluded.title,
+                title_overridden = excluded.title_overridden,
+                summary = excluded.summary,
+                updated_at_ms = excluded.updated_at_ms,
+                last_message_at_ms = excluded.last_message_at_ms,
+                last_user_message_at_ms = excluded.last_user_message_at_ms,
+                last_message_preview = excluded.last_message_preview,
+                last_user_message_preview = excluded.last_user_message_preview,
+                message_count = excluded.message_count,
+                archived_at_ms = excluded.archived_at_ms,
+                deleted_at_ms = excluded.deleted_at_ms
+            """,
+            (
+                record.session_id,
+                record.user_id,
+                record.title,
+                1 if record.title_overridden else 0,
+                record.summary,
+                record.created_at_ms,
+                record.updated_at_ms,
+                record.last_message_at_ms,
+                record.last_user_message_at_ms,
+                record.last_message_preview,
+                record.last_user_message_preview,
+                record.message_count,
+                record.archived_at_ms,
+                record.deleted_at_ms,
+            ),
+        )
 
     @staticmethod
     def _row_to_message(row: aiosqlite.Row) -> ChatMessageRecord:

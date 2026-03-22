@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 
 from magi.api.services import message_dispatch_service as service
@@ -35,6 +37,42 @@ class _FakeRuntimeCommandQueue:
         return {"pending_count": self.queue_size}
 
 
+@dataclass(slots=True)
+class _FakeCreatedTurn:
+    session_id: str
+    turn_id: str
+    message_id: str
+
+
+class _FakeChatStore:
+    def __init__(self) -> None:
+        self.created_turns: list[dict[str, object]] = []
+
+    async def create_user_turn(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        turn_id: str,
+        message_text: str,
+        created_at_ms: int,
+    ) -> _FakeCreatedTurn:
+        self.created_turns.append(
+            {
+                "session_id": session_id,
+                "user_id": user_id,
+                "turn_id": turn_id,
+                "message_text": message_text,
+                "created_at_ms": created_at_ms,
+            }
+        )
+        return _FakeCreatedTurn(
+            session_id=session_id,
+            turn_id=turn_id,
+            message_id=f"msg-{turn_id}",
+        )
+
+
 @pytest.mark.asyncio
 async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
     monkeypatch: pytest.MonkeyPatch,
@@ -52,9 +90,11 @@ async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_only_requires_message_bus(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_user_message_persists_chat_turn_before_enqueue(monkeypatch: pytest.MonkeyPatch) -> None:
     queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -65,13 +105,19 @@ async def test_dispatch_user_message_only_requires_message_bus(monkeypatch: pyte
 
     assert outcome.success is True
     assert outcome.session_id == "session-for-u1"
+    assert outcome.turn_id is not None
+    assert len(chat_store.created_turns) == 1
+    assert chat_store.created_turns[0]["turn_id"] == outcome.turn_id
+    assert chat_store.created_turns[0]["message_text"] == "hello"
     assert len(queue.commands) == 1
 
 
 @pytest.mark.asyncio
 async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: pytest.MonkeyPatch) -> None:
     queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -100,7 +146,9 @@ async def test_dispatch_user_message_returns_publish_failure(monkeypatch: pytest
             raise RuntimeError("boom")
 
     queue = _FailingRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="websocket",
@@ -118,7 +166,9 @@ async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="websocket",
@@ -141,7 +191,9 @@ async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime
 @pytest.mark.asyncio
 async def test_dispatch_user_message_rejects_missing_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
     queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -152,4 +204,37 @@ async def test_dispatch_user_message_rejects_missing_session_id(monkeypatch: pyt
 
     assert outcome.success is False
     assert outcome.error_code == service.SESSION_ID_REQUIRED
+    assert queue.commands == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_returns_chat_persist_failure_before_enqueue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FailingChatStore(_FakeChatStore):
+        async def create_user_turn(
+            self,
+            *,
+            session_id: str,
+            user_id: str,
+            turn_id: str,
+            message_text: str,
+            created_at_ms: int,
+        ) -> _FakeCreatedTurn:
+            raise RuntimeError("persist failed")
+
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FailingChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "require_chat_store", lambda: chat_store)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="hello",
+        session_id="session-for-u1",
+    )
+
+    assert outcome.success is False
+    assert outcome.error_code == service.CHAT_STORE_PERSIST_FAILED
     assert queue.commands == []

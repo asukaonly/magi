@@ -7,10 +7,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from ...core.runtime_bindings import require_runtime_command_queue
+from ...core.runtime_bindings import require_chat_store, require_runtime_command_queue
 from ...events.contracts import UserMessageCommand
 
 
+CHAT_STORE_NOT_INITIALIZED = "CHAT_STORE_NOT_INITIALIZED"
+CHAT_STORE_PERSIST_FAILED = "CHAT_STORE_PERSIST_FAILED"
 RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED = "RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED"
 RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED = "RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED"
 SESSION_ID_REQUIRED = "SESSION_ID_REQUIRED"
@@ -48,6 +50,15 @@ async def dispatch_user_message(
             error_code=RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED,
             error_message="Runtime command queue is not initialized. Please complete onboarding or check the saved configuration.",
         )
+    try:
+        chat_store = require_chat_store()
+    except RuntimeError:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            error_code=CHAT_STORE_NOT_INITIALIZED,
+            error_message="Chat store is not initialized.",
+        )
 
     resolved_session_id = str(session_id or "").strip()
     if not resolved_session_id:
@@ -57,7 +68,26 @@ async def dispatch_user_message(
             error_code=SESSION_ID_REQUIRED,
             error_message="Session ID is required.",
         )
+    created_at = time.time()
+    created_at_ms = int(created_at * 1000)
     turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
+    try:
+        await chat_store.create_user_turn(
+            session_id=resolved_session_id,
+            user_id=user_id,
+            turn_id=turn_id,
+            message_text=message,
+            created_at_ms=created_at_ms,
+        )
+    except Exception:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            session_id=resolved_session_id,
+            turn_id=turn_id,
+            error_code=CHAT_STORE_PERSIST_FAILED,
+            error_message="Chat turn persistence failed",
+        )
     try:
         await runtime_command_queue.enqueue_user_message(
             UserMessageCommand(
@@ -68,7 +98,7 @@ async def dispatch_user_message(
                 message=message,
                 runtime_namespace=str(runtime_namespace or "").strip() or "web",
                 metadata=dict(metadata or {}),
-                created_at=time.time(),
+                created_at=created_at,
             )
         )
     except Exception:
