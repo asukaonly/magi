@@ -107,6 +107,11 @@ class RuntimePaths:
         return self.data_dir / "message_queue.db"
 
     @property
+    def chat_db_path(self) -> Path:
+        """Dedicated chat-domain database path."""
+        return self.data_dir / "chat.db"
+
+    @property
     def l1_memory_db_path(self) -> Path:
         """L1 memory database path."""
         return self.memories_dir / "l1_events.db"

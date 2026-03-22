@@ -64,6 +64,7 @@ class DatabaseInitializer:
 
         # 1. Initialize core DB tables (IF NOT EXISTS, idempotent)
         await self._init_message_queue_db()
+        await self._init_chat_db()
         await self._init_shared_memory_db()
         await self._init_l1_memory_db()
         await self._init_behavior_evolution_db()
@@ -92,6 +93,16 @@ class DatabaseInitializer:
             await db.execute("PRAGMA journal_mode=WAL")
             await db.commit()
         logger.debug(f"Initialized message_queue.db at {db_path}")
+
+    async def _init_chat_db(self) -> None:
+        """Initialize dedicated chat database."""
+        from ..chat import ChatStore
+
+        db_path = self.data_dir / "chat.db"
+        store = ChatStore(db_path=str(db_path))
+        await store.initialize()
+        await store.shutdown()
+        logger.debug(f"Initialized chat.db at {db_path}")
 
     async def _init_shared_memory_db(self) -> None:
         """Initialize shared memory database (L0/L2/L3/L4)."""
