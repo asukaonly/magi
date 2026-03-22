@@ -65,3 +65,50 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(tmp
         await sensor_hub.stop()
         await message_bus.stop()
         await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_processor_stops_claiming_commands_while_draining(tmp_path: Path) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    message_bus = MemoryMessageBackend()
+    await message_bus.start()
+
+    sensor_hub = SensorHub(message_bus=message_bus)
+    await sensor_hub.start()
+
+    context = RuntimeBootstrapContext()
+    context.runtime_commands.runtime_command_queue = queue
+    context.message_bus.message_bus = message_bus
+    context.agent_runtime.agent_runtime = object()
+
+    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
+    await processor.init()
+
+    try:
+        processor.begin_draining()
+        await queue.enqueue_user_message(
+            UserMessageCommand(
+                source="api",
+                user_id="user-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                message="hello drain",
+                runtime_namespace="web",
+                metadata={"origin": "test"},
+            )
+        )
+
+        await asyncio.sleep(0.05)
+
+        batch = await sensor_hub.get_batch(max_items=8, timeout_seconds=0.02)
+        assert batch == []
+
+        stats = await queue.get_stats()
+        assert stats["pending_count"] == 1
+        assert processor.is_draining is True
+    finally:
+        await processor.shutdown()
+        await sensor_hub.stop()
+        await message_bus.stop()
+        await queue.stop()

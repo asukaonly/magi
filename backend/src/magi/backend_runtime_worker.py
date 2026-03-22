@@ -9,7 +9,7 @@ import time
 import uuid
 
 from .bootstrap import initialize_agent_runtime, shutdown_agent_runtime
-from .core.container import wire_container
+from .core.container import get_container, wire_container
 from .core.logger import get_logger
 from .core.runtime_bindings import require_runtime_command_queue, require_runtime_trace_store
 from .process_roles import ProcessRole
@@ -17,6 +17,7 @@ from .runtime_trace import RuntimeHeartbeatRecord
 
 logger = get_logger(__name__)
 DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_SECONDS = 2.0
+DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS = 5.0
 RUNTIME_HEARTBEAT_ROLE = "runtime_worker"
 
 
@@ -39,22 +40,26 @@ async def run_runtime_worker() -> None:
     _install_signal_handlers(stop_event)
     instance_id = uuid.uuid4().hex
     started_at_ms = int(time.time() * 1000)
+    status_ref = {"value": "ready"}
     await _publish_runtime_heartbeat(
         instance_id=instance_id,
         started_at_ms=started_at_ms,
-        status="ready",
+        status=status_ref["value"],
     )
     heartbeat_task = asyncio.create_task(
         _heartbeat_loop(
             stop_event=stop_event,
             instance_id=instance_id,
             started_at_ms=started_at_ms,
+            status_ref=status_ref,
         )
     )
 
     try:
         await stop_event.wait()
     finally:
+        status_ref["value"] = "draining"
+        await _begin_runtime_drain(timeout_seconds=DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS)
         await _publish_runtime_heartbeat(
             instance_id=instance_id,
             started_at_ms=started_at_ms,
@@ -73,13 +78,14 @@ async def _heartbeat_loop(
     stop_event: asyncio.Event,
     instance_id: str,
     started_at_ms: int,
+    status_ref: dict[str, str],
     interval_seconds: float = DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_SECONDS,
 ) -> None:
     while not stop_event.is_set():
         await _publish_runtime_heartbeat(
             instance_id=instance_id,
             started_at_ms=started_at_ms,
-            status="ready",
+            status=status_ref["value"],
         )
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
@@ -122,6 +128,28 @@ async def _load_pending_command_count() -> int:
     except Exception:
         return 0
     return int(stats.get("pending_count", 0) or 0)
+
+
+async def _begin_runtime_drain(*, timeout_seconds: float) -> None:
+    processor = _get_runtime_command_processor()
+    if processor is None:
+        return
+    processor.begin_draining()
+    try:
+        await processor.wait_until_idle(timeout_seconds=timeout_seconds)
+    except asyncio.TimeoutError:
+        logger.warning("Runtime drain timed out", timeout_seconds=timeout_seconds)
+
+
+def _get_runtime_command_processor():
+    try:
+        container = get_container()
+        context = container.runtime_bootstrap_context()
+    except Exception:
+        return None
+    if context is None or type(context).__name__ == "object":
+        return None
+    return getattr(context.runtime_commands, "runtime_command_processor", None)
 
 
 def main() -> None:

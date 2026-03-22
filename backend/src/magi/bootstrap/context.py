@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from ..llm.usage_events import LLMUsageEventPublisher
     from ..events.backend import MessageBusBackend
     from ..events.runtime_queue import SQLiteRuntimeCommandQueue
+    from ..events.lifecycle import RuntimeCommandProcessorModule
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
     from ..memory.hybrid_retrieval import HybridRetrievalService
@@ -80,6 +81,7 @@ class RuntimeCommandBootstrapState:
     """Persisted runtime command queue state slice."""
 
     runtime_command_queue: SQLiteRuntimeCommandQueue | None = None
+    runtime_command_processor: RuntimeCommandProcessorModule | None = None
 
 
 @dataclass

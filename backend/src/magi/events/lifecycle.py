@@ -76,13 +76,22 @@ class RuntimeCommandProcessorModule(LifecycleModule):
         self._poll_interval_seconds = poll_interval_seconds
         self._task: asyncio.Task | None = None
         self._running = False
+        self._draining = False
+        self._active_commands = 0
+        self._idle_event = asyncio.Event()
+        self._idle_event.set()
 
     async def init(self) -> None:
         self._running = True
+        self._draining = False
+        self._active_commands = 0
+        self._idle_event.set()
+        self._context.runtime_commands.runtime_command_processor = self
         self._task = asyncio.create_task(self._run_loop())
 
     async def shutdown(self) -> None:
         self._running = False
+        self._context.runtime_commands.runtime_command_processor = None
         if self._task is not None:
             self._task.cancel()
             try:
@@ -90,6 +99,24 @@ class RuntimeCommandProcessorModule(LifecycleModule):
             except asyncio.CancelledError:
                 pass
             self._task = None
+
+    @property
+    def is_draining(self) -> bool:
+        """Return whether the processor has stopped claiming new commands."""
+        return self._draining
+
+    def begin_draining(self) -> None:
+        """Stop claiming new commands and wait for active work to finish."""
+        self._draining = True
+        if self._active_commands == 0:
+            self._idle_event.set()
+
+    async def wait_until_idle(self, timeout_seconds: float | None = None) -> None:
+        """Wait until the processor has no in-flight commands."""
+        if timeout_seconds is None:
+            await self._idle_event.wait()
+            return
+        await asyncio.wait_for(self._idle_event.wait(), timeout=timeout_seconds)
 
     async def _run_loop(self) -> None:
         queue = require_initialized(
@@ -100,6 +127,10 @@ class RuntimeCommandProcessorModule(LifecycleModule):
 
         while self._running:
             try:
+                if self._draining:
+                    await asyncio.sleep(self._poll_interval_seconds)
+                    continue
+
                 command = await queue.claim_next(
                     consumer_name="runtime_worker",
                     command_types=(RuntimeCommandType.USER_MESSAGE,),
@@ -108,6 +139,8 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                     await asyncio.sleep(self._poll_interval_seconds)
                     continue
 
+                self._active_commands += 1
+                self._idle_event.clear()
                 user_message = command.as_user_message()
                 published = await message_bus.publish(
                     Event(
@@ -132,8 +165,14 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                     await queue.ack(command.command_id)
                 else:
                     await queue.requeue(command.command_id, error_text="LOCAL_MESSAGE_BUS_PUBLISH_FAILED")
+                self._active_commands = max(0, self._active_commands - 1)
+                if self._active_commands == 0:
+                    self._idle_event.set()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                self._active_commands = max(0, self._active_commands - 1)
+                if self._active_commands == 0:
+                    self._idle_event.set()
                 logger.warning("Runtime command processing failed", error=str(exc))
                 await asyncio.sleep(self._poll_interval_seconds)
