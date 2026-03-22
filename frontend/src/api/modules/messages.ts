@@ -34,6 +34,8 @@ export interface ChatHistoryMessage {
   timestamp: number;
   turn_id?: string | null;
   kind?: 'user' | 'assistant' | 'status' | null;
+  trace_display_mode?: string | null;
+  allow_trace_collapse?: boolean;
   trace_summary?: Record<string, any> | null;
   trace_available?: boolean;
 }

@@ -78,6 +78,8 @@ export interface ChatHistoryMessageData {
   timestamp: number;
   turn_id?: string | null;
   kind?: 'user' | 'assistant' | 'status' | null;
+  trace_display_mode?: string | null;
+  allow_trace_collapse?: boolean;
   trace_summary?: TraceSummaryData | null;
   trace_available?: boolean;
 }

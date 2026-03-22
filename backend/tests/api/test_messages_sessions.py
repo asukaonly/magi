@@ -732,6 +732,68 @@ def test_get_display_history_prefers_chat_store_transcript(tmp_path, monkeypatch
     assert [item.content for item in messages] == ["chat-store user", "chat-store reply"]
 
 
+def test_get_display_history_includes_turn_ux_trace_preferences(tmp_path, monkeypatch):
+    service = _build_service(tmp_path)
+    trace_service = ChatTraceReadService()
+    trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
+    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    monkeypatch.setattr(
+        "magi.api.services.chat_read_service.get_chat_trace_read_service",
+        lambda: trace_service,
+    )
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-chat",
+        user_id="u1",
+        title="Chat",
+        created_at=1000,
+        updated_at=1020,
+        message_count=2,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s-chat",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        ux_plan_json='{"trace_display_mode":"none","allow_trace_collapse":false}',
+        created_at_ms=1000,
+        updated_at_ms=1020,
+        completed_at_ms=1020,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="chat-store user",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-assistant",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="chat-store reply",
+        created_at_ms=1020,
+        sequence_no=2,
+    )
+
+    messages = service.get_display_history("u1", "s-chat", limit=20)
+
+    assert messages[1].trace_display_mode == "none"
+    assert messages[1].allow_trace_collapse is False
+
+
 def test_list_sessions_router_response(monkeypatch):
     class _FakeReadService:
         async def alist_sessions(self, user_id: str, limit: int = 30):

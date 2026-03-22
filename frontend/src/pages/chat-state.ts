@@ -190,8 +190,8 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
       messageId: message.message_id || undefined,
       messageKind: message.message_kind || null,
       turnId: message.turn_id || undefined,
-      traceDisplayMode: null,
-      allowTraceCollapse: false,
+      traceDisplayMode: message.trace_display_mode || null,
+      allowTraceCollapse: Boolean(message.allow_trace_collapse),
       traceSummary,
       traceAvailable: Boolean(message.trace_available || traceSummary?.traceAvailable),
     };

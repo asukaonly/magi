@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -120,6 +121,8 @@ class ChatDisplayMessage:
     message_id: str | None = None
     message_kind: str | None = None
     turn_id: str | None = None
+    trace_display_mode: str | None = None
+    allow_trace_collapse: bool = False
     trace_summary: dict[str, Any] | None = None
     trace_available: bool = False
 
@@ -132,6 +135,8 @@ class ChatDisplayMessage:
             "message_kind": self.message_kind,
             "turn_id": self.turn_id,
             "kind": self.kind,
+            "trace_display_mode": self.trace_display_mode,
+            "allow_trace_collapse": self.allow_trace_collapse,
             "trace_summary": self.trace_summary,
             "trace_available": self.trace_available,
         }
@@ -421,6 +426,10 @@ class ChatReadService:
         trace_activity = trace_service.get_turn_activity_map(user_id=user_id, session_id=session_id)
         messages_by_turn: dict[str, list[ChatDisplayMessage]] = {}
         legacy_messages: list[ChatDisplayMessage] = []
+        turn_ux_preferences = {
+            str(row["turn_id"]): self._parse_turn_ux_preferences(row["ux_plan_json"])
+            for row in turn_rows
+        }
 
         for row in message_rows:
             display_message = self._row_to_display_message(row)
@@ -430,6 +439,7 @@ class ChatReadService:
             if not turn_id:
                 legacy_messages.append(display_message)
                 continue
+            self._apply_turn_ux_preferences(display_message, turn_ux_preferences.get(turn_id))
             if display_message.kind == "assistant":
                 summary = trace_service.get_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
                 display_message.trace_summary = summary or trace_activity.get(turn_id)
@@ -462,6 +472,10 @@ class ChatReadService:
                         content=str((summary or {}).get("headline") or "Thinking"),
                         timestamp=timestamp,
                         turn_id=turn_id,
+                        trace_display_mode=turn_ux_preferences.get(turn_id, {}).get("trace_display_mode"),
+                        allow_trace_collapse=bool(
+                            turn_ux_preferences.get(turn_id, {}).get("allow_trace_collapse", False)
+                        ),
                         trace_summary=summary,
                         trace_available=bool(summary and summary.get("trace_available")),
                     )
@@ -633,7 +647,7 @@ class ChatReadService:
         return conn.execute(
             f"""
             SELECT turn_id, session_id, user_id, status, response_mode, execution_mode,
-                   created_at_ms, updated_at_ms, completed_at_ms
+                   ux_plan_json, created_at_ms, updated_at_ms, completed_at_ms
             FROM {CHAT_TURNS_TABLE}
             WHERE user_id = ?
               AND session_id = ?
@@ -644,6 +658,29 @@ class ChatReadService:
 
     def _ensure_chat_store_schema(self, conn: sqlite3.Connection) -> None:
         conn.executescript(CHAT_STORE_SCHEMA_SQL)
+
+    @staticmethod
+    def _parse_turn_ux_preferences(raw_ux_plan_json: str | None) -> dict[str, Any]:
+        if not raw_ux_plan_json:
+            return {}
+        try:
+            parsed = json.loads(raw_ux_plan_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _apply_turn_ux_preferences(
+        message: ChatDisplayMessage,
+        preferences: dict[str, Any] | None,
+    ) -> None:
+        if not preferences:
+            return
+        trace_display_mode = preferences.get("trace_display_mode")
+        if trace_display_mode is not None:
+            message.trace_display_mode = str(trace_display_mode)
+        if "allow_trace_collapse" in preferences:
+            message.allow_trace_collapse = bool(preferences.get("allow_trace_collapse"))
 
     @staticmethod
     def _row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:

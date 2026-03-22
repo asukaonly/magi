@@ -122,6 +122,8 @@ export interface ChatHistoryMessageRaw {
   timestamp: number;
   turn_id?: string | null;
   kind?: ChatMessageKind | null;
+  trace_display_mode?: string | null;
+  allow_trace_collapse?: boolean;
   trace_summary?: TraceSummaryData | null;
   trace_available?: boolean;
 }

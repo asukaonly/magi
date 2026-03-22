@@ -295,6 +295,31 @@ describe('chat trace state helpers', () => {
     });
   });
 
+  it('preserves persisted trace display preferences from history rows', () => {
+    const normalized = normalizeHistoryMessages([
+      {
+        message_id: 'msg-final',
+        message_kind: 'assistant_final',
+        role: 'assistant',
+        content: '整理好了',
+        timestamp: 1000,
+        turn_id: 'turn_trace_hidden',
+        kind: 'assistant',
+        trace_available: true,
+        trace_display_mode: 'none',
+        allow_trace_collapse: false,
+      },
+    ]);
+
+    expect(normalized[0]).toMatchObject({
+      id: 'msg-final',
+      messageId: 'msg-final',
+      traceDisplayMode: 'none',
+      allowTraceCollapse: false,
+      traceAvailable: true,
+    });
+  });
+
   it('flattens the planning node out of the trace tree for drawer display', () => {
     const root = flattenPlanningNodeForDisplay({
       id: 'turn_1:root',

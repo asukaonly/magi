@@ -321,6 +321,51 @@ describe('ChatPage', () => {
     ).toHaveLength(1);
   });
 
+  it('hides trace entry after reload when persisted history says trace display is none', async () => {
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'msg-final-hidden',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: '整理好了',
+          timestamp: 1000,
+          turn_id: 'turn-hidden-history',
+          kind: 'assistant',
+          trace_available: true,
+          trace_summary: {
+            turn_id: 'turn-hidden-history',
+            mode: 'function_calling',
+            status: 'completed',
+            headline: '工具链已完成',
+            active_steps: 0,
+            completed_steps: 2,
+            failed_steps: 0,
+            duration_seconds: 1.2,
+            trace_available: true,
+          },
+          trace_display_mode: 'none',
+          allow_trace_collapse: false,
+        },
+      ])
+    );
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('整理好了')).toBeInTheDocument();
+    });
+
+    const hiddenMessage = useConversationStore.getState().messagesBySession['session-1']
+      ?.find((message) => message.turnId === 'turn-hidden-history');
+    expect(hiddenMessage?.traceDisplayMode).toBe('none');
+    expect(
+      shouldShowTraceEntry(hiddenMessage ?? { turnId: '', traceDisplayMode: null, traceAvailable: false, traceSummary: null })
+    ).toBe(false);
+    expect(screen.queryByRole('button', { name: 'chat.trace.view' })).not.toBeInTheDocument();
+  });
+
   it('renders a thinking status card when ux plan requests visible thinking feedback', async () => {
     render(<ChatPage />);
 
