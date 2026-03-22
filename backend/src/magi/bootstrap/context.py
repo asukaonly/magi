@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ..chat import ChatStore
     from ..config import AppConfig
     from ..utils.runtime import RuntimePaths
     from ..core.database_initializer import DatabaseInitializer
@@ -82,6 +83,13 @@ class RuntimeCommandBootstrapState:
 
     runtime_command_queue: SQLiteRuntimeCommandQueue | None = None
     runtime_command_processor: RuntimeCommandProcessorModule | None = None
+
+
+@dataclass
+class ChatBootstrapState:
+    """Dedicated chat-domain persistence slice."""
+
+    store: ChatStore | None = None
 
 
 @dataclass
@@ -175,6 +183,7 @@ class RuntimeBootstrapContext:
 
     core: CoreBootstrapState = field(default_factory=CoreBootstrapState)
     runtime_commands: RuntimeCommandBootstrapState = field(default_factory=RuntimeCommandBootstrapState)
+    chat: ChatBootstrapState = field(default_factory=ChatBootstrapState)
     message_bus: MessageBusBootstrapState = field(default_factory=MessageBusBootstrapState)
     plugins: PluginBootstrapState = field(default_factory=PluginBootstrapState)
     llm: LLMBootstrapState = field(default_factory=LLMBootstrapState)

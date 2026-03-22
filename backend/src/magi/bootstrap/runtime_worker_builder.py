@@ -9,6 +9,7 @@ from .maintenance import OtherDependenciesModule
 
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..awareness.lifecycle import SensorsAndActionsModule, ActionScheduleRegistrationModule
+from ..chat.lifecycle import ChatStoreModule
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
 from ..core.lifecycle import CoreDependenciesModule
@@ -32,6 +33,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
         ConfigurationModule(context),
         RuntimeCommandQueueModule(context),
         MessageBusModule(context),
+        ChatStoreModule(context),
         PluginSystemModule(context),
         LLMRuntimeModule(context),
         MemoryStoreModule(context, start_memory_integration=True),

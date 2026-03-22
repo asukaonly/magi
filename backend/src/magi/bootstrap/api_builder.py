@@ -9,6 +9,7 @@ from .exports import RuntimeExportsModule
 from .lifecycle import LifecycleModule
 
 from ..awareness.lifecycle import SensorsAndActionsModule
+from ..chat.lifecycle import ChatStoreModule
 from ..config.lifecycle import ConfigurationModule
 from ..core.container import get_container
 from ..core.lifecycle import CoreDependenciesModule
@@ -53,6 +54,7 @@ class APIRuntimeExportsModule(RuntimeExportsModule):
         self.dependencies = (
             "runtime_command_queue",
             "runtime_message_bus",
+            "runtime_chat_store",
             "runtime_memory",
             "runtime_plugin_system",
             "runtime_personality",
@@ -67,6 +69,7 @@ class APIRuntimeExportsModule(RuntimeExportsModule):
             self._context.runtime_commands.runtime_command_queue,
             "runtime command queue",
         )
+        chat_store = require_initialized(self._context.chat.store, "chat store")
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
         hybrid_retrieval_service = require_initialized(
             self._context.memory.hybrid_retrieval_service,
@@ -81,6 +84,7 @@ class APIRuntimeExportsModule(RuntimeExportsModule):
         container = get_container()
         container.message_bus.override(providers.Object(message_bus))
         container.runtime_command_queue.override(providers.Object(runtime_command_queue))
+        container.chat_store.override(providers.Object(chat_store))
         container.unified_memory.override(providers.Object(unified_memory))
         container.hybrid_retrieval_service.override(providers.Object(hybrid_retrieval_service))
         container.other_memory.override(providers.Object(other_memory))
@@ -108,6 +112,7 @@ class APIRuntimeExportsModule(RuntimeExportsModule):
         container = get_container()
         container.message_bus.reset_override()
         container.runtime_command_queue.reset_override()
+        container.chat_store.reset_override()
         container.unified_memory.reset_override()
         container.hybrid_retrieval_service.reset_override()
         container.other_memory.reset_override()
@@ -128,6 +133,7 @@ def build_api_runtime_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         ConfigurationModule(context),
         RuntimeCommandQueueModule(context),
         MessageBusModule(context),
+        ChatStoreModule(context),
         PluginSystemModule(context),
         LLMRuntimeModule(context),
         MemoryStoreModule(context, start_memory_integration=False),

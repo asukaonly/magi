@@ -93,6 +93,17 @@ class ChatStore:
         """Reset initialization state."""
         self._initialized = False
 
+    async def is_empty(self) -> bool:
+        """Return whether the chat store has any durable rows."""
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            for table in ("chat_sessions", "chat_turns", "chat_messages"):
+                cur = await db.execute(f"SELECT COUNT(*) FROM {table}")
+                row = await cur.fetchone()
+                if int(row[0] or 0) > 0:
+                    return False
+        return True
+
     async def upsert_session(self, record: ChatSessionRecord) -> None:
         """Insert or update one session row."""
         await self.initialize()

@@ -36,6 +36,8 @@ def test_api_role_omits_background_runtime_modules() -> None:
     assert "runtime_agent_scheduler" not in module_names
     assert "runtime_action_scheduler" not in module_names
     assert "runtime_timeline_scheduler" not in module_names
+    assert "runtime_chat_store" in module_names
+    assert "runtime_chat_store" in module_by_name["runtime_api_exports"].dependencies
     assert getattr(module_by_name["runtime_memory"], "start_memory_integration") is False
 
 
@@ -54,4 +56,6 @@ def test_runtime_worker_role_keeps_background_runtime_modules() -> None:
     assert "runtime_agent_scheduler" in module_names
     assert "runtime_action_scheduler" in module_names
     assert "runtime_timeline_scheduler" in module_names
+    assert "runtime_chat_store" in module_names
+    assert "runtime_chat_store" in module_by_name["runtime_exports"].dependencies
     assert getattr(module_by_name["runtime_memory"], "start_memory_integration") is True
