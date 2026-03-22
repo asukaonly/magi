@@ -7,6 +7,7 @@ from .personality_state_service import (
     get_current_personality_name,
     set_current_personality_name,
 )
+from .runtime_status_service import get_runtime_system_status
 from ...core.runtime_bindings import (
     require_message_bus,
     require_other_memory,
@@ -23,6 +24,7 @@ __all__ = [
     "get_chat_trace_read_service",
     "MessageDispatchOutcome",
     "dispatch_user_message",
+    "get_runtime_system_status",
     "require_message_bus",
     "require_other_memory",
     "require_user_message_sensor",

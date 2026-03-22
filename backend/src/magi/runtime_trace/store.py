@@ -10,6 +10,7 @@ from typing import Any, TypeVar
 import aiosqlite
 
 from .contracts import (
+    RuntimeHeartbeatRecord,
     RuntimeNotificationRecord,
     TraceIntentResolutionRecord,
     TraceLlmCallRecord,
@@ -143,6 +144,19 @@ class RuntimeTraceStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_runtime_notifications_created
                     ON runtime_notifications(notification_id ASC);
+
+                CREATE TABLE IF NOT EXISTS runtime_heartbeats (
+                    role TEXT PRIMARY KEY,
+                    instance_id TEXT NOT NULL,
+                    pid INTEGER NOT NULL,
+                    started_at_ms INTEGER NOT NULL,
+                    last_seen_at_ms INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    queue_backlog INTEGER NOT NULL DEFAULT 0,
+                    active_turns INTEGER NOT NULL DEFAULT 0,
+                    active_workers INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT
+                );
                 """
             )
             await db.commit()
@@ -498,6 +512,57 @@ class RuntimeTraceStore:
         if row is None:
             return 0
         return int(row["notification_id"] or 0)
+
+    async def upsert_runtime_heartbeat(self, record: RuntimeHeartbeatRecord) -> None:
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO runtime_heartbeats (
+                    role,
+                    instance_id,
+                    pid,
+                    started_at_ms,
+                    last_seen_at_ms,
+                    status,
+                    queue_backlog,
+                    active_turns,
+                    active_workers,
+                    last_error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(role) DO UPDATE SET
+                    instance_id = excluded.instance_id,
+                    pid = excluded.pid,
+                    started_at_ms = excluded.started_at_ms,
+                    last_seen_at_ms = excluded.last_seen_at_ms,
+                    status = excluded.status,
+                    queue_backlog = excluded.queue_backlog,
+                    active_turns = excluded.active_turns,
+                    active_workers = excluded.active_workers,
+                    last_error = excluded.last_error
+                """,
+                (
+                    record.role,
+                    record.instance_id,
+                    int(record.pid),
+                    int(record.started_at_ms),
+                    int(record.last_seen_at_ms or self._now_ms()),
+                    record.status,
+                    int(record.queue_backlog),
+                    int(record.active_turns),
+                    int(record.active_workers),
+                    record.last_error,
+                ),
+            )
+            await db.commit()
+
+    async def get_runtime_heartbeat(self, *, role: str) -> RuntimeHeartbeatRecord | None:
+        await self.initialize()
+        row = await self._fetchone(
+            "SELECT * FROM runtime_heartbeats WHERE role = ?",
+            (role,),
+        )
+        return self._row_to_record(RuntimeHeartbeatRecord, row)
 
     async def _upsert_detail(self, sql: str, params: tuple[Any, ...]) -> None:
         async with aiosqlite.connect(self.db_path) as db:

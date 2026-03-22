@@ -99,3 +99,17 @@ class RuntimeNotificationRecord:
     turn_id: str | None = None
     payload_json: str = "{}"
     created_at_ms: int = 0
+
+
+@dataclass(slots=True)
+class RuntimeHeartbeatRecord:
+    role: str
+    instance_id: str
+    pid: int
+    started_at_ms: int
+    last_seen_at_ms: int
+    status: str
+    queue_backlog: int = 0
+    active_turns: int = 0
+    active_workers: int = 0
+    last_error: str | None = None

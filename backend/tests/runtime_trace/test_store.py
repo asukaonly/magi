@@ -75,3 +75,36 @@ async def test_runtime_trace_store_persists_notifications(tmp_path: Path) -> Non
         assert latest_id == notification_id
     finally:
         await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_trace_store_persists_runtime_heartbeat(tmp_path: Path) -> None:
+    from magi.runtime_trace import RuntimeHeartbeatRecord, RuntimeTraceStore
+
+    db_path = tmp_path / "runtime_trace.db"
+    store = RuntimeTraceStore(db_path=str(db_path))
+    await store.initialize()
+
+    try:
+        await store.upsert_runtime_heartbeat(
+            RuntimeHeartbeatRecord(
+                role="runtime_worker",
+                instance_id="worker-1",
+                pid=1234,
+                started_at_ms=100,
+                last_seen_at_ms=200,
+                status="ready",
+                queue_backlog=3,
+                active_turns=1,
+                active_workers=2,
+            )
+        )
+
+        heartbeat = await store.get_runtime_heartbeat(role="runtime_worker")
+        assert heartbeat is not None
+        assert heartbeat.role == "runtime_worker"
+        assert heartbeat.instance_id == "worker-1"
+        assert heartbeat.status == "ready"
+        assert heartbeat.queue_backlog == 3
+    finally:
+        await store.shutdown()

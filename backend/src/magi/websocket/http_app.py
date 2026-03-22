@@ -10,6 +10,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
 
 from ..api.avatar_paths import builtin_avatar_dir, user_avatar_dir
+from ..api.services import get_runtime_system_status
 from ..api.routes import register_api_routes
 from ..core.logger import configure_logging, get_logger
 from ..utils.runtime import get_runtime_paths
@@ -92,24 +93,37 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
 
     @app.get("/api/health", tags=["Health"])
     async def health_check():
+        runtime_status = await get_runtime_system_status(app)
         return {
             "success": True,
-            "message": "System is healthy",
+            "message": "System health status",
             "data": {
-                "status": "healthy",
+                "status": runtime_status["status"],
                 "version": "1.0.0",
+                "api_ready": runtime_status["api_ready"],
+                "runtime_ready": runtime_status["runtime_ready"],
+                "runtime_status": runtime_status["runtime_status"],
+                "queue_backlog_healthy": runtime_status["queue_backlog_healthy"],
+                "runtime_heartbeat_age_ms": runtime_status["runtime_heartbeat_age_ms"],
+                "pending_commands": runtime_status["pending_commands"],
+                "process_role": runtime_status["process_role"],
             },
         }
 
     @app.get("/api/ready", tags=["Health"])
     async def ready_check():
-        ready = bool(getattr(app.state, "backend_ready", False))
+        runtime_status = await get_runtime_system_status(app)
+        ready = runtime_status["status"] == "ready"
         return {
             "success": True,
             "message": "Backend startup state",
             "data": {
                 "ready": ready,
-                "status": "ready" if ready else "starting",
+                "status": runtime_status["status"],
+                "api_ready": runtime_status["api_ready"],
+                "runtime_ready": runtime_status["runtime_ready"],
+                "runtime_status": runtime_status["runtime_status"],
+                "process_role": runtime_status["process_role"],
             },
         }
 
