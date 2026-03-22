@@ -44,7 +44,7 @@ cleanup_stale_backend_log_holders() {
   while IFS= read -r pid; do
     [[ -z "${pid}" ]] && continue
     command="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
-    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|spawn_main|resource_tracker) ]]; then
+    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|run_supervisor\.py|spawn_main|resource_tracker) ]]; then
       continue
     fi
 
@@ -62,7 +62,7 @@ cleanup_stale_backend_log_holders() {
   while IFS= read -r pid; do
     [[ -z "${pid}" ]] && continue
     command="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
-    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|spawn_main|resource_tracker) ]]; then
+    if [[ ! "${command}" =~ python ]] || [[ ! "${command}" =~ (run_server\.py|run_supervisor\.py|spawn_main|resource_tracker) ]]; then
       continue
     fi
 
@@ -243,16 +243,17 @@ kill_listeners_on_port "${FRONTEND_PORT}"
 mkdir -p "$(dirname "${BACKEND_LOG_FILE}")"
 touch "${BACKEND_LOG_FILE}"
 
-echo "Starting backend for Tauri..."
+echo "Starting dual-process backend supervisor for Tauri..."
 (
   cd "${BACKEND_DIR}"
-  python run_server.py
+  python run_supervisor.py
 ) >"${BACKEND_LOG_FILE}" 2>&1 &
 BACKEND_PID=$!
 echo "Backend logs: ${BACKEND_LOG_FILE}"
 echo "Tail backend logs manually: tail -f ${BACKEND_LOG_FILE}"
 echo "Backend bind host(from config): ${BACKEND_HOST}:${BACKEND_PORT}"
 echo "Backend connect endpoint: http://${CONNECT_HOST}:${BACKEND_PORT}"
+echo "Backend topology: supervisor + api + runtime_worker"
 echo "Backend reload(from config): ${BACKEND_RELOAD}"
 wait_for_backend_ready
 

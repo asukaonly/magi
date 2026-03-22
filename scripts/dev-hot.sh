@@ -42,10 +42,10 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-echo "Starting backend..."
+echo "Starting dual-process backend supervisor..."
 (
   cd "${BACKEND_DIR}"
-  python run_server.py
+  python run_supervisor.py
 ) &
 BACKEND_PID=$!
 
@@ -59,6 +59,7 @@ FRONTEND_PID=$!
 echo
 echo "Dev environment is up."
 echo "Backend:  http://${BACKEND_HOST}:${BACKEND_PORT}"
+echo "Backend topology: supervisor + api + runtime_worker"
 echo "Backend reload(from config): ${BACKEND_RELOAD}"
 echo "Frontend: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
 echo "Press Ctrl+C to stop both."
