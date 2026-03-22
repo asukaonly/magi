@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyAgentResponse,
+  applyTurnUxPlan,
   createPendingTurn,
   flattenPlanningNodeForDisplay,
   normalizeHistoryMessages,
@@ -9,16 +10,14 @@ import {
 } from '@/pages/chat-state';
 
 describe('chat trace state helpers', () => {
-  it('creates a compact pending turn with user and status messages', () => {
+  it('creates a compact pending turn with only the user message by default', () => {
     const messages = createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking');
 
-    expect(messages).toHaveLength(2);
+    expect(messages).toHaveLength(1);
     expect(messages[0].kind).toBe('user');
-    expect(messages[1].kind).toBe('status');
-    expect(messages[1].content).toBe('Thinking');
   });
 
-  it('updates the status card instead of appending worker-like messages', () => {
+  it('adds a status card when trace activity begins', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking');
     const summary = normalizeTraceSummary({
       turn_id: 'turn_1',
@@ -41,8 +40,28 @@ describe('chat trace state helpers', () => {
     expect(next[1].traceAvailable).toBe(true);
   });
 
-  it('replaces the pending status card with the final assistant answer', () => {
+  it('adds an interim assistant message for interim-then-final turns', () => {
     const initial = createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking');
+    const next = applyTurnUxPlan(initial, 'turn_1', {
+      assistantSurfaceMode: 'interim_then_final',
+      interimText: '稍等我查一下',
+    });
+
+    expect(next).toHaveLength(2);
+    expect(next[1].kind).toBe('assistant');
+    expect(next[1].content).toBe('稍等我查一下');
+    expect(next[1].turnId).toBe('turn_1');
+  });
+
+  it('replaces the interim assistant card with the final assistant answer', () => {
+    const initial = applyTurnUxPlan(
+      createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking'),
+      'turn_1',
+      {
+        assistantSurfaceMode: 'interim_then_final',
+        interimText: '稍等我查一下',
+      }
+    );
     const next = applyAgentResponse(initial, {
       content: 'Here is the final answer.',
       timestamp: 2000,

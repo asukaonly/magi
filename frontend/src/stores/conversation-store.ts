@@ -2,10 +2,12 @@ import { create } from 'zustand';
 import type { ChatSessionListItem } from '@/api';
 import {
   applyAgentResponse,
+  applyTurnUxPlan as applyTurnUxPlanUpdate,
   createPendingTurn,
   mergeHistoryMessages,
   type ChatTimelineMessage,
   type NormalizedExecutionTraceSummary,
+  type NormalizedTurnUxPlan,
   upsertTraceSummary as applyTraceSummaryUpdate,
 } from '@/pages/chat-state';
 
@@ -26,6 +28,12 @@ type PendingTurnPayload = {
   pendingLabel: string;
 };
 
+type TurnUxPlanPayload = {
+  sessionId: string;
+  turnId: string;
+  uxPlan: NormalizedTurnUxPlan | null;
+};
+
 type ConversationState = {
   currentSessionId: string | null;
   orderedSessionIds: string[];
@@ -36,6 +44,7 @@ type ConversationState = {
   hydrateSessions: (sessions: ChatSessionListItem[], currentSessionId?: string | null) => void;
   receiveHistory: (sessionId: string, messages: ChatTimelineMessage[]) => void;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
+  applyTurnUxPlan: (payload: TurnUxPlanPayload) => void;
   receiveAgentResponse: (payload: AgentResponsePayload) => void;
   upsertTraceSummary: (sessionId: string, turnId: string, summary: NormalizedExecutionTraceSummary | null) => void;
   reset: () => void;
@@ -181,6 +190,25 @@ export const useConversationStore = create<ConversationState>((set) => ({
       unreadBySession: {
         ...state.unreadBySession,
         [sessionId]: 0,
+      },
+    };
+  }),
+  applyTurnUxPlan: ({ sessionId, turnId, uxPlan }) => set((state) => {
+    if (!sessionId || !turnId || !uxPlan) {
+      return state;
+    }
+    const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
+    return {
+      currentSessionId: sessionId,
+      orderedSessionIds: ensured.orderedSessionIds,
+      sessionsById: ensured.sessionsById,
+      messagesBySession: {
+        ...state.messagesBySession,
+        [sessionId]: applyTurnUxPlanUpdate(state.messagesBySession[sessionId] || [], turnId, uxPlan),
+      },
+      unreadBySession: {
+        ...state.unreadBySession,
+        [sessionId]: state.currentSessionId === sessionId ? 0 : state.unreadBySession[sessionId] || 0,
       },
     };
   }),

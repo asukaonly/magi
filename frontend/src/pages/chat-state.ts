@@ -52,6 +52,15 @@ export interface NormalizedExecutionTraceSnapshot {
   root: NormalizedExecutionTraceNode;
 }
 
+export interface NormalizedTurnUxPlan {
+  assistantSurfaceMode: string;
+  thinkingIndicator?: string | null;
+  traceDisplayMode?: string | null;
+  allowTraceCollapse?: boolean;
+  interimText?: string | null;
+  reactionStyle?: string | null;
+}
+
 export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSummary | null => {
   if (!raw || typeof raw !== 'object') return null;
   const summary = raw as ExecutionTraceSummary;
@@ -117,6 +126,30 @@ export const normalizeTraceSnapshot = (raw: ExecutionTraceSnapshot | null | unde
   };
 };
 
+export const normalizeTurnUxPlan = (raw: unknown): NormalizedTurnUxPlan | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const plan = raw as Record<string, unknown>;
+  const assistantSurfaceMode = String(
+    plan.assistantSurfaceMode || plan.assistant_surface_mode || ''
+  ).trim();
+  if (!assistantSurfaceMode) return null;
+
+  const interimTextRaw = plan.interimText ?? plan.interim_text;
+  const thinkingIndicatorRaw = plan.thinkingIndicator ?? plan.thinking_indicator;
+  const traceDisplayModeRaw = plan.traceDisplayMode ?? plan.trace_display_mode;
+  const reactionStyleRaw = plan.reactionStyle ?? plan.reaction_style;
+  const allowTraceCollapseRaw = plan.allowTraceCollapse ?? plan.allow_trace_collapse;
+
+  return {
+    assistantSurfaceMode,
+    thinkingIndicator: thinkingIndicatorRaw == null ? null : String(thinkingIndicatorRaw),
+    traceDisplayMode: traceDisplayModeRaw == null ? null : String(traceDisplayModeRaw),
+    allowTraceCollapse: Boolean(allowTraceCollapseRaw),
+    interimText: interimTextRaw == null ? null : String(interimTextRaw),
+    reactionStyle: reactionStyleRaw == null ? null : String(reactionStyleRaw),
+  };
+};
+
 export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTimelineMessage[] =>
   messages.map((message, index) => {
     const kind = (message.kind || message.role) as ChatMessageKind;
@@ -165,7 +198,7 @@ export const mergeHistoryMessages = (
   });
 };
 
-export const createPendingTurn = (input: string, turnId: string, timestamp: number, pendingLabel: string): ChatTimelineMessage[] => [
+export const createPendingTurn = (input: string, turnId: string, timestamp: number, _pendingLabel: string): ChatTimelineMessage[] => [
   {
     id: `${turnId}-user`,
     role: 'user',
@@ -174,16 +207,48 @@ export const createPendingTurn = (input: string, turnId: string, timestamp: numb
     timestamp,
     turnId,
   },
-  {
-    id: `${turnId}-status`,
-    role: 'assistant',
-    kind: 'status',
-    content: pendingLabel,
-    timestamp: timestamp + 1,
-    turnId,
-    traceAvailable: false,
-  },
 ];
+
+export const applyTurnUxPlan = (
+  messages: ChatTimelineMessage[],
+  turnId: string,
+  plan: NormalizedTurnUxPlan | null,
+): ChatTimelineMessage[] => {
+  const resolvedTurnId = String(turnId || '').trim();
+  if (!resolvedTurnId || !plan) return messages;
+  if (plan.assistantSurfaceMode !== 'interim_then_final') return messages;
+
+  const interimText = String(plan.interimText || '').trim();
+  if (!interimText) return messages;
+
+  const interimMessage: ChatTimelineMessage = {
+    id: `${resolvedTurnId}-assistant`,
+    role: 'assistant',
+    kind: 'assistant',
+    content: interimText,
+    timestamp: Date.now(),
+    turnId: resolvedTurnId,
+    traceAvailable: false,
+  };
+
+  let replaced = false;
+  const nextMessages = messages.map((message) => {
+    if (message.turnId !== resolvedTurnId) return message;
+    if (message.kind === 'assistant' || message.kind === 'status') {
+      replaced = true;
+      return {
+        ...message,
+        ...interimMessage,
+        traceSummary: message.traceSummary ?? null,
+        traceAvailable: Boolean(message.traceAvailable),
+      };
+    }
+    return message;
+  });
+
+  if (replaced) return nextMessages;
+  return [...messages, interimMessage];
+};
 
 export const upsertTraceSummary = (
   messages: ChatTimelineMessage[],
@@ -264,6 +329,13 @@ export const applyAgentResponse = (
       return messages.map((message, index) =>
         index === lastStatusIndex ? buildAssistantMessage(fallbackTurnId) : message
       );
+    }
+    const fallbackTurnId = [...messages]
+      .map((message) => String(message.turnId || '').trim())
+      .reverse()
+      .find(Boolean);
+    if (fallbackTurnId) {
+      return [...messages, { ...buildAssistantMessage(fallbackTurnId), id: `${fallbackTurnId}-assistant`, turnId: fallbackTurnId }];
     }
     return [...messages, buildAssistantMessage()];
   }

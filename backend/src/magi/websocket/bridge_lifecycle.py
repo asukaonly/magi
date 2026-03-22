@@ -76,6 +76,9 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
         if notification.channel == "agent_response":
             await self._broadcast_agent_response(notification=notification, payload=payload)
             return
+        if notification.channel == "turn_ux_plan":
+            await self._broadcast_turn_ux_plan(notification=notification, payload=payload)
+            return
         if notification.channel == "trace_update":
             await self._broadcast_trace_update(notification=notification)
 
@@ -102,6 +105,30 @@ class WebSocketBridgeLifecycleModule(LifecycleModule):
                     response_payload["trace_summary"] = summary
                     response_payload["trace_available"] = bool(summary.get("trace_available"))
         await manager.broadcast("agent_response", response_payload, room=f"user_{user_id}")
+
+    async def _broadcast_turn_ux_plan(
+        self,
+        *,
+        notification: RuntimeNotificationRecord,
+        payload: dict[str, object],
+    ) -> None:
+        user_id = str(notification.user_id or payload.get("user_id") or "").strip()
+        session_id = str(notification.session_id or payload.get("session_id") or "").strip()
+        turn_id = str(notification.turn_id or payload.get("turn_id") or "").strip()
+        ux_plan = payload.get("ux_plan")
+        if not user_id or not turn_id or not isinstance(ux_plan, dict):
+            return
+
+        await manager.broadcast(
+            "turn_ux_plan",
+            {
+                "user_id": user_id,
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "ux_plan": ux_plan,
+            },
+            room=f"user_{user_id}",
+        )
 
     async def _broadcast_trace_update(self, *, notification: RuntimeNotificationRecord) -> None:
         user_id = str(notification.user_id or "").strip()

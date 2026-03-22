@@ -37,6 +37,25 @@ class _FakeRuntimeTraceStore:
                     }
                 ),
                 "created_at_ms": 100,
+            },
+            {
+                "notification_id": 2,
+                "channel": "turn_ux_plan",
+                "user_id": "web_user",
+                "session_id": "session-1",
+                "turn_id": "turn-1",
+                "payload_json": json.dumps(
+                    {
+                        "user_id": "web_user",
+                        "session_id": "session-1",
+                        "turn_id": "turn-1",
+                        "ux_plan": {
+                            "assistant_surface_mode": "interim_then_final",
+                            "interim_text": "thinking",
+                        },
+                    }
+                ),
+                "created_at_ms": 101,
             }
         ]
 
@@ -88,3 +107,5 @@ async def test_websocket_bridge_polls_runtime_notifications(monkeypatch: pytest.
     assert broadcasts[0][1]["trace_summary"]["headline"] == "done"
     assert broadcasts[0][1]["trace_available"] is True
     assert broadcasts[0][2] == "user_web_user"
+    assert broadcasts[1][0] == "turn_ux_plan"
+    assert broadcasts[1][1]["ux_plan"]["assistant_surface_mode"] == "interim_then_final"

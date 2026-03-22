@@ -17,6 +17,7 @@ import { useChatTraceStore, useConversationStore, useRealtimeStore } from '@/sto
 import ToolchainDrawer from '@/components/chat/ToolchainDrawer';
 import { shouldSubmitOnEnter } from './chat-route-helpers';
 import {
+  normalizeTurnUxPlan,
   normalizeTraceSnapshot,
   normalizeTraceSummary,
   type ChatTimelineMessage,
@@ -82,6 +83,7 @@ export const ChatPage: React.FC = () => {
     state.currentSessionId ? (state.messagesBySession[state.currentSessionId] || []) : []
   );
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
+  const applyTurnUxPlan = useConversationStore((state) => state.applyTurnUxPlan);
   const receiveAgentResponse = useConversationStore((state) => state.receiveAgentResponse);
   const applyConversationTraceSummary = useConversationStore((state) => state.upsertTraceSummary);
   const resetConversation = useConversationStore((state) => state.reset);
@@ -225,6 +227,21 @@ export const ChatPage: React.FC = () => {
     ]
   );
 
+  const handleTurnUxPlanEvent = useCallback(
+    (payload: any) => {
+      const sessionId = String(payload?.session_id || currentSessionId || '').trim();
+      const turnId = String(payload?.turn_id || '').trim();
+      const uxPlan = normalizeTurnUxPlan(payload?.ux_plan);
+      if (!sessionId || !turnId || !uxPlan) return;
+      applyTurnUxPlan({
+        sessionId,
+        turnId,
+        uxPlan,
+      });
+    },
+    [applyTurnUxPlan, currentSessionId]
+  );
+
   const handleWSMessage = useCallback(
     (data: WSMessage) => {
       switch (data.type) {
@@ -271,6 +288,11 @@ export const ChatPage: React.FC = () => {
         return;
       }
 
+      if (eventName === 'turn_ux_plan' && data.data) {
+        handleTurnUxPlanEvent(data.data);
+        return;
+      }
+
       if (eventName === 'agent_response' && data.data) {
         handleAgentResponseEvent(data.data);
       }
@@ -279,6 +301,7 @@ export const ChatPage: React.FC = () => {
       currentSessionId,
       handleAgentResponseEvent,
       handleExecutionTraceUpdate,
+      handleTurnUxPlanEvent,
       messages.length,
       receiveAgentResponse,
       requestHistory,

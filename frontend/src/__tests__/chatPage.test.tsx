@@ -85,6 +85,48 @@ describe('ChatPage', () => {
     expect(screen.getByRole('button', { name: 'chat.trace.view' })).toBeInTheDocument();
   });
 
+  it('renders an interim assistant message when turn ux plan requests interim-then-final', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'turn_ux_plan',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-2',
+          ux_plan: {
+            assistant_surface_mode: 'interim_then_final',
+            interim_text: '稍等我查一下',
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('稍等我查一下')).toBeInTheDocument();
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          content: '已经查好了',
+          timestamp: Date.now() / 1000,
+          turn_id: 'turn-2',
+          ux_plan: {
+            assistant_surface_mode: 'interim_then_final',
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('已经查好了')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('稍等我查一下')).not.toBeInTheDocument();
+  });
+
   it('requests fresh history when a turn completes without an agent response event', () => {
     render(<ChatPage />);
 

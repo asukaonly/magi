@@ -268,6 +268,12 @@ class ChatPostProcessService:
                 ),
             )
         )
+        await self._emit_turn_ux_plan_notification(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            turn_id=turn_id,
+            ux_plan=self._serialize_ux_plan(decision),
+        )
 
     async def _record_task_reflection(
         self,
@@ -691,6 +697,35 @@ class ChatPostProcessService:
             )
         )
 
+    async def _emit_turn_ux_plan_notification(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+        ux_plan: dict[str, Any] | None,
+    ) -> None:
+        if self._runtime_trace_store is None or not turn_id or not ux_plan:
+            return
+        payload = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "ux_plan": ux_plan,
+            "timestamp": time.time(),
+        }
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="turn_ux_plan",
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                payload_json=json.dumps(payload, ensure_ascii=False),
+                created_at_ms=now_wall_ms(),
+            )
+        )
+
     async def _emit_trace_update_notification(
         self,
         *,
@@ -723,6 +758,17 @@ class ChatPostProcessService:
     @staticmethod
     def _build_span_id(turn_id: str, suffix: str) -> str:
         return f"{turn_id}:{suffix}"
+
+    @staticmethod
+    def _serialize_ux_plan(decision: Any) -> dict[str, Any] | None:
+        plan = getattr(decision, "ux_plan", None)
+        if plan is None:
+            return None
+        to_dict = getattr(plan, "to_dict", None)
+        if callable(to_dict):
+            payload = to_dict()
+            return payload if isinstance(payload, dict) else None
+        return plan if isinstance(plan, dict) else None
 
     @staticmethod
     def _resolve_started_at_ms(result: ExecutionResult | None, latest_fact: FactRecord) -> int:

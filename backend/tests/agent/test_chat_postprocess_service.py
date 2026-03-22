@@ -107,6 +107,20 @@ class _FakeIntentDecision:
         self.tools: list[str] = []
         self.reasoning = "direct response"
         self.orchestration_plan = None
+        self.ux_plan = type(
+            "_UxPlan",
+            (),
+            {
+                "to_dict": staticmethod(
+                    lambda: {
+                        "assistant_surface_mode": "final_only",
+                        "thinking_indicator": "hidden",
+                        "trace_display_mode": "none",
+                        "allow_trace_collapse": False,
+                    }
+                )
+            },
+        )()
         self.llm_trace = {
             "provider": "openai",
             "model": "gpt-4.1-mini",
@@ -308,6 +322,7 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     turn = await runtime_trace_store.get_turn("turn-1")
     intent_span = await runtime_trace_store.get_span("turn-1:intent_resolution")
     intent_resolution = await runtime_trace_store.get_intent_resolution("turn-1:intent_resolution")
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
 
     assert turn is not None
     assert turn.trace_id == "trace:turn-1"
@@ -321,6 +336,9 @@ async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
     assert intent_resolution.intent == "chat"
     assert intent_resolution.execution_mode == "direct_llm"
     assert json.loads(intent_resolution.selected_tools_json) == []
+    assert len(notifications) == 1
+    assert notifications[0].channel == "turn_ux_plan"
+    assert json.loads(notifications[0].payload_json)["ux_plan"]["assistant_surface_mode"] == "final_only"
 
 
 @pytest.mark.asyncio
