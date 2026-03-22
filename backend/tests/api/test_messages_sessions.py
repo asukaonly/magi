@@ -20,6 +20,8 @@ from magi.api.services.chat_trace_read_service import ChatTraceReadService
 
 FACT_EVENTS_TABLE = "fact_events"
 CHAT_SESSIONS_TABLE = "chat_sessions"
+CHAT_TURNS_TABLE = "chat_turns"
+CHAT_MESSAGES_TABLE = "chat_messages"
 
 
 def _init_event_store(db_path: Path) -> None:
@@ -48,7 +50,7 @@ def _init_event_store(db_path: Path) -> None:
 def _init_chat_session_store(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
-    cur.execute(
+    cur.executescript(
         f"""
         CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
             session_id TEXT PRIMARY KEY,
@@ -56,16 +58,47 @@ def _init_chat_session_store(db_path: Path) -> None:
             title TEXT NOT NULL,
             title_overridden INTEGER NOT NULL DEFAULT 0,
             summary TEXT NOT NULL DEFAULT '',
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL,
-            last_message_at REAL,
-            last_user_message_at REAL,
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            last_message_at_ms INTEGER,
+            last_user_message_at_ms INTEGER,
             last_message_preview TEXT NOT NULL DEFAULT '',
             last_user_message_preview TEXT NOT NULL DEFAULT '',
             message_count INTEGER NOT NULL DEFAULT 0,
-            archived_at REAL,
-            deleted_at REAL
-        )
+            archived_at_ms INTEGER,
+            deleted_at_ms INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS {CHAT_TURNS_TABLE} (
+            turn_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            trace_id TEXT,
+            orchestration_id TEXT,
+            status TEXT NOT NULL,
+            response_mode TEXT NOT NULL,
+            execution_mode TEXT,
+            ux_plan_json TEXT NOT NULL DEFAULT '{{}}',
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            completed_at_ms INTEGER,
+            error_text TEXT
+        );
+        CREATE TABLE IF NOT EXISTS {CHAT_MESSAGES_TABLE} (
+            message_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            turn_id TEXT,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            message_kind TEXT NOT NULL,
+            content_text TEXT,
+            payload_json TEXT NOT NULL DEFAULT '{{}}',
+            is_final INTEGER NOT NULL DEFAULT 1,
+            is_visible INTEGER NOT NULL DEFAULT 1,
+            created_at_ms INTEGER NOT NULL,
+            sequence_no INTEGER NOT NULL,
+            replaces_message_id TEXT,
+            replaced_by_message_id TEXT
+        );
         """
     )
     conn.commit()
@@ -79,24 +112,89 @@ def _insert_session(db_path: Path, **values) -> None:
         "title": values.get("title", "New Chat"),
         "title_overridden": int(values.get("title_overridden", False)),
         "summary": values.get("summary", ""),
-        "created_at": values.get("created_at", 0.0),
-        "updated_at": values.get("updated_at", values.get("created_at", 0.0)),
-        "last_message_at": values.get("last_message_at"),
-        "last_user_message_at": values.get("last_user_message_at"),
+        "created_at_ms": values.get("created_at", 0),
+        "updated_at_ms": values.get("updated_at", values.get("created_at", 0)),
+        "last_message_at_ms": values.get("last_message_at"),
+        "last_user_message_at_ms": values.get("last_user_message_at"),
         "last_message_preview": values.get("last_message_preview", ""),
         "last_user_message_preview": values.get("last_user_message_preview", ""),
         "message_count": values.get("message_count", 0),
-        "archived_at": values.get("archived_at"),
-        "deleted_at": values.get("deleted_at"),
+        "archived_at_ms": values.get("archived_at"),
+        "deleted_at_ms": values.get("deleted_at"),
     }
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
     cur.execute(
         f"""
         INSERT INTO {CHAT_SESSIONS_TABLE} (
-            session_id, user_id, title, title_overridden, summary, created_at, updated_at,
-            last_message_at, last_user_message_at, last_message_preview,
-            last_user_message_preview, message_count, archived_at, deleted_at
+            session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
+            last_message_at_ms, last_user_message_at_ms, last_message_preview,
+            last_user_message_preview, message_count, archived_at_ms, deleted_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        tuple(payload.values()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_chat_turn(db_path: Path, **values) -> None:
+    payload = {
+        "turn_id": values.get("turn_id"),
+        "session_id": values.get("session_id"),
+        "user_id": values.get("user_id"),
+        "trace_id": values.get("trace_id"),
+        "orchestration_id": values.get("orchestration_id"),
+        "status": values.get("status", "queued"),
+        "response_mode": values.get("response_mode", "final_only"),
+        "execution_mode": values.get("execution_mode"),
+        "ux_plan_json": values.get("ux_plan_json", "{}"),
+        "created_at_ms": values.get("created_at_ms", 0),
+        "updated_at_ms": values.get("updated_at_ms", values.get("created_at_ms", 0)),
+        "completed_at_ms": values.get("completed_at_ms"),
+        "error_text": values.get("error_text"),
+    }
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        INSERT INTO {CHAT_TURNS_TABLE} (
+            turn_id, session_id, user_id, trace_id, orchestration_id, status,
+            response_mode, execution_mode, ux_plan_json, created_at_ms, updated_at_ms,
+            completed_at_ms, error_text
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        tuple(payload.values()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_chat_message(db_path: Path, **values) -> None:
+    payload = {
+        "message_id": values.get("message_id"),
+        "session_id": values.get("session_id"),
+        "turn_id": values.get("turn_id"),
+        "user_id": values.get("user_id"),
+        "role": values.get("role"),
+        "message_kind": values.get("message_kind"),
+        "content_text": values.get("content_text"),
+        "payload_json": values.get("payload_json", "{}"),
+        "is_final": int(values.get("is_final", True)),
+        "is_visible": int(values.get("is_visible", True)),
+        "created_at_ms": values.get("created_at_ms", 0),
+        "sequence_no": values.get("sequence_no", 1),
+        "replaces_message_id": values.get("replaces_message_id"),
+        "replaced_by_message_id": values.get("replaced_by_message_id"),
+    }
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        INSERT INTO {CHAT_MESSAGES_TABLE} (
+            message_id, session_id, turn_id, user_id, role, message_kind, content_text,
+            payload_json, is_final, is_visible, created_at_ms, sequence_no,
+            replaces_message_id, replaced_by_message_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
@@ -346,7 +444,9 @@ def _insert_event(db_path: Path, event_type: str, data: dict, timestamp: float) 
 
 def _build_service(tmp_path: Path) -> ChatReadService:
     service = ChatReadService()
-    service._l1_db_path = tmp_path / "events.sqlite3"
+    db_path = tmp_path / "chat.sqlite3"
+    service._chat_db_path = db_path
+    service._l1_db_path = db_path
     return service
 
 
@@ -502,6 +602,134 @@ def test_delete_session_removes_session_row_and_related_data(tmp_path):
     assert history == []
 
 
+def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-chat",
+        user_id="u1",
+        title="Chat",
+        created_at=1000,
+        updated_at=1020,
+        message_count=2,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s-chat",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        created_at_ms=1000,
+        updated_at_ms=1020,
+        completed_at_ms=1020,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="chat-store user",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-assistant",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="chat-store reply",
+        created_at_ms=1020,
+        sequence_no=2,
+    )
+    _init_event_store(service._l1_db_path)
+    _insert_event(
+        service._l1_db_path,
+        "UserMessage",
+        {"user_id": "u1", "session_id": "s-chat", "turn_id": "turn-1", "content": "legacy user"},
+        1,
+    )
+
+    messages = service.get_conversation_history("u1", "s-chat", limit=20)
+
+    assert [item.content for item in messages] == ["chat-store user", "chat-store reply"]
+
+
+def test_get_display_history_prefers_chat_store_transcript(tmp_path, monkeypatch):
+    service = _build_service(tmp_path)
+    trace_service = ChatTraceReadService()
+    trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
+    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
+    monkeypatch.setattr(
+        "magi.api.services.chat_read_service.get_chat_trace_read_service",
+        lambda: trace_service,
+    )
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-chat",
+        user_id="u1",
+        title="Chat",
+        created_at=1000,
+        updated_at=1020,
+        message_count=2,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s-chat",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        created_at_ms=1000,
+        updated_at_ms=1020,
+        completed_at_ms=1020,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-user",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="chat-store user",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-assistant",
+        session_id="s-chat",
+        turn_id="turn-1",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="chat-store reply",
+        created_at_ms=1020,
+        sequence_no=2,
+    )
+    _init_event_store(service._l1_db_path)
+    _insert_event(
+        service._l1_db_path,
+        "AIResponse",
+        {"user_id": "u1", "session_id": "s-chat", "turn_id": "turn-1", "content": "legacy reply"},
+        2,
+    )
+
+    messages = service.get_display_history("u1", "s-chat", limit=20)
+
+    assert [item.kind for item in messages] == ["user", "assistant"]
+    assert [item.content for item in messages] == ["chat-store user", "chat-store reply"]
+
+
 def test_list_sessions_router_response(monkeypatch):
     class _FakeReadService:
         async def alist_sessions(self, user_id: str, limit: int = 30):
@@ -592,14 +820,44 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(tm
         "magi.api.services.chat_read_service.get_chat_trace_read_service",
         lambda: trace_service,
     )
-    _init_event_store(service._l1_db_path)
+    _init_chat_session_store(service._chat_db_path)
     _init_runtime_trace_store(trace_service._runtime_trace_db_path)
 
-    _insert_event(
-        service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "content": "start task", "turn_id": "turn_1"},
-        1000,
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="Task Chat",
+        created_at=1000,
+        updated_at=1010,
+        message_count=1,
+        last_message_at=1000,
+        last_user_message_at=1000,
+        last_message_preview="start task",
+        last_user_message_preview="start task",
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn_1",
+        session_id="s1",
+        user_id="u1",
+        status="running",
+        response_mode="final_only",
+        execution_mode="orchestration",
+        created_at_ms=1000,
+        updated_at_ms=1010,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-turn-1-user",
+        session_id="s1",
+        turn_id="turn_1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="start task",
+        created_at_ms=1000,
+        sequence_no=1,
     )
     _insert_trace_turn(
         trace_service._runtime_trace_db_path,
@@ -657,20 +915,57 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
         "magi.api.services.chat_read_service.get_chat_trace_read_service",
         lambda: trace_service,
     )
-    _init_event_store(service._l1_db_path)
+    _init_chat_session_store(service._chat_db_path)
     _init_runtime_trace_store(trace_service._runtime_trace_db_path)
 
-    _insert_event(
-        service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s1", "content": "why", "turn_id": "turn_2"},
-        2000,
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="Trace Chat",
+        created_at=2000,
+        updated_at=2010,
+        message_count=2,
+        last_message_at=2010,
+        last_user_message_at=2000,
+        last_message_preview="answer",
+        last_user_message_preview="why",
     )
-    _insert_event(
-        service._l1_db_path,
-        "AIResponse",
-        {"user_id": "u1", "session_id": "s1", "turn_id": "turn_2", "content": "answer"},
-        2010,
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn_2",
+        session_id="s1",
+        user_id="u1",
+        status="completed",
+        response_mode="final_only",
+        execution_mode="function_calling",
+        created_at_ms=2000,
+        updated_at_ms=2010,
+        completed_at_ms=2010,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-turn-2-user",
+        session_id="s1",
+        turn_id="turn_2",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="why",
+        created_at_ms=2000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-turn-2-assistant",
+        session_id="s1",
+        turn_id="turn_2",
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="answer",
+        created_at_ms=2010,
+        sequence_no=2,
     )
     _insert_trace_turn(
         trace_service._runtime_trace_db_path,

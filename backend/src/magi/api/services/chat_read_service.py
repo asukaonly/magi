@@ -9,17 +9,66 @@ from typing import Any, Optional
 
 from ...agent.orchestration import get_orchestration_store
 from ...core.logger import get_logger
-from ...memory.l1.chat_sessions import (
-    CHAT_SESSIONS_TABLE,
-    CHAT_SESSIONS_SCHEMA_SQL,
-    create_chat_session_record,
-)
+from ...memory.l1.chat_sessions import create_chat_session_record
 from ...utils.runtime import get_runtime_paths
 from .chat_trace_read_service import AI_RESPONSE_EVENT_TYPES, USER_EVENT_TYPES, get_chat_trace_read_service
 
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
+CHAT_SESSIONS_TABLE = "chat_sessions"
+CHAT_TURNS_TABLE = "chat_turns"
+CHAT_MESSAGES_TABLE = "chat_messages"
+
+CHAT_STORE_SCHEMA_SQL = f"""
+CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    title_overridden INTEGER NOT NULL DEFAULT 0,
+    summary TEXT NOT NULL DEFAULT '',
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    last_message_at_ms INTEGER,
+    last_user_message_at_ms INTEGER,
+    last_message_preview TEXT NOT NULL DEFAULT '',
+    last_user_message_preview TEXT NOT NULL DEFAULT '',
+    message_count INTEGER NOT NULL DEFAULT 0,
+    archived_at_ms INTEGER,
+    deleted_at_ms INTEGER
+);
+CREATE TABLE IF NOT EXISTS {CHAT_TURNS_TABLE} (
+    turn_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    trace_id TEXT,
+    orchestration_id TEXT,
+    status TEXT NOT NULL,
+    response_mode TEXT NOT NULL,
+    execution_mode TEXT,
+    ux_plan_json TEXT NOT NULL DEFAULT '{{}}',
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER,
+    error_text TEXT
+);
+CREATE TABLE IF NOT EXISTS {CHAT_MESSAGES_TABLE} (
+    message_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    turn_id TEXT,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    message_kind TEXT NOT NULL,
+    content_text TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{{}}',
+    is_final INTEGER NOT NULL DEFAULT 1,
+    is_visible INTEGER NOT NULL DEFAULT 1,
+    created_at_ms INTEGER NOT NULL,
+    sequence_no INTEGER NOT NULL,
+    replaces_message_id TEXT,
+    replaced_by_message_id TEXT
+);
+"""
 
 
 @dataclass(slots=True)
@@ -94,6 +143,7 @@ class ChatReadService:
 
     def __init__(self) -> None:
         runtime_paths = get_runtime_paths()
+        self._chat_db_path: Path = runtime_paths.chat_db_path
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
         self._conn: Optional[sqlite3.Connection] = None
@@ -101,10 +151,10 @@ class ChatReadService:
     def _get_conn(self) -> sqlite3.Connection:
         """Return a reusable SQLite connection, creating one lazily."""
         if self._conn is None:
-            self._l1_db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self._l1_db_path))
+            self._chat_db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(str(self._chat_db_path))
             self._conn.row_factory = sqlite3.Row
-            self._ensure_chat_sessions_table(self._conn)
+            self._ensure_chat_store_schema(self._conn)
         return self._conn
 
     def close(self) -> None:
@@ -171,9 +221,9 @@ class ChatReadService:
         conn.execute(
             f"""
             INSERT INTO {CHAT_SESSIONS_TABLE} (
-                session_id, user_id, title, title_overridden, summary, created_at, updated_at,
-                last_message_at, last_user_message_at, last_message_preview,
-                last_user_message_preview, message_count, archived_at, deleted_at
+                session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
+                last_message_at_ms, last_user_message_at_ms, last_message_preview,
+                last_user_message_preview, message_count, archived_at_ms, deleted_at_ms
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -182,15 +232,15 @@ class ChatReadService:
                 record.title,
                 1 if record.title_overridden else 0,
                 record.summary,
-                record.created_at,
-                record.updated_at,
-                record.last_message_at,
-                record.last_user_message_at,
+                int(record.created_at * 1000),
+                int(record.updated_at * 1000),
+                int(record.last_message_at * 1000) if record.last_message_at is not None else None,
+                int(record.last_user_message_at * 1000) if record.last_user_message_at is not None else None,
                 record.last_message_preview,
                 record.last_user_message_preview,
                 record.message_count,
-                record.archived_at,
-                record.deleted_at,
+                int(record.archived_at * 1000) if record.archived_at is not None else None,
+                int(record.deleted_at * 1000) if record.deleted_at is not None else None,
             ),
         )
         conn.commit()
@@ -205,7 +255,7 @@ class ChatReadService:
     def list_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
         """List recent chat sessions for a user."""
         safe_limit = max(1, min(limit, 200))
-        if not self._l1_db_path.exists():
+        if not self._chat_db_path.exists():
             return []
         try:
             conn = self._get_conn()
@@ -217,14 +267,14 @@ class ChatReadService:
                     title_overridden,
                     last_message_preview,
                     last_user_message_preview,
-                    updated_at,
-                    last_message_at,
+                    updated_at_ms,
+                    last_message_at_ms,
                     message_count
                 FROM {CHAT_SESSIONS_TABLE}
                 WHERE user_id = ?
-                  AND deleted_at IS NULL
-                  AND archived_at IS NULL
-                ORDER BY updated_at DESC, created_at DESC
+                  AND deleted_at_ms IS NULL
+                  AND archived_at_ms IS NULL
+                ORDER BY updated_at_ms DESC, created_at_ms DESC
                 LIMIT ?
                 """,
                 (user_id, safe_limit),
@@ -240,7 +290,7 @@ class ChatReadService:
                 last_message_preview=str(row["last_message_preview"] or ""),
                 last_user_message_preview=str(row["last_user_message_preview"] or ""),
                 title_overridden=bool(int(row["title_overridden"] or 0)),
-                last_timestamp=int(float(row["last_message_at"] or row["updated_at"] or 0)),
+                last_timestamp=int(row["last_message_at_ms"] or row["updated_at_ms"] or 0),
                 message_count=int(row["message_count"] or 0),
             )
             for row in rows
@@ -258,10 +308,10 @@ class ChatReadService:
         cur = conn.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
-            SET title = ?, title_overridden = 1, updated_at = strftime('%s', 'now')
+            SET title = ?, title_overridden = 1, updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
             WHERE session_id = ?
               AND user_id = ?
-              AND deleted_at IS NULL
+              AND deleted_at_ms IS NULL
             """,
             (normalized_title, normalized_session_id, normalized_user_id),
         )
@@ -278,7 +328,7 @@ class ChatReadService:
 
         if self._l1_db_path.exists():
             try:
-                conn = self._get_conn()
+                conn = sqlite3.connect(str(self._l1_db_path))
                 cur = conn.cursor()
                 cur.execute(
                     f"""
@@ -289,18 +339,28 @@ class ChatReadService:
                     (normalized_user_id, normalized_session_id),
                 )
                 conn.commit()
+                conn.close()
             except Exception as exc:
                 logger.exception(f"Failed to delete session: {exc}")
         self._delete_runtime_trace_rows(user_id=normalized_user_id, session_id=normalized_session_id)
 
         conn = self._get_conn()
         conn.execute(
+            f"DELETE FROM {CHAT_MESSAGES_TABLE} WHERE user_id = ? AND session_id = ?",
+            (normalized_user_id, normalized_session_id),
+        )
+        conn.execute(
+            f"DELETE FROM {CHAT_TURNS_TABLE} WHERE user_id = ? AND session_id = ?",
+            (normalized_user_id, normalized_session_id),
+        )
+        conn.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
-            SET deleted_at = strftime('%s', 'now'), updated_at = strftime('%s', 'now')
+            SET deleted_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+                updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
             WHERE user_id = ?
               AND session_id = ?
-              AND deleted_at IS NULL
+              AND deleted_at_ms IS NULL
             """,
             (normalized_user_id, normalized_session_id),
         )
@@ -308,53 +368,46 @@ class ChatReadService:
         return None
 
     def get_conversation_history(self, user_id: str, session_id: str, limit: int = 200) -> list[ChatDisplayMessage]:
-        if not self._l1_db_path.exists():
+        if not self._chat_db_path.exists():
             return []
         safe_limit = max(1, min(limit, 1000))
         try:
-            rows = self._query_fact_rows(
-                event_types=USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES,
+            rows = self._query_chat_message_rows(
                 user_id=user_id,
                 session_id=session_id,
-                limit=safe_limit,
-                ascending=True,
+                message_kinds=("user_text", "assistant_final"),
+                visible_only=True,
+                exclude_replaced=True,
             )
         except Exception as exc:
             logger.exception(f"Failed to query chat history: {exc}")
             return []
 
         messages: list[ChatDisplayMessage] = []
-        for event_type, content, ts, _, turn_id in rows:
-            if event_type in USER_EVENT_TYPES:
-                role = "user"
-            elif event_type in AI_RESPONSE_EVENT_TYPES:
-                role = "assistant"
-            else:
+        for row in rows[-safe_limit:]:
+            display_message = self._row_to_display_message(row)
+            if display_message is None or display_message.kind == "status":
                 continue
-            if not content:
+            if display_message.kind == "assistant" and row["message_kind"] != "assistant_final":
                 continue
-            messages.append(
-                ChatDisplayMessage(
-                    role=role,
-                    content=str(content),
-                    timestamp=int(float(ts or 0)),
-                    turn_id=str(turn_id or "").strip() or None,
-                    kind=role,
-                )
-            )
+            messages.append(display_message)
         return messages
 
     def get_display_history(self, user_id: str, session_id: str, limit: int = 200) -> list[ChatDisplayMessage]:
-        if not self._l1_db_path.exists():
+        if not self._chat_db_path.exists():
             return []
         safe_limit = max(1, min(limit, 1000))
         try:
-            fact_rows = self._query_fact_rows(
-                event_types=USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES,
+            turn_rows = self._query_turn_rows(
                 user_id=user_id,
                 session_id=session_id,
-                limit=None,
-                ascending=True,
+            )
+            message_rows = self._query_chat_message_rows(
+                user_id=user_id,
+                session_id=session_id,
+                message_kinds=None,
+                visible_only=True,
+                exclude_replaced=True,
             )
         except Exception as exc:
             logger.exception(f"Failed to query display history: {exc}")
@@ -362,64 +415,31 @@ class ChatReadService:
 
         trace_service = get_chat_trace_read_service()
         trace_activity = trace_service.get_turn_activity_map(user_id=user_id, session_id=session_id)
-        by_turn: dict[str, dict[str, Any]] = {}
-        ordered_turns: list[str] = []
+        messages_by_turn: dict[str, list[ChatDisplayMessage]] = {}
         legacy_messages: list[ChatDisplayMessage] = []
 
-        for event_type, raw_content, ts, _, turn_id in fact_rows:
-            turn_id = str(turn_id or "").strip()
-            timestamp = int(float(ts or 0))
-            if event_type in USER_EVENT_TYPES:
-                message = str(raw_content or "").strip()
-                if not message:
-                    continue
-                if not turn_id:
-                    legacy_messages.append(
-                        ChatDisplayMessage(role="user", kind="user", content=message, timestamp=timestamp)
-                    )
-                    continue
-                turn = by_turn.setdefault(turn_id, {"user": None, "assistant": None, "has_trace": False, "last_trace_timestamp": timestamp})
-                if turn_id not in ordered_turns:
-                    ordered_turns.append(turn_id)
-                turn["user"] = ChatDisplayMessage(
-                    role="user",
-                    kind="user",
-                    content=message,
-                    timestamp=timestamp,
-                    turn_id=turn_id,
-                )
+        for row in message_rows:
+            display_message = self._row_to_display_message(row)
+            if display_message is None:
                 continue
-            if event_type in AI_RESPONSE_EVENT_TYPES:
-                response = str(raw_content or "").strip()
-                if not response:
-                    continue
-                if not turn_id:
-                    legacy_messages.append(
-                        ChatDisplayMessage(role="assistant", kind="assistant", content=response, timestamp=timestamp)
-                    )
-                    continue
-                turn = by_turn.setdefault(turn_id, {"user": None, "assistant": None, "has_trace": False, "last_trace_timestamp": timestamp})
+            turn_id = str(row["turn_id"] or "").strip()
+            if not turn_id:
+                legacy_messages.append(display_message)
+                continue
+            if display_message.kind == "assistant":
                 summary = trace_service.get_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
-                turn["assistant"] = ChatDisplayMessage(
-                    role="assistant",
-                    kind="assistant",
-                    content=response,
-                    timestamp=timestamp,
-                    turn_id=turn_id,
-                    trace_summary=summary or trace_activity.get(turn_id),
-                    trace_available=bool((summary or trace_activity.get(turn_id) or {}).get("trace_available")),
-                )
-                continue
+                display_message.trace_summary = summary or trace_activity.get(turn_id)
+                display_message.trace_available = bool((summary or trace_activity.get(turn_id) or {}).get("trace_available"))
+            messages_by_turn.setdefault(turn_id, []).append(display_message)
 
         messages: list[ChatDisplayMessage] = []
-        for turn_id in ordered_turns:
-            turn = by_turn.get(turn_id, {})
-            user_message = turn.get("user")
-            if isinstance(user_message, ChatDisplayMessage):
-                messages.append(user_message)
-            assistant_message = turn.get("assistant")
-            if isinstance(assistant_message, ChatDisplayMessage):
-                messages.append(assistant_message)
+        for turn in turn_rows:
+            turn_id = str(turn["turn_id"])
+            turn_messages = messages_by_turn.get(turn_id, [])
+            for item in turn_messages:
+                messages.append(item)
+            has_assistant_message = any(item.kind == "assistant" for item in turn_messages)
+            if has_assistant_message:
                 continue
             summary = trace_activity.get(turn_id) or trace_service.get_trace_summary(
                 user_id=user_id,
@@ -427,12 +447,16 @@ class ChatReadService:
                 turn_id=turn_id,
             )
             if summary is not None:
+                timestamp = int(turn["updated_at_ms"] or turn["created_at_ms"] or 0)
+                user_message = next((item for item in turn_messages if item.kind == "user"), None)
+                if user_message is not None:
+                    timestamp = user_message.timestamp
                 messages.append(
                     ChatDisplayMessage(
                         role="assistant",
                         kind="status",
                         content=str((summary or {}).get("headline") or "Thinking"),
-                        timestamp=int(getattr(user_message, "timestamp", 0) or 0),
+                        timestamp=timestamp,
                         turn_id=turn_id,
                         trace_summary=summary,
                         trace_available=bool(summary and summary.get("trace_available")),
@@ -443,20 +467,33 @@ class ChatReadService:
         return messages[-safe_limit:]
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
-        if not self._l1_db_path.exists():
+        if not self._chat_db_path.exists():
             return
         try:
             conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(
+            conn.execute(
+                f"DELETE FROM {CHAT_MESSAGES_TABLE} WHERE user_id = ? AND session_id = ?",
+                (user_id, session_id),
+            )
+            conn.execute(
+                f"DELETE FROM {CHAT_TURNS_TABLE} WHERE user_id = ? AND session_id = ?",
+                (user_id, session_id),
+            )
+            conn.execute(
                 f"""
-                DELETE FROM {FACT_EVENTS_TABLE}
-                WHERE deleted_at IS NULL
-                  AND event_type IN ({", ".join("?" for _ in (USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES))})
-                  AND user_id = ?
+                UPDATE {CHAT_SESSIONS_TABLE}
+                SET
+                    updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+                    last_message_at_ms = NULL,
+                    last_user_message_at_ms = NULL,
+                    last_message_preview = '',
+                    last_user_message_preview = '',
+                    message_count = 0
+                WHERE user_id = ?
                   AND session_id = ?
+                  AND deleted_at_ms IS NULL
                 """,
-                [*(USER_EVENT_TYPES + AI_RESPONSE_EVENT_TYPES), user_id, session_id],
+                (user_id, session_id),
             )
             conn.commit()
         except Exception as exc:
@@ -545,19 +582,97 @@ class ChatReadService:
 
     def clear_all_sessions(self) -> int:
         """Clear all chat session rows and return removed count."""
-        if not self._l1_db_path.exists():
+        if not self._chat_db_path.exists():
             return 0
         conn = self._get_conn()
         row = conn.execute(
-            f"SELECT COUNT(*) AS total FROM {CHAT_SESSIONS_TABLE} WHERE deleted_at IS NULL"
+            f"SELECT COUNT(*) AS total FROM {CHAT_SESSIONS_TABLE} WHERE deleted_at_ms IS NULL"
         ).fetchone()
         removed = int((row["total"] if row is not None else 0) or 0)
+        conn.execute(f"DELETE FROM {CHAT_MESSAGES_TABLE}")
+        conn.execute(f"DELETE FROM {CHAT_TURNS_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_SESSIONS_TABLE}")
         conn.commit()
         return removed
 
-    def _ensure_chat_sessions_table(self, conn: sqlite3.Connection) -> None:
-        conn.executescript(CHAT_SESSIONS_SCHEMA_SQL)
+    def _query_chat_message_rows(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_kinds: tuple[str, ...] | None,
+        visible_only: bool,
+        exclude_replaced: bool,
+    ) -> list[sqlite3.Row]:
+        query = f"""
+            SELECT message_id, session_id, turn_id, user_id, role, message_kind,
+                   content_text, payload_json, is_final, is_visible, created_at_ms,
+                   sequence_no, replaces_message_id, replaced_by_message_id
+            FROM {CHAT_MESSAGES_TABLE}
+            WHERE user_id = ?
+              AND session_id = ?
+        """
+        params: list[Any] = [user_id, session_id]
+        if message_kinds:
+            query += f" AND message_kind IN ({', '.join('?' for _ in message_kinds)})"
+            params.extend(message_kinds)
+        if visible_only:
+            query += " AND is_visible = 1"
+        if exclude_replaced:
+            query += " AND replaced_by_message_id IS NULL"
+        query += " ORDER BY created_at_ms ASC, sequence_no ASC"
+        conn = self._get_conn()
+        return conn.execute(query, params).fetchall()
+
+    def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[sqlite3.Row]:
+        conn = self._get_conn()
+        return conn.execute(
+            f"""
+            SELECT turn_id, session_id, user_id, status, response_mode, execution_mode,
+                   created_at_ms, updated_at_ms, completed_at_ms
+            FROM {CHAT_TURNS_TABLE}
+            WHERE user_id = ?
+              AND session_id = ?
+            ORDER BY created_at_ms ASC, updated_at_ms ASC
+            """,
+            (user_id, session_id),
+        ).fetchall()
+
+    def _ensure_chat_store_schema(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(CHAT_STORE_SCHEMA_SQL)
+
+    @staticmethod
+    def _row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
+        message_kind = str(row["message_kind"] or "")
+        content = str(row["content_text"] or "").strip()
+        if not content:
+            return None
+        role = str(row["role"] or "assistant")
+        if message_kind == "user_text":
+            return ChatDisplayMessage(
+                role="user",
+                kind="user",
+                content=content,
+                timestamp=int(row["created_at_ms"] or 0),
+                turn_id=str(row["turn_id"] or "").strip() or None,
+            )
+        if message_kind in {"assistant_final", "assistant_interim", "assistant_reaction"}:
+            return ChatDisplayMessage(
+                role=role,
+                kind="assistant",
+                content=content,
+                timestamp=int(row["created_at_ms"] or 0),
+                turn_id=str(row["turn_id"] or "").strip() or None,
+            )
+        if message_kind in {"status_note", "system_notice"}:
+            return ChatDisplayMessage(
+                role=role,
+                kind="status",
+                content=content,
+                timestamp=int(row["created_at_ms"] or 0),
+                turn_id=str(row["turn_id"] or "").strip() or None,
+            )
+        return None
 
     async def _run_threaded(self, method_name: str, *args: Any) -> Any:
         return await asyncio.to_thread(self._run_isolated, method_name, *args)
