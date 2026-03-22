@@ -32,26 +32,21 @@ These fields increase token usage but rarely improve answer quality for the main
 
 ### Memory formatter output
 
-Keep only answer-relevant fields:
+The main LLM does not need raw retrieval JSON. It benefits more from a short, readable recall block.
 
-- `l1_events`
-  - `session_id`
-  - `turn_id`
-  - `timestamp`
-  - `author_type`
-  - `event_type`
-  - `score`
-  - `content_preview`
-  - `content_truncated`
-- `l1_timeline_summary`
-  - `session_id`
-  - `turn_id`
-  - `timestamp`
-  - `author_type`
-  - `summary_preview`
-  - `summary_truncated`
+The memory formatter should therefore emit:
+
+- `memory_context`
+  - a concise natural-language block with sections such as:
+    - `Timeline Summary`
+    - `Key Events`
+    - `Entity Cards`
+    - `Reflections`
+    - `Procedures`
 - `meta`
   - compact retrieval trace fields only
+
+The formatter may still derive that text from compact internal fields, but the tool-message payload injected into the main LLM should prefer readable text over nested result objects.
 
 Drop internal storage and cognition fields that are not useful to the main LLM.
 
@@ -67,3 +62,7 @@ This change establishes an extension point:
 
 - future complex tools can move their context-formatting logic into their owning domain
 - `FunctionCallingPostprocessor` can shrink toward a dispatcher plus generic fallback behavior
+
+## Next Step
+
+After the first formatter extraction, the next improvement is to convert `memory_query` from compact JSON into a compact natural-language recall block so the main LLM spends fewer tokens parsing structure and more tokens reasoning over evidence.
