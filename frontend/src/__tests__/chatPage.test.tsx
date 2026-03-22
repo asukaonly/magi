@@ -1,5 +1,5 @@
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPage } from '@/pages/Chat';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useChatTraceStore } from '@/stores';
@@ -7,6 +7,7 @@ import { shouldShowTraceEntry } from '@/pages/chat-state';
 
 const sendMock = vi.fn();
 let realtimeListener: ((message: Record<string, unknown>) => void) | null = null;
+const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -44,6 +45,10 @@ vi.mock('@/components/chat/ToolchainDrawer', () => ({
 }));
 
 describe('ChatPage', () => {
+  afterAll(() => {
+    consoleErrorSpy.mockRestore();
+  });
+
   afterEach(() => {
     realtimeListener = null;
     sendMock.mockReset();
@@ -56,6 +61,7 @@ describe('ChatPage', () => {
   beforeEach(() => {
     sendMock.mockReset();
     realtimeListener = null;
+    consoleErrorSpy.mockClear();
     Element.prototype.scrollIntoView = vi.fn();
     useConversationStore.getState().reset();
     useChatTraceStore.getState().reset();
@@ -346,5 +352,31 @@ describe('ChatPage', () => {
     });
 
     expect(sendMock).not.toHaveBeenCalledWith({ type: 'get_current_session' });
+  });
+
+  it('does not emit act warnings while handling chat updates', async () => {
+    const content = 'warning-check-reply';
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          content,
+          timestamp: Date.now() / 1000,
+          turn_id: 'turn-warning',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(content)).toBeInTheDocument();
+    });
+
+    const actWarnings = consoleErrorSpy.mock.calls.filter(([firstArg]) =>
+      String(firstArg).includes('not wrapped in act')
+    );
+    expect(actWarnings).toHaveLength(0);
   });
 });
