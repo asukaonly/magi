@@ -33,13 +33,15 @@ class _FakeAdapter:
 
     async def _create_completion(self, **kwargs):  # type: ignore[no-untyped-def]
         messages = kwargs.get("messages") or []
-        system_prompt = ""
+        system_prompt = str(kwargs.get("system_prompt") or "")
         prompt = ""
         if isinstance(messages, list):
-            if messages and isinstance(messages[0], dict):
+            if not system_prompt and messages and isinstance(messages[0], dict):
                 system_prompt = str(messages[0].get("content") or "")
             if len(messages) > 1 and isinstance(messages[1], dict):
                 prompt = str(messages[1].get("content") or "")
+            elif len(messages) == 1 and isinstance(messages[0], dict):
+                prompt = str(messages[0].get("content") or "")
         call = {"prompt": prompt, "system_prompt": system_prompt}
         for key, value in kwargs.items():
             if key != "messages":
@@ -61,6 +63,34 @@ class _FakeScenarioPool:
     def get(self, scenario):  # type: ignore[no-untyped-def]
         self.requested_scenarios.append(scenario)
         return self.adapter
+
+
+def _make_memory_event(
+    *,
+    event_id: str,
+    content: str = "hello",
+    session_id: str | None = "s1",
+    user_id: str | None = "u1",
+    timestamp: float | None = None,
+):
+    resolved_timestamp = time.time() if timestamp is None else timestamp
+    return normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={
+                "user_id": user_id,
+                "session_id": session_id,
+                "content": content,
+                "author_type": "user",
+                "content_type": "text",
+            },
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id=f"corr-{event_id}",
+            timestamp=resolved_timestamp,
+        ),
+        event_id=event_id,
+    )
 
 
 def test_extraction_job_payload_can_be_created_from_event_id():
@@ -303,6 +333,7 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
         )
         await store.initialize()
         try:
@@ -347,6 +378,7 @@ async def test_cognition_ineligible_event_is_not_enqueued_for_l2():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
         )
         await store.initialize()
         try:
@@ -381,6 +413,7 @@ async def test_shutdown_drains_l2_pipeline_workers_cleanly():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
         )
         await store.initialize()
         await store.ingest_event(
@@ -428,6 +461,177 @@ def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
 
     assert store.l2_pipeline is not None
     assert store.l2_pipeline._batch_flush_interval_seconds == 90
+
+
+@pytest.mark.asyncio
+async def test_enqueue_event_stages_session_owned_events_before_extraction():
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+        await cognition_store.initialize()
+        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        try:
+            queued = await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-1", session_id="s-session"))
+
+            assert queued is True
+            assert "session:s-session" in pipeline._staging_buckets
+            assert pipeline._extract_queue.qsize() == 0
+            stats = pipeline.get_statistics()
+            assert stats["extract_enqueued"] == 0
+            assert stats["pending_staged_event_count"] == 1
+            assert stats["active_bucket_count"] == 1
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_event_reuses_same_bucket_for_matching_session():
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        now = time.time()
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+        await cognition_store.initialize()
+        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        try:
+            await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-2a", session_id="s-shared", timestamp=now))
+            await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-2b", session_id="s-shared", timestamp=now + 1.0))
+
+            bucket = pipeline._staging_buckets["session:s-shared"]
+            assert [item["event_id"] for item in bucket.events] == ["evt-stage-2a", "evt-stage-2b"]
+            assert pipeline.get_statistics()["pending_staged_event_count"] == 2
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_event_falls_back_to_user_bucket_without_session():
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+        await cognition_store.initialize()
+        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        try:
+            await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-3", session_id=None, user_id="u-bucket"))
+
+            assert "user:u-bucket" in pipeline._staging_buckets
+            assert pipeline._extract_queue.qsize() == 0
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_event_without_session_or_user_uses_direct_fallback_job():
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+        await cognition_store.initialize()
+        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        try:
+            await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-4", session_id=None, user_id=None))
+
+            assert pipeline._staging_buckets == {}
+            assert pipeline._extract_queue.qsize() == 1
+            stats = pipeline.get_statistics()
+            assert stats["extract_enqueued"] == 1
+            assert stats["pending_staged_event_count"] == 0
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
+    from magi.memory.l2.models import L2PendingBatchBucket
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+        await cognition_store.initialize()
+        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        try:
+            bucket = L2PendingBatchBucket.for_owner(session_id="s-flush", user_id="u1")
+            bucket.add_event(
+                {"event_id": "evt-flush-1", "timestamp": time.time() - 61, "session_id": "s-flush", "user_id": "u1"},
+                estimated_tokens=8,
+            )
+            pipeline._staging_buckets[bucket.bucket_key] = bucket
+            pipeline._refresh_staging_stats_locked()
+
+            await pipeline._flush_ready_buckets()
+
+            assert pipeline._extract_queue.qsize() == 1
+            job = pipeline._extract_queue.get_nowait()
+            assert job is not None
+            assert job.flush_reason == "interval_elapsed"
+            assert job.event_ids == ["evt-flush-1"]
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_event_flushes_when_bucket_hits_event_cap():
+    from magi.memory.l2.pipeline import DEFAULT_L2_MAX_EVENTS_PER_BATCH, L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        now = time.time()
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+        await cognition_store.initialize()
+        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        try:
+            for index in range(DEFAULT_L2_MAX_EVENTS_PER_BATCH):
+                await pipeline.enqueue_event(
+                    _make_memory_event(
+                        event_id=f"evt-cap-{index}",
+                        session_id="s-cap",
+                        timestamp=now + index,
+                    )
+                )
+
+            assert "session:s-cap" not in pipeline._staging_buckets
+            assert pipeline._extract_queue.qsize() == 1
+            job = pipeline._extract_queue.get_nowait()
+            assert job is not None
+            assert job.flush_reason == "max_events"
+            assert len(job.event_ids) == DEFAULT_L2_MAX_EVENTS_PER_BATCH
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_event_flushes_when_bucket_hits_token_cap():
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.store import L2CognitionStore
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+        await cognition_store.initialize()
+        pipeline = L2Pipeline(cognition_store, batch_flush_interval_seconds=60)
+        try:
+            await pipeline.enqueue_event(
+                _make_memory_event(
+                    event_id="evt-token-cap",
+                    session_id="s-token",
+                    content="x" * 10000,
+                )
+            )
+
+            assert "session:s-token" not in pipeline._staging_buckets
+            assert pipeline._extract_queue.qsize() == 1
+            job = pipeline._extract_queue.get_nowait()
+            assert job is not None
+            assert job.flush_reason == "token_cap"
+            assert job.estimated_tokens >= 2400
+        finally:
+            await pipeline.shutdown()
 
 
 def test_entity_mention_prompt_rendering_is_deterministic():
@@ -576,10 +780,12 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
                         "evidence_text": "我好喜欢魔都",
                         "confidence": 0.96,
                     }
-                ]
+                ],
+                "graph_candidates": [],
+                "assertion_candidates": [],
+                "diagnostics": {"entity_status": "found"},
             }
         ),
-        json.dumps({"assertion_candidates": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -588,6 +794,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
         )
         await store.initialize()
@@ -668,6 +875,7 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -726,9 +934,10 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
 @pytest.mark.asyncio
 async def test_extract_worker_persists_llm_tom_assertions():
     responses = [
-        json.dumps({"mentions": []}),
         json.dumps(
             {
+                "mentions": [],
+                "graph_candidates": [],
                 "assertion_candidates": [
                     {
                         "entity_ref": "user:u1",
@@ -744,7 +953,8 @@ async def test_extract_worker_persists_llm_tom_assertions():
                         "supporting_event_ids": ["evt-stress-1"],
                         "notes": None,
                     }
-                ]
+                ],
+                "diagnostics": {"entity_status": "none"},
             }
         ),
     ]
@@ -755,6 +965,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
         )
         await store.initialize()
@@ -801,6 +1012,7 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -845,8 +1057,14 @@ async def test_extract_worker_applies_contradiction_hints_to_existing_assertions
             existing_assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
             existing_assertion_id = existing_assertions[0]["assertion_id"]
             adapter._responses = [
-                json.dumps({"mentions": []}),
-                json.dumps({"assertion_candidates": []}),
+                json.dumps(
+                    {
+                        "mentions": [],
+                        "graph_candidates": [],
+                        "assertion_candidates": [],
+                        "diagnostics": {"entity_status": "none"},
+                    }
+                ),
                 json.dumps(
                     {
                         "contradiction_hints": [
@@ -906,6 +1124,7 @@ async def test_chat_response_action_runtime_event_is_skipped_before_llm_extracti
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -954,6 +1173,7 @@ async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1004,6 +1224,7 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1048,9 +1269,10 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
 async def test_assistant_quote_does_not_add_new_evidence_weight():
     adapter = _FakeAdapter(
         [
-            json.dumps({"mentions": []}),
             json.dumps(
                 {
+                    "mentions": [],
+                    "graph_candidates": [],
                     "assertion_candidates": [
                         {
                             "entity_ref": "user:u1",
@@ -1066,7 +1288,8 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                             "supporting_event_ids": ["evt-user-stress-1"],
                             "notes": None,
                         }
-                    ]
+                    ],
+                    "diagnostics": {"entity_status": "none"},
                 }
             ),
         ]
@@ -1078,6 +1301,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1153,6 +1377,7 @@ async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1211,6 +1436,7 @@ async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1314,6 +1540,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1394,6 +1621,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1485,6 +1713,7 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1573,6 +1802,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1674,6 +1904,7 @@ async def test_unified_extraction_respects_calendar_profile_restrictions():
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
             scenario_llm_pool=_FakeScenarioPool(adapter),
         )
         await store.initialize()
@@ -1716,6 +1947,7 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
         )
         await store.initialize()
         try:
