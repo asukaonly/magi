@@ -184,15 +184,30 @@ export const ChatPage: React.FC = () => {
       const sessionId = String(payload?.session_id || currentSessionId || '').trim();
       const turnId = String(payload?.turn_id || '').trim();
       const summary = normalizeTraceSummary(payload?.trace_summary);
+      const uxPlan = normalizeTurnUxPlan(payload?.ux_plan);
+      const assistantSurfaceMode = uxPlan?.assistantSurfaceMode || '';
+      const shouldSuppressAssistantBubble =
+        assistantSurfaceMode === 'reaction_only' || assistantSurfaceMode === 'none';
       if (sessionId) {
-        receiveAgentResponse({
-          sessionId,
-          content: String(payload?.content || ''),
-          timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
-          turnId: turnId || undefined,
-          traceSummary: summary,
-          traceAvailable: Boolean(payload?.trace_available || summary?.traceAvailable),
-        });
+        if (shouldSuppressAssistantBubble) {
+          if (turnId && uxPlan) {
+            applyTurnUxPlan({
+              sessionId,
+              turnId,
+              uxPlan,
+              pendingLabel: t('chat.trace.pending'),
+            });
+          }
+        } else {
+          receiveAgentResponse({
+            sessionId,
+            content: String(payload?.content || ''),
+            timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
+            turnId: turnId || undefined,
+            traceSummary: summary,
+            traceAvailable: Boolean(payload?.trace_available || summary?.traceAvailable),
+          });
+        }
       }
       if (summary) {
         upsertSummary({
@@ -218,11 +233,13 @@ export const ChatPage: React.FC = () => {
     },
     [
       activeTurnId,
+      applyTurnUxPlan,
       applyConversationTraceSummary,
       currentSessionId,
       drawerOpen,
       loadTrace,
       receiveAgentResponse,
+      t,
       upsertSummary,
     ]
   );
@@ -237,9 +254,10 @@ export const ChatPage: React.FC = () => {
         sessionId,
         turnId,
         uxPlan,
+        pendingLabel: t('chat.trace.pending'),
       });
     },
-    [applyTurnUxPlan, currentSessionId]
+    [applyTurnUxPlan, currentSessionId, t]
   );
 
   const handleWSMessage = useCallback(
@@ -520,6 +538,13 @@ export const ChatPage: React.FC = () => {
                       <p className="m-0 whitespace-pre-wrap text-sm">{msg.content}</p>
                     )}
                   </div>
+                  {msg.role === 'user' && msg.reaction && (
+                    <div className="mt-2 flex justify-end">
+                      <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-sm">
+                        {msg.reaction}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>

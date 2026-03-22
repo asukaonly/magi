@@ -9,6 +9,7 @@ export interface ChatTimelineMessage {
   content: string;
   timestamp: number;
   turnId?: string;
+  reaction?: string | null;
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
 }
@@ -60,6 +61,14 @@ export interface NormalizedTurnUxPlan {
   interimText?: string | null;
   reactionStyle?: string | null;
 }
+
+type ApplyTurnUxPlanOptions = {
+  pendingLabel?: string;
+};
+
+const REACTION_EMOJI_BY_STYLE: Record<string, string> = {
+  acknowledge: '👌',
+};
 
 export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSummary | null => {
   if (!raw || typeof raw !== 'object') return null;
@@ -213,41 +222,80 @@ export const applyTurnUxPlan = (
   messages: ChatTimelineMessage[],
   turnId: string,
   plan: NormalizedTurnUxPlan | null,
+  options: ApplyTurnUxPlanOptions = {},
 ): ChatTimelineMessage[] => {
   const resolvedTurnId = String(turnId || '').trim();
   if (!resolvedTurnId || !plan) return messages;
-  if (plan.assistantSurfaceMode !== 'interim_then_final') return messages;
 
-  const interimText = String(plan.interimText || '').trim();
-  if (!interimText) return messages;
+  if (plan.assistantSurfaceMode === 'reaction_only') {
+    const reaction = REACTION_EMOJI_BY_STYLE[String(plan.reactionStyle || '').trim()] || '👌';
+    const nextMessages = messages
+      .filter((message) => !(message.turnId === resolvedTurnId && message.role === 'assistant'))
+      .map((message) => (
+        message.turnId === resolvedTurnId && message.role === 'user'
+          ? { ...message, reaction }
+          : message
+      ));
+    return nextMessages;
+  }
 
-  const interimMessage: ChatTimelineMessage = {
-    id: `${resolvedTurnId}-assistant`,
-    role: 'assistant',
-    kind: 'assistant',
-    content: interimText,
-    timestamp: Date.now(),
-    turnId: resolvedTurnId,
-    traceAvailable: false,
-  };
+  if (plan.assistantSurfaceMode === 'interim_then_final') {
+    const interimText = String(plan.interimText || '').trim();
+    if (!interimText) return messages;
 
-  let replaced = false;
-  const nextMessages = messages.map((message) => {
-    if (message.turnId !== resolvedTurnId) return message;
-    if (message.kind === 'assistant' || message.kind === 'status') {
-      replaced = true;
-      return {
-        ...message,
-        ...interimMessage,
-        traceSummary: message.traceSummary ?? null,
-        traceAvailable: Boolean(message.traceAvailable),
-      };
+    const interimMessage: ChatTimelineMessage = {
+      id: `${resolvedTurnId}-assistant`,
+      role: 'assistant',
+      kind: 'assistant',
+      content: interimText,
+      timestamp: Date.now(),
+      turnId: resolvedTurnId,
+      traceAvailable: false,
+    };
+
+    let replaced = false;
+    const nextMessages = messages.map((message) => {
+      if (message.turnId !== resolvedTurnId) return message;
+      if (message.kind === 'assistant' || message.kind === 'status') {
+        replaced = true;
+        return {
+          ...message,
+          ...interimMessage,
+          traceSummary: message.traceSummary ?? null,
+          traceAvailable: Boolean(message.traceAvailable),
+        };
+      }
+      return message;
+    });
+
+    if (replaced) return nextMessages;
+    return [...messages, interimMessage];
+  }
+
+  if (plan.thinkingIndicator && plan.thinkingIndicator !== 'hidden') {
+    const hasTurnFeedback = messages.some(
+      (message) =>
+        message.turnId === resolvedTurnId &&
+        (message.kind === 'assistant' || message.kind === 'status')
+    );
+    if (hasTurnFeedback) {
+      return messages;
     }
-    return message;
-  });
+    return [
+      ...messages,
+      {
+        id: `${resolvedTurnId}-status`,
+        role: 'assistant',
+        kind: 'status',
+        content: String(options.pendingLabel || 'Thinking...'),
+        timestamp: Date.now(),
+        turnId: resolvedTurnId,
+        traceAvailable: false,
+      },
+    ];
+  }
 
-  if (replaced) return nextMessages;
-  return [...messages, interimMessage];
+  return messages;
 };
 
 export const upsertTraceSummary = (

@@ -32,6 +32,7 @@ type TurnUxPlanPayload = {
   sessionId: string;
   turnId: string;
   uxPlan: NormalizedTurnUxPlan | null;
+  pendingLabel?: string;
 };
 
 type ConversationState = {
@@ -193,7 +194,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  applyTurnUxPlan: ({ sessionId, turnId, uxPlan }) => set((state) => {
+  applyTurnUxPlan: ({ sessionId, turnId, uxPlan, pendingLabel }) => set((state) => {
     if (!sessionId || !turnId || !uxPlan) {
       return state;
     }
@@ -204,7 +205,12 @@ export const useConversationStore = create<ConversationState>((set) => ({
       sessionsById: ensured.sessionsById,
       messagesBySession: {
         ...state.messagesBySession,
-        [sessionId]: applyTurnUxPlanUpdate(state.messagesBySession[sessionId] || [], turnId, uxPlan),
+        [sessionId]: applyTurnUxPlanUpdate(
+          state.messagesBySession[sessionId] || [],
+          turnId,
+          uxPlan,
+          { pendingLabel }
+        ),
       },
       unreadBySession: {
         ...state.unreadBySession,

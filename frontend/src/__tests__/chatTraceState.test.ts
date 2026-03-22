@@ -53,6 +53,37 @@ describe('chat trace state helpers', () => {
     expect(next[1].turnId).toBe('turn_1');
   });
 
+  it('adds a lightweight reaction to the user message for reaction-only turns', () => {
+    const initial = createPendingTurn('嗯', 'turn_2', 1000, 'Thinking');
+    const next = applyTurnUxPlan(initial, 'turn_2', {
+      assistantSurfaceMode: 'reaction_only',
+      reactionStyle: 'acknowledge',
+    });
+
+    expect(next).toHaveLength(1);
+    expect(next[0].kind).toBe('user');
+    expect(next[0].reaction).toBe('👌');
+  });
+
+  it('adds a status card when thinking indicator asks for visible feedback', () => {
+    const initial = createPendingTurn('查一下最近状态', 'turn_3', 1000, 'Thinking');
+    const next = applyTurnUxPlan(
+      initial,
+      'turn_3',
+      {
+        assistantSurfaceMode: 'final_only',
+        thinkingIndicator: 'visible',
+      },
+      {
+        pendingLabel: '正在思考',
+      }
+    );
+
+    expect(next).toHaveLength(2);
+    expect(next[1].kind).toBe('status');
+    expect(next[1].content).toBe('正在思考');
+  });
+
   it('replaces the interim assistant card with the final assistant answer', () => {
     const initial = applyTurnUxPlan(
       createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking'),

@@ -127,6 +127,90 @@ describe('ChatPage', () => {
     expect(screen.queryByText('稍等我查一下')).not.toBeInTheDocument();
   });
 
+  it('renders a reaction-only acknowledgement without an assistant bubble', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      useConversationStore.getState().appendPendingTurn({
+        sessionId: 'session-1',
+        input: '嗯',
+        turnId: 'turn-3',
+        timestamp: Date.now(),
+        pendingLabel: 'thinking',
+      });
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'turn_ux_plan',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-3',
+          ux_plan: {
+            assistant_surface_mode: 'reaction_only',
+            reaction_style: 'acknowledge',
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('👌')).toBeInTheDocument();
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'agent_response',
+        data: {
+          session_id: 'session-1',
+          content: '收到啦',
+          timestamp: Date.now() / 1000,
+          turn_id: 'turn-3',
+          ux_plan: {
+            assistant_surface_mode: 'reaction_only',
+            reaction_style: 'acknowledge',
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('收到啦')).not.toBeInTheDocument();
+    });
+  });
+
+  it('renders a thinking status card when ux plan requests visible thinking feedback', async () => {
+    render(<ChatPage />);
+
+    act(() => {
+      useConversationStore.getState().appendPendingTurn({
+        sessionId: 'session-1',
+        input: '帮我查一下',
+        turnId: 'turn-4',
+        timestamp: Date.now(),
+        pendingLabel: 'thinking',
+      });
+    });
+
+    act(() => {
+      realtimeListener?.({
+        event: 'turn_ux_plan',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-4',
+          ux_plan: {
+            assistant_surface_mode: 'final_only',
+            thinking_indicator: 'visible',
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('chat.trace.pending')).toBeInTheDocument();
+    });
+  });
+
   it('requests fresh history when a turn completes without an agent response event', () => {
     render(<ChatPage />);
 
