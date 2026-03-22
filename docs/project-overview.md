@@ -124,16 +124,19 @@ Execution observability is now a separate concern from durable memory:
 ## Persistence Boundaries
 
 - `~/.magi/data/message_queue.db`
-  Message-bus queue persistence only
+  Runtime command-queue persistence only
+
+- `~/.magi/data/chat.db`
+  Chat-domain source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
 
 - `~/.magi/data/memories/l1_events.db`
-  Canonical L1 fact storage for durable memory events and `chat_sessions` metadata rows
+  Canonical L1 fact storage for lossy memory projection of `user_text` and `assistant_final` content only
 
 - `~/.magi/data/memories/memory.db`
   Shared L0/L2/L3/L4 storage
 
 - `~/.magi/data/runtime_trace.db`
-  Runtime execution trace storage for turn summaries, spans, LLM metrics, tool calls, and intent-resolution details
+  Runtime execution observability only: turn summaries, spans, LLM metrics, tool calls, intent-resolution details, and live notifications
 
 - `~/.magi/data/scenario_prompts.db`
   Scenario prompt policy and prompt metadata
@@ -141,11 +144,18 @@ Execution observability is now a separate concern from durable memory:
 - `~/.magi/data/llm_usage.db`
   LLM usage metrics and usage-event persistence
 
-Chat session ownership is intentionally split:
+Chat ownership is now intentionally separated by domain:
 
-- `chat_sessions` rows store durable session metadata such as title, previews, timestamps, and counts
-- L1 `fact_events` store the actual durable chat messages keyed by `session_id`
-- the frontend owns which session is currently selected and always sends an explicit `session_id`
+- `chat.db`
+  Owns transcript truth and turn presentation state
+
+- `runtime_trace.db`
+  Owns execution observability and best-effort live fan-out
+
+- `l1_events.db`
+  Owns canonical memory projection only
+
+- the frontend still owns which session is currently selected and always sends an explicit `session_id`
 
 ## Repository Structure
 

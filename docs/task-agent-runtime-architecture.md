@@ -106,6 +106,29 @@ flowchart TD
     C --> A["User-Facing Response"]
 ```
 
+## Runtime And Persistence Boundaries
+
+The current dual-process topology is intentionally split by responsibility:
+
+- API process
+  Accepts user input, writes `chat.db`, enqueues runtime commands, and serves read-side chat and trace APIs
+
+- runtime worker
+  Consumes commands, updates `chat.db`, writes `runtime_trace.db`, and projects canonical memory facts into `l1_events.db`
+
+Persistence is separated the same way:
+
+- `chat.db`
+  Source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
+
+- `runtime_trace.db`
+  Execution observability only, including spans, tool calls, turn summaries, intent records, and live notifications
+
+- `memories/l1_events.db`
+  Canonical memory projection only; it stores `user_text` and `assistant_final` as lossy memory facts, but it is no longer the chat transcript source of truth
+
+Important rule: runtime notifications are best-effort live fan-out of already committed chat state. Transcript recovery and reload must come from `chat.db`, not from notifications or `fact_events`.
+
 ## Agent Runtime
 
 The L11 runtime lives under `backend/src/magi/agent/`.
@@ -148,6 +171,8 @@ Intent routing now also produces a chat-facing presentation decision for each tu
   Owns presentation-facing guidance such as whether the assistant should surface a final reply, a reaction-only acknowledgement, an interim-then-final flow, and whether trace or tool-chain UI should be hidden or collapsible
 
 Important rule: chat UI behavior should not depend directly on raw intent-classifier details. The coordinator should translate intent and execution shape into a stable presentation contract, and downstream chat-domain services should react to that contract instead of re-implementing routing heuristics.
+
+`TurnUXPlan` is now persisted on `chat_turns.ux_plan_json` and reused by both runtime notifications and history read models. This keeps reload behavior aligned with the same presentation contract that was active when the turn originally ran.
 
 ### Context-owned prompt assembly
 
