@@ -8,6 +8,8 @@ export interface ChatTimelineMessage {
   kind: ChatMessageKind;
   content: string;
   timestamp: number;
+  messageId?: string;
+  messageKind?: string | null;
   turnId?: string;
   reaction?: string | null;
   traceDisplayMode?: string | null;
@@ -177,11 +179,13 @@ export const normalizeHistoryMessages = (messages: ChatHistoryMessage[]): ChatTi
     const kind = (message.kind || message.role) as ChatMessageKind;
     const traceSummary = normalizeTraceSummary(message.trace_summary as ExecutionTraceSummary | undefined);
     return {
-      id: `${message.turn_id || 'history'}-${index}-${kind}`,
+      id: String(message.message_id || `${message.turn_id || 'history'}-${index}-${kind}`),
       role: message.role === 'user' ? 'user' : 'assistant',
       kind,
       content: message.content,
       timestamp: Number(message.timestamp || Date.now()),
+      messageId: message.message_id || undefined,
+      messageKind: message.message_kind || null,
       turnId: message.turn_id || undefined,
       traceDisplayMode: null,
       allowTraceCollapse: false,
@@ -392,6 +396,8 @@ export const applyAgentResponse = (
   payload: {
     content: string;
     timestamp?: number;
+    messageId?: string;
+    messageKind?: string | null;
     turnId?: string;
     traceSummary?: NormalizedExecutionTraceSummary | null;
     traceAvailable?: boolean;
@@ -404,11 +410,13 @@ export const applyAgentResponse = (
   const traceAvailable = Boolean(payload.traceAvailable || traceSummary?.traceAvailable);
   const uxPlan = payload.uxPlan || null;
   const buildAssistantMessage = (resolvedTurnId?: string): ChatTimelineMessage => ({
-    id: `${resolvedTurnId || turnId || 'assistant'}-assistant-${timestamp}`,
+    id: String(payload.messageId || `${resolvedTurnId || turnId || 'assistant'}-assistant-${timestamp}`),
     role: 'assistant',
     kind: 'assistant',
     content: payload.content,
     timestamp,
+    messageId: payload.messageId,
+    messageKind: payload.messageKind || 'assistant_final',
     turnId: resolvedTurnId || turnId || undefined,
     traceDisplayMode: uxPlan?.traceDisplayMode ?? null,
     allowTraceCollapse: Boolean(uxPlan?.allowTraceCollapse),
@@ -429,7 +437,7 @@ export const applyAgentResponse = (
       .reverse()
       .find(Boolean);
     if (fallbackTurnId) {
-      return [...messages, { ...buildAssistantMessage(fallbackTurnId), id: `${fallbackTurnId}-assistant`, turnId: fallbackTurnId }];
+      return [...messages, { ...buildAssistantMessage(fallbackTurnId), id: String(payload.messageId || `${fallbackTurnId}-assistant`), turnId: fallbackTurnId }];
     }
     return [...messages, buildAssistantMessage()];
   }
@@ -439,7 +447,7 @@ export const applyAgentResponse = (
     if (message.turnId !== turnId) return message;
     if (message.kind === 'status' || message.kind === 'assistant') {
       replaced = true;
-      return { ...buildAssistantMessage(turnId), id: `${turnId}-assistant`, turnId };
+      return { ...buildAssistantMessage(turnId), id: String(payload.messageId || `${turnId}-assistant`), turnId };
     }
     return message;
   });
@@ -454,9 +462,9 @@ export const applyAgentResponse = (
 
   if (fallbackStatusIndex !== undefined) {
     return messages.map((message, index) =>
-      index === fallbackStatusIndex ? { ...buildAssistantMessage(turnId), id: `${turnId}-assistant`, turnId } : message
+      index === fallbackStatusIndex ? { ...buildAssistantMessage(turnId), id: String(payload.messageId || `${turnId}-assistant`), turnId } : message
     );
   }
 
-  return [...messages, { ...buildAssistantMessage(turnId), id: `${turnId}-assistant`, turnId }];
+  return [...messages, { ...buildAssistantMessage(turnId), id: String(payload.messageId || `${turnId}-assistant`), turnId }];
 };

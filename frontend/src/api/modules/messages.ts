@@ -27,6 +27,8 @@ export interface SensorStatus {
 }
 
 export interface ChatHistoryMessage {
+  message_id?: string | null;
+  message_kind?: string | null;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;

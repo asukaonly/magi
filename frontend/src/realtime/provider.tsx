@@ -77,6 +77,8 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
             sessionId,
             content: String(payload.content || ''),
             timestamp: Number(payload.timestamp || Date.now() / 1000) * 1000,
+            messageId: payload.message_id ? String(payload.message_id) : undefined,
+            messageKind: payload.message_kind ? String(payload.message_kind) : null,
             turnId: String(payload.turn_id || '').trim() || undefined,
             traceSummary: summary,
             traceAvailable: Boolean(payload.trace_available || summary?.traceAvailable),

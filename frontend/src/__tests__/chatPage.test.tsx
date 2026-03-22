@@ -76,6 +76,8 @@ describe('ChatPage', () => {
         event: 'agent_response',
         data: {
           session_id: 'session-1',
+          message_id: 'msg-final-1',
+          message_kind: 'assistant_final',
           content: '整理好了',
           timestamp: Date.now() / 1000,
           turn_id: 'turn-1',
@@ -98,6 +100,9 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(screen.getByText('整理好了')).toBeInTheDocument();
     });
+    expect(
+      useConversationStore.getState().messagesBySession['session-1']?.find((message) => message.turnId === 'turn-1')?.id
+    ).toBe('msg-final-1');
     expect(screen.getByRole('button', { name: 'chat.trace.view' })).toBeInTheDocument();
   });
 

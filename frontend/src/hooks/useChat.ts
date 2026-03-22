@@ -195,6 +195,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           sessionId,
           content: String(data?.content || ''),
           timestamp: Number(data?.timestamp || Date.now() / 1000) * 1000,
+          messageId: data?.message_id ? String(data.message_id) : undefined,
+          messageKind: data?.message_kind ? String(data.message_kind) : null,
           turnId: turnId || undefined,
           traceSummary: summary,
           traceAvailable: Boolean(data?.trace_available || summary?.traceAvailable),

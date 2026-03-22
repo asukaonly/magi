@@ -836,6 +836,7 @@ async def test_handle_commits_final_chat_message_before_notification(
 
     turn = await chat_store.get_turn("turn-final")
     messages = await chat_store.list_messages(session_id="session-1")
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
 
     assert turn is not None
     assert turn.status == "completed"
@@ -843,6 +844,9 @@ async def test_handle_commits_final_chat_message_before_notification(
     assert [message.message_kind for message in messages] == ["user_text", "assistant_final"]
     assert messages[-1].content_text == "final answer"
     assert chat_projector.assistant_messages[0]["message_id"] == messages[-1].message_id
+    payload = json.loads(notifications[0].payload_json)
+    assert payload["message_id"] == messages[-1].message_id
+    assert payload["message_kind"] == "assistant_final"
 
 
 @pytest.mark.asyncio

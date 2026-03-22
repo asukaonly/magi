@@ -117,6 +117,8 @@ class ChatDisplayMessage:
     content: str
     timestamp: int
     kind: str
+    message_id: str | None = None
+    message_kind: str | None = None
     turn_id: str | None = None
     trace_summary: dict[str, Any] | None = None
     trace_available: bool = False
@@ -126,6 +128,8 @@ class ChatDisplayMessage:
             "role": self.role,
             "content": self.content,
             "timestamp": self.timestamp,
+            "message_id": self.message_id,
+            "message_kind": self.message_kind,
             "turn_id": self.turn_id,
             "kind": self.kind,
             "trace_summary": self.trace_summary,
@@ -654,6 +658,8 @@ class ChatReadService:
                 kind="user",
                 content=content,
                 timestamp=int(row["created_at_ms"] or 0),
+                message_id=str(row["message_id"]),
+                message_kind=message_kind,
                 turn_id=str(row["turn_id"] or "").strip() or None,
             )
         if message_kind in {"assistant_final", "assistant_interim", "assistant_reaction"}:
@@ -662,6 +668,8 @@ class ChatReadService:
                 kind="assistant",
                 content=content,
                 timestamp=int(row["created_at_ms"] or 0),
+                message_id=str(row["message_id"]),
+                message_kind=message_kind,
                 turn_id=str(row["turn_id"] or "").strip() or None,
             )
         if message_kind in {"status_note", "system_notice"}:
@@ -670,6 +678,8 @@ class ChatReadService:
                 kind="status",
                 content=content,
                 timestamp=int(row["created_at_ms"] or 0),
+                message_id=str(row["message_id"]),
+                message_kind=message_kind,
                 turn_id=str(row["turn_id"] or "").strip() or None,
             )
         return None

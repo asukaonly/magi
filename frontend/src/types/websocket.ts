@@ -71,6 +71,8 @@ export interface WSErrorMessage {
 // ============================================================================
 
 export interface ChatHistoryMessageData {
+  message_id?: string | null;
+  message_kind?: string | null;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
@@ -101,6 +103,8 @@ export interface ExecutionTraceUpdateData {
 }
 
 export interface AgentResponseData {
+  message_id?: string | null;
+  message_kind?: string | null;
   turn_id?: string;
   content: string;
   trace_summary?: TraceSummaryData;

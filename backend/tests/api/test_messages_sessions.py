@@ -660,6 +660,8 @@ def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path
     messages = service.get_conversation_history("u1", "s-chat", limit=20)
 
     assert [item.content for item in messages] == ["chat-store user", "chat-store reply"]
+    assert messages[0].message_id == "msg-user"
+    assert messages[1].message_kind == "assistant_final"
 
 
 def test_get_display_history_prefers_chat_store_transcript(tmp_path, monkeypatch):

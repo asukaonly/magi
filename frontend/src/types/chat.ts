@@ -17,6 +17,8 @@ export interface ChatTimelineMessage {
   kind: ChatMessageKind;
   content: string;
   timestamp: number;
+  messageId?: string;
+  messageKind?: string | null;
   turnId?: string;
   traceSummary?: NormalizedTraceSummary | null;
   traceAvailable?: boolean;
@@ -93,6 +95,8 @@ export interface AgentResponsePayload {
   sessionId: string;
   content: string;
   timestamp: number;
+  messageId?: string;
+  messageKind?: string | null;
   turnId?: string;
   traceSummary?: NormalizedTraceSummary | null;
   traceAvailable?: boolean;
@@ -111,6 +115,8 @@ export interface PendingTurnPayload {
 // ============================================================================
 
 export interface ChatHistoryMessageRaw {
+  message_id?: string | null;
+  message_kind?: string | null;
   role: ChatMessageRole;
   content: string;
   timestamp: number;

@@ -15,6 +15,8 @@ type AgentResponsePayload = {
   sessionId: string;
   content: string;
   timestamp: number;
+  messageId?: string;
+  messageKind?: string | null;
   turnId?: string;
   traceSummary?: NormalizedExecutionTraceSummary | null;
   traceAvailable?: boolean;
@@ -219,12 +221,14 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  receiveAgentResponse: ({ sessionId, content, timestamp, turnId, traceSummary, traceAvailable, uxPlan }) => set((state) => {
+  receiveAgentResponse: ({ sessionId, content, timestamp, messageId, messageKind, turnId, traceSummary, traceAvailable, uxPlan }) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
     const nextMessages = applyAgentResponse(previousMessages, {
       content,
       timestamp,
+      messageId,
+      messageKind,
       turnId,
       traceSummary,
       traceAvailable,

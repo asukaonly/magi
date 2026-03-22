@@ -177,10 +177,8 @@ class ChatPostProcessService:
             started_at_ms=started_at_ms,
             completed_at_ms=now_ms,
         )
-        await self._project_final_chat_message(
-            context=context,
-            turn_id=turn_id,
-        )
+        final_message = await self._get_final_chat_message(turn_id)
+        await self._project_final_chat_message(context=context, final_message=final_message)
 
         await self._emit_agent_response_notification(
             user_id=context.user_id,
@@ -191,6 +189,8 @@ class ChatPostProcessService:
             trace_summary=trace_summary,
             trace_available=trace_available,
             ux_plan=result.ux_plan,
+            message_id=final_message.message_id if final_message is not None else None,
+            message_kind=final_message.message_kind if final_message is not None else None,
         )
 
         await action_emitter.emit_chat_response_event(
@@ -692,26 +692,28 @@ class ChatPostProcessService:
                 replaced_by_message_id=final_message.message_id,
             )
 
+    async def _get_final_chat_message(self, turn_id: str | None) -> ChatMessageRecord | None:
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._chat_store is None or not normalized_turn_id:
+            return None
+        return await self._chat_store.get_latest_message_for_turn(
+            normalized_turn_id,
+            message_kind="assistant_final",
+        )
+
     async def _project_final_chat_message(
         self,
         *,
         context: ChatRuntimeContext,
-        turn_id: str | None,
+        final_message: ChatMessageRecord | None,
     ) -> None:
-        normalized_turn_id = str(turn_id or "").strip()
-        if self._chat_store is None or self._chat_projector is None or not normalized_turn_id:
-            return
-        final_message = await self._chat_store.get_latest_message_for_turn(
-            normalized_turn_id,
-            message_kind="assistant_final",
-        )
-        if final_message is None or not str(final_message.content_text or "").strip():
+        if self._chat_projector is None or final_message is None or not str(final_message.content_text or "").strip():
             return
         await self._chat_projector.project_assistant_message(
             message_id=final_message.message_id,
             user_id=context.user_id,
             session_id=context.session_id,
-            turn_id=normalized_turn_id,
+            turn_id=str(final_message.turn_id or ""),
             content=str(final_message.content_text or ""),
             created_at_ms=final_message.created_at_ms,
         )
@@ -849,10 +851,14 @@ class ChatPostProcessService:
         trace_summary: dict[str, Any] | None,
         trace_available: bool,
         ux_plan: dict[str, Any] | None,
+        message_id: str | None,
+        message_kind: str | None,
     ) -> None:
         if self._runtime_trace_store is None:
             return
         payload = {
+            "message_id": message_id,
+            "message_kind": message_kind,
             "content": response_text,
             "author_type": "assistant",
             "content_type": "text",
