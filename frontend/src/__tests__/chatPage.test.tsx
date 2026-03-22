@@ -198,6 +198,8 @@ describe('ChatPage', () => {
         data: {
           session_id: 'session-1',
           turn_id: 'turn-2',
+          message_id: 'msg-interim-1',
+          message_kind: 'assistant_interim',
           ux_plan: {
             assistant_surface_mode: 'interim_then_final',
             interim_text: '稍等我查一下',
@@ -209,6 +211,9 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(screen.getByText('稍等我查一下')).toBeInTheDocument();
     });
+    expect(
+      useConversationStore.getState().messagesBySession['session-1']?.find((message) => message.turnId === 'turn-2' && message.kind === 'assistant')?.id
+    ).toBe('msg-interim-1');
 
     act(() => {
       realtimeListener?.({

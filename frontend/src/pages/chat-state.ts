@@ -68,6 +68,9 @@ export interface NormalizedTurnUxPlan {
 
 type ApplyTurnUxPlanOptions = {
   pendingLabel?: string;
+  messageId?: string;
+  messageKind?: string | null;
+  timestamp?: number;
 };
 
 const REACTION_EMOJI_BY_STYLE: Record<string, string> = {
@@ -291,11 +294,13 @@ export const applyTurnUxPlan = (
     if (!interimText) return messages;
 
     const interimMessage: ChatTimelineMessage = {
-      id: `${resolvedTurnId}-assistant`,
+      id: String(options.messageId || `${resolvedTurnId}-assistant`),
       role: 'assistant',
       kind: 'assistant',
       content: interimText,
-      timestamp: Date.now(),
+      timestamp: Number(options.timestamp || Date.now()),
+      messageId: options.messageId,
+      messageKind: options.messageKind || 'assistant_interim',
       turnId: resolvedTurnId,
       traceAvailable: false,
     };

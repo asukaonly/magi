@@ -452,12 +452,16 @@ async def test_record_intent_resolution_commits_interim_turn_state_before_notifi
 
     turn = await chat_store.get_turn("turn-interim")
     messages = await chat_store.list_messages(session_id="session-1")
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
 
     assert turn is not None
     assert json.loads(turn.ux_plan_json)["assistant_surface_mode"] == "interim_then_final"
     assert "assistant_interim" in seen_kinds_at_notify
     assert [message.message_kind for message in messages] == ["user_text", "assistant_interim"]
     assert messages[-1].content_text == "稍等我查一下"
+    payload = json.loads(notifications[0].payload_json)
+    assert payload["message_id"] == messages[-1].message_id
+    assert payload["message_kind"] == "assistant_interim"
 
 
 @pytest.mark.asyncio

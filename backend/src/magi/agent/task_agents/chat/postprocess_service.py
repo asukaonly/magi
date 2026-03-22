@@ -294,11 +294,18 @@ class ChatPostProcessService:
             ux_plan=ux_plan,
             updated_at_ms=ended_at_ms,
         )
+        interim_message = await self._get_chat_message(
+            turn_id=turn_id,
+            message_kind="assistant_interim",
+        )
         await self._emit_turn_ux_plan_notification(
             user_id=context.user_id,
             session_id=context.session_id,
             turn_id=turn_id,
             ux_plan=ux_plan,
+            message_id=interim_message.message_id if interim_message is not None else None,
+            message_kind=interim_message.message_kind if interim_message is not None else None,
+            timestamp_ms=interim_message.created_at_ms if interim_message is not None else None,
         )
 
     async def _record_task_reflection(
@@ -692,12 +699,23 @@ class ChatPostProcessService:
                 replaced_by_message_id=final_message.message_id,
             )
 
-    async def _get_final_chat_message(self, turn_id: str | None) -> ChatMessageRecord | None:
+    async def _get_chat_message(
+        self,
+        *,
+        turn_id: str | None,
+        message_kind: str,
+    ) -> ChatMessageRecord | None:
         normalized_turn_id = str(turn_id or "").strip()
         if self._chat_store is None or not normalized_turn_id:
             return None
         return await self._chat_store.get_latest_message_for_turn(
             normalized_turn_id,
+            message_kind=message_kind,
+        )
+
+    async def _get_final_chat_message(self, turn_id: str | None) -> ChatMessageRecord | None:
+        return await self._get_chat_message(
+            turn_id=turn_id,
             message_kind="assistant_final",
         )
 
@@ -890,6 +908,9 @@ class ChatPostProcessService:
         session_id: str,
         turn_id: str,
         ux_plan: dict[str, Any] | None,
+        message_id: str | None,
+        message_kind: str | None,
+        timestamp_ms: int | None,
     ) -> None:
         if self._runtime_trace_store is None or not turn_id or not ux_plan:
             return
@@ -897,8 +918,10 @@ class ChatPostProcessService:
             "user_id": user_id,
             "session_id": session_id,
             "turn_id": turn_id,
+            "message_id": message_id,
+            "message_kind": message_kind,
             "ux_plan": ux_plan,
-            "timestamp": time.time(),
+            "timestamp": (timestamp_ms / 1000.0) if timestamp_ms is not None else time.time(),
         }
         await self._runtime_trace_store.append_notification(
             RuntimeNotificationRecord(

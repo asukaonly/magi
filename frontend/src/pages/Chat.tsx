@@ -259,6 +259,9 @@ export const ChatPage: React.FC = () => {
         turnId,
         uxPlan,
         pendingLabel: t('chat.trace.pending'),
+        messageId: payload?.message_id ? String(payload.message_id) : undefined,
+        messageKind: payload?.message_kind ? String(payload.message_kind) : null,
+        timestamp: Number(payload?.timestamp || Date.now() / 1000) * 1000,
       });
     },
     [applyTurnUxPlan, currentSessionId, t]
