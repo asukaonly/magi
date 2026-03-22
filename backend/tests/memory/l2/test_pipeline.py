@@ -83,6 +83,93 @@ def test_reconcile_job_accepts_multiple_entities():
     assert job.batch_key == "entities:place:shanghai|user:u1"
 
 
+def test_microbatch_bucket_tracks_pending_events_and_estimated_tokens():
+    from magi.memory.l2.models import L2PendingBatchBucket
+
+    bucket = L2PendingBatchBucket.for_owner(session_id="s1", user_id="u1")
+    bucket.add_event(
+        {
+            "event_id": "evt-2",
+            "timestamp": 2.0,
+            "session_id": "s1",
+            "user_id": "u1",
+            "content": "second",
+        },
+        estimated_tokens=9,
+    )
+    bucket.add_event(
+        {
+            "event_id": "evt-1",
+            "timestamp": 1.0,
+            "session_id": "s1",
+            "user_id": "u1",
+            "content": "first",
+        },
+        estimated_tokens=7,
+    )
+
+    assert bucket.bucket_key == "session:s1"
+    assert bucket.session_id == "s1"
+    assert bucket.user_id == "u1"
+    assert [item["event_id"] for item in bucket.events] == ["evt-2", "evt-1"]
+    assert bucket.estimated_tokens == 16
+    assert bucket.oldest_event_timestamp == 1.0
+    assert bucket.newest_event_timestamp == 2.0
+
+
+def test_microbatch_job_captures_flush_reason_and_sorts_events_by_timestamp():
+    from magi.memory.l2.models import L2PendingBatchBucket
+
+    bucket = L2PendingBatchBucket.for_owner(user_id="u1")
+    bucket.add_event(
+        {
+            "event_id": "evt-2",
+            "timestamp": 20.0,
+            "user_id": "u1",
+            "content": "later",
+        },
+        estimated_tokens=8,
+    )
+    bucket.add_event(
+        {
+            "event_id": "evt-1",
+            "timestamp": 10.0,
+            "user_id": "u1",
+            "content": "earlier",
+        },
+        estimated_tokens=6,
+    )
+
+    job = bucket.build_job(flush_reason="interval_elapsed")
+
+    assert job.bucket_key == "user:u1"
+    assert job.flush_reason == "interval_elapsed"
+    assert job.event_ids == ["evt-1", "evt-2"]
+    assert [item["event_id"] for item in job.events] == ["evt-1", "evt-2"]
+    assert job.estimated_tokens == 14
+    assert job.oldest_event_timestamp == 10.0
+    assert job.newest_event_timestamp == 20.0
+
+
+@pytest.mark.parametrize(
+    ("session_id", "user_id", "expected"),
+    [
+        ("s1", "u1", "session:s1"),
+        (None, "u1", "user:u1"),
+        ("  ", "u1", "user:u1"),
+        (None, None, None),
+    ],
+)
+def test_microbatch_bucket_keys_normalize_session_and_user_owners(
+    session_id: str | None,
+    user_id: str | None,
+    expected: str | None,
+):
+    from magi.memory.l2.models import build_l2_batch_bucket_key
+
+    assert build_l2_batch_bucket_key(session_id=session_id, user_id=user_id) == expected
+
+
 @pytest.mark.parametrize(
     ("text", "user_id"),
     [
