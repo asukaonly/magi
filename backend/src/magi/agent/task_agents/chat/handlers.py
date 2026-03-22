@@ -50,6 +50,14 @@ def _build_memory_query_guidance_block(memory_query_hint: dict | None) -> str:
     )
 
 
+def _serialize_ux_plan(intent: object) -> dict | None:
+    plan = getattr(intent, "ux_plan", None)
+    if plan is None:
+        return None
+    to_dict = getattr(plan, "to_dict", None)
+    return to_dict() if callable(to_dict) else plan
+
+
 @dataclass(slots=True)
 class ChatHandlerDependencies:
     """Shared dependencies passed to chat execution handlers."""
@@ -117,6 +125,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             root_user_message=request.context.latest_user_message,
             turn_id=getattr(request.context.latest_payload, "turn_id", None),
             llm_trace=dict(llm_trace),
+            ux_plan=_serialize_ux_plan(request.intent),
         )
 
 
@@ -174,6 +183,7 @@ class FunctionCallingHandler(BaseExecutionHandler):
             root_user_message=request.context.latest_user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            ux_plan=_serialize_ux_plan(request.intent),
         )
 
 
@@ -221,6 +231,7 @@ async def _start_explore_task_agent(
             root_user_message=request.context.latest_user_message,
             correlation_id=fact.correlation_id,
             turn_id=payload.turn_id,
+            ux_plan=_serialize_ux_plan(request.intent),
         )
     deps.history_service.append_user_message(
         request.context.history_key,
@@ -230,6 +241,7 @@ async def _start_explore_task_agent(
         mode=request.mode,
         skip_emit=True,
         turn_id=payload.turn_id,
+        ux_plan=_serialize_ux_plan(request.intent),
     )
 
 
@@ -278,6 +290,7 @@ class ExploreRenderHandler(BaseExecutionHandler):
                 orchestration_id=orchestration_id,
                 message_started_at=request.message_started_at,
                 turn_id=getattr(request.context.latest_payload, "turn_id", None),
+                ux_plan=_serialize_ux_plan(request.intent),
             )
 
         filtered_history = self._deps.prompt_service.filter_history_for_aggregation(request.context.history)
@@ -323,4 +336,5 @@ class ExploreRenderHandler(BaseExecutionHandler):
             orchestration_id=orchestration_id,
             message_started_at=request.message_started_at,
             turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            ux_plan=_serialize_ux_plan(request.intent),
         )

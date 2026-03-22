@@ -343,6 +343,7 @@ class ExecutionResult:
     message_started_at: Optional[float] = None
     turn_id: Optional[str] = None
     llm_trace: dict[str, Any] = field(default_factory=dict)
+    ux_plan: Optional[dict[str, Any]] = None
 
 
 @dataclass(slots=True)

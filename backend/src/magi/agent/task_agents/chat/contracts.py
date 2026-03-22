@@ -2,9 +2,61 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from ..common import BaseIntentDecision, BaseRuntimeContext
+
+
+class AssistantSurfaceMode(str, Enum):
+    """How the assistant should surface this turn in chat UI."""
+
+    NONE = "none"
+    REACTION_ONLY = "reaction_only"
+    FINAL_ONLY = "final_only"
+    INTERIM_THEN_FINAL = "interim_then_final"
+
+
+class ThinkingIndicatorMode(str, Enum):
+    """How prominently chat should show an in-progress indicator."""
+
+    HIDDEN = "hidden"
+    SUBTLE = "subtle"
+    VISIBLE = "visible"
+
+
+class TraceDisplayMode(str, Enum):
+    """How tool-chain and execution trace should appear in chat."""
+
+    NONE = "none"
+    COLLAPSIBLE = "collapsible"
+    PROMINENT = "prominent"
+
+
+@dataclass(slots=True)
+class TurnUXPlan:
+    """Presentation-facing decision emitted after intent routing."""
+
+    assistant_surface_mode: AssistantSurfaceMode = AssistantSurfaceMode.FINAL_ONLY
+    thinking_indicator: ThinkingIndicatorMode = ThinkingIndicatorMode.HIDDEN
+    trace_display_mode: TraceDisplayMode = TraceDisplayMode.NONE
+    allow_trace_collapse: bool = False
+    interim_text: str | None = None
+    reaction_style: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the UX plan for notifications and transport payloads."""
+        payload: dict[str, Any] = {
+            "assistant_surface_mode": self.assistant_surface_mode.value,
+            "thinking_indicator": self.thinking_indicator.value,
+            "trace_display_mode": self.trace_display_mode.value,
+            "allow_trace_collapse": self.allow_trace_collapse,
+        }
+        if self.interim_text is not None:
+            payload["interim_text"] = self.interim_text
+        if self.reaction_style is not None:
+            payload["reaction_style"] = self.reaction_style
+        return payload
 
 
 @dataclass(slots=True, kw_only=True)
@@ -21,6 +73,7 @@ class IntentDecision(BaseIntentDecision):
     """Typed result from intent and complexity routing."""
 
     difficulty: str
+    ux_plan: TurnUXPlan = field(default_factory=TurnUXPlan)
     tools: list[str] = field(default_factory=list)
     llm_trace: dict[str, Any] = field(default_factory=dict)
     deep_thinking: bool = False

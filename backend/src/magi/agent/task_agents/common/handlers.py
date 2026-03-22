@@ -20,6 +20,14 @@ from .contracts import (
 SpecializedLaunchCallback = Callable[[OrchestrationLaunchRequest], Awaitable[Optional[ExecutionResult]]]
 
 
+def _serialize_ux_plan(intent: ExecutionRequest | object) -> dict | None:
+    plan = getattr(getattr(intent, "intent", intent), "ux_plan", None)
+    if plan is None:
+        return None
+    to_dict = getattr(plan, "to_dict", None)
+    return to_dict() if callable(to_dict) else plan
+
+
 class ExecutionHandler(Protocol):
     """Protocol for typed execution handlers."""
 
@@ -80,7 +88,7 @@ class FactOnlyHandler(BaseExecutionHandler):
     mode = ExecutionMode.FACT_ONLY
 
     async def execute(self, request: ExecutionRequest) -> ExecutionResult:
-        return ExecutionResult(mode=request.mode, skip_emit=True)
+        return ExecutionResult(mode=request.mode, skip_emit=True, ux_plan=_serialize_ux_plan(request))
 
 
 class OrchestrationLaunchHandler(BaseExecutionHandler):
@@ -107,6 +115,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             return ExecutionResult(
                 mode=request.mode,
                 response_text="Failed to generate orchestration strategy for this request.",
+                ux_plan=_serialize_ux_plan(request),
             )
         if self._deps.start_specialized_orchestration is not None:
             specialized = await self._deps.start_specialized_orchestration(request)
@@ -131,6 +140,7 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             orchestration_id=raw_result.orchestration_id,
             message_started_at=raw_result.message_started_at,
             turn_id=raw_result.turn_id,
+            ux_plan=_serialize_ux_plan(request),
         )
 
 
@@ -158,4 +168,5 @@ class OrchestrationUpdateHandler(BaseExecutionHandler):
             orchestration_id=raw_result.orchestration_id,
             message_started_at=raw_result.message_started_at,
             turn_id=raw_result.turn_id,
+            ux_plan=_serialize_ux_plan(request),
         )

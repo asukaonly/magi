@@ -496,6 +496,12 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
             "thinking_enabled": False,
             "duration_ms": 920,
         },
+        ux_plan={
+            "assistant_surface_mode": "final_only",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+        },
     )
 
     await service.handle(context, result)
@@ -568,6 +574,12 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
             "thinking_enabled": False,
             "duration_ms": 920,
         },
+        ux_plan={
+            "assistant_surface_mode": "final_only",
+            "thinking_indicator": "hidden",
+            "trace_display_mode": "none",
+            "allow_trace_collapse": False,
+        },
     )
 
     await service.handle(context, result)
@@ -577,6 +589,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     llm_call = await runtime_trace_store.get_llm_call("turn-1:llm_call:direct")
     response_span = await runtime_trace_store.get_span("turn-1:response_emit")
     root_span = await runtime_trace_store.get_span("turn-1:turn")
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
 
     assert turn is not None
     assert turn.status == "completed"
@@ -592,6 +605,9 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     assert response_span.node_type == "response_emit"
     assert root_span is not None
     assert root_span.status == "completed"
+    assert len(notifications) == 1
+    payload = json.loads(notifications[0].payload_json)
+    assert payload["ux_plan"]["assistant_surface_mode"] == "final_only"
 
 
 @pytest.mark.asyncio

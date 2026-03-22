@@ -15,7 +15,14 @@ from ..common import (
     OrchestrationPlan,
     ToolSelection,
 )
-from .contracts import ChatRuntimeContext, IntentDecision
+from .contracts import (
+    AssistantSurfaceMode,
+    ChatRuntimeContext,
+    IntentDecision,
+    ThinkingIndicatorMode,
+    TraceDisplayMode,
+    TurnUXPlan,
+)
 from .fact_classifier import ChatFactClassifier
 from .handlers import ExecutionHandlerRegistry
 
@@ -26,6 +33,18 @@ IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[N
 
 class ChatExecutionCoordinator:
     """Coordinates intent routing, request building, and handler dispatch."""
+
+    _REACTION_ONLY_ACKS = {
+        "嗯",
+        "嗯嗯",
+        "恩",
+        "哦",
+        "ok",
+        "okay",
+        "好的",
+        "收到",
+        "明白",
+    }
 
     def __init__(
         self,
@@ -47,6 +66,12 @@ class ChatExecutionCoordinator:
                 difficulty="normal",
                 execution_mode=ExecutionMode.ORCHESTRATION_UPDATE,
                 reasoning="Worker events must update orchestration state before any final response is emitted.",
+                ux_plan=self._build_turn_ux_plan(
+                    user_message=context.latest_user_message,
+                    execution_mode=ExecutionMode.ORCHESTRATION_UPDATE,
+                    tools=[],
+                    orchestration_plan=None,
+                ),
             )
         if context.incoming_fact_kind.value == "explore_task_completed":
             return IntentDecision(
@@ -54,6 +79,12 @@ class ChatExecutionCoordinator:
                 difficulty="normal",
                 execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
                 reasoning="ExploreTaskAgent produced a Markdown dossier that must be rendered back to the user.",
+                ux_plan=self._build_turn_ux_plan(
+                    user_message=context.latest_user_message,
+                    execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
+                    tools=[],
+                    orchestration_plan=None,
+                ),
             )
         if isinstance(context.latest_fact, object) and getattr(context.latest_fact, "event_type", None) != EventTypes.USER_MESSAGE:
             return IntentDecision(
@@ -61,6 +92,12 @@ class ChatExecutionCoordinator:
                 difficulty="normal",
                 execution_mode=ExecutionMode.FACT_ONLY,
                 reasoning="Non-user fact does not require immediate LLM response.",
+                ux_plan=self._build_turn_ux_plan(
+                    user_message=context.latest_user_message,
+                    execution_mode=ExecutionMode.FACT_ONLY,
+                    tools=[],
+                    orchestration_plan=None,
+                ),
             )
 
         recent_messages: list[dict[str, str]] = []
@@ -100,6 +137,12 @@ class ChatExecutionCoordinator:
             intent=decision.intent,
             difficulty="hard" if decision.deep_thinking else "normal",
             execution_mode=execution_mode,
+            ux_plan=self._build_turn_ux_plan(
+                user_message=context.latest_user_message,
+                execution_mode=execution_mode,
+                tools=list(decision.tools),
+                orchestration_plan=orchestration_plan,
+            ),
             tools=list(decision.tools),
             llm_trace=dict(getattr(decision, "llm_trace", {}) or {}),
             deep_thinking=bool(decision.deep_thinking),
@@ -174,3 +217,58 @@ class ChatExecutionCoordinator:
                 ]
             )
         return plan
+
+    def _build_turn_ux_plan(
+        self,
+        *,
+        user_message: str,
+        execution_mode: ExecutionMode,
+        tools: list[str],
+        orchestration_plan: OrchestrationPlan | None,
+    ) -> TurnUXPlan:
+        normalized_message = str(user_message or "").strip().lower()
+        if execution_mode == ExecutionMode.FACT_ONLY:
+            return TurnUXPlan(
+                assistant_surface_mode=AssistantSurfaceMode.NONE,
+                thinking_indicator=ThinkingIndicatorMode.HIDDEN,
+                trace_display_mode=TraceDisplayMode.NONE,
+            )
+        if execution_mode == ExecutionMode.DIRECT_LLM:
+            if normalized_message in self._REACTION_ONLY_ACKS:
+                return TurnUXPlan(
+                    assistant_surface_mode=AssistantSurfaceMode.REACTION_ONLY,
+                    thinking_indicator=ThinkingIndicatorMode.HIDDEN,
+                    trace_display_mode=TraceDisplayMode.NONE,
+                    reaction_style="acknowledge",
+                )
+            return TurnUXPlan(
+                assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
+                thinking_indicator=ThinkingIndicatorMode.HIDDEN,
+                trace_display_mode=TraceDisplayMode.NONE,
+            )
+        if execution_mode == ExecutionMode.FUNCTION_CALLING:
+            return TurnUXPlan(
+                assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
+                thinking_indicator=ThinkingIndicatorMode.HIDDEN,
+                trace_display_mode=TraceDisplayMode.COLLAPSIBLE,
+                allow_trace_collapse=bool(tools),
+            )
+        if execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH:
+            interim_text = "Let me think this through and check for you."
+            if orchestration_plan is not None and orchestration_plan.route_to_explore_task_agent:
+                interim_text = "Let me inspect this in detail and I will come back with the result."
+            return TurnUXPlan(
+                assistant_surface_mode=AssistantSurfaceMode.INTERIM_THEN_FINAL,
+                thinking_indicator=ThinkingIndicatorMode.SUBTLE,
+                trace_display_mode=TraceDisplayMode.COLLAPSIBLE,
+                allow_trace_collapse=True,
+                interim_text=interim_text,
+            )
+        if execution_mode in {ExecutionMode.ORCHESTRATION_UPDATE, ExecutionMode.EXPLORE_TASK_RENDER}:
+            return TurnUXPlan(
+                assistant_surface_mode=AssistantSurfaceMode.FINAL_ONLY,
+                thinking_indicator=ThinkingIndicatorMode.HIDDEN,
+                trace_display_mode=TraceDisplayMode.COLLAPSIBLE,
+                allow_trace_collapse=True,
+            )
+        return TurnUXPlan()

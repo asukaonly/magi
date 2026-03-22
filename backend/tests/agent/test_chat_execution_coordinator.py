@@ -185,6 +185,9 @@ async def test_coordinator_carries_intent_llm_trace_metrics() -> None:
     assert decision.llm_trace["input_tokens"] == 48
     assert decision.llm_trace["output_tokens"] == 12
     assert decision.llm_trace["duration_ms"] == 310
+    assert decision.ux_plan.assistant_surface_mode.value == "final_only"
+    assert decision.ux_plan.thinking_indicator.value == "hidden"
+    assert decision.ux_plan.trace_display_mode.value == "none"
 
 
 @pytest.mark.asyncio
@@ -234,6 +237,9 @@ async def test_coordinator_routes_decompose_without_agent_tool_to_orchestration_
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.ORCHESTRATION_LAUNCH
+    assert decision.ux_plan.assistant_surface_mode.value == "interim_then_final"
+    assert decision.ux_plan.trace_display_mode.value == "collapsible"
+    assert decision.ux_plan.interim_text
 
 
 @pytest.mark.asyncio
@@ -347,3 +353,106 @@ async def test_coordinator_passes_recent_tool_errors_to_context_decider() -> Non
     assert fake_decider.last_decision_context["recent_tool_errors"][0]["config_path"] == (
         "tool.weather.providers.qweather.api_key"
     )
+
+
+@pytest.mark.asyncio
+async def test_coordinator_marks_tool_query_as_collapsible_trace_ui() -> None:
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            _FakeContextDecision(
+                intent="weather_query",
+                tools=["weather"],
+                deep_thinking=False,
+                reasoning="tool required",
+                orchestration_strategy={
+                    "mode": "direct",
+                    "planner": "task_agent",
+                    "default_leaf_type": "general-purpose",
+                    "allow_parallel": False,
+                },
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "杭州天气怎么样"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="杭州天气怎么样",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert decision.ux_plan.assistant_surface_mode.value == "final_only"
+    assert decision.ux_plan.trace_display_mode.value == "collapsible"
+    assert decision.ux_plan.allow_trace_collapse is True
+
+
+@pytest.mark.asyncio
+async def test_coordinator_marks_acknowledgement_as_reaction_only_ui() -> None:
+    coordinator = ChatExecutionCoordinator(
+        context_decider=_FakeContextDecider(
+            _FakeContextDecision(
+                intent="small_ack",
+                tools=[],
+                deep_thinking=False,
+                reasoning="acknowledgement",
+                orchestration_strategy={
+                    "mode": "direct",
+                    "planner": "task_agent",
+                    "default_leaf_type": "general-purpose",
+                    "allow_parallel": False,
+                },
+            )
+        ),
+        fact_classifier=ChatFactClassifier(),
+        handler_registry=ExecutionHandlerRegistry(),
+    )
+
+    fact = FactRecord(
+        agent_id="chat:u-chat",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"user_id": "u-chat", "session_id": "s-chat", "content": "嗯"},
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact,
+        recent_facts=[fact],
+        batch_facts=[fact],
+        agent_id="u-chat",
+        agent_type="chat",
+        runtime_key="chat:u-chat",
+        user_id="u-chat",
+        session_id="s-chat",
+        history_key="u-chat::s-chat",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        latest_user_message="嗯",
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-chat"),
+    )
+
+    decision = await coordinator.match_intent(context)
+
+    assert decision.execution_mode == ExecutionMode.DIRECT_LLM
+    assert decision.ux_plan.assistant_surface_mode.value == "reaction_only"
+    assert decision.ux_plan.reaction_style == "acknowledge"

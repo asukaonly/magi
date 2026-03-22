@@ -137,6 +137,18 @@ Current responsibilities:
 - delegate prompt-package assembly to the L10 context layer service
 - render final user-facing answers
 
+### Conversation presentation planning
+
+Intent routing now also produces a chat-facing presentation decision for each turn.
+
+- `IntentDecision`
+  Still owns routing outputs such as `execution_mode`, selected tools, and orchestration strategy
+
+- `TurnUXPlan`
+  Owns presentation-facing guidance such as whether the assistant should surface a final reply, a reaction-only acknowledgement, an interim-then-final flow, and whether trace or tool-chain UI should be hidden or collapsible
+
+Important rule: chat UI behavior should not depend directly on raw intent-classifier details. The coordinator should translate intent and execution shape into a stable presentation contract, and downstream chat-domain services should react to that contract instead of re-implementing routing heuristics.
+
 ### Context-owned prompt assembly
 
 Prompt assembly ownership lives in `backend/src/magi/context/`.

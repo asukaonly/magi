@@ -172,6 +172,7 @@ class ChatPostProcessService:
             orchestration_id=result.orchestration_id,
             trace_summary=trace_summary,
             trace_available=trace_available,
+            ux_plan=result.ux_plan,
         )
 
         await action_emitter.emit_chat_response_event(
@@ -661,6 +662,7 @@ class ChatPostProcessService:
         orchestration_id: str | None,
         trace_summary: dict[str, Any] | None,
         trace_available: bool,
+        ux_plan: dict[str, Any] | None,
     ) -> None:
         if self._runtime_trace_store is None:
             return
@@ -675,6 +677,7 @@ class ChatPostProcessService:
             "orchestration_id": orchestration_id,
             "trace_summary": trace_summary,
             "trace_available": trace_available,
+            "ux_plan": ux_plan,
         }
         await self._runtime_trace_store.append_notification(
             RuntimeNotificationRecord(
