@@ -2,7 +2,37 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Callable, Dict
+
+
+class ToolContextFormatterRegistry:
+    """Registry for tool-specific context formatters."""
+
+    def __init__(self) -> None:
+        self._formatters: dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {}
+
+    def register(self, tool_name: str, formatter: Callable[[Dict[str, Any]], Dict[str, Any]]) -> None:
+        self._formatters[str(tool_name)] = formatter
+
+    def get(self, tool_name: str) -> Callable[[Dict[str, Any]], Dict[str, Any]] | None:
+        return self._formatters.get(tool_name)
+
+    @classmethod
+    def build_default(
+        cls,
+        *,
+        max_items: int,
+        max_text_chars: int,
+        memory_formatter: Callable[[Dict[str, Any]], Dict[str, Any]],
+    ) -> "ToolContextFormatterRegistry":
+        registry = cls()
+        registry.register("glob", lambda data: compact_glob_tool_data(data, max_items=max_items))
+        registry.register("bash", lambda data: compact_bash_tool_data(data, max_text_chars=max_text_chars))
+        registry.register("grep", lambda data: compact_grep_tool_data(data, max_items=max_items))
+        registry.register("file_read", lambda data: compact_file_read_tool_data(data, max_text_chars=max_text_chars))
+        registry.register("agent", lambda data: compact_agent_tool_data(data, max_items=max_items))
+        registry.register("memory_query", memory_formatter)
+        return registry
 
 
 def compact_glob_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str, Any]:

@@ -584,6 +584,27 @@ def test_build_tool_message_payload_compacts_memory_query_results() -> None:
     assert payload["data"]["meta"] == {"intent_source": "llm", "l1_hit_count": 1}
 
 
+def test_postprocessor_uses_registered_tool_context_formatter() -> None:
+    from magi.agent.execution.tool_context_formatters import ToolContextFormatterRegistry
+
+    registry = ToolContextFormatterRegistry()
+    registry.register("demo", lambda data: {"custom": data.get("value")})
+    postprocessor = FunctionCallingPostprocessor(formatter_registry=registry)
+
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="demo",
+        result=ToolCallResult(
+            tool_call_id="d1",
+            tool_name="demo",
+            success=True,
+            data={"value": 42, "ignored": "x"},
+            error=None,
+        ),
+    )
+
+    assert payload["data"] == {"custom": 42}
+
+
 @pytest.mark.asyncio
 async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
     registry = _RecordingToolRegistry()
